@@ -1,0 +1,30 @@
+*.orig
+*.pyc
+*.swp
+.env
+
+/.cargo_home/
+/.idea/
+/.vs/
+/.vscode/
+gclient_config.py_entries
+/target/
+/std/hash/_wasm/target
+/tools/wpt/manifest.json
+/test_napi/node_modules
+/test_napi/build
+/test_napi/third_party_tests/node_modules
+
+# MacOS generated files
+.DS_Store
+.DS_Store?
+
+# Flamegraphs
+/flamebench*.svg
+/flamegraph*.svg
+
+# WPT generated cert files
+/tools/wpt/certs/index.txt*
+/tools/wpt/certs/serial*
+
+/ext/websocket/autobahn/reports
