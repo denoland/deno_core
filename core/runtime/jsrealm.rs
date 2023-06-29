@@ -109,7 +109,7 @@ pub(crate) struct JsRealmInner {
   context_state: Rc<RefCell<ContextState>>,
   context: Rc<v8::Global<v8::Context>>,
   runtime_state: Rc<RefCell<JsRuntimeState>>,
-  is_global: bool,
+  is_main_realm: bool,
 }
 
 impl JsRealmInner {
@@ -117,13 +117,13 @@ impl JsRealmInner {
     context_state: Rc<RefCell<ContextState>>,
     context: v8::Global<v8::Context>,
     runtime_state: Rc<RefCell<JsRuntimeState>>,
-    is_global: bool,
+    is_main_realm: bool,
   ) -> Self {
     Self {
       context_state,
       context: context.into(),
       runtime_state,
-      is_global,
+      is_main_realm,
     }
   }
 
@@ -345,8 +345,8 @@ impl JsRealm {
 
 impl Drop for JsRealm {
   fn drop(&mut self) {
-    // Don't do anything special with the global realm
-    if self.0.is_global {
+    // Don't do anything special with the main realm
+    if self.0.is_main_realm {
       return;
     }
 
