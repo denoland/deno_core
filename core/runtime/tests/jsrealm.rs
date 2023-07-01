@@ -4,8 +4,11 @@ use crate::modules::ModuleCode;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
+use futures::channel::oneshot;
 use futures::future::poll_fn;
 use futures::future::Future;
+use futures::FutureExt;
+use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
@@ -17,8 +20,8 @@ use std::task::Poll;
 async fn test_set_promise_reject_callback_realms() {
   let mut runtime = JsRuntime::new(RuntimeOptions::default());
   let main_realm = runtime.main_realm();
-  let realm1 = runtime.create_realm().unwrap();
-  let realm2 = runtime.create_realm().unwrap();
+  let realm1 = runtime.create_realm(Default::default()).unwrap();
+  let realm2 = runtime.create_realm(Default::default()).unwrap();
 
   let realm_expectations = &[
     (&main_realm, "main_realm", 42),
@@ -70,7 +73,7 @@ fn js_realm_simple() {
     v8::Global::new(scope, local_global)
   };
 
-  let realm = runtime.create_realm().unwrap();
+  let realm = runtime.create_realm(Default::default()).unwrap();
   assert_ne!(realm.context(), &main_context);
   assert_ne!(realm.global_object(runtime.v8_isolate()), main_global);
 
@@ -93,7 +96,7 @@ fn js_realm_init() {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
-  let realm = runtime.create_realm().unwrap();
+  let realm = runtime.create_realm(Default::default()).unwrap();
   let ret = realm
     .execute_script_static(runtime.v8_isolate(), "", "Deno.core.ops.op_test()")
     .unwrap();
@@ -122,7 +125,7 @@ fn js_realm_init_snapshot() {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
-  let realm = runtime.create_realm().unwrap();
+  let realm = runtime.create_realm(Default::default()).unwrap();
   let ret = realm
     .execute_script_static(runtime.v8_isolate(), "", "Deno.core.ops.op_test()")
     .unwrap();
@@ -155,7 +158,7 @@ fn js_realm_sync_ops() {
     }),
     ..Default::default()
   });
-  let new_realm = runtime.create_realm().unwrap();
+  let new_realm = runtime.create_realm(Default::default()).unwrap();
 
   // Test in both realms
   for realm in [runtime.main_realm(), new_realm].into_iter() {
@@ -205,7 +208,7 @@ async fn js_realm_async_ops() {
   });
 
   let main_realm = runtime.main_realm();
-  let new_realm = runtime.create_realm().unwrap();
+  let new_realm = runtime.create_realm(Default::default()).unwrap();
 
   let mut rets = vec![];
 
@@ -286,7 +289,7 @@ async fn js_realm_gc() {
     .put(opstate_drop_detect.clone());
   assert_eq!(Rc::strong_count(&opstate_drop_detect), 2);
 
-  let other_realm = runtime.create_realm().unwrap();
+  let other_realm = runtime.create_realm(Default::default()).unwrap();
   other_realm
     .execute_script(
       runtime.v8_isolate(),
@@ -327,7 +330,7 @@ async fn js_realm_ref_unref_ops() {
 
   poll_fn(move |cx| {
     let main_realm = runtime.main_realm();
-    let other_realm = runtime.create_realm().unwrap();
+    let other_realm = runtime.create_realm(Default::default()).unwrap();
 
     main_realm
       .execute_script_static(
@@ -380,4 +383,423 @@ async fn js_realm_ref_unref_ops() {
     Poll::Ready(())
   })
   .await;
+}
+
+#[tokio::test]
+async fn test_realm_modules() {
+  use std::cell::Cell;
+
+  struct Loader(Cell<usize>);
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      assert_eq!(specifier, "file:///test.js");
+      assert_eq!(referrer, ".");
+      let s = crate::resolve_import(specifier, referrer).unwrap();
+      Ok(s)
+    }
+
+    fn load(
+      &self,
+      module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      let code = format!("export default {};", self.0.get());
+      self.0.set(self.0.get() + 1);
+      let module_url = module_specifier.clone();
+      async move {
+        Ok(ModuleSource::new(
+          ModuleType::JavaScript,
+          code.into(),
+          &module_url,
+        ))
+      }
+      .boxed_local()
+    }
+  }
+
+  let loader = Rc::new(Loader(Cell::new(0)));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+  let main_realm = runtime.main_realm();
+  let other_realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(loader.clone()),
+    })
+    .unwrap();
+  let other_realm2 = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(loader),
+    })
+    .unwrap();
+
+  async fn load_test_module(runtime: &mut JsRuntime, realm: JsRealm) -> usize {
+    let id = realm
+      .load_side_module(
+        runtime.v8_isolate(),
+        &crate::resolve_url("file:///test.js").unwrap(),
+        None,
+      )
+      .await
+      .unwrap();
+    let receiver = realm.mod_evaluate(runtime.v8_isolate(), id);
+    runtime.run_event_loop(false).await.unwrap();
+    receiver.await.unwrap().unwrap();
+
+    let namespace = realm
+      .get_module_namespace(runtime.v8_isolate(), id)
+      .unwrap();
+    let mut scope = realm.handle_scope(runtime.v8_isolate());
+    let default_key = v8::String::new(&mut scope, "default").unwrap();
+    let default_value = namespace
+      .open(&mut scope)
+      .get(&mut scope, default_key.into())
+      .unwrap();
+    assert!(default_value.is_uint32());
+    default_value.uint32_value(&mut scope).unwrap() as usize
+  }
+
+  assert_eq!(load_test_module(&mut runtime, other_realm2).await, 0);
+  assert_eq!(load_test_module(&mut runtime, main_realm).await, 1);
+  assert_eq!(load_test_module(&mut runtime, other_realm).await, 2);
+}
+
+#[tokio::test]
+async fn test_cross_realm_imports() {
+  struct Loader;
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      assert_eq!(specifier, "file:///test.js");
+      assert_eq!(referrer, "");
+      let s = crate::resolve_import(specifier, referrer).unwrap();
+      Ok(s)
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      async {
+        Ok(ModuleSource::for_test(
+          "export default globalThis;",
+          "file:///test.js",
+        ))
+      }
+      .boxed_local()
+    }
+  }
+
+  let loader = Rc::new(Loader);
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+  let main_realm = runtime.main_realm();
+  let other_realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(loader),
+    })
+    .unwrap();
+
+  fn import_wrapper_function(
+    realm: &JsRealm,
+    isolate: &mut v8::Isolate,
+  ) -> v8::Global<v8::Function> {
+    let value = realm
+      .execute_script_static(
+        isolate,
+        "",
+        r#"() => import("file:///test.js").then(ns => ns.default)"#,
+      )
+      .unwrap();
+
+    let mut scope = realm.handle_scope(isolate);
+    let value = v8::Local::new(&mut scope, value);
+    let function: v8::Local<v8::Function> = value.try_into().unwrap();
+    v8::Global::new(&mut scope, function)
+  }
+
+  let main_import_wrapper =
+    import_wrapper_function(&main_realm, runtime.v8_isolate());
+  let other_import_wrapper =
+    import_wrapper_function(&other_realm, runtime.v8_isolate());
+
+  async fn run_fn_test(
+    runtime: &mut JsRuntime,
+    realm: &JsRealm,
+    function: v8::Global<v8::Function>,
+  ) -> v8::Global<v8::Value> {
+    let promise = {
+      let mut scope = realm.handle_scope(runtime.v8_isolate());
+      let undefined = v8::undefined(&mut scope);
+      let promise = function
+        .open(&mut scope)
+        .call(&mut scope, undefined.into(), &[])
+        .unwrap();
+      assert!(promise.is_promise());
+      v8::Global::new(&mut scope, promise)
+    };
+    runtime.resolve_value(promise).await.unwrap()
+  }
+
+  // Same-realm imports.
+  assert_eq!(
+    run_fn_test(&mut runtime, &main_realm, main_import_wrapper.clone()).await,
+    main_realm.global_object(runtime.v8_isolate())
+  );
+  assert_eq!(
+    run_fn_test(&mut runtime, &other_realm, other_import_wrapper.clone()).await,
+    other_realm.global_object(runtime.v8_isolate())
+  );
+
+  // Cross-realm imports.
+  assert_eq!(
+    run_fn_test(&mut runtime, &main_realm, other_import_wrapper.clone()).await,
+    other_realm.global_object(runtime.v8_isolate())
+  );
+  assert_eq!(
+    run_fn_test(&mut runtime, &other_realm, main_import_wrapper.clone()).await,
+    main_realm.global_object(runtime.v8_isolate())
+  );
+}
+
+// Make sure that loading and evaluating top-level-imported modules in
+// different realms at the same time works.
+#[tokio::test]
+async fn test_realms_concurrent_module_evaluations() {
+  struct Loader;
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      assert_eq!(specifier, "file:///test.js");
+      assert_eq!(referrer, ".");
+      let s = crate::resolve_import(specifier, referrer).unwrap();
+      Ok(s)
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      async {
+        Ok(ModuleSource::for_test(
+          r#"await Deno.core.opAsync("op_wait");"#,
+          "file:///test.js",
+        ))
+      }
+      .boxed_local()
+    }
+  }
+
+  #[op]
+  async fn op_wait(op_state: Rc<RefCell<OpState>>) {
+    let (sender, receiver) = oneshot::channel::<()>();
+    op_state
+      .borrow_mut()
+      .borrow_mut::<Vec<oneshot::Sender<()>>>()
+      .push(sender);
+    receiver.await.unwrap();
+  }
+  deno_core::extension!(test_ext, ops = [op_wait]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops()],
+    module_loader: Some(Rc::new(Loader)),
+    ..Default::default()
+  });
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put::<Vec<oneshot::Sender<()>>>(vec![]);
+
+  let main_realm = runtime.main_realm();
+  let other_realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(Rc::new(Loader)),
+    })
+    .unwrap();
+
+  let main_realm_id = main_realm
+    .load_main_module(
+      runtime.v8_isolate(),
+      &crate::resolve_url("file:///test.js").unwrap(),
+      None,
+    )
+    .await
+    .unwrap();
+  let main_realm_receiver =
+    main_realm.mod_evaluate(runtime.v8_isolate(), main_realm_id);
+
+  let other_realm_id = other_realm
+    .load_main_module(
+      runtime.v8_isolate(),
+      &crate::resolve_url("file:///test.js").unwrap(),
+      None,
+    )
+    .await
+    .unwrap();
+  let other_realm_receiver =
+    other_realm.mod_evaluate(runtime.v8_isolate(), other_realm_id);
+
+  poll_fn(|cx| {
+    let res = runtime.poll_event_loop(cx, false);
+    assert!(matches!(res, Poll::Pending));
+    Poll::Ready(())
+  })
+  .await;
+
+  // Resolve the promises
+  {
+    let senders = runtime
+      .op_state()
+      .borrow_mut()
+      .take::<Vec<oneshot::Sender<()>>>();
+    for sender in senders {
+      sender.send(()).unwrap();
+    }
+  }
+
+  runtime.run_event_loop(false).await.unwrap();
+  assert!(matches!(main_realm_receiver.await, Ok(Ok(()))));
+  assert!(matches!(other_realm_receiver.await, Ok(Ok(()))));
+}
+
+// Make sure that loading and evaluating dynamic imported modules in different
+// realms at the same time works.
+#[tokio::test]
+async fn test_realm_concurrent_dynamic_imports() {
+  struct Loader;
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      assert_eq!(specifier, "file:///test.js");
+      assert_eq!(referrer, "");
+      let s = crate::resolve_import(specifier, referrer).unwrap();
+      Ok(s)
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      async {
+        Ok(ModuleSource::for_test(
+          r#"await Deno.core.opAsync("op_wait");"#,
+          "file:///test.js",
+        ))
+      }
+      .boxed_local()
+    }
+  }
+
+  #[op]
+  async fn op_wait(op_state: Rc<RefCell<OpState>>) {
+    let (sender, receiver) = oneshot::channel::<()>();
+    op_state
+      .borrow_mut()
+      .borrow_mut::<Vec<oneshot::Sender<()>>>()
+      .push(sender);
+    receiver.await.unwrap();
+  }
+  deno_core::extension!(test_ext, ops = [op_wait]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops()],
+    module_loader: Some(Rc::new(Loader)),
+    ..Default::default()
+  });
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put::<Vec<oneshot::Sender<()>>>(vec![]);
+
+  let main_realm = runtime.main_realm();
+  let other_realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(Rc::new(Loader)),
+    })
+    .unwrap();
+
+  let main_realm_promise = {
+    let global = main_realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        r#"import("file:///test.js")"#,
+      )
+      .unwrap();
+    let scope = &mut main_realm.handle_scope(runtime.v8_isolate());
+    let local = v8::Local::new(scope, global);
+    let promise = v8::Local::<v8::Promise>::try_from(local).unwrap();
+    assert_eq!(promise.state(), v8::PromiseState::Pending);
+    v8::Global::new(scope, promise)
+  };
+  let other_realm_promise = {
+    let global = other_realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        r#"import("file:///test.js")"#,
+      )
+      .unwrap();
+    let scope = &mut other_realm.handle_scope(runtime.v8_isolate());
+    let local = v8::Local::new(scope, global);
+    let promise = v8::Local::<v8::Promise>::try_from(local).unwrap();
+    assert_eq!(promise.state(), v8::PromiseState::Pending);
+    v8::Global::new(scope, promise)
+  };
+
+  poll_fn(|cx| {
+    let res = runtime.poll_event_loop(cx, false);
+    assert!(matches!(res, Poll::Pending));
+    Poll::Ready(())
+  })
+  .await;
+
+  // Resolve the promises
+  {
+    let senders = runtime
+      .op_state()
+      .borrow_mut()
+      .take::<Vec<oneshot::Sender<()>>>();
+    for sender in senders {
+      sender.send(()).unwrap();
+    }
+  }
+
+  runtime.run_event_loop(false).await.unwrap();
+  assert_eq!(
+    main_realm_promise.open(runtime.v8_isolate()).state(),
+    v8::PromiseState::Fulfilled
+  );
+  assert_eq!(
+    other_realm_promise.open(runtime.v8_isolate()).state(),
+    v8::PromiseState::Fulfilled
+  );
 }

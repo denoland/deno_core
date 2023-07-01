@@ -267,7 +267,7 @@ pub fn host_import_module_dynamically_callback<'s>(
   let resolver_handle = v8::Global::new(scope, resolver);
   {
     let state_rc = JsRuntime::state_from(scope);
-    let module_map_rc = JsRuntime::module_map_from(scope);
+    let module_map_rc = JsRealm::module_map_from_scope(scope);
 
     debug!(
       "dyn_import specifier {} referrer {} ",
@@ -303,7 +303,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let module_map_rc = JsRuntime::module_map_from(scope);
+  let module_map_rc = JsRealm::module_map_from_scope(scope);
   let module_map = module_map_rc.borrow();
 
   let module_global = v8::Global::new(scope, module);
@@ -346,7 +346,7 @@ fn import_meta_resolve(
     let url_prop = args.data();
     url_prop.to_rust_string_lossy(scope)
   };
-  let module_map_rc = JsRuntime::module_map_from(scope);
+  let module_map_rc = JsRealm::module_map_from_scope(scope);
   let loader = module_map_rc.borrow().loader.clone();
   let specifier_str = specifier.to_rust_string_lossy(scope);
 
@@ -466,7 +466,7 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
       };
 
     if has_unhandled_rejection_handler {
-      let state_rc = JsRuntime::state_from(tc_scope);
+      let state_rc = JsRealm::state_from_scope(tc_scope);
       let mut state = state_rc.borrow_mut();
       if let Some(pending_mod_evaluate) = state.pending_mod_evaluate.as_mut() {
         if !pending_mod_evaluate.has_evaluated {
