@@ -2394,3 +2394,25 @@ fn ops_in_js_have_proper_names() {
   "#;
   runtime.execute_script_static("test", src).unwrap();
 }
+
+#[test]
+fn duplicate_extension_esm_specifier() {
+  let ext1 = Extension::builder("ext1")
+    .esm(vec![ExtensionFileSource {
+      specifier: "file:///foo.js",
+      code: ExtensionFileSourceCode::IncludedInBinary(""),
+    }])
+    .esm_entry_point("file:///foo.js")
+    .build();
+  let ext2 = Extension::builder("ext2")
+    .esm(vec![ExtensionFileSource {
+      specifier: "file:///foo.js",
+      code: ExtensionFileSourceCode::IncludedInBinary(""),
+    }])
+    .esm_entry_point("file:///foo.js")
+    .build();
+  JsRuntime::new(RuntimeOptions {
+    extensions: vec![ext1, ext2],
+    ..Default::default()
+  });
+}
