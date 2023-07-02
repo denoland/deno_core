@@ -404,7 +404,7 @@ pub struct RuntimeOptions {
   /// If provided, the module map will be cleared and left only with the specifiers
   /// in this list, with the new names provided. If not provided, the module map is
   /// left intact.
-  pub rename_modules: Option<Vec<(&'static str, &'static str)>>,
+  pub preserve_snapshotted_modules: Option<&'static [&'static str]>,
 
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
@@ -711,11 +711,13 @@ impl JsRuntime {
       .unwrap();
 
     // If the user has requested that we rename modules
-    if let Some(rename_modules) = options.rename_modules {
+    if let Some(preserve_snapshotted_modules) =
+      options.preserve_snapshotted_modules
+    {
       js_runtime
         .module_map
         .borrow_mut()
-        .clear_module_map(rename_modules.into_iter());
+        .clear_module_map(preserve_snapshotted_modules);
     }
 
     js_runtime
