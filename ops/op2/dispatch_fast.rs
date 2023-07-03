@@ -272,7 +272,8 @@ fn map_arg_to_v8_fastcall_type(
     Arg::V8Ref(..)
     | Arg::V8Global(_)
     | Arg::V8Local(_)
-    | Arg::OptionV8Local(_) => return Ok(None),
+    | Arg::OptionV8Local(_)
+    | Arg::OptionV8Ref(..) => return Ok(None),
 
     Arg::Numeric(NumericArg::bool) => V8FastCallType::Bool,
     Arg::Numeric(NumericArg::u32)
@@ -326,7 +327,8 @@ fn map_retval_to_v8_fastcall_type(
     Arg::V8Ref(..)
     | Arg::V8Global(_)
     | Arg::V8Local(_)
-    | Arg::OptionV8Local(_) => return Ok(None),
+    | Arg::OptionV8Local(_)
+    | Arg::OptionV8Ref(..) => return Ok(None),
     _ => {
       return Err(V8MappingError::NoMapping(
         "a fast return value",

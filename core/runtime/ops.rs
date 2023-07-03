@@ -329,6 +329,7 @@ mod tests {
       op_test_string_roundtrip,
       op_test_generics<String>,
       op_test_v8_types,
+      op_test_v8_option_string,
       op_test_v8_type_return,
       op_test_v8_type_return_option,
     ]
@@ -649,6 +650,15 @@ mod tests {
       2
     } else {
       3
+    }
+  }
+
+  #[op2(core)]
+  pub fn op_test_v8_option_string(s: Option<&v8::String>) -> i32 {
+    if let Some(s) = s {
+      s.length() as i32
+    } else {
+      -1
     }
   }
 

@@ -3,6 +3,7 @@ use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
+use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::V8Arg;
@@ -244,6 +245,26 @@ pub fn from_arg(
       let arg_ident = arg_ident.clone();
       from_v8_arg(generator_state, v8, &arg_ident)?
     }
+    Arg::OptionV8Ref(RefType::Ref, v8) => {
+      let arg_ident = arg_ident.clone();
+      let arg = from_arg(generator_state, index, &Arg::OptionV8Local(*v8))?;
+      quote! {
+        // First get the Option<Local>
+        #arg;
+        // Then map the reference
+        let #arg_ident = #arg_ident.as_ref().map(|v| ::std::ops::Deref::deref(v));
+      }
+    }
+    Arg::OptionV8Ref(RefType::Mut, v8) => {
+      let arg_ident = arg_ident.clone();
+      let arg = from_arg(generator_state, index, &Arg::OptionV8Local(*v8))?;
+      quote! {
+        // First get the Option<Local>
+        #arg;
+        // Then map the reference
+        let #arg_ident = #arg_ident.as_mut().map(|v| ::std::ops::DerefMut::deref_mut(v));
+      }
+    }
     Arg::OptionV8Local(v8) => {
       let arg_ident = arg_ident.clone();
       let arg = from_v8_arg(generator_state, v8, &arg_ident)?;
@@ -281,7 +302,7 @@ fn from_v8_arg(
     throw_type_error(generator_state, format!("expected v8::{}", v8))?;
   let v8 = format_ident!("{}", v8);
   Ok(quote! {
-    let Ok(#arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
+    let Ok(mut #arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
       #throw_type_error
     };
   })

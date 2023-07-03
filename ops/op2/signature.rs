@@ -133,6 +133,7 @@ pub enum Arg {
   OptionV8Local(V8Arg),
   V8Local(V8Arg),
   V8Global(V8Arg),
+  OptionV8Ref(RefType, V8Arg),
   V8Ref(RefType, V8Arg),
   Numeric(NumericArg),
   SerdeV8(String),
@@ -141,6 +142,8 @@ pub enum Arg {
 enum ParsedType {
   TSpecial(Special),
   TV8(V8Arg),
+  // TODO(mmastrac): We need to carry the mut status through somehow
+  TV8Mut(V8Arg),
   TNumeric(NumericArg),
 }
 
@@ -487,6 +490,8 @@ fn parse_type_path(
         match parse_type(attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::Numeric(numeric) => Ok(COption(TNumeric(numeric))),
+          Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
+          Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
           _ => Err(ArgError::InvalidType(stringify_token(ty)))
         }
@@ -622,6 +627,8 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
+      COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
+      COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
       CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
       _ => Err(ArgError::InvalidType(stringify_token(ty))),
@@ -705,8 +712,10 @@ mod tests {
       );
     }
     assert_eq!(
-      args_expected,
-      format!("{:?}", sig.args).trim_matches(|c| c == '[' || c == ']')
+      args_expected.replace('\n', " "),
+      format!("{:?}", sig.args)
+        .trim_matches(|c| c == '[' || c == ']')
+        .replace('\n', " ")
     );
     assert_eq!(return_expected, format!("{:?}", sig.ret_val));
   }
@@ -779,8 +788,8 @@ mod tests {
     <'s, AB: some::Trait, BC: OtherTrait> (Special(RefStr)) -> Infallible(Void)
   );
   test!(
-    fn op_v8_types(s: &mut v8::String, s2: v8::Local<v8::String>, s3: v8::Global<v8::String>);
-    (V8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void)
+    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, s3: v8::Global<v8::String>);
+    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void)
   );
 
   // Args

@@ -40,7 +40,7 @@ impl op_v8_lifetime {
             &*info
         });
         let arg0 = args.get(0usize as i32);
-        let Ok(arg0) = deno_core::v8::Local::<
+        let Ok(mut arg0) = deno_core::v8::Local::<
             deno_core::v8::String,
         >::try_from(arg0) else {
         let msg = deno_core::v8::String::new_from_one_byte(
