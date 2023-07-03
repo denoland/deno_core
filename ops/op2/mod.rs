@@ -9,8 +9,11 @@ use quote::ToTokens;
 use std::iter::zip;
 use syn2::parse2;
 use syn2::parse_str;
+use syn2::spanned::Spanned;
 use syn2::FnArg;
 use syn2::ItemFn;
+use syn2::Lifetime;
+use syn2::LifetimeParam;
 use syn2::Path;
 use thiserror::Error;
 
@@ -118,6 +121,15 @@ fn generate_op2(
   }
 
   let signature = parse_signature(func.attrs, func.sig.clone())?;
+  if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
+  {
+    op_fn.sig.generics.params.push(syn2::GenericParam::Lifetime(
+      LifetimeParam::new(Lifetime {
+        apostrophe: op_fn.span(),
+        ident,
+      }),
+    ));
+  }
   let processed_args =
     zip(signature.args.iter(), &func.sig.inputs).collect::<Vec<_>>();
 
@@ -302,7 +314,7 @@ mod tests {
         let tokens =
           generate_op2(config.unwrap(), func).expect("Failed to generate op");
         println!("======== Raw tokens ========:\n{}", tokens.clone());
-        let tree = syn::parse2(tokens).unwrap();
+        let tree = syn2::parse2(tokens).unwrap();
         let actual = prettyplease::unparse(&tree);
         println!("======== Generated ========:\n{}", actual);
         expected_out.push(actual);

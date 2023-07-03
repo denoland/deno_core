@@ -1013,7 +1013,7 @@ mod tests {
     println!("-----Raw tokens-----\n{}----------\n", actual);
 
     // Validate syntax tree.
-    let tree = syn::parse2(actual).unwrap();
+    let tree = syn2::parse2(actual).unwrap();
     let actual = prettyplease::unparse(&tree);
     if update_expected {
       std::fs::write(input.with_extension("out"), actual)

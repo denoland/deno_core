@@ -328,6 +328,9 @@ mod tests {
       op_test_string_option_return,
       op_test_string_roundtrip,
       op_test_generics<String>,
+      op_test_v8_types,
+      op_test_v8_type_return,
+      op_test_v8_type_return_option,
     ]
   );
 
@@ -631,4 +634,63 @@ mod tests {
   // We don't actually test this one -- we just want it to compile
   #[op2(core, fast)]
   pub fn op_test_generics<T: Clone>() {}
+
+  /// Tests v8 types without a handle scope
+  #[op2(core)]
+  pub fn op_test_v8_types<'s>(
+    s: &v8::String,
+    s2: v8::Local<v8::String>,
+    s3: v8::Local<'s, v8::String>,
+  ) -> u32 {
+    if s.same_value(s2.into()) {
+      1
+    } else if s.same_value(s3.into()) {
+      2
+    } else {
+      3
+    }
+  }
+
+  /// Tests v8 types without a handle scope
+  #[op2(core)]
+  pub fn op_test_v8_type_return<'s>(
+    s: v8::Local<'s, v8::String>,
+  ) -> v8::Local<'s, v8::String> {
+    s
+  }
+
+  /// Tests v8 types without a handle scope
+  #[op2(core)]
+  pub fn op_test_v8_type_return_option<'s>(
+    s: Option<v8::Local<'s, v8::String>>,
+  ) -> Option<v8::Local<'s, v8::String>> {
+    s
+  }
+
+  #[tokio::test]
+  pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
+    for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
+      run_test2(
+        1,
+        "op_test_v8_types",
+        &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
+      )?;
+    }
+    run_test2(
+      1,
+      "op_test_v8_type_return",
+      &format!("assert(op_test_v8_type_return('xyz') == 'xyz')"),
+    )?;
+    run_test2(
+      1,
+      "op_test_v8_type_return_option",
+      &format!("assert(op_test_v8_type_return_option('xyz') == 'xyz')"),
+    )?;
+    run_test2(
+      1,
+      "op_test_v8_type_return_option",
+      &format!("assert(op_test_v8_type_return_option(null) == null)"),
+    )?;
+    Ok(())
+  }
 }

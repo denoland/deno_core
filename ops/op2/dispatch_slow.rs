@@ -230,6 +230,56 @@ pub fn from_arg(
         let #arg_ident = #deno_core::_ops::to_str(#scope, &#arg_ident, &mut #arg_temp);
       }
     }
+    Arg::V8Ref(_, v8) => {
+      *needs_scope = true;
+      let v8: &'static str = v8.into();
+      // End the mutable generator_state borrow
+      let arg_ident = arg_ident.clone();
+      let deno_core = deno_core.clone();
+      let throw_type_error =
+        throw_type_error(generator_state, format!("expected v8::{}", v8))?;
+      let v8 = format_ident!("{}", v8);
+      quote! {
+        let Ok(#arg_ident) = &#deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
+          #throw_type_error
+        };
+      }
+    }
+    Arg::V8Local(v8) => {
+      *needs_scope = true;
+      let v8: &'static str = v8.into();
+      // End the mutable generator_state borrow
+      let arg_ident = arg_ident.clone();
+      let deno_core = deno_core.clone();
+      let throw_type_error =
+        throw_type_error(generator_state, format!("expected v8::{}", v8))?;
+      let v8 = format_ident!("{}", v8);
+      quote! {
+        let Ok(#arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
+          #throw_type_error
+        };
+      }
+    }
+    Arg::OptionV8Local(v8) => {
+      *needs_scope = true;
+      let v8: &'static str = v8.into();
+      // End the mutable generator_state borrow
+      let arg_ident = arg_ident.clone();
+      let deno_core = deno_core.clone();
+      let throw_type_error =
+        throw_type_error(generator_state, format!("expected v8::{}", v8))?;
+      let v8 = format_ident!("{}", v8);
+      quote! {
+        let #arg_ident = if #arg_ident.is_null_or_undefined() {
+          None
+        } else {
+          let Ok(#arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
+            #throw_type_error
+          };
+          Some(#arg_ident)
+        };
+      }
+    }
     _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
@@ -323,6 +373,24 @@ pub fn return_value_infallible(
         }
       }
     }
+    Arg::OptionV8Local(_) => {
+      *needs_retval = true;
+      quote! {
+        if let Some(#result) = #result {
+          // We may have a non v8::Value here
+          #retval.set(#result.into())
+        } else {
+          #retval.set_null();
+        }
+      }
+    }
+    Arg::V8Local(_) => {
+      *needs_retval = true;
+      quote! {
+        // We may have a non v8::Value here
+        #retval.set(#result.into())
+      }
+    }
     _ => {
       return Err(V8MappingError::NoMapping(
         "a slow return value",
@@ -395,7 +463,38 @@ fn throw_exception(
       opstate.get_error_class_fn,
       &err,
     );
-    scope.throw_exception(exception);
+    #scope.throw_exception(exception);
+    return;
+  })
+}
+
+/// Generates code to throw an exception, adding required additional dependencies as needed.
+fn throw_type_error(
+  generator_state: &mut GeneratorState,
+  message: String,
+) -> Result<TokenStream, V8MappingError> {
+  // Sanity check ASCII and a valid/reasonable message size
+  debug_assert!(
+    message.is_ascii()
+      && message.len() < v8::String::max_length()
+      && message.len() < 1024
+  );
+
+  let maybe_scope = if generator_state.needs_scope {
+    quote!()
+  } else {
+    with_scope(generator_state)
+  };
+
+  let GeneratorState {
+    deno_core, scope, ..
+  } = &generator_state;
+
+  Ok(quote! {
+    #maybe_scope
+    let msg = #deno_core::v8::String::new_from_one_byte(#scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
+    let exc = #deno_core::v8::Exception::error(#scope, msg);
+    #scope.throw_exception(exc);
     return;
   })
 }
