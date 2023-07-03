@@ -332,6 +332,7 @@ mod tests {
       op_test_v8_option_string,
       op_test_v8_type_return,
       op_test_v8_type_return_option,
+      op_test_v8_type_handle_scope,
     ]
   );
 
@@ -680,6 +681,15 @@ mod tests {
     s
   }
 
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    s: &v8::String,
+  ) -> v8::Local<'s, v8::String> {
+    let s = s.to_rust_string_lossy(scope);
+    v8::String::new(scope, &s).unwrap()
+  }
+
   #[tokio::test]
   pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
     for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
@@ -689,21 +699,16 @@ mod tests {
         &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
       )?;
     }
-    run_test2(
-      1,
-      "op_test_v8_type_return",
-      "assert(op_test_v8_type_return('xyz') == 'xyz')",
-    )?;
-    run_test2(
-      1,
-      "op_test_v8_type_return_option",
-      "assert(op_test_v8_type_return_option('xyz') == 'xyz')",
-    )?;
-    run_test2(
-      1,
-      "op_test_v8_type_return_option",
-      "assert(op_test_v8_type_return_option(null) == null)",
-    )?;
+    for (a, b, c) in [
+      ("op_test_v8_type_return", "'xyz'", "'xyz'"),
+      ("op_test_v8_option_string", "'xyz'", "3"),
+      ("op_test_v8_option_string", "null", "-1"),
+      ("op_test_v8_type_return_option", "'xyz'", "'xyz'"),
+      ("op_test_v8_type_return_option", "null", "null"),
+      ("op_test_v8_type_handle_scope", "'xyz'", "'xyz'"),
+    ] {
+      run_test2(1, a, &format!("assert({a}({b}) == {c})"))?;
+    }
     Ok(())
   }
 }

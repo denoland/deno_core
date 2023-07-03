@@ -39,10 +39,22 @@ pub(crate) fn generate_dispatch_slow(
     });
   }
 
+  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to copy
+  // the scope borrow.
+  let mut deferred = TokenStream::new();
+  let mut input_index = 0;
+
   for (index, arg) in signature.args.iter().enumerate() {
-    output.extend(extract_arg(generator_state, index)?);
-    output.extend(from_arg(generator_state, index, arg)?);
+    if arg.is_virtual() {
+      deferred.extend(from_arg(generator_state, index, arg)?);
+    } else {
+      output.extend(extract_arg(generator_state, index, input_index)?);
+      output.extend(from_arg(generator_state, index, arg)?);
+      input_index += 1;
+    }
   }
+
+  output.extend(deferred);
   output.extend(call(generator_state)?);
   output.extend(return_value(generator_state, &signature.ret_val)?);
 
@@ -140,12 +152,13 @@ fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
   index: usize,
+  input_index: usize,
 ) -> Result<TokenStream, V8MappingError> {
   let GeneratorState { fn_args, .. } = &generator_state;
   let arg_ident = generator_state.args.get(index);
 
   Ok(quote!(
-    let #arg_ident = #fn_args.get(#index as i32);
+    let #arg_ident = #fn_args.get(#input_index as i32);
   ))
 }
 
@@ -232,6 +245,10 @@ pub fn from_arg(
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
         let #arg_ident = #deno_core::_ops::to_str(#scope, &#arg_ident, &mut #arg_temp);
       }
+    }
+    Arg::Ref(_, Special::HandleScope) => {
+      *needs_scope = true;
+      quote!(let #arg_ident = #scope;)
     }
     Arg::V8Ref(_, v8) => {
       let arg_ident = arg_ident.clone();

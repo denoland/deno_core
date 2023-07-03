@@ -267,7 +267,7 @@ fn map_arg_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
-    Arg::OptionNumeric(_) | Arg::SerdeV8(_) => return Ok(None),
+    Arg::OptionNumeric(_) | Arg::SerdeV8(_) | Arg::Ref(..) => return Ok(None),
     // We don't support v8 type arguments
     Arg::V8Ref(..)
     | Arg::V8Global(_)

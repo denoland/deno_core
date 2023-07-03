@@ -139,6 +139,27 @@ pub enum Arg {
   SerdeV8(String),
 }
 
+impl Arg {
+  /// Is this argument virtual? ie: does it come from the æther rather than a concrete JavaScript input
+  /// argument?
+  pub fn is_virtual(&self) -> bool {
+    match self {
+      Self::Special(
+        Special::FastApiCallbackOptions
+        | Special::OpState
+        | Special::HandleScope,
+      ) => true,
+      Self::Ref(
+        _,
+        Special::FastApiCallbackOptions
+        | Special::OpState
+        | Special::HandleScope,
+      ) => true,
+      _ => false,
+    }
+  }
+}
+
 enum ParsedType {
   TSpecial(Special),
   TV8(V8Arg),
@@ -480,7 +501,7 @@ fn parse_type_path(
       }
       ( $( std :: ffi :: )? c_void ) => Ok(CBare(TNumeric(NumericArg::__VOID__))),
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
-      ( v8 :: HandleScope ) => Ok(CBare(TSpecial(Special::HandleScope))),
+      ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
       ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
@@ -503,7 +524,10 @@ fn parse_type_path(
   // Ensure that we have the correct reference state. This is a bit awkward but it's
   // the easiest way to work with the 'rules!' macro above.
   match res {
-    CBare(TSpecial(Special::RefStr | Special::OpState) | TV8(_)) => {
+    CBare(
+      TSpecial(Special::RefStr | Special::OpState | Special::HandleScope)
+      | TV8(_),
+    ) => {
       if !is_ref {
         return Err(ArgError::MissingReference(stringify_token(tp)));
       }
@@ -790,6 +814,10 @@ mod tests {
   test!(
     fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, s3: v8::Global<v8::String>);
     (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void)
+  );
+  test!(
+    fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
+    <'s> (Ref(Mut, HandleScope)) -> Infallible(Void)
   );
 
   // Args
