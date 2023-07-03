@@ -20,6 +20,7 @@ use thiserror::Error;
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
+use self::signature::is_attribute_special;
 use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::SignatureError;
@@ -107,7 +108,12 @@ fn generate_op2(
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
   let mut op_fn = func.clone();
-  op_fn.attrs.clear();
+  // Collect non-special attributes
+  let attrs = op_fn
+    .attrs
+    .drain(..)
+    .filter(|attr| !is_attribute_special(attr))
+    .collect::<Vec<_>>();
   op_fn.sig.generics.params.clear();
   op_fn.sig.ident = call.clone();
 
@@ -223,6 +229,7 @@ fn generate_op2(
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
+    #(#attrs)*
     #vis struct #name <#(#generic),*> {
       // We need to mark these type parameters as used, so we use a PhantomData
       _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
@@ -264,6 +271,7 @@ fn generate_op2(
       #slow_fn
 
       #[inline(always)]
+      #(#attrs)*
       #op_fn
     }
   })

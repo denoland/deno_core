@@ -636,6 +636,7 @@ mod tests {
   pub fn op_test_generics<T: Clone>() {}
 
   /// Tests v8 types without a handle scope
+  #[allow(clippy::needless_lifetimes)]
   #[op2(core)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
@@ -653,6 +654,7 @@ mod tests {
 
   /// Tests v8 types without a handle scope
   #[op2(core)]
+  #[allow(clippy::needless_lifetimes)]
   pub fn op_test_v8_type_return<'s>(
     s: v8::Local<'s, v8::String>,
   ) -> v8::Local<'s, v8::String> {
@@ -661,6 +663,7 @@ mod tests {
 
   /// Tests v8 types without a handle scope
   #[op2(core)]
+  #[allow(clippy::needless_lifetimes)]
   pub fn op_test_v8_type_return_option<'s>(
     s: Option<v8::Local<'s, v8::String>>,
   ) -> Option<v8::Local<'s, v8::String>> {
@@ -679,17 +682,17 @@ mod tests {
     run_test2(
       1,
       "op_test_v8_type_return",
-      &format!("assert(op_test_v8_type_return('xyz') == 'xyz')"),
+      "assert(op_test_v8_type_return('xyz') == 'xyz')",
     )?;
     run_test2(
       1,
       "op_test_v8_type_return_option",
-      &format!("assert(op_test_v8_type_return_option('xyz') == 'xyz')"),
+      "assert(op_test_v8_type_return_option('xyz') == 'xyz')",
     )?;
     run_test2(
       1,
       "op_test_v8_type_return_option",
-      &format!("assert(op_test_v8_type_return_option(null) == null)"),
+      "assert(op_test_v8_type_return_option(null) == null)",
     )?;
     Ok(())
   }

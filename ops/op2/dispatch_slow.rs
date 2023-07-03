@@ -5,8 +5,10 @@ use super::signature::NumericArg;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
 use super::signature::Special;
+use super::signature::V8Arg;
 use super::MacroConfig;
 use super::V8MappingError;
+use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
@@ -231,51 +233,25 @@ pub fn from_arg(
       }
     }
     Arg::V8Ref(_, v8) => {
-      *needs_scope = true;
-      let v8: &'static str = v8.into();
-      // End the mutable generator_state borrow
       let arg_ident = arg_ident.clone();
-      let deno_core = deno_core.clone();
-      let throw_type_error =
-        throw_type_error(generator_state, format!("expected v8::{}", v8))?;
-      let v8 = format_ident!("{}", v8);
+      let arg = from_v8_arg(generator_state, v8, &arg_ident)?;
       quote! {
-        let Ok(#arg_ident) = &#deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
-          #throw_type_error
-        };
+        #arg;
+        let #arg_ident = &#arg_ident;
       }
     }
     Arg::V8Local(v8) => {
-      *needs_scope = true;
-      let v8: &'static str = v8.into();
-      // End the mutable generator_state borrow
       let arg_ident = arg_ident.clone();
-      let deno_core = deno_core.clone();
-      let throw_type_error =
-        throw_type_error(generator_state, format!("expected v8::{}", v8))?;
-      let v8 = format_ident!("{}", v8);
-      quote! {
-        let Ok(#arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
-          #throw_type_error
-        };
-      }
+      from_v8_arg(generator_state, v8, &arg_ident)?
     }
     Arg::OptionV8Local(v8) => {
-      *needs_scope = true;
-      let v8: &'static str = v8.into();
-      // End the mutable generator_state borrow
       let arg_ident = arg_ident.clone();
-      let deno_core = deno_core.clone();
-      let throw_type_error =
-        throw_type_error(generator_state, format!("expected v8::{}", v8))?;
-      let v8 = format_ident!("{}", v8);
+      let arg = from_v8_arg(generator_state, v8, &arg_ident)?;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
         } else {
-          let Ok(#arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
-            #throw_type_error
-          };
+          #arg;
           Some(#arg_ident)
         };
       }
@@ -283,6 +259,32 @@ pub fn from_arg(
     _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
+}
+
+/// Generates a v8::Value of the correct type for the required V8Arg, throwing an exception if the
+/// type cannot be cast.
+fn from_v8_arg(
+  generator_state: &mut GeneratorState,
+  v8: &V8Arg,
+  arg_ident: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  let GeneratorState {
+    deno_core,
+    needs_scope,
+    ..
+  } = generator_state;
+
+  *needs_scope = true;
+  let v8: &'static str = v8.into();
+  let deno_core = deno_core.clone();
+  let throw_type_error =
+    throw_type_error(generator_state, format!("expected v8::{}", v8))?;
+  let v8 = format_ident!("{}", v8);
+  Ok(quote! {
+    let Ok(#arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
+      #throw_type_error
+    };
+  })
 }
 
 pub fn call(

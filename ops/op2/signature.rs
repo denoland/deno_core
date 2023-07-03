@@ -386,6 +386,10 @@ fn parse_attributes(attributes: &[Attribute]) -> Result<Attributes, ArgError> {
   })
 }
 
+pub fn is_attribute_special(attr: &Attribute) -> bool {
+  parse_attribute(attr).is_some()
+}
+
 fn parse_attribute(attr: &Attribute) -> Option<AttributeModifier> {
   let tokens = attr.into_token_stream();
   use syn2 as syn;
