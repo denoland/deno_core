@@ -697,7 +697,7 @@ mod tests {
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
   ) -> Option<v8::Local<'s, v8::Value>> {
-    let key = v8::String::new(scope, &"key").unwrap().into();
+    let key = v8::String::new(scope, "key").unwrap().into();
     o.get(scope, key)
   }
 

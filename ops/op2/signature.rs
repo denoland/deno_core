@@ -143,6 +143,7 @@ pub enum Arg {
 impl Arg {
   /// Is this argument virtual? ie: does it come from the æther rather than a concrete JavaScript input
   /// argument?
+  #[allow(clippy::match_like_matches_macro)]
   pub fn is_virtual(&self) -> bool {
     match self {
       Self::Special(
