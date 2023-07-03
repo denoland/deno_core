@@ -55,6 +55,7 @@ impl ToTokens for NumericArg {
   Copy, Clone, Debug, Eq, PartialEq, IntoStaticStr, EnumString, EnumIter,
 )]
 pub enum V8Arg {
+  Value,
   External,
   Object,
   Array,

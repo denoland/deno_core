@@ -333,6 +333,7 @@ mod tests {
       op_test_v8_type_return,
       op_test_v8_type_return_option,
       op_test_v8_type_handle_scope,
+      op_test_v8_type_handle_scope_obj,
     ]
   );
 
@@ -690,6 +691,16 @@ mod tests {
     v8::String::new(scope, &s).unwrap()
   }
 
+  /// Extract whatever lives in "key" from the object.
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope_obj<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    o: &v8::Object,
+  ) -> Option<v8::Local<'s, v8::Value>> {
+    let key = v8::String::new(scope, &"key").unwrap().into();
+    o.get(scope, key)
+  }
+
   #[tokio::test]
   pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
     for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
@@ -706,6 +717,17 @@ mod tests {
       ("op_test_v8_type_return_option", "'xyz'", "'xyz'"),
       ("op_test_v8_type_return_option", "null", "null"),
       ("op_test_v8_type_handle_scope", "'xyz'", "'xyz'"),
+      ("op_test_v8_type_handle_scope_obj", "{'key': 1}", "1"),
+      (
+        "op_test_v8_type_handle_scope_obj",
+        "{'key': 'abc'}",
+        "'abc'",
+      ),
+      (
+        "op_test_v8_type_handle_scope_obj",
+        "{'no_key': 'abc'}",
+        "null",
+      ),
     ] {
       run_test2(1, a, &format!("assert({a}({b}) == {c})"))?;
     }
