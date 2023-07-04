@@ -3,10 +3,13 @@ use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
+use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
+use super::signature::V8Arg;
 use super::MacroConfig;
 use super::V8MappingError;
+use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
@@ -36,10 +39,22 @@ pub(crate) fn generate_dispatch_slow(
     });
   }
 
+  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to copy
+  // the scope borrow.
+  let mut deferred = TokenStream::new();
+  let mut input_index = 0;
+
   for (index, arg) in signature.args.iter().enumerate() {
-    output.extend(extract_arg(generator_state, index)?);
-    output.extend(from_arg(generator_state, index, arg)?);
+    if arg.is_virtual() {
+      deferred.extend(from_arg(generator_state, index, arg)?);
+    } else {
+      output.extend(extract_arg(generator_state, index, input_index)?);
+      output.extend(from_arg(generator_state, index, arg)?);
+      input_index += 1;
+    }
   }
+
+  output.extend(deferred);
   output.extend(call(generator_state)?);
   output.extend(return_value(generator_state, &signature.ret_val)?);
 
@@ -137,12 +152,13 @@ fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
   index: usize,
+  input_index: usize,
 ) -> Result<TokenStream, V8MappingError> {
   let GeneratorState { fn_args, .. } = &generator_state;
   let arg_ident = generator_state.args.get(index);
 
   Ok(quote!(
-    let #arg_ident = #fn_args.get(#index as i32);
+    let #arg_ident = #fn_args.get(#input_index as i32);
   ))
 }
 
@@ -230,9 +246,83 @@ pub fn from_arg(
         let #arg_ident = #deno_core::_ops::to_str(#scope, &#arg_ident, &mut #arg_temp);
       }
     }
+    Arg::Ref(_, Special::HandleScope) => {
+      *needs_scope = true;
+      quote!(let #arg_ident = #scope;)
+    }
+    Arg::V8Ref(_, v8) => {
+      let arg_ident = arg_ident.clone();
+      let arg = from_v8_arg(generator_state, v8, &arg_ident)?;
+      quote! {
+        #arg;
+        let #arg_ident = &#arg_ident;
+      }
+    }
+    Arg::V8Local(v8) => {
+      let arg_ident = arg_ident.clone();
+      from_v8_arg(generator_state, v8, &arg_ident)?
+    }
+    Arg::OptionV8Ref(RefType::Ref, v8) => {
+      let arg_ident = arg_ident.clone();
+      let arg = from_arg(generator_state, index, &Arg::OptionV8Local(*v8))?;
+      quote! {
+        // First get the Option<Local>
+        #arg;
+        // Then map the reference
+        let #arg_ident = #arg_ident.as_ref().map(|v| ::std::ops::Deref::deref(v));
+      }
+    }
+    Arg::OptionV8Ref(RefType::Mut, v8) => {
+      let arg_ident = arg_ident.clone();
+      let arg = from_arg(generator_state, index, &Arg::OptionV8Local(*v8))?;
+      quote! {
+        // First get the Option<Local>
+        #arg;
+        // Then map the reference
+        let #arg_ident = #arg_ident.as_mut().map(|v| ::std::ops::DerefMut::deref_mut(v));
+      }
+    }
+    Arg::OptionV8Local(v8) => {
+      let arg_ident = arg_ident.clone();
+      let arg = from_v8_arg(generator_state, v8, &arg_ident)?;
+      quote! {
+        let #arg_ident = if #arg_ident.is_null_or_undefined() {
+          None
+        } else {
+          #arg;
+          Some(#arg_ident)
+        };
+      }
+    }
     _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
+}
+
+/// Generates a v8::Value of the correct type for the required V8Arg, throwing an exception if the
+/// type cannot be cast.
+fn from_v8_arg(
+  generator_state: &mut GeneratorState,
+  v8: &V8Arg,
+  arg_ident: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  let GeneratorState {
+    deno_core,
+    needs_scope,
+    ..
+  } = generator_state;
+
+  *needs_scope = true;
+  let v8: &'static str = v8.into();
+  let deno_core = deno_core.clone();
+  let throw_type_error =
+    throw_type_error(generator_state, format!("expected v8::{}", v8))?;
+  let v8 = format_ident!("{}", v8);
+  Ok(quote! {
+    let Ok(mut #arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
+      #throw_type_error
+    };
+  })
 }
 
 pub fn call(
@@ -323,6 +413,24 @@ pub fn return_value_infallible(
         }
       }
     }
+    Arg::OptionV8Local(_) => {
+      *needs_retval = true;
+      quote! {
+        if let Some(#result) = #result {
+          // We may have a non v8::Value here
+          #retval.set(#result.into())
+        } else {
+          #retval.set_null();
+        }
+      }
+    }
+    Arg::V8Local(_) => {
+      *needs_retval = true;
+      quote! {
+        // We may have a non v8::Value here
+        #retval.set(#result.into())
+      }
+    }
     _ => {
       return Err(V8MappingError::NoMapping(
         "a slow return value",
@@ -395,7 +503,38 @@ fn throw_exception(
       opstate.get_error_class_fn,
       &err,
     );
-    scope.throw_exception(exception);
+    #scope.throw_exception(exception);
+    return;
+  })
+}
+
+/// Generates code to throw an exception, adding required additional dependencies as needed.
+fn throw_type_error(
+  generator_state: &mut GeneratorState,
+  message: String,
+) -> Result<TokenStream, V8MappingError> {
+  // Sanity check ASCII and a valid/reasonable message size
+  debug_assert!(
+    message.is_ascii()
+      && message.len() < v8::String::max_length()
+      && message.len() < 1024
+  );
+
+  let maybe_scope = if generator_state.needs_scope {
+    quote!()
+  } else {
+    with_scope(generator_state)
+  };
+
+  let GeneratorState {
+    deno_core, scope, ..
+  } = &generator_state;
+
+  Ok(quote! {
+    #maybe_scope
+    let msg = #deno_core::v8::String::new_from_one_byte(#scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
+    let exc = #deno_core::v8::Exception::error(#scope, msg);
+    #scope.throw_exception(exc);
     return;
   })
 }

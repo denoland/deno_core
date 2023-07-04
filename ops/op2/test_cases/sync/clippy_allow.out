@@ -1,12 +1,13 @@
 #[allow(non_camel_case_types)]
 /// This is a doc comment.
-pub struct op_has_doc_comment {
+#[allow(clippy::some_annotation)]
+pub struct op_extra_annotation {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_has_doc_comment {
-    const NAME: &'static str = stringify!(op_has_doc_comment);
+impl deno_core::_ops::Op for op_extra_annotation {
+    const NAME: &'static str = stringify!(op_extra_annotation);
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl {
-        name: stringify!(op_has_doc_comment),
+        name: stringify!(op_extra_annotation),
         v8_fn_ptr: Self::v8_fn_ptr as _,
         enabled: true,
         fast_fn: Some({
@@ -24,13 +25,13 @@ impl deno_core::_ops::Op for op_has_doc_comment {
         arg_count: 0usize as u8,
     };
 }
-impl op_has_doc_comment {
+impl op_extra_annotation {
     pub const fn name() -> &'static str {
-        stringify!(op_has_doc_comment)
+        stringify!(op_extra_annotation)
     }
     pub const fn decl() -> deno_core::_ops::OpDecl {
         deno_core::_ops::OpDecl {
-            name: stringify!(op_has_doc_comment),
+            name: stringify!(op_extra_annotation),
             v8_fn_ptr: Self::v8_fn_ptr as _,
             enabled: true,
             fast_fn: Some({
@@ -57,5 +58,6 @@ impl op_has_doc_comment {
     }
     #[inline(always)]
     /// This is a doc comment.
+    #[allow(clippy::some_annotation)]
     pub fn call() -> () {}
 }

@@ -328,6 +328,12 @@ mod tests {
       op_test_string_option_return,
       op_test_string_roundtrip,
       op_test_generics<String>,
+      op_test_v8_types,
+      op_test_v8_option_string,
+      op_test_v8_type_return,
+      op_test_v8_type_return_option,
+      op_test_v8_type_handle_scope,
+      op_test_v8_type_handle_scope_obj,
     ]
   );
 
@@ -631,4 +637,100 @@ mod tests {
   // We don't actually test this one -- we just want it to compile
   #[op2(core, fast)]
   pub fn op_test_generics<T: Clone>() {}
+
+  /// Tests v8 types without a handle scope
+  #[allow(clippy::needless_lifetimes)]
+  #[op2(core)]
+  pub fn op_test_v8_types<'s>(
+    s: &v8::String,
+    s2: v8::Local<v8::String>,
+    s3: v8::Local<'s, v8::String>,
+  ) -> u32 {
+    if s.same_value(s2.into()) {
+      1
+    } else if s.same_value(s3.into()) {
+      2
+    } else {
+      3
+    }
+  }
+
+  #[op2(core)]
+  pub fn op_test_v8_option_string(s: Option<&v8::String>) -> i32 {
+    if let Some(s) = s {
+      s.length() as i32
+    } else {
+      -1
+    }
+  }
+
+  /// Tests v8 types without a handle scope
+  #[op2(core)]
+  #[allow(clippy::needless_lifetimes)]
+  pub fn op_test_v8_type_return<'s>(
+    s: v8::Local<'s, v8::String>,
+  ) -> v8::Local<'s, v8::String> {
+    s
+  }
+
+  /// Tests v8 types without a handle scope
+  #[op2(core)]
+  #[allow(clippy::needless_lifetimes)]
+  pub fn op_test_v8_type_return_option<'s>(
+    s: Option<v8::Local<'s, v8::String>>,
+  ) -> Option<v8::Local<'s, v8::String>> {
+    s
+  }
+
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    s: &v8::String,
+  ) -> v8::Local<'s, v8::String> {
+    let s = s.to_rust_string_lossy(scope);
+    v8::String::new(scope, &s).unwrap()
+  }
+
+  /// Extract whatever lives in "key" from the object.
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope_obj<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    o: &v8::Object,
+  ) -> Option<v8::Local<'s, v8::Value>> {
+    let key = v8::String::new(scope, "key").unwrap().into();
+    o.get(scope, key)
+  }
+
+  #[tokio::test]
+  pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
+    for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
+      run_test2(
+        1,
+        "op_test_v8_types",
+        &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
+      )?;
+    }
+    for (a, b, c) in [
+      ("op_test_v8_type_return", "'xyz'", "'xyz'"),
+      ("op_test_v8_option_string", "'xyz'", "3"),
+      ("op_test_v8_option_string", "null", "-1"),
+      ("op_test_v8_type_return_option", "'xyz'", "'xyz'"),
+      ("op_test_v8_type_return_option", "null", "null"),
+      ("op_test_v8_type_handle_scope", "'xyz'", "'xyz'"),
+      ("op_test_v8_type_handle_scope_obj", "{'key': 1}", "1"),
+      (
+        "op_test_v8_type_handle_scope_obj",
+        "{'key': 'abc'}",
+        "'abc'",
+      ),
+      (
+        "op_test_v8_type_handle_scope_obj",
+        "{'no_key': 'abc'}",
+        "null",
+      ),
+    ] {
+      run_test2(1, a, &format!("assert({a}({b}) == {c})"))?;
+    }
+    Ok(())
+  }
 }

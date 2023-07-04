@@ -9,14 +9,18 @@ use quote::ToTokens;
 use std::iter::zip;
 use syn2::parse2;
 use syn2::parse_str;
+use syn2::spanned::Spanned;
 use syn2::FnArg;
 use syn2::ItemFn;
+use syn2::Lifetime;
+use syn2::LifetimeParam;
 use syn2::Path;
 use thiserror::Error;
 
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
+use self::signature::is_attribute_special;
 use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::SignatureError;
@@ -104,7 +108,12 @@ fn generate_op2(
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
   let mut op_fn = func.clone();
-  op_fn.attrs.clear();
+  // Collect non-special attributes
+  let attrs = op_fn
+    .attrs
+    .drain(..)
+    .filter(|attr| !is_attribute_special(attr))
+    .collect::<Vec<_>>();
   op_fn.sig.generics.params.clear();
   op_fn.sig.ident = call.clone();
 
@@ -118,6 +127,15 @@ fn generate_op2(
   }
 
   let signature = parse_signature(func.attrs, func.sig.clone())?;
+  if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
+  {
+    op_fn.sig.generics.params.push(syn2::GenericParam::Lifetime(
+      LifetimeParam::new(Lifetime {
+        apostrophe: op_fn.span(),
+        ident,
+      }),
+    ));
+  }
   let processed_args =
     zip(signature.args.iter(), &func.sig.inputs).collect::<Vec<_>>();
 
@@ -211,6 +229,7 @@ fn generate_op2(
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
+    #(#attrs)*
     #vis struct #name <#(#generic),*> {
       // We need to mark these type parameters as used, so we use a PhantomData
       _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
@@ -252,6 +271,7 @@ fn generate_op2(
       #slow_fn
 
       #[inline(always)]
+      #(#attrs)*
       #op_fn
     }
   })
@@ -302,7 +322,7 @@ mod tests {
         let tokens =
           generate_op2(config.unwrap(), func).expect("Failed to generate op");
         println!("======== Raw tokens ========:\n{}", tokens.clone());
-        let tree = syn::parse2(tokens).unwrap();
+        let tree = syn2::parse2(tokens).unwrap();
         let actual = prettyplease::unparse(&tree);
         println!("======== Generated ========:\n{}", actual);
         expected_out.push(actual);

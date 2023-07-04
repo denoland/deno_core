@@ -267,7 +267,14 @@ fn map_arg_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
-    Arg::OptionNumeric(_) | Arg::SerdeV8(_) => return Ok(None),
+    Arg::OptionNumeric(_) | Arg::SerdeV8(_) | Arg::Ref(..) => return Ok(None),
+    // We don't support v8 type arguments
+    Arg::V8Ref(..)
+    | Arg::V8Global(_)
+    | Arg::V8Local(_)
+    | Arg::OptionV8Local(_)
+    | Arg::OptionV8Ref(..) => return Ok(None),
+
     Arg::Numeric(NumericArg::bool) => V8FastCallType::Bool,
     Arg::Numeric(NumericArg::u32)
     | Arg::Numeric(NumericArg::u16)
@@ -316,6 +323,12 @@ fn map_retval_to_v8_fastcall_type(
     // We don't return special return types
     Arg::Option(_) => return Ok(None),
     Arg::Special(_) => return Ok(None),
+    // We don't support returning v8 types
+    Arg::V8Ref(..)
+    | Arg::V8Global(_)
+    | Arg::V8Local(_)
+    | Arg::OptionV8Local(_)
+    | Arg::OptionV8Ref(..) => return Ok(None),
     _ => {
       return Err(V8MappingError::NoMapping(
         "a fast return value",

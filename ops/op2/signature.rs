@@ -55,6 +55,7 @@ impl ToTokens for NumericArg {
   Copy, Clone, Debug, Eq, PartialEq, IntoStaticStr, EnumString, EnumIter,
 )]
 pub enum V8Arg {
+  Value,
   External,
   Object,
   Array,
@@ -117,6 +118,9 @@ pub enum RefType {
   Mut,
 }
 
+/// Args are not a 1:1 mapping with Rust types, rather they represent broad classes of types that
+/// tend to have similar argument handling characteristics. This may need one more level of indirection
+/// given how many of these types have option variants, however.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Arg {
   Void,
@@ -127,9 +131,52 @@ pub enum Arg {
   OptionNumeric(NumericArg),
   Slice(RefType, NumericArg),
   Ptr(RefType, NumericArg),
+  OptionV8Local(V8Arg),
   V8Local(V8Arg),
+  V8Global(V8Arg),
+  OptionV8Ref(RefType, V8Arg),
+  V8Ref(RefType, V8Arg),
   Numeric(NumericArg),
   SerdeV8(String),
+}
+
+impl Arg {
+  /// Is this argument virtual? ie: does it come from the æther rather than a concrete JavaScript input
+  /// argument?
+  #[allow(clippy::match_like_matches_macro)]
+  pub fn is_virtual(&self) -> bool {
+    match self {
+      Self::Special(
+        Special::FastApiCallbackOptions
+        | Special::OpState
+        | Special::HandleScope,
+      ) => true,
+      Self::Ref(
+        _,
+        Special::FastApiCallbackOptions
+        | Special::OpState
+        | Special::HandleScope,
+      ) => true,
+      _ => false,
+    }
+  }
+}
+
+enum ParsedType {
+  TSpecial(Special),
+  TV8(V8Arg),
+  // TODO(mmastrac): We need to carry the mut status through somehow
+  TV8Mut(V8Arg),
+  TNumeric(NumericArg),
+}
+
+enum ParsedTypeContainer {
+  CBare(ParsedType),
+  COption(ParsedType),
+  CRcRefCell(ParsedType),
+  COptionV8Local(ParsedType),
+  CV8Local(ParsedType),
+  CV8Global(ParsedType),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -196,8 +243,14 @@ pub enum ArgError {
   InvalidTypePath(String),
   #[error("Too many attributes")]
   TooManyAttributes,
+  #[error("The type {0} cannot be a reference")]
+  InvalidReference(String),
+  #[error("The type {0} must be a reference")]
+  MissingReference(String),
   #[error("Invalid #[serde] type: {0}")]
   InvalidSerdeType(String),
+  #[error("Invalid #[string] type: {0}")]
+  InvalidStringType(String),
   #[error("Cannot use #[serde] for type: {0}")]
   InvalidSerdeAttributeType(String),
   #[error("Invalid v8 type: {0}")]
@@ -359,6 +412,10 @@ fn parse_attributes(attributes: &[Attribute]) -> Result<Attributes, ArgError> {
   })
 }
 
+pub fn is_attribute_special(attr: &Attribute) -> bool {
+  parse_attribute(attr).is_some()
+}
+
 fn parse_attribute(attr: &Attribute) -> Option<AttributeModifier> {
   let tokens = attr.into_token_stream();
   use syn2 as syn;
@@ -410,12 +467,21 @@ fn parse_return(
   }
 }
 
-fn parse_type_path(attrs: Attributes, tp: &TypePath) -> Result<Arg, ArgError> {
+/// Parse a raw type into a container + type, allowing us to simplify the typechecks elsewhere in
+/// this code.
+fn parse_type_path(
+  attrs: Attributes,
+  is_ref: bool,
+  tp: &TypePath,
+) -> Result<ParsedTypeContainer, ArgError> {
+  use ParsedType::*;
+  use ParsedTypeContainer::*;
+
   if tp.path.segments.len() == 1 {
     let segment = tp.path.segments.first().unwrap().ident.to_string();
     for numeric in NumericArg::iter() {
       if Into::<&'static str>::into(numeric) == segment.as_str() {
-        return Ok(Arg::Numeric(numeric));
+        return Ok(CBare(TNumeric(numeric)));
       }
     }
   }
@@ -423,42 +489,75 @@ fn parse_type_path(attrs: Attributes, tp: &TypePath) -> Result<Arg, ArgError> {
   use syn2 as syn;
 
   let tokens = tp.clone().into_token_stream();
-  std::panic::catch_unwind(|| {
+  let res = std::panic::catch_unwind(|| {
     rules!(tokens => {
       ( $( std :: str  :: )? String ) => {
-        if attrs.primary == Some(AttributeModifier::String) {
-          Ok(Arg::Special(Special::String))
-        } else {
-          Err(ArgError::MissingStringAttribute)
-        }
+        Ok(CBare(TSpecial(Special::String)))
       }
+      // Note that the reference is checked below
       ( $( std :: str  :: )? str ) => {
-        // We should not hit this path with a #[string] argument
-        Err(ArgError::MissingStringAttribute)
+        Ok(CBare(TSpecial(Special::RefStr)))
       }
       ( $( std :: borrow :: )? Cow < str > ) => {
-        if attrs.primary == Some(AttributeModifier::String) {
-          Ok(Arg::Special(Special::CowStr))
-        } else {
-          Err(ArgError::MissingStringAttribute)
-        }
+        Ok(CBare(TSpecial(Special::CowStr)))
       }
-      ( $( std :: ffi :: )? c_void ) => Ok(Arg::Numeric(NumericArg::__VOID__)),
-      ( OpState ) => Ok(Arg::Special(Special::OpState)),
-      ( v8 :: HandleScope ) => Ok(Arg::Special(Special::HandleScope)),
-      ( v8 :: FastApiCallbackOptions ) => Ok(Arg::Special(Special::FastApiCallbackOptions)),
-      ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(Arg::V8Local(parse_v8_type(&v8)?)),
-      ( Rc < RefCell < $ty:ty > > ) => Ok(Arg::RcRefCell(parse_type_special(attrs, &ty)?)),
+      ( $( std :: ffi :: )? c_void ) => Ok(CBare(TNumeric(NumericArg::__VOID__))),
+      ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
+      ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
+      ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
+      ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
+      ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
+      ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
+      ( Rc < RefCell < $ty:ty > > ) => Ok(CRcRefCell(TSpecial(parse_type_special(attrs, &ty)?))),
       ( Option < $ty:ty > ) => {
         match parse_type(attrs, &ty)? {
-          Arg::Special(special) => Ok(Arg::Option(special)),
-          Arg::Numeric(numeric) => Ok(Arg::OptionNumeric(numeric)),
+          Arg::Special(special) => Ok(COption(TSpecial(special))),
+          Arg::Numeric(numeric) => Ok(COption(TNumeric(numeric))),
+          Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
+          Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
+          Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
           _ => Err(ArgError::InvalidType(stringify_token(ty)))
         }
       }
       ( $any:ty ) => Err(ArgError::InvalidTypePath(stringify_token(any))),
     })
-  }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))?
+  }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??;
+
+  // Ensure that we have the correct reference state. This is a bit awkward but it's
+  // the easiest way to work with the 'rules!' macro above.
+  match res {
+    CBare(
+      TSpecial(Special::RefStr | Special::OpState | Special::HandleScope)
+      | TV8(_),
+    ) => {
+      if !is_ref {
+        return Err(ArgError::MissingReference(stringify_token(tp)));
+      }
+    }
+    _ => {
+      if is_ref {
+        return Err(ArgError::InvalidReference(stringify_token(tp)));
+      }
+    }
+  }
+
+  match res {
+    CBare(TSpecial(Special::RefStr | Special::CowStr | Special::String)) => {
+      if attrs.primary != Some(AttributeModifier::String) {
+        return Err(ArgError::MissingStringAttribute);
+      }
+    }
+    CBare(_) => {
+      if attrs.primary == Some(AttributeModifier::String) {
+        return Err(ArgError::InvalidStringType(stringify_token(tp)));
+      }
+    }
+    _ => {
+      // Ignore for other containers
+    }
+  }
+
+  Ok(res)
 }
 
 fn parse_v8_type(v8: &Ident) -> Result<V8Arg, ArgError> {
@@ -477,12 +576,15 @@ fn parse_type_special(
 }
 
 fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
+  use ParsedType::*;
+  use ParsedTypeContainer::*;
+
   if let Some(primary) = attrs.primary {
     match primary {
       AttributeModifier::Serde => match ty {
         Type::Path(of) => {
           // If this type will parse without #[serde], it is illegal to use this type with #[serde]
-          if parse_type_path(Attributes::default(), of).is_ok() {
+          if parse_type_path(Attributes::default(), false, of).is_ok() {
             return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
               ty,
             )));
@@ -491,25 +593,9 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
         }
         _ => return Err(ArgError::InvalidSerdeType(stringify_token(ty))),
       },
-      AttributeModifier::String => match ty {
-        Type::Path(of) => {
-          return parse_type_path(attrs, of);
-        }
-        Type::Reference(of) => {
-          let mut_type = if of.mutability.is_some() {
-            RefType::Mut
-          } else {
-            RefType::Ref
-          };
-          let tokens = of.elem.clone().into_token_stream();
-          use syn2 as syn;
-          return rules!(tokens => {
-            (str) => Ok(Arg::Special(Special::RefStr)),
-            ($_ty:ty) => Ok(Arg::Ref(mut_type, parse_type_special(attrs, &of.elem)?)),
-          });
-        }
-        _ => return Err(ArgError::InvalidSerdeType(stringify_token(ty))),
-      },
+      AttributeModifier::String => {
+        // We handle this as part of the normal parsing process
+      }
       AttributeModifier::Smi => {
         return Ok(Arg::Numeric(NumericArg::__SMI__));
       }
@@ -534,8 +620,13 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
           Arg::Numeric(numeric) => Ok(Arg::Slice(mut_type, numeric)),
           _ => Err(ArgError::InvalidType(stringify_token(ty))),
         },
-        Type::Path(of) => match parse_type_path(attrs, of)? {
-          Arg::Special(special) => Ok(Arg::Ref(mut_type, special)),
+        Type::Path(of) => match parse_type_path(attrs, true, of)? {
+          CBare(TSpecial(Special::RefStr)) => Ok(Arg::Special(Special::RefStr)),
+          COption(TSpecial(Special::RefStr)) => {
+            Ok(Arg::Option(Special::RefStr))
+          }
+          CBare(TV8(v8)) => Ok(Arg::V8Ref(mut_type, v8)),
+          CBare(TSpecial(special)) => Ok(Arg::Ref(mut_type, special)),
           _ => Err(ArgError::InvalidType(stringify_token(ty))),
         },
         _ => Err(ArgError::InvalidType(stringify_token(ty))),
@@ -548,14 +639,26 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
         RefType::Ref
       };
       match &*of.elem {
-        Type::Path(of) => match parse_type_path(attrs, of)? {
-          Arg::Numeric(numeric) => Ok(Arg::Ptr(mut_type, numeric)),
+        Type::Path(of) => match parse_type_path(attrs, false, of)? {
+          CBare(TNumeric(numeric)) => Ok(Arg::Ptr(mut_type, numeric)),
           _ => Err(ArgError::InvalidType(stringify_token(ty))),
         },
         _ => Err(ArgError::InvalidType(stringify_token(ty))),
       }
     }
-    Type::Path(of) => parse_type_path(attrs, of),
+    Type::Path(of) => match parse_type_path(attrs, false, of)? {
+      CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric)),
+      CBare(TSpecial(special)) => Ok(Arg::Special(special)),
+      COption(TNumeric(special)) => Ok(Arg::OptionNumeric(special)),
+      COption(TSpecial(special)) => Ok(Arg::Option(special)),
+      CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
+      COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
+      COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
+      COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
+      CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
+      CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
+      _ => Err(ArgError::InvalidType(stringify_token(ty))),
+    },
     _ => Err(ArgError::InvalidType(stringify_token(ty))),
   }
 }
@@ -635,8 +738,10 @@ mod tests {
       );
     }
     assert_eq!(
-      args_expected,
-      format!("{:?}", sig.args).trim_matches(|c| c == '[' || c == ']')
+      args_expected.replace('\n', " "),
+      format!("{:?}", sig.args)
+        .trim_matches(|c| c == '[' || c == ']')
+        .replace('\n', " ")
     );
     assert_eq!(return_expected, format!("{:?}", sig.ret_val));
   }
@@ -693,6 +798,14 @@ mod tests {
     (Special(RefStr), Numeric(bool)) -> Result(Void)
   );
   test!(
+    #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>) -> String;
+    (Special(String), Option(String), Special(CowStr)) -> Infallible(Special(String))
+  );
+  test!(
+    #[string] fn op_lots_of_option_strings(#[string] s: Option<String>, #[string] s2: Option<&str>, #[string] s3: Option<Cow<str>>) -> Option<String>;
+    (Option(String), Option(RefStr), Option(CowStr)) -> Infallible(Option(String))
+  );
+  test!(
     fn op_scope<'s>(#[string] msg: &'s str);
     <'s> (Special(RefStr)) -> Infallible(Void)
   );
@@ -700,6 +813,34 @@ mod tests {
     fn op_scope_and_generics<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait, BC: OtherTrait;
     <'s, AB: some::Trait, BC: OtherTrait> (Special(RefStr)) -> Infallible(Void)
   );
+  test!(
+    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, s3: v8::Global<v8::String>);
+    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void)
+  );
+  test!(
+    fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
+    <'s> (Ref(Mut, HandleScope)) -> Infallible(Void)
+  );
+
+  // Args
+
+  expect_fail!(
+    op_with_bad_string1,
+    ArgError("s", MissingStringAttribute),
+    fn f(s: &str) {}
+  );
+  expect_fail!(
+    op_with_bad_string2,
+    ArgError("s", MissingStringAttribute),
+    fn f(s: String) {}
+  );
+  expect_fail!(
+    op_with_bad_string3,
+    ArgError("s", MissingStringAttribute),
+    fn f(s: Cow<str>) {}
+  );
+
+  // Generics
 
   expect_fail!(op_with_two_lifetimes, TooManyLifetimes, fn f<'a, 'b>() {});
   expect_fail!(
