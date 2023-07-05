@@ -523,10 +523,18 @@ impl RecursiveModuleLoad {
             let request = module_request.clone();
             let specifier =
               ModuleSpecifier::parse(&module_request.specifier).unwrap();
+            let asserted_module_type = module_request.asserted_module_type.clone();
             let referrer = referrer.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
+            let module_map_rc = self.module_map_rc.clone();
             let fut = async move {
+              if module_map_rc
+                .borrow()
+                .get_id(&specifier, asserted_module_type).is_some() {
+                  return Ok(());
+                };
+
               let load_result = loader
                 .load(&specifier, Some(&referrer), is_dynamic_import)
                 .await;
