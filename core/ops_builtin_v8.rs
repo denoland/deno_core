@@ -552,6 +552,18 @@ fn op_get_promise_details<'a>(
 }
 
 #[op(v8)]
+fn op_is_promise_rejected<'a>(
+  _scope: &mut v8::HandleScope<'a>,
+  promise: serde_v8::Value<'a>,
+) -> bool {
+  let Ok(promise) = v8::Local::<v8::Promise>::try_from(promise.v8_value) else {
+    return false;
+  };
+  
+  promise.state() == v8::PromiseState::Rejected
+}
+
+#[op(v8)]
 fn op_set_promise_hooks(
   scope: &mut v8::HandleScope,
   init_hook: serde_v8::Value,

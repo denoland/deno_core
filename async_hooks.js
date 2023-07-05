@@ -23,8 +23,7 @@ let promiseHooksSet = false;
 
 const asyncContext = Symbol("asyncContext");
 function isRejected(promise) {
-  const [state] = core.getPromiseDetails(promise);
-  return state == 2;
+  return core.ops.op_is_promise_rejected(promise);
 }
 
 function setPromiseHooks() {

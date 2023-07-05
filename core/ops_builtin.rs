@@ -61,6 +61,7 @@ crate::extension!(
     ops_builtin_v8::op_serialize,
     ops_builtin_v8::op_deserialize,
     ops_builtin_v8::op_set_promise_hooks,
+    ops_builtin_v8::op_is_promise_rejected,
     ops_builtin_v8::op_get_promise_details,
     ops_builtin_v8::op_get_proxy_details,
     ops_builtin_v8::op_get_non_index_property_names,

@@ -5,8 +5,8 @@
 # Benchmark: async function calls per second.
 
 Baseline                      : 26_178_010 op/s   
-No-op promise hooks installed : 12_091_898 op/s  ( 2.16 times slower)
-AsyncLocalStorage[1]          :  2_020_202 op/s  (12.95 times slower)
+No-op promise hooks installed : 12_091_898 op/s  (2.16 times slower)
+AsyncLocalStorage[1]          :  3_511_236 op/s  (7.45 times slower)
 
 [1] Just keeping track of the async context; the store itself is never accessed.
 ```
