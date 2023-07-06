@@ -362,10 +362,9 @@ fn op_is_promise_rejected(promise: serde_v8::Value) -> bool {
   let Ok(promise) = v8::Local::<v8::Promise>::try_from(promise.v8_value) else {
     return false;
   };
-  
+
   promise.state() == v8::PromiseState::Rejected
 }
-
 
 #[op(v8)]
 fn op_str_byte_length(
