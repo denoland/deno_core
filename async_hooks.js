@@ -3,6 +3,7 @@
 
 
 const { core } = Deno;
+const { ops } = core;
 
 function assert(cond) {
   if (!cond) throw new Error("Assertion failed");
@@ -22,9 +23,6 @@ let rootAsyncFrame = undefined;
 let promiseHooksSet = false;
 
 const asyncContext = Symbol("asyncContext");
-function isRejected(promise) {
-  return core.ops.op_is_promise_rejected(promise);
-}
 
 function setPromiseHooks() {
   if (promiseHooksSet) {
@@ -49,15 +47,15 @@ function setPromiseHooks() {
   };
   const after = (promise) => {
     popAsyncFrame();
-    if (!isRejected(promise)) {
+    if (!ops.op_is_promise_rejected(promise)) {
       // @ts-ignore promise async context
-      delete promise[asyncContext];
+      promise[asyncContext] = undefined;
     }
   };
   const resolve = (promise) => {
     const currentFrame = AsyncContextFrame.current();
     if (
-      !currentFrame.isRoot() && isRejected(promise) &&
+      !currentFrame.isRoot() && ops.op_is_promise_rejected(promise) &&
       AsyncContextFrame.tryGetContext(promise) == null
     ) {
       AsyncContextFrame.attachContext(promise);

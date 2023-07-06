@@ -61,7 +61,7 @@ crate::extension!(
     ops_builtin_v8::op_serialize,
     ops_builtin_v8::op_deserialize,
     ops_builtin_v8::op_set_promise_hooks,
-    ops_builtin_v8::op_is_promise_rejected,
+    op_is_promise_rejected,
     ops_builtin_v8::op_get_promise_details,
     ops_builtin_v8::op_get_proxy_details,
     ops_builtin_v8::op_get_non_index_property_names,
@@ -356,6 +356,16 @@ fn op_format_file_name(file_name: String) -> String {
 fn op_is_proxy(value: serde_v8::Value) -> bool {
   value.v8_value.is_proxy()
 }
+
+#[op(fast)]
+fn op_is_promise_rejected(promise: serde_v8::Value) -> bool {
+  let Ok(promise) = v8::Local::<v8::Promise>::try_from(promise.v8_value) else {
+    return false;
+  };
+  
+  promise.state() == v8::PromiseState::Rejected
+}
+
 
 #[op(v8)]
 fn op_str_byte_length(
