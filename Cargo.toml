@@ -28,13 +28,13 @@ bytes = "1.4.0"
 futures = "0.3.21"
 hex = "0.4"
 libc = "0.2.126"
-log = "=0.4.17"
+log = "0.4.17"
 num-bigint = { version = "0.4", features = ["rand"] }
 once_cell = "1.17.1"
 parking_lot = "0.12.0"
 pin-project = "1.0.11" # don't pin because they yank crates from cargo
-pretty_assertions = "=1.3.0"
-rand = "=0.8.5"
+pretty_assertions = "1.3.0"
+rand = "0.8.5"
 regex = "^1.7.0"
 lazy-regex = "2.5.0"
 serde = { version = "1.0.149", features = ["derive"] }
@@ -59,15 +59,6 @@ syn = { version = "1", features = ["full", "extra-traits"] }
 syn2 = { package = "syn", version = "=2.0.18", features = ["full", "extra-traits"] }
 # Temporary fork while we wait for a more modern version to be published
 deno-proc-macro-rules = "0.3.2"
-
-# unix
-nix = "=0.24.2"
-
-# windows deps
-fwdansi = "=1.1.0"
-winres = "=0.1.12"
-winapi = "=0.3.9"
-windows-sys = { version = "0.48.0", features = ["Win32_Media"] }
 
 # NB: the `bench` and `release` profiles must remain EXACTLY the same.
 [profile.release]
