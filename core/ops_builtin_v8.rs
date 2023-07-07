@@ -873,18 +873,16 @@ fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::event_loop_pending_state_from_scope(scope).is_pending()
 }
 
-#[op(v8)]
-fn op_store_pending_promise_rejection<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  promise: serde_v8::Value<'a>,
-  reason: serde_v8::Value<'a>,
+#[op2(core)]
+pub fn op_store_pending_promise_rejection(
+  scope: &mut v8::HandleScope,
+  promise: v8::Local<v8::Promise>,
+  reason: v8::Local<v8::Value>,
 ) {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let mut context_state = context_state_rc.borrow_mut();
-  let promise_value =
-    v8::Local::<v8::Promise>::try_from(promise.v8_value).unwrap();
-  let promise_global = v8::Global::new(scope, promise_value);
-  let error_global = v8::Global::new(scope, reason.v8_value);
+  let promise_global = v8::Global::new(scope, promise);
+  let error_global = v8::Global::new(scope, reason);
   context_state
     .pending_promise_rejections
     .push_back((promise_global, error_global));
