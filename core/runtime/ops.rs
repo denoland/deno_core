@@ -320,6 +320,8 @@ mod tests {
       op_test_result_void_err,
       op_test_result_primitive_ok,
       op_test_result_primitive_err,
+      op_test_bool,
+      op_test_bool_result,
       op_test_string_owned,
       op_test_string_ref,
       op_test_string_cow,
@@ -509,6 +511,40 @@ mod tests {
       10000,
       "op_test_result_primitive_ok",
       "op_test_result_primitive_ok()",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_bool(b: bool) -> bool {
+    b
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_bool_result(b: bool) -> Result<bool, AnyError> {
+    if b {
+      Ok(true)
+    } else {
+      Err(generic_error("false!!!"))
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_bool() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_test_bool",
+      "assert(op_test_bool(true) === true && op_test_bool(false) === false)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_bool_result",
+      "assert(op_test_bool_result(true) === true)",
+    )?;
+    run_test2(
+      1,
+      "op_test_bool_result",
+      "try { op_test_bool_result(false); assert(false) } catch (e) {}",
     )?;
     Ok(())
   }

@@ -369,6 +369,10 @@ pub fn return_value_infallible(
     Arg::Void => {
       quote! {/* void */}
     }
+    Arg::Numeric(NumericArg::bool) => {
+      *needs_retval = true;
+      quote!(#retval.set_bool(#result as bool);)
+    }
     Arg::Numeric(NumericArg::u8)
     | Arg::Numeric(NumericArg::u16)
     | Arg::Numeric(NumericArg::u32) => {
