@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::ascii_str;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::AssertedModuleType;
 use crate::modules::ModuleInfo;
@@ -9,7 +8,6 @@ use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::SymbolicModule;
-use crate::Extension;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;

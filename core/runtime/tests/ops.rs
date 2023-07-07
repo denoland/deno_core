@@ -1,13 +1,11 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate as deno_core;
 use crate::extensions::OpDecl;
-use crate::modules::ModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
-use futures::FutureExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;

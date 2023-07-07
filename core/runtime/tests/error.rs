@@ -6,7 +6,6 @@ use crate::*;
 use anyhow::Error;
 use deno_ops::op;
 use futures::future::poll_fn;
-use futures::FutureExt;
 use std::task::Poll;
 
 #[tokio::test]

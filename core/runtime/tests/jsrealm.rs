@@ -1,13 +1,11 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate as deno_core;
 use crate::modules::ModuleCode;
-use crate::modules::ModuleLoader;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
 use futures::future::poll_fn;
 use futures::future::Future;
-use futures::FutureExt;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
