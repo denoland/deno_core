@@ -44,19 +44,18 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   context_state.borrow_mut().unrefed_ops.insert(promise_id);
 }
 
-#[op(v8)]
-fn op_set_promise_reject_callback<'a>(
+#[op2(core)]
+pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
-  cb: serde_v8::Value,
-) -> Result<Option<serde_v8::Value<'a>>, Error> {
-  let cb = to_v8_fn(scope, cb)?;
+  cb: v8::Local<'a, v8::Function>,
+) -> Option<v8::Local<'a, v8::Value>> {
+  let cb =v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .borrow_mut()
     .js_promise_reject_cb
     .replace(Rc::new(cb));
-  let old = old.map(|v| v8::Local::new(scope, &*v));
-  Ok(old.map(|v| from_v8(scope, v.into()).unwrap()))
+  old.map(|v| v8::Local::new(scope, &*v)).map(|func| func.into())
 }
 
 #[op2(core)]
@@ -853,19 +852,19 @@ fn op_apply_source_map(
 /// `JsError::exception_message`. The callback is passed the error value and
 /// should return a string or `null`. If no callback is set or the callback
 /// returns `null`, the built-in default formatting will be used.
-#[op(v8)]
-fn op_set_format_exception_callback<'a>(
+#[op2(core)]
+pub fn op_set_format_exception_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
-  cb: serde_v8::Value<'a>,
-) -> Result<Option<serde_v8::Value<'a>>, Error> {
-  let cb = to_v8_fn(scope, cb)?;
+  cb: v8::Local<'a, v8::Function>,
+) -> Option<v8::Local<'a, v8::Value>> {
+  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .borrow_mut()
     .js_format_exception_cb
     .replace(Rc::new(cb));
   let old = old.map(|v| v8::Local::new(scope, &*v));
-  Ok(old.map(|v| from_v8(scope, v.into()).unwrap()))
+  old.map(|func| func.into())
 }
 
 #[op(v8)]
