@@ -346,9 +346,10 @@ async fn op_shutdown(
   resource.shutdown().await
 }
 
-#[op]
-fn op_format_file_name(file_name: String) -> String {
-  format_file_name(&file_name)
+#[op2(core)]
+#[string]
+fn op_format_file_name(#[string] file_name: &str) -> String {
+  format_file_name(file_name)
 }
 
 #[op(fast)]
@@ -357,7 +358,7 @@ fn op_is_proxy(value: serde_v8::Value) -> bool {
 }
 
 #[op2(core)]
-pub fn op_str_byte_length(
+fn op_str_byte_length(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,
 ) -> u32 {

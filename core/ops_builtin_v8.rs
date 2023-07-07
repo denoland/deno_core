@@ -145,14 +145,14 @@ pub fn op_queue_microtask(
   scope.enqueue_microtask(cb);
 }
 
-#[op(v8)]
-fn op_create_host_object<'a>(
+#[op2(core)]
+pub fn op_create_host_object<'a>(
   scope: &mut v8::HandleScope<'a>,
-) -> serde_v8::Value<'a> {
+) -> v8::Local<'a, v8::Value> {
   let template = v8::ObjectTemplate::new(scope);
   template.set_internal_field_count(1);
   let object = template.new_instance(scope).unwrap();
-  from_v8(scope, object.into()).unwrap()
+  object.into()
 }
 
 #[op(v8)]
