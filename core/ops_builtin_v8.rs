@@ -49,13 +49,15 @@ pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
   cb: v8::Local<'a, v8::Function>,
 ) -> Option<v8::Local<'a, v8::Value>> {
-  let cb =v8::Global::new(scope, cb);
+  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .borrow_mut()
     .js_promise_reject_cb
     .replace(Rc::new(cb));
-  old.map(|v| v8::Local::new(scope, &*v)).map(|func| func.into())
+  old
+    .map(|v| v8::Local::new(scope, &*v))
+    .map(|func| func.into())
 }
 
 #[op2(core)]
