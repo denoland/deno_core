@@ -15,6 +15,7 @@ use crate::JsRuntime;
 use crate::ToJsBuffer;
 use anyhow::Error;
 use deno_ops::op;
+use deno_ops::op2;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -31,22 +32,14 @@ fn to_v8_fn(
     .map_err(|err| type_error(err.to_string()))
 }
 
-#[inline]
-fn to_v8_local_fn(
-  value: serde_v8::Value,
-) -> Result<v8::Local<v8::Function>, Error> {
-  v8::Local::<v8::Function>::try_from(value.v8_value)
-    .map_err(|err| type_error(err.to_string()))
-}
-
-#[op(v8)]
-fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
+#[op2(core)]
+pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.borrow_mut().unrefed_ops.remove(&promise_id);
 }
 
-#[op(v8)]
-fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
+#[op2(core)]
+pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.borrow_mut().unrefed_ops.insert(promise_id);
 }
@@ -66,8 +59,8 @@ fn op_set_promise_reject_callback<'a>(
   Ok(old.map(|v| from_v8(scope, v.into()).unwrap()))
 }
 
-#[op(v8)]
-fn op_run_microtasks(scope: &mut v8::HandleScope) {
+#[op2(core)]
+pub fn op_run_microtasks(scope: &mut v8::HandleScope) {
   scope.perform_microtask_checkpoint();
 }
 
@@ -78,8 +71,8 @@ fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
   state.has_tick_scheduled
 }
 
-#[op(v8)]
-fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
+#[op2(core)]
+pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
   let state_rc = JsRuntime::state_from(scope);
   state_rc.borrow_mut().has_tick_scheduled = v;
 }
@@ -144,13 +137,12 @@ fn op_eval_context<'a>(
   }
 }
 
-#[op(v8)]
-fn op_queue_microtask(
+#[op2(core)]
+pub fn op_queue_microtask(
   scope: &mut v8::HandleScope,
-  cb: serde_v8::Value,
-) -> Result<(), Error> {
-  scope.enqueue_microtask(to_v8_local_fn(cb)?);
-  Ok(())
+  cb: v8::Local<v8::Function>,
+) {
+  scope.enqueue_microtask(cb);
 }
 
 #[op(v8)]
@@ -786,22 +778,22 @@ fn op_destructure_error(
 /// Effectively throw an uncatchable error. This will terminate runtime
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
-#[op(v8)]
-fn op_dispatch_exception(
+#[op2(core)]
+pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
-  exception: serde_v8::Value,
+  exception: v8::Local<v8::Value>,
 ) {
   let state_rc = JsRuntime::state_from(scope);
   let mut state = state_rc.borrow_mut();
   if let Some(inspector) = &state.inspector {
     let inspector = inspector.borrow();
-    inspector.exception_thrown(scope, exception.v8_value, false);
+    inspector.exception_thrown(scope, exception, false);
     // This indicates that the op is being called from a REPL. Skip termination.
     if inspector.is_dispatching_message() {
       return;
     }
   }
-  state.dispatched_exception = Some(v8::Global::new(scope, exception.v8_value));
+  state.dispatched_exception = Some(v8::Global::new(scope, exception));
   scope.terminate_execution();
 }
 
@@ -898,16 +890,14 @@ fn op_store_pending_promise_rejection<'a>(
     .push_back((promise_global, error_global));
 }
 
-#[op(v8)]
-fn op_remove_pending_promise_rejection<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  promise: serde_v8::Value<'a>,
+#[op2(core)]
+pub fn op_remove_pending_promise_rejection(
+  scope: &mut v8::HandleScope,
+  promise: v8::Local<v8::Promise>,
 ) {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let mut context_state = context_state_rc.borrow_mut();
-  let promise_value =
-    v8::Local::<v8::Promise>::try_from(promise.v8_value).unwrap();
-  let promise_global = v8::Global::new(scope, promise_value);
+  let promise_global = v8::Global::new(scope, promise);
   context_state
     .pending_promise_rejections
     .retain(|(key, _)| key != &promise_global);
