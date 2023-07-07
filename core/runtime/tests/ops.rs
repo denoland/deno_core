@@ -1,47 +1,16 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate as deno_core;
-use crate::ascii_str;
-use crate::error::custom_error;
-use crate::error::generic_error;
-use crate::error::AnyError;
-use crate::error::JsError;
 use crate::extensions::OpDecl;
-use crate::include_ascii_string;
-use crate::module_specifier::ModuleSpecifier;
-use crate::modules::AssertedModuleType;
-use crate::modules::ModuleCode;
-use crate::modules::ModuleInfo;
-use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoader;
-use crate::modules::ModuleSource;
-use crate::modules::ModuleSourceFuture;
-use crate::modules::ModuleType;
-use crate::modules::ResolutionKind;
-use crate::modules::SymbolicModule;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
-use crate::Extension;
-use crate::JsBuffer;
 use crate::*;
 use anyhow::Error;
-use cooked_waker::IntoWaker;
-use cooked_waker::Wake;
-use cooked_waker::WakeRef;
 use deno_ops::op;
-use futures::future::poll_fn;
-use futures::future::Future;
 use futures::FutureExt;
 use std::cell::RefCell;
-use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicI8;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::task::Context;
-use std::task::Poll;
-use std::time::Duration;
 
 #[tokio::test]
 async fn test_async_opstate_borrow() {
