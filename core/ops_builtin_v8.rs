@@ -23,15 +23,6 @@ use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
-fn to_v8_fn(
-  scope: &mut v8::HandleScope,
-  value: serde_v8::Value,
-) -> Result<v8::Global<v8::Function>, Error> {
-  v8::Local::<v8::Function>::try_from(value.v8_value)
-    .map(|cb| v8::Global::new(scope, cb))
-    .map_err(|err| type_error(err.to_string()))
-}
-
 #[op2(core)]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
@@ -542,20 +533,20 @@ fn op_get_promise_details<'a>(
   }
 }
 
-#[op(v8)]
-fn op_set_promise_hooks(
+#[op2(core)]
+pub fn op_set_promise_hooks(
   scope: &mut v8::HandleScope,
-  init_hook: serde_v8::Value,
-  before_hook: serde_v8::Value,
-  after_hook: serde_v8::Value,
-  resolve_hook: serde_v8::Value,
+  init_hook: v8::Local<v8::Value>,
+  before_hook: v8::Local<v8::Value>,
+  after_hook: v8::Local<v8::Value>,
+  resolve_hook: v8::Local<v8::Value>,
 ) -> Result<(), Error> {
   let v8_fns = [init_hook, before_hook, after_hook, resolve_hook]
     .into_iter()
     .enumerate()
-    .filter(|(_, hook)| !hook.v8_value.is_undefined())
+    .filter(|(_, hook)| !hook.is_undefined())
     .try_fold([None; 4], |mut v8_fns, (i, hook)| {
-      let v8_fn = v8::Local::<v8::Function>::try_from(hook.v8_value)
+      let v8_fn = v8::Local::<v8::Function>::try_from(hook)
         .map_err(|err| type_error(err.to_string()))?;
       v8_fns[i] = Some(v8_fn);
       Ok::<_, Error>(v8_fns)
@@ -606,13 +597,13 @@ fn op_get_proxy_details<'a>(
   Some((target.into(), handler.into()))
 }
 
-#[op(v8)]
-fn op_get_non_index_property_names<'a>(
+#[op2(core)]
+pub fn op_get_non_index_property_names<'a>(
   scope: &mut v8::HandleScope<'a>,
-  obj: serde_v8::Value<'a>,
+  obj: v8::Local<'a, v8::Value>,
   filter: u32,
-) -> Option<serde_v8::Value<'a>> {
-  let obj = match v8::Local::<v8::Object>::try_from(obj.v8_value) {
+) -> Option<v8::Local<'a, v8::Value>> {
+  let obj = match v8::Local::<v8::Object>::try_from(obj) {
     Ok(proxy) => proxy,
     Err(_) => return None,
   };
@@ -644,12 +635,7 @@ fn op_get_non_index_property_names<'a>(
     },
   );
 
-  if let Some(names) = maybe_names {
-    let names_val: v8::Local<v8::Value> = names.into();
-    Some(names_val.into())
-  } else {
-    None
-  }
+  maybe_names.map(|names| names.into())
 }
 
 #[op2(core)]
@@ -693,12 +679,12 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
   }
 }
 
-#[op(v8)]
-fn op_set_wasm_streaming_callback(
+#[op2(core)]
+pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
-  cb: serde_v8::Value,
+  cb: v8::Local<v8::Function>,
 ) -> Result<(), Error> {
-  let cb = to_v8_fn(scope, cb)?;
+  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let mut context_state = context_state_rc.borrow_mut();
   // The callback to pass to the v8 API has to be a unit type, so it can't
@@ -738,11 +724,11 @@ fn op_set_wasm_streaming_callback(
 }
 
 #[allow(clippy::let_and_return)]
-#[op(v8)]
-fn op_abort_wasm_streaming(
+#[op2(core)]
+pub fn op_abort_wasm_streaming(
   scope: &mut v8::HandleScope,
   rid: u32,
-  error: serde_v8::Value,
+  error: v8::Local<v8::Value>,
 ) -> Result<(), Error> {
   let wasm_streaming = {
     let state_rc = JsRuntime::state_from(scope);
@@ -761,19 +747,20 @@ fn op_abort_wasm_streaming(
   if let Ok(wsr) = std::rc::Rc::try_unwrap(wasm_streaming) {
     // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
     // see https://github.com/denoland/deno/issues/13917
-    wsr.0.into_inner().abort(Some(error.v8_value));
+    wsr.0.into_inner().abort(Some(error));
   } else {
     panic!("Couldn't consume WasmStreamingResource.");
   }
   Ok(())
 }
 
-#[op(v8)]
-fn op_destructure_error(
+#[op2(core)]
+#[serde]
+pub fn op_destructure_error(
   scope: &mut v8::HandleScope,
-  error: serde_v8::Value,
+  error: v8::Local<v8::Value>,
 ) -> JsError {
-  JsError::from_v8_exception(scope, error.v8_value)
+  JsError::from_v8_exception(scope, error)
 }
 
 /// Effectively throw an uncatchable error. This will terminate runtime
@@ -798,8 +785,9 @@ pub fn op_dispatch_exception(
   scope.terminate_execution();
 }
 
-#[op(v8)]
-fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
+#[op2(core)]
+#[serde]
+pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
   let state_rc = JsRealm::state_from_scope(scope);
   let state = state_rc.borrow();
   state
@@ -811,16 +799,17 @@ fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Location {
+pub struct Location {
   file_name: String,
   line_number: u32,
   column_number: u32,
 }
 
-#[op(v8)]
-fn op_apply_source_map(
+#[op2(core)]
+#[serde]
+pub fn op_apply_source_map(
   scope: &mut v8::HandleScope,
-  location: Location,
+  #[serde] location: Location,
 ) -> Result<Location, Error> {
   let state_rc = JsRuntime::state_from(scope);
   let (getter, cache) = {
@@ -916,11 +905,11 @@ pub fn op_has_pending_promise_rejection(
     .any(|(key, _)| key == &promise_global)
 }
 
-#[op(v8)]
-fn op_arraybuffer_was_detached<'a>(
-  _scope: &mut v8::HandleScope<'a>,
-  input: serde_v8::Value<'a>,
+#[op2(core)]
+pub fn op_arraybuffer_was_detached(
+  _scope: &mut v8::HandleScope,
+  input: v8::Local<v8::Value>,
 ) -> Result<bool, Error> {
-  let ab = v8::Local::<v8::ArrayBuffer>::try_from(input.v8_value)?;
+  let ab = v8::Local::<v8::ArrayBuffer>::try_from(input)?;
   Ok(ab.was_detached())
 }
