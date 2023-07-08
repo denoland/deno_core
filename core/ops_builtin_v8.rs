@@ -64,8 +64,8 @@ pub fn op_run_microtasks(scope: &mut v8::HandleScope) {
   scope.perform_microtask_checkpoint();
 }
 
-#[op(v8)]
-fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
+#[op2(core)]
+pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
   let state_rc = JsRuntime::state_from(scope);
   let state = state_rc.borrow();
   state.has_tick_scheduled
@@ -867,8 +867,8 @@ pub fn op_set_format_exception_callback<'a>(
   old.map(|func| func.into())
 }
 
-#[op(v8)]
-fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
+#[op2(core)]
+pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::event_loop_pending_state_from_scope(scope).is_pending()
 }
 
@@ -900,16 +900,14 @@ pub fn op_remove_pending_promise_rejection(
     .retain(|(key, _)| key != &promise_global);
 }
 
-#[op(v8)]
-fn op_has_pending_promise_rejection<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  promise: serde_v8::Value<'a>,
+#[op2(core)]
+pub fn op_has_pending_promise_rejection(
+  scope: &mut v8::HandleScope,
+  promise: v8::Local<v8::Promise>,
 ) -> bool {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let context_state = context_state_rc.borrow();
-  let promise_value =
-    v8::Local::<v8::Promise>::try_from(promise.v8_value).unwrap();
-  let promise_global = v8::Global::new(scope, promise_value);
+  let promise_global = v8::Global::new(scope, promise);
   context_state
     .pending_promise_rejections
     .iter()
