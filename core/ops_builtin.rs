@@ -346,9 +346,10 @@ async fn op_shutdown(
   resource.shutdown().await
 }
 
-#[op]
-fn op_format_file_name(file_name: String) -> String {
-  format_file_name(&file_name)
+#[op2(core)]
+#[string]
+fn op_format_file_name(#[string] file_name: &str) -> String {
+  format_file_name(file_name)
 }
 
 #[op(fast)]
@@ -356,12 +357,12 @@ fn op_is_proxy(value: serde_v8::Value) -> bool {
   value.v8_value.is_proxy()
 }
 
-#[op(v8)]
+#[op2(core)]
 fn op_str_byte_length(
   scope: &mut v8::HandleScope,
-  value: serde_v8::Value,
+  value: v8::Local<v8::Value>,
 ) -> u32 {
-  if let Ok(string) = v8::Local::<v8::String>::try_from(value.v8_value) {
+  if let Ok(string) = v8::Local::<v8::String>::try_from(value) {
     string.utf8_length(scope) as u32
   } else {
     0
