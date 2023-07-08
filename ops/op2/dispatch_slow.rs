@@ -108,7 +108,7 @@ fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
     ..
   } = &generator_state;
 
-  quote!(let #scope = &mut unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
+  quote!(let mut #scope = unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
 }
 
 fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
@@ -221,13 +221,13 @@ pub fn from_arg(
     Arg::Option(Special::String) => {
       *needs_scope = true;
       quote! {
-        let #arg_ident = #arg_ident.to_rust_string_lossy(#scope);
+        let #arg_ident = #arg_ident.to_rust_string_lossy(&mut #scope);
       }
     }
     Arg::Special(Special::String) => {
       *needs_scope = true;
       quote! {
-        let #arg_ident = #arg_ident.to_rust_string_lossy(#scope);
+        let #arg_ident = #arg_ident.to_rust_string_lossy(&mut #scope);
       }
     }
     Arg::Special(Special::RefStr) => {
@@ -235,7 +235,7 @@ pub fn from_arg(
       quote! {
         // Trade 1024 bytes of stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
-        let #arg_ident = &#deno_core::_ops::to_str(#scope, &#arg_ident, &mut #arg_temp);
+        let #arg_ident = &#deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Special(Special::CowStr) => {
@@ -243,12 +243,12 @@ pub fn from_arg(
       quote! {
         // Trade 1024 bytes of stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
-        let #arg_ident = #deno_core::_ops::to_str(#scope, &#arg_ident, &mut #arg_temp);
+        let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
-      quote!(let #arg_ident = #scope;)
+      quote!(let #arg_ident = &mut #scope;)
     }
     Arg::V8Ref(_, v8) => {
       let arg_ident = arg_ident.clone();
@@ -302,7 +302,7 @@ pub fn from_arg(
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err)?;
       quote! {
-        let #arg_ident = match #deno_core::_ops::serde_v8_to_rust(#scope, #arg_ident) {
+        let #arg_ident = match #deno_core::_ops::serde_v8_to_rust(&mut #scope, #arg_ident) {
           Ok(t) => t,
           Err(#err) => {
             #throw_exception;
@@ -411,7 +411,7 @@ pub fn return_value_infallible(
           // This should not fail in normal cases
           // TODO(mmastrac): This has extra allocations that we need to get rid of, especially if the string
           // is ASCII. We could make an "external Rust String" string in V8 from these and re-use the allocation.
-          let temp = #deno_core::v8::String::new(#scope, &#result).unwrap();
+          let temp = #deno_core::v8::String::new(&mut #scope, &#result).unwrap();
           #retval.set(temp.into());
         }
       }
@@ -463,7 +463,7 @@ pub fn return_value_infallible(
       let throw_exception = throw_type_error_string(generator_state, &err)?;
 
       quote! {
-        let #result = match #deno_core::_ops::serde_rust_to_v8(#scope, #result) {
+        let #result = match #deno_core::_ops::serde_rust_to_v8(&mut #scope, #result) {
           Ok(t) => t,
           Err(#err) => {
             #throw_exception
@@ -540,7 +540,7 @@ fn throw_exception(
     #maybe_opctx
     let opstate = ::std::cell::RefCell::borrow(&*#opctx.state);
     let exception = #deno_core::error::to_v8_error(
-      #scope,
+      &mut #scope,
       opstate.get_error_class_fn,
       &err,
     );
@@ -573,8 +573,8 @@ fn throw_type_error(
 
   Ok(quote! {
     #maybe_scope
-    let msg = #deno_core::v8::String::new_from_one_byte(#scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = #deno_core::v8::Exception::error(#scope, msg);
+    let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
+    let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
   })
@@ -598,8 +598,8 @@ fn throw_type_error_string(
   Ok(quote! {
     #maybe_scope
     // TODO(mmastrac): This might be allocating too much, even if it's on the error path
-    let msg = #deno_core::v8::String::new(#scope, &format!("{}", #deno_core::anyhow::Error::from(#message))).unwrap();
-    let exc = #deno_core::v8::Exception::error(#scope, msg);
+    let msg = #deno_core::v8::String::new(&mut #scope, &format!("{}", #deno_core::anyhow::Error::from(#message))).unwrap();
+    let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
   })

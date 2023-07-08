@@ -356,6 +356,7 @@ mod tests {
       op_test_v8_type_return_option,
       op_test_v8_type_handle_scope,
       op_test_v8_type_handle_scope_obj,
+      op_test_v8_type_handle_scope_result,
       op_test_serde_v8,
     ]
   );
@@ -758,6 +759,18 @@ mod tests {
     o.get(scope, key)
   }
 
+  /// Extract whatever lives in "key" from the object.
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope_result<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    o: &v8::Object,
+  ) -> Result<v8::Local<'s, v8::Value>, AnyError> {
+    let key = v8::String::new(scope, "key").unwrap().into();
+    o.get(scope, key)
+      .filter(|v| !v.is_null_or_undefined())
+      .ok_or(generic_error("error!!!"))
+  }
+
   #[tokio::test]
   pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
     for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
@@ -785,9 +798,17 @@ mod tests {
         "{'no_key': 'abc'}",
         "null",
       ),
+      (
+        "op_test_v8_type_handle_scope_result",
+        "{'key': 'abc'}",
+        "'abc'",
+      ),
     ] {
       run_test2(1, a, &format!("assert({a}({b}) == {c})"))?;
     }
+
+    // Test the error case for op_test_v8_type_handle_scope_result
+    run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
     Ok(())
   }
 

@@ -32,7 +32,7 @@ impl op_v8_string {
         }
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let scope = &mut unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -44,12 +44,12 @@ impl op_v8_string {
             deno_core::v8::String,
         >::try_from(arg0) else {
         let msg = deno_core::v8::String::new_from_one_byte(
-                scope,
+                &mut scope,
                 "expected v8::String".as_bytes(),
                 deno_core::v8::NewStringType::Normal,
             )
             .unwrap();
-        let exc = deno_core::v8::Exception::error(scope, msg);
+        let exc = deno_core::v8::Exception::error(&mut scope, msg);
         scope.throw_exception(exc);
         return;
     };
@@ -59,12 +59,12 @@ impl op_v8_string {
             deno_core::v8::String,
         >::try_from(arg1) else {
         let msg = deno_core::v8::String::new_from_one_byte(
-                scope,
+                &mut scope,
                 "expected v8::String".as_bytes(),
                 deno_core::v8::NewStringType::Normal,
             )
             .unwrap();
-        let exc = deno_core::v8::Exception::error(scope, msg);
+        let exc = deno_core::v8::Exception::error(&mut scope, msg);
         scope.throw_exception(exc);
         return;
     };
