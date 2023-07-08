@@ -83,6 +83,7 @@ crate::extension!(
 
 /// Return map of resources with id as key
 /// and string representation as value.
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op]
 pub fn op_resources(state: &mut OpState) -> Vec<(ResourceId, String)> {
   state
@@ -97,31 +98,37 @@ fn op_add(a: i32, b: i32) -> i32 {
   a + b
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
 }
 
-#[op(fast)]
+#[op2(core, fast)]
 pub fn op_void_sync() {}
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op]
 pub async fn op_void_async() {}
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op]
 pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op(deferred)]
 pub async fn op_error_async_deferred() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op(deferred)]
 pub async fn op_void_async_deferred() {}
 
 /// Remove a resource from the resource table.
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op]
 pub fn op_close(
   state: &mut OpState,
@@ -136,6 +143,7 @@ pub fn op_close(
 
 /// Try to remove a resource from the resource table. If there is no resource
 /// with the specified `rid`, this is a no-op.
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op]
 pub fn op_try_close(
   state: &mut OpState,
@@ -148,6 +156,7 @@ pub fn op_try_close(
   Ok(())
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op]
 pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
   let aggregate = state.tracker.aggregate();
@@ -156,8 +165,8 @@ pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
 }
 
 /// Builtin utility to print to stdout/stderr
-#[op]
-pub fn op_print(msg: &str, is_err: bool) -> Result<(), Error> {
+#[op2(core, fast)]
+pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error> {
   if is_err {
     stderr().write_all(msg.as_bytes())?;
     stderr().flush().unwrap();
@@ -184,6 +193,7 @@ impl Resource for WasmStreamingResource {
 }
 
 /// Feed bytes to WasmStreamingResource.
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op]
 pub fn op_wasm_streaming_feed(
   state: &mut OpState,
@@ -198,6 +208,7 @@ pub fn op_wasm_streaming_feed(
   Ok(())
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op]
 pub fn op_wasm_streaming_set_url(
   state: &mut OpState,
@@ -212,6 +223,8 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support and async fn
+// support
 #[op]
 async fn op_read(
   state: Rc<RefCell<OpState>>,
@@ -223,6 +236,8 @@ async fn op_read(
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support and async fn
+// support
 #[op]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
@@ -292,6 +307,8 @@ async fn op_read_all(
   Ok(ToJsBuffer::from(vec))
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support and async fn
+// support
 #[op]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
@@ -304,6 +321,7 @@ async fn op_write(
   Ok(resp.nwritten() as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op(fast)]
 fn op_read_sync(
   state: &mut OpState,
@@ -314,6 +332,7 @@ fn op_read_sync(
   resource.read_byob_sync(data).map(|n| n as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support
 #[op]
 fn op_write_sync(
   state: &mut OpState,
@@ -325,6 +344,8 @@ fn op_write_sync(
   Ok(nwritten as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support and async fn
+// support
 #[op]
 async fn op_write_all(
   state: Rc<RefCell<OpState>>,
@@ -337,6 +358,8 @@ async fn op_write_all(
   Ok(())
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support and async fn
+// support
 #[op]
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
@@ -352,6 +375,7 @@ fn op_format_file_name(#[string] file_name: &str) -> String {
   format_file_name(file_name)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by fast calls support for v8::Value
 #[op(fast)]
 fn op_is_proxy(value: serde_v8::Value) -> bool {
   value.v8_value.is_proxy()
