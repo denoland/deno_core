@@ -356,6 +356,7 @@ mod tests {
       op_test_v8_type_return_option,
       op_test_v8_type_handle_scope,
       op_test_v8_type_handle_scope_obj,
+      op_test_v8_type_handle_scope_result,
       op_test_serde_v8,
     ]
   );
@@ -756,6 +757,16 @@ mod tests {
   ) -> Option<v8::Local<'s, v8::Value>> {
     let key = v8::String::new(scope, "key").unwrap().into();
     o.get(scope, key)
+  }
+
+  /// Extract whatever lives in "key" from the object.
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope_result<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    o: &v8::Object,
+  ) -> Result<v8::Local<'s, v8::Value>, AnyError> {
+    let key = v8::String::new(scope, "key").unwrap().into();
+    o.get(scope, key).ok_or(generic_error("error!!!"))
   }
 
   #[tokio::test]
