@@ -247,8 +247,8 @@ pub enum ArgError {
   InvalidReference(String),
   #[error("The type {0} must be a reference")]
   MissingReference(String),
-  #[error("Invalid #[serde] type: {0}")]
-  InvalidSerdeType(String),
+  #[error("Invalid or deprecated #[serde] type '{0}': {1}")]
+  InvalidSerdeType(String, &'static str),
   #[error("Invalid #[string] type: {0}")]
   InvalidStringType(String),
   #[error("Cannot use #[serde] for type: {0}")]
@@ -264,6 +264,14 @@ pub enum ArgError {
 #[derive(Copy, Clone, Default)]
 struct Attributes {
   primary: Option<AttributeModifier>,
+}
+
+impl Attributes {
+  pub fn string() -> Self {
+    Self {
+      primary: Some(AttributeModifier::String),
+    }
+  }
 }
 
 fn stringify_token(tokens: impl ToTokens) -> String {
@@ -583,15 +591,36 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
     match primary {
       AttributeModifier::Serde => match ty {
         Type::Path(of) => {
-          // If this type will parse without #[serde], it is illegal to use this type with #[serde]
+          // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
           if parse_type_path(Attributes::default(), false, of).is_ok() {
             return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
               ty,
             )));
           }
-          return Ok(Arg::SerdeV8(stringify_token(of.path.clone())));
+          // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
+          if parse_type_path(Attributes::string(), false, of).is_ok() {
+            return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
+              ty,
+            )));
+          }
+
+          // Denylist of serde_v8 types with better alternatives
+          let ty = of.into_token_stream();
+          let token = stringify_token(of.path.clone());
+          if let Ok(err) = std::panic::catch_unwind(|| {
+            use syn2 as syn;
+            rules!(ty => {
+              ( $( serde_v8:: )? Value $( < $_lifetime:lifetime >)? ) => "use v8::Value",
+            })
+          }) {
+            return Err(ArgError::InvalidSerdeType(stringify_token(ty), err));
+          }
+
+          return Ok(Arg::SerdeV8(token));
         }
-        _ => return Err(ArgError::InvalidSerdeType(stringify_token(ty))),
+        _ => {
+          return Err(ArgError::InvalidSerdeAttributeType(stringify_token(ty)))
+        }
       },
       AttributeModifier::String => {
         // We handle this as part of the normal parsing process
@@ -871,6 +900,22 @@ mod tests {
       C: Trait,
     {
     }
+  );
+
+  expect_fail!(
+    op_with_bad_serde_string,
+    ArgError("s", InvalidSerdeAttributeType("String")),
+    fn f(#[serde] s: String) {}
+  );
+  expect_fail!(
+    op_with_bad_serde_str,
+    ArgError("s", InvalidSerdeAttributeType("&str")),
+    fn f(#[serde] s: &str) {}
+  );
+  expect_fail!(
+    op_with_bad_serde_value,
+    ArgError("v", InvalidSerdeType("serde_v8::Value", "use v8::Value")),
+    fn f(#[serde] v: serde_v8::Value) {}
   );
 
   #[test]
