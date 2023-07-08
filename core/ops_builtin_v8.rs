@@ -55,8 +55,7 @@ pub fn op_set_promise_reject_callback<'a>(
     .borrow_mut()
     .js_promise_reject_cb
     .replace(Rc::new(cb));
-  old
-    .map(|v| v8::Local::new(scope, &*v))
+  old.map(|v| v8::Local::new(scope, &*v))
 }
 
 #[op2(core)]
