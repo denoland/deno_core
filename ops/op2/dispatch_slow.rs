@@ -294,7 +294,7 @@ pub fn from_arg(
         };
       }
     }
-    Arg::SerdeV8(class) => {
+    Arg::SerdeV8(_class) => {
       *needs_scope = true;
       let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
@@ -446,7 +446,7 @@ pub fn return_value_infallible(
         #retval.set(#result.into())
       }
     }
-    Arg::SerdeV8(s) => {
+    Arg::SerdeV8(_class) => {
       *needs_retval = true;
       *needs_scope = true;
       quote! {
