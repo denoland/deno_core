@@ -48,7 +48,7 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
   cb: v8::Local<'a, v8::Function>,
-) -> Option<v8::Local<'a, v8::Value>> {
+) -> Option<v8::Local<'a, v8::Function>> {
   let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
@@ -57,7 +57,6 @@ pub fn op_set_promise_reject_callback<'a>(
     .replace(Rc::new(cb));
   old
     .map(|v| v8::Local::new(scope, &*v))
-    .map(|func| func.into())
 }
 
 #[op2(core)]
@@ -149,11 +148,10 @@ pub fn op_queue_microtask(
 #[op2(core)]
 pub fn op_create_host_object<'a>(
   scope: &mut v8::HandleScope<'a>,
-) -> v8::Local<'a, v8::Value> {
+) -> v8::Local<'a, v8::Object> {
   let template = v8::ObjectTemplate::new(scope);
   template.set_internal_field_count(1);
-  let object = template.new_instance(scope).unwrap();
-  object.into()
+  template.new_instance(scope).unwrap()
 }
 
 #[op(v8)]
