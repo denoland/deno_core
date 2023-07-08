@@ -56,7 +56,7 @@ impl op_string_owned {
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let scope = &mut unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -64,7 +64,7 @@ impl op_string_owned {
             &*info
         });
         let arg0 = args.get(0usize as i32);
-        let arg0 = arg0.to_rust_string_lossy(scope);
+        let arg0 = arg0.to_rust_string_lossy(&mut scope);
         let result = Self::call(arg0);
         rv.set_uint32(result as u32);
     }
