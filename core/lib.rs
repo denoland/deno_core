@@ -144,6 +144,8 @@ pub mod _ops {
   pub use super::runtime::ops::map_async_op4;
   pub use super::runtime::ops::queue_async_op;
   pub use super::runtime::ops::queue_fast_async_op;
+  pub use super::runtime::ops::serde_rust_to_v8;
+  pub use super::runtime::ops::serde_v8_to_rust;
   pub use super::runtime::ops::to_i32;
   pub use super::runtime::ops::to_str;
   pub use super::runtime::ops::to_str_ptr;

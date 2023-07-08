@@ -7,6 +7,10 @@ use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
+use serde::Deserialize;
+use serde::Serialize;
+use serde_v8::from_v8;
+use serde_v8::to_v8;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::future::ready;
@@ -297,6 +301,20 @@ pub fn to_str<'a, const N: usize>(
   string.to_rust_cow_lossy(scope, buffer)
 }
 
+pub fn serde_rust_to_v8<'a, T: Serialize>(
+  scope: &mut v8::HandleScope<'a>,
+  input: T,
+) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
+  to_v8(scope, input)
+}
+
+pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<v8::Value>,
+) -> serde_v8::Result<T> {
+  from_v8(scope, input)
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -306,6 +324,8 @@ mod tests {
   use crate::JsRuntime;
   use crate::RuntimeOptions;
   use deno_ops::op2;
+  use serde::Deserialize;
+  use serde::Serialize;
   use std::borrow::Cow;
   use std::cell::Cell;
 
@@ -334,6 +354,7 @@ mod tests {
       op_test_v8_type_return_option,
       op_test_v8_type_handle_scope,
       op_test_v8_type_handle_scope_obj,
+      op_test_serde_v8,
     ]
   );
 
@@ -731,6 +752,33 @@ mod tests {
     ] {
       run_test2(1, a, &format!("assert({a}({b}) == {c})"))?;
     }
+    Ok(())
+  }
+
+  #[derive(Serialize, Deserialize)]
+  pub struct Serde {
+    pub s: String,
+  }
+
+  #[op2(core)]
+  #[serde]
+  pub fn op_test_serde_v8(#[serde] mut serde: Serde) -> Serde {
+    serde.s += "!";
+    serde
+  }
+
+  #[tokio::test]
+  pub async fn test_op_serde_v8() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      1,
+      "op_test_serde_v8",
+      "assert(op_test_serde_v8({s: 'abc'}).s == 'abc!')",
+    )?;
+    run_test2(
+      1,
+      "op_test_serde_v8",
+      "try { op_test_serde_v8({}); assert(false) } catch (e) { assert(String(e).indexOf('missing field') != -1) }",
+    )?;
     Ok(())
   }
 }

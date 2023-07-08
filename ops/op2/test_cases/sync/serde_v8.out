@@ -1,0 +1,65 @@
+#[allow(non_camel_case_types)]
+pub struct op_serde_v8 {
+    _unconstructable: ::std::marker::PhantomData<()>,
+}
+impl deno_core::_ops::Op for op_serde_v8 {
+    const NAME: &'static str = stringify!(op_serde_v8);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl {
+        name: stringify!(op_serde_v8),
+        v8_fn_ptr: Self::v8_fn_ptr as _,
+        enabled: true,
+        fast_fn: None,
+        is_async: false,
+        is_unstable: false,
+        is_v8: false,
+        arg_count: 1usize as u8,
+    };
+}
+impl op_serde_v8 {
+    pub const fn name() -> &'static str {
+        stringify!(op_serde_v8)
+    }
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        deno_core::_ops::OpDecl {
+            name: stringify!(op_serde_v8),
+            v8_fn_ptr: Self::v8_fn_ptr as _,
+            enabled: true,
+            fast_fn: None,
+            is_async: false,
+            is_unstable: false,
+            is_v8: false,
+            arg_count: 1usize as u8,
+        }
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let scope = &mut unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let arg0 = args.get(0usize as i32);
+        let arg0 = match deno_core::_ops::serde_v8_to_rust(scope, arg0) {
+            Ok(t) => t,
+            Err(arg0_err) => {
+                let msg = deno_core::v8::String::new(
+                        scope,
+                        &format!("{}", deno_core::anyhow::Error::from(arg0_err)),
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::error(scope, msg);
+                scope.throw_exception(exc);
+                return;
+            }
+        };
+        let result = Self::call(arg0);
+        let result = match deno_core::_ops::serde_rust_to_v8(scope, result) {
+            Ok(t) => t,
+            Err(err) => unimplemented!(),
+        };
+        rv.set(result.into())
+    }
+    #[inline(always)]
+    pub fn call(input: Input) -> Output {}
+}
