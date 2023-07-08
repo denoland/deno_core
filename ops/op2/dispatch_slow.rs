@@ -298,10 +298,11 @@ pub fn from_arg(
       *needs_scope = true;
       let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
+      let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err)?;
       quote! {
-        let #arg_ident = match #deno_core::_ops::serde_v8_to_rust(scope, #arg_ident) {
+        let #arg_ident = match #deno_core::_ops::serde_v8_to_rust(#scope, #arg_ident) {
           Ok(t) => t,
           Err(#err) => {
             #throw_exception;
@@ -449,11 +450,19 @@ pub fn return_value_infallible(
     Arg::SerdeV8(_class) => {
       *needs_retval = true;
       *needs_scope = true;
+
+      let deno_core = deno_core.clone();
+      let scope = scope.clone();
+      let result = result.clone();
+      let retval = retval.clone();
+      let err = format_ident!("{}_err", retval);
+      let throw_exception = throw_type_error_string(generator_state, &err)?;
+
       quote! {
-        let #result = match #deno_core::_ops::serde_rust_to_v8(scope, #result) {
+        let #result = match #deno_core::_ops::serde_rust_to_v8(#scope, #result) {
           Ok(t) => t,
-          Err(err) => {
-            unimplemented!()
+          Err(#err) => {
+            #throw_exception
           }
         };
         #retval.set(#result.into())
