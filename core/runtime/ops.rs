@@ -766,7 +766,9 @@ mod tests {
     o: &v8::Object,
   ) -> Result<v8::Local<'s, v8::Value>, AnyError> {
     let key = v8::String::new(scope, "key").unwrap().into();
-    o.get(scope, key).ok_or(generic_error("error!!!"))
+    o.get(scope, key)
+      .filter(|v| !v.is_null_or_undefined())
+      .ok_or(generic_error("error!!!"))
   }
 
   #[tokio::test]
@@ -796,9 +798,17 @@ mod tests {
         "{'no_key': 'abc'}",
         "null",
       ),
+      (
+        "op_test_v8_type_handle_scope_result",
+        "{'key': 'abc'}",
+        "'abc'",
+      ),
     ] {
       run_test2(1, a, &format!("assert({a}({b}) == {c})"))?;
     }
+
+    // Test the error case for op_test_v8_type_handle_scope_result
+    run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
     Ok(())
   }
 
