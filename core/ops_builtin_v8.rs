@@ -78,26 +78,27 @@ pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct EvalContextError<'s> {
+pub struct EvalContextError<'s> {
   thrown: serde_v8::Value<'s>,
   is_native_error: bool,
   is_compile_error: bool,
 }
 
 #[derive(Serialize)]
-struct EvalContextResult<'s>(
+pub struct EvalContextResult<'s>(
   Option<serde_v8::Value<'s>>,
   Option<EvalContextError<'s>>,
 );
 
-#[op(v8)]
-fn op_eval_context<'a>(
+#[op2(core)]
+#[serde]
+pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
-  source: serde_v8::Value<'a>,
-  specifier: String,
+  source: v8::Local<'a, v8::Value>,
+  #[string] specifier: String,
 ) -> Result<EvalContextResult<'a>, Error> {
   let tc_scope = &mut v8::TryCatch::new(scope);
-  let source = v8::Local::<v8::String>::try_from(source.v8_value)
+  let source = v8::Local::<v8::String>::try_from(source)
     .map_err(|_| type_error("Invalid source"))?;
   let specifier = resolve_url(&specifier)?.to_string();
   let specifier = v8::String::new(tc_scope, &specifier).unwrap();
@@ -153,12 +154,12 @@ pub fn op_create_host_object<'a>(
   template.new_instance(scope).unwrap()
 }
 
-#[op(v8)]
-fn op_encode<'a>(
+#[op2(core)]
+pub fn op_encode<'a>(
   scope: &mut v8::HandleScope<'a>,
-  text: serde_v8::Value<'a>,
-) -> Result<serde_v8::Value<'a>, Error> {
-  let text = v8::Local::<v8::String>::try_from(text.v8_value)
+  text: v8::Local<'a, v8::Value>,
+) -> Result<v8::Local<'a, v8::Uint8Array>, Error> {
+  let text = v8::Local::<v8::String>::try_from(text)
     .map_err(|_| type_error("Invalid argument"))?;
   let text_str = serde_v8::to_utf8(text, scope);
   let bytes = text_str.into_bytes();
@@ -167,7 +168,7 @@ fn op_encode<'a>(
     v8::ArrayBuffer::new_backing_store_from_vec(bytes).make_shared();
   let buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store);
   let u8array = v8::Uint8Array::new(scope, buffer, 0, len).unwrap();
-  Ok((from_v8(scope, u8array.into()))?)
+  Ok(u8array)
 }
 
 #[op(v8)]
@@ -651,12 +652,13 @@ fn op_get_non_index_property_names<'a>(
   }
 }
 
-#[op(v8)]
-fn op_get_constructor_name<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  obj: serde_v8::Value<'a>,
+#[op2(core)]
+#[string]
+pub fn op_get_constructor_name(
+  scope: &mut v8::HandleScope,
+  obj: v8::Local<v8::Value>,
 ) -> Option<String> {
-  let obj = match v8::Local::<v8::Object>::try_from(obj.v8_value) {
+  let obj = match v8::Local::<v8::Object>::try_from(obj) {
     Ok(proxy) => proxy,
     Err(_) => return None,
   };
@@ -668,7 +670,7 @@ fn op_get_constructor_name<'a>(
 // HeapStats stores values from a isolate.get_heap_statistics() call
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MemoryUsage {
+pub struct MemoryUsage {
   physical_total: usize,
   heap_total: usize,
   heap_used: usize,
@@ -678,8 +680,9 @@ struct MemoryUsage {
   // array_buffers: usize,
 }
 
-#[op(v8)]
-fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
+#[op2(core)]
+#[serde]
+pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
   let mut s = v8::HeapStatistics::default();
   scope.get_heap_statistics(&mut s);
   MemoryUsage {
