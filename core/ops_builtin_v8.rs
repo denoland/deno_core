@@ -162,6 +162,7 @@ pub fn op_encode<'a>(
   Ok(u8array)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by buffer support
 #[op(v8)]
 fn op_decode<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -352,6 +353,7 @@ struct SerializeDeserializeOptions<'a> {
   for_storage: bool,
 }
 
+// TODO(bartlomieju): migration to op2 blocked by buffer support
 #[op(v8)]
 fn op_serialize(
   scope: &mut v8::HandleScope,
@@ -440,6 +442,7 @@ fn op_serialize(
   }
 }
 
+// TODO(bartlomieju): migration to op2 blocked by buffer support
 #[op(v8)]
 fn op_deserialize<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -515,6 +518,7 @@ fn op_deserialize<'a>(
 #[derive(Serialize)]
 struct PromiseDetails<'s>(u32, Option<serde_v8::Value<'s>>);
 
+// TODO(bartlomieju): migration to op2 blocked by tuple support
 #[op(v8)]
 fn op_get_promise_details<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -583,6 +587,8 @@ pub fn op_set_promise_hooks(
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// TODO(bartlomieju): migration to op2 blocked by tuple support
 #[op(v8)]
 fn op_get_proxy_details<'a>(
   scope: &mut v8::HandleScope<'a>,
