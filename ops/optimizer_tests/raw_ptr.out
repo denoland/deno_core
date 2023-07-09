@@ -11,11 +11,14 @@ where
     FP: FfiPermissions + 'static,
 {
     const NAME: &'static str = stringify!(op_ffi_ptr_of);
-    const DECL: deno_core::OpDecl = deno_core::OpDecl {
-        name: Self::name(),
-        v8_fn_ptr: Self::v8_fn_ptr as _,
-        enabled: true,
-        fast_fn: {
+    const DECL: deno_core::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        Self::name(),
+        false,
+        false,
+        false,
+        2usize as u8,
+        Self::v8_fn_ptr as _,
+        {
             use deno_core::v8::fast_api::CType;
             use deno_core::v8::fast_api::Type::*;
             Some(
@@ -31,11 +34,7 @@ where
                 ),
             )
         },
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: 0,
-    };
+    );
 }
 #[doc(hidden)]
 impl<FP> op_ffi_ptr_of<FP>
@@ -55,32 +54,9 @@ where
         let rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
         Self::v8_func(scope, args, rv);
     }
-    pub const fn decl() -> deno_core::OpDecl {
-        deno_core::OpDecl {
-            name: Self::name(),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: {
-                use deno_core::v8::fast_api::CType;
-                use deno_core::v8::fast_api::Type::*;
-                Some(
-                    deno_core::v8::fast_api::FastFunction::new(
-                        &[
-                            V8Value,
-                            TypedArray(CType::Uint8),
-                            TypedArray(CType::Uint32),
-                            CallbackOptions,
-                        ],
-                        CType::Void,
-                        Self::op_ffi_ptr_of_fast_fn as *const ::std::ffi::c_void,
-                    ),
-                )
-            },
-            is_async: false,
-            is_unstable: false,
-            is_v8: false,
-            arg_count: 2usize as u8,
-        }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
     }
     #[inline]
     #[allow(clippy::too_many_arguments)]

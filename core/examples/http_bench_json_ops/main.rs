@@ -5,6 +5,7 @@ use deno_core::AsyncRefCell;
 use deno_core::AsyncResult;
 use deno_core::JsBuffer;
 use deno_core::JsRuntimeForSnapshot;
+use deno_core::Op;
 use deno_core::OpState;
 use deno_core::Resource;
 use deno_core::ResourceId;
@@ -96,10 +97,10 @@ impl From<tokio::net::TcpStream> for TcpStream {
 fn create_js_runtime() -> JsRuntimeForSnapshot {
   let ext = deno_core::Extension::builder("my_ext")
     .ops(vec![
-      op_listen::decl(),
-      op_accept::decl(),
-      op_try_write::decl(),
-      op_read_socket::decl(),
+      op_listen::DECL,
+      op_accept::DECL,
+      op_try_write::DECL,
+      op_read_socket::DECL,
     ])
     .build();
 

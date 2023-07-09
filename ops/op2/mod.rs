@@ -238,16 +238,15 @@ fn generate_op2(
 
     impl <#(#generic : #bound),*> #deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl {
-        name: stringify!(#name),
-        v8_fn_ptr: Self::#slow_function as _,
-        enabled: true,
-        fast_fn: #fast_definition,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: #arg_count as u8,
-      };
+      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal(
+        /*name*/ stringify!(#name),
+        /*is_async*/ false,
+        /*is_unstable*/ false,
+        /*is_v8*/ false,
+        /*arg_count*/ #arg_count as u8,
+        /*v8_fn_ptr*/ Self::#slow_function as _,
+        /*fast_fn*/ #fast_definition,
+      );
     }
 
     impl <#(#generic : #bound),*> #name <#(#generic),*> {
@@ -255,17 +254,9 @@ fn generate_op2(
         stringify!(#name)
       }
 
+      #[deprecated(note = "Use the const op::DECL instead")]
       pub const fn decl() -> #deno_core::_ops::OpDecl {
-        #deno_core::_ops::OpDecl {
-          name: stringify!(#name),
-          v8_fn_ptr: Self::#slow_function as _,
-          enabled: true,
-          fast_fn: #fast_definition,
-          is_async: false,
-          is_unstable: false,
-          is_v8: false,
-          arg_count: #arg_count as u8,
-        }
+        <Self as #deno_core::_ops::Op>::DECL
       }
 
       #fast_fn

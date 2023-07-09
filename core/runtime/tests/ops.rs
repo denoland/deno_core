@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate as deno_core;
+use crate::extensions::Op;
 use crate::extensions::OpDecl;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
@@ -187,7 +188,7 @@ fn test_op_disabled() {
   }
 
   fn ops() -> Vec<OpDecl> {
-    vec![op_foo::decl().disable()]
+    vec![op_foo::DECL.disable()]
   }
 
   deno_core::extension!(test_ext, ops_fn = ops);

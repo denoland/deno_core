@@ -63,6 +63,7 @@ pub use crate::extensions::Extension;
 pub use crate::extensions::ExtensionBuilder;
 pub use crate::extensions::ExtensionFileSource;
 pub use crate::extensions::ExtensionFileSourceCode;
+pub use crate::extensions::Op;
 pub use crate::extensions::OpDecl;
 pub use crate::extensions::OpMiddlewareFn;
 pub use crate::fast_string::FastString;
