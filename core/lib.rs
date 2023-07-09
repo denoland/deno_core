@@ -138,19 +138,7 @@ pub mod _ops {
   pub use super::ops::to_op_result;
   pub use super::ops::OpCtx;
   pub use super::ops::OpResult;
-  pub use super::runtime::ops::map_async_op1;
-  pub use super::runtime::ops::map_async_op2;
-  pub use super::runtime::ops::map_async_op3;
-  pub use super::runtime::ops::map_async_op4;
-  pub use super::runtime::ops::queue_async_op;
-  pub use super::runtime::ops::queue_fast_async_op;
-  pub use super::runtime::ops::serde_rust_to_v8;
-  pub use super::runtime::ops::serde_v8_to_rust;
-  pub use super::runtime::ops::to_i32;
-  pub use super::runtime::ops::to_str;
-  pub use super::runtime::ops::to_str_ptr;
-  pub use super::runtime::ops::to_string_ptr;
-  pub use super::runtime::ops::to_u32;
+  pub use super::runtime::ops::*;
   pub use super::runtime::V8_WRAPPER_OBJECT_INDEX;
   pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
 }

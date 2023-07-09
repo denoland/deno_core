@@ -1,4 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::dispatch_shared::v8_intermediate_to_arg;
+use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::NumericArg;
@@ -196,9 +198,16 @@ pub fn generate_dispatch_fast(
     .collect::<Vec<_>>();
 
   let call_idents = names.clone();
-  let call_args = zip(names.iter(), signature.args.iter())
-    .map(|(name, arg)| map_v8_fastcall_arg_to_arg(deno_core, name, arg))
-    .collect::<Vec<_>>();
+  let mut call_args = vec![];
+  for (name, arg) in zip(names.iter(), signature.args.iter()) {
+    call_args.push(map_v8_fastcall_arg_to_arg(
+      deno_core,
+      fast_api_callback_options,
+      needs_fast_api_callback_options,
+      name,
+      arg,
+    )?)
+  }
 
   let with_fast_api_callback_options = if *needs_fast_api_callback_options {
     types.push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
@@ -239,11 +248,13 @@ pub fn generate_dispatch_fast(
 
 fn map_v8_fastcall_arg_to_arg(
   deno_core: &TokenStream,
+  fast_api_callback_options: &Ident,
+  needs_fast_api_callback_options: &mut bool,
   arg_ident: &Ident,
   arg: &Arg,
-) -> TokenStream {
+) -> Result<TokenStream, V8MappingError> {
   let arg_temp = format_ident!("{}_temp", arg_ident);
-  match arg {
+  let res = match arg {
     Arg::Special(Special::RefStr) => {
       quote! {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
@@ -259,8 +270,33 @@ fn map_v8_fastcall_arg_to_arg(
         let #arg_ident = #deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
     }
+    Arg::V8Local(v8)
+    | Arg::OptionV8Local(v8)
+    | Arg::V8Ref(_, v8)
+    | Arg::OptionV8Ref(_, v8) => {
+      let arg_ident = arg_ident.clone();
+      let deno_core = deno_core.clone();
+      // Note that we only request callback options if we were required to provide a type error
+      let throw_type_error = || {
+        *needs_fast_api_callback_options = true;
+        Ok(quote! {
+          #fast_api_callback_options.fallback = true;
+          return ::std::default::Default::default();
+        })
+      };
+      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
+      v8_to_arg(
+        v8,
+        &arg_ident,
+        arg,
+        &deno_core,
+        throw_type_error,
+        extract_intermediate,
+      )?
+    }
     _ => quote!(let #arg_ident = #arg_ident as _;),
-  }
+  };
+  Ok(res)
 }
 
 fn map_arg_to_v8_fastcall_type(
@@ -268,12 +304,13 @@ fn map_arg_to_v8_fastcall_type(
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
     Arg::OptionNumeric(_) | Arg::SerdeV8(_) | Arg::Ref(..) => return Ok(None),
+    // We don't support v8 global arguments
+    Arg::V8Global(_) => return Ok(None),
     // We don't support v8 type arguments
     Arg::V8Ref(..)
-    | Arg::V8Global(_)
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
-    | Arg::OptionV8Ref(..) => return Ok(None),
+    | Arg::OptionV8Ref(..) => V8FastCallType::V8Value,
 
     Arg::Numeric(NumericArg::bool) => V8FastCallType::Bool,
     Arg::Numeric(NumericArg::u32)
