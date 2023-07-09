@@ -301,6 +301,34 @@ pub fn to_str<'a, const N: usize>(
   string.to_rust_cow_lossy(scope, buffer)
 }
 
+/// Converts from a raw [`v8::Value`] to the expected V8 data type.
+#[inline(always)]
+#[allow(clippy::result_unit_err)]
+pub fn v8_try_convert<'a, T>(
+  value: v8::Local<'a, v8::Value>,
+) -> Result<v8::Local<'a, T>, ()>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+{
+  v8::Local::<T>::try_from(value).map_err(drop)
+}
+
+/// Converts from a raw [`v8::Value`] to the expected V8 data type, wrapped in an [`Option`].
+#[inline(always)]
+#[allow(clippy::result_unit_err)]
+pub fn v8_try_convert_option<'a, T>(
+  value: v8::Local<'a, v8::Value>,
+) -> Result<Option<v8::Local<'a, T>>, ()>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+{
+  if value.is_null_or_undefined() {
+    Ok(None)
+  } else {
+    Ok(Some(v8::Local::<T>::try_from(value).map_err(drop)?))
+  }
+}
+
 pub fn serde_rust_to_v8<'a, T: Serialize>(
   scope: &mut v8::HandleScope<'a>,
   input: T,
@@ -698,7 +726,7 @@ mod tests {
 
   /// Tests v8 types without a handle scope
   #[allow(clippy::needless_lifetimes)]
-  #[op2(core)]
+  #[op2(core, fast)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
     s2: v8::Local<v8::String>,
@@ -713,7 +741,7 @@ mod tests {
     }
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   pub fn op_test_v8_option_string(s: Option<&v8::String>) -> i32 {
     if let Some(s) = s {
       s.length() as i32
@@ -775,15 +803,21 @@ mod tests {
   pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
     for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
       run_test2(
-        1,
+        10000,
         "op_test_v8_types",
         &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
       )?;
     }
+    // Fast ops
     for (a, b, c) in [
-      ("op_test_v8_type_return", "'xyz'", "'xyz'"),
       ("op_test_v8_option_string", "'xyz'", "3"),
       ("op_test_v8_option_string", "null", "-1"),
+    ] {
+      run_test2(10000, a, &format!("assert({a}({b}) == {c})"))?;
+    }
+    // Non-fast ops
+    for (a, b, c) in [
+      ("op_test_v8_type_return", "'xyz'", "'xyz'"),
       ("op_test_v8_type_return_option", "'xyz'", "'xyz'"),
       ("op_test_v8_type_return_option", "null", "null"),
       ("op_test_v8_type_handle_scope", "'xyz'", "'xyz'"),

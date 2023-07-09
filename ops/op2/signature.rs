@@ -2,8 +2,11 @@
 use deno_proc_macro_rules::rules;
 use proc_macro2::Ident;
 use proc_macro2::Span;
+use proc_macro2::TokenStream;
+use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
+use quote::TokenStreamExt;
 use std::collections::BTreeMap;
 use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
@@ -102,6 +105,13 @@ pub enum V8Arg {
   Uint32,
 }
 
+impl ToTokens for V8Arg {
+  fn to_tokens(&self, tokens: &mut TokenStream) {
+    let v8: &'static str = self.into();
+    tokens.append(format_ident!("{v8}"))
+  }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Special {
   HandleScope,
@@ -159,6 +169,37 @@ impl Arg {
       ) => true,
       _ => false,
     }
+  }
+
+  /// Convert the [`Arg`] into a [`TokenStream`] representing the fully-qualified type.
+  #[allow(unused)] // unused for now but keeping
+  pub fn type_token(&self, deno_core: &TokenStream) -> TokenStream {
+    match self {
+      Arg::V8Ref(RefType::Ref, v8) => quote!(&#deno_core::v8::#v8),
+      Arg::V8Ref(RefType::Mut, v8) => quote!(&mut #deno_core::v8::#v8),
+      Arg::V8Local(v8) => quote!(#deno_core::v8::Local<#deno_core::v8::#v8>),
+      Arg::OptionV8Ref(RefType::Ref, v8) => {
+        quote!(::std::option::Option<&#deno_core::v8::#v8>)
+      }
+      Arg::OptionV8Ref(RefType::Mut, v8) => {
+        quote!(::std::option::Option<&mut #deno_core::v8::#v8>)
+      }
+      Arg::OptionV8Local(v8) => {
+        quote!(::std::option::Option<#deno_core::v8::Local<#deno_core::v8::#v8>>)
+      }
+      _ => todo!(),
+    }
+  }
+
+  /// Is this type an [`Option`]?
+  pub fn is_option(&self) -> bool {
+    matches!(
+      self,
+      Arg::OptionV8Ref(..)
+        | Arg::OptionV8Local(..)
+        | Arg::OptionNumeric(..)
+        | Arg::Option(..)
+    )
   }
 }
 

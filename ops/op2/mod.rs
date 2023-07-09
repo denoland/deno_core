@@ -26,6 +26,7 @@ use self::signature::Arg;
 use self::signature::SignatureError;
 
 pub mod dispatch_fast;
+pub mod dispatch_shared;
 pub mod dispatch_slow;
 pub mod generator_state;
 pub mod signature;

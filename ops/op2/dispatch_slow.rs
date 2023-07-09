@@ -1,12 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::dispatch_shared::v8_intermediate_to_arg;
+use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
-use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
-use super::signature::V8Arg;
 use super::MacroConfig;
 use super::V8MappingError;
 use proc_macro2::Ident;
@@ -250,49 +250,23 @@ pub fn from_arg(
       *needs_scope = true;
       quote!(let #arg_ident = &mut #scope;)
     }
-    Arg::V8Ref(_, v8) => {
+    Arg::V8Local(v8)
+    | Arg::OptionV8Local(v8)
+    | Arg::V8Ref(_, v8)
+    | Arg::OptionV8Ref(_, v8) => {
       let arg_ident = arg_ident.clone();
-      let arg = from_v8_arg(generator_state, v8, &arg_ident)?;
-      quote! {
-        #arg;
-        let #arg_ident = &#arg_ident;
-      }
-    }
-    Arg::V8Local(v8) => {
-      let arg_ident = arg_ident.clone();
-      from_v8_arg(generator_state, v8, &arg_ident)?
-    }
-    Arg::OptionV8Ref(RefType::Ref, v8) => {
-      let arg_ident = arg_ident.clone();
-      let arg = from_arg(generator_state, index, &Arg::OptionV8Local(*v8))?;
-      quote! {
-        // First get the Option<Local>
-        #arg;
-        // Then map the reference
-        let #arg_ident = #arg_ident.as_ref().map(|v| ::std::ops::Deref::deref(v));
-      }
-    }
-    Arg::OptionV8Ref(RefType::Mut, v8) => {
-      let arg_ident = arg_ident.clone();
-      let arg = from_arg(generator_state, index, &Arg::OptionV8Local(*v8))?;
-      quote! {
-        // First get the Option<Local>
-        #arg;
-        // Then map the reference
-        let #arg_ident = #arg_ident.as_mut().map(|v| ::std::ops::DerefMut::deref_mut(v));
-      }
-    }
-    Arg::OptionV8Local(v8) => {
-      let arg_ident = arg_ident.clone();
-      let arg = from_v8_arg(generator_state, v8, &arg_ident)?;
-      quote! {
-        let #arg_ident = if #arg_ident.is_null_or_undefined() {
-          None
-        } else {
-          #arg;
-          Some(#arg_ident)
-        };
-      }
+      let deno_core = deno_core.clone();
+      let throw_type_error =
+        throw_type_error(generator_state, format!("expected {v8:?}"))?;
+      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
+      v8_to_arg(
+        v8,
+        &arg_ident,
+        arg,
+        &deno_core,
+        throw_type_error,
+        extract_intermediate,
+      )?
     }
     Arg::SerdeV8(_class) => {
       *needs_scope = true;
@@ -313,32 +287,6 @@ pub fn from_arg(
     _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
-}
-
-/// Generates a v8::Value of the correct type for the required V8Arg, throwing an exception if the
-/// type cannot be cast.
-fn from_v8_arg(
-  generator_state: &mut GeneratorState,
-  v8: &V8Arg,
-  arg_ident: &Ident,
-) -> Result<TokenStream, V8MappingError> {
-  let GeneratorState {
-    deno_core,
-    needs_scope,
-    ..
-  } = generator_state;
-
-  *needs_scope = true;
-  let v8: &'static str = v8.into();
-  let deno_core = deno_core.clone();
-  let throw_type_error =
-    throw_type_error(generator_state, format!("expected v8::{}", v8))?;
-  let v8 = format_ident!("{}", v8);
-  Ok(quote! {
-    let Ok(mut #arg_ident) = #deno_core::v8::Local::<#deno_core::v8::#v8>::try_from(#arg_ident) else {
-      #throw_type_error
-    };
-  })
 }
 
 pub fn call(
