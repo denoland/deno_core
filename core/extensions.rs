@@ -79,24 +79,60 @@ pub type GlobalTemplateMiddlewareFn =
 pub type GlobalObjectMiddlewareFn =
   dyn for<'s> Fn(&mut v8::HandleScope<'s>, v8::Local<'s, v8::Object>);
 
+#[derive(Copy, Clone)]
 pub struct OpDecl {
   pub name: &'static str,
-  pub v8_fn_ptr: OpFnRef,
   pub enabled: bool,
   pub is_async: bool,
   pub is_unstable: bool,
   pub is_v8: bool,
   pub arg_count: u8,
-  pub fast_fn: Option<FastFunction>,
+  pub(crate) v8_fn_ptr: OpFnRef,
+  pub(crate) fast_fn: Option<FastFunction>,
 }
 
 impl OpDecl {
-  pub fn enabled(self, enabled: bool) -> Self {
+  /// For use by internal op implementation only.
+  #[doc(hidden)]
+  pub const fn new_internal(
+    name: &'static str,
+    is_async: bool,
+    is_unstable: bool,
+    is_v8: bool,
+    arg_count: u8,
+    v8_fn_ptr: OpFnRef,
+    fast_fn: Option<FastFunction>,
+  ) -> Self {
+    Self {
+      name,
+      enabled: true,
+      is_async,
+      is_unstable,
+      is_v8,
+      arg_count,
+      v8_fn_ptr,
+      fast_fn,
+    }
+  }
+
+  /// Returns a copy of this `OpDecl` with `enabled` set to the given state.
+  pub const fn enabled(self, enabled: bool) -> Self {
     Self { enabled, ..self }
   }
 
-  pub fn disable(self) -> Self {
+  /// Returns a copy of this `OpDecl` with `enabled` set to `false`.
+  pub const fn disable(self) -> Self {
     self.enabled(false)
+  }
+
+  /// Returns a copy of this `OpDecl` with the implementation function set to the function from another
+  /// `OpDecl`.
+  pub const fn with_implementation_from(self, from: &Self) -> Self {
+    Self {
+      v8_fn_ptr: from.v8_fn_ptr,
+      fast_fn: from.fast_fn,
+      ..self
+    }
   }
 }
 
@@ -151,8 +187,9 @@ macro_rules! ops {
   };
   ($name:ident, [ $( $(#[$m:meta])* $( $op:ident )::+ ),+ $(,)? ] ) => {
     pub(crate) fn $name() -> Vec<$crate::OpDecl> {
+      use $crate::Op;
       vec![
-        $( $( #[ $m ] )* $( $op )::+ :: decl(), )+
+        $( $( #[ $m ] )* $( $op )::+ :: DECL, )+
       ]
     }
   }
@@ -251,10 +288,11 @@ macro_rules! extension {
       {
         // If individual ops are specified, roll them up into a vector and apply them
         $(
+          use $crate::Op;
           ext.ops(vec![
             $(
               $( #[ $m ] )*
-              $( $op )::+ $( :: < $($op_param),* > )? :: decl ()
+              $( $op )::+ $( :: < $($op_param),* > )? :: DECL
             ),+
           ]);
         )?

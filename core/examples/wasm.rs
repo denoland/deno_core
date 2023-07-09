@@ -3,6 +3,7 @@
 use deno_core::op;
 use deno_core::Extension;
 use deno_core::JsRuntime;
+use deno_core::Op;
 use deno_core::RuntimeOptions;
 use std::mem::transmute;
 use std::ptr::NonNull;
@@ -52,7 +53,7 @@ fn op_set_wasm_mem(
 fn main() {
   // Build a deno_core::Extension providing custom ops
   let ext = Extension::builder("my_ext")
-    .ops(vec![op_wasm::decl(), op_set_wasm_mem::decl()])
+    .ops(vec![op_wasm::DECL, op_set_wasm_mem::DECL])
     .build();
 
   // Initialize a runtime instance

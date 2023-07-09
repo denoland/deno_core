@@ -4,6 +4,7 @@ use deno_core::anyhow::Error;
 use deno_core::op;
 use deno_core::Extension;
 use deno_core::JsRuntime;
+use deno_core::Op;
 use deno_core::OpState;
 use deno_core::RuntimeOptions;
 use futures::channel::mpsc;
@@ -19,7 +20,7 @@ type Task = Box<dyn FnOnce()>;
 
 fn main() {
   let my_ext = Extension::builder("my_ext")
-    .ops(vec![op_schedule_task::decl()])
+    .ops(vec![op_schedule_task::DECL])
     .event_loop_middleware(|state_rc, cx| {
       let mut state = state_rc.borrow_mut();
       let recv = state.borrow_mut::<mpsc::UnboundedReceiver<Task>>();

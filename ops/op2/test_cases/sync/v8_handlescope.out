@@ -4,32 +4,23 @@ struct op_handlescope {
 }
 impl deno_core::_ops::Op for op_handlescope {
     const NAME: &'static str = stringify!(op_handlescope);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl {
-        name: stringify!(op_handlescope),
-        v8_fn_ptr: Self::v8_fn_ptr as _,
-        enabled: true,
-        fast_fn: None,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: 2usize as u8,
-    };
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_handlescope),
+        false,
+        false,
+        false,
+        2usize as u8,
+        Self::v8_fn_ptr as _,
+        None,
+    );
 }
 impl op_handlescope {
     pub const fn name() -> &'static str {
         stringify!(op_handlescope)
     }
+    #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
-        deno_core::_ops::OpDecl {
-            name: stringify!(op_handlescope),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: None,
-            is_async: false,
-            is_unstable: false,
-            is_v8: false,
-            arg_count: 2usize as u8,
-        }
+        <Self as deno_core::_ops::Op>::DECL
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
