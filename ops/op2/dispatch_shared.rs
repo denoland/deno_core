@@ -33,7 +33,7 @@ pub fn v8_to_arg(
   arg_ident: &Ident,
   arg: &Arg,
   deno_core: &TokenStream,
-  throw_type_error: TokenStream,
+  mut throw_type_error: impl FnMut() -> Result<TokenStream, V8MappingError>,
   extract_intermediate: TokenStream,
 ) -> Result<TokenStream, V8MappingError> {
   let try_convert = format_ident!(
@@ -44,9 +44,14 @@ pub fn v8_to_arg(
       "v8_try_convert"
     }
   );
+  let throw_type_error_block = if *v8 == V8Arg::Value {
+    quote!(unreachable!())
+  } else {
+    throw_type_error()?
+  };
   Ok(quote! {
     let Ok(mut #arg_ident) = #deno_core::_ops::#try_convert::<#deno_core::v8::#v8>(#arg_ident) else {
-      #throw_type_error
+      #throw_type_error_block
     };
     #extract_intermediate
   })

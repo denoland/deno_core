@@ -274,12 +274,15 @@ fn map_v8_fastcall_arg_to_arg(
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(_, v8)
     | Arg::OptionV8Ref(_, v8) => {
-      *needs_fast_api_callback_options = true;
       let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
-      let throw_type_error = quote! {
-        #fast_api_callback_options.fallback = true;
-        return ::std::default::Default::default();
+      // Note that we only request callback options if we were required to provide a type error
+      let throw_type_error = || {
+        *needs_fast_api_callback_options = true;
+        Ok(quote! {
+          #fast_api_callback_options.fallback = true;
+          return ::std::default::Default::default();
+        })
       };
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(

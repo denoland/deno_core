@@ -257,7 +257,7 @@ pub fn from_arg(
       let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
       let throw_type_error =
-        throw_type_error(generator_state, format!("expected {v8:?}"))?;
+        || throw_type_error(generator_state, format!("expected {v8:?}"));
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(
         v8,
