@@ -635,6 +635,9 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
   if let Some(primary) = attrs.primary {
     match primary {
       AttributeModifier::Serde => match ty {
+        Type::Tuple(of) => {
+          return Ok(Arg::SerdeV8(stringify_token(of)));
+        }
         Type::Path(of) => {
           // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
           if parse_type_path(Attributes::default(), false, of).is_ok() {
@@ -850,6 +853,10 @@ mod tests {
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
     (SerdeV8("package::SerdeInputType")) -> Result(SerdeV8("package::SerdeReturnType"))
+  );
+  test!(
+    #[serde] fn op_serde_tuple(#[serde] input: (A, B)) -> (A, B);
+    (SerdeV8("(A , B)")) -> Infallible(SerdeV8("(A , B)"))
   );
   test!(
     fn op_local(input: v8::Local<v8::String>) -> Result<v8::Local<v8::String>, Error>;
