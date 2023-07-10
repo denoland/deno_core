@@ -345,7 +345,8 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
 
 #[cfg(test)]
 mod tests {
-  use crate::error::generic_error;
+  use crate::OpState;
+use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
   use crate::FastString;
@@ -356,6 +357,8 @@ mod tests {
   use serde::Serialize;
   use std::borrow::Cow;
   use std::cell::Cell;
+use std::cell::RefCell;
+use std::rc::Rc;
 
   crate::extension!(
     testing,
@@ -872,4 +875,7 @@ mod tests {
     )?;
     Ok(())
   }
+
+  #[op2(core, fast)]
+  pub fn op_state_rc(state: Rc<RefCell<OpState>>) {}
 }

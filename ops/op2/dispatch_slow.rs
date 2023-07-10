@@ -7,6 +7,7 @@ use super::signature::NumericArg;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
 use super::signature::Special;
+use super::signature::RefType;
 use super::MacroConfig;
 use super::V8MappingError;
 use proc_macro2::Ident;
@@ -64,6 +65,12 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
+  let with_opstate = if generator_state.needs_opstate {
+    with_opstate(generator_state)
+  } else {
+    quote!()
+  };
+
   let with_opctx = if generator_state.needs_opctx {
     with_opctx(generator_state)
   } else {
@@ -95,6 +102,7 @@ pub(crate) fn generate_dispatch_slow(
     #with_retval
     #with_args
     #with_opctx
+    #with_opstate
 
     #output
   }})
@@ -149,6 +157,18 @@ fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
   };)
 }
 
+fn with_opstate(generator_state: &mut GeneratorState) -> TokenStream {
+  let GeneratorState {
+    opctx,
+    opstate,
+    needs_opctx,
+    ..
+  } = generator_state;
+
+  *needs_opctx = true;
+  quote!(let #opstate = &#opctx.state;)
+}
+
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
   index: usize,
@@ -171,7 +191,9 @@ pub fn from_arg(
     deno_core,
     args,
     scope,
+    opstate,
     needs_scope,
+    needs_opstate,
     ..
   } = &mut generator_state;
   let arg_ident = args.get_mut(index).expect("Argument at index was missing");
@@ -249,6 +271,16 @@ pub fn from_arg(
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
       quote!(let #arg_ident = &mut #scope;)
+    }
+    Arg::Ref(RefType::Ref, Special::OpState) => {
+      quote!(let #arg_ident = #opstate.borrow();)
+    }
+    Arg::Ref(RefType::Mut, Special::OpState) => {
+      quote!(let #arg_ident = #opstate.borrow_mut();)
+    }
+    Arg::RcRefCell(Special::OpState) => {
+      *needs_opstate = true;
+      quote!(let #arg_ident = #opstate.clone();)
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
