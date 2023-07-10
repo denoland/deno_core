@@ -287,8 +287,8 @@ pub fn from_arg(
     }
     Arg::State(RefType::Ref, state) => {
       *needs_opstate = true;
-      let state = syn2::parse_str::<Type>(state)
-        .expect(&format!("Failed to reparse state type '{state}'"));
+      let state =
+        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let #arg_ident = #opstate.borrow();
         let #arg_ident = #arg_ident.borrow::<#state>();
@@ -296,8 +296,8 @@ pub fn from_arg(
     }
     Arg::State(RefType::Mut, state) => {
       *needs_opstate = true;
-      let state = syn2::parse_str::<Type>(state)
-        .expect(&format!("Failed to reparse state type '{state}'"));
+      let state =
+        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let mut #arg_ident = #opstate.borrow_mut();
         let #arg_ident = #arg_ident.borrow_mut::<#state>();
@@ -305,8 +305,8 @@ pub fn from_arg(
     }
     Arg::OptionState(RefType::Ref, state) => {
       *needs_opstate = true;
-      let state = syn2::parse_str::<Type>(state)
-        .expect(&format!("Failed to reparse state type '{state}'"));
+      let state =
+        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let #arg_ident = #opstate.borrow();
         let #arg_ident = #arg_ident.try_borrow::<#state>();
@@ -314,8 +314,8 @@ pub fn from_arg(
     }
     Arg::OptionState(RefType::Mut, state) => {
       *needs_opstate = true;
-      let state = syn2::parse_str::<Type>(state)
-        .expect(&format!("Failed to reparse state type '{state}'"));
+      let state =
+        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let mut #arg_ident = #opstate.borrow_mut();
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
