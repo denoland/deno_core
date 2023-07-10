@@ -32,25 +32,40 @@ unsafe impl Send for V8Slice {}
 
 impl V8Slice {
   fn as_slice(&self) -> &[u8] {
+    let store = &self.store;
+    let Some(ptr) = store.data() else {
+      return &[];
+    };
+    let ptr = ptr.cast::<u8>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
-    // We assume it's initialized and thus safe to read (though may not contain meaningful data)
-    unsafe { &*(&self.store[self.range.clone()] as *const _ as *const [u8]) }
+    // We assume it's initialized and thus safe to read (though may not contain
+    // meaningful data).
+    // Note that we are likely violating Rust's safety rules here by assuming
+    // nobody is mutating this buffer elsewhere, however in practice V8Slices
+    // do not have overlapping read/write phases.
+    unsafe {
+      let ptr = ptr.add(self.range.start);
+      std::slice::from_raw_parts(ptr, self.range.len())
+    }
   }
 
   fn as_slice_mut(&mut self) -> &mut [u8] {
-    #[allow(clippy::cast_ref_to_mut)]
+    let store = &self.store;
+    let Some(ptr) = store.data() else {
+      return &mut [];
+    };
+    let ptr = ptr.cast::<u8>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
-    // It's safe-ish to mutate concurrently because it can not be
-    // shrunk/grown/moved/reallocated, thus avoiding dangling refs (unlike a Vec).
-    // Concurrent writes can't lead to meaningful structural invalidation
-    // since we treat them as opaque buffers / "bags of bytes",
-    // concurrent mutation is simply an accepted fact of life.
-    // And in practice V8Slices also do not have overallping read/write phases.
-    // TLDR: permissive interior mutability on slices of bytes is "fine"
+    // We assume it's initialized and thus safe to read (though may not contain
+    // meaningful data).
+    // Note that we are likely violating Rust's safety rules here by assuming
+    // nobody is mutating this buffer elsewhere, however in practice V8Slices
+    // do not have overlapping read/write phases.
     unsafe {
-      &mut *(&self.store[self.range.clone()] as *const _ as *mut [u8])
+      let ptr = ptr.add(self.range.start);
+      std::slice::from_raw_parts_mut(ptr, self.range.len())
     }
   }
 }
