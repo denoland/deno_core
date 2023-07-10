@@ -14,6 +14,7 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use std::iter::zip;
+use syn2::Type;
 
 #[allow(unused)]
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -293,6 +294,42 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.state.clone();)
     }
+    Arg::State(RefType::Ref, state) => {
+      *needs_opctx = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let #arg_ident = #opctx.state.borrow();
+        let #arg_ident = #arg_ident.borrow::<#state>();
+      }
+    }
+    Arg::State(RefType::Mut, state) => {
+      *needs_opctx = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let mut #arg_ident = #opctx.state.borrow_mut();
+        let #arg_ident = #arg_ident.borrow_mut::<#state>();
+      }
+    }
+    Arg::OptionState(RefType::Ref, state) => {
+      *needs_opctx = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let #arg_ident = #opctx.state.borrow();
+        let #arg_ident = #arg_ident.try_borrow::<#state>();
+      }
+    }
+    Arg::OptionState(RefType::Mut, state) => {
+      *needs_opctx = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let mut #arg_ident = #opctx.state.borrow_mut();
+        let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
+      }
+    }
     Arg::Special(Special::RefStr) => {
       quote! {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
@@ -342,9 +379,10 @@ fn map_arg_to_v8_fastcall_type(
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
     // Virtual OpState arguments
-    Arg::RcRefCell(Special::OpState) | Arg::Ref(_, Special::OpState) => {
-      V8FastCallType::Virtual
-    }
+    Arg::RcRefCell(Special::OpState)
+    | Arg::Ref(_, Special::OpState)
+    | Arg::State(..)
+    | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(_) | Arg::SerdeV8(_) | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments

@@ -14,6 +14,7 @@ use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
+use syn2::Type;
 
 pub(crate) fn generate_dispatch_slow(
   config: &MacroConfig,
@@ -283,6 +284,42 @@ pub fn from_arg(
     Arg::RcRefCell(Special::OpState) => {
       *needs_opstate = true;
       quote!(let #arg_ident = #opstate.clone();)
+    }
+    Arg::State(RefType::Ref, state) => {
+      *needs_opstate = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let #arg_ident = #opstate.borrow();
+        let #arg_ident = #arg_ident.borrow::<#state>();
+      }
+    }
+    Arg::State(RefType::Mut, state) => {
+      *needs_opstate = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let mut #arg_ident = #opstate.borrow_mut();
+        let #arg_ident = #arg_ident.borrow_mut::<#state>();
+      }
+    }
+    Arg::OptionState(RefType::Ref, state) => {
+      *needs_opstate = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let #arg_ident = #opstate.borrow();
+        let #arg_ident = #arg_ident.try_borrow::<#state>();
+      }
+    }
+    Arg::OptionState(RefType::Mut, state) => {
+      *needs_opstate = true;
+      let state = syn2::parse_str::<Type>(state)
+        .expect(&format!("Failed to reparse state type '{state}'"));
+      quote! {
+        let mut #arg_ident = #opstate.borrow_mut();
+        let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
+      }
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
