@@ -21,6 +21,8 @@ pub struct GeneratorState {
   pub fn_args: Ident,
   /// The `OpCtx` used for various information required for some ops.
   pub opctx: Ident,
+  /// The `OpState` used for storing op state.
+  pub opstate: Ident,
   /// The `FastApiCallbackOptions` used in fast calls for fallback returns.
   pub fast_api_callback_options: Ident,
   /// The `v8::ReturnValue` used in the slow function

@@ -167,6 +167,11 @@ impl Arg {
         | Special::OpState
         | Special::HandleScope,
       ) => true,
+      Self::RcRefCell(
+        Special::FastApiCallbackOptions
+        | Special::OpState
+        | Special::HandleScope,
+      ) => true,
       _ => false,
     }
   }
@@ -575,10 +580,9 @@ fn parse_type_path(
   // Ensure that we have the correct reference state. This is a bit awkward but it's
   // the easiest way to work with the 'rules!' macro above.
   match res {
-    CBare(
-      TSpecial(Special::RefStr | Special::OpState | Special::HandleScope)
-      | TV8(_),
-    ) => {
+    // OpState appears in both ways
+    CBare(TSpecial(Special::OpState)) => {}
+    CBare(TSpecial(Special::RefStr | Special::HandleScope) | TV8(_)) => {
       if !is_ref {
         return Err(ArgError::MissingReference(stringify_token(tp)));
       }
@@ -891,7 +895,14 @@ mod tests {
     fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
     <'s> (Ref(Mut, HandleScope)) -> Infallible(Void)
   );
-
+  test!(
+    fn op_state_rc(state: Rc<RefCell<OpState>>);
+    (RcRefCell(OpState)) -> Infallible(Void)
+  );
+  test!(
+    fn op_state_ref(state: &OpState);
+    (Ref(Ref, OpState)) -> Infallible(Void)
+  );
   // Args
 
   expect_fail!(

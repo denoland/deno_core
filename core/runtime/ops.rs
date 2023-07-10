@@ -350,12 +350,15 @@ mod tests {
   use crate::error::JsError;
   use crate::FastString;
   use crate::JsRuntime;
+  use crate::OpState;
   use crate::RuntimeOptions;
   use deno_ops::op2;
   use serde::Deserialize;
   use serde::Serialize;
   use std::borrow::Cow;
   use std::cell::Cell;
+  use std::cell::RefCell;
+  use std::rc::Rc;
 
   crate::extension!(
     testing,
@@ -386,7 +389,13 @@ mod tests {
       op_test_v8_type_handle_scope_obj,
       op_test_v8_type_handle_scope_result,
       op_test_serde_v8,
-    ]
+      op_state_rc,
+      op_state_ref,
+      op_state_mut,
+    ],
+    state = |state| {
+      state.put(1234u32)
+    }
   );
 
   thread_local! {
@@ -870,6 +879,37 @@ mod tests {
       "op_test_serde_v8",
       "try { op_test_serde_v8({}); assert(false) } catch (e) { assert(String(e).indexOf('missing field') != -1) }",
     )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_rc(state: Rc<RefCell<OpState>>, value: u32) -> u32 {
+    let old_value: u32 = state.borrow_mut().take();
+    state.borrow_mut().put(value);
+    println!("{value} {old_value}");
+    old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_ref(state: &OpState) -> u32 {
+    let old_value: &u32 = state.borrow();
+    *old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_mut(state: &mut OpState, value: u32) {
+    *state.borrow_mut() = value;
+  }
+
+  #[tokio::test]
+  pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_state_rc",
+      "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
+    )?;
+    run_test2(10000, "op_state_mut", "op_state_mut(__index__)")?;
+    run_test2(10000, "op_state_ref", "assert(op_state_ref() == 1234)")?;
     Ok(())
   }
 }

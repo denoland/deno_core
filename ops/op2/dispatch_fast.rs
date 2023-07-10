@@ -5,6 +5,7 @@ use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
+use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::V8MappingError;
@@ -33,6 +34,8 @@ pub(crate) enum V8FastCallType {
   Float64Array,
   SeqOneByteString,
   CallbackOptions,
+  /// Used for virtual arguments that do not contribute a raw argument
+  Virtual,
 }
 
 impl V8FastCallType {
@@ -60,6 +63,7 @@ impl V8FastCallType {
       V8FastCallType::Uint8Array
       | V8FastCallType::Uint32Array
       | V8FastCallType::Float64Array => unreachable!(),
+      V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
 
@@ -81,6 +85,7 @@ impl V8FastCallType {
       V8FastCallType::Uint32Array => unreachable!(),
       V8FastCallType::Float64Array => unreachable!(),
       V8FastCallType::SeqOneByteString => quote!(CType::SeqOneByteString),
+      V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
 
@@ -102,6 +107,7 @@ impl V8FastCallType {
       V8FastCallType::Uint32Array => quote!(Type::TypedArray(CType::Uint32)),
       V8FastCallType::Float64Array => quote!(Type::TypedArray(CType::Float64)),
       V8FastCallType::SeqOneByteString => quote!(Type::SeqOneByteString),
+      V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
 }
@@ -110,18 +116,22 @@ pub fn generate_dispatch_fast(
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
 ) -> Result<Option<(TokenStream, TokenStream)>, V8MappingError> {
+  enum Input<'a> {
+    Concrete(V8FastCallType),
+    Virtual(&'a Arg),
+  }
+
   let mut inputs = vec![];
   for arg in &signature.args {
     let Some(fv) = map_arg_to_v8_fastcall_type(arg)? else {
       return Ok(None);
     };
-    inputs.push(fv);
+    if fv == V8FastCallType::Virtual {
+      inputs.push(Input::Virtual(arg));
+    } else {
+      inputs.push(Input::Concrete(fv));
+    }
   }
-  let mut names = inputs
-    .iter()
-    .enumerate()
-    .map(|(i, _)| format_ident!("arg{i}"))
-    .collect::<Vec<_>>();
 
   let ret_val = match &signature.ret_val {
     RetVal::Infallible(arg) => arg,
@@ -144,12 +154,37 @@ pub fn generate_dispatch_fast(
     ..
   } = generator_state;
 
+  // Collect the names and types for the fastcall and the underlying op call
+  let mut fastcall_names = vec![];
+  let mut fastcall_types = vec![];
+  let mut input_types = vec![];
+  let mut call_names = vec![];
+  let mut call_args = vec![];
+  for (i, (input, arg)) in zip(inputs, &signature.args).enumerate() {
+    let name = format_ident!("arg{i}");
+    if let Input::Concrete(fv) = input {
+      fastcall_names.push(name.clone());
+      fastcall_types.push(fv.quote_rust_type(deno_core));
+      input_types.push(fv.quote_type());
+    }
+
+    call_names.push(name.clone());
+    call_args.push(map_v8_fastcall_arg_to_arg(
+      deno_core,
+      opctx,
+      fast_api_callback_options,
+      needs_fast_opctx,
+      needs_fast_api_callback_options,
+      &name,
+      arg,
+    )?)
+  }
+
   let handle_error = match signature.ret_val {
     RetVal::Infallible(_) => quote!(),
     RetVal::Result(_) => {
       *needs_fast_api_callback_options = true;
       *needs_fast_opctx = true;
-      inputs.push(V8FastCallType::CallbackOptions);
       quote! {
         let #result = match #result {
           Ok(#result) => #result,
@@ -178,7 +213,30 @@ pub fn generate_dispatch_fast(
     }
   };
 
-  let input_types = inputs.iter().map(|fv| fv.quote_type()).collect::<Vec<_>>();
+  let with_opctx = if *needs_fast_opctx {
+    *needs_fast_api_callback_options = true;
+    quote!(
+      let #opctx = unsafe {
+        &*(#deno_core::v8::Local::<v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
+            as *const #deno_core::_ops::OpCtx)
+      };
+    )
+  } else {
+    quote!()
+  };
+
+  let with_fast_api_callback_options = if *needs_fast_api_callback_options {
+    input_types.push(V8FastCallType::CallbackOptions.quote_type());
+    fastcall_types
+      .push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
+    fastcall_names.push(fast_api_callback_options.clone());
+    quote! {
+      let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
+    }
+  } else {
+    quote!()
+  };
+
   let output_type = output.quote_ctype();
 
   let fast_definition = quote! {
@@ -191,53 +249,19 @@ pub fn generate_dispatch_fast(
     )
   };
 
+  // Ensure that we have the same types in the fast function definition as we do in the signature
+  debug_assert!(fastcall_types.len() == input_types.len());
+
   let output_type = output.quote_rust_type(deno_core);
-  let mut types = inputs
-    .iter()
-    .map(|rv| rv.quote_rust_type(deno_core))
-    .collect::<Vec<_>>();
-
-  let call_idents = names.clone();
-  let mut call_args = vec![];
-  for (name, arg) in zip(names.iter(), signature.args.iter()) {
-    call_args.push(map_v8_fastcall_arg_to_arg(
-      deno_core,
-      fast_api_callback_options,
-      needs_fast_api_callback_options,
-      name,
-      arg,
-    )?)
-  }
-
-  let with_fast_api_callback_options = if *needs_fast_api_callback_options {
-    types.push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
-    names.push(fast_api_callback_options.clone());
-    quote! {
-      let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
-    }
-  } else {
-    quote!()
-  };
-  let with_opctx = if *needs_fast_opctx {
-    quote!(
-      let #opctx = unsafe {
-        &*(#deno_core::v8::Local::<v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
-            as *const #deno_core::_ops::OpCtx)
-      };
-    )
-  } else {
-    quote!()
-  };
-
   let fast_fn = quote!(
     fn #fast_function(
       _: #deno_core::v8::Local<#deno_core::v8::Object>,
-      #( #names: #types, )*
+      #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {
       #with_fast_api_callback_options
       #with_opctx
       #(#call_args)*
-      let #result = Self::call(#(#call_idents),*);
+      let #result = Self::call(#(#call_names),*);
       #handle_error
       #result
     }
@@ -248,13 +272,27 @@ pub fn generate_dispatch_fast(
 
 fn map_v8_fastcall_arg_to_arg(
   deno_core: &TokenStream,
+  opctx: &Ident,
   fast_api_callback_options: &Ident,
+  needs_opctx: &mut bool,
   needs_fast_api_callback_options: &mut bool,
   arg_ident: &Ident,
   arg: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
+    Arg::Ref(RefType::Ref, Special::OpState) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = &#opctx.state.borrow();)
+    }
+    Arg::Ref(RefType::Mut, Special::OpState) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = &mut #opctx.state.borrow_mut();)
+    }
+    Arg::RcRefCell(Special::OpState) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = #opctx.state.clone();)
+    }
     Arg::Special(Special::RefStr) => {
       quote! {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
@@ -303,6 +341,11 @@ fn map_arg_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
+    // Virtual OpState arguments
+    Arg::RcRefCell(Special::OpState) | Arg::Ref(_, Special::OpState) => {
+      V8FastCallType::Virtual
+    }
+    // Other types + ref types are not handled
     Arg::OptionNumeric(_) | Arg::SerdeV8(_) | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
     Arg::V8Global(_) => return Ok(None),
