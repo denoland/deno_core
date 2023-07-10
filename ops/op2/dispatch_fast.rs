@@ -249,6 +249,9 @@ pub fn generate_dispatch_fast(
     )
   };
 
+  // Ensure that we have the same types in the fast function definition as we do in the signature
+  debug_assert!(fastcall_types.len() == input_types.len());
+
   let output_type = output.quote_rust_type(deno_core);
   let fast_fn = quote!(
     fn #fast_function(
