@@ -148,6 +148,8 @@ pub enum Arg {
   V8Ref(RefType, V8Arg),
   Numeric(NumericArg),
   SerdeV8(String),
+  State(RefType, String),
+  OptionState(RefType, String),
 }
 
 impl Arg {
@@ -172,6 +174,7 @@ impl Arg {
         | Special::OpState
         | Special::HandleScope,
       ) => true,
+      Self::State(..) | Self::OptionState(..) => true,
       _ => false,
     }
   }
@@ -204,6 +207,7 @@ impl Arg {
         | Arg::OptionV8Local(..)
         | Arg::OptionNumeric(..)
         | Arg::Option(..)
+        | Arg::OptionState(..)
     )
   }
 }
@@ -253,6 +257,8 @@ enum AttributeModifier {
   Smi,
   /// #[string], for strings.
   String,
+  /// #[state], for automatic OpState extraction
+  State,
 }
 
 #[derive(Error, Debug)]
@@ -275,6 +281,8 @@ pub enum SignatureError {
   InvalidGeneric(String),
   #[error("Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)")]
   InvalidWherePredicate(String),
+  #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s")]
+  InvalidOpStateCombination,
 }
 
 #[derive(Error, Debug)]
@@ -305,6 +313,8 @@ pub enum ArgError {
   InternalError(String),
   #[error("Missing a #[string] attribute")]
   MissingStringAttribute,
+  #[error("Invalid #[state] type '{0}'")]
+  InvalidStateType(String),
 }
 
 #[derive(Copy, Clone, Default)]
@@ -352,6 +362,34 @@ pub fn parse_signature(
     parse_return(parse_attributes(&attributes)?, &signature.output)?;
   let lifetime = parse_lifetime(&signature.generics)?;
   let generic_bounds = parse_generics(&signature.generics)?;
+
+  let mut has_opstate = false;
+  let mut has_mut_state = false;
+  let mut has_ref_state = false;
+
+  for arg in &args {
+    match arg {
+      Arg::RcRefCell(Special::OpState) | Arg::Ref(_, Special::OpState) => {
+        has_opstate = true
+      }
+      Arg::State(RefType::Ref, _) | Arg::OptionState(RefType::Ref, _) => {
+        has_ref_state = true
+      }
+      Arg::State(RefType::Mut, _) | Arg::OptionState(RefType::Mut, _) => {
+        if has_mut_state {
+          return Err(SignatureError::InvalidOpStateCombination);
+        }
+        has_mut_state = true;
+      }
+      _ => {}
+    }
+  }
+
+  // Ensure that either zero or one and only one of these are true
+  if has_opstate as u8 + has_mut_state as u8 + has_ref_state as u8 > 1 {
+    return Err(SignatureError::InvalidOpStateCombination);
+  }
+
   Ok(ParsedSignature {
     args,
     names,
@@ -478,6 +516,7 @@ fn parse_attribute(attr: &Attribute) -> Option<AttributeModifier> {
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String),
+      (#[state]) => Some(AttributeModifier::State),
       (#[$_attr:meta]) => None,
     })
   })
@@ -628,6 +667,33 @@ fn parse_type_special(
   }
 }
 
+fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
+  let s = match ty {
+    Type::Path(of) => {
+      let inner_type = std::panic::catch_unwind(|| {
+        use syn2 as syn;
+        rules!(of.into_token_stream() => {
+          (Option< $ty:ty >) => ty,
+        })
+      })
+      .map_err(|_| ArgError::InvalidStateType(stringify_token(ty)))?;
+      match parse_type_state(&inner_type)? {
+        Arg::State(reftype, state) => Arg::OptionState(reftype, state),
+        _ => return Err(ArgError::InvalidStateType(stringify_token(ty))),
+      }
+    }
+    Type::Reference(of) => {
+      if of.mutability.is_some() {
+        Arg::State(RefType::Mut, stringify_token(&of.elem))
+      } else {
+        Arg::State(RefType::Ref, stringify_token(&of.elem))
+      }
+    }
+    _ => return Err(ArgError::InvalidStateType(stringify_token(ty))),
+  };
+  Ok(s)
+}
+
 fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
   use ParsedType::*;
   use ParsedTypeContainer::*;
@@ -670,6 +736,9 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
           return Err(ArgError::InvalidSerdeAttributeType(stringify_token(ty)))
         }
       },
+      AttributeModifier::State => {
+        return parse_type_state(ty);
+      }
       AttributeModifier::String => {
         // We handle this as part of the normal parsing process
       }
@@ -910,6 +979,11 @@ mod tests {
     fn op_state_ref(state: &OpState);
     (Ref(Ref, OpState)) -> Infallible(Void)
   );
+  test!(
+    fn op_state_attr(#[state] something: &Something, #[state] another: Option<&Something>);
+    (State(Ref, "Something"), OptionState(Ref, "Something")) -> Infallible(Void)
+  );
+
   // Args
 
   expect_fail!(
