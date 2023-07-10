@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::format_file_name;
-use crate::error::type_error;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::ops_builtin_v8;
@@ -128,36 +127,28 @@ pub async fn op_error_async_deferred() -> Result<(), Error> {
 pub async fn op_void_async_deferred() {}
 
 /// Remove a resource from the resource table.
-// TODO(bartlomieju): migration to op2 blocked by OpState support
-#[op]
+#[op2(core, fast)]
 pub fn op_close(
   state: &mut OpState,
-  rid: Option<ResourceId>,
+  #[smi] rid: ResourceId,
 ) -> Result<(), Error> {
-  // TODO(@AaronO): drop Option after improving type-strictness balance in
-  // serde_v8
-  let rid = rid.ok_or_else(|| type_error("missing or invalid `rid`"))?;
   state.resource_table.close(rid)?;
   Ok(())
 }
 
 /// Try to remove a resource from the resource table. If there is no resource
 /// with the specified `rid`, this is a no-op.
-// TODO(bartlomieju): migration to op2 blocked by OpState support
-#[op]
+#[op2(core, fast)]
 pub fn op_try_close(
   state: &mut OpState,
-  rid: Option<ResourceId>,
-) -> Result<(), Error> {
-  // TODO(@AaronO): drop Option after improving type-strictness balance in
-  // serde_v8.
-  let rid = rid.ok_or_else(|| type_error("missing or invalid `rid`"))?;
+  #[smi] rid: ResourceId,
+) {
   let _ = state.resource_table.close(rid);
-  Ok(())
 }
 
 // TODO(bartlomieju): migration to op2 blocked by OpState support
-#[op]
+#[op2(core)]
+#[serde]
 pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
   let aggregate = state.tracker.aggregate();
   let per_op = state.tracker.per_op();
