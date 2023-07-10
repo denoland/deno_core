@@ -227,7 +227,8 @@ pub fn generate_dispatch_fast(
 
   let with_fast_api_callback_options = if *needs_fast_api_callback_options {
     input_types.push(V8FastCallType::CallbackOptions.quote_type());
-    fastcall_types.push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
+    fastcall_types
+      .push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
     fastcall_names.push(fast_api_callback_options.clone());
     quote! {
       let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
@@ -279,11 +280,11 @@ fn map_v8_fastcall_arg_to_arg(
   let res = match arg {
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = &#opctx.state;)
+      quote!(let #arg_ident = &#opctx.state.borrow();)
     }
     Arg::Ref(RefType::Mut, Special::OpState) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = &mut #opctx.state;)
+      quote!(let #arg_ident = &mut #opctx.state.borrow_mut();)
     }
     Arg::RcRefCell(Special::OpState) => {
       *needs_opctx = true;

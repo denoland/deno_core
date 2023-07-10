@@ -41,7 +41,7 @@ impl op_state_rc {
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };
-        let arg0 = &opctx.state;
+        let arg0 = &opctx.state.borrow();
         let result = Self::call(arg0);
         result
     }
@@ -49,7 +49,12 @@ impl op_state_rc {
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
-        let arg0 = opstate.borrow();
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let opstate = &opctx.state;
+        let arg0 = &opstate.borrow();
         let result = Self::call(arg0);
     }
     #[inline(always)]

@@ -5,9 +5,9 @@ use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
+use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
-use super::signature::RefType;
 use super::MacroConfig;
 use super::V8MappingError;
 use proc_macro2::Ident;
@@ -273,10 +273,12 @@ pub fn from_arg(
       quote!(let #arg_ident = &mut #scope;)
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
-      quote!(let #arg_ident = #opstate.borrow();)
+      *needs_opstate = true;
+      quote!(let #arg_ident = &#opstate.borrow();)
     }
     Arg::Ref(RefType::Mut, Special::OpState) => {
-      quote!(let #arg_ident = #opstate.borrow_mut();)
+      *needs_opstate = true;
+      quote!(let #arg_ident = &mut #opstate.borrow_mut();)
     }
     Arg::RcRefCell(Special::OpState) => {
       *needs_opstate = true;
