@@ -139,10 +139,7 @@ pub fn op_close(
 /// Try to remove a resource from the resource table. If there is no resource
 /// with the specified `rid`, this is a no-op.
 #[op2(core, fast)]
-pub fn op_try_close(
-  state: &mut OpState,
-  #[smi] rid: ResourceId,
-) {
+pub fn op_try_close(state: &mut OpState, #[smi] rid: ResourceId) {
   let _ = state.resource_table.close(rid);
 }
 
