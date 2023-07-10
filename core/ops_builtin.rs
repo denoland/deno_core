@@ -143,8 +143,8 @@ pub fn op_try_close(state: &mut OpState, #[smi] rid: ResourceId) {
   let _ = state.resource_table.close(rid);
 }
 
-// TODO(bartlomieju): migration to op2 blocked by OpState support
-#[op]
+#[op2(core)]
+#[serde]
 pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
   let aggregate = state.tracker.aggregate();
   let per_op = state.tracker.per_op();

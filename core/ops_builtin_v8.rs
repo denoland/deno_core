@@ -516,16 +516,14 @@ fn op_deserialize<'a>(
 }
 
 #[derive(Serialize)]
-struct PromiseDetails<'s>(u32, Option<serde_v8::Value<'s>>);
+pub struct PromiseDetails<'s>(u32, Option<serde_v8::Value<'s>>);
 
-// TODO(bartlomieju): migration to op2 blocked by tuple support
-#[op(v8)]
-fn op_get_promise_details<'a>(
+#[op2(core)]
+#[serde]
+pub fn op_get_promise_details<'a>(
   scope: &mut v8::HandleScope<'a>,
-  promise: serde_v8::Value<'a>,
+  promise: v8::Local<'a, v8::Promise>,
 ) -> Result<PromiseDetails<'a>, Error> {
-  let promise = v8::Local::<v8::Promise>::try_from(promise.v8_value)
-    .map_err(|_| type_error("Invalid argument"))?;
   match promise.state() {
     v8::PromiseState::Pending => Ok(PromiseDetails(0, None)),
     v8::PromiseState::Fulfilled => {
@@ -588,13 +586,13 @@ pub fn op_set_promise_hooks(
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-// TODO(bartlomieju): migration to op2 blocked by tuple support
-#[op(v8)]
-fn op_get_proxy_details<'a>(
+#[op2(core)]
+#[serde]
+pub fn op_get_proxy_details<'a>(
   scope: &mut v8::HandleScope<'a>,
-  proxy: serde_v8::Value<'a>,
+  proxy: v8::Local<'a, v8::Value>,
 ) -> Option<(serde_v8::Value<'a>, serde_v8::Value<'a>)> {
-  let proxy = match v8::Local::<v8::Proxy>::try_from(proxy.v8_value) {
+  let proxy = match v8::Local::<v8::Proxy>::try_from(proxy) {
     Ok(proxy) => proxy,
     Err(_) => return None,
   };
