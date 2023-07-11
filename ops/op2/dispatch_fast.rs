@@ -3,6 +3,7 @@ use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
+use super::signature::Buffer;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
@@ -61,9 +62,9 @@ impl V8FastCallType {
       V8FastCallType::SeqOneByteString => {
         quote!(*mut #deno_core::v8::fast_api::FastApiOneByteString)
       }
-      V8FastCallType::Uint8Array
-      | V8FastCallType::Uint32Array
-      | V8FastCallType::Float64Array => unreachable!(),
+      V8FastCallType::Uint8Array => quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u8>),
+      V8FastCallType::Uint32Array => quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u32>),
+      V8FastCallType::Float64Array => quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<f64>),
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
@@ -282,6 +283,9 @@ fn map_v8_fastcall_arg_to_arg(
 ) -> Result<TokenStream, V8MappingError> {
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
+    Arg::Buffer(Buffer::Slice(_, NumericArg::u8)) => {
+      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap();)
+    }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
       quote!(let #arg_ident = &#opctx.state.borrow();)
@@ -378,7 +382,7 @@ fn map_arg_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
-    // No buffers yet
+    Arg::Buffer(Buffer::Slice(_, NumericArg::u8)) => V8FastCallType::Uint8Array,
     Arg::Buffer(_) => return Ok(None),
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)

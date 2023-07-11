@@ -966,7 +966,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   pub fn op_buffer_slice(
     #[buffer] input: &[u8],
     inlen: usize,

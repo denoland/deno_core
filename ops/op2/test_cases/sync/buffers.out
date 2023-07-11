@@ -11,7 +11,19 @@ impl deno_core::_ops::Op for op_buffers {
         false,
         2usize as u8,
         Self::v8_fn_ptr as _,
-        None,
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new(
+                &[
+                    Type::V8Value,
+                    Type::TypedArray(CType::Uint8),
+                    Type::TypedArray(CType::Uint8),
+                ],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
     );
 }
 impl op_buffers {
@@ -21,6 +33,16 @@ impl op_buffers {
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
+    }
+    fn v8_fn_ptr_fast(
+        _: deno_core::v8::Local<deno_core::v8::Object>,
+        arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+    ) -> () {
+        let arg0 = unsafe { arg0.as_mut().unwrap() }.get_storage_if_aligned().unwrap();
+        let arg1 = unsafe { arg1.as_mut().unwrap() }.get_storage_if_aligned().unwrap();
+        let result = Self::call(arg0, arg1);
+        result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
