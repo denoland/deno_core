@@ -31,6 +31,21 @@ pub struct V8Slice {
 unsafe impl Send for V8Slice {}
 
 impl V8Slice {
+  /// Create a V8Slice from raw parts.
+  ///
+  /// # Safety
+  ///
+  /// The `range` passed to this function *must* be within the bounds of the backing store, as we may
+  /// create a slice from this. The [`v8::BackingStore`] must be valid, and valid for use for the purposes
+  /// of this `V8Slice` (ie: the caller must understand the repercussions of using shared/resizable
+  /// buffers).
+  pub unsafe fn from_parts(
+    store: v8::SharedRef<v8::BackingStore>,
+    range: Range<usize>,
+  ) -> Self {
+    Self { store, range }
+  }
+
   fn as_slice(&self) -> &[u8] {
     let store = &self.store;
     let Some(ptr) = store.data() else {
@@ -176,15 +191,15 @@ unsafe fn v8slice_clone(
 }
 
 unsafe fn v8slice_to_vec(
-  data: &rawbytes::AtomicPtr<()>,
+  _data: &rawbytes::AtomicPtr<()>,
   ptr: *const u8,
   len: usize,
 ) -> Vec<u8> {
-  let rc = Rc::from_raw(*data as *const V8Slice);
-  std::mem::forget(rc);
-  // NOTE: `bytes::Bytes` does bounds checking so we trust its ptr, len inputs
-  // and must use them to allow cloning Bytes it has sliced
-  Vec::from_raw_parts(ptr as _, len, len)
+  // SAFETY: It's extremely unlikely we can convert this backing store to a vector directly, as this would require
+  // the store to have been created with the appropriate allocator, and have no other references (either
+  // in JS or in Rust). We instead just create a copy here, using the raw buffer/length.
+  let vec = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() };
+  vec
 }
 
 unsafe fn v8slice_drop(

@@ -48,6 +48,27 @@ pub enum NumericArg {
   usize,
 }
 
+impl NumericArg {
+  /// Returns the primary mapping from this primitive to an associated V8 typed array.
+  pub fn v8_array_type(self) -> Option<V8Arg> {
+    use NumericArg::*;
+    use V8Arg::*;
+    Some(match self {
+      i8 => Int8Array,
+      u8 => Uint8Array,
+      i16 => Int16Array,
+      u16 => Uint16Array,
+      i32 => Int32Array,
+      u32 => Uint32Array,
+      i64 => BigInt64Array,
+      u64 => BigUint64Array,
+      f32 => Float32Array,
+      f64 => Float64Array,
+      _ => return None,
+    })
+  }
+}
+
 impl ToTokens for NumericArg {
   fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
     let ident = Ident::new(self.into(), Span::call_site());

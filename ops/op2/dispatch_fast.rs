@@ -378,6 +378,8 @@ fn map_arg_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
+    // No buffers yet
+    Arg::Buffer(_) => return Ok(None),
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)
     | Arg::Ref(_, Special::OpState)

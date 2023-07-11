@@ -3,6 +3,7 @@ use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
+use super::signature::Buffer;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
@@ -269,6 +270,10 @@ pub fn from_arg(
         let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
+    Arg::Buffer(buffer) => {
+      let arg_ident = arg_ident.clone();
+      from_arg_buffer(generator_state, &arg_ident, buffer)?
+    }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
       quote!(let #arg_ident = &mut #scope;)
@@ -358,6 +363,47 @@ pub fn from_arg(
     _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
+}
+
+pub fn from_arg_buffer(
+  generator_state: &mut GeneratorState,
+  arg_ident: &Ident,
+  buffer: &Buffer,
+) -> Result<TokenStream, V8MappingError> {
+  let throw_exception =
+    throw_type_error(generator_state, format!("expected buffer"))?;
+
+  let GeneratorState {
+    deno_core,
+    scope,
+    needs_scope,
+    ..
+  } = generator_state;
+
+  *needs_scope = true;
+  let make_v8slice = quote! {
+    let #arg_ident = unsafe { #deno_core::_ops::to_v8_slice(&mut #scope, #arg_ident) };
+    let Ok(mut #arg_ident) = #arg_ident else {
+      #throw_exception
+    };
+  };
+
+  let make_arg = match buffer {
+    Buffer::Slice(_, NumericArg::u8) => {
+      quote!(let #arg_ident = &mut #arg_ident;)
+    }
+    _ => {
+      return Err(V8MappingError::NoMapping(
+        "a buffer argument",
+        Arg::Buffer(*buffer),
+      ))
+    }
+  };
+
+  Ok(quote! {
+    #make_v8slice
+    #make_arg
+  })
 }
 
 pub fn call(

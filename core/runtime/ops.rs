@@ -343,6 +343,29 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
   from_v8(scope, input)
 }
 
+/// Retrieve a [`serde_v8::V8Slice`] from a value.
+pub fn to_v8_slice(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<v8::Value>,
+) -> Result<serde_v8::V8Slice, ()> {
+  let (buf, offset, length) =
+    if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+      let Some(buffer) = buf.buffer(scope) else {
+      return Err(());
+    };
+      (buffer, buf.byte_offset(), buf.byte_length())
+    } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+      (buf, 0, buf.byte_length())
+    } else {
+      return Err(());
+    };
+
+  let store = buf.get_backing_store();
+  let slice =
+    unsafe { serde_v8::V8Slice::from_parts(store, offset..(length - offset)) };
+  Ok(slice)
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -394,6 +417,7 @@ mod tests {
       op_state_mut,
       op_state_mut_attr,
       op_state_multi_attr,
+      op_buffers,
     ],
     state = |state| {
       state.put(1234u32);
@@ -938,6 +962,24 @@ mod tests {
       10000,
       "op_state_multi_attr",
       "assert(op_state_multi_attr() == 11234)",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  pub fn op_buffers(#[buffer] input: &[u8], #[buffer] output: &mut [u8]) {
+    output[0] = input[0];
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffers() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffers",
+      r"
+      let out = new Uint8Array(10);
+      op_buffers(new Uint8Array([1,2,3]), out);
+      assert(out[0] == 1);",
     )?;
     Ok(())
   }
