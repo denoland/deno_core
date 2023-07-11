@@ -362,7 +362,7 @@ pub fn to_v8_slice(
 
   let store = buf.get_backing_store();
   let slice =
-    unsafe { serde_v8::V8Slice::from_parts(store, offset..(length - offset)) };
+    unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
 }
 
@@ -417,7 +417,7 @@ mod tests {
       op_state_mut,
       op_state_mut_attr,
       op_state_multi_attr,
-      op_buffers,
+      op_buffer_slice,
     ],
     state = |state| {
       state.put(1234u32);
@@ -967,19 +967,49 @@ mod tests {
   }
 
   #[op2(core)]
-  pub fn op_buffers(#[buffer] input: &[u8], #[buffer] output: &mut [u8]) {
+  pub fn op_buffer_slice(
+    #[buffer] input: &[u8],
+    inlen: usize,
+    #[buffer] output: &mut [u8],
+    outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
     output[0] = input[0];
   }
 
   #[tokio::test]
-  pub async fn test_op_buffers() -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
+  {
+    // Uint8Array -> Uint8Array
     run_test2(
       10000,
-      "op_buffers",
+      "op_buffer_slice",
       r"
       let out = new Uint8Array(10);
-      op_buffers(new Uint8Array([1,2,3]), out);
+      op_buffer_slice(new Uint8Array([1,2,3]), 3, out, 10);
       assert(out[0] == 1);",
+    )?;
+    // Uint8Array -> raw ArrayBuffer
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let out = new ArrayBuffer(10);
+      op_buffer_slice(new Uint8Array([1,2,3]), 3, out, 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    // ArrayBuffer -> ArrayBuffer
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10);
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[5] = 1;
+      let out = new ArrayBuffer(10);
+      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, out, 10);
+      assert(new Uint8Array(out)[0] == 1);",
     )?;
     Ok(())
   }
