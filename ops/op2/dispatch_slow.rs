@@ -370,8 +370,9 @@ pub fn from_arg_buffer(
   arg_ident: &Ident,
   buffer: &Buffer,
 ) -> Result<TokenStream, V8MappingError> {
+  let err = format_ident!("{}_err", arg_ident);
   let throw_exception =
-    throw_type_error(generator_state, "expected buffer".to_string())?;
+    throw_type_error_static_string(generator_state, &err)?;
 
   let GeneratorState {
     deno_core,
@@ -382,9 +383,11 @@ pub fn from_arg_buffer(
 
   *needs_scope = true;
   let make_v8slice = quote! {
-    let #arg_ident = unsafe { #deno_core::_ops::to_nonresizable_v8_slice(&mut #scope, #arg_ident) };
-    let Ok(mut #arg_ident) = #arg_ident else {
-      #throw_exception
+    let mut #arg_ident = match unsafe { #deno_core::_ops::to_nonresizable_v8_slice(&mut #scope, #arg_ident) } {
+      Ok(#arg_ident) => #arg_ident,
+      Err(#err) => {
+        #throw_exception
+      }
     };
   };
 
@@ -664,6 +667,30 @@ fn throw_type_error_string(
     #maybe_scope
     // TODO(mmastrac): This might be allocating too much, even if it's on the error path
     let msg = #deno_core::v8::String::new(&mut #scope, &format!("{}", #deno_core::anyhow::Error::from(#message))).unwrap();
+    let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
+    #scope.throw_exception(exc);
+    return;
+  })
+}
+
+/// Generates code to throw an exception from a string variable, adding required additional dependencies as needed.
+fn throw_type_error_static_string(
+  generator_state: &mut GeneratorState,
+  message: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  let maybe_scope = if generator_state.needs_scope {
+    quote!()
+  } else {
+    with_scope(generator_state)
+  };
+
+  let GeneratorState {
+    deno_core, scope, ..
+  } = &generator_state;
+
+  Ok(quote! {
+    #maybe_scope
+    let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
     let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;

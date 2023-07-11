@@ -348,22 +348,22 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
 pub fn to_nonresizable_v8_slice(
   scope: &mut v8::HandleScope,
   input: v8::Local<v8::Value>,
-) -> Result<serde_v8::V8Slice, ()> {
+) -> Result<serde_v8::V8Slice, &'static str> {
   let (buf, offset, length) =
     if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
       let Some(buffer) = buf.buffer(scope) else {
-      return Err(());
-    };
+        return Err("buffer missing");
+      };
       (buffer, buf.byte_offset(), buf.byte_length())
     } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
       (buf, 0, buf.byte_length())
     } else {
-      return Err(());
+      return Err("expected ArrayBuffer or ArrayBufferView");
     };
 
   let store = buf.get_backing_store();
   if store.is_resizable_by_user_javascript() {
-    return Err(());
+    return Err("expected non-resizable buffer");
   }
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
