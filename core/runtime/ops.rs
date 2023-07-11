@@ -344,6 +344,7 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a value.
+#[allow(clippy::result_unit_err)]
 pub fn to_v8_slice(
   scope: &mut v8::HandleScope,
   input: v8::Local<v8::Value>,

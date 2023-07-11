@@ -371,7 +371,7 @@ pub fn from_arg_buffer(
   buffer: &Buffer,
 ) -> Result<TokenStream, V8MappingError> {
   let throw_exception =
-    throw_type_error(generator_state, format!("expected buffer"))?;
+    throw_type_error(generator_state, "expected buffer".to_string())?;
 
   let GeneratorState {
     deno_core,
