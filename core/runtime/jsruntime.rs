@@ -8,8 +8,11 @@ use crate::error::generic_error;
 use crate::error::to_v8_type_error;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
+use crate::extensions::EventLoopMiddlewareFn;
+use crate::extensions::GlobalObjectMiddlewareFn;
+use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpDecl;
-use crate::extensions::OpEventLoopFn;
+use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::AssertedModuleType;
@@ -27,6 +30,7 @@ use crate::runtime::JsRealm;
 use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
+use crate::ExtensionFileSource;
 use crate::NoopModuleLoader;
 use crate::OpMiddlewareFn;
 use crate::OpResult;
@@ -38,6 +42,7 @@ use anyhow::Error;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
 use futures::stream::StreamExt;
+use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::any::Any;
 use std::cell::RefCell;
@@ -196,6 +201,16 @@ impl InitMode {
   }
 }
 
+pub(crate) static BUILTIN_SOURCES: Lazy<Vec<ExtensionFileSource>> =
+  Lazy::new(|| {
+    include_js_files!(
+      core
+      "00_primordials.js",
+      "01_core.js",
+      "02_error.js",
+    )
+  });
+
 /// A single execution context of JavaScript. Corresponds roughly to the "Web
 /// Worker" concept in the DOM.
 ////
@@ -208,9 +223,11 @@ pub struct JsRuntime {
   pub(crate) module_map: Rc<RefCell<ModuleMap>>,
   pub(crate) allocations: IsolateAllocations,
   extensions: Vec<Extension>,
-  event_loop_middlewares: Vec<Box<OpEventLoopFn>>,
+  event_loop_middlewares: Vec<Box<EventLoopMiddlewareFn>>,
+  global_template_middlewares: Vec<Box<GlobalTemplateMiddlewareFn>>,
+  global_object_middlewares: Vec<Box<GlobalObjectMiddlewareFn>>,
   init_mode: InitMode,
-  // Marks if this is considered the top-level runtime. Used only be inspector.
+  // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main: bool,
 }
 
@@ -391,7 +408,7 @@ pub struct RuntimeOptions {
   /// If provided, the module map will be cleared and left only with the specifiers
   /// in this list, with the new names provided. If not provided, the module map is
   /// left intact.
-  pub rename_modules: Option<Vec<(&'static str, &'static str)>>,
+  pub preserve_snapshotted_modules: Option<&'static [&'static str]>,
 
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
@@ -454,6 +471,13 @@ impl JsRuntime {
     state
   }
 
+  /// Returns the `OpState` associated with the passed `Isolate`.
+  pub fn op_state_from(isolate: &v8::Isolate) -> Rc<RefCell<OpState>> {
+    let state = Self::state_from(isolate);
+    let state = state.borrow();
+    state.op_state.clone()
+  }
+
   pub(crate) fn module_map_from(
     isolate: &v8::Isolate,
   ) -> Rc<RefCell<ModuleMap>> {
@@ -504,15 +528,31 @@ impl JsRuntime {
     maybe_load_callback: Option<ExtModuleLoaderCb>,
   ) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
-    let (op_state, ops) = Self::create_opstate(&mut options, init_mode);
+    let (op_state, ops) = Self::create_opstate(&mut options);
     let op_state = Rc::new(RefCell::new(op_state));
 
-    // Collect event-loop middleware
+    // Collect event-loop middleware, global template middleware, global object
+    // middleware, and additional ExternalReferences from extensions.
     let mut event_loop_middlewares =
+      Vec::with_capacity(options.extensions.len());
+    let mut global_template_middlewares =
+      Vec::with_capacity(options.extensions.len());
+    let mut global_object_middlewares =
+      Vec::with_capacity(options.extensions.len());
+    let mut additional_references =
       Vec::with_capacity(options.extensions.len());
     for extension in &mut options.extensions {
       if let Some(middleware) = extension.init_event_loop_middleware() {
         event_loop_middlewares.push(middleware);
+      }
+      if let Some(middleware) = extension.init_global_template_middleware() {
+        global_template_middlewares.push(middleware);
+      }
+      if let Some(middleware) = extension.init_global_object_middleware() {
+        global_object_middlewares.push(middleware);
+      }
+      if let Some(ext_refs) = extension.init_external_references() {
+        additional_references.extend_from_slice(&ext_refs);
       }
     }
 
@@ -563,7 +603,10 @@ impl JsRuntime {
     context_state.borrow_mut().op_ctxs = op_ctxs;
     context_state.borrow_mut().isolate = Some(isolate_ptr);
 
-    let refs = bindings::external_references(&context_state.borrow().op_ctxs);
+    let refs = bindings::external_references(
+      &context_state.borrow().op_ctxs,
+      &additional_references,
+    );
     // V8 takes ownership of external_references.
     let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
 
@@ -605,7 +648,12 @@ impl JsRuntime {
 
     let (global_context, snapshotted_data) = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
-      let context = v8::Context::new(scope);
+
+      let context = create_context(
+        scope,
+        &global_template_middlewares,
+        &global_object_middlewares,
+      );
 
       // Get module map data from the snapshot
       let snapshotted_data = if init_mode == InitMode::FromSnapshot {
@@ -686,6 +734,8 @@ impl JsRuntime {
       init_mode,
       allocations: IsolateAllocations::default(),
       event_loop_middlewares,
+      global_template_middlewares,
+      global_object_middlewares,
       extensions: options.extensions,
       module_map: module_map_rc,
       is_main: options.is_main,
@@ -698,11 +748,13 @@ impl JsRuntime {
       .unwrap();
 
     // If the user has requested that we rename modules
-    if let Some(rename_modules) = options.rename_modules {
+    if let Some(preserve_snapshotted_modules) =
+      options.preserve_snapshotted_modules
+    {
       js_runtime
         .module_map
         .borrow_mut()
-        .clear_module_map(rename_modules.into_iter());
+        .clear_module_map(preserve_snapshotted_modules);
     }
 
     js_runtime
@@ -783,7 +835,13 @@ impl JsRuntime {
       // access to the isolate, and nothing else we're accessing from self does.
       let isolate = unsafe { raw_ptr.as_mut() }.unwrap();
       let scope = &mut v8::HandleScope::new(isolate);
-      let context = v8::Context::new(scope);
+
+      let context = create_context(
+        scope,
+        &self.global_template_middlewares,
+        &self.global_object_middlewares,
+      );
+
       let scope = &mut v8::ContextScope::new(scope, context);
 
       let context = bindings::initialize_context(
@@ -840,36 +898,39 @@ impl JsRuntime {
     let mut esm_entrypoints = vec![];
 
     futures::executor::block_on(async {
+      if self.init_mode == InitMode::New {
+        for file_source in &*BUILTIN_SOURCES {
+          realm.execute_script(
+            self.v8_isolate(),
+            file_source.specifier,
+            file_source.load()?,
+          )?;
+        }
+      }
+      self.init_cbs(realm);
+
       for extension in &extensions {
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
-        if let Some(esm_files) = extension.get_esm_sources() {
-          for file_source in esm_files {
-            self
-              .load_side_module(
-                &ModuleSpecifier::parse(file_source.specifier)?,
-                None,
-              )
-              .await?;
-          }
+        for file_source in extension.get_esm_sources() {
+          self
+            .load_side_module(
+              &ModuleSpecifier::parse(file_source.specifier)?,
+              None,
+            )
+            .await?;
         }
 
         if let Some(entry_point) = maybe_esm_entry_point {
           esm_entrypoints.push(entry_point);
         }
 
-        if let Some(js_files) = extension.get_js_sources() {
-          for file_source in js_files {
-            realm.execute_script(
-              self.v8_isolate(),
-              file_source.specifier,
-              file_source.load()?,
-            )?;
-          }
-        }
-
-        if extension.is_core {
-          self.init_cbs(realm);
+        for file_source in extension.get_js_sources() {
+          realm.execute_script(
+            self.v8_isolate(),
+            file_source.specifier,
+            file_source.load()?,
+          )?;
         }
       }
 
@@ -966,20 +1027,11 @@ impl JsRuntime {
   }
 
   /// Initializes ops of provided Extensions
-  fn create_opstate(
-    options: &mut RuntimeOptions,
-    init_mode: InitMode,
-  ) -> (OpState, Vec<OpDecl>) {
+  fn create_opstate(options: &mut RuntimeOptions) -> (OpState, Vec<OpDecl>) {
     // Add built-in extension
-    if init_mode == InitMode::FromSnapshot {
-      options
-        .extensions
-        .insert(0, crate::ops_builtin::core::init_ops());
-    } else {
-      options
-        .extensions
-        .insert(0, crate::ops_builtin::core::init_ops_and_esm());
-    }
+    options
+      .extensions
+      .insert(0, crate::ops_builtin::core::init_ops());
 
     let ops = Self::collect_ops(&mut options.extensions);
 
@@ -1470,6 +1522,33 @@ impl JsRuntime {
       &self.module_map.borrow(),
     )
   }
+}
+
+fn create_context<'a>(
+  scope: &mut v8::HandleScope<'a, ()>,
+  global_template_middlewares: &[Box<GlobalTemplateMiddlewareFn>],
+  global_object_middlewares: &[Box<GlobalObjectMiddlewareFn>],
+) -> v8::Local<'a, v8::Context> {
+  // Set up the global object template and create context from it.
+  let mut global_object_template = v8::ObjectTemplate::new(scope);
+  for middleware in global_template_middlewares {
+    global_object_template = middleware(scope, global_object_template);
+  }
+  let context = v8::Context::new_from_template(scope, global_object_template);
+  let scope = &mut v8::ContextScope::new(scope, context);
+
+  // Get the global wrapper object from the context, get the real inner
+  // global object from it, and and configure it using the middlewares.
+  let global_wrapper = context.global(scope);
+  let real_global = global_wrapper
+    .get_prototype(scope)
+    .unwrap()
+    .to_object(scope)
+    .unwrap();
+  for middleware in global_object_middlewares {
+    middleware(scope, real_global);
+  }
+  context
 }
 
 impl JsRuntimeForSnapshot {

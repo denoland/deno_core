@@ -11,6 +11,7 @@
 use deno_core::op;
 use deno_core::Extension;
 use deno_core::JsRuntime;
+use deno_core::Op;
 use deno_core::RuntimeOptions;
 
 // This is a hack to make the `#[op]` macro work with
@@ -25,7 +26,7 @@ fn main() {
   }
 
   let extensions = vec![Extension::builder("my_ext")
-    .ops(vec![op_panik::decl()])
+    .ops(vec![op_panik::DECL])
     .build()];
   let mut rt = JsRuntime::new(RuntimeOptions {
     extensions,

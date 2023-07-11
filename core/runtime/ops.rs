@@ -7,8 +7,14 @@ use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
+use serde::Deserialize;
+use serde::Serialize;
+use serde_v8::from_v8;
+use serde_v8::to_v8;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::future::ready;
+use std::mem::MaybeUninit;
 use std::option::Option;
 use std::task::Context;
 use std::task::Poll;
@@ -197,6 +203,146 @@ pub fn to_i64(number: &v8::Value) -> i32 {
   0
 }
 
+/// Expands `inbuf` to `outbuf`, assuming that `outbuf` has at least 2x `input_length`.
+#[inline(always)]
+unsafe fn latin1_to_utf8(
+  input_length: usize,
+  inbuf: *const u8,
+  outbuf: *mut u8,
+) -> usize {
+  let mut output = 0;
+  let mut input = 0;
+  while input < input_length {
+    let char = *(inbuf.add(input));
+    if char < 0x80 {
+      *(outbuf.add(output)) = char;
+      output += 1;
+    } else {
+      // Top two bits
+      *(outbuf.add(output)) = (char >> 6) | 0b1100_0000;
+      // Bottom six bits
+      *(outbuf.add(output + 1)) = (char & 0b0011_1111) | 0b1000_0000;
+      output += 2;
+    }
+    input += 1;
+  }
+  output
+}
+
+/// Converts a [`v8::fast_api::FastApiOneByteString`] to either an owned string, or a borrowed string, depending on whether it fits into the
+/// provided buffer.
+pub fn to_str_ptr<'a, const N: usize>(
+  string: &mut v8::fast_api::FastApiOneByteString,
+  buffer: &'a mut [MaybeUninit<u8>; N],
+) -> Cow<'a, str> {
+  let input_buf = string.as_bytes();
+  let input_len = input_buf.len();
+  let output_len = buffer.len();
+
+  // We know that this string is full of either one or two-byte UTF-8 chars, so if it's < 1/2 of N we
+  // can skip the ASCII check and just start copying.
+  if input_len < N / 2 {
+    debug_assert!(output_len >= input_len * 2);
+    let buffer = buffer.as_mut_ptr() as *mut u8;
+
+    let written =
+      // SAFETY: We checked that buffer is at least 2x the size of input_buf
+      unsafe { latin1_to_utf8(input_buf.len(), input_buf.as_ptr(), buffer) };
+
+    debug_assert!(written <= output_len);
+
+    let slice = std::ptr::slice_from_raw_parts(buffer, written);
+    // SAFETY: We know it's valid UTF-8, so make a string
+    Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&*slice) })
+  } else {
+    // TODO(mmastrac): We could be smarter here about not allocating
+    Cow::Owned(to_string_ptr(string))
+  }
+}
+
+/// Converts a [`v8::fast_api::FastApiOneByteString`] to an owned string. May over-allocate to avoid
+/// re-allocation.
+pub fn to_string_ptr(
+  string: &mut v8::fast_api::FastApiOneByteString,
+) -> String {
+  let input_buf = string.as_bytes();
+  let capacity = input_buf.len() * 2;
+
+  // SAFETY: We're allocating a buffer of 2x the input size, writing valid UTF-8, then turning that into a string
+  unsafe {
+    // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid
+    // accidentally creating a slice of u8 which would be invalid.
+    let layout = std::alloc::Layout::from_size_align(capacity, 1).unwrap();
+    let out = std::alloc::alloc(layout);
+
+    let written = latin1_to_utf8(input_buf.len(), input_buf.as_ptr(), out);
+
+    debug_assert!(written <= capacity);
+    // We know it's valid UTF-8, so make a string
+    String::from_raw_parts(out, written, capacity)
+  }
+}
+
+/// Converts a [`v8::String`] to either an owned string, or a borrowed string, depending on whether it fits into the
+/// provided buffer.
+#[inline(always)]
+pub fn to_str<'a, const N: usize>(
+  scope: &mut v8::Isolate,
+  string: &v8::Value,
+  buffer: &'a mut [MaybeUninit<u8>; N],
+) -> Cow<'a, str> {
+  if !string.is_string() {
+    return Cow::Borrowed("");
+  }
+
+  // SAFETY: We checked is_string above
+  let string: &v8::String = unsafe { std::mem::transmute(string) };
+
+  string.to_rust_cow_lossy(scope, buffer)
+}
+
+/// Converts from a raw [`v8::Value`] to the expected V8 data type.
+#[inline(always)]
+#[allow(clippy::result_unit_err)]
+pub fn v8_try_convert<'a, T>(
+  value: v8::Local<'a, v8::Value>,
+) -> Result<v8::Local<'a, T>, ()>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+{
+  v8::Local::<T>::try_from(value).map_err(drop)
+}
+
+/// Converts from a raw [`v8::Value`] to the expected V8 data type, wrapped in an [`Option`].
+#[inline(always)]
+#[allow(clippy::result_unit_err)]
+pub fn v8_try_convert_option<'a, T>(
+  value: v8::Local<'a, v8::Value>,
+) -> Result<Option<v8::Local<'a, T>>, ()>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+{
+  if value.is_null_or_undefined() {
+    Ok(None)
+  } else {
+    Ok(Some(v8::Local::<T>::try_from(value).map_err(drop)?))
+  }
+}
+
+pub fn serde_rust_to_v8<'a, T: Serialize>(
+  scope: &mut v8::HandleScope<'a>,
+  input: T,
+) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
+  to_v8(scope, input)
+}
+
+pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<v8::Value>,
+) -> serde_v8::Result<T> {
+  from_v8(scope, input)
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -204,9 +350,15 @@ mod tests {
   use crate::error::JsError;
   use crate::FastString;
   use crate::JsRuntime;
+  use crate::OpState;
   use crate::RuntimeOptions;
   use deno_ops::op2;
+  use serde::Deserialize;
+  use serde::Serialize;
+  use std::borrow::Cow;
   use std::cell::Cell;
+  use std::cell::RefCell;
+  use std::rc::Rc;
 
   crate::extension!(
     testing,
@@ -219,8 +371,34 @@ mod tests {
       op_test_result_void_err,
       op_test_result_primitive_ok,
       op_test_result_primitive_err,
+      op_test_bool,
+      op_test_bool_result,
+      op_test_string_owned,
+      op_test_string_ref,
+      op_test_string_cow,
+      op_test_string_roundtrip_char,
+      op_test_string_return,
+      op_test_string_option_return,
+      op_test_string_roundtrip,
       op_test_generics<String>,
-    ]
+      op_test_v8_types,
+      op_test_v8_option_string,
+      op_test_v8_type_return,
+      op_test_v8_type_return_option,
+      op_test_v8_type_handle_scope,
+      op_test_v8_type_handle_scope_obj,
+      op_test_v8_type_handle_scope_result,
+      op_test_serde_v8,
+      op_state_rc,
+      op_state_ref,
+      op_state_mut,
+      op_state_mut_attr,
+      op_state_multi_attr,
+    ],
+    state = |state| {
+      state.put(1234u32);
+      state.put(10000u16);
+    }
   );
 
   thread_local! {
@@ -229,18 +407,11 @@ mod tests {
 
   #[op2(core, fast)]
   pub fn op_test_fail() {
-    FAIL.with(|b| {
-      println!("fail");
-      b.set(true)
-    })
+    FAIL.with(|b| b.set(true))
   }
 
   /// Run a test for a single op.
-  fn run_test2(
-    repeat: usize,
-    op: &'static str,
-    test: &'static str,
-  ) -> Result<(), AnyError> {
+  fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), AnyError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
@@ -278,7 +449,7 @@ mod tests {
       ),
     )?;
     if FAIL.with(|b| b.get()) {
-      Err(generic_error("test failed"))
+      Err(generic_error(format!("{op} test failed ({test})")))
     } else {
       Ok(())
     }
@@ -406,7 +577,368 @@ mod tests {
     Ok(())
   }
 
+  #[op2(core, fast)]
+  pub fn op_test_bool(b: bool) -> bool {
+    b
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_bool_result(b: bool) -> Result<bool, AnyError> {
+    if b {
+      Ok(true)
+    } else {
+      Err(generic_error("false!!!"))
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_bool() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_test_bool",
+      "assert(op_test_bool(true) === true && op_test_bool(false) === false)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_bool_result",
+      "assert(op_test_bool_result(true) === true)",
+    )?;
+    run_test2(
+      1,
+      "op_test_bool_result",
+      "try { op_test_bool_result(false); assert(false) } catch (e) {}",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_string_owned(#[string] s: String) -> u32 {
+    s.len() as _
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_string_ref(#[string] s: &str) -> u32 {
+    s.len() as _
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_string_cow(#[string] s: Cow<str>) -> u32 {
+    s.len() as _
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_string_roundtrip_char(#[string] s: Cow<str>) -> u32 {
+    s.chars().next().unwrap() as u32
+  }
+
+  #[tokio::test]
+  pub async fn test_op_strings() -> Result<(), Box<dyn std::error::Error>> {
+    for op in [
+      "op_test_string_owned",
+      "op_test_string_cow",
+      "op_test_string_ref",
+    ] {
+      for (len, str) in [
+        // ASCII
+        (3, "'abc'"),
+        // Latin-1 (one byte but two UTF-8 chars)
+        (2, "'\\u00a0'"),
+        // ASCII
+        (10000, "'a'.repeat(10000)"),
+        // Latin-1
+        (20000, "'\\u00a0'.repeat(10000)"),
+        // 4-byte UTF-8 emoji (1F995 = 🦕)
+        (40000, "'\\u{1F995}'.repeat(10000)"),
+      ] {
+        let test = format!("assert({op}({str}) == {len})");
+        run_test2(10000, op, &test)?;
+      }
+    }
+
+    // Ensure that we're correctly encoding UTF-8
+    run_test2(
+      10000,
+      "op_test_string_roundtrip_char",
+      "assert(op_test_string_roundtrip_char('\\u00a0') == 0xa0)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_string_roundtrip_char",
+      "assert(op_test_string_roundtrip_char('\\u00ff') == 0xff)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_string_roundtrip_char",
+      "assert(op_test_string_roundtrip_char('\\u0080') == 0x80)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_string_roundtrip_char",
+      "assert(op_test_string_roundtrip_char('\\u0100') == 0x100)",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  #[string]
+  pub fn op_test_string_return(
+    #[string] a: Cow<str>,
+    #[string] b: Cow<str>,
+  ) -> String {
+    (a + b).to_string()
+  }
+
+  #[op2(core)]
+  #[string]
+  pub fn op_test_string_option_return(
+    #[string] a: Cow<str>,
+    #[string] b: Cow<str>,
+  ) -> Option<String> {
+    if a == "none" {
+      return None;
+    }
+    Some((a + b).to_string())
+  }
+
+  #[op2(core)]
+  #[string]
+  pub fn op_test_string_roundtrip(#[string] s: String) -> String {
+    s
+  }
+
+  #[tokio::test]
+  pub async fn test_op_string_returns() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_test2(
+      1,
+      "op_test_string_return",
+      "assert(op_test_string_return('a', 'b') == 'ab')",
+    )?;
+    run_test2(
+      1,
+      "op_test_string_option_return",
+      "assert(op_test_string_option_return('a', 'b') == 'ab')",
+    )?;
+    run_test2(
+      1,
+      "op_test_string_option_return",
+      "assert(op_test_string_option_return('none', 'b') == null)",
+    )?;
+    run_test2(
+      1,
+      "op_test_string_roundtrip",
+      "assert(op_test_string_roundtrip('\\u0080\\u00a0\\u00ff') == '\\u0080\\u00a0\\u00ff')",
+    )?;
+    Ok(())
+  }
+
   // We don't actually test this one -- we just want it to compile
   #[op2(core, fast)]
   pub fn op_test_generics<T: Clone>() {}
+
+  /// Tests v8 types without a handle scope
+  #[allow(clippy::needless_lifetimes)]
+  #[op2(core, fast)]
+  pub fn op_test_v8_types<'s>(
+    s: &v8::String,
+    s2: v8::Local<v8::String>,
+    s3: v8::Local<'s, v8::String>,
+  ) -> u32 {
+    if s.same_value(s2.into()) {
+      1
+    } else if s.same_value(s3.into()) {
+      2
+    } else {
+      3
+    }
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_v8_option_string(s: Option<&v8::String>) -> i32 {
+    if let Some(s) = s {
+      s.length() as i32
+    } else {
+      -1
+    }
+  }
+
+  /// Tests v8 types without a handle scope
+  #[op2(core)]
+  #[allow(clippy::needless_lifetimes)]
+  pub fn op_test_v8_type_return<'s>(
+    s: v8::Local<'s, v8::String>,
+  ) -> v8::Local<'s, v8::String> {
+    s
+  }
+
+  /// Tests v8 types without a handle scope
+  #[op2(core)]
+  #[allow(clippy::needless_lifetimes)]
+  pub fn op_test_v8_type_return_option<'s>(
+    s: Option<v8::Local<'s, v8::String>>,
+  ) -> Option<v8::Local<'s, v8::String>> {
+    s
+  }
+
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    s: &v8::String,
+  ) -> v8::Local<'s, v8::String> {
+    let s = s.to_rust_string_lossy(scope);
+    v8::String::new(scope, &s).unwrap()
+  }
+
+  /// Extract whatever lives in "key" from the object.
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope_obj<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    o: &v8::Object,
+  ) -> Option<v8::Local<'s, v8::Value>> {
+    let key = v8::String::new(scope, "key").unwrap().into();
+    o.get(scope, key)
+  }
+
+  /// Extract whatever lives in "key" from the object.
+  #[op2(core)]
+  pub fn op_test_v8_type_handle_scope_result<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    o: &v8::Object,
+  ) -> Result<v8::Local<'s, v8::Value>, AnyError> {
+    let key = v8::String::new(scope, "key").unwrap().into();
+    o.get(scope, key)
+      .filter(|v| !v.is_null_or_undefined())
+      .ok_or(generic_error("error!!!"))
+  }
+
+  #[tokio::test]
+  pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
+    for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
+      run_test2(
+        10000,
+        "op_test_v8_types",
+        &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
+      )?;
+    }
+    // Fast ops
+    for (a, b, c) in [
+      ("op_test_v8_option_string", "'xyz'", "3"),
+      ("op_test_v8_option_string", "null", "-1"),
+    ] {
+      run_test2(10000, a, &format!("assert({a}({b}) == {c})"))?;
+    }
+    // Non-fast ops
+    for (a, b, c) in [
+      ("op_test_v8_type_return", "'xyz'", "'xyz'"),
+      ("op_test_v8_type_return_option", "'xyz'", "'xyz'"),
+      ("op_test_v8_type_return_option", "null", "null"),
+      ("op_test_v8_type_handle_scope", "'xyz'", "'xyz'"),
+      ("op_test_v8_type_handle_scope_obj", "{'key': 1}", "1"),
+      (
+        "op_test_v8_type_handle_scope_obj",
+        "{'key': 'abc'}",
+        "'abc'",
+      ),
+      (
+        "op_test_v8_type_handle_scope_obj",
+        "{'no_key': 'abc'}",
+        "null",
+      ),
+      (
+        "op_test_v8_type_handle_scope_result",
+        "{'key': 'abc'}",
+        "'abc'",
+      ),
+    ] {
+      run_test2(1, a, &format!("assert({a}({b}) == {c})"))?;
+    }
+
+    // Test the error case for op_test_v8_type_handle_scope_result
+    run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
+    Ok(())
+  }
+
+  #[derive(Serialize, Deserialize)]
+  pub struct Serde {
+    pub s: String,
+  }
+
+  #[op2(core)]
+  #[serde]
+  pub fn op_test_serde_v8(#[serde] mut serde: Serde) -> Serde {
+    serde.s += "!";
+    serde
+  }
+
+  #[tokio::test]
+  pub async fn test_op_serde_v8() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      1,
+      "op_test_serde_v8",
+      "assert(op_test_serde_v8({s: 'abc'}).s == 'abc!')",
+    )?;
+    run_test2(
+      1,
+      "op_test_serde_v8",
+      "try { op_test_serde_v8({}); assert(false) } catch (e) { assert(String(e).indexOf('missing field') != -1) }",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_rc(state: Rc<RefCell<OpState>>, value: u32) -> u32 {
+    let old_value: u32 = state.borrow_mut().take();
+    state.borrow_mut().put(value);
+    old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_ref(state: &OpState) -> u32 {
+    let old_value: &u32 = state.borrow();
+    *old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_mut(state: &mut OpState, value: u32) {
+    *state.borrow_mut() = value;
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_mut_attr(#[state] value: &mut u32, new_value: u32) -> u32 {
+    let old_value = *value;
+    *value = new_value;
+    old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_multi_attr(
+    #[state] value32: &u32,
+    #[state] value16: &u16,
+    #[state] value8: Option<&u8>,
+  ) -> u32 {
+    assert_eq!(value8, None);
+    *value32 + *value16 as u32
+  }
+
+  #[tokio::test]
+  pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_state_rc",
+      "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
+    )?;
+    run_test2(
+      10000,
+      "op_state_mut_attr",
+      "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
+    )?;
+    run_test2(10000, "op_state_mut", "op_state_mut(__index__)")?;
+    run_test2(10000, "op_state_ref", "assert(op_state_ref() == 1234)")?;
+    run_test2(
+      10000,
+      "op_state_multi_attr",
+      "assert(op_state_multi_attr() == 11234)",
+    )?;
+    Ok(())
+  }
 }

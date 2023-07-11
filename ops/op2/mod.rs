@@ -9,19 +9,24 @@ use quote::ToTokens;
 use std::iter::zip;
 use syn2::parse2;
 use syn2::parse_str;
+use syn2::spanned::Spanned;
 use syn2::FnArg;
 use syn2::ItemFn;
+use syn2::Lifetime;
+use syn2::LifetimeParam;
 use syn2::Path;
 use thiserror::Error;
 
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
+use self::signature::is_attribute_special;
 use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::SignatureError;
 
 pub mod dispatch_fast;
+pub mod dispatch_shared;
 pub mod dispatch_slow;
 pub mod generator_state;
 pub mod signature;
@@ -104,7 +109,12 @@ fn generate_op2(
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
   let mut op_fn = func.clone();
-  op_fn.attrs.clear();
+  // Collect non-special attributes
+  let attrs = op_fn
+    .attrs
+    .drain(..)
+    .filter(|attr| !is_attribute_special(attr))
+    .collect::<Vec<_>>();
   op_fn.sig.generics.params.clear();
   op_fn.sig.ident = call.clone();
 
@@ -118,6 +128,15 @@ fn generate_op2(
   }
 
   let signature = parse_signature(func.attrs, func.sig.clone())?;
+  if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
+  {
+    op_fn.sig.generics.params.push(syn2::GenericParam::Lifetime(
+      LifetimeParam::new(Lifetime {
+        apostrophe: op_fn.span(),
+        ident,
+      }),
+    ));
+  }
   let processed_args =
     zip(signature.args.iter(), &func.sig.inputs).collect::<Vec<_>>();
 
@@ -135,6 +154,7 @@ fn generate_op2(
   let scope = Ident::new("scope", Span::call_site());
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
+  let opstate = Ident::new("opstate", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
   let fast_function = Ident::new("v8_fn_ptr_fast", Span::call_site());
   let fast_api_callback_options =
@@ -155,6 +175,7 @@ fn generate_op2(
     scope,
     info,
     opctx,
+    opstate,
     fast_api_callback_options,
     deno_core,
     result,
@@ -211,6 +232,7 @@ fn generate_op2(
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
+    #(#attrs)*
     #vis struct #name <#(#generic),*> {
       // We need to mark these type parameters as used, so we use a PhantomData
       _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
@@ -218,16 +240,15 @@ fn generate_op2(
 
     impl <#(#generic : #bound),*> #deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl {
-        name: stringify!(#name),
-        v8_fn_ptr: Self::#slow_function as _,
-        enabled: true,
-        fast_fn: #fast_definition,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: #arg_count as u8,
-      };
+      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal(
+        /*name*/ stringify!(#name),
+        /*is_async*/ false,
+        /*is_unstable*/ false,
+        /*is_v8*/ false,
+        /*arg_count*/ #arg_count as u8,
+        /*v8_fn_ptr*/ Self::#slow_function as _,
+        /*fast_fn*/ #fast_definition,
+      );
     }
 
     impl <#(#generic : #bound),*> #name <#(#generic),*> {
@@ -235,23 +256,16 @@ fn generate_op2(
         stringify!(#name)
       }
 
+      #[deprecated(note = "Use the const op::DECL instead")]
       pub const fn decl() -> #deno_core::_ops::OpDecl {
-        #deno_core::_ops::OpDecl {
-          name: stringify!(#name),
-          v8_fn_ptr: Self::#slow_function as _,
-          enabled: true,
-          fast_fn: #fast_definition,
-          is_async: false,
-          is_unstable: false,
-          is_v8: false,
-          arg_count: #arg_count as u8,
-        }
+        <Self as #deno_core::_ops::Op>::DECL
       }
 
       #fast_fn
       #slow_fn
 
       #[inline(always)]
+      #(#attrs)*
       #op_fn
     }
   })
@@ -302,7 +316,7 @@ mod tests {
         let tokens =
           generate_op2(config.unwrap(), func).expect("Failed to generate op");
         println!("======== Raw tokens ========:\n{}", tokens.clone());
-        let tree = syn::parse2(tokens).unwrap();
+        let tree = syn2::parse2(tokens).unwrap();
         let actual = prettyplease::unparse(&tree);
         println!("======== Generated ========:\n{}", actual);
         expected_out.push(actual);
