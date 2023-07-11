@@ -50,7 +50,9 @@ impl op_buffers {
             &*info
         });
         let arg0 = args.get(0usize as i32);
-        let arg0 = unsafe { deno_core::_ops::to_v8_slice(&mut scope, arg0) };
+        let arg0 = unsafe {
+            deno_core::_ops::to_nonresizable_v8_slice(&mut scope, arg0)
+        };
         let Ok(mut arg0) = arg0 else {
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let msg = deno_core::v8::String::new_from_one_byte(
@@ -65,7 +67,9 @@ impl op_buffers {
     };
         let arg0 = &mut arg0;
         let arg1 = args.get(1usize as i32);
-        let arg1 = unsafe { deno_core::_ops::to_v8_slice(&mut scope, arg1) };
+        let arg1 = unsafe {
+            deno_core::_ops::to_nonresizable_v8_slice(&mut scope, arg1)
+        };
         let Ok(mut arg1) = arg1 else {
         let msg = deno_core::v8::String::new_from_one_byte(
                 &mut scope,

@@ -382,7 +382,7 @@ pub fn from_arg_buffer(
 
   *needs_scope = true;
   let make_v8slice = quote! {
-    let #arg_ident = unsafe { #deno_core::_ops::to_v8_slice(&mut #scope, #arg_ident) };
+    let #arg_ident = unsafe { #deno_core::_ops::to_nonresizable_v8_slice(&mut #scope, #arg_ident) };
     let Ok(mut #arg_ident) = #arg_ident else {
       #throw_exception
     };

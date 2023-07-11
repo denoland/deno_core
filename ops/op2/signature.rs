@@ -167,29 +167,29 @@ impl Buffer {
     match self {
       Buffer::Bytes => matches!(
         mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Shared
+        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
       Buffer::JSBuffer => matches!(
         mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Shared
+        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
       Buffer::V8Slice => matches!(
         mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Shared
+        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
       Buffer::Vec(..) => matches!(
         mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Shared
+        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
       Buffer::BoxSlice(..) => matches!(
         mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Shared
+        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
       Buffer::Slice(..) => {
-        matches!(mode, BufferMode::Detach | BufferMode::Shared)
+        matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
       }
       Buffer::Ptr(..) => {
-        matches!(mode, BufferMode::Detach | BufferMode::Shared)
+        matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
       }
     }
   }
@@ -331,9 +331,9 @@ pub struct ParsedSignature {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum BufferMode {
-  /// Shared buffers that may possibly change on the JavaScript side upon re-entry into
+  /// Unsafely shared buffers that may possibly change on the JavaScript side upon re-entry into
   /// V8. Rust code should not treat these as traditional buffers.
-  Shared,
+  Unsafe,
   /// Shared buffers that are copied from V8 unconditionally. May be expensive, but these
   /// buffers are guaranteed to be owned by Rust.
   Copy,
@@ -634,8 +634,8 @@ fn parse_attribute(
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String),
       (#[state]) => Some(AttributeModifier::State),
-      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Shared)),
-      (#[buffer(shared)]) => Some(AttributeModifier::Buffer(BufferMode::Shared)),
+      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
+      (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
       (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy)),
       (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach)),
       (#[allow ($_rule:path)]) => None,

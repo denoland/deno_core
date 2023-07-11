@@ -345,7 +345,7 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
 
 /// Retrieve a [`serde_v8::V8Slice`] from a value.
 #[allow(clippy::result_unit_err)]
-pub fn to_v8_slice(
+pub fn to_nonresizable_v8_slice(
   scope: &mut v8::HandleScope,
   input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice, ()> {
@@ -362,6 +362,9 @@ pub fn to_v8_slice(
     };
 
   let store = buf.get_backing_store();
+  if store.is_resizable_by_user_javascript() {
+    return Err(());
+  }
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -419,6 +422,8 @@ mod tests {
       op_state_mut_attr,
       op_state_multi_attr,
       op_buffer_slice,
+      op_buffer_slice_callback,
+      op_buffer_slice_unsafe_callback,
     ],
     state = |state| {
       state.put(1234u32);
@@ -979,6 +984,21 @@ mod tests {
     output[0] = input[0];
   }
 
+  // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
+  #[op2(core)]
+  pub fn op_buffer_slice_callback(
+    scope: &mut v8::HandleScope,
+    index: usize,
+    #[buffer] input: &[u8],
+    #[buffer] output: &mut [u8],
+    callback: v8::Local<v8::Function>,
+  ) {
+    output[index] = input[index];
+    let recv = callback.into();
+    callback.call(scope, recv, &[]);
+    output[index] = input[index];
+  }
+
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
@@ -1011,6 +1031,63 @@ mod tests {
       let out = new ArrayBuffer(10);
       op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, out, 10);
       assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    // TODO(mmastrac): We aren't going to solve resizable buffers right now
+    // run_test2(
+    //   10000,
+    //   "op_buffer_slice",
+    //   r"
+    //   let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
+    //   let in_u8 = new Uint8Array(inbuf);
+    //   in_u8[5] = 1;
+    //   let out = new ArrayBuffer(10, { maxByteLength: 100 });
+    //   op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, out, 10);
+    //   assert(new Uint8Array(out)[0] == 1);",
+    // )?;
+    // run_test2(
+    //   1,
+    //   "op_buffer_slice_callback",
+    //   r"
+    //   let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
+    //   let outbuf = new ArrayBuffer(10, { maxByteLength: 100 });
+    //   op_buffer_slice_callback(5, inbuf, outbuf, () => {
+    //     try {
+    //       inbuf.resize(1);
+    //       outbuf.resize(1);
+    //     } catch (e) {
+    //       assert(false);
+    //     }
+    //   });
+    //   "
+    // )?;
+    Ok(())
+  }
+
+  // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
+  #[op2(core)]
+  pub fn op_buffer_slice_unsafe_callback(
+    scope: &mut v8::HandleScope,
+    buffer: v8::Local<v8::ArrayBuffer>,
+    callback: v8::Local<v8::Function>,
+  ) {
+    println!("{:?}", buffer.data());
+    let recv = callback.into();
+    callback.call(scope, recv, &[]);
+    println!("{:?}", buffer.data());
+  }
+
+  #[ignore]
+  #[tokio::test]
+  async fn test_op_unsafe() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      1,
+      "op_buffer_slice_unsafe_callback",
+      r"
+      let inbuf = new ArrayBuffer(1024 * 1024, { maxByteLength: 10 * 1024 * 1024 });
+      op_buffer_slice_unsafe_callback(inbuf, () => {
+        inbuf.resize(0);
+      });
+      ",
     )?;
     Ok(())
   }
