@@ -17,6 +17,7 @@ use syn2::FnArg;
 use syn2::GenericParam;
 use syn2::Generics;
 use syn2::Pat;
+use syn2::Path;
 use syn2::ReturnType;
 use syn2::Signature;
 use syn2::Type;
@@ -123,6 +124,30 @@ pub enum Special {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Buffer {
+  /// [`&[u8]`], [`&mut [u8]`], [`&[u32]`], etc...
+  Slice(RefType, NumericArg),
+  /// [`*const u8`], [`*mut u8`], [`*const u32`], etc...
+  Ptr(RefType, NumericArg),
+  /// [`Box<[u8]>`], [`Box<[u32]>`], etc...
+  BoxSlice(NumericArg),
+  /// [`Vec<u8>`], [`Vec<u32>`], etc...
+  Vec(NumericArg),
+  /// Owned in `bytes::Bytes`
+  Bytes,
+  /// Owned in `serde_v8::V8Slice`
+  V8Slice,
+  /// Owned in `serde_v8::JSBuffer`
+  JSBuffer,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum External {
+  /// c_void
+  Ptr(RefType),
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum RefType {
   Ref,
   Mut,
@@ -135,12 +160,12 @@ pub enum RefType {
 pub enum Arg {
   Void,
   Special(Special),
+  Buffer(Buffer),
+  External(External),
   Ref(RefType, Special),
   RcRefCell(Special),
   Option(Special),
   OptionNumeric(NumericArg),
-  Slice(RefType, NumericArg),
-  Ptr(RefType, NumericArg),
   OptionV8Local(V8Arg),
   V8Local(V8Arg),
   V8Global(V8Arg),
@@ -214,6 +239,7 @@ impl Arg {
 
 enum ParsedType {
   TSpecial(Special),
+  TBuffer(Buffer),
   TV8(V8Arg),
   // TODO(mmastrac): We need to carry the mut status through somehow
   TV8Mut(V8Arg),
@@ -250,15 +276,32 @@ pub struct ParsedSignature {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum BufferMode {
+  /// Shared buffers that may possibly change on the JavaScript side upon re-entry into
+  /// V8. Rust code should not treat these as traditional buffers.
+  Shared,
+  /// Shared buffers that are copied from V8 unconditionally. May be expensive, but these
+  /// buffers are guaranteed to be owned by Rust.
+  Copy,
+  /// Buffers that are detached and owned purely by Rust. JavaScript will no longer have
+  /// access to these buffers and will see zero-sized buffers rather than the contents
+  /// that were passed in here.
+  Detach,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
-  /// #[smi], for small integers
+  /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
+  /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
   /// #[string], for strings.
   String,
-  /// #[state], for automatic OpState extraction
+  /// #[state], for automatic OpState extraction.
   State,
+  /// #[buffer], for buffers.
+  Buffer(BufferMode),
 }
 
 #[derive(Error, Debug)]
@@ -291,6 +334,8 @@ pub enum ArgError {
   InvalidSelf,
   #[error("Invalid argument type: {0}")]
   InvalidType(String),
+  #[error("Invalid numeric argument type: {0}")]
+  InvalidNumericType(String),
   #[error(
     "Invalid argument type path (should this be #[smi] or #[serde]?): {0}"
   )]
@@ -315,6 +360,8 @@ pub enum ArgError {
   MissingStringAttribute,
   #[error("Invalid #[state] type '{0}'")]
   InvalidStateType(String),
+  #[error("Unknown or invalid attribute '{0}'")]
+  InvalidAttribute(String),
 }
 
 #[derive(Copy, Clone, Default)]
@@ -488,10 +535,12 @@ fn parse_generics(
 }
 
 fn parse_attributes(attributes: &[Attribute]) -> Result<Attributes, ArgError> {
-  let attrs = attributes
-    .iter()
-    .filter_map(parse_attribute)
-    .collect::<Vec<_>>();
+  let mut attrs = vec![];
+  for attr in attributes {
+    if let Some(attr) = parse_attribute(attr)? {
+      attrs.push(attr)
+    }
+  }
 
   if attrs.is_empty() {
     return Ok(Attributes::default());
@@ -504,23 +553,33 @@ fn parse_attributes(attributes: &[Attribute]) -> Result<Attributes, ArgError> {
   })
 }
 
+/// Is this a special attribute that we understand?
 pub fn is_attribute_special(attr: &Attribute) -> bool {
-  parse_attribute(attr).is_some()
+  parse_attribute(attr).unwrap_or_default().is_some()
 }
 
-fn parse_attribute(attr: &Attribute) -> Option<AttributeModifier> {
+/// Parses an attribute, returning None if this is an attribute we support but is
+/// otherwise unknown (ie: doc comments).
+fn parse_attribute(
+  attr: &Attribute,
+) -> Result<Option<AttributeModifier>, ArgError> {
   let tokens = attr.into_token_stream();
-  use syn2 as syn;
-  std::panic::catch_unwind(|| {
+  let res = std::panic::catch_unwind(|| {
+    use syn2 as syn;
     rules!(tokens => {
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String),
       (#[state]) => Some(AttributeModifier::State),
-      (#[$_attr:meta]) => None,
+      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Shared)),
+      (#[buffer(shared)]) => Some(AttributeModifier::Buffer(BufferMode::Shared)),
+      (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy)),
+      (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach)),
+      (#[allow ($_rule:path)]) => None,
+      (#[doc = $_attr:literal]) => None,
     })
-  })
-  .expect("Failed to parse an attribute")
+  }).map_err(|_| ArgError::InvalidAttribute(stringify_token(attr)))?;
+  Ok(res)
 }
 
 fn parse_return(
@@ -560,6 +619,19 @@ fn parse_return(
   }
 }
 
+fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
+  if tp.segments.len() == 1 {
+    let segment = tp.segments.first().unwrap().ident.to_string();
+    for numeric in NumericArg::iter() {
+      if Into::<&'static str>::into(numeric) == segment.as_str() {
+        return Ok(numeric);
+      }
+    }
+  }
+
+  Err(ArgError::InvalidNumericType(stringify_token(tp)))
+}
+
 /// Parse a raw type into a container + type, allowing us to simplify the typechecks elsewhere in
 /// this code.
 fn parse_type_path(
@@ -570,13 +642,8 @@ fn parse_type_path(
   use ParsedType::*;
   use ParsedTypeContainer::*;
 
-  if tp.path.segments.len() == 1 {
-    let segment = tp.path.segments.first().unwrap().ident.to_string();
-    for numeric in NumericArg::iter() {
-      if Into::<&'static str>::into(numeric) == segment.as_str() {
-        return Ok(CBare(TNumeric(numeric)));
-      }
-    }
+  if let Ok(numeric) = parse_numeric_type(&tp.path) {
+    return Ok(CBare(TNumeric(numeric)));
   }
 
   use syn2 as syn;
@@ -588,11 +655,26 @@ fn parse_type_path(
         Ok(CBare(TSpecial(Special::String)))
       }
       // Note that the reference is checked below
-      ( $( std :: str  :: )? str ) => {
+      ( $( std :: str :: )? str ) => {
         Ok(CBare(TSpecial(Special::RefStr)))
       }
       ( $( std :: borrow :: )? Cow < str > ) => {
         Ok(CBare(TSpecial(Special::CowStr)))
+      }
+      ( $( std :: vec ::)? Vec < $ty:path > ) => {
+        Ok(CBare(TBuffer(Buffer::Vec(parse_numeric_type(&ty)?))))
+      }
+      ( $( std :: boxed ::)? Box < [ $ty:path ] > ) => {
+        Ok(CBare(TBuffer(Buffer::BoxSlice(parse_numeric_type(&ty)?))))
+      }
+      ( $( serde_v8 :: )? V8Slice ) => {
+        Ok(CBare(TBuffer(Buffer::V8Slice)))
+      }
+      ( $( serde_v8 :: )? JSBuffer ) => {
+        Ok(CBare(TBuffer(Buffer::JSBuffer)))
+      }
+      ( $( bytes :: )? Bytes ) => {
+        Ok(CBare(TBuffer(Buffer::Bytes)))
       }
       ( $( std :: ffi :: )? c_void ) => Ok(CBare(TNumeric(NumericArg::__VOID__))),
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
@@ -606,6 +688,7 @@ fn parse_type_path(
         match parse_type(attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::Numeric(numeric) => Ok(COption(TNumeric(numeric))),
+          Arg::Buffer(buffer) => Ok(COption(TBuffer(buffer))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
@@ -742,6 +825,9 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
       AttributeModifier::String => {
         // We handle this as part of the normal parsing process
       }
+      AttributeModifier::Buffer(_) => {
+        // We handle this as part of the normal parsing process
+      }
       AttributeModifier::Smi => {
         return Ok(Arg::Numeric(NumericArg::__SMI__));
       }
@@ -763,7 +849,12 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
       };
       match &*of.elem {
         Type::Slice(of) => match parse_type(attrs, &of.elem)? {
-          Arg::Numeric(numeric) => Ok(Arg::Slice(mut_type, numeric)),
+          Arg::Numeric(numeric) if numeric == NumericArg::__VOID__ => {
+            Ok(Arg::External(External::Ptr(mut_type)))
+          }
+          Arg::Numeric(numeric) => {
+            Ok(Arg::Buffer(Buffer::Slice(mut_type, numeric)))
+          }
           _ => Err(ArgError::InvalidType(stringify_token(ty))),
         },
         Type::Path(of) => match parse_type_path(attrs, true, of)? {
@@ -786,7 +877,12 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
       };
       match &*of.elem {
         Type::Path(of) => match parse_type_path(attrs, false, of)? {
-          CBare(TNumeric(numeric)) => Ok(Arg::Ptr(mut_type, numeric)),
+          CBare(TNumeric(numeric)) if numeric == NumericArg::__VOID__ => {
+            Ok(Arg::External(External::Ptr(mut_type)))
+          }
+          CBare(TNumeric(numeric)) => {
+            Ok(Arg::Buffer(Buffer::Ptr(mut_type, numeric)))
+          }
           _ => Err(ArgError::InvalidType(stringify_token(ty))),
         },
         _ => Err(ArgError::InvalidType(stringify_token(ty))),
@@ -795,6 +891,7 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
     Type::Path(of) => match parse_type_path(attrs, false, of)? {
       CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric)),
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
+      CBare(TBuffer(buffer)) => Ok(Arg::Buffer(buffer)),
       COption(TNumeric(special)) => Ok(Arg::OptionNumeric(special)),
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
@@ -917,7 +1014,7 @@ mod tests {
   );
   test!(
     fn op_slices(r#in: &[u8], out: &mut [u8]);
-    (Slice(Ref, u8), Slice(Mut, u8)) -> Infallible(Void)
+    (Buffer(Slice(Ref, u8)), Buffer(Slice(Mut, u8))) -> Infallible(Void)
   );
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
@@ -933,7 +1030,7 @@ mod tests {
   );
   test!(
     fn op_resource(#[smi] rid: ResourceId, buffer: &[u8]);
-    (Numeric(__SMI__), Slice(Ref, u8)) ->  Infallible(Void)
+    (Numeric(__SMI__), Buffer(Slice(Ref, u8))) ->  Infallible(Void)
   );
   test!(
     fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, AnyError>;
@@ -941,7 +1038,7 @@ mod tests {
   );
   test!(
     fn op_ffi_read_f64(state: &mut OpState, ptr: * mut c_void, offset: isize) -> Result <f64, AnyError>;
-    (Ref(Mut, OpState), Ptr(Mut, __VOID__), Numeric(isize)) -> Result(Numeric(f64))
+    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize)) -> Result(Numeric(f64))
   );
   test!(
     fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error>;
@@ -983,6 +1080,10 @@ mod tests {
     fn op_state_attr(#[state] something: &Something, #[state] another: Option<&Something>);
     (State(Ref, "Something"), OptionState(Ref, "Something")) -> Infallible(Void)
   );
+  test!(
+    #[buffer] fn op_buffers(#[buffer] a: Vec<u8>, #[buffer] b: Box<[u8]>, #[buffer] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JSBuffer) -> Vec<u8>;
+    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JSBuffer)) -> Infallible(Buffer(Vec(u8)))
+  );
 
   // Args
 
@@ -1000,6 +1101,17 @@ mod tests {
     op_with_bad_string3,
     ArgError("s", MissingStringAttribute),
     fn f(s: Cow<str>) {}
+  );
+  expect_fail!(
+    op_with_bad_attr,
+    RetError(InvalidAttribute("#[badattr]")),
+    #[badattr]
+    fn f() {}
+  );
+  expect_fail!(
+    op_with_bad_attr2,
+    ArgError("a", InvalidAttribute("#[badattr]")),
+    fn f(#[badattr] a: u32) {}
   );
 
   // Generics

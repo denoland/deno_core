@@ -41,8 +41,8 @@ pub(crate) fn generate_dispatch_slow(
     });
   }
 
-  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to copy
-  // the scope borrow.
+  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
+  // the scope/opstate in the intermediate stages.
   let mut deferred = TokenStream::new();
   let mut input_index = 0;
 
