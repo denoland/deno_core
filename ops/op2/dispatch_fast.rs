@@ -62,9 +62,15 @@ impl V8FastCallType {
       V8FastCallType::SeqOneByteString => {
         quote!(*mut #deno_core::v8::fast_api::FastApiOneByteString)
       }
-      V8FastCallType::Uint8Array => quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u8>),
-      V8FastCallType::Uint32Array => quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u32>),
-      V8FastCallType::Float64Array => quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<f64>),
+      V8FastCallType::Uint8Array => {
+        quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u8>)
+      }
+      V8FastCallType::Uint32Array => {
+        quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u32>)
+      }
+      V8FastCallType::Float64Array => {
+        quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<f64>)
+      }
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
