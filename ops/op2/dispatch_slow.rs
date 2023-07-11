@@ -3,6 +3,7 @@ use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
+use super::signature::Buffer;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
@@ -41,8 +42,8 @@ pub(crate) fn generate_dispatch_slow(
     });
   }
 
-  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to copy
-  // the scope borrow.
+  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
+  // the scope/opstate in the intermediate stages.
   let mut deferred = TokenStream::new();
   let mut input_index = 0;
 
@@ -269,6 +270,10 @@ pub fn from_arg(
         let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
+    Arg::Buffer(buffer) => {
+      let arg_ident = arg_ident.clone();
+      from_arg_buffer(generator_state, &arg_ident, buffer)?
+    }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
       quote!(let #arg_ident = &mut #scope;)
@@ -358,6 +363,49 @@ pub fn from_arg(
     _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
+}
+
+pub fn from_arg_buffer(
+  generator_state: &mut GeneratorState,
+  arg_ident: &Ident,
+  buffer: &Buffer,
+) -> Result<TokenStream, V8MappingError> {
+  let err = format_ident!("{}_err", arg_ident);
+  let throw_exception = throw_type_error_static_string(generator_state, &err)?;
+
+  let GeneratorState {
+    deno_core,
+    scope,
+    needs_scope,
+    ..
+  } = generator_state;
+
+  *needs_scope = true;
+  let make_v8slice = quote! {
+    let mut #arg_ident = match unsafe { #deno_core::_ops::to_nonresizable_v8_slice(&mut #scope, #arg_ident) } {
+      Ok(#arg_ident) => #arg_ident,
+      Err(#err) => {
+        #throw_exception
+      }
+    };
+  };
+
+  let make_arg = match buffer {
+    Buffer::Slice(_, NumericArg::u8) => {
+      quote!(let #arg_ident = &mut #arg_ident;)
+    }
+    _ => {
+      return Err(V8MappingError::NoMapping(
+        "a buffer argument",
+        Arg::Buffer(*buffer),
+      ))
+    }
+  };
+
+  Ok(quote! {
+    #make_v8slice
+    #make_arg
+  })
 }
 
 pub fn call(
@@ -618,6 +666,30 @@ fn throw_type_error_string(
     #maybe_scope
     // TODO(mmastrac): This might be allocating too much, even if it's on the error path
     let msg = #deno_core::v8::String::new(&mut #scope, &format!("{}", #deno_core::anyhow::Error::from(#message))).unwrap();
+    let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
+    #scope.throw_exception(exc);
+    return;
+  })
+}
+
+/// Generates code to throw an exception from a string variable, adding required additional dependencies as needed.
+fn throw_type_error_static_string(
+  generator_state: &mut GeneratorState,
+  message: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  let maybe_scope = if generator_state.needs_scope {
+    quote!()
+  } else {
+    with_scope(generator_state)
+  };
+
+  let GeneratorState {
+    deno_core, scope, ..
+  } = &generator_state;
+
+  Ok(quote! {
+    #maybe_scope
+    let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
     let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
