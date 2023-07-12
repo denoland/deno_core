@@ -320,7 +320,6 @@ name = "deno_ops"
 version = "0.73.0"
 dependencies = [
  "deno-proc-macro-rules",
- "deno_core",
  "lazy-regex",
  "once_cell",
  "pmutil 0.5.3",

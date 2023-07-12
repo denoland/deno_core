@@ -34,4 +34,3 @@ v8.workspace = true
 pretty_assertions.workspace = true
 prettyplease = "0.2.9"
 testing_macros = "0.2.11"
-deno_core.workspace = true
