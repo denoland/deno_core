@@ -5,6 +5,7 @@
 use deno_core::op;
 use deno_core::Extension;
 use deno_core::JsRuntime;
+use deno_core::Op;
 use deno_core::RuntimeOptions;
 
 // This is a hack to make the `#[op]` macro work with
@@ -27,7 +28,7 @@ fn main() {
       // An op for summing an array of numbers
       // The op-layer automatically deserializes inputs
       // and serializes the returned Result & value
-      op_sum::decl(),
+      op_sum::DECL,
     ])
     .build();
 

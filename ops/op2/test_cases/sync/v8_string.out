@@ -4,35 +4,25 @@ struct op_v8_string {
 }
 impl deno_core::_ops::Op for op_v8_string {
     const NAME: &'static str = stringify!(op_v8_string);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl {
-        name: stringify!(op_v8_string),
-        v8_fn_ptr: Self::v8_fn_ptr as _,
-        enabled: true,
-        fast_fn: None,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: 2usize as u8,
-    };
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_v8_string),
+        false,
+        false,
+        false,
+        2usize as u8,
+        Self::v8_fn_ptr as _,
+        None,
+    );
 }
 impl op_v8_string {
     pub const fn name() -> &'static str {
         stringify!(op_v8_string)
     }
+    #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
-        deno_core::_ops::OpDecl {
-            name: stringify!(op_v8_string),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: None,
-            is_async: false,
-            is_unstable: false,
-            is_v8: false,
-            arg_count: 2usize as u8,
-        }
+        <Self as deno_core::_ops::Op>::DECL
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -40,12 +30,13 @@ impl op_v8_string {
             &*info
         });
         let arg0 = args.get(0usize as i32);
-        let Ok(mut arg0) = deno_core::v8::Local::<
+        let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
             deno_core::v8::String,
-        >::try_from(arg0) else {
+        >(arg0) else {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let msg = deno_core::v8::String::new_from_one_byte(
                 &mut scope,
-                "expected v8::String".as_bytes(),
+                "expected String".as_bytes(),
                 deno_core::v8::NewStringType::Normal,
             )
             .unwrap();
@@ -55,12 +46,13 @@ impl op_v8_string {
     };
         let arg0 = &arg0;
         let arg1 = args.get(1usize as i32);
-        let Ok(mut arg1) = deno_core::v8::Local::<
+        let Ok(mut arg1) = deno_core::_ops::v8_try_convert::<
             deno_core::v8::String,
-        >::try_from(arg1) else {
+        >(arg1) else {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let msg = deno_core::v8::String::new_from_one_byte(
                 &mut scope,
-                "expected v8::String".as_bytes(),
+                "expected String".as_bytes(),
                 deno_core::v8::NewStringType::Normal,
             )
             .unwrap();
@@ -68,6 +60,7 @@ impl op_v8_string {
         scope.throw_exception(exc);
         return;
     };
+        let arg1 = arg1;
         let result = Self::call(arg0, arg1);
         rv.set(result.into())
     }

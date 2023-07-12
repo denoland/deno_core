@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::extensions::Op;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::AssertedModuleType;
 use crate::modules::ModuleInfo;
@@ -239,7 +240,7 @@ fn es_snapshot() {
     RuntimeOptions {
       module_loader: Some(loader.clone()),
       extensions: vec![Extension::builder("text_ext")
-        .ops(vec![op_test::decl()])
+        .ops(vec![op_test::DECL])
         .build()],
       ..Default::default()
     },
@@ -278,7 +279,7 @@ fn es_snapshot() {
       module_loader: Some(loader.clone()),
       startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
       extensions: vec![Extension::builder("text_ext")
-        .ops(vec![op_test::decl()])
+        .ops(vec![op_test::DECL])
         .build()],
       ..Default::default()
     },
@@ -298,7 +299,7 @@ fn es_snapshot() {
     module_loader: Some(loader),
     startup_snapshot: Some(Snapshot::JustCreated(snapshot2)),
     extensions: vec![Extension::builder("text_ext")
-      .ops(vec![op_test::decl()])
+      .ops(vec![op_test::DECL])
       .build()],
     ..Default::default()
   });

@@ -4,11 +4,14 @@ pub struct op_u32_with_result {
 }
 impl deno_core::_ops::Op for op_u32_with_result {
     const NAME: &'static str = stringify!(op_u32_with_result);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl {
-        name: stringify!(op_u32_with_result),
-        v8_fn_ptr: Self::v8_fn_ptr as _,
-        enabled: true,
-        fast_fn: Some({
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_u32_with_result),
+        false,
+        false,
+        false,
+        0usize as u8,
+        Self::v8_fn_ptr as _,
+        Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new(
@@ -17,35 +20,15 @@ impl deno_core::_ops::Op for op_u32_with_result {
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
         }),
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: 0usize as u8,
-    };
+    );
 }
 impl op_u32_with_result {
     pub const fn name() -> &'static str {
         stringify!(op_u32_with_result)
     }
+    #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
-        deno_core::_ops::OpDecl {
-            name: stringify!(op_u32_with_result),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new(
-                    &[Type::V8Value, Type::CallbackOptions],
-                    CType::Uint32,
-                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-                )
-            }),
-            is_async: false,
-            is_unstable: false,
-            is_v8: false,
-            arg_count: 0usize as u8,
-        }
+        <Self as deno_core::_ops::Op>::DECL
     }
     fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,

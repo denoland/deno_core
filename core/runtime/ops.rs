@@ -301,6 +301,34 @@ pub fn to_str<'a, const N: usize>(
   string.to_rust_cow_lossy(scope, buffer)
 }
 
+/// Converts from a raw [`v8::Value`] to the expected V8 data type.
+#[inline(always)]
+#[allow(clippy::result_unit_err)]
+pub fn v8_try_convert<'a, T>(
+  value: v8::Local<'a, v8::Value>,
+) -> Result<v8::Local<'a, T>, ()>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+{
+  v8::Local::<T>::try_from(value).map_err(drop)
+}
+
+/// Converts from a raw [`v8::Value`] to the expected V8 data type, wrapped in an [`Option`].
+#[inline(always)]
+#[allow(clippy::result_unit_err)]
+pub fn v8_try_convert_option<'a, T>(
+  value: v8::Local<'a, v8::Value>,
+) -> Result<Option<v8::Local<'a, T>>, ()>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+{
+  if value.is_null_or_undefined() {
+    Ok(None)
+  } else {
+    Ok(Some(v8::Local::<T>::try_from(value).map_err(drop)?))
+  }
+}
+
 pub fn serde_rust_to_v8<'a, T: Serialize>(
   scope: &mut v8::HandleScope<'a>,
   input: T,
@@ -315,6 +343,34 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
   from_v8(scope, input)
 }
 
+/// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
+pub fn to_v8_slice<'a, T>(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<'a, v8::Value>,
+) -> Result<serde_v8::V8Slice, &'static str>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T>>,
+{
+  let (store, offset, length) = if let Ok(buf) = v8::Local::<T>::try_from(input)
+  {
+    let buf: v8::Local<v8::ArrayBufferView> = buf.into();
+    let Some(buffer) = buf.buffer(scope) else {
+      return Err("buffer missing");
+    };
+    (
+      buffer.get_backing_store(),
+      buf.byte_offset(),
+      buf.byte_length(),
+    )
+  } else {
+    return Err("expected typed ArrayBufferView");
+  };
+  let slice =
+    unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
+  Ok(slice)
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -322,12 +378,15 @@ mod tests {
   use crate::error::JsError;
   use crate::FastString;
   use crate::JsRuntime;
+  use crate::OpState;
   use crate::RuntimeOptions;
   use deno_ops::op2;
   use serde::Deserialize;
   use serde::Serialize;
   use std::borrow::Cow;
   use std::cell::Cell;
+  use std::cell::RefCell;
+  use std::rc::Rc;
 
   crate::extension!(
     testing,
@@ -358,7 +417,19 @@ mod tests {
       op_test_v8_type_handle_scope_obj,
       op_test_v8_type_handle_scope_result,
       op_test_serde_v8,
-    ]
+      op_state_rc,
+      op_state_ref,
+      op_state_mut,
+      op_state_mut_attr,
+      op_state_multi_attr,
+      op_buffer_slice,
+      op_buffer_slice_unsafe_callback,
+      op_buffer_copy,
+    ],
+    state = |state| {
+      state.put(1234u32);
+      state.put(10000u16);
+    }
   );
 
   thread_local! {
@@ -376,6 +447,8 @@ mod tests {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
+    let err_mapper =
+      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -393,7 +466,7 @@ mod tests {
           .into(),
         ),
       )
-      .unwrap();
+      .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
@@ -698,7 +771,7 @@ mod tests {
 
   /// Tests v8 types without a handle scope
   #[allow(clippy::needless_lifetimes)]
-  #[op2(core)]
+  #[op2(core, fast)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
     s2: v8::Local<v8::String>,
@@ -713,7 +786,7 @@ mod tests {
     }
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   pub fn op_test_v8_option_string(s: Option<&v8::String>) -> i32 {
     if let Some(s) = s {
       s.length() as i32
@@ -775,15 +848,21 @@ mod tests {
   pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
     for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
       run_test2(
-        1,
+        10000,
         "op_test_v8_types",
         &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
       )?;
     }
+    // Fast ops
     for (a, b, c) in [
-      ("op_test_v8_type_return", "'xyz'", "'xyz'"),
       ("op_test_v8_option_string", "'xyz'", "3"),
       ("op_test_v8_option_string", "null", "-1"),
+    ] {
+      run_test2(10000, a, &format!("assert({a}({b}) == {c})"))?;
+    }
+    // Non-fast ops
+    for (a, b, c) in [
+      ("op_test_v8_type_return", "'xyz'", "'xyz'"),
       ("op_test_v8_type_return_option", "'xyz'", "'xyz'"),
       ("op_test_v8_type_return_option", "null", "null"),
       ("op_test_v8_type_handle_scope", "'xyz'", "'xyz'"),
@@ -835,6 +914,188 @@ mod tests {
       1,
       "op_test_serde_v8",
       "try { op_test_serde_v8({}); assert(false) } catch (e) { assert(String(e).indexOf('missing field') != -1) }",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_rc(state: Rc<RefCell<OpState>>, value: u32) -> u32 {
+    let old_value: u32 = state.borrow_mut().take();
+    state.borrow_mut().put(value);
+    old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_ref(state: &OpState) -> u32 {
+    let old_value: &u32 = state.borrow();
+    *old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_mut(state: &mut OpState, value: u32) {
+    *state.borrow_mut() = value;
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_mut_attr(#[state] value: &mut u32, new_value: u32) -> u32 {
+    let old_value = *value;
+    *value = new_value;
+    old_value
+  }
+
+  #[op2(core, fast)]
+  pub fn op_state_multi_attr(
+    #[state] value32: &u32,
+    #[state] value16: &u16,
+    #[state] value8: Option<&u8>,
+  ) -> u32 {
+    assert_eq!(value8, None);
+    *value32 + *value16 as u32
+  }
+
+  #[tokio::test]
+  pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_state_rc",
+      "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
+    )?;
+    run_test2(
+      10000,
+      "op_state_mut_attr",
+      "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
+    )?;
+    run_test2(10000, "op_state_mut", "op_state_mut(__index__)")?;
+    run_test2(10000, "op_state_ref", "assert(op_state_ref() == 1234)")?;
+    run_test2(
+      10000,
+      "op_state_multi_attr",
+      "assert(op_state_multi_attr() == 11234)",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_buffer_slice(
+    #[buffer] input: &[u8],
+    inlen: usize,
+    #[buffer] output: &mut [u8],
+    outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    output[0] = input[0];
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
+  {
+    // Uint8Array -> Uint8Array
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let out = new Uint8Array(10);
+      op_buffer_slice(new Uint8Array([1,2,3]), 3, out, 10);
+      assert(out[0] == 1);",
+    )?;
+    // Uint8Array(ArrayBuffer) -> Uint8Array(ArrayBuffer)
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10);
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[0] = 1;
+      let out = new ArrayBuffer(10);
+      op_buffer_slice(in_u8, 10, new Uint8Array(out), 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    // Uint8Array(ArrayBuffer, 5, 5) -> Uint8Array(ArrayBuffer)
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10);
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[5] = 1;
+      let out = new ArrayBuffer(10);
+      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    // Resizable
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[5] = 1;
+      let out = new ArrayBuffer(10, { maxByteLength: 100 });
+      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    Ok(())
+  }
+
+  // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
+  #[op2(core)]
+  pub fn op_buffer_slice_unsafe_callback(
+    scope: &mut v8::HandleScope,
+    buffer: v8::Local<v8::ArrayBuffer>,
+    callback: v8::Local<v8::Function>,
+  ) {
+    println!("{:?}", buffer.data());
+    let recv = callback.into();
+    callback.call(scope, recv, &[]);
+    println!("{:?}", buffer.data());
+  }
+
+  #[ignore]
+  #[tokio::test]
+  async fn test_op_unsafe() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      1,
+      "op_buffer_slice_unsafe_callback",
+      r"
+      let inbuf = new ArrayBuffer(1024 * 1024, { maxByteLength: 10 * 1024 * 1024 });
+      op_buffer_slice_unsafe_callback(inbuf, () => {
+        inbuf.resize(0);
+      });
+      ",
+    )?;
+    Ok(())
+  }
+
+  /// Ensures that three copies are independent. Note that we cannot mutate the
+  /// `bytes::Bytes`.
+  #[op2(core, fast)]
+  #[allow(clippy::boxed_local)] // Clippy bug? It warns about input2
+  pub fn op_buffer_copy(
+    #[buffer(copy)] mut input1: Vec<u8>,
+    #[buffer(copy)] mut input2: Box<[u8]>,
+    #[buffer(copy)] input3: bytes::Bytes,
+  ) {
+    assert_eq!(input1[0], input2[0]);
+    assert_eq!(input2[0], input3[0]);
+    input1[0] = 0xff;
+    assert_ne!(input1[0], input2[0]);
+    assert_eq!(input2[0], input3[0]);
+    input2[0] = 0xff;
+    assert_eq!(input1[0], input2[0]);
+    assert_ne!(input2[0], input3[0]);
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_copy() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_copy",
+      r"
+      let input = new Uint8Array(10);
+      input[0] = 1;
+      op_buffer_copy(input, input, input);
+      assert(input[0] == 1);",
     )?;
     Ok(())
   }
