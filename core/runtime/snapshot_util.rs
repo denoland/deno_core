@@ -14,6 +14,7 @@ use crate::RuntimeOptions;
 use crate::Snapshot;
 
 pub type CompressionCb = dyn Fn(&mut Vec<u8>, &[u8]);
+pub type WithRuntimeCb = dyn Fn(&mut JsRuntimeForSnapshot);
 
 pub struct CreateSnapshotOptions {
   pub cargo_manifest_dir: &'static str,
@@ -22,7 +23,7 @@ pub struct CreateSnapshotOptions {
   pub extensions: Vec<Extension>,
   pub compression_cb: Option<Box<CompressionCb>>,
   pub snapshot_module_load_cb: Option<ExtModuleLoaderCb>,
-  pub with_runtime_cb: Option<Box<dyn Fn(&mut JsRuntimeForSnapshot)>>,
+  pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
 }
 
 pub struct CreateSnapshotOutput {
