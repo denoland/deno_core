@@ -229,6 +229,16 @@ pub fn from_arg(
         let #arg_ident = #deno_core::_ops::to_i64(&#arg_ident) as _;
       }
     }
+    Arg::Numeric(NumericArg::f32) => {
+      quote! {
+        let #arg_ident = #deno_core::_ops::to_f32(&#arg_ident) as _;
+      }
+    }
+    Arg::Numeric(NumericArg::f64) => {
+      quote! {
+        let #arg_ident = #deno_core::_ops::to_f64(&#arg_ident) as _;
+      }
+    }
     Arg::OptionNumeric(numeric) => {
       // Ends the borrow of generator_state
       let arg_ident = arg_ident.clone();
@@ -328,8 +338,8 @@ pub fn from_arg(
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
-    | Arg::V8Ref(_, v8)
-    | Arg::OptionV8Ref(_, v8) => {
+    | Arg::V8Ref(RefType::Ref, v8)
+    | Arg::OptionV8Ref(RefType::Ref, v8) => {
       let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
       let throw_type_error =
@@ -483,6 +493,10 @@ pub fn return_value_infallible(
     | Arg::Numeric(NumericArg::i32) => {
       *needs_retval = true;
       quote!(#retval.set_int32(#result as i32);)
+    }
+    Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
+      *needs_retval = true;
+      quote!(#retval.set_double(#result as _);)
     }
     Arg::Special(Special::String) => {
       *needs_retval = true;

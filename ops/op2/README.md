@@ -149,6 +149,34 @@ Uint32, Int32, Number, BigInt
 <td>
 
 ```rust
+f32
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
+f64
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
 #[string] String
 ```
 
@@ -248,76 +276,6 @@ Function
 
 ```rust
 &v8::...
-```
-
-</td><td>
-✅
-</td><td>
-...
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```rust
-&mut v8::Value
-```
-
-</td><td>
-✅
-</td><td>
-any
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```rust
-&mut v8::String
-```
-
-</td><td>
-✅
-</td><td>
-String
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```rust
-&mut v8::Object
-```
-
-</td><td>
-✅
-</td><td>
-Object
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```rust
-&mut v8::Function
-```
-
-</td><td>
-✅
-</td><td>
-Function
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```rust
-&mut v8::...
 ```
 
 </td><td>
@@ -463,7 +421,7 @@ UInt8Array (resizable=true,false)
 </td><td>
 ✅
 </td><td>
-ArrayBuffer, ArrayBufferView, SharedArrayBuffer
+UInt8Array (resizable=true,false)
 </td><td>
 Safe, but forces a copy.
 </td></tr>
@@ -477,7 +435,7 @@ Safe, but forces a copy.
 </td><td>
 ✅
 </td><td>
-ArrayBuffer, ArrayBufferView, SharedArrayBuffer
+UInt8Array (resizable=true,false)
 </td><td>
 Safe, but forces a copy.
 </td></tr>
@@ -491,7 +449,7 @@ Safe, but forces a copy.
 </td><td>
 ✅
 </td><td>
-ArrayBuffer, ArrayBufferView, SharedArrayBuffer
+UInt8Array (resizable=true,false)
 </td><td>
 Safe, but forces a copy.
 </td></tr>
