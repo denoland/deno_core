@@ -348,8 +348,7 @@ mod tests {
 
     // Skip the header and table line
     for line in md.split('\n').skip(2).filter(|s| {
-      !s.trim().is_empty()
-        && !s.split('|').nth(1).unwrap().trim().is_empty()
+      !s.trim().is_empty() && !s.split('|').nth(1).unwrap().trim().is_empty()
     }) {
       let expansion = if line.contains("**V8**") {
         let mut expansion = vec![];

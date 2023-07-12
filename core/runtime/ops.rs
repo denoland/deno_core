@@ -1087,8 +1087,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_copy() -> Result<(), Box<dyn std::error::Error>>
-  {
+  pub async fn test_op_buffer_copy() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10000,
       "op_buffer_copy",
