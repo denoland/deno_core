@@ -161,17 +161,12 @@ pub enum Buffer {
   V8Slice,
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JSBuffer`
   JSBuffer,
-  /// Shared, resizable, stored in `serde_v8::V8Slice`
-  V8ResizableSlice,
 }
 
 impl Buffer {
   fn is_valid_mode(&self, mode: BufferMode) -> bool {
     match self {
-      Buffer::Bytes => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
+      Buffer::Bytes => matches!(mode, BufferMode::Copy),
       Buffer::JSBuffer => matches!(
         mode,
         BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
@@ -180,18 +175,8 @@ impl Buffer {
         mode,
         BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
-      Buffer::V8ResizableSlice => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
-      Buffer::Vec(..) => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
-      Buffer::BoxSlice(..) => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
+      Buffer::Vec(..) => matches!(mode, BufferMode::Copy),
+      Buffer::BoxSlice(..) => matches!(mode, BufferMode::Copy),
       Buffer::Slice(..) => {
         matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
       }
@@ -1039,15 +1024,15 @@ mod tests {
   macro_rules! test {
     (
       // Function attributes
-      $(# [ $fn_attr:ident ])?
+      $(# [ $fn_attr:meta ])?
       // fn name < 'scope, GENERIC1, GENERIC2, ... >
       fn $name:ident $( < $scope:lifetime $( , $generic:ident)* >)?
       (
         // Argument attribute, argument
-        $( $(# [ $attr:ident ])? $ident:ident : $ty:ty ),*
+        $( $(# [ $attr:meta ])? $ident:ident : $ty:ty ),*
       )
       // Return value
-      $(-> $(# [ $ret_attr:ident ])? $ret:ty)?
+      $(-> $(# [ $ret_attr:meta ])? $ret:ty)?
       // Where clause
       $( where $($trait:ident : $bounds:path),* )?
       ;
@@ -1199,7 +1184,7 @@ mod tests {
     (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
   );
   test!(
-    #[buffer] fn op_buffers(#[buffer] a: Vec<u8>, #[buffer] b: Box<[u8]>, #[buffer] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JSBuffer) -> Vec<u8>;
+    #[buffer(copy)] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JSBuffer) -> Vec<u8>;
     (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JSBuffer)) -> Infallible(Buffer(Vec(u8)))
   );
 

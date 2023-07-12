@@ -153,7 +153,7 @@ Uint32, Int32, Number, BigInt
 </td><td>
 String
 </td><td>
-Fastcall available if string is Latin-1. Will always create a copy of the String data.
+Fastcall available only if string is Latin-1. Will always create an allocated, UTF-8 copy of the String data.
 </td></tr>
 <tr>
 <td>
@@ -167,7 +167,7 @@ Fastcall available if string is Latin-1. Will always create a copy of the String
 </td><td>
 String
 </td><td>
-Fastcall available if string is Latin-1. Will create an owned `String` copy of the String data if it doesn't fit on the stack. Will never copy in a fastcall.
+Fastcall available only if string is Latin-1. Will create an owned `String` copy of the String data if it doesn't fit on the stack. Will never allocate in a fastcall, but will copy Latin-1 -> UTF-8.
 </td></tr>
 <tr>
 <td>
@@ -181,7 +181,7 @@ Fastcall available if string is Latin-1. Will create an owned `String` copy of t
 </td><td>
 String
 </td><td>
-Fastcall available if string is Latin-1. Will create a `Cow::Owned` copy of the String data if it doesn't fit on the stack. Will always be `Cow::Borrowed` in a fastcall.
+Fastcall available only if string is Latin-1. Will create a `Cow::Owned` copy of the String data if it doesn't fit on the stack. Will always be `Cow::Borrowed` in a fastcall, but will copy Latin-1 -> UTF-8.
 </td></tr>
 <tr>
 <td>
@@ -431,7 +431,7 @@ any
 </td><td>
 ✅
 </td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
+UInt8Array (resizable=true,false)
 </td><td>
 ⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
 </td></tr>
@@ -445,9 +445,51 @@ ArrayBuffer, ArrayBufferView (resizable=true,false)
 </td><td>
 ✅
 </td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
+UInt8Array (resizable=true,false)
 </td><td>
 ⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[buffer(copy)] Vec<u8>
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer, ArrayBufferView, SharedArrayBuffer
+</td><td>
+Safe, but forces a copy.
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[buffer(copy)] Box<[u8]>
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer, ArrayBufferView, SharedArrayBuffer
+</td><td>
+Safe, but forces a copy.
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[buffer(copy)] bytes::Bytes
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer, ArrayBufferView, SharedArrayBuffer
+</td><td>
+Safe, but forces a copy.
 </td></tr>
 <tr>
 <td>

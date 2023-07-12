@@ -83,6 +83,16 @@ impl V8Slice {
       std::slice::from_raw_parts_mut(ptr, self.range.len())
     }
   }
+
+  /// Create a [`Vec<u8>`] copy of this slice data.
+  pub fn to_vec(&self) -> Vec<u8> {
+    self.as_slice().to_vec()
+  }
+
+  /// Create a [`Box<[u8]>`] copy of this slice data.
+  pub fn to_boxed_slice(&self) -> Box<[u8]> {
+    self.to_vec().into_boxed_slice()
+  }
 }
 
 pub(crate) fn to_ranged_buffer<'s>(
@@ -208,83 +218,4 @@ unsafe fn v8slice_drop(
   _: usize,
 ) {
   drop(Rc::from_raw(*data as *const V8Slice))
-}
-
-pub struct ResizableV8Slice {
-  pub(crate) store: v8::SharedRef<v8::BackingStore>,
-  pub(crate) offset: usize,
-}
-
-impl ResizableV8Slice {
-  /// Create a V8Slice from raw parts.
-  ///
-  /// # Safety
-  ///
-  /// The `offset` passed to this function *must* be within the bounds of the backing store, as we may
-  /// create a slice from this. The [`v8::BackingStore`] must be valid, and valid for use for the purposes
-  /// of this `V8Slice` (ie: the caller must understand the repercussions of using shared/resizable
-  /// buffers).
-  pub unsafe fn from_parts(
-    store: v8::SharedRef<v8::BackingStore>,
-    offset: usize,
-  ) -> Self {
-    Self { store, offset }
-  }
-
-  /// View the contents of the underlying byte slice.
-  ///
-  /// ### Safety
-  ///
-  /// V8 must never be invoked or the underlying [v8::BackingStore] accessed or
-  /// resized for the duration of the callback `cb`'s execution.
-  pub fn open<'s, F, R>(&'s self, cb: F) -> R
-  where
-    F: FnOnce(&[u8]) -> R,
-  {
-    let store = &self.store;
-    let Some(ptr) = store.data() else {
-      return cb(&[]);
-    };
-    let ptr = ptr.cast::<u8>().as_ptr();
-    // SAFETY: v8::BackingStore points to a fixed continous slice of bytes on
-    // the heap. Constraints on the V8Slice type ensure that the bytes
-    // represented by the v8::BackingStore can not be deallocated or modified
-    // for the duration of the callback `cb`'s execution. The reasoning for this
-    // is elaborated on the safety comment for V8Slice.
-    unsafe {
-      let ptr = ptr.add(self.offset);
-      cb(std::slice::from_raw_parts(ptr, store.byte_length()))
-    }
-  }
-
-  /// Access a mutable slice the contents of the underlying byte slice.
-  ///
-  /// ### Safety
-  ///
-  /// V8 must never be invoked or the underlying [v8::BackingStore] accessed or
-  /// resized for the duration of the callback `cb`'s execution.
-  pub fn open_mut<'s, F, R>(&'s mut self, cb: F) -> R
-  where
-    F: FnOnce(&mut [u8]) -> R,
-  {
-    let store = &self.store;
-    let Some(ptr) = store.data() else {
-      return cb(&mut []);
-    };
-    let ptr = ptr.cast::<u8>().as_ptr();
-    // SAFETY: v8::BackingStore points to a fixed continous slice of bytes on
-    // the heap. Constraints on the V8Slice type ensure that the bytes
-    // represented by the v8::BackingStore can not be deallocated or modified
-    // for the duration of the callback `cb`'s execution. The reasoning for this
-    // is elaborated on the safety comment for V8Slice.
-    unsafe {
-      let ptr = ptr.add(self.offset);
-      cb(std::slice::from_raw_parts_mut(ptr, store.byte_length()))
-    }
-  }
-
-  /// Copy the contents of the underlying byte slice into a new [Vec].
-  pub fn to_vec(&self) -> Vec<u8> {
-    self.open(|bytes| bytes.to_vec())
-  }
 }

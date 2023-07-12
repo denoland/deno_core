@@ -9,7 +9,7 @@ impl deno_core::_ops::Op for op_buffers {
         false,
         false,
         false,
-        2usize as u8,
+        3usize as u8,
         Self::v8_fn_ptr as _,
         Some({
             use deno_core::v8::fast_api::Type;
@@ -17,6 +17,7 @@ impl deno_core::_ops::Op for op_buffers {
             deno_core::v8::fast_api::FastFunction::new(
                 &[
                     Type::V8Value,
+                    Type::TypedArray(CType::Uint8),
                     Type::TypedArray(CType::Uint8),
                     Type::TypedArray(CType::Uint8),
                 ],
@@ -38,10 +39,23 @@ impl op_buffers {
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
-        let arg0 = unsafe { arg0.as_mut().unwrap() }.get_storage_if_aligned().unwrap();
-        let arg1 = unsafe { arg1.as_mut().unwrap() }.get_storage_if_aligned().unwrap();
-        let result = Self::call(arg0, arg1);
+        let arg0 = unsafe { arg0.as_mut().unwrap() }
+            .get_storage_if_aligned()
+            .unwrap()
+            .to_vec();
+        let arg1 = unsafe { arg1.as_mut().unwrap() }
+            .get_storage_if_aligned()
+            .unwrap()
+            .to_vec()
+            .into_boxed_slice();
+        let arg2 = unsafe { arg2.as_mut().unwrap() }
+            .get_storage_if_aligned()
+            .unwrap()
+            .to_vec()
+            .into();
+        let result = Self::call(arg0, arg1, arg2);
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
@@ -67,7 +81,7 @@ impl op_buffers {
                 return;
             }
         };
-        let arg0 = &mut arg0;
+        let arg0 = arg0.to_vec();
         let arg1 = args.get(1usize as i32);
         let mut arg1 = match unsafe {
             deno_core::_ops::to_v8_slice::<deno_core::v8::Uint8Array>(&mut scope, arg1)
@@ -85,9 +99,27 @@ impl op_buffers {
                 return;
             }
         };
-        let arg1 = &mut arg1;
-        let result = Self::call(arg0, arg1);
+        let arg1 = arg1.to_boxed_slice();
+        let arg2 = args.get(2usize as i32);
+        let mut arg2 = match unsafe {
+            deno_core::_ops::to_v8_slice::<deno_core::v8::Uint8Array>(&mut scope, arg2)
+        } {
+            Ok(arg2) => arg2,
+            Err(arg2_err) => {
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        arg2_err.as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
+            }
+        };
+        let arg2 = arg2.to_vec().into();
+        let result = Self::call(arg0, arg1, arg2);
     }
     #[inline(always)]
-    fn call(a: &[u8], b: &mut [u8]) {}
+    fn call(a: Vec<u8>, b: Box<[u8]>, c: bytes::Bytes) {}
 }
