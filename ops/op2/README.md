@@ -5,30 +5,305 @@
 # Parameters
 
 <!-- START -->
-| Rust | Fastcall | v8 |
-|--|--|--|
-| `bool` | ✅ | Bool |
-| `i8` | ✅ | Uint32, Int32, Number, BigInt |
-| `u8` | ✅ | Uint32, Int32, Number, BigInt |
-| `i16` | ✅ | Uint32, Int32, Number, BigInt |
-| `u16` | ✅ | Uint32, Int32, Number, BigInt |
-| `i32` | ✅ | Uint32, Int32, Number, BigInt |
-| `u32` | ✅ | Uint32, Int32, Number, BigInt |
-| `isize` | ✅ | Uint32, Int32, Number, BigInt |
-| `usize` | ✅ | Uint32, Int32, Number, BigInt |
-| `#[string] String` | ✅ | String |
-| `#[string] &str` | ✅ | String |
-| `v8::Local<v8::Value>` | ✅ | any |
-| `#[string] Cow<str>` | ✅ | String |
-| `&mut v8::Value` | ✅ | any |
-| `&v8::Value` | ✅ | any |
-| `&v8::String` | ✅ | String |
-| `v8::Local<v8::String>` | ✅ | String |
-| `v8::Local<v8::Object>` | ✅ | Object |
-| `&mut v8::String` | ✅ | String |
-| `&mut v8::Object` | ✅ | Object |
-| `&v8::Object` | ✅ | Object |
-| `#[serde] SerdeType` |  | any |
-| `#[serde] (Tuple, Tuple)` |  | any |
-| `#[buffer] &mut [u8]` | ✅ | ArrayBuffer, ArrayBufferView |
-| `#[buffer] &[u8]` | ✅ | ArrayBuffer, ArrayBufferView |
+<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>
+<tr>
+<td>
+
+```rust
+bool
+```
+
+</td><td>
+✅
+</td><td>
+Bool
+</tr>
+<tr>
+<td>
+
+```rust
+i8
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+u8
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+i16
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+u16
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+i32
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+u32
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+isize
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+usize
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</tr>
+<tr>
+<td>
+
+```rust
+#[string] String
+```
+
+</td><td>
+✅
+</td><td>
+String
+</tr>
+<tr>
+<td>
+
+```rust
+#[string] &str
+```
+
+</td><td>
+✅
+</td><td>
+String
+</tr>
+<tr>
+<td>
+
+```rust
+v8::Local<v8::Value>
+```
+
+</td><td>
+✅
+</td><td>
+any
+</tr>
+<tr>
+<td>
+
+```rust
+#[string] Cow<str>
+```
+
+</td><td>
+✅
+</td><td>
+String
+</tr>
+<tr>
+<td>
+
+```rust
+&mut v8::Value
+```
+
+</td><td>
+✅
+</td><td>
+any
+</tr>
+<tr>
+<td>
+
+```rust
+&v8::Value
+```
+
+</td><td>
+✅
+</td><td>
+any
+</tr>
+<tr>
+<td>
+
+```rust
+&v8::String
+```
+
+</td><td>
+✅
+</td><td>
+String
+</tr>
+<tr>
+<td>
+
+```rust
+v8::Local<v8::String>
+```
+
+</td><td>
+✅
+</td><td>
+String
+</tr>
+<tr>
+<td>
+
+```rust
+v8::Local<v8::Object>
+```
+
+</td><td>
+✅
+</td><td>
+Object
+</tr>
+<tr>
+<td>
+
+```rust
+&mut v8::String
+```
+
+</td><td>
+✅
+</td><td>
+String
+</tr>
+<tr>
+<td>
+
+```rust
+&mut v8::Object
+```
+
+</td><td>
+✅
+</td><td>
+Object
+</tr>
+<tr>
+<td>
+
+```rust
+&v8::Object
+```
+
+</td><td>
+✅
+</td><td>
+Object
+</tr>
+<tr>
+<td>
+
+```rust
+#[serde] SerdeType
+```
+
+</td><td>
+
+</td><td>
+any
+</tr>
+<tr>
+<td>
+
+```rust
+#[serde] (Tuple, Tuple)
+```
+
+</td><td>
+
+</td><td>
+any
+</tr>
+<tr>
+<td>
+
+```rust
+#[buffer] &mut [u8]
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer, ArrayBufferView
+</tr>
+<tr>
+<td>
+
+```rust
+#[buffer] &[u8]
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer, ArrayBufferView
+</tr>
+</table>

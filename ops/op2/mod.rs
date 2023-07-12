@@ -345,7 +345,7 @@ mod tests {
     let md = include_str!("valid_args.md");
     let separator = "\n<!-- START -->\n";
     let header = include_str!("README.md").split(separator).next().unwrap();
-    let mut actual = format!("{header}{separator}| Rust | Fastcall | v8 |\n|--|--|--|\n");
+    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
 
     // Skip the header and table line
     for line in md.split('\n').skip(2).filter(|s| !s.trim().is_empty() && !s.trim().starts_with('#')) {
@@ -364,8 +364,9 @@ mod tests {
       let function = syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
       let sig = parse_signature(vec![], function.sig.clone()).expect("Failed to parse signature");
       generate_op2(MacroConfig { core: false, fast }, function).expect("Failed to generate op");
-      actual += &format!("| `{}` | {} | {} |\n", type_param, if fast { "✅" } else { "" }, v8);
+      actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</tr>\n", type_param, if fast { "✅" } else { "" }, v8);
     }
+    actual += "</table>";
 
     if update_expected {
       std::fs::write("op2/README.md", actual)
