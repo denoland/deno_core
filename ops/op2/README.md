@@ -17,7 +17,9 @@ bool
 ✅
 </td><td>
 Bool
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -29,7 +31,9 @@ i8
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -41,7 +45,9 @@ u8
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -53,7 +59,9 @@ i16
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -65,7 +73,9 @@ u16
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -77,7 +87,9 @@ i32
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -89,7 +101,9 @@ u32
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -101,7 +115,9 @@ isize
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -113,7 +129,9 @@ usize
 ✅
 </td><td>
 Uint32, Int32, Number, BigInt
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -125,7 +143,9 @@ Uint32, Int32, Number, BigInt
 ✅
 </td><td>
 String
-</tr>
+</td><td>
+Will always create a copy of the String data.
+</td></tr>
 <tr>
 <td>
 
@@ -137,7 +157,9 @@ String
 ✅
 </td><td>
 String
-</tr>
+</td><td>
+Will create a copy of the String data if it doesn't fit on the stack.
+</td></tr>
 <tr>
 <td>
 
@@ -149,7 +171,9 @@ String
 ✅
 </td><td>
 String
-</tr>
+</td><td>
+Will create a copy of the String data if it doesn't fit on the stack.
+</td></tr>
 <tr>
 <td>
 
@@ -161,7 +185,9 @@ String
 ✅
 </td><td>
 any
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -173,7 +199,9 @@ any
 ✅
 </td><td>
 String
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -185,7 +213,9 @@ String
 ✅
 </td><td>
 Object
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -197,7 +227,9 @@ Object
 ✅
 </td><td>
 Function
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -209,7 +241,9 @@ Function
 ✅
 </td><td>
 ...
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -221,7 +255,9 @@ Function
 ✅
 </td><td>
 any
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -233,7 +269,9 @@ any
 ✅
 </td><td>
 String
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -245,7 +283,9 @@ String
 ✅
 </td><td>
 Object
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -257,7 +297,9 @@ Object
 ✅
 </td><td>
 Function
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -269,7 +311,9 @@ Function
 ✅
 </td><td>
 ...
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -281,7 +325,9 @@ v8::Local<v8::Value>
 ✅
 </td><td>
 any
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -293,7 +339,9 @@ v8::Local<v8::String>
 ✅
 </td><td>
 String
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -305,7 +353,9 @@ v8::Local<v8::Object>
 ✅
 </td><td>
 Object
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -317,7 +367,9 @@ v8::Local<v8::Function>
 ✅
 </td><td>
 Function
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -329,7 +381,9 @@ v8::Local<v8::...>
 ✅
 </td><td>
 ...
-</tr>
+</td><td>
+
+</td></tr>
 <tr>
 <td>
 
@@ -341,7 +395,9 @@ v8::Local<v8::...>
 
 </td><td>
 any
-</tr>
+</td><td>
+⚠️ May be slow.
+</td></tr>
 <tr>
 <td>
 
@@ -353,7 +409,9 @@ any
 
 </td><td>
 any
-</tr>
+</td><td>
+⚠️ May be slow.
+</td></tr>
 <tr>
 <td>
 
@@ -364,8 +422,10 @@ any
 </td><td>
 ✅
 </td><td>
-ArrayBuffer, ArrayBufferView
-</tr>
+ArrayBuffer, ArrayBufferView (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
+</td></tr>
 <tr>
 <td>
 
@@ -376,6 +436,8 @@ ArrayBuffer, ArrayBufferView
 </td><td>
 ✅
 </td><td>
-ArrayBuffer, ArrayBufferView
-</tr>
+ArrayBuffer, ArrayBufferView (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
+</td></tr>
 </table>

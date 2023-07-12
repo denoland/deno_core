@@ -348,22 +348,23 @@ mod tests {
     let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
 
     // Skip the header and table line
-    for line in md.split('\n').skip(2).filter(|s| !s.trim().is_empty() && !s.trim().starts_with('#')) {
-      let expansion = if line.contains("%V8%") {
+    for line in md.split('\n').skip(2).filter(|s| !s.trim().is_empty() && !s.split('|').skip(1).next().unwrap().trim().is_empty()) {
+      let expansion = if line.contains("**V8**") {
         let mut expansion = vec![];
         for key in ["String", "Object", "Function", "..."] {
-          expansion.push(line.replace("%V8%", key))
+          expansion.push(line.replace("**V8**", key))
         }
         expansion
       } else {
         vec![line.to_owned()]
       };
       for line in expansion {
-        let components = line.split('|').skip(1).map(|s| s.trim()).collect::<Vec<_>>();
+        let components = line.split('|').skip(2).map(|s| s.trim()).collect::<Vec<_>>();
         let type_param = components.get(0).unwrap().to_owned();
         let fastcall = components.get(1).unwrap().to_owned();
         let fast = fastcall == "X";
         let v8 = components.get(2).unwrap().to_owned();
+        let notes = components.get(3).unwrap().to_owned();
         let (attr, ty) = if type_param.starts_with('#') {
           type_param.split_once(' ').expect("Expected an attribute separated by a space (ie: #[attr] type)")
         } else {
@@ -376,7 +377,7 @@ mod tests {
           let sig = parse_signature(vec![], function.sig.clone()).expect("Failed to parse signature");
           generate_op2(MacroConfig { core: false, fast }, function).expect("Failed to generate op");
         }
-        actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</tr>\n", type_param, if fast { "✅" } else { "" }, v8);
+        actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
       }
     }
     actual += "</table>";
