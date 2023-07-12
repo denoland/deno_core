@@ -4,12 +4,16 @@
 
 # Strings
 
-`String`s in Rust are always UTF-8. `String`s in v8, however, are either two-byte UTF-16 or one-byte Latin-1. One-byte Latin-1 strings
-are not byte-compatible with UTF-8, as characters with the index 128-255 require two bytes to encode in UTF-8.
+`String`s in Rust are always UTF-8. `String`s in v8, however, are either
+two-byte UTF-16 or one-byte Latin-1. One-byte Latin-1 strings are not
+byte-compatible with UTF-8, as characters with the index 128-255 require two
+bytes to encode in UTF-8.
 
-Because of this, `String`s in `op`s always require a copy (at least) to ensure that we are not incorrectly passing Latin-1 data to
-methods that expect a UTF-8 string. At this time there is no way to avoid this copy, though the `op` code does attempt to avoid
-any allocations where possible by making use of a stack buffer.
+Because of this, `String`s in `op`s always require a copy (at least) to ensure
+that we are not incorrectly passing Latin-1 data to methods that expect a UTF-8
+string. At this time there is no way to avoid this copy, though the `op` code
+does attempt to avoid any allocations where possible by making use of a stack
+buffer.
 
 # Parameters
 

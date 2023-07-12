@@ -391,7 +391,7 @@ mod tests {
         actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
       }
     }
-    actual += "</table>";
+    actual += "</table>\n";
 
     if update_expected {
       std::fs::write("op2/README.md", actual)
