@@ -381,8 +381,14 @@ pub fn from_arg_buffer(
   } = generator_state;
 
   *needs_scope = true;
+
+  // TODO(mmastrac): Other buffer types
+  let array = NumericArg::u8
+    .v8_array_type()
+    .expect("Could not retrieve the v8 type");
+
   let make_v8slice = quote! {
-    let mut #arg_ident = match unsafe { #deno_core::_ops::to_nonresizable_v8_slice(&mut #scope, #arg_ident) } {
+    let mut #arg_ident = match unsafe { #deno_core::_ops::to_v8_slice::<#deno_core::v8::#array>(&mut #scope, #arg_ident) } {
       Ok(#arg_ident) => #arg_ident,
       Err(#err) => {
         #throw_exception
@@ -393,6 +399,16 @@ pub fn from_arg_buffer(
   let make_arg = match buffer {
     Buffer::Slice(_, NumericArg::u8) => {
       quote!(let #arg_ident = &mut #arg_ident;)
+    }
+    Buffer::Vec(NumericArg::u8) => {
+      quote!(let #arg_ident = #arg_ident.to_vec();)
+    }
+    Buffer::BoxSlice(NumericArg::u8) => {
+      quote!(let #arg_ident = #arg_ident.to_boxed_slice();)
+    }
+    Buffer::Bytes => {
+      // TODO(mmastrac): This assumes #[buffer(copy)]
+      quote!(let #arg_ident = #arg_ident.to_vec().into();)
     }
     _ => {
       return Err(V8MappingError::NoMapping(

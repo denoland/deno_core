@@ -337,4 +337,72 @@ mod tests {
       );
     }
   }
+
+  #[test]
+  fn test_valid_args_md() {
+    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
+    let md = include_str!("valid_args.md");
+    let separator = "\n<!-- START -->\n";
+    let header = include_str!("README.md").split(separator).next().unwrap();
+    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+
+    // Skip the header and table line
+    for line in md.split('\n').skip(2).filter(|s| {
+      !s.trim().is_empty() && !s.split('|').nth(1).unwrap().trim().is_empty()
+    }) {
+      let expansion = if line.contains("**V8**") {
+        let mut expansion = vec![];
+        for key in ["String", "Object", "Function", "..."] {
+          expansion.push(line.replace("**V8**", key))
+        }
+        expansion
+      } else {
+        vec![line.to_owned()]
+      };
+      for line in expansion {
+        let components = line
+          .split('|')
+          .skip(2)
+          .map(|s| s.trim())
+          .collect::<Vec<_>>();
+        let type_param = components.first().unwrap().to_owned();
+        let fastcall = components.get(1).unwrap().to_owned();
+        let fast = fastcall == "X";
+        let v8 = components.get(2).unwrap().to_owned();
+        let notes = components.get(3).unwrap().to_owned();
+        let (attr, ty) = if type_param.starts_with('#') {
+          type_param.split_once(' ').expect(
+            "Expected an attribute separated by a space (ie: #[attr] type)",
+          )
+        } else {
+          ("", type_param)
+        };
+
+        if !line.contains("...") {
+          let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
+          let function =
+            syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+          let sig = parse_signature(vec![], function.sig.clone())
+            .expect("Failed to parse signature");
+          println!("Parsed signature: {sig:?}");
+          generate_op2(MacroConfig { core: false, fast }, function)
+            .expect("Failed to generate op");
+        }
+        actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      }
+    }
+    actual += "</table>\n";
+
+    if update_expected {
+      std::fs::write("op2/README.md", actual)
+        .expect("Failed to write expectation file");
+    } else {
+      let expected = std::fs::read_to_string("op2/README.md")
+        .expect("Failed to read expectation file");
+      assert_eq!(
+        expected, actual,
+        "Failed to match expectation. Use UPDATE_EXPECTED=1."
+      );
+    }
+  }
 }

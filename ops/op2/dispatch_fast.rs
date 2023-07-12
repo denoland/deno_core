@@ -292,6 +292,15 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Buffer(Buffer::Slice(_, NumericArg::u8)) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap();)
     }
+    Arg::Buffer(Buffer::Vec(NumericArg::u8)) => {
+      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec();)
+    }
+    Arg::Buffer(Buffer::BoxSlice(NumericArg::u8)) => {
+      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into_boxed_slice();)
+    }
+    Arg::Buffer(Buffer::Bytes) => {
+      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into();)
+    }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
       quote!(let #arg_ident = &#opctx.state.borrow();)
@@ -388,7 +397,12 @@ fn map_arg_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
-    Arg::Buffer(Buffer::Slice(_, NumericArg::u8)) => V8FastCallType::Uint8Array,
+    Arg::Buffer(
+      Buffer::Slice(_, NumericArg::u8)
+      | Buffer::Vec(NumericArg::u8)
+      | Buffer::BoxSlice(NumericArg::u8)
+      | Buffer::Bytes,
+    ) => V8FastCallType::Uint8Array,
     Arg::Buffer(_) => return Ok(None),
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)

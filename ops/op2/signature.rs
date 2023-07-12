@@ -144,31 +144,29 @@ pub enum Special {
   FastApiCallbackOptions,
 }
 
+/// Buffers are complicated and may be shared/owned, shared/unowned, a copy, or detached.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Buffer {
-  /// [`&[u8]`], [`&mut [u8]`], [`&[u32]`], etc...
+  /// Shared/unowned, may be resizable. [`&[u8]`], [`&mut [u8]`], [`&[u32]`], etc...
   Slice(RefType, NumericArg),
-  /// [`*const u8`], [`*mut u8`], [`*const u32`], etc...
+  /// Shared/unowned, may be resizable. [`*const u8`], [`*mut u8`], [`*const u32`], etc...
   Ptr(RefType, NumericArg),
-  /// [`Box<[u8]>`], [`Box<[u32]>`], etc...
+  /// Owned, copy. [`Box<[u8]>`], [`Box<[u32]>`], etc...
   BoxSlice(NumericArg),
-  /// [`Vec<u8>`], [`Vec<u32>`], etc...
+  /// Owned, copy. [`Vec<u8>`], [`Vec<u32>`], etc...
   Vec(NumericArg),
-  /// Owned in `bytes::Bytes`
+  /// Maybe shared or a copy. Stored in `bytes::Bytes`
   Bytes,
-  /// Owned in `serde_v8::V8Slice`
+  /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::V8Slice`
   V8Slice,
-  /// Owned in `serde_v8::JSBuffer`
+  /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JSBuffer`
   JSBuffer,
 }
 
 impl Buffer {
   fn is_valid_mode(&self, mode: BufferMode) -> bool {
     match self {
-      Buffer::Bytes => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
+      Buffer::Bytes => matches!(mode, BufferMode::Copy),
       Buffer::JSBuffer => matches!(
         mode,
         BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
@@ -177,14 +175,8 @@ impl Buffer {
         mode,
         BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
-      Buffer::Vec(..) => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
-      Buffer::BoxSlice(..) => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
+      Buffer::Vec(..) => matches!(mode, BufferMode::Copy),
+      Buffer::BoxSlice(..) => matches!(mode, BufferMode::Copy),
       Buffer::Slice(..) => {
         matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
       }
@@ -882,10 +874,11 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
           // Denylist of serde_v8 types with better alternatives
           let ty = of.into_token_stream();
           let token = stringify_token(of.path.clone());
-          if let Ok(err) = std::panic::catch_unwind(|| {
+          if let Ok(Some(err)) = std::panic::catch_unwind(|| {
             use syn2 as syn;
             rules!(ty => {
-              ( $( serde_v8:: )? Value $( < $_lifetime:lifetime >)? ) => "use v8::Value",
+              ( $( serde_v8:: )? Value $( < $_lifetime:lifetime >)? ) => Some("use v8::Value"),
+              ( $_ty:ty ) => None,
             })
           }) {
             return Err(ArgError::InvalidSerdeType(stringify_token(ty), err));
@@ -1023,7 +1016,6 @@ fn parse_arg(arg: FnArg) -> Result<Arg, ArgError> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::op2::signature::parse_signature;
   use syn2::parse_str;
   use syn2::ItemFn;
 
@@ -1032,15 +1024,15 @@ mod tests {
   macro_rules! test {
     (
       // Function attributes
-      $(# [ $fn_attr:ident ])?
+      $(# [ $fn_attr:meta ])?
       // fn name < 'scope, GENERIC1, GENERIC2, ... >
       fn $name:ident $( < $scope:lifetime $( , $generic:ident)* >)?
       (
         // Argument attribute, argument
-        $( $(# [ $attr:ident ])? $ident:ident : $ty:ty ),*
+        $( $(# [ $attr:meta ])? $ident:ident : $ty:ty ),*
       )
       // Return value
-      $(-> $(# [ $ret_attr:ident ])? $ret:ty)?
+      $(-> $(# [ $ret_attr:meta ])? $ret:ty)?
       // Where clause
       $( where $($trait:ident : $bounds:path),* )?
       ;
@@ -1192,7 +1184,7 @@ mod tests {
     (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
   );
   test!(
-    #[buffer] fn op_buffers(#[buffer] a: Vec<u8>, #[buffer] b: Box<[u8]>, #[buffer] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JSBuffer) -> Vec<u8>;
+    #[buffer(copy)] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JSBuffer) -> Vec<u8>;
     (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JSBuffer)) -> Infallible(Buffer(Vec(u8)))
   );
 

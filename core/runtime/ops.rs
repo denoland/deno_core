@@ -343,28 +343,29 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
   from_v8(scope, input)
 }
 
-/// Retrieve a [`serde_v8::V8Slice`] from a value.
-#[allow(clippy::result_unit_err)]
-pub fn to_nonresizable_v8_slice(
+/// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
+pub fn to_v8_slice<'a, T>(
   scope: &mut v8::HandleScope,
-  input: v8::Local<v8::Value>,
-) -> Result<serde_v8::V8Slice, &'static str> {
-  let (buf, offset, length) =
-    if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-      let Some(buffer) = buf.buffer(scope) else {
-        return Err("buffer missing");
-      };
-      (buffer, buf.byte_offset(), buf.byte_length())
-    } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
-      (buf, 0, buf.byte_length())
-    } else {
-      return Err("expected ArrayBuffer or ArrayBufferView");
+  input: v8::Local<'a, v8::Value>,
+) -> Result<serde_v8::V8Slice, &'static str>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T>>,
+{
+  let (store, offset, length) = if let Ok(buf) = v8::Local::<T>::try_from(input)
+  {
+    let buf: v8::Local<v8::ArrayBufferView> = buf.into();
+    let Some(buffer) = buf.buffer(scope) else {
+      return Err("buffer missing");
     };
-
-  let store = buf.get_backing_store();
-  if store.is_resizable_by_user_javascript() {
-    return Err("expected non-resizable buffer");
-  }
+    (
+      buffer.get_backing_store(),
+      buf.byte_offset(),
+      buf.byte_length(),
+    )
+  } else {
+    return Err("expected typed ArrayBufferView");
+  };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -422,8 +423,8 @@ mod tests {
       op_state_mut_attr,
       op_state_multi_attr,
       op_buffer_slice,
-      op_buffer_slice_callback,
       op_buffer_slice_unsafe_callback,
+      op_buffer_copy,
     ],
     state = |state| {
       state.put(1234u32);
@@ -446,6 +447,8 @@ mod tests {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
+    let err_mapper =
+      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -463,7 +466,7 @@ mod tests {
           .into(),
         ),
       )
-      .unwrap();
+      .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
@@ -984,21 +987,6 @@ mod tests {
     output[0] = input[0];
   }
 
-  // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
-  #[op2(core)]
-  pub fn op_buffer_slice_callback(
-    scope: &mut v8::HandleScope,
-    index: usize,
-    #[buffer] input: &[u8],
-    #[buffer] output: &mut [u8],
-    callback: v8::Local<v8::Function>,
-  ) {
-    output[index] = input[index];
-    let recv = callback.into();
-    callback.call(scope, recv, &[]);
-    output[index] = input[index];
-  }
-
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
@@ -1011,16 +999,19 @@ mod tests {
       op_buffer_slice(new Uint8Array([1,2,3]), 3, out, 10);
       assert(out[0] == 1);",
     )?;
-    // Uint8Array -> raw ArrayBuffer
+    // Uint8Array(ArrayBuffer) -> Uint8Array(ArrayBuffer)
     run_test2(
       10000,
       "op_buffer_slice",
       r"
+      let inbuf = new ArrayBuffer(10);
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[0] = 1;
       let out = new ArrayBuffer(10);
-      op_buffer_slice(new Uint8Array([1,2,3]), 3, out, 10);
+      op_buffer_slice(in_u8, 10, new Uint8Array(out), 10);
       assert(new Uint8Array(out)[0] == 1);",
     )?;
-    // ArrayBuffer -> ArrayBuffer
+    // Uint8Array(ArrayBuffer, 5, 5) -> Uint8Array(ArrayBuffer)
     run_test2(
       10000,
       "op_buffer_slice",
@@ -1029,37 +1020,21 @@ mod tests {
       let in_u8 = new Uint8Array(inbuf);
       in_u8[5] = 1;
       let out = new ArrayBuffer(10);
-      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, out, 10);
+      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
       assert(new Uint8Array(out)[0] == 1);",
     )?;
-    // TODO(mmastrac): We aren't going to solve resizable buffers right now
-    // run_test2(
-    //   10000,
-    //   "op_buffer_slice",
-    //   r"
-    //   let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
-    //   let in_u8 = new Uint8Array(inbuf);
-    //   in_u8[5] = 1;
-    //   let out = new ArrayBuffer(10, { maxByteLength: 100 });
-    //   op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, out, 10);
-    //   assert(new Uint8Array(out)[0] == 1);",
-    // )?;
-    // run_test2(
-    //   1,
-    //   "op_buffer_slice_callback",
-    //   r"
-    //   let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
-    //   let outbuf = new ArrayBuffer(10, { maxByteLength: 100 });
-    //   op_buffer_slice_callback(5, inbuf, outbuf, () => {
-    //     try {
-    //       inbuf.resize(1);
-    //       outbuf.resize(1);
-    //     } catch (e) {
-    //       assert(false);
-    //     }
-    //   });
-    //   "
-    // )?;
+    // Resizable
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[5] = 1;
+      let out = new ArrayBuffer(10, { maxByteLength: 100 });
+      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
     Ok(())
   }
 
@@ -1088,6 +1063,39 @@ mod tests {
         inbuf.resize(0);
       });
       ",
+    )?;
+    Ok(())
+  }
+
+  /// Ensures that three copies are independent. Note that we cannot mutate the
+  /// `bytes::Bytes`.
+  #[op2(core, fast)]
+  #[allow(clippy::boxed_local)] // Clippy bug? It warns about input2
+  pub fn op_buffer_copy(
+    #[buffer(copy)] mut input1: Vec<u8>,
+    #[buffer(copy)] mut input2: Box<[u8]>,
+    #[buffer(copy)] input3: bytes::Bytes,
+  ) {
+    assert_eq!(input1[0], input2[0]);
+    assert_eq!(input2[0], input3[0]);
+    input1[0] = 0xff;
+    assert_ne!(input1[0], input2[0]);
+    assert_eq!(input2[0], input3[0]);
+    input2[0] = 0xff;
+    assert_eq!(input1[0], input2[0]);
+    assert_ne!(input2[0], input3[0]);
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_copy() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_copy",
+      r"
+      let input = new Uint8Array(10);
+      input[0] = 1;
+      op_buffer_copy(input, input, input);
+      assert(input[0] == 1);",
     )?;
     Ok(())
   }

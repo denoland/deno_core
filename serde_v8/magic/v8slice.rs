@@ -83,6 +83,16 @@ impl V8Slice {
       std::slice::from_raw_parts_mut(ptr, self.range.len())
     }
   }
+
+  /// Create a [`Vec<u8>`] copy of this slice data.
+  pub fn to_vec(&self) -> Vec<u8> {
+    self.as_slice().to_vec()
+  }
+
+  /// Create a [`Box<[u8]>`] copy of this slice data.
+  pub fn to_boxed_slice(&self) -> Box<[u8]> {
+    self.to_vec().into_boxed_slice()
+  }
 }
 
 pub(crate) fn to_ranged_buffer<'s>(
