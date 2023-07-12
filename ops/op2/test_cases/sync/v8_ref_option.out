@@ -53,7 +53,7 @@ impl op_v8_lifetime {
     };
         let arg1 = match &arg1 {
             None => None,
-            Some(v) => Some(::std::ops::DerefMut::deref_mut(v)),
+            Some(v) => Some(::std::ops::Deref::deref(v)),
         };
         let result = Self::call(arg0, arg1);
         result
@@ -98,10 +98,10 @@ impl op_v8_lifetime {
     };
         let arg1 = match &arg1 {
             None => None,
-            Some(v) => Some(::std::ops::DerefMut::deref_mut(v)),
+            Some(v) => Some(::std::ops::Deref::deref(v)),
         };
         let result = Self::call(arg0, arg1);
     }
     #[inline(always)]
-    pub fn call<'s>(s: Option<&v8::String>, s2: Option<&mut v8::String>) {}
+    pub fn call<'s>(s: Option<&v8::String>, s2: Option<&v8::String>) {}
 }
