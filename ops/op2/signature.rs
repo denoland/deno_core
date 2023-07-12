@@ -144,22 +144,25 @@ pub enum Special {
   FastApiCallbackOptions,
 }
 
+/// Buffers are complicated and may be shared/owned, shared/unowned, a copy, or detached.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Buffer {
-  /// [`&[u8]`], [`&mut [u8]`], [`&[u32]`], etc...
+  /// Shared/unowned, may be resizable. [`&[u8]`], [`&mut [u8]`], [`&[u32]`], etc...
   Slice(RefType, NumericArg),
-  /// [`*const u8`], [`*mut u8`], [`*const u32`], etc...
+  /// Shared/unowned, may be resizable. [`*const u8`], [`*mut u8`], [`*const u32`], etc...
   Ptr(RefType, NumericArg),
-  /// [`Box<[u8]>`], [`Box<[u32]>`], etc...
+  /// Owned, copy. [`Box<[u8]>`], [`Box<[u32]>`], etc...
   BoxSlice(NumericArg),
-  /// [`Vec<u8>`], [`Vec<u32>`], etc...
+  /// Owned, copy. [`Vec<u8>`], [`Vec<u32>`], etc...
   Vec(NumericArg),
-  /// Owned in `bytes::Bytes`
+  /// Maybe shared or a copy. Stored in `bytes::Bytes`
   Bytes,
-  /// Owned in `serde_v8::V8Slice`
+  /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::V8Slice`
   V8Slice,
-  /// Owned in `serde_v8::JSBuffer`
+  /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JSBuffer`
   JSBuffer,
+  /// Shared, resizable, stored in `serde_v8::V8Slice`
+  V8ResizableSlice,
 }
 
 impl Buffer {
@@ -174,6 +177,10 @@ impl Buffer {
         BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
       Buffer::V8Slice => matches!(
+        mode,
+        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
+      ),
+      Buffer::V8ResizableSlice => matches!(
         mode,
         BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
@@ -882,10 +889,11 @@ fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
           // Denylist of serde_v8 types with better alternatives
           let ty = of.into_token_stream();
           let token = stringify_token(of.path.clone());
-          if let Ok(err) = std::panic::catch_unwind(|| {
+          if let Ok(Some(err)) = std::panic::catch_unwind(|| {
             use syn2 as syn;
             rules!(ty => {
-              ( $( serde_v8:: )? Value $( < $_lifetime:lifetime >)? ) => "use v8::Value",
+              ( $( serde_v8:: )? Value $( < $_lifetime:lifetime >)? ) => Some("use v8::Value"),
+              ( $_ty:ty ) => None,
             })
           }) {
             return Err(ArgError::InvalidSerdeType(stringify_token(ty), err));
@@ -1023,7 +1031,6 @@ fn parse_arg(arg: FnArg) -> Result<Arg, ArgError> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::op2::signature::parse_signature;
   use syn2::parse_str;
   use syn2::ItemFn;
 

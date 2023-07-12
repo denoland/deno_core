@@ -279,6 +279,7 @@ mod tests {
   use syn2::parse_str;
   use syn2::File;
   use syn2::Item;
+  use syn2::Type;
 
   #[testing_macros::fixture("op2/test_cases/**/*.rs")]
   fn test_signature_parser(input: PathBuf) {
@@ -336,5 +337,47 @@ mod tests {
         "Failed to match expectation. Use UPDATE_EXPECTED=1."
       );
     }
+  }
+
+  #[test]
+  fn test_valid_args_md() {
+    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
+    let md = include_str!("valid_args.md");
+    let separator = "\n<!-- START -->\n";
+    let header = include_str!("README.md").split(separator).next().unwrap();
+    let mut actual = format!("{header}{separator}| Rust | Fastcall | v8 |\n|--|--|--|\n");
+
+    // Skip the header and table line
+    for line in md.split('\n').skip(2).filter(|s| !s.trim().is_empty() && !s.trim().starts_with('#')) {
+      let components = line.split('|').skip(1).map(|s| s.trim()).collect::<Vec<_>>();
+      let type_param = components.get(0).unwrap().to_owned();
+      let fastcall = components.get(1).unwrap().to_owned();
+      let fast = fastcall == "X";
+      let v8 = components.get(2).unwrap().to_owned();
+      let (attr, ty) = if type_param.starts_with('#') {
+        type_param.split_once(' ').expect("Expected an attribute separated by a space (ie: #[attr] type)")
+      } else {
+        ("", type_param)
+      };
+
+      let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
+      let function = syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+      let sig = parse_signature(vec![], function.sig.clone()).expect("Failed to parse signature");
+      generate_op2(MacroConfig { core: false, fast }, function).expect("Failed to generate op");
+      actual += &format!("| `{}` | {} | {} |\n", type_param, if fast { "✅" } else { "" }, v8);
+    }
+
+    if update_expected {
+      std::fs::write("op2/README.md", actual)
+        .expect("Failed to write expectation file");
+    } else {
+      let expected = std::fs::read_to_string("op2/README.md")
+        .expect("Failed to read expectation file");
+      assert_eq!(
+        expected, actual,
+        "Failed to match expectation. Use UPDATE_EXPECTED=1."
+      );
+    }
+
   }
 }
