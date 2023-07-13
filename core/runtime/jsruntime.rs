@@ -1807,7 +1807,7 @@ impl JsRuntime {
       v8::ModuleStatus::Instantiated,
       "{} ({})",
       if status == v8::ModuleStatus::Evaluated {
-        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in a snapshot?"
+        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
       } else {
         "Module not instantiated"
       }
