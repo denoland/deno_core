@@ -235,7 +235,7 @@ fn es_snapshot() {
     Ok(String::from("test"))
   }
 
-  let loader = Rc::new(ModsLoader::default());
+  let loader = Rc::new(ModsLoader);
   let mut runtime = JsRuntimeForSnapshot::new(
     RuntimeOptions {
       module_loader: Some(loader.clone()),
