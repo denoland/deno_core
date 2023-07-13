@@ -1801,7 +1801,9 @@ impl JsRuntime {
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
-      "Module not instantiated {id}"
+      "Module not instantiated {} ({})",
+      module_map_rc.borrow().get_info_by_id(id).unwrap().name.as_str(),
+      id,
     );
 
     let (sender, receiver) = oneshot::channel();
