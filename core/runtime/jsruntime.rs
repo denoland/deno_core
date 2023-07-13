@@ -1798,10 +1798,6 @@ impl JsRuntime {
       .map(|handle| v8::Local::new(tc_scope, handle))
       .expect("ModuleInfo not found");
     let mut status = module.get_status();
-    if status != v8::ModuleStatus::Instantiated {
-      let module_info = module_map_rc
-      .borrow()
-      .get_info_by_id(id);
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
