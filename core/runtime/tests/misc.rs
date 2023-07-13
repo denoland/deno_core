@@ -406,7 +406,7 @@ fn test_get_module_namespace() {
     }
   }
 
-  let loader = std::rc::Rc::new(ModsLoader::default());
+  let loader = std::rc::Rc::new(ModsLoader);
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
@@ -776,7 +776,7 @@ fn terminate_during_module_eval() {
     }
   }
 
-  let loader = std::rc::Rc::new(ModsLoader::default());
+  let loader = std::rc::Rc::new(ModsLoader);
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
