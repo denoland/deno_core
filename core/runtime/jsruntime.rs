@@ -1798,10 +1798,19 @@ impl JsRuntime {
       .map(|handle| v8::Local::new(tc_scope, handle))
       .expect("ModuleInfo not found");
     let mut status = module.get_status();
+    if status != v8::ModuleStatus::Instantiated {
+      let module_info = module_map_rc
+      .borrow()
+      .get_info_by_id(id);
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
-      "Module not instantiated {} ({})",
+      "{} ({})",
+      if status == v8::ModuleStatus::Evaluated {
+        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in a snapshot?"
+      } else {
+        "Module not instantiated"
+      }
       module_map_rc
         .borrow()
         .get_info_by_id(id)
