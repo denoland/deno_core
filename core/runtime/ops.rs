@@ -147,7 +147,7 @@ macro_rules! try_number {
   ($n:ident $type:ident $is:ident) => {
     if $n.$is() {
       // SAFETY: v8 handles can be transmuted
-      let n: &v8::Uint32 = unsafe { std::mem::transmute($n) };
+      let n: &v8::$type = unsafe { std::mem::transmute($n) };
       return n.value() as _;
     }
   };
@@ -177,7 +177,6 @@ pub fn to_i32(number: &v8::Value) -> i32 {
   0
 }
 
-#[allow(unused)]
 pub fn to_u64(number: &v8::Value) -> u32 {
   try_number!(number Uint32 is_uint32);
   try_number!(number Int32 is_int32);
@@ -190,7 +189,6 @@ pub fn to_u64(number: &v8::Value) -> u32 {
   0
 }
 
-#[allow(unused)]
 pub fn to_i64(number: &v8::Value) -> i32 {
   try_number!(number Uint32 is_uint32);
   try_number!(number Int32 is_int32);
@@ -201,6 +199,30 @@ pub fn to_i64(number: &v8::Value) -> i32 {
     return n.i64_value().0 as _;
   }
   0
+}
+
+pub fn to_f32(number: &v8::Value) -> f32 {
+  try_number!(number Uint32 is_uint32);
+  try_number!(number Int32 is_int32);
+  try_number!(number Number is_number);
+  if number.is_big_int() {
+    // SAFETY: v8 handles can be transmuted
+    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
+    return n.i64_value().0 as _;
+  }
+  0.0
+}
+
+pub fn to_f64(number: &v8::Value) -> f64 {
+  try_number!(number Uint32 is_uint32);
+  try_number!(number Int32 is_int32);
+  try_number!(number Number is_number);
+  if number.is_big_int() {
+    // SAFETY: v8 handles can be transmuted
+    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
+    return n.i64_value().0 as _;
+  }
+  0.0
 }
 
 /// Expands `inbuf` to `outbuf`, assuming that `outbuf` has at least 2x `input_length`.
@@ -343,6 +365,34 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
   from_v8(scope, input)
 }
 
+/// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
+pub fn to_v8_slice<'a, T>(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<'a, v8::Value>,
+) -> Result<serde_v8::V8Slice, &'static str>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T>>,
+{
+  let (store, offset, length) = if let Ok(buf) = v8::Local::<T>::try_from(input)
+  {
+    let buf: v8::Local<v8::ArrayBufferView> = buf.into();
+    let Some(buffer) = buf.buffer(scope) else {
+      return Err("buffer missing");
+    };
+    (
+      buffer.get_backing_store(),
+      buf.byte_offset(),
+      buf.byte_length(),
+    )
+  } else {
+    return Err("expected typed ArrayBufferView");
+  };
+  let slice =
+    unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
+  Ok(slice)
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -373,6 +423,8 @@ mod tests {
       op_test_result_primitive_err,
       op_test_bool,
       op_test_bool_result,
+      op_test_float,
+      op_test_float_result,
       op_test_string_owned,
       op_test_string_ref,
       op_test_string_cow,
@@ -394,6 +446,9 @@ mod tests {
       op_state_mut,
       op_state_mut_attr,
       op_state_multi_attr,
+      op_buffer_slice,
+      op_buffer_slice_unsafe_callback,
+      op_buffer_copy,
     ],
     state = |state| {
       state.put(1234u32);
@@ -416,6 +471,8 @@ mod tests {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
+    let err_mapper =
+      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -433,7 +490,7 @@ mod tests {
           .into(),
         ),
       )
-      .unwrap();
+      .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
@@ -461,17 +518,28 @@ mod tests {
   }
 
   #[op2(core, fast)]
-  pub fn op_test_add(a: u32, b: u32) -> u32 {
-    a + b
+  pub fn op_test_add(a: u32, b: i32) -> u32 {
+    (a as i32 + b) as u32
   }
 
+  /// Test various numeric coercions in fast and slow mode.
   #[tokio::test(flavor = "current_thread")]
   pub async fn test_op_add() -> Result<(), Box<dyn std::error::Error>> {
-    Ok(run_test2(
+    run_test2(10000, "op_test_add", "assert(op_test_add(1, 11) == 12)")?;
+    run_test2(10000, "op_test_add", "assert(op_test_add(11, -1) == 10)")?;
+    run_test2(10000, "op_test_add", "assert(op_test_add(1.5, 11.5) == 12)")?;
+    run_test2(10000, "op_test_add", "assert(op_test_add(11.5, -1) == 10)")?;
+    run_test2(
       10000,
       "op_test_add",
-      "assert(op_test_add(1, 11) == 12)",
-    )?)
+      "assert(op_test_add(4096n, 4096n) == 4096 + 4096)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_add",
+      "assert(op_test_add(8192n, -4096n) == 4096)",
+    )?;
+    Ok(())
   }
 
   #[op2(core)]
@@ -607,6 +675,37 @@ mod tests {
       1,
       "op_test_bool_result",
       "try { op_test_bool_result(false); assert(false) } catch (e) {}",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_float(a: f32, b: f64) -> f32 {
+    a + b as f32
+  }
+
+  #[op2(core, fast)]
+  pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, AnyError> {
+    let a = a as f64;
+    if a + b >= 0. {
+      Ok(a + b)
+    } else {
+      Err(generic_error("negative!!!"))
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_float() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(10000, "op_test_float", "assert(op_test_float(1, 10) == 11)")?;
+    run_test2(
+      10000,
+      "op_test_float_result",
+      "assert(op_test_float_result(1, 10) == 11)",
+    )?;
+    run_test2(
+      1,
+      "op_test_float_result",
+      "try { op_test_float_result(-1, -1); assert(false) } catch (e) {}",
     )?;
     Ok(())
   }
@@ -938,6 +1037,131 @@ mod tests {
       10000,
       "op_state_multi_attr",
       "assert(op_state_multi_attr() == 11234)",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_buffer_slice(
+    #[buffer] input: &[u8],
+    inlen: usize,
+    #[buffer] output: &mut [u8],
+    outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    output[0] = input[0];
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
+  {
+    // Uint8Array -> Uint8Array
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let out = new Uint8Array(10);
+      op_buffer_slice(new Uint8Array([1,2,3]), 3, out, 10);
+      assert(out[0] == 1);",
+    )?;
+    // Uint8Array(ArrayBuffer) -> Uint8Array(ArrayBuffer)
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10);
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[0] = 1;
+      let out = new ArrayBuffer(10);
+      op_buffer_slice(in_u8, 10, new Uint8Array(out), 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    // Uint8Array(ArrayBuffer, 5, 5) -> Uint8Array(ArrayBuffer)
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10);
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[5] = 1;
+      let out = new ArrayBuffer(10);
+      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    // Resizable
+    run_test2(
+      10000,
+      "op_buffer_slice",
+      r"
+      let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
+      let in_u8 = new Uint8Array(inbuf);
+      in_u8[5] = 1;
+      let out = new ArrayBuffer(10, { maxByteLength: 100 });
+      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
+      assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    Ok(())
+  }
+
+  // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
+  #[op2(core)]
+  pub fn op_buffer_slice_unsafe_callback(
+    scope: &mut v8::HandleScope,
+    buffer: v8::Local<v8::ArrayBuffer>,
+    callback: v8::Local<v8::Function>,
+  ) {
+    println!("{:?}", buffer.data());
+    let recv = callback.into();
+    callback.call(scope, recv, &[]);
+    println!("{:?}", buffer.data());
+  }
+
+  #[ignore]
+  #[tokio::test]
+  async fn test_op_unsafe() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      1,
+      "op_buffer_slice_unsafe_callback",
+      r"
+      let inbuf = new ArrayBuffer(1024 * 1024, { maxByteLength: 10 * 1024 * 1024 });
+      op_buffer_slice_unsafe_callback(inbuf, () => {
+        inbuf.resize(0);
+      });
+      ",
+    )?;
+    Ok(())
+  }
+
+  /// Ensures that three copies are independent. Note that we cannot mutate the
+  /// `bytes::Bytes`.
+  #[op2(core, fast)]
+  #[allow(clippy::boxed_local)] // Clippy bug? It warns about input2
+  pub fn op_buffer_copy(
+    #[buffer(copy)] mut input1: Vec<u8>,
+    #[buffer(copy)] mut input2: Box<[u8]>,
+    #[buffer(copy)] input3: bytes::Bytes,
+  ) {
+    assert_eq!(input1[0], input2[0]);
+    assert_eq!(input2[0], input3[0]);
+    input1[0] = 0xff;
+    assert_ne!(input1[0], input2[0]);
+    assert_eq!(input2[0], input3[0]);
+    input2[0] = 0xff;
+    assert_eq!(input1[0], input2[0]);
+    assert_ne!(input2[0], input3[0]);
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_copy() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_copy",
+      r"
+      let input = new Uint8Array(10);
+      input[0] = 1;
+      op_buffer_copy(input, input, input);
+      assert(input[0] == 1);",
     )?;
     Ok(())
   }
