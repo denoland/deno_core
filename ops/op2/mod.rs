@@ -31,6 +31,7 @@ pub mod dispatch_shared;
 pub mod dispatch_slow;
 pub mod generator_state;
 pub mod signature;
+pub mod signature_retval;
 
 #[derive(Debug, Error)]
 pub enum Op2Error {

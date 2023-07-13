@@ -144,6 +144,7 @@ pub fn generate_dispatch_fast(
   let ret_val = match &signature.ret_val {
     RetVal::Infallible(arg) => arg,
     RetVal::Result(arg) => arg,
+    _ => todo!(),
   };
 
   let output = match map_retval_to_v8_fastcall_type(ret_val)? {
@@ -219,6 +220,7 @@ pub fn generate_dispatch_fast(
         };
       }
     }
+    _ => todo!(),
   };
 
   let with_opctx = if *needs_fast_opctx {

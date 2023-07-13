@@ -457,6 +457,7 @@ pub fn return_value(
       return_value_infallible(generator_state, ret_type)
     }
     RetVal::Result(ret_type) => return_value_result(generator_state, ret_type),
+    _ => todo!(),
   }
 }
 
