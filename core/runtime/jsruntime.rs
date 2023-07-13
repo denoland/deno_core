@@ -1802,7 +1802,12 @@ impl JsRuntime {
       status,
       v8::ModuleStatus::Instantiated,
       "Module not instantiated {} ({})",
-      module_map_rc.borrow().get_info_by_id(id).unwrap().name.as_str(),
+      module_map_rc
+        .borrow()
+        .get_info_by_id(id)
+        .unwrap()
+        .name
+        .as_str(),
       id,
     );
 
