@@ -12,7 +12,7 @@ use quote::quote;
 pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
   let arg = match arg {
     Arg::V8Ref(RefType::Ref, _) => quote!(&#i),
-    Arg::V8Ref(RefType::Mut, _) => quote!(&mut #i),
+    Arg::V8Ref(RefType::Mut, _) => quote!(::std::ops::DerefMut::deref_mut(#i)),
     Arg::V8Local(_) => quote!(#i),
     Arg::OptionV8Ref(RefType::Ref, _) => {
       quote!(match &#i { None => None, Some(v) => Some(::std::ops::Deref::deref(v)) })
