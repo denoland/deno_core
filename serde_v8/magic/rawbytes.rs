@@ -117,6 +117,16 @@ mod tests {
     let u2: [usize; 4] =
       // SAFETY: ensuring layout is the same
       unsafe { mem::transmute(bytes::Bytes::from_static(HELLO.as_bytes())) };
-    assert_eq!(u1[..3], u2[..3]); // Struct bytes are equal besides Vtables
+
+    // Assert that only one field varies between Bytes and our fake Bytes (the vtable field). We're doing something
+    // that's somewhat dangerous here, but if this test passes we can guarantee that Rust laid out the fields between
+    // these structs in the same way.
+    let mut diffs = 0;
+    for i in 0..4 {
+      if u1[i] != u2[i] {
+        diffs += 1;
+      }
+    }
+    assert_eq!(diffs, 1);
   }
 }
