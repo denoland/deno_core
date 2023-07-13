@@ -414,10 +414,10 @@ fn map_arg_to_v8_fastcall_type(
     // We don't support v8 global arguments
     Arg::V8Global(_) => return Ok(None),
     // We don't support v8 type arguments
-    Arg::V8Ref(..)
+    Arg::V8Ref(RefType::Ref, _)
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
-    | Arg::OptionV8Ref(..) => V8FastCallType::V8Value,
+    | Arg::OptionV8Ref(RefType::Ref, _) => V8FastCallType::V8Value,
 
     Arg::Numeric(NumericArg::bool) => V8FastCallType::Bool,
     Arg::Numeric(NumericArg::u32)
@@ -433,6 +433,8 @@ fn map_arg_to_v8_fastcall_type(
     Arg::Numeric(NumericArg::i64) | Arg::Numeric(NumericArg::isize) => {
       V8FastCallType::I64
     }
+    Arg::Numeric(NumericArg::f32) => V8FastCallType::F32,
+    Arg::Numeric(NumericArg::f64) => V8FastCallType::F64,
     // Ref strings that are one byte internally may be passed as a SeqOneByteString,
     // which gives us a FastApiOneByteString.
     Arg::Special(Special::RefStr) => V8FastCallType::SeqOneByteString,
@@ -464,6 +466,8 @@ fn map_retval_to_v8_fastcall_type(
     Arg::Numeric(NumericArg::i64) | Arg::Numeric(NumericArg::isize) => {
       V8FastCallType::I64
     }
+    Arg::Numeric(NumericArg::f32) => V8FastCallType::F32,
+    Arg::Numeric(NumericArg::f64) => V8FastCallType::F64,
     // We don't return special return types
     Arg::Option(_) => return Ok(None),
     Arg::Special(_) => return Ok(None),
