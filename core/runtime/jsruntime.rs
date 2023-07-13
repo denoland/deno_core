@@ -1801,12 +1801,12 @@ impl JsRuntime {
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
-      "{} ({})",
+      "{} {} ({})",
       if status == v8::ModuleStatus::Evaluated {
         "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
       } else {
         "Module not instantiated"
-      }
+      },
       module_map_rc
         .borrow()
         .get_info_by_id(id)
