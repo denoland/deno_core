@@ -1,30 +1,30 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::op2::signature::*;
 use deno_proc_macro_rules::rules;
-use proc_macro2::Ident;
-use proc_macro2::Span;
-use proc_macro2::TokenStream;
-use quote::format_ident;
-use quote::quote;
+
+
+
+
+
 use quote::ToTokens;
-use quote::TokenStreamExt;
-use std::collections::BTreeMap;
-use strum::IntoEnumIterator;
-use strum::IntoStaticStr;
-use strum_macros::EnumIter;
-use strum_macros::EnumString;
-use syn2::Attribute;
-use syn2::FnArg;
-use syn2::GenericParam;
-use syn2::Generics;
-use syn2::Pat;
-use syn2::Path;
+
+
+
+
+
+
+
+
+
+
+
+
 use syn2::ReturnType;
-use syn2::Signature;
+
 use syn2::Type;
 use syn2::TypeParamBound;
-use syn2::TypePath;
-use thiserror::Error;
+
+
 
 /// One level of type unwrapping for a return value. We cannot rely on `proc-macro-rules` to correctly
 /// unwrap `impl Future<...>`, so we do it by hand.
@@ -49,9 +49,9 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
           ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty)))),
         })
       } else {
-        return Err(RetError::InvalidType(ArgError::InvalidType(
+        Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
-        )));
+        )))
       }
     }
     Type::Path(ty) => {
@@ -138,7 +138,7 @@ pub(crate) fn parse_return(
 mod tests {
   use super::*;
   use syn2::parse_str;
-  use syn2::Type;
+  
 
   #[test]
   fn test_parse_result() {
