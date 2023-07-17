@@ -331,7 +331,7 @@ dependencies = [
  "deno-proc-macro-rules",
  "lazy-regex",
  "once_cell",
- "pmutil 0.5.3",
+ "pmutil 0.6.1",
  "pretty_assertions",
  "prettyplease",
  "proc-macro-crate",
@@ -348,11 +348,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "deno_ops_tests"
+name = "deno_ops_compile_test_runner"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "deno_core",
  "deno_ops",
+ "pretty_assertions",
+ "prettyplease",
+ "rustversion",
+ "serde",
+ "syn 2.0.22",
+ "testing_macros",
  "trybuild",
 ]
 

@@ -182,7 +182,7 @@ pub fn map_async_op_infallible<'a, R: 'static>(
 }
 
 #[inline]
-pub fn map_async_op_fallible<'a, R: 'static, E>(
+pub fn map_async_op_fallible<'a, R: 'static, E: Into<Error> + 'static>(
   ctx: &OpCtx,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
@@ -191,7 +191,34 @@ pub fn map_async_op_fallible<'a, R: 'static, E>(
     R,
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<Result<R, E>> {
-  unimplemented!()
+  let id = ctx.id;
+
+  // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
+  // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
+  let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
+
+  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+    Poll::Pending => {}
+    Poll::Ready(res) => {
+      ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
+      return Some(res.2);
+    }
+  }
+
+  let get_class = RefCell::borrow(&ctx.state).get_error_class_fn;
+  ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
+    move |r| match r.2 {
+      Ok(v) => (
+        r.0,
+        r.1,
+        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+      ),
+      Err(err) => {
+        (r.0, r.1, OpResult::Err(OpError::new(get_class, err.into())))
+      }
+    },
+  ));
+  None
 }
 
 macro_rules! try_number {
@@ -453,6 +480,8 @@ mod tests {
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
+  use anyhow::bail;
+  use anyhow::Error;
   use deno_ops::op2;
   use futures::Future;
   use serde::Deserialize;
@@ -510,6 +539,8 @@ mod tests {
       op_async_add,
       op_async_sleep,
       op_async_sleep_impl,
+      op_async_sleep_error,
+
       op_async_buffer_impl,
     ],
     state = |state| {
@@ -1346,6 +1377,24 @@ mod tests {
     run_async_test(5, "op_async_sleep", "await op_async_sleep()").await?;
     run_async_test(5, "op_async_sleep_impl", "await op_async_sleep_impl()")
       .await?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  pub async fn op_async_sleep_error() -> Result<(), Error> {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    bail!("whoops")
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_sleep_error(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(
+      5,
+      "op_async_sleep_error",
+      "try { await op_async_sleep_error(); assert(false) } catch (e) {}",
+    )
+    .await?;
     Ok(())
   }
 

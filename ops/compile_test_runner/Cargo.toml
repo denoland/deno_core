@@ -21,3 +21,4 @@ deno_core.workspace = true
 syn2.workspace = true
 bytes.workspace = true
 serde.workspace = true
+rustversion = "1.0"
