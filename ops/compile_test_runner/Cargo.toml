@@ -1,6 +1,6 @@
 
 [package]
-name = "deno_ops_tests"
+name = "deno_ops_compile_test_runner"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -13,5 +13,11 @@ description = "Proc macro for writing Deno Ops"
 
 [dev-dependencies]
 trybuild = "1.0"
+pretty_assertions.workspace = true
+prettyplease = "0.2.9"
+testing_macros = "0.2.11"
 deno_ops.workspace = true
 deno_core.workspace = true
+syn2.workspace = true
+bytes.workspace = true
+serde.workspace = true

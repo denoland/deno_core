@@ -51,5 +51,7 @@ impl op_bool {
         rv.set_bool(result as bool);
     }
     #[inline(always)]
-    pub fn call(arg: bool) -> bool {}
+    pub fn call(arg: bool) -> bool {
+        true
+    }
 }

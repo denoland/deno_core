@@ -55,5 +55,7 @@ impl op_add {
         rv.set_uint32(result as u32);
     }
     #[inline(always)]
-    fn call(id: ResourceId, extra: u16) -> u32 {}
+    fn call(id: ResourceId, extra: u16) -> u32 {
+        0
+    }
 }

@@ -68,13 +68,15 @@ pub(crate) fn generate_dispatch_async(
       return Err(V8MappingError::NoMapping("an async return", r.clone()))
     }
   };
-  let return_value_immediate = match &signature.ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => {
-      return_value_infallible(generator_state, r)?
-    }
-    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => {
-      return_value_result(generator_state, r)?
-    }
+  let (mapper, return_value_immediate) = match &signature.ret_val {
+    RetVal::Future(r) | RetVal::ResultFuture(r) => (
+      quote!(map_async_op_infallible),
+      return_value_infallible(generator_state, r)?,
+    ),
+    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => (
+      quote!(map_async_op_fallible),
+      return_value_result(generator_state, r)?,
+    ),
     RetVal::Infallible(r) | RetVal::Result(r) => {
       return Err(V8MappingError::NoMapping("an async return", r.clone()))
     }
@@ -105,7 +107,7 @@ pub(crate) fn generate_dispatch_async(
     // TODO(mmastrac): We are extending the eager polling behaviour temporarily to op2, but I would like to get
     // rid of it as soon as we can
     let #promise_id = #deno_core::_ops::to_i32(&#fn_args.get(0));
-    if let Some(#result) = #deno_core::_ops::map_async_op_infallible(#opctx, #promise_id, #result, |#scope, #result| {
+    if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #promise_id, #result, |#scope, #result| {
       #return_value
     }) {
       // Eager poll returned a value

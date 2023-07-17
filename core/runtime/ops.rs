@@ -181,14 +181,18 @@ pub fn map_async_op_infallible<'a, R: 'static>(
   None
 }
 
-// #[inline]
-// pub fn map_async_op_fallible<'a, R, E>(
-//   ctx: &OpCtx,
-//   op: impl Future<Output = Result<R, E>>,
-//   rv_map: fn(&'a mut v8::HandleScope, R) -> v8::Local<'a, v8::Value>,
-// ) -> Option<Result<R, E>> {
-//   None
-// }
+#[inline]
+pub fn map_async_op_fallible<'a, R: 'static, E>(
+  ctx: &OpCtx,
+  promise_id: i32,
+  op: impl Future<Output = Result<R, E>> + 'static,
+  rv_map: for<'r> fn(
+    &mut v8::HandleScope<'r>,
+    R,
+  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+) -> Option<Result<R, E>> {
+  unimplemented!()
+}
 
 macro_rules! try_number {
   ($n:ident $type:ident $is:ident) => {

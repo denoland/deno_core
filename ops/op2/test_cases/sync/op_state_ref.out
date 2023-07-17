@@ -37,7 +37,7 @@ impl op_state_rc {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let opctx = unsafe {
             &*(deno_core::v8::Local::<
-                v8::External,
+                deno_core::v8::External,
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };

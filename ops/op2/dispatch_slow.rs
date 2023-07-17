@@ -671,6 +671,7 @@ fn throw_exception(
     #maybe_scope
     #maybe_args
     #maybe_opctx
+    let err = err.into();
     let opstate = ::std::cell::RefCell::borrow(&*#opctx.state);
     let exception = #deno_core::error::to_v8_error(
       &mut #scope,

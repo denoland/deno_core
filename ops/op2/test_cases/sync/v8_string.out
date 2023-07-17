@@ -65,5 +65,10 @@ impl op_v8_string {
         rv.set(result.into())
     }
     #[inline(always)]
-    fn call(str1: &v8::String, str2: v8::Local<v8::String>) -> v8::Local<v8::String> {}
+    fn call<'a>(
+        str1: &v8::String,
+        str2: v8::Local<v8::String>,
+    ) -> v8::Local<'a, v8::String> {
+        unimplemented!()
+    }
 }

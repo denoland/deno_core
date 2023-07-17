@@ -1,4 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+deno_ops_compile_test_runner::prelude!();
+
+use std::borrow::Cow;
 
 #[op2(fast)]
-fn op_string_cow(#[string] s: Cow<str>) -> u32 {}
+fn op_string_cow(#[string] s: Cow<str>) -> u32 {
+    s.len() as _
+}

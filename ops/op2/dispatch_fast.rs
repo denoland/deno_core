@@ -232,7 +232,7 @@ pub fn generate_dispatch_fast(
     *needs_fast_api_callback_options = true;
     quote!(
       let #opctx = unsafe {
-        &*(#deno_core::v8::Local::<v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
+        &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
             as *const #deno_core::_ops::OpCtx)
       };
     )

@@ -2,9 +2,9 @@
 pub struct op_test_add_option {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl crate::_ops::Op for op_test_add_option {
+impl deno_core::_ops::Op for op_test_add_option {
     const NAME: &'static str = stringify!(op_test_add_option);
-    const DECL: crate::_ops::OpDecl = crate::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
         stringify!(op_test_add_option),
         false,
         false,
@@ -19,23 +19,23 @@ impl op_test_add_option {
         stringify!(op_test_add_option)
     }
     #[deprecated(note = "Use the const op::DECL instead")]
-    pub const fn decl() -> crate::_ops::OpDecl {
-        <Self as crate::_ops::Op>::DECL
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
     }
-    extern "C" fn v8_fn_ptr(info: *const crate::v8::FunctionCallbackInfo) {
-        let mut rv = crate::v8::ReturnValue::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let args = crate::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let arg0 = args.get(0usize as i32);
-        let arg0 = crate::_ops::to_u32(&arg0) as _;
+        let arg0 = deno_core::_ops::to_u32(&arg0) as _;
         let arg1 = args.get(1usize as i32);
         let arg1 = if arg1.is_null_or_undefined() {
             None
         } else {
-            let arg1 = crate::_ops::to_u32(&arg1) as _;
+            let arg1 = deno_core::_ops::to_u32(&arg1) as _;
             Some(arg1)
         };
         let result = Self::call(arg0, arg1);
