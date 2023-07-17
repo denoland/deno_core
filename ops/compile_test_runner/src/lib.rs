@@ -15,7 +15,7 @@ mod tests {
   #[testing_macros::fixture("../op2/test_cases/compiler_pass/*.rs")]
   fn compile_test(input: PathBuf) {
     let t = trybuild::TestCases::new();
-    t.pass(&input);
+    t.pass(input);
   }
 
   #[rustversion::nightly]

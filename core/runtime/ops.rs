@@ -144,7 +144,7 @@ pub fn queue_async_op<'s>(
 }
 
 #[inline]
-pub fn map_async_op_infallible<'a, R: 'static>(
+pub fn map_async_op_infallible<R: 'static>(
   ctx: &OpCtx,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
@@ -182,7 +182,7 @@ pub fn map_async_op_infallible<'a, R: 'static>(
 }
 
 #[inline]
-pub fn map_async_op_fallible<'a, R: 'static, E: Into<Error> + 'static>(
+pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ctx: &OpCtx,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,

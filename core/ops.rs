@@ -62,6 +62,7 @@ impl<F: Future<Output = OpResult>> Future for OpCall<F> {
   }
 }
 
+#[allow(clippy::type_complexity)]
 pub enum OpResult {
   Ok(serde_v8::SerializablePkg),
   Err(OpError),
