@@ -451,6 +451,16 @@ pub struct RuntimeSnapshotOptions {
   pub snapshot_module_load_cb: Option<ExtModuleLoaderCb>,
 }
 
+#[derive(Default)]
+pub struct CreateRealmOptions {
+  /// Implementation of `ModuleLoader` which will be
+  /// called when V8 requests to load ES modules in the realm.
+  ///
+  /// If not provided, there will be an error if code being
+  /// executed tries to load modules from the realm.
+  pub module_loader: Option<Rc<dyn ModuleLoader>>,
+}
+
 impl JsRuntime {
   /// Only constructor, configuration is done through `options`.
   pub fn new(mut options: RuntimeOptions) -> JsRuntime {
@@ -800,7 +810,12 @@ impl JsRuntime {
   /// pre-initialized with all of the extensions that were passed in
   /// [`RuntimeOptions::extensions`] when the [`JsRuntime`] was
   /// constructed.
-  pub fn create_realm(&mut self) -> Result<JsRealm, Error> {
+  // TODO(bartlomieju): options is not used right now - will be used in a follow
+  // up PR.
+  pub fn create_realm(
+    &mut self,
+    _options: CreateRealmOptions,
+  ) -> Result<JsRealm, Error> {
     let realm = {
       let context_state = Rc::new(RefCell::new(ContextState::default()));
       let op_ctxs: Box<[OpCtx]> = self
@@ -847,6 +862,7 @@ impl JsRuntime {
         self.init_mode,
       );
       context.set_slot(scope, context_state.clone());
+
       let realm = JsRealmInner::new(
         context_state,
         v8::Global::new(scope, context),

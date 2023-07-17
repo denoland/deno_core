@@ -83,10 +83,11 @@ pub(crate) struct ContextState {
 /// ```
 /// use deno_core::JsRuntime;
 /// use deno_core::RuntimeOptions;
+/// use deno_core::CreateRealmOptions;
 ///
 /// let mut runtime = JsRuntime::new(RuntimeOptions::default());
 /// let new_realm = runtime
-///         .create_realm()
+///         .create_realm(CreateRealmOptions::default())
 ///         .expect("Handle the error properly");
 /// let source_code = "var a = 0; a + 1";
 /// let result = new_realm

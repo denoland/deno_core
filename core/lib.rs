@@ -111,6 +111,7 @@ pub use crate::resources::Resource;
 pub use crate::resources::ResourceId;
 pub use crate::resources::ResourceTable;
 pub use crate::runtime::CompiledWasmModuleStore;
+pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
 pub use crate::runtime::JsRealm;
 pub use crate::runtime::JsRuntime;
