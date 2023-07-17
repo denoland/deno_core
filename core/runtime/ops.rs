@@ -452,6 +452,8 @@ mod tests {
     testing,
     ops = [
       op_test_fail,
+      op_test_print_debug,
+
       op_test_add,
       op_test_add_option,
       op_test_result_void_switch,
@@ -505,6 +507,11 @@ mod tests {
     FAIL.with(|b| b.set(true))
   }
 
+  #[op2(core, fast)]
+  pub fn op_test_print_debug(#[string] s: &str) {
+    println!("{s}")
+  }
+
   /// Run a test for a single op.
   fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), AnyError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -519,11 +526,14 @@ mod tests {
         FastString::Owned(
           format!(
             r"
-            const {{ op_test_fail, {op} }} = Deno.core.ensureFastOps();
+            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
             function assert(b) {{
               if (!b) {{
                 op_test_fail();
               }}
+            }}
+            function log(s) {{
+              op_test_print_debug(String(s))
             }}
           "
           )
@@ -566,11 +576,14 @@ mod tests {
         FastString::Owned(
           format!(
             r"
-            const {{ op_test_fail, {op} }} = Deno.core.ensureFastOps();
+            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
             function assert(b) {{
               if (!b) {{
                 op_test_fail();
               }}
+            }}
+            function log(s) {{
+              op_test_print_debug(String(s))
             }}
           "
           )

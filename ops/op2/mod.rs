@@ -211,6 +211,7 @@ fn generate_op2(
   } else {
     generate_dispatch_slow(&config, &mut generator_state, &signature)?
   };
+  let is_async = signature.ret_val.is_async();
 
   let (fast_definition, fast_fn) =
     match generate_dispatch_fast(&mut generator_state, &signature)? {
@@ -234,7 +235,7 @@ fn generate_op2(
     ..
   } = &generator_state;
 
-  let arg_count: usize = generator_state.args.len();
+  let arg_count: usize = generator_state.args.len() + is_async as usize;
   let vis = func.vis;
   let generic = signature
     .generic_bounds
@@ -259,7 +260,7 @@ fn generate_op2(
       const NAME: &'static str = stringify!(#name);
       const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal(
         /*name*/ stringify!(#name),
-        /*is_async*/ false,
+        /*is_async*/ #is_async,
         /*is_unstable*/ false,
         /*is_v8*/ false,
         /*arg_count*/ #arg_count as u8,
