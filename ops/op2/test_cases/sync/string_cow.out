@@ -4,11 +4,14 @@ struct op_string_cow {
 }
 impl deno_core::_ops::Op for op_string_cow {
     const NAME: &'static str = stringify!(op_string_cow);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl {
-        name: stringify!(op_string_cow),
-        v8_fn_ptr: Self::v8_fn_ptr as _,
-        enabled: true,
-        fast_fn: Some({
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_string_cow),
+        false,
+        false,
+        false,
+        1usize as u8,
+        Self::v8_fn_ptr as _,
+        Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new(
@@ -17,35 +20,15 @@ impl deno_core::_ops::Op for op_string_cow {
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
         }),
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: 1usize as u8,
-    };
+    );
 }
 impl op_string_cow {
     pub const fn name() -> &'static str {
         stringify!(op_string_cow)
     }
+    #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
-        deno_core::_ops::OpDecl {
-            name: stringify!(op_string_cow),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new(
-                    &[Type::V8Value, Type::SeqOneByteString],
-                    CType::Uint32,
-                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-                )
-            }),
-            is_async: false,
-            is_unstable: false,
-            is_v8: false,
-            arg_count: 1usize as u8,
-        }
+        <Self as deno_core::_ops::Op>::DECL
     }
     fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
@@ -57,7 +40,7 @@ impl op_string_cow {
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let scope = &mut unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -66,7 +49,7 @@ impl op_string_cow {
         });
         let arg0 = args.get(0usize as i32);
         let mut arg0_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
-        let arg0 = deno_core::_ops::to_str(scope, &arg0, &mut arg0_temp);
+        let arg0 = deno_core::_ops::to_str(&mut scope, &arg0, &mut arg0_temp);
         let result = Self::call(arg0);
         rv.set_uint32(result as u32);
     }

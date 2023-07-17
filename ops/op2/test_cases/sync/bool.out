@@ -1,0 +1,55 @@
+#[allow(non_camel_case_types)]
+pub struct op_bool {
+    _unconstructable: ::std::marker::PhantomData<()>,
+}
+impl deno_core::_ops::Op for op_bool {
+    const NAME: &'static str = stringify!(op_bool);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_bool),
+        false,
+        false,
+        false,
+        1usize as u8,
+        Self::v8_fn_ptr as _,
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new(
+                &[Type::V8Value, Type::Bool],
+                CType::Bool,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+    );
+}
+impl op_bool {
+    pub const fn name() -> &'static str {
+        stringify!(op_bool)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    fn v8_fn_ptr_fast(
+        _: deno_core::v8::Local<deno_core::v8::Object>,
+        arg0: bool,
+    ) -> bool {
+        let arg0 = arg0 as _;
+        let result = Self::call(arg0);
+        result
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let arg0 = args.get(0usize as i32);
+        let arg0 = arg0.is_true();
+        let result = Self::call(arg0);
+        rv.set_bool(result as bool);
+    }
+    #[inline(always)]
+    pub fn call(arg: bool) -> bool {}
+}

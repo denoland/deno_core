@@ -1,0 +1,52 @@
+#[allow(non_camel_case_types)]
+pub struct op_void_with_result {
+    _unconstructable: ::std::marker::PhantomData<()>,
+}
+impl deno_core::_ops::Op for op_void_with_result {
+    const NAME: &'static str = stringify!(op_void_with_result);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_void_with_result),
+        false,
+        false,
+        false,
+        1usize as u8,
+        Self::v8_fn_ptr as _,
+        None,
+    );
+}
+impl op_void_with_result {
+    pub const fn name() -> &'static str {
+        stringify!(op_void_with_result)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let arg0 = &mut scope;
+        let result = Self::call(arg0);
+        match result {
+            Ok(result) => {}
+            Err(err) => {
+                let opctx = unsafe {
+                    &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                        .value() as *const deno_core::_ops::OpCtx)
+                };
+                let opstate = ::std::cell::RefCell::borrow(&*opctx.state);
+                let exception = deno_core::error::to_v8_error(
+                    &mut scope,
+                    opstate.get_error_class_fn,
+                    &err,
+                );
+                scope.throw_exception(exception);
+                return;
+            }
+        };
+    }
+    #[inline(always)]
+    pub fn call(scope: &mut v8::HandleScope) -> Result<(), AnyError> {}
+}

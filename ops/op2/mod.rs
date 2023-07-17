@@ -9,19 +9,24 @@ use quote::ToTokens;
 use std::iter::zip;
 use syn2::parse2;
 use syn2::parse_str;
+use syn2::spanned::Spanned;
 use syn2::FnArg;
 use syn2::ItemFn;
+use syn2::Lifetime;
+use syn2::LifetimeParam;
 use syn2::Path;
 use thiserror::Error;
 
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
+use self::signature::is_attribute_special;
 use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::SignatureError;
 
 pub mod dispatch_fast;
+pub mod dispatch_shared;
 pub mod dispatch_slow;
 pub mod generator_state;
 pub mod signature;
@@ -104,7 +109,12 @@ fn generate_op2(
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
   let mut op_fn = func.clone();
-  op_fn.attrs.clear();
+  // Collect non-special attributes
+  let attrs = op_fn
+    .attrs
+    .drain(..)
+    .filter(|attr| !is_attribute_special(attr))
+    .collect::<Vec<_>>();
   op_fn.sig.generics.params.clear();
   op_fn.sig.ident = call.clone();
 
@@ -118,6 +128,15 @@ fn generate_op2(
   }
 
   let signature = parse_signature(func.attrs, func.sig.clone())?;
+  if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
+  {
+    op_fn.sig.generics.params.push(syn2::GenericParam::Lifetime(
+      LifetimeParam::new(Lifetime {
+        apostrophe: op_fn.span(),
+        ident,
+      }),
+    ));
+  }
   let processed_args =
     zip(signature.args.iter(), &func.sig.inputs).collect::<Vec<_>>();
 
@@ -135,6 +154,7 @@ fn generate_op2(
   let scope = Ident::new("scope", Span::call_site());
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
+  let opstate = Ident::new("opstate", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
   let fast_function = Ident::new("v8_fn_ptr_fast", Span::call_site());
   let fast_api_callback_options =
@@ -155,6 +175,7 @@ fn generate_op2(
     scope,
     info,
     opctx,
+    opstate,
     fast_api_callback_options,
     deno_core,
     result,
@@ -211,6 +232,7 @@ fn generate_op2(
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
+    #(#attrs)*
     #vis struct #name <#(#generic),*> {
       // We need to mark these type parameters as used, so we use a PhantomData
       _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
@@ -218,16 +240,15 @@ fn generate_op2(
 
     impl <#(#generic : #bound),*> #deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl {
-        name: stringify!(#name),
-        v8_fn_ptr: Self::#slow_function as _,
-        enabled: true,
-        fast_fn: #fast_definition,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: #arg_count as u8,
-      };
+      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal(
+        /*name*/ stringify!(#name),
+        /*is_async*/ false,
+        /*is_unstable*/ false,
+        /*is_v8*/ false,
+        /*arg_count*/ #arg_count as u8,
+        /*v8_fn_ptr*/ Self::#slow_function as _,
+        /*fast_fn*/ #fast_definition,
+      );
     }
 
     impl <#(#generic : #bound),*> #name <#(#generic),*> {
@@ -235,23 +256,16 @@ fn generate_op2(
         stringify!(#name)
       }
 
+      #[deprecated(note = "Use the const op::DECL instead")]
       pub const fn decl() -> #deno_core::_ops::OpDecl {
-        #deno_core::_ops::OpDecl {
-          name: stringify!(#name),
-          v8_fn_ptr: Self::#slow_function as _,
-          enabled: true,
-          fast_fn: #fast_definition,
-          is_async: false,
-          is_unstable: false,
-          is_v8: false,
-          arg_count: #arg_count as u8,
-        }
+        <Self as #deno_core::_ops::Op>::DECL
       }
 
       #fast_fn
       #slow_fn
 
       #[inline(always)]
+      #(#attrs)*
       #op_fn
     }
   })
@@ -302,7 +316,7 @@ mod tests {
         let tokens =
           generate_op2(config.unwrap(), func).expect("Failed to generate op");
         println!("======== Raw tokens ========:\n{}", tokens.clone());
-        let tree = syn::parse2(tokens).unwrap();
+        let tree = syn2::parse2(tokens).unwrap();
         let actual = prettyplease::unparse(&tree);
         println!("======== Generated ========:\n{}", actual);
         expected_out.push(actual);
@@ -319,6 +333,74 @@ mod tests {
         .expect("Failed to read expectation file");
       assert_eq!(
         expected, expected_out,
+        "Failed to match expectation. Use UPDATE_EXPECTED=1."
+      );
+    }
+  }
+
+  #[test]
+  fn test_valid_args_md() {
+    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
+    let md = include_str!("valid_args.md");
+    let separator = "\n<!-- START -->\n";
+    let header = include_str!("README.md").split(separator).next().unwrap();
+    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+
+    // Skip the header and table line
+    for line in md.split('\n').skip(2).filter(|s| {
+      !s.trim().is_empty() && !s.split('|').nth(1).unwrap().trim().is_empty()
+    }) {
+      let expansion = if line.contains("**V8**") {
+        let mut expansion = vec![];
+        for key in ["String", "Object", "Function", "..."] {
+          expansion.push(line.replace("**V8**", key))
+        }
+        expansion
+      } else {
+        vec![line.to_owned()]
+      };
+      for line in expansion {
+        let components = line
+          .split('|')
+          .skip(2)
+          .map(|s| s.trim())
+          .collect::<Vec<_>>();
+        let type_param = components.first().unwrap().to_owned();
+        let fastcall = components.get(1).unwrap().to_owned();
+        let fast = fastcall == "X";
+        let v8 = components.get(2).unwrap().to_owned();
+        let notes = components.get(3).unwrap().to_owned();
+        let (attr, ty) = if type_param.starts_with('#') {
+          type_param.split_once(' ').expect(
+            "Expected an attribute separated by a space (ie: #[attr] type)",
+          )
+        } else {
+          ("", type_param)
+        };
+
+        if !line.contains("...") {
+          let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
+          let function =
+            syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+          let sig = parse_signature(vec![], function.sig.clone())
+            .expect("Failed to parse signature");
+          println!("Parsed signature: {sig:?}");
+          generate_op2(MacroConfig { core: false, fast }, function)
+            .expect("Failed to generate op");
+        }
+        actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      }
+    }
+    actual += "</table>\n";
+
+    if update_expected {
+      std::fs::write("op2/README.md", actual)
+        .expect("Failed to write expectation file");
+    } else {
+      let expected = std::fs::read_to_string("op2/README.md")
+        .expect("Failed to read expectation file");
+      assert_eq!(
+        expected, actual,
         "Failed to match expectation. Use UPDATE_EXPECTED=1."
       );
     }
