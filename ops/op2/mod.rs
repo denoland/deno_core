@@ -51,6 +51,10 @@ pub enum Op2Error {
   ShouldBeFast,
   #[error("This op is not fast-compatible and should not be marked as (fast)")]
   ShouldNotBeFast,
+  #[error("This op is async and should be marked as (async)")]
+  ShouldBeAsync,
+  #[error("This op is not async and should not be marked as (async)")]
+  ShouldNotBeAsync,
 }
 
 #[derive(Debug, Error)]
@@ -214,6 +218,12 @@ fn generate_op2(
     generate_dispatch_slow(&config, &mut generator_state, &signature)?
   };
   let is_async = signature.ret_val.is_async();
+
+  match (is_async, config.r#async) {
+    (true, false) => return Err(Op2Error::ShouldBeAsync),
+    (false, true) => return Err(Op2Error::ShouldNotBeAsync),
+    _ => {}
+  }
 
   let (fast_definition, fast_fn) =
     match generate_dispatch_fast(&mut generator_state, &signature)? {

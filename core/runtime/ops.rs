@@ -1325,7 +1325,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, async)]
   async fn op_async_void() {}
 
   #[tokio::test]
@@ -1334,12 +1334,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, async)]
   async fn op_async_number(x: u32) -> u32 {
     x
   }
 
-  #[op2(core)]
+  #[op2(core, async)]
   async fn op_async_add(x: u32, y: u32) -> u32 {
     x + y
   }
@@ -1362,12 +1362,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, async)]
   async fn op_async_sleep() {
     tokio::time::sleep(Duration::from_millis(500)).await
   }
 
-  #[op2(core)]
+  #[op2(core, async)]
   fn op_async_sleep_impl() -> impl Future<Output = ()> {
     tokio::time::sleep(Duration::from_millis(500))
   }
@@ -1380,7 +1380,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, async)]
   pub async fn op_async_sleep_error() -> Result<(), Error> {
     tokio::time::sleep(Duration::from_millis(500)).await;
     bail!("whoops")
@@ -1398,7 +1398,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, async)]
   fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
     let l = input.len();
     async move { l as _ }
