@@ -204,13 +204,13 @@ async fn js_realm_async_ops() {
     ..Default::default()
   });
 
-  let global_realm = runtime.main_realm();
+  let main_realm = runtime.main_realm();
   let new_realm = runtime.create_realm().unwrap();
 
   let mut rets = vec![];
 
   // Test in both realms
-  for realm in [global_realm, new_realm].into_iter() {
+  for realm in [main_realm, new_realm].into_iter() {
     let ret = realm
       .execute_script_static(
         runtime.v8_isolate(),
