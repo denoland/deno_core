@@ -2369,7 +2369,7 @@ impl JsRuntime {
           break;
         };
         // TODO(mmastrac): If this task is really errored, things could be pretty bad
-        let (promise_id, op_id, mut resp) = item.unwrap();
+        let (promise_id, op_id, resp) = item.unwrap();
         state
           .borrow()
           .op_state

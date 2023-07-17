@@ -1,0 +1,17 @@
+
+[package]
+name = "deno_ops_tests"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+description = "Proc macro for writing Deno Ops"
+
+[lib]
+
+[dev-dependencies]
+trybuild = "1.0"
+deno_ops.workspace = true
+deno_core.workspace = true

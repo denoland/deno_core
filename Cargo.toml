@@ -5,6 +5,7 @@ resolver = "2"
 members = [
   "core",
   "ops",
+  "ops/op_tests",
   "serde_v8",
 ]
 

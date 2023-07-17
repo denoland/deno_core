@@ -6,10 +6,10 @@ impl deno_core::_ops::Op for op_async {
     const NAME: &'static str = stringify!(op_async);
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
         stringify!(op_async),
+        true,
         false,
         false,
-        false,
-        0usize as u8,
+        1usize as u8,
         Self::v8_fn_ptr as _,
         None,
     );
@@ -35,10 +35,11 @@ impl op_async {
                 as *const deno_core::_ops::OpCtx)
         };
         let result = Self::call();
+        let promise_id = deno_core::_ops::to_i32(&args.get(0));
         if let Some(result)
             = deno_core::_ops::map_async_op_infallible(
                 opctx,
-                0,
+                promise_id,
                 result,
                 |scope, result| { Ok(deno_core::v8::null(scope).into()) },
             ) {}

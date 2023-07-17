@@ -4,7 +4,6 @@ use quote::quote;
 use super::dispatch_slow::call;
 use super::dispatch_slow::extract_arg;
 use super::dispatch_slow::from_arg;
-use super::dispatch_slow::return_value;
 use super::dispatch_slow::return_value_infallible;
 use super::dispatch_slow::return_value_result;
 use super::dispatch_slow::return_value_v8_value;
@@ -83,7 +82,6 @@ pub(crate) fn generate_dispatch_async(
 
   output.extend(deferred);
   output.extend(call(generator_state)?);
-  let retval = &generator_state.retval;
   let result = &generator_state.result;
   let opctx = &generator_state.opctx;
   let scope = &generator_state.scope;

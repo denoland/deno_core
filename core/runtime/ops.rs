@@ -128,7 +128,7 @@ pub fn queue_async_op<'s>(
 
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
-    Poll::Ready(mut res) => {
+    Poll::Ready(res) => {
       if deferred {
         ctx.context_state.borrow_mut().pending_ops.spawn(ready(res));
         return None;
@@ -161,7 +161,7 @@ pub fn map_async_op_infallible<'a, R: 'static>(
 
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
-    Poll::Ready(mut res) => {
+    Poll::Ready(res) => {
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
       return Some(res.2);
     }
@@ -181,14 +181,14 @@ pub fn map_async_op_infallible<'a, R: 'static>(
   None
 }
 
-#[inline]
-pub fn map_async_op_fallible<'a, R, E>(
-  ctx: &OpCtx,
-  op: impl Future<Output = Result<R, E>>,
-  rv_map: fn(&'a mut v8::HandleScope, R) -> v8::Local<'a, v8::Value>,
-) -> Option<Result<R, E>> {
-  None
-}
+// #[inline]
+// pub fn map_async_op_fallible<'a, R, E>(
+//   ctx: &OpCtx,
+//   op: impl Future<Output = Result<R, E>>,
+//   rv_map: fn(&'a mut v8::HandleScope, R) -> v8::Local<'a, v8::Value>,
+// ) -> Option<Result<R, E>> {
+//   None
+// }
 
 macro_rules! try_number {
   ($n:ident $type:ident $is:ident) => {
