@@ -1,0 +1,66 @@
+#[allow(non_camel_case_types)]
+pub struct op_async {
+    _unconstructable: ::std::marker::PhantomData<()>,
+}
+impl deno_core::_ops::Op for op_async {
+    const NAME: &'static str = stringify!(op_async);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_async),
+        false,
+        false,
+        false,
+        1usize as u8,
+        Self::v8_fn_ptr as _,
+        None,
+    );
+}
+impl op_async {
+    pub const fn name() -> &'static str {
+        stringify!(op_async)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let arg0 = args.get(1usize as i32);
+        let arg0 = deno_core::_ops::to_i32(&arg0) as _;
+        let result = Self::call(arg0);
+        if let Some(result)
+            = deno_core::_ops::map_async_op_infallible(
+                opctx,
+                0,
+                result,
+                |scope, result| { Ok(deno_core::v8::Integer::new(scope, result).into()) },
+            ) {
+            match result {
+                Ok(result) => {
+                    rv.set_int32(result as i32);
+                }
+                Err(err) => {
+                    let opstate = ::std::cell::RefCell::borrow(&*opctx.state);
+                    let exception = deno_core::error::to_v8_error(
+                        &mut scope,
+                        opstate.get_error_class_fn,
+                        &err,
+                    );
+                    scope.throw_exception(exception);
+                    return;
+                }
+            };
+        }
+    }
+    #[inline(always)]
+    pub async fn call(x: i32) -> Result<i32> {}
+}

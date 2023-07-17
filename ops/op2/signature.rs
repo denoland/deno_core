@@ -321,6 +321,16 @@ pub enum RetVal {
   ResultFutureResult(Arg),
 }
 
+impl RetVal {
+  pub fn is_async(&self) -> bool {
+    use RetVal::*;
+    matches!(
+      self,
+      Future(..) | FutureResult(..) | ResultFuture(..) | ResultFutureResult(..)
+    )
+  }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedSignature {
   // The parsed arguments
@@ -620,7 +630,9 @@ fn parse_generics(
   Ok(res)
 }
 
-fn parse_attributes(attributes: &[Attribute]) -> Result<Attributes, AttributeError> {
+fn parse_attributes(
+  attributes: &[Attribute],
+) -> Result<Attributes, AttributeError> {
   let mut attrs = vec![];
   for attr in attributes {
     if let Some(attr) = parse_attribute(attr)? {

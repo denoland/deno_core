@@ -129,6 +129,11 @@ pub fn generate_dispatch_fast(
     Virtual(&'a Arg),
   }
 
+  // Async not supported for fastcalls yet
+  if signature.ret_val.is_async() {
+    return Ok(None);
+  }
+
   let mut inputs = vec![];
   for arg in &signature.args {
     let Some(fv) = map_arg_to_v8_fastcall_type(arg)? else {

@@ -2,29 +2,12 @@
 use crate::op2::signature::*;
 use deno_proc_macro_rules::rules;
 
-
-
-
-
 use quote::ToTokens;
-
-
-
-
-
-
-
-
-
-
-
 
 use syn2::ReturnType;
 
 use syn2::Type;
 use syn2::TypeParamBound;
-
-
 
 /// One level of type unwrapping for a return value. We cannot rely on `proc-macro-rules` to correctly
 /// unwrap `impl Future<...>`, so we do it by hand.
@@ -138,12 +121,11 @@ pub(crate) fn parse_return(
 mod tests {
   use super::*;
   use syn2::parse_str;
-  
 
   #[test]
   fn test_parse_result() {
-    use RetVal::*;
     use Arg::*;
+    use RetVal::*;
 
     for (expected, input) in [
       (Infallible(Void), "()"),
@@ -151,11 +133,15 @@ mod tests {
       (Future(Void), "impl Future<Output = ()>"),
       (FutureResult(Void), "impl Future<Output = Result<()>>"),
       (ResultFuture(Void), "Result<impl Future<Output = ()>>"),
-      (ResultFutureResult(Void), "Result<impl Future<Output = Result<()>>>"),
+      (
+        ResultFutureResult(Void),
+        "Result<impl Future<Output = Result<()>>>",
+      ),
     ] {
       let rt = parse_str::<ReturnType>(&format!("-> {input}"))
         .expect("Failed to parse");
-      let actual = parse_return(false, Attributes::default(), &rt).expect("Failed to parse return");
+      let actual = parse_return(false, Attributes::default(), &rt)
+        .expect("Failed to parse return");
       assert_eq!(expected, actual);
     }
   }

@@ -3,6 +3,7 @@ use deno_proc_macro_rules::rules;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
+use proc_macro2::TokenTree;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
@@ -17,6 +18,7 @@ use syn2::LifetimeParam;
 use syn2::Path;
 use thiserror::Error;
 
+use self::dispatch_async::generate_dispatch_async;
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
@@ -61,16 +63,25 @@ pub enum V8MappingError {
 pub(crate) struct MacroConfig {
   pub core: bool,
   pub fast: bool,
+  pub r#async: bool,
 }
 
 impl MacroConfig {
-  pub fn from_flags(flags: Vec<Ident>) -> Result<Self, Op2Error> {
+  pub fn from_token_trees(flags: Vec<TokenTree>) -> Result<Self, Op2Error> {
+    Self::from_flags(flags.into_iter().map(|tt| tt.to_string()))
+  }
+
+  pub fn from_flags(
+    flags: impl IntoIterator<Item = String>,
+  ) -> Result<Self, Op2Error> {
     let mut config: MacroConfig = Self::default();
     for flag in flags {
       if flag == "core" {
         config.core = true;
       } else if flag == "fast" {
         config.fast = true;
+      } else if flag == "async" {
+        config.r#async = true;
       } else {
         return Err(Op2Error::InvalidAttribute(flag.to_string()));
       }
@@ -85,8 +96,8 @@ impl MacroConfig {
         () => {
           Ok(MacroConfig::default())
         }
-        ($($flags:ident),+) => {
-          Self::from_flags(flags)
+        ($($flags:tt),+) => {
+          Self::from_token_trees(flags)
         }
       })
     })
@@ -195,8 +206,12 @@ fn generate_op2(
 
   let name = func.sig.ident;
 
-  let slow_fn =
-    generate_dispatch_slow(&config, &mut generator_state, &signature)?;
+  let slow_fn = if signature.ret_val.is_async() {
+    generate_dispatch_async(&config, &mut generator_state, &signature)?
+  } else {
+    generate_dispatch_slow(&config, &mut generator_state, &signature)?
+  };
+
   let (fast_definition, fast_fn) =
     match generate_dispatch_fast(&mut generator_state, &signature)? {
       Some((fast_definition, fast_fn)) => {
@@ -302,8 +317,8 @@ mod tests {
             (#[op2]) => {
               Some(MacroConfig::default())
             }
-            (#[op2( $($x:ident),* )]) => {
-              Some(MacroConfig::from_flags(x).expect("Failed to parse attribute"))
+            (#[op2( $($x:tt),* )]) => {
+              Some(MacroConfig::from_token_trees(x).expect("Failed to parse attribute"))
             }
             (#[$_attr:meta]) => {
               None
@@ -387,8 +402,14 @@ mod tests {
           let sig = parse_signature(vec![], function.sig.clone())
             .expect("Failed to parse signature");
           println!("Parsed signature: {sig:?}");
-          generate_op2(MacroConfig { core: false, fast }, function)
-            .expect("Failed to generate op");
+          generate_op2(
+            MacroConfig {
+              fast,
+              ..Default::default()
+            },
+            function,
+          )
+          .expect("Failed to generate op");
         }
         actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
       }

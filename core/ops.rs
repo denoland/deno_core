@@ -65,16 +65,19 @@ impl<F: Future<Output = OpResult>> Future for OpCall<F> {
 pub enum OpResult {
   Ok(serde_v8::SerializablePkg),
   Err(OpError),
+  /// We temporarily provide a mapping function in a box for op2. This will go away when op goes away.
+  Op2Temp(Box<dyn for<'a> FnOnce(&mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>, serde_v8::Error>>),
 }
 
 impl OpResult {
   pub fn to_v8<'a>(
-    &mut self,
+    self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, serde_v8::Error> {
     match self {
-      Self::Ok(x) => x.to_v8(scope),
+      Self::Ok(mut x) => x.to_v8(scope),
       Self::Err(err) => serde_v8::to_v8(scope, err),
+      Self::Op2Temp(f) => f(scope)
     }
   }
 }

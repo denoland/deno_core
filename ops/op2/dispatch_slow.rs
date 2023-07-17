@@ -100,17 +100,18 @@ pub(crate) fn generate_dispatch_slow(
 
   Ok(quote! {
     extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
-    #with_scope
-    #with_retval
-    #with_args
-    #with_opctx
-    #with_opstate
+      #with_scope
+      #with_retval
+      #with_args
+      #with_opctx
+      #with_opstate
 
-    #output
-  }})
+      #output
+    }
+  })
 }
 
-fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
+pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   let GeneratorState {
     deno_core,
     scope,
@@ -121,7 +122,7 @@ fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   quote!(let mut #scope = unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
 }
 
-fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
+pub(crate) fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
   let GeneratorState {
     deno_core,
     retval,
@@ -132,7 +133,9 @@ fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
   quote!(let mut #retval = #deno_core::v8::ReturnValue::from_function_callback_info(unsafe { &*#info });)
 }
 
-fn with_fn_args(generator_state: &mut GeneratorState) -> TokenStream {
+pub(crate) fn with_fn_args(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
   let GeneratorState {
     deno_core,
     fn_args,
@@ -143,7 +146,7 @@ fn with_fn_args(generator_state: &mut GeneratorState) -> TokenStream {
   quote!(let #fn_args = #deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe { &*#info });)
 }
 
-fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
+pub(crate) fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
   let GeneratorState {
     deno_core,
     opctx,
@@ -159,7 +162,9 @@ fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
   };)
 }
 
-fn with_opstate(generator_state: &mut GeneratorState) -> TokenStream {
+pub(crate) fn with_opstate(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
   let GeneratorState {
     opctx,
     opstate,
@@ -581,7 +586,37 @@ pub fn return_value_infallible(
   Ok(res)
 }
 
-fn return_value_result(
+/// Puts a typed result into a [`v8::Value`].
+pub fn return_value_v8_value(
+  deno_core: &TokenStream,
+  scope: &Ident,
+  result: &Ident,
+  ret_type: &Arg,
+) -> Result<TokenStream, V8MappingError> {
+  let res = match ret_type {
+    Arg::Void => {
+      quote!(Ok(#deno_core::v8::null(#scope).into()))
+    }
+    Arg::Numeric(NumericArg::bool) => {
+      quote!(Ok(#deno_core::v8::Boolean::new(#result).into()))
+    }
+    Arg::Numeric(NumericArg::i8 | NumericArg::i16 | NumericArg::i32) => {
+      quote!(Ok(#deno_core::v8::Integer::new(#scope, #result).into()))
+    }
+    Arg::Numeric(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
+      quote!(Ok(#deno_core::v8::Integer::new_from_unsigned(#scope, #result).into()))
+    }
+    _ => {
+      return Err(V8MappingError::NoMapping(
+        "a v8 return value",
+        ret_type.clone(),
+      ))
+    }
+  };
+  Ok(res)
+}
+
+pub fn return_value_result(
   generator_state: &mut GeneratorState,
   ret_type: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
