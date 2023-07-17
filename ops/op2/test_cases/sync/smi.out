@@ -56,6 +56,6 @@ impl op_add {
     }
     #[inline(always)]
     fn call(id: ResourceId, extra: u16) -> u32 {
-        0
+        id as u32 + extra as u32
     }
 }

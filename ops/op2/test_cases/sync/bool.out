@@ -52,6 +52,6 @@ impl op_bool {
     }
     #[inline(always)]
     pub fn call(arg: bool) -> bool {
-        true
+        arg
     }
 }

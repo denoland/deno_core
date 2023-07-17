@@ -58,5 +58,5 @@ impl op_state_rc {
         let result = Self::call(arg0);
     }
     #[inline(always)]
-    fn call(state: Rc<RefCell<OpState>>) {}
+    fn call(_state: Rc<RefCell<OpState>>) {}
 }

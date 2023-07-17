@@ -50,6 +50,6 @@ impl op_async {
     }
     #[inline(always)]
     pub async fn call(x: i32) -> i32 {
-        0
+        x
     }
 }

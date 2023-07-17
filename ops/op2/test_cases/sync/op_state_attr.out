@@ -64,5 +64,5 @@ impl op_state_rc {
         let result = Self::call(arg0, arg1);
     }
     #[inline(always)]
-    fn call(arg: &Something, arg_opt: Option<&Something>) {}
+    fn call(_arg: &Something, _arg_opt: Option<&Something>) {}
 }

@@ -15,11 +15,9 @@ use super::dispatch_slow::with_scope;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
-use super::MacroConfig;
 use super::V8MappingError;
 
 pub(crate) fn generate_dispatch_async(
-  config: &MacroConfig,
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
 ) -> Result<TokenStream, V8MappingError> {

@@ -209,7 +209,7 @@ fn generate_op2(
   let name = func.sig.ident;
 
   let slow_fn = if signature.ret_val.is_async() {
-    generate_dispatch_async(&config, &mut generator_state, &signature)?
+    generate_dispatch_async(&mut generator_state, &signature)?
   } else {
     generate_dispatch_slow(&config, &mut generator_state, &signature)?
   };
@@ -306,6 +306,15 @@ mod tests {
 
     let source =
       std::fs::read_to_string(&input).expect("Failed to read test file");
+
+    const PRELUDE: &'static str = r"// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+#![deny(warnings)]
+deno_ops_compile_test_runner::prelude!();";
+
+    if !source.starts_with(PRELUDE) {
+      panic!("Source does not start with expected prelude:]n{PRELUDE}");
+    }
+
     let file = parse_str::<File>(&source).expect("Failed to parse Rust file");
     let mut expected_out = vec![];
     for item in file.items {

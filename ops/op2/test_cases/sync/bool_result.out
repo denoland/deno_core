@@ -102,6 +102,6 @@ impl op_bool {
     }
     #[inline(always)]
     pub fn call(arg: bool) -> Result<bool, AnyError> {
-        Ok(true)
+        Ok(arg)
     }
 }

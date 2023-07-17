@@ -51,8 +51,8 @@ impl op_handlescope {
     }
     #[inline(always)]
     fn call<'a>(
-        scope: &v8::HandleScope<'a>,
-        str2: v8::Local<v8::String>,
+        _scope: &v8::HandleScope<'a>,
+        _str2: v8::Local<v8::String>,
     ) -> v8::Local<'a, v8::String> {
         unimplemented!()
     }

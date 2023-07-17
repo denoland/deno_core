@@ -49,7 +49,7 @@ impl op_void_with_result {
         };
     }
     #[inline(always)]
-    pub fn call(scope: &mut v8::HandleScope) -> Result<(), AnyError> {
+    pub fn call(_scope: &mut v8::HandleScope) -> Result<(), AnyError> {
         Ok(())
     }
 }

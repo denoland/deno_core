@@ -65,6 +65,6 @@ impl op_async {
     }
     #[inline(always)]
     pub async fn call(x: i32) -> std::io::Result<i32> {
-        Ok(0)
+        Ok(x)
     }
 }
