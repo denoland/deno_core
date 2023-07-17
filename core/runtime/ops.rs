@@ -148,7 +148,10 @@ pub fn map_async_op_infallible<'a, R: 'static>(
   ctx: &OpCtx,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
-  rv_map: for<'r> fn(&mut v8::HandleScope<'r>, R) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+  rv_map: for<'r> fn(
+    &mut v8::HandleScope<'r>,
+    R,
+  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<R> {
   let id = ctx.id;
 
@@ -164,11 +167,17 @@ pub fn map_async_op_infallible<'a, R: 'static>(
     }
   }
 
-  ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(move |r| {
-    (r.0, r.1, OpResult::Op2Temp(Box::new(move |scope| {
-      rv_map(scope, r.2)
-    })))
-  }));
+  ctx
+    .context_state
+    .borrow_mut()
+    .pending_ops
+    .spawn(pinned.map(move |r| {
+      (
+        r.0,
+        r.1,
+        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r.2))),
+      )
+    }));
   None
 }
 
@@ -441,12 +450,14 @@ mod tests {
   use crate::OpState;
   use crate::RuntimeOptions;
   use deno_ops::op2;
+  use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
   use std::borrow::Cow;
   use std::cell::Cell;
   use std::cell::RefCell;
   use std::rc::Rc;
+  use std::time::Duration;
 
   crate::extension!(
     testing,
@@ -489,8 +500,13 @@ mod tests {
       op_buffer_slice,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
+
       op_async_void,
       op_async_number,
+      op_async_add,
+      op_async_sleep,
+      op_async_sleep_impl,
+      op_async_buffer_impl,
     ],
     state = |state| {
       state.put(1234u32);
@@ -563,7 +579,11 @@ mod tests {
   }
 
   /// Run a test for a single op.
-  async fn run_async_test(repeat: usize, op: &str, test: &str) -> Result<(), AnyError> {
+  async fn run_async_test(
+    repeat: usize,
+    op: &str,
+    test: &str,
+  ) -> Result<(), AnyError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
@@ -1284,9 +1304,62 @@ mod tests {
     x
   }
 
+  #[op2(core)]
+  async fn op_async_add(x: u32, y: u32) -> u32 {
+    x + y
+  }
+
   #[tokio::test]
-  pub async fn test_op_async_number() -> Result<(), Box<dyn std::error::Error>> {
-    run_async_test(10000, "op_async_number", "assert(await op_async_number(__index__) == __index__)").await?;
+  pub async fn test_op_async_number() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
+      10000,
+      "op_async_number",
+      "assert(await op_async_number(__index__) == __index__)",
+    )
+    .await?;
+    run_async_test(
+      10000,
+      "op_async_add",
+      "assert(await op_async_add(__index__, 100) == __index__ + 100)",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  async fn op_async_sleep() {
+    tokio::time::sleep(Duration::from_millis(500)).await
+  }
+
+  #[op2(core)]
+  fn op_async_sleep_impl() -> impl Future<Output = ()> {
+    tokio::time::sleep(Duration::from_millis(500))
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_sleep() -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(5, "op_async_sleep", "await op_async_sleep()").await?;
+    run_async_test(5, "op_async_sleep_impl", "await op_async_sleep_impl()")
+      .await?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
+    let l = input.len();
+    async move { l as _ }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_buffer() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
+      5,
+      "op_async_buffer_impl",
+      "assert(await op_async_buffer_impl(new Uint8Array(10)) == 10)",
+    )
+    .await?;
     Ok(())
   }
 }

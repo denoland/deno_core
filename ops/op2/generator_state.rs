@@ -31,6 +31,8 @@ pub struct GeneratorState {
   pub slow_function: Ident,
   /// The "fast" function (ie: a fastcall)
   pub fast_function: Ident,
+  /// The async function promise ID argument
+  pub promise_id: Ident,
 
   pub needs_args: bool,
   pub needs_retval: bool,

@@ -168,6 +168,7 @@ fn generate_op2(
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
   let opstate = Ident::new("opstate", Span::call_site());
+  let promise_id = Ident::new("promise_id", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
   let fast_function = Ident::new("v8_fn_ptr_fast", Span::call_site());
   let fast_api_callback_options =
@@ -196,6 +197,7 @@ fn generate_op2(
     needs_args,
     slow_function,
     fast_function,
+    promise_id,
     needs_retval: false,
     needs_scope: false,
     needs_opctx: false,

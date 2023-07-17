@@ -87,6 +87,8 @@ pub(crate) fn generate_dispatch_async(
   let result = &generator_state.result;
   let opctx = &generator_state.opctx;
   let scope = &generator_state.scope;
+  let fn_args = &generator_state.fn_args;
+  let promise_id = &generator_state.promise_id;
   let deno_core = &generator_state.deno_core;
 
   if matches!(
@@ -104,7 +106,8 @@ pub(crate) fn generate_dispatch_async(
   output.extend(quote! {
     // TODO(mmastrac): We are extending the eager polling behaviour temporarily to op2, but I would like to get
     // rid of it as soon as we can
-    if let Some(#result) = #deno_core::_ops::map_async_op_infallible(#opctx, 0, #result, |#scope, #result| {
+    let #promise_id = #deno_core::_ops::to_i32(&#fn_args.get(0));
+    if let Some(#result) = #deno_core::_ops::map_async_op_infallible(#opctx, #promise_id, #result, |#scope, #result| {
       #return_value
     }) {
       // Eager poll returned a value
