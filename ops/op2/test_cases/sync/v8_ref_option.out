@@ -103,5 +103,5 @@ impl op_v8_lifetime {
         let result = Self::call(arg0, arg1);
     }
     #[inline(always)]
-    pub fn call<'s>(s: Option<&v8::String>, s2: Option<&v8::String>) {}
+    pub fn call<'s>(_s: Option<&v8::String>, _s2: Option<&v8::String>) {}
 }

@@ -2,7 +2,7 @@
 
 `#[op2]` is the in-progress replacement for `#[op]`.
 
-# Strings
+## Strings
 
 `String`s in Rust are always UTF-8. `String`s in v8, however, are either
 two-byte UTF-16 or one-byte Latin-1. One-byte Latin-1 strings are not
@@ -14,6 +14,30 @@ that we are not incorrectly passing Latin-1 data to methods that expect a UTF-8
 string. At this time there is no way to avoid this copy, though the `op` code
 does attempt to avoid any allocations where possible by making use of a stack
 buffer.
+
+## `async` calls
+
+Asynchronous calls are supported in two forms:
+
+```rust
+async fn op_xyz(...) -> X {}
+```
+
+and
+
+```rust
+fn op_xyz(...) -> impl Future<Output = X> {}
+```
+
+These are desugared to a function that adds a hidden `promise_id` argument, and
+returns `Option<X>` instead. Deno will eagerly poll the op, and if it is
+immediately ready, the function will return `Some(X)`. If the op is not ready,
+the function will return `None` and the future will be handled by Deno's pending
+op system.
+
+```rust
+fn op_xyz(promise_id: i32, ...) -> Option<X> {}
+```
 
 # Parameters
 

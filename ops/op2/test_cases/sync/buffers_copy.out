@@ -121,5 +121,5 @@ impl op_buffers {
         let result = Self::call(arg0, arg1, arg2);
     }
     #[inline(always)]
-    fn call(a: Vec<u8>, b: Box<[u8]>, c: bytes::Bytes) {}
+    fn call(_a: Vec<u8>, _b: Box<[u8]>, _c: bytes::Bytes) {}
 }

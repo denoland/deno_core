@@ -36,6 +36,7 @@ impl op_void_with_result {
                     &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
                         .value() as *const deno_core::_ops::OpCtx)
                 };
+                let err = err.into();
                 let opstate = ::std::cell::RefCell::borrow(&*opctx.state);
                 let exception = deno_core::error::to_v8_error(
                     &mut scope,
@@ -48,5 +49,7 @@ impl op_void_with_result {
         };
     }
     #[inline(always)]
-    pub fn call(scope: &mut v8::HandleScope) -> Result<(), AnyError> {}
+    pub fn call(_scope: &mut v8::HandleScope) -> Result<(), AnyError> {
+        Ok(())
+    }
 }

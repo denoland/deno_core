@@ -49,5 +49,7 @@ impl op_v8_lifetime {
         rv.set(result.into())
     }
     #[inline(always)]
-    pub fn call<'s>(s: v8::Local<'s, v8::String>) -> v8::Local<'s, v8::String> {}
+    pub fn call<'s>(_s: v8::Local<'s, v8::String>) -> v8::Local<'s, v8::String> {
+        unimplemented!()
+    }
 }

@@ -40,5 +40,7 @@ impl op_string_return {
         }
     }
     #[inline(always)]
-    pub fn call() -> Option<String> {}
+    pub fn call() -> Option<String> {
+        Some("".to_owned())
+    }
 }

@@ -129,6 +129,11 @@ pub fn generate_dispatch_fast(
     Virtual(&'a Arg),
   }
 
+  // Async not supported for fastcalls yet
+  if signature.ret_val.is_async() {
+    return Ok(None);
+  }
+
   let mut inputs = vec![];
   for arg in &signature.args {
     let Some(fv) = map_arg_to_v8_fastcall_type(arg)? else {
@@ -144,6 +149,7 @@ pub fn generate_dispatch_fast(
   let ret_val = match &signature.ret_val {
     RetVal::Infallible(arg) => arg,
     RetVal::Result(arg) => arg,
+    _ => todo!(),
   };
 
   let output = match map_retval_to_v8_fastcall_type(ret_val)? {
@@ -219,13 +225,14 @@ pub fn generate_dispatch_fast(
         };
       }
     }
+    _ => todo!(),
   };
 
   let with_opctx = if *needs_fast_opctx {
     *needs_fast_api_callback_options = true;
     quote!(
       let #opctx = unsafe {
-        &*(#deno_core::v8::Local::<v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
+        &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
             as *const #deno_core::_ops::OpCtx)
       };
     )
@@ -351,7 +358,7 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::Special(Special::RefStr) => {
       quote! {
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = &#deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
     }
@@ -360,7 +367,7 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::Special(Special::CowStr) => {
       quote! {
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = #deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
     }
