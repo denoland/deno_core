@@ -19,6 +19,11 @@ use std::option::Option;
 use std::task::Context;
 use std::task::Poll;
 
+/// The default string buffer size on the stack that prevents mallocs in some
+/// string functions. Keep in mind that Windows only offers 1MB stacks by default,
+/// so this is a limited resource!
+pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
+
 #[inline]
 pub fn queue_fast_async_op<R: serde::Serialize + 'static>(
   ctx: &OpCtx,
@@ -332,10 +337,17 @@ unsafe fn latin1_to_utf8(
 /// Converts a [`v8::fast_api::FastApiOneByteString`] to either an owned string, or a borrowed string, depending on whether it fits into the
 /// provided buffer.
 pub fn to_str_ptr<'a, const N: usize>(
-  string: &mut v8::fast_api::FastApiOneByteString,
+  string: &'a mut v8::fast_api::FastApiOneByteString,
   buffer: &'a mut [MaybeUninit<u8>; N],
 ) -> Cow<'a, str> {
   let input_buf = string.as_bytes();
+
+  // Per benchmarking results, it's faster to do this check than to copy latin-1 -> utf8
+  if input_buf.is_ascii() {
+    // SAFETY: We just checked that it was ASCII
+    return Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(input_buf) });
+  }
+
   let input_len = input_buf.len();
   let output_len = buffer.len();
 
@@ -362,9 +374,7 @@ pub fn to_str_ptr<'a, const N: usize>(
 
 /// Converts a [`v8::fast_api::FastApiOneByteString`] to an owned string. May over-allocate to avoid
 /// re-allocation.
-pub fn to_string_ptr(
-  string: &mut v8::fast_api::FastApiOneByteString,
-) -> String {
+pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
   let input_buf = string.as_bytes();
   let capacity = input_buf.len() * 2;
 
@@ -901,6 +911,12 @@ mod tests {
         (3, "'abc'"),
         // Latin-1 (one byte but two UTF-8 chars)
         (2, "'\\u00a0'"),
+        // ASCII
+        (1000, "'a'.repeat(1000)"),
+        // Latin-1
+        (2000, "'\\u00a0'.repeat(1000)"),
+        // 4-byte UTF-8 emoji (1F995 = 🦕)
+        (4000, "'\\u{1F995}'.repeat(1000)"),
         // ASCII
         (10000, "'a'.repeat(10000)"),
         // Latin-1

@@ -272,16 +272,16 @@ pub fn from_arg(
     Arg::Special(Special::RefStr) => {
       *needs_scope = true;
       quote! {
-        // Trade 1024 bytes of stack space for potentially non-allocating strings
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
+        // Trade stack space for potentially non-allocating strings
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = &#deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Special(Special::CowStr) => {
       *needs_scope = true;
       quote! {
-        // Trade 1024 bytes of stack space for potentially non-allocating strings
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
+        // Trade stack space for potentially non-allocating strings
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
@@ -516,6 +516,20 @@ pub fn return_value_infallible(
           // is ASCII. We could make an "external Rust String" string in V8 from these and re-use the allocation.
           let temp = #deno_core::v8::String::new(&mut #scope, &#result).unwrap();
           #retval.set(temp.into());
+        }
+      }
+    }
+    Arg::OptionNumeric(n) => {
+      *needs_retval = true;
+      *needs_scope = true;
+      // End the generator_state borrow
+      let (result, retval) = (result.clone(), retval.clone());
+      let some = return_value_infallible(generator_state, &Arg::Numeric(*n))?;
+      quote! {
+        if let Some(#result) = #result {
+          #some
+        } else {
+          #retval.set_null();
         }
       }
     }

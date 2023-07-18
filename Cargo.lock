@@ -292,6 +292,7 @@ name = "deno_core"
 version = "0.195.0"
 dependencies = [
  "anyhow",
+ "bencher",
  "bytes",
  "cooked-waker",
  "deno_ast",
