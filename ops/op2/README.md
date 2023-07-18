@@ -29,9 +29,11 @@ and
 fn op_xyz(...) -> impl Future<Output = X> {}
 ```
 
-These are desugared to a function that adds a hidden `promise_id` argument, and returns `Option<X>` instead. Deno will
-eagerly poll the op, and if it is immediately ready, the function will return `Some(X)`. If the op is not ready, the function
-will return `None` and the future will be handled by Deno's pending op system.
+These are desugared to a function that adds a hidden `promise_id` argument, and
+returns `Option<X>` instead. Deno will eagerly poll the op, and if it is
+immediately ready, the function will return `Some(X)`. If the op is not ready,
+the function will return `None` and the future will be handled by Deno's pending
+op system.
 
 ```rust
 fn op_xyz(promise_id: i32, ...) -> Option<X> {}
