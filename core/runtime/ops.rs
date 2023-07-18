@@ -19,6 +19,11 @@ use std::option::Option;
 use std::task::Context;
 use std::task::Poll;
 
+/// The default string buffer size on the stack that prevents mallocs in some
+/// string functions. Keep in mind that Windows only offers 1MB stacks by default,
+/// so this is a limited resource!
+pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
+
 #[inline]
 pub fn queue_fast_async_op<R: serde::Serialize + 'static>(
   ctx: &OpCtx,
@@ -906,6 +911,12 @@ mod tests {
         (3, "'abc'"),
         // Latin-1 (one byte but two UTF-8 chars)
         (2, "'\\u00a0'"),
+        // ASCII
+        (1000, "'a'.repeat(1000)"),
+        // Latin-1
+        (2000, "'\\u00a0'.repeat(1000)"),
+        // 4-byte UTF-8 emoji (1F995 = 🦕)
+        (4000, "'\\u{1F995}'.repeat(1000)"),
         // ASCII
         (10000, "'a'.repeat(10000)"),
         // Latin-1

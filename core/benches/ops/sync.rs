@@ -104,12 +104,13 @@ bench();
     )
     .map_err(err_mapper)
     .unwrap();
-
+  let bench = runtime.execute_script("", ascii_str!("bench")).unwrap();
+  let mut scope = runtime.handle_scope();
+  let bench: v8::Local<v8::Function> =
+    v8::Local::new(&mut scope, bench).try_into().unwrap();
   b.iter(|| {
-    runtime
-      .execute_script("", ascii_str!("bench()"))
-      .map_err(err_mapper)
-      .unwrap();
+    let recv = v8::undefined(&mut scope).try_into().unwrap();
+    bench.call(&mut scope, recv, &[]);
   });
 }
 

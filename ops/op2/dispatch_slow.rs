@@ -272,16 +272,16 @@ pub fn from_arg(
     Arg::Special(Special::RefStr) => {
       *needs_scope = true;
       quote! {
-        // Trade 1024 bytes of stack space for potentially non-allocating strings
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
+        // Trade stack space for potentially non-allocating strings
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = &#deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Special(Special::CowStr) => {
       *needs_scope = true;
       quote! {
-        // Trade 1024 bytes of stack space for potentially non-allocating strings
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; 1024] = [::std::mem::MaybeUninit::uninit(); 1024];
+        // Trade stack space for potentially non-allocating strings
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
