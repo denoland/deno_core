@@ -540,7 +540,7 @@ mod tests {
       op_async_sleep,
       op_async_sleep_impl,
       op_async_sleep_error,
-
+      op_async_state_rc,
       op_async_buffer_impl,
     ],
     state = |state| {
@@ -1395,6 +1395,26 @@ mod tests {
       "try { await op_async_sleep_error(); assert(false) } catch (e) {}",
     )
     .await?;
+    Ok(())
+  }
+
+  #[op2(core, async)]
+  pub async fn op_async_state_rc(
+    state: Rc<RefCell<OpState>>,
+    value: u32,
+  ) -> u32 {
+    let old_value: u32 = state.borrow_mut().take();
+    state.borrow_mut().put(value);
+    old_value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_state() -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(
+      5,
+      "op_async_state_rc",
+      "if (__index__ == 0) { await op_async_state_rc(__index__) } else { assert(await op_async_state_rc(__index__) == __index__ - 1) }",
+    ).await?;
     Ok(())
   }
 
