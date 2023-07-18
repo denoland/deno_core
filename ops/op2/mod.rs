@@ -55,6 +55,8 @@ pub enum Op2Error {
   ShouldBeAsync,
   #[error("This op is not async and should not be marked as (async)")]
   ShouldNotBeAsync,
+  #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
+  ImproperlySortedAttribute(String),
 }
 
 #[derive(Debug, Error)]
@@ -79,6 +81,15 @@ impl MacroConfig {
     flags: impl IntoIterator<Item = String>,
   ) -> Result<Self, Op2Error> {
     let mut config: MacroConfig = Self::default();
+    let flags = flags.into_iter().collect::<Vec<_>>();
+
+    // Ensure that the flags are sorted in alphabetical order for consistency and searchability
+    let mut flags_sorted = flags.clone();
+    flags_sorted.sort();
+    if flags != flags_sorted {
+      return Err(Op2Error::ImproperlySortedAttribute(flags_sorted.join(", ")));
+    }
+
     for flag in flags {
       if flag == "core" {
         config.core = true;
@@ -90,6 +101,7 @@ impl MacroConfig {
         return Err(Op2Error::InvalidAttribute(flag));
       }
     }
+
     Ok(config)
   }
 

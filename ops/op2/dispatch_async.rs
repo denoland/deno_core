@@ -94,9 +94,10 @@ pub(crate) fn generate_dispatch_async(
     RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
   ) {
     output.extend(quote! {
+      todo!("result of future currently not implemented");
       let Ok(#result) = #result else {
         // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
-        // ...
+        // TODO(mmastrac): This is unimplemented
       };
     });
   }
