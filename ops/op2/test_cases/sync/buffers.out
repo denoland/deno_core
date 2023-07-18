@@ -89,5 +89,5 @@ impl op_buffers {
         let result = Self::call(arg0, arg1);
     }
     #[inline(always)]
-    fn call(a: &[u8], b: &mut [u8]) {}
+    fn call(_a: &[u8], _b: &mut [u8]) {}
 }

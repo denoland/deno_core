@@ -54,5 +54,7 @@ impl op_string_owned {
         rv.set_uint32(result as u32);
     }
     #[inline(always)]
-    fn call(s: &str) -> u32 {}
+    fn call(s: &str) -> u32 {
+        s.len() as _
+    }
 }

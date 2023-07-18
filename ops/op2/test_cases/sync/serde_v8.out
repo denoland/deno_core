@@ -61,5 +61,7 @@ impl op_serde_v8 {
         rv.set(result.into())
     }
     #[inline(always)]
-    pub fn call(input: Input) -> Output {}
+    pub fn call(_input: Input) -> Output {
+        Output {}
+    }
 }

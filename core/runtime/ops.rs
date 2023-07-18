@@ -128,7 +128,7 @@ pub fn queue_async_op<'s>(
 
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
-    Poll::Ready(mut res) => {
+    Poll::Ready(res) => {
       if deferred {
         ctx.context_state.borrow_mut().pending_ops.spawn(ready(res));
         return None;
@@ -140,6 +140,84 @@ pub fn queue_async_op<'s>(
   }
 
   ctx.context_state.borrow_mut().pending_ops.spawn(pinned);
+  None
+}
+
+#[inline]
+pub fn map_async_op_infallible<R: 'static>(
+  ctx: &OpCtx,
+  promise_id: i32,
+  op: impl Future<Output = R> + 'static,
+  rv_map: for<'r> fn(
+    &mut v8::HandleScope<'r>,
+    R,
+  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+) -> Option<R> {
+  let id = ctx.id;
+
+  // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
+  // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
+  let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
+
+  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+    Poll::Pending => {}
+    Poll::Ready(res) => {
+      ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
+      return Some(res.2);
+    }
+  }
+
+  ctx
+    .context_state
+    .borrow_mut()
+    .pending_ops
+    .spawn(pinned.map(move |r| {
+      (
+        r.0,
+        r.1,
+        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r.2))),
+      )
+    }));
+  None
+}
+
+#[inline]
+pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
+  ctx: &OpCtx,
+  promise_id: i32,
+  op: impl Future<Output = Result<R, E>> + 'static,
+  rv_map: for<'r> fn(
+    &mut v8::HandleScope<'r>,
+    R,
+  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+) -> Option<Result<R, E>> {
+  let id = ctx.id;
+
+  // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
+  // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
+  let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
+
+  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+    Poll::Pending => {}
+    Poll::Ready(res) => {
+      ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
+      return Some(res.2);
+    }
+  }
+
+  let get_class = RefCell::borrow(&ctx.state).get_error_class_fn;
+  ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
+    move |r| match r.2 {
+      Ok(v) => (
+        r.0,
+        r.1,
+        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+      ),
+      Err(err) => {
+        (r.0, r.1, OpResult::Err(OpError::new(get_class, err.into())))
+      }
+    },
+  ));
   None
 }
 
@@ -402,18 +480,24 @@ mod tests {
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
+  use anyhow::bail;
+  use anyhow::Error;
   use deno_ops::op2;
+  use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
   use std::borrow::Cow;
   use std::cell::Cell;
   use std::cell::RefCell;
   use std::rc::Rc;
+  use std::time::Duration;
 
   crate::extension!(
     testing,
     ops = [
       op_test_fail,
+      op_test_print_debug,
+
       op_test_add,
       op_test_add_option,
       op_test_result_void_switch,
@@ -449,6 +533,15 @@ mod tests {
       op_buffer_slice,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
+
+      op_async_void,
+      op_async_number,
+      op_async_add,
+      op_async_sleep,
+      op_async_sleep_impl,
+      op_async_sleep_error,
+      op_async_state_rc,
+      op_async_buffer_impl,
     ],
     state = |state| {
       state.put(1234u32);
@@ -465,6 +558,11 @@ mod tests {
     FAIL.with(|b| b.set(true))
   }
 
+  #[op2(core, fast)]
+  pub fn op_test_print_debug(#[string] s: &str) {
+    println!("{s}")
+  }
+
   /// Run a test for a single op.
   fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), AnyError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -479,11 +577,14 @@ mod tests {
         FastString::Owned(
           format!(
             r"
-            const {{ op_test_fail, {op} }} = Deno.core.ensureFastOps();
+            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
             function assert(b) {{
               if (!b) {{
                 op_test_fail();
               }}
+            }}
+            function log(s) {{
+              op_test_print_debug(String(s))
             }}
           "
           )
@@ -505,6 +606,64 @@ mod tests {
         .into(),
       ),
     )?;
+    if FAIL.with(|b| b.get()) {
+      Err(generic_error(format!("{op} test failed ({test})")))
+    } else {
+      Ok(())
+    }
+  }
+
+  /// Run a test for a single op.
+  async fn run_async_test(
+    repeat: usize,
+    op: &str,
+    test: &str,
+  ) -> Result<(), AnyError> {
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+      extensions: vec![testing::init_ops_and_esm()],
+      ..Default::default()
+    });
+    let err_mapper =
+      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
+    runtime
+      .execute_script(
+        "",
+        FastString::Owned(
+          format!(
+            r"
+            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+            function assert(b) {{
+              if (!b) {{
+                op_test_fail();
+              }}
+            }}
+            function log(s) {{
+              op_test_print_debug(String(s))
+            }}
+          "
+          )
+          .into(),
+        ),
+      )
+      .map_err(err_mapper)?;
+    FAIL.with(|b| b.set(false));
+    runtime.execute_script(
+      "",
+      FastString::Owned(
+        format!(
+          r"
+            (async () => {{
+              for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
+                {test}
+              }}
+            }})()
+          "
+        )
+        .into(),
+      ),
+    )?;
+
+    runtime.run_event_loop(false).await?;
     if FAIL.with(|b| b.get()) {
       Err(generic_error(format!("{op} test failed ({test})")))
     } else {
@@ -1163,6 +1322,117 @@ mod tests {
       op_buffer_copy(input, input, input);
       assert(input[0] == 1);",
     )?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  async fn op_async_void() {}
+
+  #[tokio::test]
+  pub async fn test_op_async_void() -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(10000, "op_async_void", "await op_async_void()").await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  async fn op_async_number(x: u32) -> u32 {
+    x
+  }
+
+  #[op2(async, core)]
+  async fn op_async_add(x: u32, y: u32) -> u32 {
+    x + y
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_number() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
+      10000,
+      "op_async_number",
+      "assert(await op_async_number(__index__) == __index__)",
+    )
+    .await?;
+    run_async_test(
+      10000,
+      "op_async_add",
+      "assert(await op_async_add(__index__, 100) == __index__ + 100)",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  async fn op_async_sleep() {
+    tokio::time::sleep(Duration::from_millis(500)).await
+  }
+
+  #[op2(async, core)]
+  fn op_async_sleep_impl() -> impl Future<Output = ()> {
+    tokio::time::sleep(Duration::from_millis(500))
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_sleep() -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(5, "op_async_sleep", "await op_async_sleep()").await?;
+    run_async_test(5, "op_async_sleep_impl", "await op_async_sleep_impl()")
+      .await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  pub async fn op_async_sleep_error() -> Result<(), Error> {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    bail!("whoops")
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_sleep_error(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(
+      5,
+      "op_async_sleep_error",
+      "try { await op_async_sleep_error(); assert(false) } catch (e) {}",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  pub async fn op_async_state_rc(
+    state: Rc<RefCell<OpState>>,
+    value: u32,
+  ) -> u32 {
+    let old_value: u32 = state.borrow_mut().take();
+    state.borrow_mut().put(value);
+    old_value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_state() -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(
+      5,
+      "op_async_state_rc",
+      "if (__index__ == 0) { await op_async_state_rc(__index__) } else { assert(await op_async_state_rc(__index__) == __index__ - 1) }",
+    ).await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
+    let l = input.len();
+    async move { l as _ }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_buffer() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
+      5,
+      "op_async_buffer_impl",
+      "assert(await op_async_buffer_impl(new Uint8Array(10)) == 10)",
+    )
+    .await?;
     Ok(())
   }
 }
