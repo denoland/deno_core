@@ -336,10 +336,13 @@ pub fn to_str_ptr<'a, const N: usize>(
   buffer: &'a mut [MaybeUninit<u8>; N],
 ) -> Cow<'a, str> {
   let input_buf = string.as_bytes();
+
+  // Per benchmarking results, it's faster to do this check than to copy latin-1 -> utf8
   if input_buf.is_ascii() {
     // SAFETY: We just checked that it was ASCII
     return Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(input_buf) });
   }
+
   let input_len = input_buf.len();
   let output_len = buffer.len();
 
