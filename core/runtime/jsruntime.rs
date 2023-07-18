@@ -368,6 +368,7 @@ fn v8_init(
   let predictable_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";
 
+  #[allow(clippy::useless_format)]
   let flags = match (predictable, expose_natives) {
     (false, false) => format!("{base_flags}"),
     (true, false) => format!("{base_flags} {predictable_flags}"),
