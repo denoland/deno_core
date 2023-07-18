@@ -62,7 +62,6 @@ fn bench_op(
     |err| generic_error(format!("{op} test failed ({call}): {err:?}"));
 
   let args = (0..arg_count)
-    .into_iter()
     .map(|n| format!("arg{n}"))
     .collect::<Vec<_>>()
     .join(", ");
