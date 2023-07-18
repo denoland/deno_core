@@ -22,7 +22,7 @@ use std::task::Poll;
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
 /// so this is a limited resource!
-pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
+pub const STRING_STACK_BUFFER_SIZE: usize = 1024;
 
 #[inline]
 pub fn queue_fast_async_op<R: serde::Serialize + 'static>(

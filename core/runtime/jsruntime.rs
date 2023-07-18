@@ -447,10 +447,23 @@ pub struct RuntimeOptions {
   /// situation - like disconnecting when program finishes running.
   pub is_main: bool,
 
+  #[cfg(any(test, feature = "unsafe_runtime_options"))]
   /// Should this isolate expose the v8 natives (eg: %OptimizeFunctionOnNextCall) and
   /// GC control functions (`gc()`)? WARNING: This should not be used for production code as
   /// this may expose the runtime to security vulnerabilities.
   pub unsafe_expose_natives_and_gc: bool,
+}
+
+impl RuntimeOptions {
+  #[cfg(any(test, feature = "unsafe_runtime_options"))]
+  fn unsafe_expose_natives_and_gc(&self) -> bool {
+    self.unsafe_expose_natives_and_gc
+  }
+
+  #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
+  fn unsafe_expose_natives_and_gc(&self) -> bool {
+    false
+  }
 }
 
 #[derive(Default)]
@@ -477,7 +490,7 @@ impl JsRuntime {
     JsRuntime::init_v8(
       options.v8_platform.take(),
       cfg!(test),
-      options.unsafe_expose_natives_and_gc,
+      options.unsafe_expose_natives_and_gc(),
     );
     JsRuntime::new_inner(options, false, None)
   }
@@ -1590,7 +1603,7 @@ impl JsRuntimeForSnapshot {
     JsRuntime::init_v8(
       options.v8_platform.take(),
       true,
-      options.unsafe_expose_natives_and_gc,
+      options.unsafe_expose_natives_and_gc(),
     );
     JsRuntimeForSnapshot(JsRuntime::new_inner(
       options,
