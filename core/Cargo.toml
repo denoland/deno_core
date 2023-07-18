@@ -48,3 +48,9 @@ path = "examples/http_bench_json_ops/main.rs"
 [dev-dependencies]
 cooked-waker = "5"
 deno_ast.workspace = true
+bencher.workspace = true
+
+[[bench]]
+name = "ops_sync"
+path = "benches/ops/sync.rs"
+harness = false

@@ -519,6 +519,20 @@ pub fn return_value_infallible(
         }
       }
     }
+    Arg::OptionNumeric(n) => {
+      *needs_retval = true;
+      *needs_scope = true;
+      // End the generator_state borrow
+      let (result, retval) = (result.clone(), retval.clone());
+      let some = return_value_infallible(generator_state, &Arg::Numeric(*n))?;
+      quote! {
+        if let Some(#result) = #result {
+          #some
+        } else {
+          #retval.set_null();
+        }
+      }
+    }
     Arg::Option(Special::String) => {
       *needs_retval = true;
       *needs_scope = true;

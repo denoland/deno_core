@@ -332,10 +332,14 @@ unsafe fn latin1_to_utf8(
 /// Converts a [`v8::fast_api::FastApiOneByteString`] to either an owned string, or a borrowed string, depending on whether it fits into the
 /// provided buffer.
 pub fn to_str_ptr<'a, const N: usize>(
-  string: &mut v8::fast_api::FastApiOneByteString,
+  string: &'a mut v8::fast_api::FastApiOneByteString,
   buffer: &'a mut [MaybeUninit<u8>; N],
 ) -> Cow<'a, str> {
   let input_buf = string.as_bytes();
+  if input_buf.is_ascii() {
+    // SAFETY: We just checked that it was ASCII
+    return Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(input_buf) });
+  }
   let input_len = input_buf.len();
   let output_len = buffer.len();
 
@@ -362,9 +366,7 @@ pub fn to_str_ptr<'a, const N: usize>(
 
 /// Converts a [`v8::fast_api::FastApiOneByteString`] to an owned string. May over-allocate to avoid
 /// re-allocation.
-pub fn to_string_ptr(
-  string: &mut v8::fast_api::FastApiOneByteString,
-) -> String {
+pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
   let input_buf = string.as_bytes();
   let capacity = input_buf.len() * 2;
 

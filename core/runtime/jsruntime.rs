@@ -350,6 +350,7 @@ impl JsRuntimeState {
 fn v8_init(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
   predictable: bool,
+  expose_natives: bool,
 ) {
   // Include 10MB ICU data file.
   #[repr(C, align(16))]
@@ -357,22 +358,25 @@ fn v8_init(
   static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
   v8::icu::set_common_data_72(&ICU_DATA.0).unwrap();
 
-  let flags = concat!(
+  let base_flags = concat!(
     " --wasm-test-streaming",
     " --harmony-import-assertions",
     " --no-validate-asm",
     " --turbo_fast_api_calls",
     " --harmony-change-array-by-copy",
   );
+  let predictable_flags = "--predictable --random-seed=42";
+  let expose_natives_flags = "--expose_gc --allow_natives_syntax";
 
-  if predictable {
-    v8::V8::set_flags_from_string(&format!(
-      "{}{}",
-      flags, " --predictable --random-seed=42"
-    ));
-  } else {
-    v8::V8::set_flags_from_string(flags);
-  }
+  let flags = match (predictable, expose_natives) {
+    (false, false) => format!("{base_flags}"),
+    (true, false) => format!("{base_flags} {predictable_flags}"),
+    (false, true) => format!("{base_flags} {expose_natives_flags}"),
+    (true, true) => {
+      format!("{base_flags} {predictable_flags} {expose_natives_flags}")
+    }
+  };
+  v8::V8::set_flags_from_string(&flags);
 
   let v8_platform = v8_platform
     .unwrap_or_else(|| v8::new_default_platform(0, false).make_shared());
@@ -441,6 +445,11 @@ pub struct RuntimeOptions {
   /// Describe if this is the main runtime instance, used by debuggers in some
   /// situation - like disconnecting when program finishes running.
   pub is_main: bool,
+
+  /// Should this isolate expose the v8 natives (eg: %OptimizeFunctionOnNextCall) and
+  /// GC control functions (`gc()`)? WARNING: This should not be used for production code as
+  /// this may expose the runtime to security vulnerabilities.
+  pub unsafe_expose_natives_and_gc: bool,
 }
 
 #[derive(Default)]
@@ -464,7 +473,11 @@ pub struct CreateRealmOptions {
 impl JsRuntime {
   /// Only constructor, configuration is done through `options`.
   pub fn new(mut options: RuntimeOptions) -> JsRuntime {
-    JsRuntime::init_v8(options.v8_platform.take(), cfg!(test));
+    JsRuntime::init_v8(
+      options.v8_platform.take(),
+      cfg!(test),
+      options.unsafe_expose_natives_and_gc,
+    );
     JsRuntime::new_inner(options, false, None)
   }
 
@@ -517,6 +530,7 @@ impl JsRuntime {
   fn init_v8(
     v8_platform: Option<v8::SharedRef<v8::Platform>>,
     predictable: bool,
+    expose_natives: bool,
   ) {
     static DENO_INIT: Once = Once::new();
     static DENO_PREDICTABLE: AtomicBool = AtomicBool::new(false);
@@ -529,7 +543,8 @@ impl JsRuntime {
       DENO_PREDICTABLE.store(predictable, Ordering::SeqCst);
     }
 
-    DENO_INIT.call_once(move || v8_init(v8_platform, predictable));
+    DENO_INIT
+      .call_once(move || v8_init(v8_platform, predictable, expose_natives));
   }
 
   fn new_inner(
@@ -1571,7 +1586,11 @@ impl JsRuntimeForSnapshot {
     mut options: RuntimeOptions,
     runtime_snapshot_options: RuntimeSnapshotOptions,
   ) -> JsRuntimeForSnapshot {
-    JsRuntime::init_v8(options.v8_platform.take(), true);
+    JsRuntime::init_v8(
+      options.v8_platform.take(),
+      true,
+      options.unsafe_expose_natives_and_gc,
+    );
     JsRuntimeForSnapshot(JsRuntime::new_inner(
       options,
       true,
