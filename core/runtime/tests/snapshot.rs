@@ -204,7 +204,8 @@ fn es_snapshot() {
   }
 
   fn assert_module_map(runtime: &mut JsRuntime, modules: &Vec<ModuleInfo>) {
-    let module_map = runtime.module_map.borrow();
+    let module_map_rc = runtime.module_map();
+    let module_map = module_map_rc.borrow();
     assert_eq!(module_map.handles.len(), modules.len());
     assert_eq!(module_map.info.len(), modules.len());
     assert_eq!(

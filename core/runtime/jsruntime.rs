@@ -62,7 +62,6 @@ use std::task::Context;
 use std::task::Poll;
 
 const STATE_DATA_OFFSET: u32 = 0;
-const MODULE_MAP_DATA_OFFSET: u32 = 1;
 
 pub enum Snapshot {
   Static(&'static [u8]),
@@ -143,11 +142,6 @@ impl InnerIsolateState {
     // the runtime.
     _ = unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
 
-    let module_map_ptr = self.v8_isolate.get_data(MODULE_MAP_DATA_OFFSET);
-    // SAFETY: We are sure that it's a valid pointer for whole lifetime of
-    // the runtime.
-    _ = unsafe { Rc::from_raw(module_map_ptr as *const RefCell<ModuleMap>) };
-
     self.state.borrow_mut().destroy_all_realms();
 
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
@@ -220,7 +214,6 @@ pub(crate) static BUILTIN_SOURCES: Lazy<Vec<ExtensionFileSource>> =
 /// Use [`JsRuntimeForSnapshot`] to be able to create a snapshot.
 pub struct JsRuntime {
   pub(crate) inner: InnerIsolateState,
-  pub(crate) module_map: Rc<RefCell<ModuleMap>>,
   pub(crate) allocations: IsolateAllocations,
   extensions: Vec<Extension>,
   event_loop_middlewares: Vec<Box<EventLoopMiddlewareFn>>,
@@ -515,24 +508,11 @@ impl JsRuntime {
     state.op_state.clone()
   }
 
-  pub(crate) fn module_map_from(
-    isolate: &v8::Isolate,
-  ) -> Rc<RefCell<ModuleMap>> {
-    let module_map_ptr = isolate.get_data(MODULE_MAP_DATA_OFFSET);
-    let module_map_rc =
-      // SAFETY: We are sure that it's a valid pointer for whole lifetime of
-      // the runtime.
-      unsafe { Rc::from_raw(module_map_ptr as *const RefCell<ModuleMap>) };
-    let module_map = module_map_rc.clone();
-    std::mem::forget(module_map_rc);
-    module_map
-  }
-
   pub(crate) fn event_loop_pending_state_from_scope(
     scope: &mut v8::HandleScope,
   ) -> EventLoopPendingState {
     let state = JsRuntime::state_from(scope);
-    let module_map = JsRuntime::module_map_from(scope);
+    let module_map = JsRealm::module_map_from(scope);
     let state = EventLoopPendingState::new(
       scope,
       &mut state.borrow_mut(),
@@ -736,9 +716,21 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
+    let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
+    if let Some(snapshotted_data) = snapshotted_data {
+      let mut module_map = module_map_rc.borrow_mut();
+      module_map.update_with_snapshotted_data(scope, snapshotted_data);
+    }
+    context.set_slot(scope, module_map_rc.clone());
+
     {
-      let main_realm =
-        JsRealmInner::new(context_state, main_context, state_rc.clone(), true);
+      let main_realm = JsRealmInner::new(
+        context_state,
+        main_context,
+        module_map_rc,
+        state_rc.clone(),
+        true,
+      );
       let mut state = state_rc.borrow_mut();
       state.main_realm = Some(JsRealm::new(main_realm.clone()));
       state.inspector = inspector;
@@ -747,15 +739,6 @@ impl JsRuntime {
     scope.set_data(
       STATE_DATA_OFFSET,
       Rc::into_raw(state_rc.clone()) as *mut c_void,
-    );
-    let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
-    if let Some(snapshotted_data) = snapshotted_data {
-      let mut module_map = module_map_rc.borrow_mut();
-      module_map.update_with_snapshotted_data(scope, snapshotted_data);
-    }
-    scope.set_data(
-      MODULE_MAP_DATA_OFFSET,
-      Rc::into_raw(module_map_rc.clone()) as *mut c_void,
     );
 
     drop(context_scope);
@@ -772,7 +755,6 @@ impl JsRuntime {
       global_template_middlewares,
       global_object_middlewares,
       extensions: options.extensions,
-      module_map: module_map_rc,
       is_main_runtime: options.is_main,
     };
 
@@ -787,7 +769,7 @@ impl JsRuntime {
       options.preserve_snapshotted_modules
     {
       js_runtime
-        .module_map
+        .module_map()
         .borrow_mut()
         .clear_module_map(preserve_snapshotted_modules);
     }
@@ -795,10 +777,9 @@ impl JsRuntime {
     js_runtime
   }
 
-  #[cfg(test)]
   #[inline]
-  pub(crate) fn module_map(&self) -> &Rc<RefCell<ModuleMap>> {
-    &self.module_map
+  pub(crate) fn module_map(&mut self) -> Rc<RefCell<ModuleMap>> {
+    self.main_realm().0.module_map()
   }
 
   #[inline]
@@ -839,11 +820,9 @@ impl JsRuntime {
   /// pre-initialized with all of the extensions that were passed in
   /// [`RuntimeOptions::extensions`] when the [`JsRuntime`] was
   /// constructed.
-  // TODO(bartlomieju): options is not used right now - will be used in a follow
-  // up PR.
   pub fn create_realm(
     &mut self,
-    _options: CreateRealmOptions,
+    options: CreateRealmOptions,
   ) -> Result<JsRealm, Error> {
     let realm = {
       let context_state = Rc::new(RefCell::new(ContextState::default()));
@@ -892,9 +871,17 @@ impl JsRuntime {
       );
       context.set_slot(scope, context_state.clone());
 
+      let loader = options
+        .module_loader
+        .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+      let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
+      // TODO(andreubotella): Should the module map be initialized with snapshotted data?
+      context.set_slot(scope, module_map_rc.clone());
+
       let realm = JsRealmInner::new(
         context_state,
         v8::Global::new(scope, context),
+        module_map_rc,
         self.inner.state.clone(),
         false,
       );
@@ -929,12 +916,12 @@ impl JsRuntime {
     let extensions = std::mem::take(&mut self.extensions);
 
     // TODO(nayeemrmn): Module maps should be per-realm.
-    let loader = self.module_map.borrow().loader.clone();
+    let loader = self.module_map().borrow().loader.clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(
       &extensions,
       maybe_load_callback.map(Rc::new),
     ));
-    self.module_map.borrow_mut().loader = ext_loader;
+    self.module_map().borrow_mut().loader = ext_loader;
 
     let mut esm_entrypoints = vec![];
 
@@ -978,7 +965,7 @@ impl JsRuntime {
       for specifier in esm_entrypoints {
         let mod_id = {
           self
-            .module_map
+            .module_map()
             .borrow()
             .get_id(specifier, AssertedModuleType::JavaScriptOrWasm)
             .unwrap_or_else(|| {
@@ -994,7 +981,7 @@ impl JsRuntime {
 
       #[cfg(debug_assertions)]
       {
-        let module_map_rc = self.module_map.clone();
+        let module_map_rc = self.module_map();
         let mut scope = realm.handle_scope(self.v8_isolate());
         let module_map = module_map_rc.borrow();
         module_map.assert_all_modules_evaluated(&mut scope);
@@ -1004,7 +991,7 @@ impl JsRuntime {
     })?;
 
     self.extensions = extensions;
-    self.module_map.borrow_mut().loader = loader;
+    self.module_map().borrow_mut().loader = loader;
     Ok(())
   }
 
@@ -1248,8 +1235,7 @@ impl JsRuntime {
     module_id: ModuleId,
   ) -> Result<v8::Global<v8::Object>, Error> {
     self
-      .module_map
-      .clone()
+      .module_map()
       .borrow()
       .get_module_namespace(&mut self.handle_scope(), module_id)
   }
@@ -1410,7 +1396,7 @@ impl JsRuntime {
       let _ = self.inspector().borrow().poll_sessions(Some(cx)).unwrap();
     }
 
-    let module_map = self.module_map.clone();
+    let module_map = self.module_map();
     self.pump_v8_message_loop()?;
 
     // Dynamic module loading - ie. modules loaded using "import()"
@@ -1559,12 +1545,14 @@ impl JsRuntime {
   }
 
   fn event_loop_pending_state(&mut self) -> EventLoopPendingState {
+    let module_map = self.module_map();
     let mut scope = v8::HandleScope::new(self.inner.v8_isolate.as_mut());
-    EventLoopPendingState::new(
+    let x = EventLoopPendingState::new(
       &mut scope,
       &mut self.inner.state.borrow_mut(),
-      &self.module_map.borrow(),
-    )
+      &module_map.borrow(),
+    );
+    x
   }
 }
 
@@ -1630,10 +1618,7 @@ impl JsRuntimeForSnapshot {
     // Serialize the module map and store its data in the snapshot.
     {
       let snapshotted_data = {
-        // `self.module_map` points directly to the v8 isolate data slot, which
-        // we must explicitly drop before destroying the isolate. We have to
-        // take and drop this `Rc` before that.
-        let module_map_rc = std::mem::take(&mut self.module_map);
+        let module_map_rc = self.main_realm().0.module_map();
         let module_map = module_map_rc.borrow();
         module_map.serialize_for_snapshotting(&mut self.handle_scope())
       };
@@ -1734,7 +1719,7 @@ impl JsRuntime {
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
     self
-      .module_map
+      .module_map()
       .clone()
       .borrow_mut()
       .instantiate_module(&mut self.handle_scope(), id)
@@ -1746,7 +1731,7 @@ impl JsRuntime {
     id: ModuleId,
   ) -> Result<(), Error> {
     let module_handle = self
-      .module_map
+      .module_map()
       .borrow()
       .get_handle(id)
       .expect("ModuleInfo not found");
@@ -1835,7 +1820,7 @@ impl JsRuntime {
   ) -> oneshot::Receiver<Result<(), Error>> {
     let main_realm = self.main_realm();
     let state_rc = self.inner.state.clone();
-    let module_map_rc = self.module_map.clone();
+    let module_map_rc = self.module_map();
     let scope = &mut self.handle_scope();
     let tc_scope = &mut v8::TryCatch::new(scope);
 
@@ -1965,7 +1950,7 @@ impl JsRuntime {
     id: ModuleLoadId,
     exception: v8::Global<v8::Value>,
   ) {
-    let module_map_rc = self.module_map.clone();
+    let module_map_rc = self.module_map();
     let scope = &mut self.handle_scope();
 
     let resolver_handle = module_map_rc
@@ -1986,7 +1971,7 @@ impl JsRuntime {
 
   fn dynamic_import_resolve(&mut self, id: ModuleLoadId, mod_id: ModuleId) {
     let state_rc = self.inner.state.clone();
-    let module_map_rc = self.module_map.clone();
+    let module_map_rc = self.module_map();
     let scope = &mut self.handle_scope();
 
     let resolver_handle = module_map_rc
@@ -2021,7 +2006,7 @@ impl JsRuntime {
     cx: &mut Context,
   ) -> Poll<Result<(), Error>> {
     if self
-      .module_map
+      .module_map()
       .borrow()
       .preparing_dynamic_imports
       .is_empty()
@@ -2031,7 +2016,7 @@ impl JsRuntime {
 
     loop {
       let poll_result = self
-        .module_map
+        .module_map()
         .borrow_mut()
         .preparing_dynamic_imports
         .poll_next_unpin(cx);
@@ -2043,7 +2028,7 @@ impl JsRuntime {
         match prepare_result {
           Ok(load) => {
             self
-              .module_map
+              .module_map()
               .borrow_mut()
               .pending_dynamic_imports
               .push(load.into_future());
@@ -2063,13 +2048,18 @@ impl JsRuntime {
   }
 
   fn poll_dyn_imports(&mut self, cx: &mut Context) -> Poll<Result<(), Error>> {
-    if self.module_map.borrow().pending_dynamic_imports.is_empty() {
+    if self
+      .module_map()
+      .borrow()
+      .pending_dynamic_imports
+      .is_empty()
+    {
       return Poll::Ready(Ok(()));
     }
 
     loop {
       let poll_result = self
-        .module_map
+        .module_map()
         .borrow_mut()
         .pending_dynamic_imports
         .poll_next_unpin(cx);
@@ -2095,7 +2085,7 @@ impl JsRuntime {
                 Ok(()) => {
                   // Keep importing until it's fully drained
                   self
-                    .module_map
+                    .module_map()
                     .borrow_mut()
                     .pending_dynamic_imports
                     .push(load.into_future());
@@ -2264,7 +2254,7 @@ impl JsRuntime {
     specifier: &ModuleSpecifier,
     code: Option<ModuleCode>,
   ) -> Result<ModuleId, Error> {
-    let module_map_rc = self.module_map.clone();
+    let module_map_rc = self.module_map();
     if let Some(code) = code {
       let specifier = specifier.as_str().to_owned().into();
       let scope = &mut self.handle_scope();
@@ -2319,7 +2309,7 @@ impl JsRuntime {
     specifier: &ModuleSpecifier,
     code: Option<ModuleCode>,
   ) -> Result<ModuleId, Error> {
-    let module_map_rc = self.module_map.clone();
+    let module_map_rc = self.module_map();
     if let Some(code) = code {
       let specifier = specifier.as_str().to_owned().into();
       let scope = &mut self.handle_scope();
