@@ -20,9 +20,13 @@ use crate::runtime::InitMode;
 use crate::JsRealm;
 use crate::JsRuntime;
 
-pub(crate) fn external_references(ops: &[OpCtx]) -> v8::ExternalReferences {
+pub(crate) fn external_references(
+  ops: &[OpCtx],
+  additional_references: &[v8::ExternalReference],
+) -> v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
-  let mut references = Vec::with_capacity(4 + ops.len() * 4);
+  let mut references =
+    Vec::with_capacity(4 + (ops.len() * 4) + additional_references.len());
 
   references.push(v8::ExternalReference {
     function: call_console.map_fn_to(),
@@ -52,6 +56,8 @@ pub(crate) fn external_references(ops: &[OpCtx]) -> v8::ExternalReferences {
       });
     }
   }
+
+  references.extend_from_slice(additional_references);
 
   let refs = v8::ExternalReferences::new(&references);
   // Leak, V8 takes ownership of the references.
@@ -261,7 +267,7 @@ pub fn host_import_module_dynamically_callback<'s>(
   let resolver_handle = v8::Global::new(scope, resolver);
   {
     let state_rc = JsRuntime::state_from(scope);
-    let module_map_rc = JsRuntime::module_map_from(scope);
+    let module_map_rc = JsRealm::module_map_from(scope);
 
     debug!(
       "dyn_import specifier {} referrer {} ",
@@ -297,7 +303,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let module_map_rc = JsRuntime::module_map_from(scope);
+  let module_map_rc = JsRealm::module_map_from(scope);
   let module_map = module_map_rc.borrow();
 
   let module_global = v8::Global::new(scope, module);
@@ -340,7 +346,7 @@ fn import_meta_resolve(
     let url_prop = args.data();
     url_prop.to_rust_string_lossy(scope)
   };
-  let module_map_rc = JsRuntime::module_map_from(scope);
+  let module_map_rc = JsRealm::module_map_from(scope);
   let loader = module_map_rc.borrow().loader.clone();
   let specifier_str = specifier.to_rust_string_lossy(scope);
 
@@ -369,7 +375,7 @@ fn empty_fn(
   //Do Nothing
 }
 
-//It creates a reference to an empty function which can be maintained after the snapshots
+//It creates a reference to an empty function which can be mantained after the snapshots
 pub fn create_empty_fn<'s>(
   scope: &mut v8::HandleScope<'s>,
 ) -> Option<v8::Local<'s, v8::Function>> {

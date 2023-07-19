@@ -1,5 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+#![deny(warnings)]
+deno_ops_compile_test_runner::prelude!();
 
-#[op2]
-pub fn op_v8_lifetime<'s>(s: Option<&v8::String>, s2: Option<&mut v8::String>) {}
+use deno_core::v8;
+
+#[op2(fast)]
+pub fn op_v8_lifetime<'s>(_s: Option<&v8::String>, _s2: Option<&v8::String>) {}
 

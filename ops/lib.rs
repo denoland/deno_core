@@ -132,17 +132,16 @@ impl Op {
 
         impl #generics #core::_ops::Op for #name #generics #where_clause {
           const NAME: &'static str = stringify!(#name);
-          const DECL: #core::OpDecl = #core::OpDecl {
-            name: Self::name(),
-            v8_fn_ptr: #v8_fn::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: #decl,
-            is_async: #is_async,
-            is_unstable: #is_unstable,
-            is_v8: #is_v8,
+          const DECL: #core::OpDecl = #core::_ops::OpDecl::new_internal(
+            Self::name(),
+            #is_async,
+            #is_unstable,
+            #is_v8,
             // TODO(mmastrac)
-            arg_count: 0,
-          };
+            /*arg_count*/ 0,
+            /*slow*/ #v8_fn::v8_fn_ptr as _,
+            /*fast*/ #decl,
+          );
         }
 
         #[doc(hidden)]
@@ -151,18 +150,9 @@ impl Op {
             stringify!(#name)
           }
 
-          pub const fn decl () -> #core::OpDecl {
-            #core::OpDecl {
-              name: Self::name(),
-              v8_fn_ptr: #v8_fn::v8_fn_ptr as _,
-              enabled: true,
-              fast_fn: #decl,
-              is_async: #is_async,
-              is_unstable: #is_unstable,
-              is_v8: #is_v8,
-              // TODO(mmastrac)
-              arg_count: 0,
-            }
+          #[deprecated(note = "Use the const op::DECL instead")]
+          pub const fn decl() -> #core::_ops::OpDecl {
+            <Self as #core::_ops::Op>::DECL
           }
 
           #[inline]
@@ -203,17 +193,15 @@ impl Op {
 
       impl #generics #core::_ops::Op for #name #generics #where_clause {
         const NAME: &'static str = stringify!(#name);
-        const DECL: #core::OpDecl = #core::OpDecl {
-          name: Self::name(),
-          v8_fn_ptr: Self::v8_fn_ptr as _,
-          enabled: true,
-          fast_fn: #decl,
-          is_async: #is_async,
-          is_unstable: #is_unstable,
-          is_v8: #is_v8,
-          // TODO(mmastrac)
-          arg_count: 0,
-        };
+        const DECL: #core::OpDecl = #core::_ops::OpDecl::new_internal(
+          Self::name(),
+          #is_async,
+          #is_unstable,
+          #is_v8,
+          #arg_count as u8,
+          /*slow*/ Self::v8_fn_ptr as _,
+          /*fast*/ #decl,
+        );
       }
 
       #[doc(hidden)]
@@ -231,17 +219,9 @@ impl Op {
           Self::v8_func(scope, args, rv);
         }
 
-        pub const fn decl () -> #core::OpDecl {
-          #core::OpDecl {
-            name: Self::name(),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: #decl,
-            is_async: #is_async,
-            is_unstable: #is_unstable,
-            is_v8: #is_v8,
-            arg_count: #arg_count as u8,
-          }
+        #[deprecated(note = "Use the const op::DECL instead")]
+        pub const fn decl() -> #core::_ops::OpDecl {
+          <Self as #core::_ops::Op>::DECL
         }
 
         #[inline]

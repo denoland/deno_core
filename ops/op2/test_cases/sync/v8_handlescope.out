@@ -4,35 +4,26 @@ struct op_handlescope {
 }
 impl deno_core::_ops::Op for op_handlescope {
     const NAME: &'static str = stringify!(op_handlescope);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl {
-        name: stringify!(op_handlescope),
-        v8_fn_ptr: Self::v8_fn_ptr as _,
-        enabled: true,
-        fast_fn: None,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: 2usize as u8,
-    };
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_handlescope),
+        false,
+        false,
+        false,
+        2usize as u8,
+        Self::v8_fn_ptr as _,
+        None,
+    );
 }
 impl op_handlescope {
     pub const fn name() -> &'static str {
         stringify!(op_handlescope)
     }
+    #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
-        deno_core::_ops::OpDecl {
-            name: stringify!(op_handlescope),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: None,
-            is_async: false,
-            is_unstable: false,
-            is_v8: false,
-            arg_count: 2usize as u8,
-        }
+        <Self as deno_core::_ops::Op>::DECL
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let scope = &mut unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -40,26 +31,29 @@ impl op_handlescope {
             &*info
         });
         let arg1 = args.get(0usize as i32);
-        let Ok(mut arg1) = deno_core::v8::Local::<
+        let Ok(mut arg1) = deno_core::_ops::v8_try_convert::<
             deno_core::v8::String,
-        >::try_from(arg1) else {
+        >(arg1) else {
         let msg = deno_core::v8::String::new_from_one_byte(
-                scope,
-                "expected v8::String".as_bytes(),
+                &mut scope,
+                "expected String".as_bytes(),
                 deno_core::v8::NewStringType::Normal,
             )
             .unwrap();
-        let exc = deno_core::v8::Exception::error(scope, msg);
+        let exc = deno_core::v8::Exception::error(&mut scope, msg);
         scope.throw_exception(exc);
         return;
     };
-        let arg0 = scope;
+        let arg1 = arg1;
+        let arg0 = &mut scope;
         let result = Self::call(arg0, arg1);
         rv.set(result.into())
     }
     #[inline(always)]
-    fn call(
-        scope: &v8::HandleScope,
-        str2: v8::Local<v8::String>,
-    ) -> v8::Local<v8::String> {}
+    fn call<'a>(
+        _scope: &v8::HandleScope<'a>,
+        _str2: v8::Local<v8::String>,
+    ) -> v8::Local<'a, v8::String> {
+        unimplemented!()
+    }
 }

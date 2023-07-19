@@ -3,6 +3,7 @@ use deno_proc_macro_rules::rules;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
+use proc_macro2::TokenTree;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
@@ -17,6 +18,7 @@ use syn2::LifetimeParam;
 use syn2::Path;
 use thiserror::Error;
 
+use self::dispatch_async::generate_dispatch_async;
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
@@ -25,10 +27,13 @@ use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::SignatureError;
 
+pub mod dispatch_async;
 pub mod dispatch_fast;
+pub mod dispatch_shared;
 pub mod dispatch_slow;
 pub mod generator_state;
 pub mod signature;
+pub mod signature_retval;
 
 #[derive(Debug, Error)]
 pub enum Op2Error {
@@ -46,6 +51,12 @@ pub enum Op2Error {
   ShouldBeFast,
   #[error("This op is not fast-compatible and should not be marked as (fast)")]
   ShouldNotBeFast,
+  #[error("This op is async and should be marked as (async)")]
+  ShouldBeAsync,
+  #[error("This op is not async and should not be marked as (async)")]
+  ShouldNotBeAsync,
+  #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
+  ImproperlySortedAttribute(String),
 }
 
 #[derive(Debug, Error)]
@@ -58,20 +69,39 @@ pub enum V8MappingError {
 pub(crate) struct MacroConfig {
   pub core: bool,
   pub fast: bool,
+  pub r#async: bool,
 }
 
 impl MacroConfig {
-  pub fn from_flags(flags: Vec<Ident>) -> Result<Self, Op2Error> {
+  pub fn from_token_trees(flags: Vec<TokenTree>) -> Result<Self, Op2Error> {
+    Self::from_flags(flags.into_iter().map(|tt| tt.to_string()))
+  }
+
+  pub fn from_flags(
+    flags: impl IntoIterator<Item = String>,
+  ) -> Result<Self, Op2Error> {
     let mut config: MacroConfig = Self::default();
+    let flags = flags.into_iter().collect::<Vec<_>>();
+
+    // Ensure that the flags are sorted in alphabetical order for consistency and searchability
+    let mut flags_sorted = flags.clone();
+    flags_sorted.sort();
+    if flags != flags_sorted {
+      return Err(Op2Error::ImproperlySortedAttribute(flags_sorted.join(", ")));
+    }
+
     for flag in flags {
       if flag == "core" {
         config.core = true;
       } else if flag == "fast" {
         config.fast = true;
+      } else if flag == "async" {
+        config.r#async = true;
       } else {
-        return Err(Op2Error::InvalidAttribute(flag.to_string()));
+        return Err(Op2Error::InvalidAttribute(flag));
       }
     }
+
     Ok(config)
   }
 
@@ -82,8 +112,8 @@ impl MacroConfig {
         () => {
           Ok(MacroConfig::default())
         }
-        ($($flags:ident),+) => {
-          Self::from_flags(flags)
+        ($($flags:tt),+) => {
+          Self::from_token_trees(flags)
         }
       })
     })
@@ -153,6 +183,8 @@ fn generate_op2(
   let scope = Ident::new("scope", Span::call_site());
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
+  let opstate = Ident::new("opstate", Span::call_site());
+  let promise_id = Ident::new("promise_id", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
   let fast_function = Ident::new("v8_fn_ptr_fast", Span::call_site());
   let fast_api_callback_options =
@@ -173,6 +205,7 @@ fn generate_op2(
     scope,
     info,
     opctx,
+    opstate,
     fast_api_callback_options,
     deno_core,
     result,
@@ -180,6 +213,7 @@ fn generate_op2(
     needs_args,
     slow_function,
     fast_function,
+    promise_id,
     needs_retval: false,
     needs_scope: false,
     needs_opctx: false,
@@ -190,8 +224,19 @@ fn generate_op2(
 
   let name = func.sig.ident;
 
-  let slow_fn =
-    generate_dispatch_slow(&config, &mut generator_state, &signature)?;
+  let slow_fn = if signature.ret_val.is_async() {
+    generate_dispatch_async(&mut generator_state, &signature)?
+  } else {
+    generate_dispatch_slow(&config, &mut generator_state, &signature)?
+  };
+  let is_async = signature.ret_val.is_async();
+
+  match (is_async, config.r#async) {
+    (true, false) => return Err(Op2Error::ShouldBeAsync),
+    (false, true) => return Err(Op2Error::ShouldNotBeAsync),
+    _ => {}
+  }
+
   let (fast_definition, fast_fn) =
     match generate_dispatch_fast(&mut generator_state, &signature)? {
       Some((fast_definition, fast_fn)) => {
@@ -214,7 +259,7 @@ fn generate_op2(
     ..
   } = &generator_state;
 
-  let arg_count: usize = generator_state.args.len();
+  let arg_count: usize = generator_state.args.len() + is_async as usize;
   let vis = func.vis;
   let generic = signature
     .generic_bounds
@@ -237,16 +282,15 @@ fn generate_op2(
 
     impl <#(#generic : #bound),*> #deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl {
-        name: stringify!(#name),
-        v8_fn_ptr: Self::#slow_function as _,
-        enabled: true,
-        fast_fn: #fast_definition,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: #arg_count as u8,
-      };
+      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal(
+        /*name*/ stringify!(#name),
+        /*is_async*/ #is_async,
+        /*is_unstable*/ false,
+        /*is_v8*/ false,
+        /*arg_count*/ #arg_count as u8,
+        /*v8_fn_ptr*/ Self::#slow_function as _,
+        /*fast_fn*/ #fast_definition,
+      );
     }
 
     impl <#(#generic : #bound),*> #name <#(#generic),*> {
@@ -254,17 +298,9 @@ fn generate_op2(
         stringify!(#name)
       }
 
+      #[deprecated(note = "Use the const op::DECL instead")]
       pub const fn decl() -> #deno_core::_ops::OpDecl {
-        #deno_core::_ops::OpDecl {
-          name: stringify!(#name),
-          v8_fn_ptr: Self::#slow_function as _,
-          enabled: true,
-          fast_fn: #fast_definition,
-          is_async: false,
-          is_unstable: false,
-          is_v8: false,
-          arg_count: #arg_count as u8,
-        }
+        <Self as #deno_core::_ops::Op>::DECL
       }
 
       #fast_fn
@@ -286,12 +322,30 @@ mod tests {
   use syn2::File;
   use syn2::Item;
 
-  #[testing_macros::fixture("op2/test_cases/**/*.rs")]
-  fn test_signature_parser(input: PathBuf) {
+  #[testing_macros::fixture("op2/test_cases/sync/*.rs")]
+  fn test_proc_macro_sync(input: PathBuf) {
+    test_proc_macro_output(input)
+  }
+
+  #[testing_macros::fixture("op2/test_cases/async/*.rs")]
+  fn test_proc_macro_async(input: PathBuf) {
+    test_proc_macro_output(input)
+  }
+
+  fn test_proc_macro_output(input: PathBuf) {
     let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
 
     let source =
       std::fs::read_to_string(&input).expect("Failed to read test file");
+
+    const PRELUDE: &str = r"// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+#![deny(warnings)]
+deno_ops_compile_test_runner::prelude!();";
+
+    if !source.starts_with(PRELUDE) {
+      panic!("Source does not start with expected prelude:]n{PRELUDE}");
+    }
+
     let file = parse_str::<File>(&source).expect("Failed to parse Rust file");
     let mut expected_out = vec![];
     for item in file.items {
@@ -306,8 +360,8 @@ mod tests {
             (#[op2]) => {
               Some(MacroConfig::default())
             }
-            (#[op2( $($x:ident),* )]) => {
-              Some(MacroConfig::from_flags(x).expect("Failed to parse attribute"))
+            (#[op2( $($x:tt),* )]) => {
+              Some(MacroConfig::from_token_trees(x).expect("Failed to parse attribute"))
             }
             (#[$_attr:meta]) => {
               None
@@ -339,6 +393,80 @@ mod tests {
         .expect("Failed to read expectation file");
       assert_eq!(
         expected, expected_out,
+        "Failed to match expectation. Use UPDATE_EXPECTED=1."
+      );
+    }
+  }
+
+  #[test]
+  fn test_valid_args_md() {
+    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
+    let md = include_str!("valid_args.md");
+    let separator = "\n<!-- START -->\n";
+    let header = include_str!("README.md").split(separator).next().unwrap();
+    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+
+    // Skip the header and table line
+    for line in md.split('\n').skip(2).filter(|s| {
+      !s.trim().is_empty() && !s.split('|').nth(1).unwrap().trim().is_empty()
+    }) {
+      let expansion = if line.contains("**V8**") {
+        let mut expansion = vec![];
+        for key in ["String", "Object", "Function", "..."] {
+          expansion.push(line.replace("**V8**", key))
+        }
+        expansion
+      } else {
+        vec![line.to_owned()]
+      };
+      for line in expansion {
+        let components = line
+          .split('|')
+          .skip(2)
+          .map(|s| s.trim())
+          .collect::<Vec<_>>();
+        let type_param = components.first().unwrap().to_owned();
+        let fastcall = components.get(1).unwrap().to_owned();
+        let fast = fastcall == "X";
+        let v8 = components.get(2).unwrap().to_owned();
+        let notes = components.get(3).unwrap().to_owned();
+        let (attr, ty) = if type_param.starts_with('#') {
+          type_param.split_once(' ').expect(
+            "Expected an attribute separated by a space (ie: #[attr] type)",
+          )
+        } else {
+          ("", type_param)
+        };
+
+        if !line.contains("...") {
+          let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
+          let function =
+            syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+          let sig = parse_signature(vec![], function.sig.clone())
+            .expect("Failed to parse signature");
+          println!("Parsed signature: {sig:?}");
+          generate_op2(
+            MacroConfig {
+              fast,
+              ..Default::default()
+            },
+            function,
+          )
+          .expect("Failed to generate op");
+        }
+        actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      }
+    }
+    actual += "</table>\n";
+
+    if update_expected {
+      std::fs::write("op2/README.md", actual)
+        .expect("Failed to write expectation file");
+    } else {
+      let expected = std::fs::read_to_string("op2/README.md")
+        .expect("Failed to read expectation file");
+      assert_eq!(
+        expected, actual,
         "Failed to match expectation. Use UPDATE_EXPECTED=1."
       );
     }

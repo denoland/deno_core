@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::format_file_name;
-use crate::error::type_error;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::ops_builtin_v8;
@@ -83,7 +82,8 @@ crate::extension!(
 
 /// Return map of resources with id as key
 /// and string representation as value.
-#[op]
+#[op2(core)]
+#[serde]
 pub fn op_resources(state: &mut OpState) -> Vec<(ResourceId, String)> {
   state
     .resource_table
@@ -97,58 +97,54 @@ fn op_add(a: i32, b: i32) -> i32 {
   a + b
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
 }
 
-#[op(fast)]
+#[op2(core, fast)]
 pub fn op_void_sync() {}
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op]
 pub async fn op_void_async() {}
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op]
 pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op(deferred)]
 pub async fn op_error_async_deferred() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support
 #[op(deferred)]
 pub async fn op_void_async_deferred() {}
 
 /// Remove a resource from the resource table.
-#[op]
+#[op2(core, fast)]
 pub fn op_close(
   state: &mut OpState,
-  rid: Option<ResourceId>,
+  #[smi] rid: ResourceId,
 ) -> Result<(), Error> {
-  // TODO(@AaronO): drop Option after improving type-strictness balance in
-  // serde_v8
-  let rid = rid.ok_or_else(|| type_error("missing or invalid `rid`"))?;
   state.resource_table.close(rid)?;
   Ok(())
 }
 
 /// Try to remove a resource from the resource table. If there is no resource
 /// with the specified `rid`, this is a no-op.
-#[op]
-pub fn op_try_close(
-  state: &mut OpState,
-  rid: Option<ResourceId>,
-) -> Result<(), Error> {
-  // TODO(@AaronO): drop Option after improving type-strictness balance in
-  // serde_v8.
-  let rid = rid.ok_or_else(|| type_error("missing or invalid `rid`"))?;
+#[op2(core, fast)]
+pub fn op_try_close(state: &mut OpState, #[smi] rid: ResourceId) {
   let _ = state.resource_table.close(rid);
-  Ok(())
 }
 
-#[op]
+#[op2(core)]
+#[serde]
 pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
   let aggregate = state.tracker.aggregate();
   let per_op = state.tracker.per_op();
@@ -156,8 +152,8 @@ pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
 }
 
 /// Builtin utility to print to stdout/stderr
-#[op]
-pub fn op_print(msg: &str, is_err: bool) -> Result<(), Error> {
+#[op2(core, fast)]
+pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error> {
   if is_err {
     stderr().write_all(msg.as_bytes())?;
     stderr().flush().unwrap();
@@ -184,6 +180,7 @@ impl Resource for WasmStreamingResource {
 }
 
 /// Feed bytes to WasmStreamingResource.
+// TODO(bartlomieju): migration to op2 blocked by buffer support
 #[op]
 pub fn op_wasm_streaming_feed(
   state: &mut OpState,
@@ -198,11 +195,11 @@ pub fn op_wasm_streaming_feed(
   Ok(())
 }
 
-#[op]
+#[op2(core, fast)]
 pub fn op_wasm_streaming_set_url(
   state: &mut OpState,
-  rid: ResourceId,
-  url: &str,
+  #[smi] rid: ResourceId,
+  #[string] url: &str,
 ) -> Result<(), Error> {
   let wasm_streaming =
     state.resource_table.get::<WasmStreamingResource>(rid)?;
@@ -212,6 +209,8 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
+// support
 #[op]
 async fn op_read(
   state: Rc<RefCell<OpState>>,
@@ -223,6 +222,8 @@ async fn op_read(
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
+// support
 #[op]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
@@ -292,6 +293,8 @@ async fn op_read_all(
   Ok(ToJsBuffer::from(vec))
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
+// support
 #[op]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
@@ -304,6 +307,8 @@ async fn op_write(
   Ok(resp.nwritten() as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
+// support
 #[op(fast)]
 fn op_read_sync(
   state: &mut OpState,
@@ -314,6 +319,8 @@ fn op_read_sync(
   resource.read_byob_sync(data).map(|n| n as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
+// support
 #[op]
 fn op_write_sync(
   state: &mut OpState,
@@ -325,6 +332,8 @@ fn op_write_sync(
   Ok(nwritten as u32)
 }
 
+// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
+// support
 #[op]
 async fn op_write_all(
   state: Rc<RefCell<OpState>>,
@@ -337,6 +346,8 @@ async fn op_write_all(
   Ok(())
 }
 
+// TODO(bartlomieju): migration to op2 blocked by OpState support and async fn
+// support
 #[op]
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
@@ -346,22 +357,23 @@ async fn op_shutdown(
   resource.shutdown().await
 }
 
-#[op]
-fn op_format_file_name(file_name: String) -> String {
-  format_file_name(&file_name)
+#[op2(core)]
+#[string]
+fn op_format_file_name(#[string] file_name: &str) -> String {
+  format_file_name(file_name)
 }
 
-#[op(fast)]
-fn op_is_proxy(value: serde_v8::Value) -> bool {
-  value.v8_value.is_proxy()
+#[op2(core, fast)]
+fn op_is_proxy(value: v8::Local<v8::Value>) -> bool {
+  value.is_proxy()
 }
 
-#[op(v8)]
+#[op2(core)]
 fn op_str_byte_length(
   scope: &mut v8::HandleScope,
-  value: serde_v8::Value,
+  value: v8::Local<v8::Value>,
 ) -> u32 {
-  if let Ok(string) = v8::Local::<v8::String>::try_from(value.v8_value) {
+  if let Ok(string) = v8::Local::<v8::String>::try_from(value) {
     string.utf8_length(scope) as u32
   } else {
     0

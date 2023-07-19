@@ -1,0 +1,72 @@
+#[allow(non_camel_case_types)]
+struct op_state_rc {
+    _unconstructable: ::std::marker::PhantomData<()>,
+}
+impl deno_core::_ops::Op for op_state_rc {
+    const NAME: &'static str = stringify!(op_state_rc);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_state_rc),
+        false,
+        false,
+        false,
+        2usize as u8,
+        Self::v8_fn_ptr as _,
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new(
+                &[Type::V8Value, Type::CallbackOptions],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+    );
+}
+impl op_state_rc {
+    pub const fn name() -> &'static str {
+        stringify!(op_state_rc)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    fn v8_fn_ptr_fast(
+        _: deno_core::v8::Local<deno_core::v8::Object>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> () {
+        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<
+                deno_core::v8::External,
+            >::cast(unsafe { fast_api_callback_options.data.data })
+                .value() as *const deno_core::_ops::OpCtx)
+        };
+        let arg0 = opctx.state.borrow();
+        let arg0 = arg0.borrow::<Something>();
+        let arg1 = opctx.state.borrow();
+        let arg1 = arg1.try_borrow::<Something>();
+        let result = Self::call(arg0, arg1);
+        result
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let opstate = &opctx.state;
+        let arg0 = opstate.borrow();
+        let arg0 = arg0.borrow::<Something>();
+        let arg1 = opstate.borrow();
+        let arg1 = arg1.try_borrow::<Something>();
+        let result = Self::call(arg0, arg1);
+        rv.set_null();
+    }
+    #[inline(always)]
+    fn call(_arg: &Something, _arg_opt: Option<&Something>) {}
+}

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::task::Context;
 use v8::fast_api::FastFunction;
+use v8::ExternalReference;
 
 #[derive(Clone, Debug)]
 pub enum ExtensionFileSourceCode {
@@ -63,32 +64,75 @@ impl ExtensionFileSource {
 pub type OpFnRef = v8::FunctionCallback;
 pub type OpMiddlewareFn = dyn Fn(OpDecl) -> OpDecl;
 pub type OpStateFn = dyn FnOnce(&mut OpState);
-pub type OpEventLoopFn = dyn Fn(Rc<RefCell<OpState>>, &mut Context) -> bool;
-
 /// Trait implemented by all generated ops.
 pub trait Op {
   const NAME: &'static str;
   const DECL: OpDecl;
 }
+pub type EventLoopMiddlewareFn =
+  dyn Fn(Rc<RefCell<OpState>>, &mut Context) -> bool;
+pub type GlobalTemplateMiddlewareFn =
+  dyn for<'s> Fn(
+    &mut v8::HandleScope<'s, ()>,
+    v8::Local<'s, v8::ObjectTemplate>,
+  ) -> v8::Local<'s, v8::ObjectTemplate>;
+pub type GlobalObjectMiddlewareFn =
+  dyn for<'s> Fn(&mut v8::HandleScope<'s>, v8::Local<'s, v8::Object>);
 
+#[derive(Copy, Clone)]
 pub struct OpDecl {
   pub name: &'static str,
-  pub v8_fn_ptr: OpFnRef,
   pub enabled: bool,
   pub is_async: bool,
   pub is_unstable: bool,
   pub is_v8: bool,
   pub arg_count: u8,
-  pub fast_fn: Option<FastFunction>,
+  pub(crate) v8_fn_ptr: OpFnRef,
+  pub(crate) fast_fn: Option<FastFunction>,
 }
 
 impl OpDecl {
-  pub fn enabled(self, enabled: bool) -> Self {
+  /// For use by internal op implementation only.
+  #[doc(hidden)]
+  pub const fn new_internal(
+    name: &'static str,
+    is_async: bool,
+    is_unstable: bool,
+    is_v8: bool,
+    arg_count: u8,
+    v8_fn_ptr: OpFnRef,
+    fast_fn: Option<FastFunction>,
+  ) -> Self {
+    Self {
+      name,
+      enabled: true,
+      is_async,
+      is_unstable,
+      is_v8,
+      arg_count,
+      v8_fn_ptr,
+      fast_fn,
+    }
+  }
+
+  /// Returns a copy of this `OpDecl` with `enabled` set to the given state.
+  pub const fn enabled(self, enabled: bool) -> Self {
     Self { enabled, ..self }
   }
 
-  pub fn disable(self) -> Self {
+  /// Returns a copy of this `OpDecl` with `enabled` set to `false`.
+  pub const fn disable(self) -> Self {
     self.enabled(false)
+  }
+
+  /// Returns a copy of this `OpDecl` with the implementation function set to the function from another
+  /// `OpDecl`.
+  pub const fn with_implementation_from(self, from: &Self) -> Self {
+    Self {
+      v8_fn_ptr: from.v8_fn_ptr,
+      fast_fn: from.fast_fn,
+      ..self
+    }
   }
 }
 
@@ -143,8 +187,9 @@ macro_rules! ops {
   };
   ($name:ident, [ $( $(#[$m:meta])* $( $op:ident )::+ ),+ $(,)? ] ) => {
     pub(crate) fn $name() -> Vec<$crate::OpDecl> {
+      use $crate::Op;
       vec![
-        $( $( #[ $m ] )* $( $op )::+ :: decl(), )+
+        $( $( #[ $m ] )* $( $op )::+ :: DECL, )+
       ]
     }
   }
@@ -179,6 +224,8 @@ macro_rules! ops {
 ///  * middleware: an [`OpDecl`] middleware function with the signature `fn (OpDecl) -> OpDecl`
 ///  * state: a state initialization function, with the signature `fn (&mut OpState, ...) -> ()`, where `...` are parameters matching the fields of the config struct
 ///  * event_loop_middleware: an event-loop middleware function (see [`ExtensionBuilder::event_loop_middleware`])
+///  * global_template_middleware: a global template middleware function (see [`ExtensionBuilder::global_template_middleware`])
+///  * global_object_middleware: a global object middleware function (see [`ExtensionBuilder::global_object_middleware`])
 #[macro_export]
 macro_rules! extension {
   (
@@ -195,7 +242,10 @@ macro_rules! extension {
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
     $(, state = $state_fn:expr )?
-    $(, event_loop_middleware = $event_loop_middleware_fn:ident )?
+    $(, event_loop_middleware = $event_loop_middleware_fn:expr )?
+    $(, global_template_middleware = $global_template_middleware_fn:expr )?
+    $(, global_object_middleware = $global_object_middleware_fn:expr )?
+    $(, external_references = [ $( $external_reference:expr ),* $(,)? ] )?
     $(, customizer = $customizer_fn:expr )?
     $(,)?
   ) => {
@@ -238,10 +288,11 @@ macro_rules! extension {
       {
         // If individual ops are specified, roll them up into a vector and apply them
         $(
+          use $crate::Op;
           ext.ops(vec![
             $(
               $( #[ $m ] )*
-              $( $op )::+ $( :: < $($op_param),* > )? :: decl ()
+              $( $op )::+ $( :: < $($op_param),* > )? :: DECL
             ),+
           ]);
         )?
@@ -260,6 +311,18 @@ macro_rules! extension {
 
         $(
           ext.event_loop_middleware($event_loop_middleware_fn);
+        )?
+
+        $(
+          ext.global_template_middleware($global_template_middleware_fn);
+        )?
+
+        $(
+          ext.global_object_middleware($global_object_middleware_fn);
+        )?
+
+        $(
+          ext.external_references(vec![ $( $external_reference ),* ]);
         )?
 
         $(
@@ -357,7 +420,10 @@ pub struct Extension {
   ops: Option<Vec<OpDecl>>,
   opstate_fn: Option<Box<OpStateFn>>,
   middleware_fn: Option<Box<OpMiddlewareFn>>,
-  event_loop_middleware: Option<Box<OpEventLoopFn>>,
+  event_loop_middleware: Option<Box<EventLoopMiddlewareFn>>,
+  global_template_middleware: Option<Box<GlobalTemplateMiddlewareFn>>,
+  global_object_middleware: Option<Box<GlobalObjectMiddlewareFn>>,
+  external_references: Option<Vec<v8::ExternalReference<'static>>>,
   initialized: bool,
   enabled: bool,
   deps: Option<&'static [&'static str]>,
@@ -446,20 +512,28 @@ impl Extension {
     self.middleware_fn.take()
   }
 
-  pub fn init_event_loop_middleware(&mut self) -> Option<Box<OpEventLoopFn>> {
+  pub fn init_event_loop_middleware(
+    &mut self,
+  ) -> Option<Box<EventLoopMiddlewareFn>> {
     self.event_loop_middleware.take()
   }
 
-  pub fn run_event_loop_middleware(
-    &self,
-    op_state_rc: Rc<RefCell<OpState>>,
-    cx: &mut Context,
-  ) -> bool {
-    self
-      .event_loop_middleware
-      .as_ref()
-      .map(|f| f(op_state_rc, cx))
-      .unwrap_or(false)
+  pub fn init_global_template_middleware(
+    &mut self,
+  ) -> Option<Box<GlobalTemplateMiddlewareFn>> {
+    self.global_template_middleware.take()
+  }
+
+  pub fn init_global_object_middleware(
+    &mut self,
+  ) -> Option<Box<GlobalObjectMiddlewareFn>> {
+    self.global_object_middleware.take()
+  }
+
+  pub fn init_external_references(
+    &mut self,
+  ) -> Option<Vec<v8::ExternalReference<'static>>> {
+    self.external_references.take()
   }
 
   pub fn enabled(self, enabled: bool) -> Self {
@@ -480,7 +554,10 @@ pub struct ExtensionBuilder {
   ops: Vec<OpDecl>,
   state: Option<Box<OpStateFn>>,
   middleware: Option<Box<OpMiddlewareFn>>,
-  event_loop_middleware: Option<Box<OpEventLoopFn>>,
+  event_loop_middleware: Option<Box<EventLoopMiddlewareFn>>,
+  global_template_middleware: Option<Box<GlobalTemplateMiddlewareFn>>,
+  global_object_middleware: Option<Box<GlobalObjectMiddlewareFn>>,
+  external_references: Option<Vec<ExternalReference<'static>>>,
   name: &'static str,
   deps: &'static [&'static str],
 }
@@ -530,6 +607,35 @@ impl ExtensionBuilder {
     self
   }
 
+  pub fn global_template_middleware<F>(&mut self, middleware_fn: F) -> &mut Self
+  where
+    F: for<'s> Fn(
+        &mut v8::HandleScope<'s, ()>,
+        v8::Local<'s, v8::ObjectTemplate>,
+      ) -> v8::Local<'s, v8::ObjectTemplate>
+      + 'static,
+  {
+    self.global_template_middleware = Some(Box::new(middleware_fn));
+    self
+  }
+
+  pub fn global_object_middleware<F>(&mut self, middleware_fn: F) -> &mut Self
+  where
+    F:
+      for<'s> Fn(&mut v8::HandleScope<'s>, v8::Local<'s, v8::Object>) + 'static,
+  {
+    self.global_object_middleware = Some(Box::new(middleware_fn));
+    self
+  }
+
+  pub fn external_references(
+    &mut self,
+    external_references: Vec<ExternalReference<'static>>,
+  ) -> &mut Self {
+    self.external_references = Some(external_references);
+    self
+  }
+
   /// Consume the [`ExtensionBuilder`] and return an [`Extension`].
   pub fn take(self) -> Extension {
     let ops = Some(self.ops);
@@ -542,6 +648,9 @@ impl ExtensionBuilder {
       opstate_fn: self.state,
       middleware_fn: self.middleware,
       event_loop_middleware: self.event_loop_middleware,
+      global_template_middleware: self.global_template_middleware,
+      global_object_middleware: self.global_object_middleware,
+      external_references: self.external_references,
       initialized: false,
       enabled: true,
       name: self.name,
@@ -560,6 +669,9 @@ impl ExtensionBuilder {
       opstate_fn: self.state.take(),
       middleware_fn: self.middleware.take(),
       event_loop_middleware: self.event_loop_middleware.take(),
+      global_template_middleware: self.global_template_middleware.take(),
+      global_object_middleware: self.global_object_middleware.take(),
+      external_references: self.external_references.take(),
       initialized: false,
       enabled: true,
       name: self.name,

@@ -8,16 +8,15 @@ pub struct op_print {
 }
 impl deno_core::_ops::Op for op_print {
     const NAME: &'static str = stringify!(op_print);
-    const DECL: deno_core::OpDecl = deno_core::OpDecl {
-        name: Self::name(),
-        v8_fn_ptr: Self::v8_fn_ptr as _,
-        enabled: true,
-        fast_fn: None,
-        is_async: false,
-        is_unstable: false,
-        is_v8: false,
-        arg_count: 0,
-    };
+    const DECL: deno_core::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        Self::name(),
+        false,
+        false,
+        false,
+        2usize as u8,
+        Self::v8_fn_ptr as _,
+        None,
+    );
 }
 #[doc(hidden)]
 impl op_print {
@@ -34,17 +33,9 @@ impl op_print {
         let rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
         Self::v8_func(scope, args, rv);
     }
-    pub const fn decl() -> deno_core::OpDecl {
-        deno_core::OpDecl {
-            name: Self::name(),
-            v8_fn_ptr: Self::v8_fn_ptr as _,
-            enabled: true,
-            fast_fn: None,
-            is_async: false,
-            is_unstable: false,
-            is_v8: false,
-            arg_count: 2usize as u8,
-        }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
     }
     #[inline]
     #[allow(clippy::too_many_arguments)]
