@@ -13,7 +13,6 @@ use futures::task::AtomicWaker;
 use futures::Future;
 use pin_project::pin_project;
 use serde::Serialize;
-use v8::Isolate;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
 use std::ops::Deref;
@@ -25,6 +24,7 @@ use std::sync::Arc;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::CTypeInfo;
 use v8::fast_api::Int64Representation;
+use v8::Isolate;
 
 pub type PromiseId = i32;
 pub type OpId = u16;

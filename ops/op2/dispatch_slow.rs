@@ -116,7 +116,9 @@ pub(crate) fn generate_dispatch_slow(
   )
 }
 
-pub(crate) fn with_isolate(generator_state: &mut GeneratorState) -> TokenStream {
+pub(crate) fn with_isolate(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
   generator_state.needs_opctx = true;
   gs_quote!(generator_state(opctx, isolate) =>
     (let mut #isolate = unsafe { &mut *#opctx.isolate };)

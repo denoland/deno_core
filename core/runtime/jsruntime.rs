@@ -44,7 +44,6 @@ use futures::future::poll_fn;
 use futures::stream::StreamExt;
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
-use v8::Isolate;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -61,6 +60,7 @@ use std::sync::Mutex;
 use std::sync::Once;
 use std::task::Context;
 use std::task::Poll;
+use v8::Isolate;
 
 const STATE_DATA_OFFSET: u32 = 0;
 
@@ -623,10 +623,7 @@ impl JsRuntime {
       .into_boxed_slice();
     context_state.borrow_mut().isolate = Some(isolate_ptr);
 
-    let refs = bindings::external_references(
-      &op_ctxs,
-      &additional_references,
-    );
+    let refs = bindings::external_references(&op_ctxs, &additional_references);
     // V8 takes ownership of external_references.
     let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
 

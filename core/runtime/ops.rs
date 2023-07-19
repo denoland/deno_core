@@ -1141,8 +1141,7 @@ mod tests {
   }
 
   #[op2(core)]
-  pub fn op_test_v8_global(#[global] s: v8::Global<v8::String>) {
-  }
+  pub fn op_test_v8_global(#[global] s: v8::Global<v8::String>) {}
 
   #[tokio::test]
   pub async fn test_op_v8_global() -> Result<(), Box<dyn std::error::Error>> {
