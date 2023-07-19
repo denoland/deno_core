@@ -93,17 +93,19 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  Ok(gs_quote!(generator_state(deno_core, info, slow_function) => {
-    extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
-      #with_scope
-      #with_retval
-      #with_args
-      #with_opctx
-      #with_opstate
+  Ok(
+    gs_quote!(generator_state(deno_core, info, slow_function) => {
+      extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+        #with_scope
+        #with_retval
+        #with_args
+        #with_opctx
+        #with_opstate
 
-      #output
-    }
-  }))
+        #output
+      }
+    }),
+  )
 }
 
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
@@ -172,7 +174,10 @@ pub fn from_arg(
     needs_opstate,
     ..
   } = &mut generator_state;
-  let arg_ident = args.get(index).expect("Argument at index was missing").clone();
+  let arg_ident = args
+    .get(index)
+    .expect("Argument at index was missing")
+    .clone();
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
     Arg::Numeric(NumericArg::bool) => quote! {
