@@ -46,6 +46,9 @@ impl op_state_rc {
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
@@ -56,6 +59,7 @@ impl op_state_rc {
         let opstate = &opctx.state;
         let arg0 = &opstate.borrow();
         let result = Self::call(arg0);
+        rv.set_null();
     }
     #[inline(always)]
     fn call(_state: &OpState) {}
