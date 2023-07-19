@@ -59,6 +59,9 @@ impl op_v8_lifetime {
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
@@ -101,6 +104,7 @@ impl op_v8_lifetime {
             Some(v) => Some(::std::ops::Deref::deref(v)),
         };
         let result = Self::call(arg0, arg1);
+        rv.set_null();
     }
     #[inline(always)]
     pub fn call<'s>(_s: Option<&v8::String>, _s2: Option<&v8::String>) {}

@@ -42,7 +42,9 @@ impl op_async {
                 promise_id,
                 result,
                 |scope, result| { Ok(deno_core::v8::null(scope).into()) },
-            ) {}
+            ) {
+            rv.set_null();
+        }
     }
     #[inline(always)]
     pub async fn call() {}

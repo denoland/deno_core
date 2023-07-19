@@ -482,7 +482,12 @@ pub fn return_value_infallible(
 
   let res = match ret_type {
     Arg::Void => {
-      quote! {/* void */}
+      // TODO(mmastrac): revisit this. Ideally we wouldn't need to set
+      // rv to null, but because of how serde_v8 works this is required
+      // to keep compatibility with existing assumptions in `deno_core`
+      // and `deno` itself.
+      *needs_retval = true;
+      quote! {#retval.set_null();}
     }
     Arg::Numeric(NumericArg::bool) => {
       *needs_retval = true;
