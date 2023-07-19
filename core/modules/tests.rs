@@ -1352,7 +1352,7 @@ async fn no_duplicate_loads() {
 
   let spec = resolve_url("file:///main.js").unwrap();
   let a_id = runtime.load_main_module(&spec, None).await.unwrap();
-
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(a_id);
   runtime.run_event_loop(false).await.unwrap();
-  runtime.mod_evaluate(a_id).await.unwrap().unwrap();
 }

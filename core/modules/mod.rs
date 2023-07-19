@@ -242,7 +242,7 @@ pub(crate) type PrepareLoadFuture =
 pub type ModuleSourceFuture = dyn Future<Output = Result<ModuleSource, Error>>;
 
 type ModuleLoadFuture =
-  dyn Future<Output = Result<(ModuleRequest, ModuleSource), Error>>;
+  dyn Future<Output = Result<Option<(ModuleRequest, ModuleSource)>, Error>>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResolutionKind {
@@ -523,7 +523,7 @@ impl RecursiveModuleLoad {
             let request = module_request.clone();
             let specifier =
               ModuleSpecifier::parse(&module_request.specifier).unwrap();
-            let asserted_module_type = module_request.asserted_module_type.clone();
+            let asserted_module_type = module_request.asserted_module_type;
             let referrer = referrer.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
@@ -531,14 +531,16 @@ impl RecursiveModuleLoad {
             let fut = async move {
               if module_map_rc
                 .borrow()
-                .get_id(&specifier, asserted_module_type).is_some() {
-                  return Ok(());
-                };
+                .get_id(&specifier, asserted_module_type)
+                .is_some()
+              {
+                return Ok(None);
+              };
 
               let load_result = loader
                 .load(&specifier, Some(&referrer), is_dynamic_import)
                 .await;
-              load_result.map(|s| (request, s))
+              load_result.map(|s| Some((request, s)))
             };
             self.pending.push(fut.boxed_local());
           }
@@ -598,7 +600,7 @@ impl Stream for RecursiveModuleLoad {
             Default::default(),
             &module_specifier,
           );
-          futures::future::ok((module_request, module_source)).boxed()
+          futures::future::ok(Some((module_request, module_source))).boxed()
         } else {
           let maybe_referrer = match inner.init {
             LoadInit::DynamicImport(_, ref referrer, _) => {
@@ -624,7 +626,7 @@ impl Stream for RecursiveModuleLoad {
                 is_dynamic_import,
               )
               .await;
-            result.map(|s| (module_request, s))
+            result.map(|s| Some((module_request, s)))
           }
           .boxed_local()
         };
@@ -635,7 +637,15 @@ impl Stream for RecursiveModuleLoad {
       LoadState::LoadingRoot | LoadState::LoadingImports => {
         match inner.pending.try_poll_next_unpin(cx)? {
           Poll::Ready(None) => unreachable!(),
-          Poll::Ready(Some(info)) => Poll::Ready(Some(Ok(info))),
+          Poll::Ready(Some(None)) => {
+            if inner.pending.is_empty() {
+              inner.state = LoadState::Done;
+              Poll::Ready(None)
+            } else {
+              Poll::Pending
+            }
+          }
+          Poll::Ready(Some(Some(info))) => Poll::Ready(Some(Ok(info))),
           Poll::Pending => Poll::Pending,
         }
       }
