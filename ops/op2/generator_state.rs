@@ -45,6 +45,15 @@ pub struct GeneratorState {
 
 /// Quotes a set of generator_state fields, along with variables captured from
 /// the local environment.
+///
+/// Example: this will extract `deno_core`, `info` and `scope` from `generator_state`
+/// before invoking the [`quote!`] macro.
+///
+/// ```
+///  gs_quote!(generator_state(deno_core, info, scope) =>
+///    (let mut #scope = unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
+///  )
+/// ```
 macro_rules! gs_quote {
   ($generator_state:ident( $($idents:ident),* ) => $quotable:tt) => {
     {
@@ -57,6 +66,14 @@ macro_rules! gs_quote {
 }
 
 /// Extracts GeneratorState vars into the local scope.
+///
+/// Example:
+///
+/// Extracts `deno_core` from `generator_state` into a local variable. Equivalent to `let deno_core = &generator_state.deno_core`.
+///
+/// ```
+/// gs_extract!(generator_state(deno_core))
+/// ```
 macro_rules! gs_extract {
   ($generator_state:ident( $($idents:ident),* )) => {
     $(
