@@ -97,8 +97,7 @@ fn op_add(a: i32, b: i32) -> i32 {
   a + b
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support
-#[op]
+#[op2(async, core)]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
 }
@@ -106,12 +105,10 @@ pub async fn op_add_async(a: i32, b: i32) -> i32 {
 #[op2(core, fast)]
 pub fn op_void_sync() {}
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support
-#[op]
+#[op2(async, core)]
 pub async fn op_void_async() {}
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support
-#[op]
+#[op2(async, core)]
 pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
@@ -180,12 +177,11 @@ impl Resource for WasmStreamingResource {
 }
 
 /// Feed bytes to WasmStreamingResource.
-// TODO(bartlomieju): migration to op2 blocked by buffer support
-#[op]
+#[op2(core, fast)]
 pub fn op_wasm_streaming_feed(
   state: &mut OpState,
-  rid: ResourceId,
-  bytes: &[u8],
+  #[smi] rid: ResourceId,
+  #[buffer] bytes: &[u8],
 ) -> Result<(), Error> {
   let wasm_streaming =
     state.resource_table.get::<WasmStreamingResource>(rid)?;
@@ -307,25 +303,21 @@ async fn op_write(
   Ok(resp.nwritten() as u32)
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
-// support
-#[op(fast)]
+#[op2(core, fast)]
 fn op_read_sync(
   state: &mut OpState,
-  rid: ResourceId,
-  data: &mut [u8],
+  #[smi] rid: ResourceId,
+  #[buffer] data: &mut [u8],
 ) -> Result<u32, Error> {
   let resource = state.resource_table.get_any(rid)?;
   resource.read_byob_sync(data).map(|n| n as u32)
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
-// support
-#[op]
+#[op2(core, fast)]
 fn op_write_sync(
   state: &mut OpState,
-  rid: ResourceId,
-  data: &[u8],
+  #[smi] rid: ResourceId,
+  #[buffer] data: &[u8],
 ) -> Result<u32, Error> {
   let resource = state.resource_table.get_any(rid)?;
   let nwritten = resource.write_sync(data)?;
@@ -346,12 +338,10 @@ async fn op_write_all(
   Ok(())
 }
 
-// TODO(bartlomieju): migration to op2 blocked by OpState support and async fn
-// support
-#[op]
+#[op2(async, core)]
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
-  rid: ResourceId,
+  #[smi] rid: ResourceId,
 ) -> Result<(), Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   resource.shutdown().await
