@@ -254,7 +254,7 @@ pub fn from_arg(
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
         } else {
-          Some(#arg_ident.to_rust_string_lossy(&mut #scope))
+          Some(#deno_core::_ops::to_string(#isolate, &#arg_ident))
         };
       }
     }
