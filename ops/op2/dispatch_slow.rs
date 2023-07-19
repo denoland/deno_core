@@ -653,7 +653,7 @@ pub fn return_value_result(
 }
 
 /// Generates code to throw an exception, adding required additional dependencies as needed.
-fn throw_exception(
+pub(crate) fn throw_exception(
   generator_state: &mut GeneratorState,
 ) -> Result<TokenStream, V8MappingError> {
   let maybe_scope = if generator_state.needs_scope {
