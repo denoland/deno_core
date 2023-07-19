@@ -11,6 +11,10 @@ deno_core::extension!(
     op_string,
     op_string_old,
     op_string_option_u32,
+    op_local,
+    op_local_scope,
+    op_local_nofast,
+    op_global,
   ],
   state = |state| {
     state.put(1234u32);
@@ -44,6 +48,22 @@ pub fn op_string_old(s: &str) -> u32 {
 #[op2]
 pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
   Some(s.len() as _)
+}
+
+#[op2(fast)]
+pub fn op_local(_s: v8::Local<v8::String>) {
+}
+
+#[op2]
+pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
+}
+
+#[op2(nofast)]
+pub fn op_local_nofast(_s: v8::Local<v8::String>) {
+}
+
+#[op2]
+pub fn op_global(_s: v8::Global<v8::String>) {
 }
 
 fn bench_op(
@@ -253,6 +273,26 @@ fn bench_op_string_option_u32(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_string_option_u32", 1, "accum += op_string_option_u32('this is a reasonably long string that we would like to get the length of!');");
 }
 
+/// A fast function that takes a v8::Local<String>
+fn bench_op_v8_local(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_local", 1, "op_local('this is a reasonably long string that we would like to get the length of!');");
+}
+
+/// A function that takes a v8::Local<String>
+fn bench_op_v8_local_scope(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_local_scope", 1, "op_local_scope('this is a reasonably long string that we would like to get the length of!');");
+}
+
+/// A function that takes a v8::Local<String>
+fn bench_op_v8_local_nofast(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_local_nofast", 1, "op_local_nofast('this is a reasonably long string that we would like to get the length of!');");
+}
+
+/// A function that takes a v8::Global<String>
+fn bench_op_v8_global(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_global", 1, "op_global('this is a reasonably long string that we would like to get the length of!');");
+}
+
 benchmark_group!(
   benches,
   baseline,
@@ -270,6 +310,10 @@ benchmark_group!(
   bench_op_string_old_large_utf8_1000,
   bench_op_string_old_large_utf8_1000000,
   bench_op_string_option_u32,
+  bench_op_v8_local,
+  bench_op_v8_local_scope,
+  bench_op_v8_local_nofast,
+  bench_op_v8_global,
 );
 
 benchmark_main!(benches);

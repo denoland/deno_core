@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::dispatch_shared::v8_intermediate_to_arg;
+use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
@@ -315,13 +316,28 @@ pub fn from_arg(
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(RefType::Ref, v8)
-    | Arg::OptionV8Ref(RefType::Ref, v8)
-    | Arg::V8Global(v8)
-    | Arg::OptionV8Global(v8) => {
+    | Arg::OptionV8Ref(RefType::Ref, v8) => {
       let deno_core = deno_core.clone();
       let throw_type_error =
         || throw_type_error(generator_state, format!("expected {v8:?}"));
-      let extract_intermediate = v8_intermediate_to_arg(&deno_core, &arg_ident, arg);
+      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
+      v8_to_arg(
+        v8,
+        &arg_ident,
+        arg,
+        &deno_core,
+        throw_type_error,
+        extract_intermediate,
+      )?
+    }
+    Arg::V8Global(v8)
+    | Arg::OptionV8Global(v8) => {
+      *needs_scope = true;
+      let deno_core = deno_core.clone();
+      let scope = scope.clone();
+      let throw_type_error =
+        || throw_type_error(generator_state, format!("expected {v8:?}"));
+      let extract_intermediate = v8_intermediate_to_global_arg(&deno_core, &scope, &arg_ident, arg);
       v8_to_arg(
         v8,
         &arg_ident,

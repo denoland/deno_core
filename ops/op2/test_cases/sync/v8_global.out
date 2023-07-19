@@ -23,6 +23,7 @@ impl op_global {
         <Self as deno_core::_ops::Op>::DECL
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -33,7 +34,6 @@ impl op_global {
         let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
             deno_core::v8::String,
         >(arg0) else {
-        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let msg = deno_core::v8::String::new_from_one_byte(
                 &mut scope,
                 "expected String".as_bytes(),
@@ -44,7 +44,7 @@ impl op_global {
         scope.throw_exception(exc);
         return;
     };
-        let arg0 = deno_core::v8::Global::new(arg0);
+        let arg0 = deno_core::v8::Global::new(scope, arg0);
         let result = Self::call(arg0);
         rv.set_null();
     }

@@ -47,10 +47,12 @@ pub enum Op2Error {
   V8MappingError(#[from] V8MappingError),
   #[error("Failed to parse signature")]
   SignatureError(#[from] SignatureError),
+  #[error("This op cannot use both ({0}) and ({1})")]
+  InvalidAttributeCombination(&'static str, &'static str),
   #[error("This op is fast-compatible and should be marked as (fast)")]
   ShouldBeFast,
-  #[error("This op is not fast-compatible and should not be marked as (fast)")]
-  ShouldNotBeFast,
+  #[error("This op is not fast-compatible and should not be marked as ({0})")]
+  ShouldNotBeFast(&'static str),
   #[error("This op is async and should be marked as (async)")]
   ShouldBeAsync,
   #[error("This op is not async and should not be marked as (async)")]
@@ -67,8 +69,13 @@ pub enum V8MappingError {
 
 #[derive(Default)]
 pub(crate) struct MacroConfig {
+  /// Use `(core)` for ops that live in `deno_core`.
   pub core: bool,
+  /// Generate a fastcall method (must be fastcall compatible).
   pub fast: bool,
+  /// Do not generate a fastcall method (must be fastcall compatible).
+  pub nofast: bool,
+  /// Marks an async function (either `async fn` or `fn -> impl Future`)
   pub r#async: bool,
 }
 
@@ -95,11 +102,24 @@ impl MacroConfig {
         config.core = true;
       } else if flag == "fast" {
         config.fast = true;
+      } else if flag == "nofast" {
+        config.nofast = true;
       } else if flag == "async" {
         config.r#async = true;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }
+    }
+
+    // Test for invalid attribute combinations
+    if config.fast && config.nofast {
+      return Err(Op2Error::InvalidAttributeCombination("fast", "nofast"));
+    }
+    if config.fast && config.r#async {
+      return Err(Op2Error::InvalidAttributeCombination("fast", "async"));
+    }
+    if config.nofast && config.r#async {
+      return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
     }
 
     Ok(config)
@@ -240,14 +260,22 @@ fn generate_op2(
   let (fast_definition, fast_fn) =
     match generate_dispatch_fast(&mut generator_state, &signature)? {
       Some((fast_definition, fast_fn)) => {
-        if !config.fast {
+        if !config.fast && !config.nofast {
           return Err(Op2Error::ShouldBeFast);
         }
-        (quote!(Some({#fast_definition})), fast_fn)
+        // nofast requires the function to be valid for fast
+        if config.nofast {
+          (quote!(None), quote!())
+        } else {
+          (quote!(Some({#fast_definition})), fast_fn)
+        }
       }
       None => {
         if config.fast {
-          return Err(Op2Error::ShouldNotBeFast);
+          return Err(Op2Error::ShouldNotBeFast("fast"));
+        }
+        if config.nofast {
+          return Err(Op2Error::ShouldNotBeFast("nofast"));
         }
         (quote!(None), quote!())
       }
