@@ -9,11 +9,12 @@ use quote::format_ident;
 use quote::quote;
 
 /// Given an [`Arg`] containing a V8 value, converts this value to itself final form.
-pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
+pub fn v8_intermediate_to_arg(deno_core: &TokenStream, i: &Ident, arg: &Arg) -> TokenStream {
   let arg = match arg {
     Arg::V8Ref(RefType::Ref, _) => quote!(&#i),
     Arg::V8Ref(RefType::Mut, _) => quote!(::std::ops::DerefMut::deref_mut(#i)),
     Arg::V8Local(_) => quote!(#i),
+    Arg::V8Global(_) => quote!(#deno_core::v8::Global::new(#i)),
     Arg::OptionV8Ref(RefType::Ref, _) => {
       quote!(match &#i { None => None, Some(v) => Some(::std::ops::Deref::deref(v)) })
     }
@@ -21,6 +22,7 @@ pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
       quote!(match &#i { None => None, Some(v) => Some(::std::ops::DerefMut::deref_mut(v)) })
     }
     Arg::OptionV8Local(_) => quote!(#i),
+    Arg::OptionV8Global(_) => quote!(#deno_core::v8::Global::new(#i)),
     _ => unreachable!("Not a v8 arg: {arg:?}"),
   };
   quote!(let #i = #arg;)

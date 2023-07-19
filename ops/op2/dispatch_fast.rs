@@ -385,7 +385,7 @@ fn map_v8_fastcall_arg_to_arg(
           return ::std::default::Default::default();
         })
       };
-      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
+      let extract_intermediate = v8_intermediate_to_arg(&deno_core, &arg_ident, arg);
       v8_to_arg(
         v8,
         &arg_ident,

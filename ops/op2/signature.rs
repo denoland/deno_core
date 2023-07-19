@@ -214,6 +214,7 @@ pub enum Arg {
   Option(Special),
   OptionNumeric(NumericArg),
   OptionV8Local(V8Arg),
+  OptionV8Global(V8Arg),
   V8Local(V8Arg),
   V8Global(V8Arg),
   OptionV8Ref(RefType, V8Arg),
@@ -258,6 +259,7 @@ impl Arg {
       Arg::V8Ref(RefType::Ref, v8) => quote!(&#deno_core::v8::#v8),
       Arg::V8Ref(RefType::Mut, v8) => quote!(&mut #deno_core::v8::#v8),
       Arg::V8Local(v8) => quote!(#deno_core::v8::Local<#deno_core::v8::#v8>),
+      Arg::V8Global(v8) => quote!(#deno_core::v8::Global<#deno_core::v8::#v8>),
       Arg::OptionV8Ref(RefType::Ref, v8) => {
         quote!(::std::option::Option<&#deno_core::v8::#v8>)
       }
@@ -266,6 +268,9 @@ impl Arg {
       }
       Arg::OptionV8Local(v8) => {
         quote!(::std::option::Option<#deno_core::v8::Local<#deno_core::v8::#v8>>)
+      }
+      Arg::OptionV8Global(v8) => {
+        quote!(::std::option::Option<#deno_core::v8::Global<#deno_core::v8::#v8>>)
       }
       _ => todo!(),
     }
@@ -276,7 +281,8 @@ impl Arg {
     matches!(
       self,
       Arg::OptionV8Ref(..)
-        | Arg::OptionV8Local(..)
+      | Arg::OptionV8Local(..)
+        | Arg::OptionV8Global(..)
         | Arg::OptionNumeric(..)
         | Arg::Option(..)
         | Arg::OptionState(..)
@@ -298,6 +304,7 @@ pub enum ParsedTypeContainer {
   COption(ParsedType),
   CRcRefCell(ParsedType),
   COptionV8Local(ParsedType),
+  COptionV8Global(ParsedType),
   CV8Local(ParsedType),
   CV8Global(ParsedType),
 }
@@ -752,6 +759,7 @@ fn parse_type_path(
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
+          Arg::V8Global(v8) => Ok(COptionV8Global(TV8(v8))),
           _ => Err(ArgError::InvalidType(stringify_token(ty)))
         }
       }
@@ -1005,6 +1013,7 @@ pub(crate) fn parse_type(
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
+      COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
       COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
       COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
