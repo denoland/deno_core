@@ -29,6 +29,7 @@ syn.workspace = true
 syn2.workspace = true
 thiserror.workspace = true
 v8.workspace = true
+unhygienic2 = "0.1.0"
 
 [dev-dependencies]
 pretty_assertions.workspace = true

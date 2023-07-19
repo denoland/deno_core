@@ -11,6 +11,8 @@ use super::signature::RetVal;
 use super::signature::Special;
 use super::MacroConfig;
 use super::V8MappingError;
+use crate::op2::generator_state::gs_extract;
+use crate::op2::generator_state::gs_quote;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -91,14 +93,7 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let GeneratorState {
-    deno_core,
-    info,
-    slow_function,
-    ..
-  } = &generator_state;
-
-  Ok(quote! {
+  Ok(gs_quote!(generator_state(deno_core, info, slow_function) => {
     extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
       #with_scope
       #with_retval
@@ -108,72 +103,46 @@ pub(crate) fn generate_dispatch_slow(
 
       #output
     }
-  })
+  }))
 }
 
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
-  let GeneratorState {
-    deno_core,
-    scope,
-    info,
-    ..
-  } = &generator_state;
-
-  quote!(let mut #scope = unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
+  gs_quote!(generator_state(deno_core, info, scope) =>
+    (let mut #scope = unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
+  )
 }
 
 pub(crate) fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
-  let GeneratorState {
-    deno_core,
-    retval,
-    info,
-    ..
-  } = &generator_state;
-
-  quote!(let mut #retval = #deno_core::v8::ReturnValue::from_function_callback_info(unsafe { &*#info });)
+  gs_quote!(generator_state(deno_core, retval, info) =>
+    (let mut #retval = #deno_core::v8::ReturnValue::from_function_callback_info(unsafe { &*#info });)
+  )
 }
 
 pub(crate) fn with_fn_args(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-  let GeneratorState {
-    deno_core,
-    fn_args,
-    info,
-    ..
-  } = &generator_state;
-
-  quote!(let #fn_args = #deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe { &*#info });)
+  gs_quote!(generator_state(deno_core, info, fn_args) =>
+    (let #fn_args = #deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe { &*#info });)
+  )
 }
 
 pub(crate) fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
-  let GeneratorState {
-    deno_core,
-    opctx,
-    fn_args,
-    needs_args,
-    ..
-  } = generator_state;
-
-  *needs_args = true;
-  quote!(let #opctx = unsafe {
+  generator_state.needs_args = true;
+  gs_quote!(generator_state(deno_core, opctx, fn_args) =>
+    (let #opctx = unsafe {
     &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(#fn_args.data()).value()
         as *const #deno_core::_ops::OpCtx)
-  };)
+    };)
+  )
 }
 
 pub(crate) fn with_opstate(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-  let GeneratorState {
-    opctx,
-    opstate,
-    needs_opctx,
-    ..
-  } = generator_state;
-
-  *needs_opctx = true;
-  quote!(let #opstate = &#opctx.state;)
+  generator_state.needs_opctx = true;
+  gs_quote!(generator_state(opctx, opstate) =>
+    (let #opstate = &#opctx.state;)
+  )
 }
 
 pub fn extract_arg(
@@ -203,7 +172,7 @@ pub fn from_arg(
     needs_opstate,
     ..
   } = &mut generator_state;
-  let arg_ident = args.get_mut(index).expect("Argument at index was missing");
+  let arg_ident = args.get(index).expect("Argument at index was missing").clone();
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
     Arg::Numeric(NumericArg::bool) => quote! {
@@ -245,8 +214,6 @@ pub fn from_arg(
       }
     }
     Arg::OptionNumeric(numeric) => {
-      // Ends the borrow of generator_state
-      let arg_ident = arg_ident.clone();
       let some = from_arg(generator_state, index, &Arg::Numeric(*numeric))?;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
@@ -286,7 +253,6 @@ pub fn from_arg(
       }
     }
     Arg::Buffer(buffer) => {
-      let arg_ident = arg_ident.clone();
       from_arg_buffer(generator_state, &arg_ident, buffer)?
     }
     Arg::Ref(_, Special::HandleScope) => {
@@ -345,7 +311,6 @@ pub fn from_arg(
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(RefType::Ref, v8)
     | Arg::OptionV8Ref(RefType::Ref, v8) => {
-      let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
       let throw_type_error =
         || throw_type_error(generator_state, format!("expected {v8:?}"));
@@ -361,7 +326,6 @@ pub fn from_arg(
     }
     Arg::SerdeV8(_class) => {
       *needs_scope = true;
-      let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
@@ -607,11 +571,10 @@ pub fn return_value_infallible(
 
 /// Puts a typed result into a [`v8::Value`].
 pub fn return_value_v8_value(
-  deno_core: &TokenStream,
-  scope: &Ident,
-  result: &Ident,
+  generator_state: &GeneratorState,
   ret_type: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
+  gs_extract!(generator_state(deno_core, scope, result));
   let res = match ret_type {
     Arg::Void => {
       quote!(Ok(#deno_core::v8::null(#scope).into()))
@@ -679,14 +642,7 @@ pub(crate) fn throw_exception(
     with_fn_args(generator_state)
   };
 
-  let GeneratorState {
-    deno_core,
-    scope,
-    opctx,
-    ..
-  } = &generator_state;
-
-  Ok(quote! {
+  Ok(gs_quote!(generator_state(deno_core, scope, opctx) => {
     #maybe_scope
     #maybe_args
     #maybe_opctx
@@ -699,7 +655,7 @@ pub(crate) fn throw_exception(
     );
     #scope.throw_exception(exception);
     return;
-  })
+  }))
 }
 
 /// Generates code to throw an exception, adding required additional dependencies as needed.
@@ -720,17 +676,13 @@ fn throw_type_error(
     with_scope(generator_state)
   };
 
-  let GeneratorState {
-    deno_core, scope, ..
-  } = &generator_state;
-
-  Ok(quote! {
+  Ok(gs_quote!(generator_state(deno_core, scope) => {
     #maybe_scope
     let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
     let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
-  })
+  }))
 }
 
 /// Generates code to throw an exception from a string variable, adding required additional dependencies as needed.
@@ -744,18 +696,14 @@ fn throw_type_error_string(
     with_scope(generator_state)
   };
 
-  let GeneratorState {
-    deno_core, scope, ..
-  } = &generator_state;
-
-  Ok(quote! {
+  Ok(gs_quote!(generator_state(deno_core, scope) => {
     #maybe_scope
     // TODO(mmastrac): This might be allocating too much, even if it's on the error path
     let msg = #deno_core::v8::String::new(&mut #scope, &format!("{}", #deno_core::anyhow::Error::from(#message))).unwrap();
     let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
-  })
+  }))
 }
 
 /// Generates code to throw an exception from a string variable, adding required additional dependencies as needed.
@@ -769,15 +717,11 @@ fn throw_type_error_static_string(
     with_scope(generator_state)
   };
 
-  let GeneratorState {
-    deno_core, scope, ..
-  } = &generator_state;
-
-  Ok(quote! {
+  Ok(gs_quote!(generator_state(deno_core, scope) => {
     #maybe_scope
     let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
     let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
-  })
+  }))
 }

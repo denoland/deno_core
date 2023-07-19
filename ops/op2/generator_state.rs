@@ -42,3 +42,28 @@ pub struct GeneratorState {
   pub needs_fast_opctx: bool,
   pub needs_fast_api_callback_options: bool,
 }
+
+/// Quotes a set of generator_state fields, along with variables captured from
+/// the local environment.
+macro_rules! gs_quote {
+  ($generator_state:ident( $($idents:ident),* ) => $quotable:tt) => {
+    {
+      $(
+        let $idents = &$generator_state.$idents;
+      )*
+      quote! $quotable
+    }
+  }
+}
+
+/// Extracts GeneratorState vars into the local scope.
+macro_rules! gs_extract {
+  ($generator_state:ident( $($idents:ident),* )) => {
+    $(
+      let $idents = &$generator_state.$idents;
+    )*
+  }
+}
+
+pub(crate) use gs_extract;
+pub(crate) use gs_quote;
