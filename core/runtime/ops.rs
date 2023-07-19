@@ -550,6 +550,7 @@ mod tests {
       op_async_sleep,
       op_async_sleep_impl,
       op_async_sleep_error,
+      op_async_result_impl,
       op_async_state_rc,
       op_async_buffer_impl,
     ],
@@ -592,6 +593,9 @@ mod tests {
               if (!b) {{
                 op_test_fail();
               }}
+            }}
+            function assertErrorContains(e, s) {{
+              assert(String(e).indexOf(s) != -1)
             }}
             function log(s) {{
               op_test_print_debug(String(s))
@@ -646,6 +650,9 @@ mod tests {
               if (!b) {{
                 op_test_fail();
               }}
+            }}
+            function assertErrorContains(e, s) {{
+              assert(String(e).indexOf(s) != -1)
             }}
             function log(s) {{
               op_test_print_debug(String(s))
@@ -1154,7 +1161,7 @@ mod tests {
     run_test2(
       1,
       "op_test_serde_v8",
-      "try { op_test_serde_v8({}); assert(false) } catch (e) { assert(String(e).indexOf('missing field') != -1) }",
+      "try { op_test_serde_v8({}); assert(false) } catch (e) { assertErrorContains(e, 'missing field') }",
     )?;
     Ok(())
   }
@@ -1411,6 +1418,47 @@ mod tests {
       "try { await op_async_sleep_error(); assert(false) } catch (e) {}",
     )
     .await?;
+    Ok(())
+  }
+
+  /// Test exits from the three possible routes -- before future, future immediate,
+  /// future polled failed, future polled success.
+  #[op2(async, core)]
+  pub fn op_async_result_impl(
+    mode: u8,
+  ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+    if mode == 0 {
+      return Err(generic_error("early exit"));
+    }
+    Ok(async move {
+      if mode == 1 {
+        return Err(generic_error("early async exit"));
+      }
+      tokio::time::sleep(Duration::from_millis(500)).await;
+      if mode == 2 {
+        return Err(generic_error("late async exit"));
+      }
+      Ok(())
+    })
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_result_impl(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    for (n, msg) in [
+      (0, "early exit"),
+      (1, "early async exit"),
+      (2, "late async exit"),
+    ] {
+      run_async_test(
+        5,
+        "op_async_result_impl",
+        &format!("try {{ await op_async_result_impl({n}); assert(false) }} catch (e) {{ assertErrorContains(e, '{msg}') }}"),
+      )
+      .await?;
+    }
+    run_async_test(5, "op_async_result_impl", "await op_async_result_impl(3);")
+      .await?;
     Ok(())
   }
 
