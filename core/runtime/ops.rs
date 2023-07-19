@@ -534,6 +534,7 @@ mod tests {
       op_test_v8_type_handle_scope,
       op_test_v8_type_handle_scope_obj,
       op_test_v8_type_handle_scope_result,
+      op_test_v8_global,
       op_test_serde_v8,
       op_state_rc,
       op_state_ref,
@@ -1136,6 +1137,16 @@ mod tests {
 
     // Test the error case for op_test_v8_type_handle_scope_result
     run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  pub fn op_test_v8_global(#[global] s: v8::Global<v8::String>) {
+  }
+
+  #[tokio::test]
+  pub async fn test_op_v8_global() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(1, "op_test_v8_global", "op_test_v8_global('hello world')")?;
     Ok(())
   }
 

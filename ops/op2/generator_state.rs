@@ -15,6 +15,8 @@ pub struct GeneratorState {
 
   /// The `v8::CallbackScope` used if necessary for the function.
   pub scope: Ident,
+  /// The `v8::Isolate` used if necessary for the function.
+  pub isolate: Ident,
   /// The `v8::FunctionCallbackInfo` used to pass args into the slow function.
   pub info: Ident,
   /// The `v8::FunctionCallbackArguments` used to pass args into the slow function.
@@ -37,6 +39,7 @@ pub struct GeneratorState {
   pub needs_args: bool,
   pub needs_retval: bool,
   pub needs_scope: bool,
+  pub needs_isolate: bool,
   pub needs_opstate: bool,
   pub needs_opctx: bool,
   pub needs_fast_opctx: bool,

@@ -44,6 +44,7 @@ use futures::future::poll_fn;
 use futures::stream::StreamExt;
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
+use v8::Isolate;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -605,12 +606,13 @@ impl JsRuntime {
 
     let weak = Rc::downgrade(&state_rc);
     let context_state = Rc::new(RefCell::new(ContextState::default()));
-    let op_ctxs = ops
+    let mut op_ctxs = ops
       .into_iter()
       .enumerate()
       .map(|(id, decl)| {
         OpCtx::new(
           id as u16,
+          std::ptr::null_mut(),
           context_state.clone(),
           Rc::new(decl),
           op_state.clone(),
@@ -619,11 +621,10 @@ impl JsRuntime {
       })
       .collect::<Vec<_>>()
       .into_boxed_slice();
-    context_state.borrow_mut().op_ctxs = op_ctxs;
     context_state.borrow_mut().isolate = Some(isolate_ptr);
 
     let refs = bindings::external_references(
-      &context_state.borrow().op_ctxs,
+      &op_ctxs,
       &additional_references,
     );
     // V8 takes ownership of external_references.
@@ -653,6 +654,12 @@ impl JsRuntime {
       }
       v8::Isolate::new(params)
     };
+
+    for op_ctx in op_ctxs.iter_mut() {
+      op_ctx.isolate = isolate.as_mut() as *mut Isolate;
+    }
+    context_state.borrow_mut().op_ctxs = op_ctxs;
+
     isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
     isolate.set_promise_reject_callback(bindings::promise_reject_callback);
     isolate.set_host_initialize_import_meta_object_callback(
@@ -836,6 +843,7 @@ impl JsRuntime {
         .map(|op_ctx| {
           OpCtx::new(
             op_ctx.id,
+            op_ctx.isolate,
             context_state.clone(),
             op_ctx.decl.clone(),
             op_ctx.state.clone(),
