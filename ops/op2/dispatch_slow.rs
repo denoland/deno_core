@@ -249,9 +249,13 @@ pub fn from_arg(
       }
     }
     Arg::Option(Special::String) => {
-      *needs_scope = true;
+      *needs_isolate = true;
       quote! {
-        let #arg_ident = #arg_ident.to_rust_string_lossy(&mut #scope);
+        let #arg_ident = if #arg_ident.is_null_or_undefined() {
+          None
+        } else {
+          Some(#arg_ident.to_rust_string_lossy(&mut #scope))
+        };
       }
     }
     Arg::Special(Special::String) => {
