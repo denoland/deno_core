@@ -922,7 +922,7 @@ impl ModuleMap {
   pub(crate) fn find_stalled_top_level_await(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> Option<Vec<v8::Global<v8::Message>>> {
+  ) -> Vec<v8::Global<v8::Message>> {
     // First check if that's root module
     let root_module_id =
       self.info.iter().filter(|m| m.main).map(|m| m.id).next();
@@ -931,7 +931,7 @@ impl ModuleMap {
       let messages = self
         .get_stalled_top_level_await_message_for_module(scope, root_module_id);
       if !messages.is_empty() {
-        return Some(messages);
+        return messages;
       }
     }
 
@@ -941,11 +941,11 @@ impl ModuleMap {
       let messages =
         self.get_stalled_top_level_await_message_for_module(scope, module_id);
       if !messages.is_empty() {
-        return Some(messages);
+        return messages;
       }
     }
 
-    None
+    vec![]
   }
 }
 

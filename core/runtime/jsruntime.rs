@@ -1556,10 +1556,9 @@ fn find_and_report_stalled_level_await_in_any_realm(
   for inner_realm in known_realms {
     let scope = &mut inner_realm.handle_scope(v8_isolate);
     let module_map = inner_realm.module_map();
-    let maybe_messages =
-      module_map.borrow().find_stalled_top_level_await(scope);
+    let messages = module_map.borrow().find_stalled_top_level_await(scope);
 
-    if let Some(messages) = maybe_messages {
+    if !messages.is_empty() {
       // We are gonna print only a single message to provide a nice formatting
       // with source line of offending promise shown. Once user fixed it, then
       // they will get another error message for the next promise (but this
