@@ -51,10 +51,10 @@ pub(crate) fn generate_dispatch_async(
 
   let return_value = match &signature.ret_val {
     RetVal::Future(r) | RetVal::ResultFuture(r) => {
-      return_value_v8_value(&generator_state, r)?
+      return_value_v8_value(generator_state, r)?
     }
     RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => {
-      return_value_v8_value(&generator_state, r)?
+      return_value_v8_value(generator_state, r)?
     }
     RetVal::Infallible(r) | RetVal::Result(r) => {
       return Err(V8MappingError::NoMapping("an async return", r.clone()))
