@@ -417,7 +417,9 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::State(..)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
-    Arg::OptionNumeric(_) | Arg::SerdeV8(_) | Arg::Ref(..) => return Ok(None),
+    Arg::OptionNumeric(_) | Arg::Option(_) | Arg::SerdeV8(_) | Arg::Ref(..) => {
+      return Ok(None)
+    }
     // We don't support v8 global arguments
     Arg::V8Global(_) => return Ok(None),
     // We don't support v8 type arguments

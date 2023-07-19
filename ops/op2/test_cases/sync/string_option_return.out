@@ -9,7 +9,7 @@ impl deno_core::_ops::Op for op_string_return {
         false,
         false,
         false,
-        0usize as u8,
+        1usize as u8,
         Self::v8_fn_ptr as _,
         None,
     );
@@ -27,7 +27,21 @@ impl op_string_return {
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let result = Self::call();
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let mut isolate = unsafe { &mut *opctx.isolate };
+        let arg0 = args.get(0usize as i32);
+        let arg0 = if arg0.is_null_or_undefined() {
+            None
+        } else {
+            Some(arg0.to_rust_string_lossy(&mut scope))
+        };
+        let result = Self::call(arg0);
         if let Some(result) = result {
             if result.is_empty() {
                 rv.set_empty_string();
@@ -40,7 +54,7 @@ impl op_string_return {
         }
     }
     #[inline(always)]
-    pub fn call() -> Option<String> {
-        Some("".to_owned())
+    pub fn call(s: Option<String>) -> Option<String> {
+        s
     }
 }
