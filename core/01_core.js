@@ -257,7 +257,6 @@
   }
 
   function unwrapOpResultNewPromise(id, res, hideFunction) {
-    ops.op_print("unwrapOpResultNewPromise\n", true);
     // .$err_class_name is a special key that should only exist on errors
     if (res?.$err_class_name) {
       const className = res.$err_class_name;
@@ -585,7 +584,6 @@ for (let i = 0; i < 10; i++) {
     const id = nextPromiseId++;
     try {
       const maybeResult = asyncOps[name](id, ...new SafeArrayIterator(args));
-      ops.op_print(`maybeResult ${maybeResult}\n`, true);
       if (maybeResult !== undefined) {
         movePromise(id);
         return unwrapOpResultNewPromise(id, maybeResult, opAsync);
