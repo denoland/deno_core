@@ -491,33 +491,29 @@ pub fn return_value_infallible(
     Arg::OptionNumeric(n) => {
       *needs_retval = true;
       *needs_scope = true;
-      // End the generator_state borrow
-      let (result, retval) = (result.clone(), retval.clone());
       let some = return_value_infallible(generator_state, &Arg::Numeric(*n))?;
-      quote! {
+      gs_quote!(generator_state(result, retval) => {
         if let Some(#result) = #result {
           #some
         } else {
           #retval.set_null();
         }
-      }
+      })
     }
     Arg::Option(Special::String) => {
       *needs_retval = true;
       *needs_scope = true;
-      // End the generator_state borrow
-      let (result, retval) = (result.clone(), retval.clone());
       let some = return_value_infallible(
         generator_state,
         &Arg::Special(Special::String),
       )?;
-      quote! {
+      gs_quote!(generator_state(result, retval) => {
         if let Some(#result) = #result {
           #some
         } else {
           #retval.set_null();
         }
-      }
+      })
     }
     Arg::OptionV8Local(_) => {
       *needs_retval = true;
@@ -605,9 +601,7 @@ pub fn return_value_result(
   let infallible = return_value_infallible(generator_state, ret_type)?;
   let exception = throw_exception(generator_state)?;
 
-  let GeneratorState { result, .. } = &generator_state;
-
-  let tokens = quote!(
+  let tokens = gs_quote!(generator_state(result) => (
     match #result {
       Ok(#result) => {
         #infallible
@@ -616,7 +610,7 @@ pub fn return_value_result(
         #exception
       }
     };
-  );
+  ));
   Ok(tokens)
 }
 
