@@ -482,7 +482,8 @@ pub fn return_value_infallible(
 
   let res = match ret_type {
     Arg::Void => {
-      quote! {/* void */}
+      *needs_retval = true;
+      quote! {#retval.set_null();}
     }
     Arg::Numeric(NumericArg::bool) => {
       *needs_retval = true;
