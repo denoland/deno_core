@@ -290,6 +290,7 @@ pub(crate) struct RecursiveModuleLoad {
   module_map_rc: Rc<RefCell<ModuleMap>>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
   visited: HashSet<ModuleRequest>,
+  visited_as_alias: Rc<RefCell<HashSet<String>>>,
   // The loader is copied from `module_map_rc`, but its reference is cloned
   // ahead of time to avoid already-borrowed errors.
   loader: Rc<dyn ModuleLoader>,
@@ -350,6 +351,7 @@ impl RecursiveModuleLoad {
       loader,
       pending: FuturesUnordered::new(),
       visited: HashSet::new(),
+      visited_as_alias: Default::default(),
     };
     // FIXME(bartlomieju): this seems fishy
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
@@ -513,7 +515,12 @@ impl RecursiveModuleLoad {
         .unwrap()
         .clone();
       for module_request in imports {
-        if !self.visited.contains(&module_request) {
+        if !self.visited.contains(&module_request)
+          && !self
+            .visited_as_alias
+            .borrow()
+            .contains(&module_request.specifier)
+        {
           if let Some(module_id) = self.module_map_rc.borrow().get_id(
             module_request.specifier.as_str(),
             module_request.asserted_module_type,
@@ -523,23 +530,28 @@ impl RecursiveModuleLoad {
             let request = module_request.clone();
             let specifier =
               ModuleSpecifier::parse(&module_request.specifier).unwrap();
-            let asserted_module_type = module_request.asserted_module_type;
+            let visited_as_alias = self.visited_as_alias.clone();
             let referrer = referrer.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
-            let module_map_rc = self.module_map_rc.clone();
             let fut = async move {
-              if module_map_rc
-                .borrow()
-                .get_id(&specifier, asserted_module_type)
-                .is_some()
-              {
+              // `visited_as_alias` unlike `visited` is checked as late as
+              // possible because it can only be populated after completed
+              // loads, meaning a duplicate load future may have already been
+              // dispatched before we know it's a duplicate.
+              if visited_as_alias.borrow().contains(specifier.as_str()) {
                 return Ok(None);
-              };
-
+              }
               let load_result = loader
                 .load(&specifier, Some(&referrer), is_dynamic_import)
                 .await;
+              if let Ok(source) = &load_result {
+                if let Some(found_specifier) = &source.module_url_found {
+                  visited_as_alias
+                    .borrow_mut()
+                    .insert(found_specifier.as_str().to_string());
+                }
+              }
               load_result.map(|s| Some((request, s)))
             };
             self.pending.push(fut.boxed_local());
