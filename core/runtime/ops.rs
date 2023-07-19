@@ -1430,7 +1430,7 @@ mod tests {
     if mode == 0 {
       return Err(generic_error("early exit"));
     }
-    return Ok(async move {
+    Ok(async move {
       if mode == 1 {
         return Err(generic_error("early async exit"));
       }
@@ -1438,8 +1438,8 @@ mod tests {
       if mode == 2 {
         return Err(generic_error("late async exit"));
       }
-      return Ok(());
-    });
+      Ok(())
+    })
   }
 
   #[tokio::test]
