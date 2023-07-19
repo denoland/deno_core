@@ -51,20 +51,17 @@ pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
 }
 
 #[op2(fast)]
-pub fn op_local(_s: v8::Local<v8::String>) {
-}
+pub fn op_local(_s: v8::Local<v8::String>) {}
 
 #[op2]
 pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
 }
 
 #[op2(nofast)]
-pub fn op_local_nofast(_s: v8::Local<v8::String>) {
-}
+pub fn op_local_nofast(_s: v8::Local<v8::String>) {}
 
 #[op2]
-pub fn op_global(_s: v8::Global<v8::String>) {
-}
+pub fn op_global(_s: v8::Global<v8::String>) {}
 
 fn bench_op(
   b: &mut Bencher,

@@ -330,14 +330,14 @@ pub fn from_arg(
         extract_intermediate,
       )?
     }
-    Arg::V8Global(v8)
-    | Arg::OptionV8Global(v8) => {
+    Arg::V8Global(v8) | Arg::OptionV8Global(v8) => {
       *needs_scope = true;
       let deno_core = deno_core.clone();
       let scope = scope.clone();
       let throw_type_error =
         || throw_type_error(generator_state, format!("expected {v8:?}"));
-      let extract_intermediate = v8_intermediate_to_global_arg(&deno_core, &scope, &arg_ident, arg);
+      let extract_intermediate =
+        v8_intermediate_to_global_arg(&deno_core, &scope, &arg_ident, arg);
       v8_to_arg(
         v8,
         &arg_ident,

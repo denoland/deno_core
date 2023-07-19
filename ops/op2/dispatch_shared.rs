@@ -27,10 +27,17 @@ pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
 }
 
 /// Given an [`Arg`] containing a V8 value, converts this value to itself final form.
-pub fn v8_intermediate_to_global_arg(deno_core: &TokenStream, scope: &Ident, i: &Ident, arg: &Arg) -> TokenStream {
+pub fn v8_intermediate_to_global_arg(
+  deno_core: &TokenStream,
+  scope: &Ident,
+  i: &Ident,
+  arg: &Arg,
+) -> TokenStream {
   let arg = match arg {
     Arg::V8Global(_) => quote!(#deno_core::v8::Global::new(&mut #scope, #i)),
-    Arg::OptionV8Global(_) => quote!(#deno_core::v8::Global::new(&mut #scope, #i)),
+    Arg::OptionV8Global(_) => {
+      quote!(#deno_core::v8::Global::new(&mut #scope, #i))
+    }
     _ => unreachable!("Not a v8 global arg: {arg:?}"),
   };
   quote!(let #i = #arg;)
