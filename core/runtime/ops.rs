@@ -1141,11 +1141,21 @@ mod tests {
   }
 
   #[op2(core)]
-  pub fn op_test_v8_global(#[global] s: v8::Global<v8::String>) {}
+  pub fn op_test_v8_global(
+    scope: &mut v8::HandleScope,
+    #[global] s: v8::Global<v8::String>,
+  ) -> u32 {
+    let s = s.open(scope);
+    s.length() as _
+  }
 
   #[tokio::test]
   pub async fn test_op_v8_global() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(1, "op_test_v8_global", "op_test_v8_global('hello world')")?;
+    run_test2(
+      1,
+      "op_test_v8_global",
+      "assert(op_test_v8_global('hello world') == 11)",
+    )?;
     Ok(())
   }
 
