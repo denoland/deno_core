@@ -255,25 +255,25 @@ pub fn from_arg(
       }
     }
     Arg::Special(Special::String) => {
-      *needs_scope = true;
+      *needs_isolate = true;
       quote! {
-        let #arg_ident = #arg_ident.to_rust_string_lossy(&mut #scope);
+        let #arg_ident = #deno_core::_ops::to_string(#isolate, &#arg_ident);
       }
     }
     Arg::Special(Special::RefStr) => {
-      *needs_scope = true;
+      *needs_isolate = true;
       quote! {
         // Trade stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = &#deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
+        let #arg_ident = &#deno_core::_ops::to_str(#isolate, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Special(Special::CowStr) => {
-      *needs_scope = true;
+      *needs_isolate = true;
       quote! {
         // Trade stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
+        let #arg_ident = #deno_core::_ops::to_str(#isolate, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Buffer(buffer) => {

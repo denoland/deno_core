@@ -393,6 +393,17 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
   }
 }
 
+/// Converts a [`v8::String`] to an owned string.
+#[inline(always)]
+pub fn to_string(scope: &mut v8::Isolate, string: &v8::Value) -> String {
+  if !string.is_string() {
+    return String::new();
+  }
+
+  let string: &v8::String = unsafe { std::mem::transmute(string) };
+  string.to_rust_string_lossy(scope)
+}
+
 /// Converts a [`v8::String`] to either an owned string, or a borrowed string, depending on whether it fits into the
 /// provided buffer.
 #[inline(always)]

@@ -39,15 +39,19 @@ impl op_string_owned {
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let mut isolate = unsafe { &mut *opctx.isolate };
         let arg0 = args.get(0usize as i32);
-        let arg0 = arg0.to_rust_string_lossy(&mut scope);
+        let arg0 = deno_core::_ops::to_string(isolate, &arg0);
         let result = Self::call(arg0);
         rv.set_uint32(result as u32);
     }
