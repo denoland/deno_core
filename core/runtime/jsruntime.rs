@@ -1396,7 +1396,6 @@ impl JsRuntime {
       let _ = self.inspector().borrow().poll_sessions(Some(cx)).unwrap();
     }
 
-    let module_map = self.module_map();
     self.pump_v8_message_loop()?;
 
     // Dynamic module loading - ie. modules loaded using "import()"
@@ -1499,16 +1498,13 @@ impl JsRuntime {
       {
         // pass, will be polled again
       } else {
-        let scope = &mut self.handle_scope();
-        let messages = module_map.borrow().find_stalled_top_level_await(scope);
-        // We are gonna print only a single message to provide a nice formatting
-        // with source line of offending promise shown. Once user fixed it, then
-        // they will get another error message for the next promise (but this
-        // situation is gonna be very rare, if ever happening).
-        assert!(!messages.is_empty());
-        let msg = v8::Local::new(scope, messages[0].clone());
-        let js_error = JsError::from_v8_message(scope, msg);
-        return Poll::Ready(Err(js_error.into()));
+        let known_realms = self.inner.state.borrow().known_realms.clone();
+        return Poll::Ready(Err(
+          find_and_report_stalled_level_await_in_any_realm(
+            &mut self.inner.v8_isolate,
+            known_realms,
+          ),
+        ));
       }
     }
 
@@ -1521,16 +1517,13 @@ impl JsRuntime {
         // pass, will be polled again
       } else if self.inner.state.borrow().dyn_module_evaluate_idle_counter >= 1
       {
-        let scope = &mut self.handle_scope();
-        let messages = module_map.borrow().find_stalled_top_level_await(scope);
-        // We are gonna print only a single message to provide a nice formatting
-        // with source line of offending promise shown. Once user fixed it, then
-        // they will get another error message for the next promise (but this
-        // situation is gonna be very rare, if ever happening).
-        assert!(!messages.is_empty());
-        let msg = v8::Local::new(scope, messages[0].clone());
-        let js_error = JsError::from_v8_message(scope, msg);
-        return Poll::Ready(Err(js_error.into()));
+        let known_realms = self.inner.state.borrow().known_realms.clone();
+        return Poll::Ready(Err(
+          find_and_report_stalled_level_await_in_any_realm(
+            &mut self.inner.v8_isolate,
+            known_realms,
+          ),
+        ));
       } else {
         let mut state = self.inner.state.borrow_mut();
         // Delay the above error by one spin of the event loop. A dynamic import
@@ -1554,6 +1547,29 @@ impl JsRuntime {
     );
     x
   }
+}
+
+fn find_and_report_stalled_level_await_in_any_realm(
+  v8_isolate: &mut v8::Isolate,
+  known_realms: Vec<JsRealmInner>,
+) -> Error {
+  for inner_realm in known_realms {
+    let scope = &mut inner_realm.handle_scope(v8_isolate);
+    let module_map = inner_realm.module_map();
+    let messages = module_map.borrow().find_stalled_top_level_await(scope);
+
+    if !messages.is_empty() {
+      // We are gonna print only a single message to provide a nice formatting
+      // with source line of offending promise shown. Once user fixed it, then
+      // they will get another error message for the next promise (but this
+      // situation is gonna be very rare, if ever happening).
+      let msg = v8::Local::new(scope, messages[0].clone());
+      let js_error = JsError::from_v8_message(scope, msg);
+      return js_error.into();
+    }
+  }
+
+  unreachable!("Expected at least one stalled top-level await");
 }
 
 fn create_context<'a>(

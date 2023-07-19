@@ -945,7 +945,7 @@ impl ModuleMap {
       }
     }
 
-    unreachable!()
+    vec![]
   }
 }
 
