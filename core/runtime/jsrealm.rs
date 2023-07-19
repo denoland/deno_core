@@ -271,7 +271,7 @@ impl JsRealm {
   }
 
   #[inline(always)]
-  pub(crate) fn module_map_from_scope(
+  pub(crate) fn module_map_from(
     scope: &mut v8::HandleScope,
   ) -> Rc<RefCell<ModuleMap>> {
     let context = scope.get_current_context();

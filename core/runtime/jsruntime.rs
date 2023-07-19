@@ -744,7 +744,6 @@ impl JsRuntime {
     js_runtime
   }
 
-  #[cfg(test)]
   #[inline]
   pub(crate) fn module_map(&mut self) -> Rc<RefCell<ModuleMap>> {
     self.main_realm().0.module_map()
