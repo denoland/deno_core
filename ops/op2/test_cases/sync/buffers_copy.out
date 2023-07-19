@@ -60,6 +60,9 @@ impl op_buffers {
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
@@ -119,6 +122,7 @@ impl op_buffers {
         };
         let arg2 = arg2.to_vec().into();
         let result = Self::call(arg0, arg1, arg2);
+        rv.set_null();
     }
     #[inline(always)]
     fn call(_a: Vec<u8>, _b: Box<[u8]>, _c: bytes::Bytes) {}
