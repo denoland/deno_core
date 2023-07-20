@@ -30,21 +30,23 @@ impl op_serde_v8 {
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
-        let arg0 = args.get(0usize as i32);
-        let arg0 = match deno_core::_ops::serde_v8_to_rust(&mut scope, arg0) {
-            Ok(t) => t,
-            Err(arg0_err) => {
-                let msg = deno_core::v8::String::new(
-                        &mut scope,
-                        &format!("{}", deno_core::anyhow::Error::from(arg0_err)),
-                    )
-                    .unwrap();
-                let exc = deno_core::v8::Exception::error(&mut scope, msg);
-                scope.throw_exception(exc);
-                return;
-            }
+        let result = {
+            let arg0 = args.get(0usize as i32);
+            let arg0 = match deno_core::_ops::serde_v8_to_rust(&mut scope, arg0) {
+                Ok(t) => t,
+                Err(arg0_err) => {
+                    let msg = deno_core::v8::String::new(
+                            &mut scope,
+                            &format!("{}", deno_core::anyhow::Error::from(arg0_err)),
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            Self::call(arg0)
         };
-        let result = Self::call(arg0);
         let result = match deno_core::_ops::serde_rust_to_v8(&mut scope, result) {
             Ok(t) => t,
             Err(rv_err) => {

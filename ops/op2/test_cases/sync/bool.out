@@ -34,8 +34,10 @@ impl op_bool {
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: bool,
     ) -> bool {
-        let arg0 = arg0 as _;
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = arg0 as _;
+            Self::call(arg0)
+        };
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
@@ -45,9 +47,11 @@ impl op_bool {
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
-        let arg0 = args.get(0usize as i32);
-        let arg0 = arg0.is_true();
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = args.get(0usize as i32);
+            let arg0 = arg0.is_true();
+            Self::call(arg0)
+        };
         rv.set_bool(result as bool);
     }
     #[inline(always)]

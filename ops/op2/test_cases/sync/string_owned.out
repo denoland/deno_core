@@ -34,8 +34,10 @@ impl op_string_owned {
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiOneByteString,
     ) -> u32 {
-        let arg0 = deno_core::_ops::to_string_ptr(unsafe { &mut *arg0 });
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = deno_core::_ops::to_string_ptr(unsafe { &mut *arg0 });
+            Self::call(arg0)
+        };
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
@@ -50,9 +52,11 @@ impl op_string_owned {
                 as *const deno_core::_ops::OpCtx)
         };
         let mut scope = unsafe { &mut *opctx.isolate };
-        let arg0 = args.get(0usize as i32);
-        let arg0 = deno_core::_ops::to_string(&mut scope, &arg0);
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = args.get(0usize as i32);
+            let arg0 = deno_core::_ops::to_string(&mut scope, &arg0);
+            Self::call(arg0)
+        };
         rv.set_uint32(result as u32);
     }
     #[inline(always)]

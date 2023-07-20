@@ -35,8 +35,10 @@ impl op_async_opstate {
                 as *const deno_core::_ops::OpCtx)
         };
         let opstate = &opctx.state;
-        let arg0 = opstate.clone();
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = opstate.clone();
+            Self::call(arg0)
+        };
         let promise_id = deno_core::_ops::to_i32(&args.get(0));
         if let Some(result)
             = deno_core::_ops::map_async_op_fallible(

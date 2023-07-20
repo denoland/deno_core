@@ -39,9 +39,15 @@ impl op_buffers {
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
-        let arg0 = unsafe { arg0.as_mut().unwrap() }.get_storage_if_aligned().unwrap();
-        let arg1 = unsafe { arg1.as_mut().unwrap() }.get_storage_if_aligned().unwrap();
-        let result = Self::call(arg0, arg1);
+        let result = {
+            let arg0 = unsafe { arg0.as_mut().unwrap() }
+                .get_storage_if_aligned()
+                .unwrap();
+            let arg1 = unsafe { arg1.as_mut().unwrap() }
+                .get_storage_if_aligned()
+                .unwrap();
+            Self::call(arg0, arg1)
+        };
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
@@ -52,44 +58,50 @@ impl op_buffers {
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
-        let arg0 = args.get(0usize as i32);
-        let mut arg0 = match unsafe {
-            deno_core::_ops::to_v8_slice::<deno_core::v8::Uint8Array>(&mut scope, arg0)
-        } {
-            Ok(arg0) => arg0,
-            Err(arg0_err) => {
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                let msg = deno_core::v8::String::new_from_one_byte(
-                        &mut scope,
-                        arg0_err.as_bytes(),
-                        deno_core::v8::NewStringType::Normal,
-                    )
-                    .unwrap();
-                let exc = deno_core::v8::Exception::error(&mut scope, msg);
-                scope.throw_exception(exc);
-                return;
-            }
+        let result = {
+            let arg0 = args.get(0usize as i32);
+            let mut arg0 = match unsafe {
+                deno_core::_ops::to_v8_slice::<
+                    deno_core::v8::Uint8Array,
+                >(&mut scope, arg0)
+            } {
+                Ok(arg0) => arg0,
+                Err(arg0_err) => {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            arg0_err.as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            let arg0 = &mut arg0;
+            let arg1 = args.get(1usize as i32);
+            let mut arg1 = match unsafe {
+                deno_core::_ops::to_v8_slice::<
+                    deno_core::v8::Uint8Array,
+                >(&mut scope, arg1)
+            } {
+                Ok(arg1) => arg1,
+                Err(arg1_err) => {
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            arg1_err.as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            let arg1 = &mut arg1;
+            Self::call(arg0, arg1)
         };
-        let arg0 = &mut arg0;
-        let arg1 = args.get(1usize as i32);
-        let mut arg1 = match unsafe {
-            deno_core::_ops::to_v8_slice::<deno_core::v8::Uint8Array>(&mut scope, arg1)
-        } {
-            Ok(arg1) => arg1,
-            Err(arg1_err) => {
-                let msg = deno_core::v8::String::new_from_one_byte(
-                        &mut scope,
-                        arg1_err.as_bytes(),
-                        deno_core::v8::NewStringType::Normal,
-                    )
-                    .unwrap();
-                let exc = deno_core::v8::Exception::error(&mut scope, msg);
-                scope.throw_exception(exc);
-                return;
-            }
-        };
-        let arg1 = &mut arg1;
-        let result = Self::call(arg0, arg1);
         rv.set_null();
     }
     #[inline(always)]

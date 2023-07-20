@@ -42,8 +42,10 @@ impl op_bool {
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };
-        let arg0 = arg0 as _;
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = arg0 as _;
+            Self::call(arg0)
+        };
         let result = match result {
             Ok(result) => result,
             Err(err) => {
@@ -79,9 +81,11 @@ impl op_bool {
             scope.throw_exception(exception);
             return;
         }
-        let arg0 = args.get(0usize as i32);
-        let arg0 = arg0.is_true();
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = args.get(0usize as i32);
+            let arg0 = arg0.is_true();
+            Self::call(arg0)
+        };
         match result {
             Ok(result) => {
                 rv.set_bool(result as bool);
