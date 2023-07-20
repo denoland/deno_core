@@ -93,6 +93,11 @@ impl V8Slice {
   pub fn to_boxed_slice(&self) -> Box<[u8]> {
     self.to_vec().into_boxed_slice()
   }
+
+  /// Returns the slice to the parts it came from.
+  pub fn into_parts(self) -> (v8::SharedRef<v8::BackingStore>, Range<usize>) {
+    (self.store, self.range)
+  }
 }
 
 pub(crate) fn to_ranged_buffer<'s>(

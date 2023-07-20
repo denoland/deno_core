@@ -1,0 +1,67 @@
+#[allow(non_camel_case_types)]
+pub struct op_async_v8_global {
+    _unconstructable: ::std::marker::PhantomData<()>,
+}
+impl deno_core::_ops::Op for op_async_v8_global {
+    const NAME: &'static str = stringify!(op_async_v8_global);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_async_v8_global),
+        true,
+        false,
+        false,
+        2usize as u8,
+        Self::v8_fn_ptr as _,
+        None,
+    );
+}
+impl op_async_v8_global {
+    pub const fn name() -> &'static str {
+        stringify!(op_async_v8_global)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let arg0 = args.get(1usize as i32);
+        let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
+            deno_core::v8::String,
+        >(arg0) else {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let msg = deno_core::v8::String::new_from_one_byte(
+                &mut scope,
+                "expected String".as_bytes(),
+                deno_core::v8::NewStringType::Normal,
+            )
+            .unwrap();
+        let exc = deno_core::v8::Exception::error(&mut scope, msg);
+        scope.throw_exception(exc);
+        return;
+    };
+        let arg0 = deno_core::v8::Global::new(&mut scope, arg0);
+        let result = Self::call(arg0);
+        let promise_id = deno_core::_ops::to_i32(&args.get(0));
+        if let Some(result)
+            = deno_core::_ops::map_async_op_infallible(
+                opctx,
+                promise_id,
+                result,
+                |scope, result| { Ok(deno_core::v8::null(scope).into()) },
+            ) {
+            rv.set_null();
+        }
+    }
+    #[inline(always)]
+    pub async fn call(s: v8::Global<v8::String>) {}
+}

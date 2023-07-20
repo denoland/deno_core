@@ -411,28 +411,21 @@ pub fn from_arg_buffer(
   let err = format_ident!("{}_err", arg_ident);
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
-  let GeneratorState {
-    deno_core,
-    scope,
-    needs_scope,
-    ..
-  } = generator_state;
-
-  *needs_scope = true;
+  generator_state.needs_scope = true;
 
   // TODO(mmastrac): Other buffer types
   let array = NumericArg::u8
     .v8_array_type()
     .expect("Could not retrieve the v8 type");
 
-  let make_v8slice = quote! {
+  let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
     let mut #arg_ident = match unsafe { #deno_core::_ops::to_v8_slice::<#deno_core::v8::#array>(&mut #scope, #arg_ident) } {
       Ok(#arg_ident) => #arg_ident,
       Err(#err) => {
         #throw_exception
       }
     };
-  };
+  });
 
   let make_arg = match buffer {
     Buffer::Slice(_, NumericArg::u8) => {
@@ -447,6 +440,9 @@ pub fn from_arg_buffer(
     Buffer::Bytes => {
       // TODO(mmastrac): This assumes #[buffer(copy)]
       quote!(let #arg_ident = #arg_ident.to_vec().into();)
+    }
+    Buffer::JsBuffer => {
+      gs_quote!(generator_state(deno_core) => (let #arg_ident = #deno_core::serde_v8::JsBuffer::from_parts(#arg_ident);))
     }
     _ => {
       return Err(V8MappingError::NoMapping(
@@ -609,6 +605,13 @@ pub fn return_value_infallible(
         #retval.set(#result.into())
       }
     }
+    Arg::Buffer(
+      Buffer::JsBuffer
+      | Buffer::Vec(NumericArg::u8)
+      | Buffer::BoxSlice(NumericArg::u8),
+    ) => {
+      quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
+    }
     _ => {
       return Err(V8MappingError::NoMapping(
         "a slow return value",
@@ -638,6 +641,13 @@ pub fn return_value_v8_value(
     }
     Arg::Numeric(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
       quote!(Ok(#deno_core::v8::Integer::new_from_unsigned(#scope, #result).into()))
+    }
+    Arg::Buffer(
+      Buffer::JsBuffer
+      | Buffer::Vec(NumericArg::u8)
+      | Buffer::BoxSlice(NumericArg::u8),
+    ) => {
+      quote!(Ok(#deno_core::_ops::ToV8Value::to_v8_value(#result, #scope)))
     }
     _ => {
       return Err(V8MappingError::NoMapping(

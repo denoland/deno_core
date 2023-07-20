@@ -13,6 +13,17 @@ pub struct JsBuffer(V8Slice);
 
 impl_magic!(JsBuffer);
 
+impl JsBuffer {
+  pub fn from_parts(slice: V8Slice) -> Self {
+    Self(slice)
+  }
+
+  /// Returns the buffer to its parts.
+  pub fn into_parts(self) -> V8Slice {
+    self.0
+  }
+}
+
 impl Debug for JsBuffer {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_list().entries(self.0.as_ref().iter()).finish()
@@ -62,6 +73,12 @@ impl FromV8 for JsBuffer {
 impl From<JsBuffer> for bytes::Bytes {
   fn from(zbuf: JsBuffer) -> bytes::Bytes {
     zbuf.0.into()
+  }
+}
+
+impl From<V8Slice> for JsBuffer {
+  fn from(value: V8Slice) -> Self {
+    JsBuffer(value)
   }
 }
 

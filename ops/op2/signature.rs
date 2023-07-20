@@ -160,15 +160,15 @@ pub enum Buffer {
   Bytes,
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::V8Slice`
   V8Slice,
-  /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JSBuffer`
-  JSBuffer,
+  /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JsBuffer`
+  JsBuffer,
 }
 
 impl Buffer {
   fn is_valid_mode(&self, mode: BufferMode) -> bool {
     match self {
       Buffer::Bytes => matches!(mode, BufferMode::Copy),
-      Buffer::JSBuffer => matches!(
+      Buffer::JsBuffer => matches!(
         mode,
         BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
       ),
@@ -744,8 +744,8 @@ fn parse_type_path(
       ( $( serde_v8 :: )? V8Slice ) => {
         Ok(CBare(TBuffer(Buffer::V8Slice)))
       }
-      ( $( serde_v8 :: )? JSBuffer ) => {
-        Ok(CBare(TBuffer(Buffer::JSBuffer)))
+      ( $( serde_v8 :: )? JsBuffer ) => {
+        Ok(CBare(TBuffer(Buffer::JsBuffer)))
       }
       ( $( bytes :: )? Bytes ) => {
         Ok(CBare(TBuffer(Buffer::Bytes)))
@@ -1221,8 +1221,8 @@ mod tests {
     (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
   );
   test!(
-    #[buffer(copy)] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JSBuffer) -> Vec<u8>;
-    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JSBuffer)) -> Infallible(Buffer(Vec(u8)))
+    #[buffer(copy)] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JsBuffer) -> Vec<u8>;
+    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JsBuffer)) -> Infallible(Buffer(Vec(u8)))
   );
   test!(
     async fn op_async_void();
