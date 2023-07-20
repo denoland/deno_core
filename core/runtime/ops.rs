@@ -159,6 +159,7 @@ pub fn map_async_op_infallible<R: 'static>(
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<R> {
   let id = ctx.id;
+  ctx.state.borrow().tracker.track_async(id);
 
   // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
@@ -197,6 +198,7 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<Result<R, E>> {
   let id = ctx.id;
+  ctx.state.borrow().tracker.track_async(id);
 
   // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
