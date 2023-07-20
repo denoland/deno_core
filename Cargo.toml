@@ -57,7 +57,7 @@ url = { version = "2.3.1", features = ["serde", "expose_internals"] }
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "1", features = ["full", "extra-traits"] }
-syn2 = { package = "syn", version = "=2.0.22", features = ["full", "extra-traits"] }
+syn2 = { package = "syn", version = "2.0", features = ["full", "extra-traits"] }
 # Temporary fork while we wait for a more modern version to be published
 deno-proc-macro-rules = "0.3.2"
 

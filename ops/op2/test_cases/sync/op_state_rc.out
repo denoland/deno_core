@@ -41,8 +41,10 @@ impl op_state_rc {
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };
-        let arg0 = opctx.state.clone();
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = opctx.state.clone();
+            Self::call(arg0)
+        };
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
@@ -57,8 +59,10 @@ impl op_state_rc {
                 as *const deno_core::_ops::OpCtx)
         };
         let opstate = &opctx.state;
-        let arg0 = opstate.clone();
-        let result = Self::call(arg0);
+        let result = {
+            let arg0 = opstate.clone();
+            Self::call(arg0)
+        };
         rv.set_null();
     }
     #[inline(always)]

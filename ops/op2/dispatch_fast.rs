@@ -275,8 +275,10 @@ pub fn generate_dispatch_fast(
     ) -> #output_type {
       #with_fast_api_callback_options
       #with_opctx
-      #(#call_args)*
-      let #result = Self::call(#(#call_names),*);
+      let #result = {
+        #(#call_args)*
+        Self::call(#(#call_names),*)
+      };
       #handle_error
       #result
     }

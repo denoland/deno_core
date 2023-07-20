@@ -41,7 +41,7 @@ impl op_void_with_result {
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };
-        let result = Self::call();
+        let result = { Self::call() };
         let result = match result {
             Ok(result) => result,
             Err(err) => {
@@ -80,7 +80,7 @@ impl op_void_with_result {
             scope.throw_exception(exception);
             return;
         }
-        let result = Self::call();
+        let result = { Self::call() };
         match result {
             Ok(result) => {
                 rv.set_null();

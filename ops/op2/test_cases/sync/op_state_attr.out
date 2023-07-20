@@ -41,11 +41,13 @@ impl op_state_rc {
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };
-        let arg0 = opctx.state.borrow();
-        let arg0 = arg0.borrow::<Something>();
-        let arg1 = opctx.state.borrow();
-        let arg1 = arg1.try_borrow::<Something>();
-        let result = Self::call(arg0, arg1);
+        let result = {
+            let arg0 = opctx.state.borrow();
+            let arg0 = arg0.borrow::<Something>();
+            let arg1 = opctx.state.borrow();
+            let arg1 = arg1.try_borrow::<Something>();
+            Self::call(arg0, arg1)
+        };
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
@@ -60,11 +62,13 @@ impl op_state_rc {
                 as *const deno_core::_ops::OpCtx)
         };
         let opstate = &opctx.state;
-        let arg0 = opstate.borrow();
-        let arg0 = arg0.borrow::<Something>();
-        let arg1 = opstate.borrow();
-        let arg1 = arg1.try_borrow::<Something>();
-        let result = Self::call(arg0, arg1);
+        let result = {
+            let arg0 = opstate.borrow();
+            let arg0 = arg0.borrow::<Something>();
+            let arg1 = opstate.borrow();
+            let arg1 = arg1.try_borrow::<Something>();
+            Self::call(arg0, arg1)
+        };
         rv.set_null();
     }
     #[inline(always)]

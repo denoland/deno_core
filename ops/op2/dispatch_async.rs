@@ -27,6 +27,7 @@ pub(crate) fn generate_dispatch_async(
 
   // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
   // the scope/opstate in the intermediate stages.
+  let mut args = TokenStream::new();
   let mut deferred = TokenStream::new();
 
   // Promise ID is the first arg
@@ -36,8 +37,8 @@ pub(crate) fn generate_dispatch_async(
     if arg.is_virtual() {
       deferred.extend(from_arg(generator_state, index, arg)?);
     } else {
-      output.extend(extract_arg(generator_state, index, input_index)?);
-      output.extend(from_arg(generator_state, index, arg)?);
+      args.extend(extract_arg(generator_state, index, input_index)?);
+      args.extend(from_arg(generator_state, index, arg)?);
       input_index += 1;
     }
   }
@@ -74,8 +75,13 @@ pub(crate) fn generate_dispatch_async(
     }
   };
 
-  output.extend(deferred);
-  output.extend(call(generator_state)?);
+  args.extend(deferred);
+  args.extend(call(generator_state)?);
+  output.extend(gs_quote!(generator_state(result) => {
+    let #result = {
+      #args
+    };
+  }));
 
   if matches!(
     signature.ret_val,

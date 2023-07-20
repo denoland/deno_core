@@ -27,7 +27,7 @@ impl op_string_return {
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let result = Self::call();
+        let result = { Self::call() };
         if result.is_empty() {
             rv.set_empty_string();
         } else {

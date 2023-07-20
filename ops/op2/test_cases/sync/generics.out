@@ -31,14 +31,14 @@ impl<T: Trait> op_generics<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
-        let result = Self::call();
+        let result = { Self::call() };
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let result = Self::call();
+        let result = { Self::call() };
         rv.set_null();
     }
     #[inline(always)]

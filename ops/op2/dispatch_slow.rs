@@ -47,6 +47,7 @@ pub(crate) fn generate_dispatch_slow(
 
   // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
   // the scope/opstate in the intermediate stages.
+  let mut args = TokenStream::new();
   let mut deferred = TokenStream::new();
   let mut input_index = 0;
 
@@ -54,14 +55,17 @@ pub(crate) fn generate_dispatch_slow(
     if arg.is_virtual() {
       deferred.extend(from_arg(generator_state, index, arg)?);
     } else {
-      output.extend(extract_arg(generator_state, index, input_index)?);
-      output.extend(from_arg(generator_state, index, arg)?);
+      args.extend(extract_arg(generator_state, index, input_index)?);
+      args.extend(from_arg(generator_state, index, arg)?);
       input_index += 1;
     }
   }
 
-  output.extend(deferred);
-  output.extend(call(generator_state)?);
+  args.extend(deferred);
+  args.extend(call(generator_state)?);
+  output.extend(gs_quote!(generator_state(result) => (let #result = {
+    #args
+  };)));
   output.extend(return_value(generator_state, &signature.ret_val)?);
 
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
@@ -457,15 +461,11 @@ pub fn from_arg_buffer(
 pub fn call(
   generator_state: &mut GeneratorState,
 ) -> Result<TokenStream, V8MappingError> {
-  let GeneratorState { result, .. } = &generator_state;
-
   let mut tokens = TokenStream::new();
   for arg in &generator_state.args {
     tokens.extend(quote!( #arg , ));
   }
-  Ok(quote! {
-    let #result = Self::call( #tokens );
-  })
+  Ok(quote!(Self::call( #tokens )))
 }
 
 pub fn return_value(
