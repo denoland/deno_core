@@ -393,7 +393,7 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
   }
 }
 
-/// Converts a [`v8::String`] to an owned string.
+/// Converts a [`v8::Value`] to an owned string.
 #[inline(always)]
 pub fn to_string(scope: &mut v8::Isolate, string: &v8::Value) -> String {
   if !string.is_string() {
