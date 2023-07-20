@@ -1,7 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use super::bindings;
+use crate::runtime::jsrealm::DynImportModEvaluate;
 use super::jsrealm::JsRealmInner;
+use crate::runtime::jsrealm::ModEvaluate;
 use super::snapshot_util;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -241,20 +243,6 @@ impl DerefMut for JsRuntimeForSnapshot {
   }
 }
 
-pub(crate) struct DynImportModEvaluate {
-  load_id: ModuleLoadId,
-  module_id: ModuleId,
-  promise: v8::Global<v8::Promise>,
-  module: v8::Global<v8::Module>,
-}
-
-pub(crate) struct ModEvaluate {
-  pub(crate) promise: Option<v8::Global<v8::Promise>>,
-  pub(crate) has_evaluated: bool,
-  pub(crate) handled_promise_rejections: Vec<v8::Global<v8::Promise>>,
-  sender: oneshot::Sender<Result<(), Error>>,
-}
-
 pub struct CrossIsolateStore<T>(Arc<Mutex<CrossIsolateStoreInner<T>>>);
 
 struct CrossIsolateStoreInner<T> {
@@ -307,7 +295,7 @@ pub struct JsRuntimeState {
   pub(crate) pending_mod_evaluate: Option<ModEvaluate>,
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
-  dyn_module_evaluate_idle_counter: u32,
+  pub(crate) dyn_module_evaluate_idle_counter: u32,
   pub(crate) source_map_getter: Option<Rc<Box<dyn SourceMapGetter>>>,
   pub(crate) source_map_cache: Rc<RefCell<SourceMapCache>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
