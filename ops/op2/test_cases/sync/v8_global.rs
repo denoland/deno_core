@@ -2,8 +2,7 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
+use deno_core::v8;
+
 #[op2]
-#[string]
-pub fn op_string_return(#[string] s: Option<String>) -> Option<String> {
-    s
-}
+pub fn op_global(#[global] _g: v8::Global<v8::String>) {}

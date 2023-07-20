@@ -21,7 +21,24 @@ pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
       quote!(match &#i { None => None, Some(v) => Some(::std::ops::DerefMut::deref_mut(v)) })
     }
     Arg::OptionV8Local(_) => quote!(#i),
-    _ => unreachable!("Not a v8 arg: {arg:?}"),
+    _ => unreachable!("Not a v8 local/ref arg: {arg:?}"),
+  };
+  quote!(let #i = #arg;)
+}
+
+/// Given an [`Arg`] containing a V8 value, converts this value to itself final form.
+pub fn v8_intermediate_to_global_arg(
+  deno_core: &TokenStream,
+  isolate: &Ident,
+  i: &Ident,
+  arg: &Arg,
+) -> TokenStream {
+  let arg = match arg {
+    Arg::V8Global(_) => quote!(#deno_core::v8::Global::new(&mut #isolate, #i)),
+    Arg::OptionV8Global(_) => {
+      quote!(#deno_core::v8::Global::new(&mut #isolate, #i))
+    }
+    _ => unreachable!("Not a v8 global arg: {arg:?}"),
   };
   quote!(let #i = #arg;)
 }

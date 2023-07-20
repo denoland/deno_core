@@ -38,9 +38,8 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 #[op2(core)]
 pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
-  cb: v8::Local<'a, v8::Function>,
+  #[global] cb: v8::Global<v8::Function>,
 ) -> Option<v8::Local<'a, v8::Function>> {
-  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .borrow_mut()
@@ -686,9 +685,8 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
 #[op2(core)]
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
-  cb: v8::Local<v8::Function>,
+  #[global] cb: v8::Global<v8::Function>,
 ) -> Result<(), Error> {
-  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let mut context_state = context_state_rc.borrow_mut();
   // The callback to pass to the v8 API has to be a unit type, so it can't
@@ -850,9 +848,8 @@ pub fn op_apply_source_map(
 #[op2(core)]
 pub fn op_set_format_exception_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
-  cb: v8::Local<'a, v8::Function>,
+  #[global] cb: v8::Global<v8::Function>,
 ) -> Option<v8::Local<'a, v8::Value>> {
-  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .borrow_mut()
@@ -870,43 +867,39 @@ pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
 #[op2(core)]
 pub fn op_store_pending_promise_rejection(
   scope: &mut v8::HandleScope,
-  promise: v8::Local<v8::Promise>,
-  reason: v8::Local<v8::Value>,
+  #[global] promise: v8::Global<v8::Promise>,
+  #[global] reason: v8::Global<v8::Value>,
 ) {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let mut context_state = context_state_rc.borrow_mut();
-  let promise_global = v8::Global::new(scope, promise);
-  let error_global = v8::Global::new(scope, reason);
   context_state
     .pending_promise_rejections
-    .push_back((promise_global, error_global));
+    .push_back((promise, reason));
 }
 
 #[op2(core)]
 pub fn op_remove_pending_promise_rejection(
   scope: &mut v8::HandleScope,
-  promise: v8::Local<v8::Promise>,
+  #[global] promise: v8::Global<v8::Promise>,
 ) {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let mut context_state = context_state_rc.borrow_mut();
-  let promise_global = v8::Global::new(scope, promise);
   context_state
     .pending_promise_rejections
-    .retain(|(key, _)| key != &promise_global);
+    .retain(|(key, _)| key != &promise);
 }
 
 #[op2(core)]
 pub fn op_has_pending_promise_rejection(
   scope: &mut v8::HandleScope,
-  promise: v8::Local<v8::Promise>,
+  #[global] promise: v8::Global<v8::Promise>,
 ) -> bool {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let context_state = context_state_rc.borrow();
-  let promise_global = v8::Global::new(scope, promise);
   context_state
     .pending_promise_rejections
     .iter()
-    .any(|(key, _)| key == &promise_global)
+    .any(|(key, _)| key == &promise)
 }
 
 #[op2(core)]
