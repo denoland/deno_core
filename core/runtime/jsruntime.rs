@@ -1,9 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use super::bindings;
-use crate::runtime::jsrealm::DynImportModEvaluate;
 use super::jsrealm::JsRealmInner;
-use crate::runtime::jsrealm::ModEvaluate;
 use super::snapshot_util;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -27,6 +25,8 @@ use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
 use crate::ops::*;
+use crate::runtime::jsrealm::DynImportModEvaluate;
+use crate::runtime::jsrealm::ModEvaluate;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::source_map::SourceMapCache;
