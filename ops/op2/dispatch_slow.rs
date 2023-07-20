@@ -64,7 +64,8 @@ pub(crate) fn generate_dispatch_slow(
   output.extend(call(generator_state)?);
   output.extend(return_value(generator_state, &signature.ret_val)?);
 
-  let with_isolate = if generator_state.needs_isolate {
+  // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
+  let with_isolate = if generator_state.needs_isolate && !generator_state.needs_scope {
     with_isolate(generator_state)
   } else {
     quote!()
@@ -120,8 +121,8 @@ pub(crate) fn with_isolate(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
   generator_state.needs_opctx = true;
-  gs_quote!(generator_state(opctx, isolate) =>
-    (let mut #isolate = unsafe { &mut *#opctx.isolate };)
+  gs_quote!(generator_state(opctx, scope) =>
+    (let mut #scope = unsafe { &mut *#opctx.isolate };)
   )
 }
 
@@ -186,7 +187,6 @@ pub fn from_arg(
     deno_core,
     args,
     scope,
-    isolate,
     opstate,
     needs_scope,
     needs_isolate,
@@ -249,35 +249,39 @@ pub fn from_arg(
       }
     }
     Arg::Option(Special::String) => {
+      // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
         } else {
-          Some(#deno_core::_ops::to_string(#isolate, &#arg_ident))
+          Some(#deno_core::_ops::to_string(&mut #scope, &#arg_ident))
         };
       }
     }
     Arg::Special(Special::String) => {
+      // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
-        let #arg_ident = #deno_core::_ops::to_string(#isolate, &#arg_ident);
+        let #arg_ident = #deno_core::_ops::to_string(&mut #scope, &#arg_ident);
       }
     }
     Arg::Special(Special::RefStr) => {
+      // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
         // Trade stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = &#deno_core::_ops::to_str(#isolate, &#arg_ident, &mut #arg_temp);
+        let #arg_ident = &#deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Special(Special::CowStr) => {
+      // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
         // Trade stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = #deno_core::_ops::to_str(#isolate, &#arg_ident, &mut #arg_temp);
+        let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
     Arg::Buffer(buffer) => {
@@ -353,13 +357,14 @@ pub fn from_arg(
       )?
     }
     Arg::V8Global(v8) | Arg::OptionV8Global(v8) => {
+      // Only requires isolate, not a full scope
       *needs_isolate = true;
       let deno_core = deno_core.clone();
-      let isolate = isolate.clone();
+      let scope = scope.clone();
       let throw_type_error =
         || throw_type_error(generator_state, format!("expected {v8:?}"));
       let extract_intermediate =
-        v8_intermediate_to_global_arg(&deno_core, &isolate, &arg_ident, arg);
+        v8_intermediate_to_global_arg(&deno_core, &scope, &arg_ident, arg);
       v8_to_arg(
         v8,
         &arg_ident,

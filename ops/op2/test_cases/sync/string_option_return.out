@@ -30,16 +30,11 @@ impl op_string_return {
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
-        };
-        let mut isolate = unsafe { &mut *opctx.isolate };
         let arg0 = args.get(0usize as i32);
         let arg0 = if arg0.is_null_or_undefined() {
             None
         } else {
-            Some(deno_core::_ops::to_string(isolate, &arg0))
+            Some(deno_core::_ops::to_string(&mut scope, &arg0))
         };
         let result = Self::call(arg0);
         if let Some(result) = result {

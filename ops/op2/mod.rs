@@ -201,7 +201,6 @@ fn generate_op2(
   let result = Ident::new("result", Span::call_site());
   let fn_args = Ident::new("args", Span::call_site());
   let scope = Ident::new("scope", Span::call_site());
-  let isolate = Ident::new("isolate", Span::call_site());
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
   let opstate = Ident::new("opstate", Span::call_site());
@@ -224,7 +223,6 @@ fn generate_op2(
     fn_args,
     call,
     scope,
-    isolate,
     info,
     opctx,
     opstate,

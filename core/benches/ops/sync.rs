@@ -15,6 +15,7 @@ deno_core::extension!(
     op_local_scope,
     op_local_nofast,
     op_global,
+    op_global_scope,
   ],
   state = |state| {
     state.put(1234u32);
@@ -62,6 +63,9 @@ pub fn op_local_nofast(_s: v8::Local<v8::String>) {}
 
 #[op2]
 pub fn op_global(#[global] _s: v8::Global<v8::String>) {}
+
+#[op2]
+pub fn op_global_scope(_scope: &mut v8::HandleScope, #[global] _s: v8::Global<v8::String>) {}
 
 fn bench_op(
   b: &mut Bencher,
@@ -290,6 +294,11 @@ fn bench_op_v8_global(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_global", 1, "op_global('this is a reasonably long string that we would like to get the length of!');");
 }
 
+/// A function that takes a v8::Global<String>
+fn bench_op_v8_global_scope(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_global_scope", 1, "op_global_scope('this is a reasonably long string that we would like to get the length of!');");
+}
+
 benchmark_group!(
   benches,
   baseline,
@@ -311,6 +320,7 @@ benchmark_group!(
   bench_op_v8_local_scope,
   bench_op_v8_local_nofast,
   bench_op_v8_global,
+  bench_op_v8_global_scope,
 );
 
 benchmark_main!(benches);
