@@ -65,7 +65,11 @@ pub fn op_local_nofast(_s: v8::Local<v8::String>) {}
 pub fn op_global(#[global] _s: v8::Global<v8::String>) {}
 
 #[op2]
-pub fn op_global_scope(_scope: &mut v8::HandleScope, #[global] _s: v8::Global<v8::String>) {}
+pub fn op_global_scope(
+  _scope: &mut v8::HandleScope,
+  #[global] _s: v8::Global<v8::String>,
+) {
+}
 
 fn bench_op(
   b: &mut Bencher,

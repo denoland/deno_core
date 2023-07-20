@@ -65,11 +65,12 @@ pub(crate) fn generate_dispatch_slow(
   output.extend(return_value(generator_state, &signature.ret_val)?);
 
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
-  let with_isolate = if generator_state.needs_isolate && !generator_state.needs_scope {
-    with_isolate(generator_state)
-  } else {
-    quote!()
-  };
+  let with_isolate =
+    if generator_state.needs_isolate && !generator_state.needs_scope {
+      with_isolate(generator_state)
+    } else {
+      quote!()
+    };
 
   let with_scope = if generator_state.needs_scope {
     with_scope(generator_state)
