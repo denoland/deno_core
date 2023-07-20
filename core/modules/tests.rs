@@ -1250,3 +1250,109 @@ fn import_meta_snapshot() {
     )
     .unwrap();
 }
+
+#[tokio::test]
+async fn no_duplicate_loads() {
+  // Both of these imports will cause redirects - ie. their "found" specifier
+  // will be different than requested specifier.
+  const MAIN_SRC: &str = r#"
+  import "https://example.com/foo.js";
+  import "https://example.com/bar.js";
+  "#;
+
+  // foo.js is importing bar.js that is already redirected
+  const FOO_SRC: &str = r#"
+  import "https://example.com/v1/bar.js";
+  "#;
+
+  struct ConsumingLoader {
+    pub files: Rc<RefCell<HashMap<String, Option<String>>>>,
+  }
+
+  impl Default for ConsumingLoader {
+    fn default() -> Self {
+      let files = HashMap::from_iter([
+        (
+          "https://example.com/v1/foo.js".to_string(),
+          Some(FOO_SRC.to_string()),
+        ),
+        (
+          "https://example.com/v1/bar.js".to_string(),
+          Some("".to_string()),
+        ),
+        ("file:///main.js".to_string(), Some(MAIN_SRC.to_string())),
+      ]);
+      Self {
+        files: Rc::new(RefCell::new(files)),
+      }
+    }
+  }
+
+  impl ModuleLoader for ConsumingLoader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      let referrer = if referrer == "." {
+        "file:///"
+      } else {
+        referrer
+      };
+
+      Ok(resolve_import(specifier, referrer)?)
+    }
+
+    fn load(
+      &self,
+      module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      let found_specifier =
+        if module_specifier.as_str() == "https://example.com/foo.js" {
+          Some("https://example.com/v1/foo.js".to_string())
+        } else if module_specifier.as_str() == "https://example.com/bar.js" {
+          Some("https://example.com/v1/bar.js".to_string())
+        } else {
+          None
+        };
+
+      let mut files = self.files.borrow_mut();
+      eprintln!(
+        "getting specifier {} {:?}",
+        module_specifier.as_str(),
+        found_specifier
+      );
+      let source_code = if let Some(found) = &found_specifier {
+        files.get_mut(found).unwrap().take().unwrap()
+      } else {
+        files
+          .get_mut(module_specifier.as_str())
+          .unwrap()
+          .take()
+          .unwrap()
+      };
+      let module_source = ModuleSource {
+        code: ModuleCode::from(source_code),
+        module_type: ModuleType::JavaScript,
+        module_url_specified: module_specifier.clone().into(),
+        module_url_found: found_specifier.map(|s| s.into()),
+      };
+      async move { Ok(module_source) }.boxed_local()
+    }
+  }
+
+  let loader = Rc::new(ConsumingLoader::default());
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///main.js").unwrap();
+  let a_id = runtime.load_main_module(&spec, None).await.unwrap();
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(a_id);
+  runtime.run_event_loop(false).await.unwrap();
+}

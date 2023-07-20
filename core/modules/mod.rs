@@ -242,7 +242,7 @@ pub(crate) type PrepareLoadFuture =
 pub type ModuleSourceFuture = dyn Future<Output = Result<ModuleSource, Error>>;
 
 type ModuleLoadFuture =
-  dyn Future<Output = Result<(ModuleRequest, ModuleSource), Error>>;
+  dyn Future<Output = Result<Option<(ModuleRequest, ModuleSource)>, Error>>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResolutionKind {
@@ -290,6 +290,7 @@ pub(crate) struct RecursiveModuleLoad {
   module_map_rc: Rc<RefCell<ModuleMap>>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
   visited: HashSet<ModuleRequest>,
+  visited_as_alias: Rc<RefCell<HashSet<String>>>,
   // The loader is copied from `module_map_rc`, but its reference is cloned
   // ahead of time to avoid already-borrowed errors.
   loader: Rc<dyn ModuleLoader>,
@@ -350,6 +351,7 @@ impl RecursiveModuleLoad {
       loader,
       pending: FuturesUnordered::new(),
       visited: HashSet::new(),
+      visited_as_alias: Default::default(),
     };
     // FIXME(bartlomieju): this seems fishy
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
@@ -513,7 +515,12 @@ impl RecursiveModuleLoad {
         .unwrap()
         .clone();
       for module_request in imports {
-        if !self.visited.contains(&module_request) {
+        if !self.visited.contains(&module_request)
+          && !self
+            .visited_as_alias
+            .borrow()
+            .contains(&module_request.specifier)
+        {
           if let Some(module_id) = self.module_map_rc.borrow().get_id(
             module_request.specifier.as_str(),
             module_request.asserted_module_type,
@@ -523,14 +530,29 @@ impl RecursiveModuleLoad {
             let request = module_request.clone();
             let specifier =
               ModuleSpecifier::parse(&module_request.specifier).unwrap();
+            let visited_as_alias = self.visited_as_alias.clone();
             let referrer = referrer.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
             let fut = async move {
+              // `visited_as_alias` unlike `visited` is checked as late as
+              // possible because it can only be populated after completed
+              // loads, meaning a duplicate load future may have already been
+              // dispatched before we know it's a duplicate.
+              if visited_as_alias.borrow().contains(specifier.as_str()) {
+                return Ok(None);
+              }
               let load_result = loader
                 .load(&specifier, Some(&referrer), is_dynamic_import)
                 .await;
-              load_result.map(|s| (request, s))
+              if let Ok(source) = &load_result {
+                if let Some(found_specifier) = &source.module_url_found {
+                  visited_as_alias
+                    .borrow_mut()
+                    .insert(found_specifier.as_str().to_string());
+                }
+              }
+              load_result.map(|s| Some((request, s)))
             };
             self.pending.push(fut.boxed_local());
           }
@@ -590,7 +612,7 @@ impl Stream for RecursiveModuleLoad {
             Default::default(),
             &module_specifier,
           );
-          futures::future::ok((module_request, module_source)).boxed()
+          futures::future::ok(Some((module_request, module_source))).boxed()
         } else {
           let maybe_referrer = match inner.init {
             LoadInit::DynamicImport(_, ref referrer, _) => {
@@ -616,7 +638,7 @@ impl Stream for RecursiveModuleLoad {
                 is_dynamic_import,
               )
               .await;
-            result.map(|s| (module_request, s))
+            result.map(|s| Some((module_request, s)))
           }
           .boxed_local()
         };
@@ -627,7 +649,15 @@ impl Stream for RecursiveModuleLoad {
       LoadState::LoadingRoot | LoadState::LoadingImports => {
         match inner.pending.try_poll_next_unpin(cx)? {
           Poll::Ready(None) => unreachable!(),
-          Poll::Ready(Some(info)) => Poll::Ready(Some(Ok(info))),
+          Poll::Ready(Some(None)) => {
+            if inner.pending.is_empty() {
+              inner.state = LoadState::Done;
+              Poll::Ready(None)
+            } else {
+              Poll::Pending
+            }
+          }
+          Poll::Ready(Some(Some(info))) => Poll::Ready(Some(Ok(info))),
           Poll::Pending => Poll::Pending,
         }
       }
