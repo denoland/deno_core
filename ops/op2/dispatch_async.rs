@@ -1,12 +1,11 @@
-use proc_macro2::TokenStream;
-use quote::quote;
-
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::dispatch_slow::call;
 use super::dispatch_slow::extract_arg;
 use super::dispatch_slow::from_arg;
 use super::dispatch_slow::return_value_infallible;
 use super::dispatch_slow::return_value_result;
 use super::dispatch_slow::return_value_v8_value;
+use super::dispatch_slow::throw_exception;
 use super::dispatch_slow::with_fn_args;
 use super::dispatch_slow::with_opctx;
 use super::dispatch_slow::with_opstate;
@@ -16,6 +15,9 @@ use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
 use super::V8MappingError;
+use crate::op2::generator_state::gs_quote;
+use proc_macro2::TokenStream;
+use quote::quote;
 
 pub(crate) fn generate_dispatch_async(
   generator_state: &mut GeneratorState,
@@ -48,19 +50,11 @@ pub(crate) fn generate_dispatch_async(
   generator_state.needs_retval = true;
 
   let return_value = match &signature.ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => return_value_v8_value(
-      &generator_state.deno_core,
-      &generator_state.scope,
-      &generator_state.result,
-      r,
-    )?,
+    RetVal::Future(r) | RetVal::ResultFuture(r) => {
+      return_value_v8_value(generator_state, r)?
+    }
     RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => {
-      return_value_v8_value(
-        &generator_state.deno_core,
-        &generator_state.scope,
-        &generator_state.result,
-        r,
-      )?
+      return_value_v8_value(generator_state, r)?
     }
     RetVal::Infallible(r) | RetVal::Result(r) => {
       return Err(V8MappingError::NoMapping("an async return", r.clone()))
@@ -82,27 +76,24 @@ pub(crate) fn generate_dispatch_async(
 
   output.extend(deferred);
   output.extend(call(generator_state)?);
-  let result = &generator_state.result;
-  let opctx = &generator_state.opctx;
-  let scope = &generator_state.scope;
-  let fn_args = &generator_state.fn_args;
-  let promise_id = &generator_state.promise_id;
-  let deno_core = &generator_state.deno_core;
 
   if matches!(
     signature.ret_val,
     RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
   ) {
-    output.extend(quote! {
-      todo!("result of future currently not implemented");
-      let Ok(#result) = #result else {
-        // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
-        // TODO(mmastrac): This is unimplemented
+    let exception = throw_exception(generator_state)?;
+    output.extend(gs_quote!(generator_state(result) => {
+      let #result = match #result {
+        Ok(#result) => #result,
+        Err(err) => {
+          // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
+          #exception
+        }
       };
-    });
+    }));
   }
 
-  output.extend(quote! {
+  output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
     // TODO(mmastrac): We are extending the eager polling behaviour temporarily to op2, but I would like to get
     // rid of it as soon as we can
     let #promise_id = #deno_core::_ops::to_i32(&#fn_args.get(0));
@@ -112,7 +103,7 @@ pub(crate) fn generate_dispatch_async(
       // Eager poll returned a value
       #return_value_immediate
     }
-  });
+  }));
 
   let with_scope = if generator_state.needs_scope {
     with_scope(generator_state)

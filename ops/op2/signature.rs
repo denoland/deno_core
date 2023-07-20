@@ -214,6 +214,7 @@ pub enum Arg {
   Option(Special),
   OptionNumeric(NumericArg),
   OptionV8Local(V8Arg),
+  OptionV8Global(V8Arg),
   V8Local(V8Arg),
   V8Global(V8Arg),
   OptionV8Ref(RefType, V8Arg),
@@ -258,6 +259,7 @@ impl Arg {
       Arg::V8Ref(RefType::Ref, v8) => quote!(&#deno_core::v8::#v8),
       Arg::V8Ref(RefType::Mut, v8) => quote!(&mut #deno_core::v8::#v8),
       Arg::V8Local(v8) => quote!(#deno_core::v8::Local<#deno_core::v8::#v8>),
+      Arg::V8Global(v8) => quote!(#deno_core::v8::Global<#deno_core::v8::#v8>),
       Arg::OptionV8Ref(RefType::Ref, v8) => {
         quote!(::std::option::Option<&#deno_core::v8::#v8>)
       }
@@ -266,6 +268,9 @@ impl Arg {
       }
       Arg::OptionV8Local(v8) => {
         quote!(::std::option::Option<#deno_core::v8::Local<#deno_core::v8::#v8>>)
+      }
+      Arg::OptionV8Global(v8) => {
+        quote!(::std::option::Option<#deno_core::v8::Global<#deno_core::v8::#v8>>)
       }
       _ => todo!(),
     }
@@ -277,6 +282,7 @@ impl Arg {
       self,
       Arg::OptionV8Ref(..)
         | Arg::OptionV8Local(..)
+        | Arg::OptionV8Global(..)
         | Arg::OptionNumeric(..)
         | Arg::Option(..)
         | Arg::OptionState(..)
@@ -298,6 +304,7 @@ pub enum ParsedTypeContainer {
   COption(ParsedType),
   CRcRefCell(ParsedType),
   COptionV8Local(ParsedType),
+  COptionV8Global(ParsedType),
   CV8Local(ParsedType),
   CV8Global(ParsedType),
 }
@@ -372,6 +379,8 @@ pub enum AttributeModifier {
   State,
   /// #[buffer], for buffers.
   Buffer(BufferMode),
+  /// #[global], for [`v8::Global`]s
+  Global,
 }
 
 #[derive(Error, Debug)]
@@ -432,6 +441,8 @@ pub enum ArgError {
   InvalidBufferMode(String, String),
   #[error("Cannot use #[serde] for type: {0}")]
   InvalidSerdeAttributeType(String),
+  #[error("Invalid #[global] type: {0}")]
+  InvalidGlobalType(String),
   #[error("Invalid v8 type: {0}")]
   InvalidV8Type(String),
   #[error("Internal error: {0}")]
@@ -440,6 +451,8 @@ pub enum ArgError {
   MissingStringAttribute,
   #[error("Missing a #[buffer] attribute")]
   MissingBufferAttribute,
+  #[error("Missing a #[global] attribute")]
+  MissingGlobalAttribute,
   #[error("Invalid #[state] type '{0}'")]
   InvalidStateType(String),
   #[error("Argument attribute error")]
@@ -673,6 +686,7 @@ fn parse_attribute(
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
       (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy)),
       (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach)),
+      (#[global]) => Some(AttributeModifier::Global),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
     })
@@ -752,6 +766,7 @@ fn parse_type_path(
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
+          Arg::V8Global(v8) => Ok(COptionV8Global(TV8(v8))),
           _ => Err(ArgError::InvalidType(stringify_token(ty)))
         }
       }
@@ -778,6 +793,11 @@ fn parse_type_path(
   }
 
   match res {
+    CV8Global(_) => {
+      if attrs.primary != Some(AttributeModifier::Global) {
+        return Err(ArgError::MissingGlobalAttribute);
+      }
+    }
     CBare(TSpecial(Special::RefStr | Special::CowStr | Special::String)) => {
       if attrs.primary != Some(AttributeModifier::String) {
         return Err(ArgError::MissingStringAttribute);
@@ -802,9 +822,15 @@ fn parse_type_path(
       if let Some(AttributeModifier::Buffer(_)) = attrs.primary {
         return Err(ArgError::InvalidBufferType(stringify_token(tp)));
       }
+      if attrs.primary == Some(AttributeModifier::Global) {
+        return Err(ArgError::InvalidGlobalType(stringify_token(tp)));
+      }
     }
     _ => {
       // Ignore for other containers
+      if attrs.primary == Some(AttributeModifier::Global) {
+        return Err(ArgError::InvalidGlobalType(stringify_token(tp)));
+      }
     }
   }
 
@@ -902,10 +928,9 @@ pub(crate) fn parse_type(
       AttributeModifier::State => {
         return parse_type_state(ty);
       }
-      AttributeModifier::String => {
-        // We handle this as part of the normal parsing process
-      }
-      AttributeModifier::Buffer(_) => {
+      AttributeModifier::String
+      | AttributeModifier::Buffer(_)
+      | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
       }
       AttributeModifier::Smi => {
@@ -1005,6 +1030,7 @@ pub(crate) fn parse_type(
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
+      COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
       COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
       COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
@@ -1175,7 +1201,7 @@ mod tests {
     <'s, AB: some::Trait, BC: OtherTrait> (Special(RefStr)) -> Infallible(Void)
   );
   test!(
-    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, s3: v8::Global<v8::String>);
+    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, #[global] s3: v8::Global<v8::String>);
     (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void)
   );
   test!(
@@ -1251,6 +1277,16 @@ mod tests {
     op_with_bad_attr2,
     ArgError("a", AttributeError(InvalidAttribute("#[badattr]"))),
     fn f(#[badattr] a: u32) {}
+  );
+  expect_fail!(
+    op_with_missing_global,
+    ArgError("g", MissingGlobalAttribute),
+    fn f(g: v8::Global<v8::String>) {}
+  );
+  expect_fail!(
+    op_with_invalid_global,
+    ArgError("l", InvalidGlobalType("v8::Local<v8::String>")),
+    fn f(#[global] l: v8::Local<v8::String>) {}
   );
 
   // Generics

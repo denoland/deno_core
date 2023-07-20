@@ -37,8 +37,51 @@ pub struct GeneratorState {
   pub needs_args: bool,
   pub needs_retval: bool,
   pub needs_scope: bool,
+  pub needs_isolate: bool,
   pub needs_opstate: bool,
   pub needs_opctx: bool,
   pub needs_fast_opctx: bool,
   pub needs_fast_api_callback_options: bool,
 }
+
+/// Quotes a set of generator_state fields, along with variables captured from
+/// the local environment.
+///
+/// Example: this will extract `deno_core`, `info` and `scope` from `generator_state`
+/// before invoking the [`quote!`] macro.
+///
+/// ```nocompile
+///  gs_quote!(generator_state(deno_core, info, scope) =>
+///    (let mut #scope = unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
+///  )
+/// ```
+macro_rules! gs_quote {
+  ($generator_state:ident( $($idents:ident),* ) => $quotable:tt) => {
+    {
+      $(
+        let $idents = &$generator_state.$idents;
+      )*
+      quote! $quotable
+    }
+  }
+}
+
+/// Extracts GeneratorState vars into the local scope.
+///
+/// Example:
+///
+/// Extracts `deno_core` from `generator_state` into a local variable. Equivalent to `let deno_core = &generator_state.deno_core`.
+///
+/// ```nocompile
+/// gs_extract!(generator_state(deno_core))
+/// ```
+macro_rules! gs_extract {
+  ($generator_state:ident( $($idents:ident),* )) => {
+    $(
+      let $idents = &$generator_state.$idents;
+    )*
+  }
+}
+
+pub(crate) use gs_extract;
+pub(crate) use gs_quote;

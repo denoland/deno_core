@@ -1,42 +1,26 @@
 #[allow(non_camel_case_types)]
-struct op_string_owned {
+pub struct op_global {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_string_owned {
-    const NAME: &'static str = stringify!(op_string_owned);
+impl deno_core::_ops::Op for op_global {
+    const NAME: &'static str = stringify!(op_global);
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
-        stringify!(op_string_owned),
+        stringify!(op_global),
         false,
         false,
         false,
         1usize as u8,
         Self::v8_fn_ptr as _,
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new(
-                &[Type::V8Value, Type::SeqOneByteString],
-                CType::Uint32,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-            )
-        }),
+        None,
     );
 }
-impl op_string_owned {
+impl op_global {
     pub const fn name() -> &'static str {
-        stringify!(op_string_owned)
+        stringify!(op_global)
     }
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
-    }
-    fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
-        arg0: *mut deno_core::v8::fast_api::FastApiOneByteString,
-    ) -> u32 {
-        let arg0 = deno_core::_ops::to_string_ptr(unsafe { &mut *arg0 });
-        let result = Self::call(arg0);
-        result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
@@ -51,12 +35,24 @@ impl op_string_owned {
         };
         let mut scope = unsafe { &mut *opctx.isolate };
         let arg0 = args.get(0usize as i32);
-        let arg0 = deno_core::_ops::to_string(&mut scope, &arg0);
+        let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
+            deno_core::v8::String,
+        >(arg0) else {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let msg = deno_core::v8::String::new_from_one_byte(
+                &mut scope,
+                "expected String".as_bytes(),
+                deno_core::v8::NewStringType::Normal,
+            )
+            .unwrap();
+        let exc = deno_core::v8::Exception::error(&mut scope, msg);
+        scope.throw_exception(exc);
+        return;
+    };
+        let arg0 = deno_core::v8::Global::new(&mut scope, arg0);
         let result = Self::call(arg0);
-        rv.set_uint32(result as u32);
+        rv.set_null();
     }
     #[inline(always)]
-    fn call(s: String) -> u32 {
-        s.len() as _
-    }
+    pub fn call(_g: v8::Global<v8::String>) {}
 }

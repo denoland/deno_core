@@ -51,17 +51,17 @@ impl Hasher for IdentityHasher {
 }
 
 pub(crate) struct DynImportModEvaluate {
-  load_id: ModuleLoadId,
-  module_id: ModuleId,
-  promise: v8::Global<v8::Promise>,
-  module: v8::Global<v8::Module>,
+  pub(crate) load_id: ModuleLoadId,
+  pub(crate) module_id: ModuleId,
+  pub(crate) promise: v8::Global<v8::Promise>,
+  pub(crate) module: v8::Global<v8::Module>,
 }
 
 pub(crate) struct ModEvaluate {
   pub(crate) promise: Option<v8::Global<v8::Promise>>,
   pub(crate) has_evaluated: bool,
   pub(crate) handled_promise_rejections: Vec<v8::Global<v8::Promise>>,
-  sender: oneshot::Sender<Result<(), Error>>,
+  pub(crate) sender: oneshot::Sender<Result<(), Error>>,
 }
 
 #[derive(Default)]

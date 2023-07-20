@@ -24,6 +24,7 @@ use std::sync::Arc;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::CTypeInfo;
 use v8::fast_api::Int64Representation;
+use v8::Isolate;
 
 pub type PromiseId = i32;
 pub type OpId = u16;
@@ -125,6 +126,8 @@ pub fn to_op_result<R: Serialize + 'static>(
 // stored in a contiguous array.
 pub struct OpCtx {
   pub id: OpId,
+  /// A stashed Isolate that ops can use in callbacks
+  pub isolate: *mut Isolate,
   pub state: Rc<RefCell<OpState>>,
   pub decl: Rc<OpDecl>,
   pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
@@ -137,6 +140,7 @@ pub struct OpCtx {
 impl OpCtx {
   pub(crate) fn new(
     id: OpId,
+    isolate: *mut Isolate,
     context_state: Rc<RefCell<ContextState>>,
     decl: Rc<OpDecl>,
     state: Rc<RefCell<OpState>>,
@@ -171,6 +175,7 @@ impl OpCtx {
       context_state,
       fast_fn_c_info,
       last_fast_error: UnsafeCell::new(None),
+      isolate,
     }
   }
 
