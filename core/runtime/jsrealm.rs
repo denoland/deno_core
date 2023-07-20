@@ -3,6 +3,7 @@ use super::bindings;
 use crate::error::exception_to_err_result;
 use crate::joinset::JoinSet;
 use crate::modules::ModuleCode;
+use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::runtime::JsRuntimeState;
 use crate::JsRuntime;
@@ -83,10 +84,11 @@ pub(crate) struct ContextState {
 /// ```
 /// use deno_core::JsRuntime;
 /// use deno_core::RuntimeOptions;
+/// use deno_core::CreateRealmOptions;
 ///
 /// let mut runtime = JsRuntime::new(RuntimeOptions::default());
 /// let new_realm = runtime
-///         .create_realm()
+///         .create_realm(CreateRealmOptions::default())
 ///         .expect("Handle the error properly");
 /// let source_code = "var a = 0; a + 1";
 /// let result = new_realm
@@ -108,22 +110,25 @@ pub struct JsRealm(pub(crate) JsRealmInner);
 pub(crate) struct JsRealmInner {
   context_state: Rc<RefCell<ContextState>>,
   context: Rc<v8::Global<v8::Context>>,
+  module_map: Rc<RefCell<ModuleMap>>,
   runtime_state: Rc<RefCell<JsRuntimeState>>,
-  is_global: bool,
+  is_main_realm: bool,
 }
 
 impl JsRealmInner {
   pub(crate) fn new(
     context_state: Rc<RefCell<ContextState>>,
     context: v8::Global<v8::Context>,
+    module_map: Rc<RefCell<ModuleMap>>,
     runtime_state: Rc<RefCell<JsRuntimeState>>,
-    is_global: bool,
+    is_main_realm: bool,
   ) -> Self {
     Self {
       context_state,
       context: context.into(),
+      module_map,
       runtime_state,
-      is_global,
+      is_main_realm,
     }
   }
 
@@ -143,6 +148,11 @@ impl JsRealmInner {
   #[inline(always)]
   pub(crate) fn state(&self) -> Rc<RefCell<ContextState>> {
     self.context_state.clone()
+  }
+
+  #[inline(always)]
+  pub(crate) fn module_map(&self) -> Rc<RefCell<ModuleMap>> {
+    self.module_map.clone()
   }
 
   /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].
@@ -214,6 +224,17 @@ impl JsRealm {
     let context = scope.get_current_context();
     context
       .get_slot::<Rc<RefCell<ContextState>>>(scope)
+      .unwrap()
+      .clone()
+  }
+
+  #[inline(always)]
+  pub(crate) fn module_map_from(
+    scope: &mut v8::HandleScope,
+  ) -> Rc<RefCell<ModuleMap>> {
+    let context = scope.get_current_context();
+    context
+      .get_slot::<Rc<RefCell<ModuleMap>>>(scope)
       .unwrap()
       .clone()
   }
@@ -345,8 +366,8 @@ impl JsRealm {
 
 impl Drop for JsRealm {
   fn drop(&mut self) {
-    // Don't do anything special with the global realm
-    if self.0.is_global {
+    // Don't do anything special with the main realm
+    if self.0.is_main_realm {
       return;
     }
 
@@ -360,6 +381,7 @@ impl Drop for JsRealm {
       assert_eq!(Rc::strong_count(&self.0.context), 1);
       self.0.clone().destroy();
       assert_eq!(Rc::strong_count(&self.0.context_state), 1);
+      assert_eq!(Rc::strong_count(&self.0.module_map), 1);
     }
   }
 }

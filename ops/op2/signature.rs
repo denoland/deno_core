@@ -18,11 +18,12 @@ use syn2::GenericParam;
 use syn2::Generics;
 use syn2::Pat;
 use syn2::Path;
-use syn2::ReturnType;
 use syn2::Signature;
 use syn2::Type;
 use syn2::TypePath;
 use thiserror::Error;
+
+use super::signature_retval::parse_return;
 
 #[allow(non_camel_case_types)]
 #[derive(
@@ -283,7 +284,7 @@ impl Arg {
   }
 }
 
-enum ParsedType {
+pub enum ParsedType {
   TSpecial(Special),
   TBuffer(Buffer),
   TV8(V8Arg),
@@ -292,7 +293,7 @@ enum ParsedType {
   TNumeric(NumericArg),
 }
 
-enum ParsedTypeContainer {
+pub enum ParsedTypeContainer {
   CBare(ParsedType),
   COption(ParsedType),
   CRcRefCell(ParsedType),
@@ -303,8 +304,31 @@ enum ParsedTypeContainer {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RetVal {
+  /// An op that can never fail.
   Infallible(Arg),
+  /// An op returning Result<Something, ...>
   Result(Arg),
+  /// An op returning a future, either `async fn() -> Something` or `fn() -> impl Future<Output = Something>`.
+  Future(Arg),
+  /// An op returning a future with a result, either `async fn() -> Result<Something, ...>`
+  /// or `fn() -> impl Future<Output = Result<Something, ...>>`.
+  FutureResult(Arg),
+  /// An op returning a result future: `fn() -> Result<impl Future<Output = Something>>`,
+  /// allowing it to exit before starting any async work.
+  ResultFuture(Arg),
+  /// An op returning a result future of a result: `fn() -> Result<impl Future<Output = Result<Something, ...>>>`,
+  /// allowing it to exit before starting any async work.
+  ResultFutureResult(Arg),
+}
+
+impl RetVal {
+  pub fn is_async(&self) -> bool {
+    use RetVal::*;
+    matches!(
+      self,
+      Future(..) | FutureResult(..) | ResultFuture(..) | ResultFutureResult(..)
+    )
+  }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -322,7 +346,7 @@ pub struct ParsedSignature {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum BufferMode {
+pub enum BufferMode {
   /// Unsafely shared buffers that may possibly change on the JavaScript side upon re-entry into
   /// V8. Rust code should not treat these as traditional buffers.
   Unsafe,
@@ -336,7 +360,7 @@ enum BufferMode {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum AttributeModifier {
+pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
@@ -355,7 +379,7 @@ pub enum SignatureError {
   #[error("Invalid argument: '{0}'")]
   ArgError(String, #[source] ArgError),
   #[error("Invalid return type")]
-  RetError(#[from] ArgError),
+  RetError(#[from] RetError),
   #[error("Only one lifetime is permitted")]
   TooManyLifetimes,
   #[error("Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)")]
@@ -375,6 +399,14 @@ pub enum SignatureError {
 }
 
 #[derive(Error, Debug)]
+pub enum AttributeError {
+  #[error("Unknown or invalid attribute '{0}'")]
+  InvalidAttribute(String),
+  #[error("Too many attributes")]
+  TooManyAttributes,
+}
+
+#[derive(Error, Debug)]
 pub enum ArgError {
   #[error("Invalid self argument")]
   InvalidSelf,
@@ -386,8 +418,6 @@ pub enum ArgError {
     "Invalid argument type path (should this be #[smi] or #[serde]?): {0}"
   )]
   InvalidTypePath(String),
-  #[error("Too many attributes")]
-  TooManyAttributes,
   #[error("The type {0} cannot be a reference")]
   InvalidReference(String),
   #[error("The type {0} must be a reference")]
@@ -412,12 +442,20 @@ pub enum ArgError {
   MissingBufferAttribute,
   #[error("Invalid #[state] type '{0}'")]
   InvalidStateType(String),
-  #[error("Unknown or invalid attribute '{0}'")]
-  InvalidAttribute(String),
+  #[error("Argument attribute error")]
+  AttributeError(#[from] AttributeError),
+}
+
+#[derive(Error, Debug)]
+pub enum RetError {
+  #[error("Invalid return type")]
+  InvalidType(#[from] ArgError),
+  #[error("Return value attribute error")]
+  AttributeError(#[from] AttributeError),
 }
 
 #[derive(Copy, Clone, Default)]
-struct Attributes {
+pub(crate) struct Attributes {
   primary: Option<AttributeModifier>,
 }
 
@@ -429,7 +467,7 @@ impl Attributes {
   }
 }
 
-fn stringify_token(tokens: impl ToTokens) -> String {
+pub(crate) fn stringify_token(tokens: impl ToTokens) -> String {
   tokens
     .into_token_stream()
     .into_iter()
@@ -460,8 +498,11 @@ pub fn parse_signature(
       parse_arg(input).map_err(|err| SignatureError::ArgError(name, err))?,
     );
   }
-  let ret_val =
-    parse_return(parse_attributes(&attributes)?, &signature.output)?;
+  let ret_val = parse_return(
+    signature.asyncness.is_some(),
+    parse_attributes(&attributes).map_err(RetError::AttributeError)?,
+    &signature.output,
+  )?;
   let lifetime = parse_lifetime(&signature.generics)?;
   let generic_bounds = parse_generics(&signature.generics)?;
 
@@ -589,7 +630,9 @@ fn parse_generics(
   Ok(res)
 }
 
-fn parse_attributes(attributes: &[Attribute]) -> Result<Attributes, ArgError> {
+fn parse_attributes(
+  attributes: &[Attribute],
+) -> Result<Attributes, AttributeError> {
   let mut attrs = vec![];
   for attr in attributes {
     if let Some(attr) = parse_attribute(attr)? {
@@ -601,7 +644,7 @@ fn parse_attributes(attributes: &[Attribute]) -> Result<Attributes, ArgError> {
     return Ok(Attributes::default());
   }
   if attrs.len() > 1 {
-    return Err(ArgError::TooManyAttributes);
+    return Err(AttributeError::TooManyAttributes);
   }
   Ok(Attributes {
     primary: Some(*attrs.get(0).unwrap()),
@@ -617,7 +660,7 @@ pub fn is_attribute_special(attr: &Attribute) -> bool {
 /// otherwise unknown (ie: doc comments).
 fn parse_attribute(
   attr: &Attribute,
-) -> Result<Option<AttributeModifier>, ArgError> {
+) -> Result<Option<AttributeModifier>, AttributeError> {
   let tokens = attr.into_token_stream();
   let res = std::panic::catch_unwind(|| {
     use syn2 as syn;
@@ -633,45 +676,8 @@ fn parse_attribute(
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
     })
-  }).map_err(|_| ArgError::InvalidAttribute(stringify_token(attr)))?;
+  }).map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
   Ok(res)
-}
-
-fn parse_return(
-  attrs: Attributes,
-  rt: &ReturnType,
-) -> Result<RetVal, ArgError> {
-  match rt {
-    ReturnType::Default => Ok(RetVal::Infallible(Arg::Void)),
-    ReturnType::Type(_, ty) => {
-      let s = stringify_token(ty);
-      let tokens = ty.into_token_stream();
-      use syn2 as syn;
-
-      std::panic::catch_unwind(|| {
-        rules!(tokens => {
-          // x::y::Result<Value>, like io::Result and other specialty result types
-          ($($_package:ident ::)* Result < $ty:ty >) => {
-            Ok(RetVal::Result(parse_type(attrs, &ty)?))
-          }
-          // x::y::Result<Value, Error>
-          ($($_package:ident ::)* Result < $ty:ty, $_error:ty >) => {
-            Ok(RetVal::Result(parse_type(attrs, &ty)?))
-          }
-          ($ty:ty) => {
-            Ok(RetVal::Infallible(parse_type(attrs, &ty)?))
-          }
-        })
-      })
-      .map_err(|e| {
-        ArgError::InternalError(format!(
-          "parse_return({}) {}",
-          s,
-          e.downcast::<&str>().unwrap_or_default()
-        ))
-      })?
-    }
-  }
 }
 
 fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
@@ -847,7 +853,10 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
-fn parse_type(attrs: Attributes, ty: &Type) -> Result<Arg, ArgError> {
+pub(crate) fn parse_type(
+  attrs: Attributes,
+  ty: &Type,
+) -> Result<Arg, ArgError> {
   use ParsedType::*;
   use ParsedTypeContainer::*;
 
@@ -1026,7 +1035,9 @@ mod tests {
       // Function attributes
       $(# [ $fn_attr:meta ])?
       // fn name < 'scope, GENERIC1, GENERIC2, ... >
-      fn $name:ident $( < $scope:lifetime $( , $generic:ident)* >)?
+      $(async fn $name1:ident)?
+      $(fn $name2:ident)?
+      $( < $scope:lifetime $( , $generic:ident)* >)?
       (
         // Argument attribute, argument
         $( $(# [ $attr:meta ])? $ident:ident : $ty:ty ),*
@@ -1039,9 +1050,9 @@ mod tests {
       // Expected return value
       $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:path )* >)? ( $( $arg_res:expr ),* ) -> $ret_res:expr ) => {
       #[test]
-      fn $name() {
+      fn $($name1)? $($name2)? () {
         test(
-          stringify!($( #[$fn_attr] )? fn op $( < $scope $( , $generic)* >)? ( $( $( #[$attr] )? $ident : $ty ),* ) $(-> $( #[$ret_attr] )? $ret)? $( where $($trait : $bounds),* )? {}),
+          stringify!($( #[$fn_attr] )? $(async fn $name1)? $(fn $name2)? $( < $scope $( , $generic)* >)? ( $( $( #[$attr] )? $ident : $ty ),* ) $(-> $( #[$ret_attr] )? $ret)? $( where $($trait : $bounds),* )? {}),
           stringify!($( < $( $lifetime_res )? $(, $generic_res : $bounds_res)* > )?),
           stringify!($($arg_res),*),
           stringify!($ret_res)
@@ -1187,7 +1198,22 @@ mod tests {
     #[buffer(copy)] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JSBuffer) -> Vec<u8>;
     (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JSBuffer)) -> Infallible(Buffer(Vec(u8)))
   );
-
+  test!(
+    async fn op_async_void();
+    () -> Future(Void)
+  );
+  test!(
+    async fn op_async_result_void() -> Result<()>;
+    () -> FutureResult(Void)
+  );
+  test!(
+    fn op_async_impl_void() -> impl Future<Output = ()>;
+    () -> Future(Void)
+  );
+  test!(
+    fn op_async_result_impl_void() -> Result<impl Future<Output = ()>, Error>;
+    () -> ResultFuture(Void)
+  );
   // Args
 
   expect_fail!(
@@ -1217,13 +1243,13 @@ mod tests {
   );
   expect_fail!(
     op_with_bad_attr,
-    RetError(InvalidAttribute("#[badattr]")),
+    RetError(AttributeError(InvalidAttribute("#[badattr]"))),
     #[badattr]
     fn f() {}
   );
   expect_fail!(
     op_with_bad_attr2,
-    ArgError("a", InvalidAttribute("#[badattr]")),
+    ArgError("a", AttributeError(InvalidAttribute("#[badattr]"))),
     fn f(#[badattr] a: u32) {}
   );
 
@@ -1275,11 +1301,4 @@ mod tests {
     ArgError("v", InvalidSerdeType("serde_v8::Value", "use v8::Value")),
     fn f(#[serde] v: serde_v8::Value) {}
   );
-
-  #[test]
-  fn test_parse_result() {
-    let rt = parse_str::<ReturnType>("-> Result < (), Error >")
-      .expect("Failed to parse");
-    println!("{:?}", parse_return(Attributes::default(), &rt));
-  }
 }

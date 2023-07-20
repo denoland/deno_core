@@ -36,5 +36,7 @@ impl op_string_return {
         }
     }
     #[inline(always)]
-    pub fn call() -> String {}
+    pub fn call() -> String {
+        "".into()
+    }
 }

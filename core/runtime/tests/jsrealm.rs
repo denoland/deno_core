@@ -16,12 +16,12 @@ use std::task::Poll;
 #[tokio::test]
 async fn test_set_promise_reject_callback_realms() {
   let mut runtime = JsRuntime::new(RuntimeOptions::default());
-  let global_realm = runtime.global_realm();
-  let realm1 = runtime.create_realm().unwrap();
-  let realm2 = runtime.create_realm().unwrap();
+  let main_realm = runtime.main_realm();
+  let realm1 = runtime.create_realm(Default::default()).unwrap();
+  let realm2 = runtime.create_realm(Default::default()).unwrap();
 
   let realm_expectations = &[
-    (&global_realm, "global_realm", 42),
+    (&main_realm, "main_realm", 42),
     (&realm1, "realm1", 140),
     (&realm2, "realm2", 720),
   ];
@@ -63,14 +63,14 @@ async fn test_set_promise_reject_callback_realms() {
 #[test]
 fn js_realm_simple() {
   let mut runtime = JsRuntime::new(Default::default());
-  let main_context = runtime.global_context();
+  let main_context = runtime.main_context();
   let main_global = {
     let scope = &mut runtime.handle_scope();
     let local_global = main_context.open(scope).global(scope);
     v8::Global::new(scope, local_global)
   };
 
-  let realm = runtime.create_realm().unwrap();
+  let realm = runtime.create_realm(Default::default()).unwrap();
   assert_ne!(realm.context(), &main_context);
   assert_ne!(realm.global_object(runtime.v8_isolate()), main_global);
 
@@ -93,7 +93,7 @@ fn js_realm_init() {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
-  let realm = runtime.create_realm().unwrap();
+  let realm = runtime.create_realm(Default::default()).unwrap();
   let ret = realm
     .execute_script_static(runtime.v8_isolate(), "", "Deno.core.ops.op_test()")
     .unwrap();
@@ -122,7 +122,7 @@ fn js_realm_init_snapshot() {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
-  let realm = runtime.create_realm().unwrap();
+  let realm = runtime.create_realm(Default::default()).unwrap();
   let ret = realm
     .execute_script_static(runtime.v8_isolate(), "", "Deno.core.ops.op_test()")
     .unwrap();
@@ -155,10 +155,10 @@ fn js_realm_sync_ops() {
     }),
     ..Default::default()
   });
-  let new_realm = runtime.create_realm().unwrap();
+  let new_realm = runtime.create_realm(Default::default()).unwrap();
 
   // Test in both realms
-  for realm in [runtime.global_realm(), new_realm].into_iter() {
+  for realm in [runtime.main_realm(), new_realm].into_iter() {
     let ret = realm
       .execute_script_static(
         runtime.v8_isolate(),
@@ -204,13 +204,13 @@ async fn js_realm_async_ops() {
     ..Default::default()
   });
 
-  let global_realm = runtime.global_realm();
-  let new_realm = runtime.create_realm().unwrap();
+  let main_realm = runtime.main_realm();
+  let new_realm = runtime.create_realm(Default::default()).unwrap();
 
   let mut rets = vec![];
 
   // Test in both realms
-  for realm in [global_realm, new_realm].into_iter() {
+  for realm in [main_realm, new_realm].into_iter() {
     let ret = realm
       .execute_script_static(
         runtime.v8_isolate(),
@@ -286,7 +286,7 @@ async fn js_realm_gc() {
     .put(opstate_drop_detect.clone());
   assert_eq!(Rc::strong_count(&opstate_drop_detect), 2);
 
-  let other_realm = runtime.create_realm().unwrap();
+  let other_realm = runtime.create_realm(Default::default()).unwrap();
   other_realm
     .execute_script(
       runtime.v8_isolate(),
@@ -326,8 +326,8 @@ async fn js_realm_ref_unref_ops() {
   });
 
   poll_fn(move |cx| {
-    let main_realm = runtime.global_realm();
-    let other_realm = runtime.create_realm().unwrap();
+    let main_realm = runtime.main_realm();
+    let other_realm = runtime.create_realm(Default::default()).unwrap();
 
     main_realm
       .execute_script_static(

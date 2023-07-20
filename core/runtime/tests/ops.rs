@@ -382,7 +382,7 @@ async fn test_ref_unref_ops() {
     )
     .unwrap();
   {
-    let realm = runtime.global_realm();
+    let realm = runtime.main_realm();
     assert_eq!(realm.num_pending_ops(), 2);
     assert_eq!(realm.num_unrefed_ops(), 0);
   }
@@ -396,7 +396,7 @@ async fn test_ref_unref_ops() {
     )
     .unwrap();
   {
-    let realm = runtime.global_realm();
+    let realm = runtime.main_realm();
     assert_eq!(realm.num_pending_ops(), 2);
     assert_eq!(realm.num_unrefed_ops(), 2);
   }
@@ -410,7 +410,7 @@ async fn test_ref_unref_ops() {
     )
     .unwrap();
   {
-    let realm = runtime.global_realm();
+    let realm = runtime.main_realm();
     assert_eq!(realm.num_pending_ops(), 2);
     assert_eq!(realm.num_unrefed_ops(), 0);
   }

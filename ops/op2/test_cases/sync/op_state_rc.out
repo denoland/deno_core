@@ -37,7 +37,7 @@ impl op_state_rc {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let opctx = unsafe {
             &*(deno_core::v8::Local::<
-                v8::External,
+                deno_core::v8::External,
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };
@@ -46,6 +46,9 @@ impl op_state_rc {
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
@@ -56,7 +59,8 @@ impl op_state_rc {
         let opstate = &opctx.state;
         let arg0 = opstate.clone();
         let result = Self::call(arg0);
+        rv.set_null();
     }
     #[inline(always)]
-    fn call(state: Rc<RefCell<OpState>>) {}
+    fn call(_state: Rc<RefCell<OpState>>) {}
 }

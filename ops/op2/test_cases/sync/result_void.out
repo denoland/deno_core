@@ -37,7 +37,7 @@ impl op_void_with_result {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let opctx = unsafe {
             &*(deno_core::v8::Local::<
-                v8::External,
+                deno_core::v8::External,
             >::cast(unsafe { fast_api_callback_options.data.data })
                 .value() as *const deno_core::_ops::OpCtx)
         };
@@ -55,6 +55,9 @@ impl op_void_with_result {
         result
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
@@ -67,6 +70,7 @@ impl op_void_with_result {
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
                 &*info
             });
+            let err = err.into();
             let opstate = ::std::cell::RefCell::borrow(&*opctx.state);
             let exception = deno_core::error::to_v8_error(
                 &mut scope,
@@ -78,12 +82,15 @@ impl op_void_with_result {
         }
         let result = Self::call();
         match result {
-            Ok(result) => {}
+            Ok(result) => {
+                rv.set_null();
+            }
             Err(err) => {
                 let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                 let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
                     &*info
                 });
+                let err = err.into();
                 let opstate = ::std::cell::RefCell::borrow(&*opctx.state);
                 let exception = deno_core::error::to_v8_error(
                     &mut scope,
@@ -96,5 +103,7 @@ impl op_void_with_result {
         };
     }
     #[inline(always)]
-    pub fn call() -> Result<(), AnyError> {}
+    pub fn call() -> Result<(), AnyError> {
+        Ok(())
+    }
 }

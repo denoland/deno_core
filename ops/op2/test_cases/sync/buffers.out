@@ -46,6 +46,9 @@ impl op_buffers {
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
@@ -87,7 +90,8 @@ impl op_buffers {
         };
         let arg1 = &mut arg1;
         let result = Self::call(arg0, arg1);
+        rv.set_null();
     }
     #[inline(always)]
-    fn call(a: &[u8], b: &mut [u8]) {}
+    fn call(_a: &[u8], _b: &mut [u8]) {}
 }
