@@ -1568,7 +1568,7 @@ mod tests {
   }
 
   #[op2(async, core)]
-  #[buffer(copy)]
+  #[buffer]
   async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
     let mut output = input.to_vec();
     output.reverse();
