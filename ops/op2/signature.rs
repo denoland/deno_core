@@ -157,44 +157,53 @@ pub enum Buffer {
   /// Owned, copy. [`Vec<u8>`], [`Vec<u32>`], etc...
   Vec(NumericArg),
   /// Maybe shared or a copy. Stored in `bytes::Bytes`
-  Bytes,
+  Bytes(BufferMode),
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::V8Slice`
-  V8Slice,
+  V8Slice(BufferMode),
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JsBuffer`
-  JsBuffer,
+  JsBuffer(BufferMode),
 }
 
 impl Buffer {
   fn is_valid_mode(&self, position: Position, mode: BufferMode) -> bool {
     match position {
       Position::Arg => match self {
-        Buffer::Bytes => matches!(mode, BufferMode::Copy),
-        Buffer::JsBuffer => matches!(
+        Buffer::Bytes(..) => matches!(mode, BufferMode::Copy),
+        Buffer::JsBuffer(..) => matches!(
           mode,
-          BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
+          BufferMode::Copy | BufferMode::Detach | BufferMode::Default
         ),
-        Buffer::V8Slice => matches!(
+        Buffer::V8Slice(..) => matches!(
           mode,
-          BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
+          BufferMode::Copy | BufferMode::Detach | BufferMode::Default
         ),
         Buffer::Vec(..) => matches!(mode, BufferMode::Copy),
         Buffer::BoxSlice(..) => matches!(mode, BufferMode::Copy),
         Buffer::Slice(..) => {
-          matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
+          matches!(mode, BufferMode::Detach | BufferMode::Default)
         }
         Buffer::Ptr(..) => {
-          matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
+          matches!(mode, BufferMode::Detach | BufferMode::Default)
         }
       },
       Position::RetVal => match self {
-        Buffer::Bytes => matches!(mode, BufferMode::Unsafe),
-        Buffer::JsBuffer => matches!(mode, BufferMode::Unsafe),
-        Buffer::V8Slice => matches!(mode, BufferMode::Unsafe),
-        Buffer::Vec(..) => matches!(mode, BufferMode::Unsafe),
-        Buffer::BoxSlice(..) => matches!(mode, BufferMode::Unsafe),
+        Buffer::Bytes(..) => matches!(mode, BufferMode::Default),
+        Buffer::JsBuffer(..) => matches!(mode, BufferMode::Default),
+        Buffer::V8Slice(..) => matches!(mode, BufferMode::Default),
+        Buffer::Vec(..) => matches!(mode, BufferMode::Default),
+        Buffer::BoxSlice(..) => matches!(mode, BufferMode::Default),
         Buffer::Slice(..) => false,
         Buffer::Ptr(..) => false,
       },
+    }
+  }
+
+  fn update_mode(&mut self, new_mode: BufferMode) {
+    match self {
+      Buffer::Bytes(ref mut mode) => *mode = new_mode,
+      Buffer::JsBuffer(ref mut mode) => *mode = new_mode,
+      Buffer::V8Slice(ref mut mode) => *mode = new_mode,
+      _ => {}
     }
   }
 }
@@ -365,6 +374,8 @@ pub struct ParsedSignature {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BufferMode {
+  /// Default mode.
+  Default,
   /// Unsafely shared buffers that may possibly change on the JavaScript side upon re-entry into
   /// V8. Rust code should not treat these as traditional buffers.
   Unsafe,
@@ -702,7 +713,7 @@ fn parse_attribute(
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String),
       (#[state]) => Some(AttributeModifier::State),
-      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
+      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default)),
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
       (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy)),
       (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach)),
@@ -741,7 +752,7 @@ fn parse_type_path(
   use syn2 as syn;
 
   let tokens = tp.clone().into_token_stream();
-  let res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
+  let mut res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
     CBare(TNumeric(numeric))
   } else {
     std::panic::catch_unwind(|| {
@@ -763,13 +774,13 @@ fn parse_type_path(
         Ok(CBare(TBuffer(Buffer::BoxSlice(parse_numeric_type(&ty)?))))
       }
       ( $( serde_v8 :: )? V8Slice ) => {
-        Ok(CBare(TBuffer(Buffer::V8Slice)))
+        Ok(CBare(TBuffer(Buffer::V8Slice(BufferMode::Default))))
       }
       ( $( serde_v8 :: )? JsBuffer ) => {
-        Ok(CBare(TBuffer(Buffer::JsBuffer)))
+        Ok(CBare(TBuffer(Buffer::JsBuffer(BufferMode::Default))))
       }
       ( $( bytes :: )? Bytes ) => {
-        Ok(CBare(TBuffer(Buffer::Bytes)))
+        Ok(CBare(TBuffer(Buffer::Bytes(BufferMode::Default))))
       }
       ( $( std :: ffi :: )? c_void ) => Ok(CBare(TNumeric(NumericArg::__VOID__))),
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
@@ -824,7 +835,7 @@ fn parse_type_path(
         return Err(ArgError::MissingStringAttribute);
       }
     }
-    CBare(TBuffer(buffer)) => {
+    CBare(TBuffer(ref mut buffer)) => {
       if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
         if !buffer.is_valid_mode(position, mode) {
           return Err(ArgError::InvalidBufferMode(
@@ -832,6 +843,7 @@ fn parse_type_path(
             stringify_token(tp),
           ));
         }
+        buffer.update_mode(mode)
       } else {
         return Err(ArgError::MissingBufferAttribute);
       }
@@ -1246,8 +1258,8 @@ mod tests {
     (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
   );
   test!(
-    #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JsBuffer) -> Vec<u8>;
-    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JsBuffer)) -> Infallible(Buffer(Vec(u8)))
+    #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
+    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes(Copy)), Buffer(V8Slice(Default)), Buffer(JsBuffer(Default)), Buffer(JsBuffer(Detach))) -> Infallible(Buffer(Vec(u8)))
   );
   test!(
     async fn op_async_void();

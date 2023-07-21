@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 async fn test_async_opstate_borrow() {
   struct InnerState(u64);
 
-  #[op]
+  #[op2(async, core)]
   async fn op_async_borrow(
     op_state: Rc<RefCell<OpState>>,
   ) -> Result<(), Error> {
@@ -53,9 +53,9 @@ async fn test_async_opstate_borrow() {
 
 #[tokio::test]
 async fn test_sync_op_serialize_object_with_numbers_as_keys() {
-  #[op]
+  #[op2(core)]
   fn op_sync_serialize_object_with_numbers_as_keys(
-    value: serde_json::Value,
+    #[serde] value: serde_json::Value,
   ) -> Result<(), Error> {
     assert_eq!(
       value.to_string(),
@@ -95,9 +95,9 @@ lines: {
 
 #[tokio::test]
 async fn test_async_op_serialize_object_with_numbers_as_keys() {
-  #[op]
+  #[op2(async, core)]
   async fn op_async_serialize_object_with_numbers_as_keys(
-    value: serde_json::Value,
+    #[serde] value: serde_json::Value,
   ) -> Result<(), Error> {
     assert_eq!(
       value.to_string(),
@@ -138,7 +138,8 @@ lines: {
 
 #[test]
 fn test_op_return_serde_v8_error() {
-  #[op]
+  #[op2(core)]
+  #[serde]
   fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, anyhow::Error> {
     Ok([(1, 2), (3, 4)].into_iter().collect()) // Maps can't have non-string keys in serde_v8
   }
@@ -206,15 +207,16 @@ fn test_op_disabled() {
 
 #[test]
 fn test_op_detached_buffer() {
-  use serde_v8::DetachedBuffer;
-
-  #[op]
-  fn op_sum_take(b: DetachedBuffer) -> Result<u64, anyhow::Error> {
-    Ok(b.as_ref().iter().clone().map(|x| *x as u64).sum())
+  #[op2(core)]
+  fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, anyhow::Error> {
+    Ok(b.as_ref().iter().clone().map(|x| *x as u32).sum())
   }
 
-  #[op]
-  fn op_boomerang(b: DetachedBuffer) -> Result<DetachedBuffer, anyhow::Error> {
+  #[op2(core)]
+  #[buffer]
+  fn op_boomerang(
+    #[buffer(detach)] b: JsBuffer,
+  ) -> Result<JsBuffer, anyhow::Error> {
     Ok(b)
   }
 
@@ -252,6 +254,14 @@ fn test_op_detached_buffer() {
       if (a2.byteLength > 0 || a2b.byteLength > 0) {
         throw new Error("expecting a2 & a2b to be detached, a3 re-attached");
       }
+      "#,
+    )
+    .unwrap();
+
+  runtime
+    .execute_script_static(
+      "test.js",
+      r#"
       const wmem = new WebAssembly.Memory({ initial: 1, maximum: 2 });
       const w32 = new Uint32Array(wmem.buffer);
       w32[0] = 1; w32[1] = 2; w32[2] = 3;
@@ -260,7 +270,7 @@ fn test_op_detached_buffer() {
           let sum = Deno.core.ops.op_sum_take(w32.subarray(0, 2));
           return false;
         } catch(e) {
-          return e.message.includes('invalid type; expected: detachable');
+          return e.message.includes('expected');
         }
       });
       if (!assertWasmThrow()) {
@@ -314,14 +324,16 @@ fn duplicate_op_names() {
   mod a {
     use super::*;
 
-    #[op]
-    fn op_test() -> Result<String, Error> {
+    #[op2(core)]
+    #[string]
+    pub fn op_test() -> Result<String, Error> {
       Ok(String::from("Test"))
     }
   }
 
-  #[op]
-  fn op_test() -> Result<String, Error> {
+  #[op2(core)]
+  #[string]
+  pub fn op_test() -> Result<String, Error> {
     Ok(String::from("Test"))
   }
 
@@ -334,7 +346,8 @@ fn duplicate_op_names() {
 
 #[test]
 fn ops_in_js_have_proper_names() {
-  #[op]
+  #[op2(core)]
+  #[string]
   fn op_test_sync() -> Result<String, Error> {
     Ok(String::from("Test"))
   }

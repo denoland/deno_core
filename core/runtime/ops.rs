@@ -478,6 +478,39 @@ where
   Ok(slice)
 }
 
+/// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
+pub fn to_v8_slice_detachable<'a, T>(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<'a, v8::Value>,
+) -> Result<serde_v8::V8Slice, &'static str>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T>>,
+{
+  let (store, offset, length) = if let Ok(buf) = v8::Local::<T>::try_from(input)
+  {
+    let buf: v8::Local<v8::ArrayBufferView> = buf.into();
+    let Some(buffer) = buf.buffer(scope) else {
+      return Err("buffer missing");
+    };
+    let res = (
+      buffer.get_backing_store(),
+      buf.byte_offset(),
+      buf.byte_length(),
+    );
+    if !buffer.is_detachable() {
+      return Err("invalid type; expected: detachable");
+    }
+    buffer.detach(None);
+    res
+  } else {
+    return Err("expected typed ArrayBufferView");
+  };
+  let slice =
+    unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
+  Ok(slice)
+}
+
 pub trait ToV8Value {
   /// Consume and convert this object into a [`v8::Value`]. This is similar to what serde_v8 does, but a
   /// dedicated API for ops to use.
