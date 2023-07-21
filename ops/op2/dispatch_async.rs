@@ -100,9 +100,7 @@ pub(crate) fn generate_dispatch_async(
   }
 
   output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
-    // TODO(mmastrac): We are extending the eager polling behaviour temporarily to op2, but I would like to get
-    // rid of it as soon as we can
-    let #promise_id = #deno_core::_ops::to_i32(&#fn_args.get(0));
+    let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
     if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #promise_id, #result, |#scope, #result| {
       #return_value
     }) {

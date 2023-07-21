@@ -228,86 +228,68 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   None
 }
 
-macro_rules! try_number {
+macro_rules! try_number_some {
   ($n:ident $type:ident $is:ident) => {
     if $n.$is() {
       // SAFETY: v8 handles can be transmuted
       let n: &v8::$type = unsafe { std::mem::transmute($n) };
-      return n.value() as _;
+      return Some(n.value() as _);
     }
   };
 }
 
-pub fn to_u32(number: &v8::Value) -> u32 {
-  try_number!(number Uint32 is_uint32);
-  try_number!(number Int32 is_int32);
-  try_number!(number Number is_number);
-  if number.is_big_int() {
-    // SAFETY: v8 handles can be transmuted
-    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
-    return n.u64_value().0 as _;
-  }
-  0
+macro_rules! try_bignum {
+  ($n:ident $method:ident) => {
+    if $n.is_big_int() {
+      // SAFETY: v8 handles can be transmuted
+      let $n: &v8::BigInt = unsafe { std::mem::transmute($n) };
+      return Some($n.$method().0 as _);
+    }
+  };
 }
 
-pub fn to_i32(number: &v8::Value) -> i32 {
-  try_number!(number Uint32 is_uint32);
-  try_number!(number Int32 is_int32);
-  try_number!(number Number is_number);
-  if number.is_big_int() {
-    // SAFETY: v8 handles can be transmuted
-    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
-    return n.i64_value().0 as _;
-  }
-  0
+pub fn to_u32_option(number: &v8::Value) -> Option<i32> {
+  try_number_some!(number Integer is_uint32);
+  try_number_some!(number Int32 is_int32);
+  try_number_some!(number Number is_number);
+  try_bignum!(number u64_value);
+  None
 }
 
-pub fn to_u64(number: &v8::Value) -> u32 {
-  try_number!(number Uint32 is_uint32);
-  try_number!(number Int32 is_int32);
-  try_number!(number Number is_number);
-  if number.is_big_int() {
-    // SAFETY: v8 handles can be transmuted
-    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
-    return n.u64_value().0 as _;
-  }
-  0
+pub fn to_i32_option(number: &v8::Value) -> Option<i32> {
+  try_number_some!(number Uint32 is_uint32);
+  try_number_some!(number Int32 is_int32);
+  try_number_some!(number Number is_number);
+  try_bignum!(number i64_value);
+  None
 }
 
-pub fn to_i64(number: &v8::Value) -> i32 {
-  try_number!(number Uint32 is_uint32);
-  try_number!(number Int32 is_int32);
-  try_number!(number Number is_number);
-  if number.is_big_int() {
-    // SAFETY: v8 handles can be transmuted
-    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
-    return n.i64_value().0 as _;
-  }
-  0
+pub fn to_u64_option(number: &v8::Value) -> Option<u64> {
+  try_number_some!(number Integer is_uint32);
+  try_number_some!(number Int32 is_int32);
+  try_number_some!(number Number is_number);
+  try_bignum!(number u64_value);
+  None
 }
 
-pub fn to_f32(number: &v8::Value) -> f32 {
-  try_number!(number Uint32 is_uint32);
-  try_number!(number Int32 is_int32);
-  try_number!(number Number is_number);
-  if number.is_big_int() {
-    // SAFETY: v8 handles can be transmuted
-    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
-    return n.i64_value().0 as _;
-  }
-  0.0
+pub fn to_i64_option(number: &v8::Value) -> Option<i64> {
+  try_number_some!(number Integer is_uint32);
+  try_number_some!(number Int32 is_int32);
+  try_number_some!(number Number is_number);
+  try_bignum!(number u64_value);
+  None
 }
 
-pub fn to_f64(number: &v8::Value) -> f64 {
-  try_number!(number Uint32 is_uint32);
-  try_number!(number Int32 is_int32);
-  try_number!(number Number is_number);
-  if number.is_big_int() {
-    // SAFETY: v8 handles can be transmuted
-    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
-    return n.i64_value().0 as _;
-  }
-  0.0
+pub fn to_f32_option(number: &v8::Value) -> Option<f32> {
+  try_number_some!(number Number is_number);
+  try_bignum!(number i64_value);
+  None
+}
+
+pub fn to_f64_option(number: &v8::Value) -> Option<f64> {
+  try_number_some!(number Number is_number);
+  try_bignum!(number i64_value);
+  None
 }
 
 /// Expands `inbuf` to `outbuf`, assuming that `outbuf` has at least 2x `input_length`.
