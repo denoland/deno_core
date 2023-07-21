@@ -218,8 +218,15 @@ pub fn from_arg(
     | Arg::Numeric(NumericArg::i16)
     | Arg::Numeric(NumericArg::i32)
     | Arg::Numeric(NumericArg::__SMI__) => {
+      *needs_scope = true;
       quote! {
-        let #arg_ident = #deno_core::_ops::to_i32(&#arg_ident) as _;
+        let Some(#arg_ident) = #deno_core::_ops::to_i32_option(&#arg_ident) else {
+          let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, "wrong type stupid".as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
+          let exc = #deno_core::v8::Exception::type_error(&mut #scope, msg);
+          (&mut #scope).throw_exception(exc);
+          return;
+        };
+        let #arg_ident = #arg_ident.try_into().unwrap();
       }
     }
     Arg::Numeric(NumericArg::u64) | Arg::Numeric(NumericArg::usize) => {

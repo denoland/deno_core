@@ -129,6 +129,7 @@ pub fn op_close(
   state: &mut OpState,
   #[smi] rid: ResourceId,
 ) -> Result<(), Error> {
+  eprintln!("op_close called {}", rid);
   state.resource_table.close(rid)?;
   Ok(())
 }

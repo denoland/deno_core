@@ -238,6 +238,16 @@ macro_rules! try_number {
   };
 }
 
+macro_rules! try_number_some {
+  ($n:ident $type:ident $is:ident) => {
+    if $n.$is() {
+      // SAFETY: v8 handles can be transmuted
+      let n: &v8::$type = unsafe { std::mem::transmute($n) };
+      return Some(n.value() as _);
+    }
+  };
+}
+
 pub fn to_u32(number: &v8::Value) -> u32 {
   try_number!(number Uint32 is_uint32);
   try_number!(number Int32 is_int32);
@@ -260,6 +270,18 @@ pub fn to_i32(number: &v8::Value) -> i32 {
     return n.i64_value().0 as _;
   }
   0
+}
+
+pub fn to_i32_option(number: &v8::Value) -> Option<i32> {
+  try_number_some!(number Uint32 is_uint32);
+  try_number_some!(number Int32 is_int32);
+  try_number_some!(number Number is_number);
+  if number.is_big_int() {
+    // SAFETY: v8 handles can be transmuted
+    let n: &v8::BigInt = unsafe { std::mem::transmute(number) };
+    return Some(n.i64_value().0 as _);
+  }
+  None
 }
 
 pub fn to_u64(number: &v8::Value) -> u32 {
