@@ -113,11 +113,20 @@ pub fn resolve_url_or_path(
   specifier: &str,
   current_dir: &Path,
 ) -> Result<ModuleSpecifier, ModuleResolutionError> {
-  if specifier_has_uri_scheme(specifier) {
+  let mut specifier = if specifier_has_uri_scheme(specifier) {
     resolve_url(specifier)
   } else {
     resolve_path(specifier, current_dir)
+  };
+  if let Ok(url) = specifier {
+    if let Ok(path) = url.to_file_path() {
+      if let Ok(path) = fs::read_link(path) {
+        specifier = Url::from_file_path(&path)
+          .map_err(|()| ModuleResolutionError::InvalidPath(path));
+      }
+    }
   }
+  specifier
 }
 
 /// Converts a string representing a relative or absolute path into a
