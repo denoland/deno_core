@@ -50,18 +50,18 @@ impl Hasher for IdentityHasher {
   }
 }
 
-pub(crate) struct DynImportModEvaluate {
-  pub(crate) load_id: ModuleLoadId,
-  pub(crate) module_id: ModuleId,
-  pub(crate) promise: v8::Global<v8::Promise>,
-  pub(crate) module: v8::Global<v8::Module>,
+struct DynImportModEvaluate {
+  load_id: ModuleLoadId,
+  module_id: ModuleId,
+  promise: v8::Global<v8::Promise>,
+  module: v8::Global<v8::Module>,
 }
 
 pub(crate) struct ModEvaluate {
-  pub(crate) promise: Option<v8::Global<v8::Promise>>,
+  promise: Option<v8::Global<v8::Promise>>,
   pub(crate) has_evaluated: bool,
   pub(crate) handled_promise_rejections: Vec<v8::Global<v8::Promise>>,
-  pub(crate) sender: oneshot::Sender<Result<(), Error>>,
+  sender: oneshot::Sender<Result<(), Error>>,
 }
 
 #[derive(Default)]
@@ -73,7 +73,7 @@ pub(crate) struct ContextState {
   pub(crate) js_wasm_streaming_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) pending_promise_rejections:
     VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>,
-  pub(crate) pending_dyn_mod_evaluate: Vec<DynImportModEvaluate>,
+  pending_dyn_mod_evaluate: Vec<DynImportModEvaluate>,
   pub(crate) pending_mod_evaluate: Option<ModEvaluate>,
   pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
   pub(crate) pending_ops: JoinSet<(PromiseId, OpId, OpResult)>,
