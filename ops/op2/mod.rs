@@ -463,8 +463,7 @@ deno_ops_compile_test_runner::prelude!();";
       .next()
       .unwrap()
       .split(end_separator)
-      .skip(1)
-      .next()
+      .nth(1)
       .unwrap();
     (header, remainder)
   }
