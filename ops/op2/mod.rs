@@ -427,14 +427,7 @@ deno_ops_compile_test_runner::prelude!();";
     }
   }
 
-  #[test]
-  fn test_valid_args_md() {
-    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
-    let md = include_str!("valid_args.md");
-    let separator = "\n<!-- START -->\n";
-    let header = include_str!("README.md").split(separator).next().unwrap();
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
-
+  fn parse_md(md: &str, mut f: impl FnMut(&str, Vec<&str>)) {
     // Skip the header and table line
     for line in md.split('\n').skip(2).filter(|s| {
       !s.trim().is_empty() && !s.split('|').nth(1).unwrap().trim().is_empty()
@@ -454,39 +447,66 @@ deno_ops_compile_test_runner::prelude!();";
           .skip(2)
           .map(|s| s.trim())
           .collect::<Vec<_>>();
-        let type_param = components.first().unwrap().to_owned();
-        let fastcall = components.get(1).unwrap().to_owned();
-        let fast = fastcall == "X";
-        let v8 = components.get(2).unwrap().to_owned();
-        let notes = components.get(3).unwrap().to_owned();
-        let (attr, ty) = if type_param.starts_with('#') {
-          type_param.split_once(' ').expect(
-            "Expected an attribute separated by a space (ie: #[attr] type)",
-          )
-        } else {
-          ("", type_param)
-        };
-
-        if !line.contains("...") {
-          let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
-          let function =
-            syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-          let sig = parse_signature(vec![], function.sig.clone())
-            .expect("Failed to parse signature");
-          println!("Parsed signature: {sig:?}");
-          generate_op2(
-            MacroConfig {
-              fast,
-              ..Default::default()
-            },
-            function,
-          )
-          .expect("Failed to generate op");
-        }
-        actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+        f(&line, components)
       }
     }
+  }
+
+  fn split_readme<'a>(readme: &'a str, start_separator: &str, end_separator: &str) -> (&'a str, &'a str) {
+    let mut parts = readme.split(start_separator);
+    let header = parts.next().unwrap();
+    let remainder = parts.next().unwrap().split(end_separator).skip(1).next().unwrap();
+    (header, remainder)
+  }
+
+  pub static README_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+  #[test]
+  fn test_valid_args_md() {
+    _ = README_LOCK.lock().unwrap();
+    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
+    let md = include_str!("valid_args.md");
+    let separator = "\n<!-- START ARGS -->\n";
+    let end_separator = "\n<!-- END ARGS -->\n";
+    let (header, remainder) = split_readme(include_str!("README.md"), separator, end_separator);
+    
+    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+
+    parse_md(md, |line, components| {
+      let type_param = components.first().unwrap().to_owned();
+      let fastcall = components.get(1).unwrap().to_owned();
+      let fast = fastcall == "X";
+      let v8 = components.get(2).unwrap().to_owned();
+      let notes = components.get(3).unwrap().to_owned();
+      let (attr, ty) = if type_param.starts_with('#') {
+        type_param.split_once(' ').expect(
+          "Expected an attribute separated by a space (ie: #[attr] type)",
+        )
+      } else {
+        ("", type_param)
+      };
+
+      if !line.contains("...") {
+        let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
+        let function =
+          syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+        let sig = parse_signature(vec![], function.sig.clone())
+          .expect("Failed to parse signature");
+        println!("Parsed signature: {sig:?}");
+        generate_op2(
+          MacroConfig {
+            fast,
+            ..Default::default()
+          },
+          function,
+        )
+        .expect("Failed to generate op");
+      }
+      actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+    });
     actual += "</table>\n";
+    actual += end_separator;
+    actual += remainder;
 
     if update_expected {
       std::fs::write("op2/README.md", actual)
@@ -499,5 +519,66 @@ deno_ops_compile_test_runner::prelude!();";
         "Failed to match expectation. Use UPDATE_EXPECTED=1."
       );
     }
+  }
+
+  #[test]
+  fn test_valid_retvals_md() {
+    _ = README_LOCK.lock().unwrap();
+    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
+    let md = include_str!("valid_retvals.md");
+    let separator = "\n<!-- START RV -->\n";
+    let end_separator = "\n<!-- END RV -->\n";
+    let (header, remainder) = split_readme(include_str!("README.md"), separator, end_separator);
+    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+
+    parse_md(md, |line, components| {
+      let type_param = components.first().unwrap().to_owned();
+      let fastcall = components.get(1).unwrap().to_owned();
+      let fast = fastcall == "X";
+      let v8 = components.get(2).unwrap().to_owned();
+      let notes = components.get(3).unwrap().to_owned();
+      let (attr, ty) = if type_param.starts_with('#') {
+        type_param.split_once(' ').expect(
+          "Expected an attribute separated by a space (ie: #[attr] type)",
+        )
+      } else {
+        ("", type_param)
+      };
+
+      if !line.contains("...") {
+        let function = format!("{} fn op_test() -> {} {{}}", attr, ty);
+        let function =
+          syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+        let sig = parse_signature(function.attrs.clone(), function.sig.clone())
+          .expect("Failed to parse signature");
+        println!("Parsed signature: {sig:?}");
+        generate_op2(
+          MacroConfig {
+            fast,
+            ..Default::default()
+          },
+          function,
+        )
+        .expect("Failed to generate op");
+      }
+      actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+    });
+
+    actual += "</table>\n";
+    actual += end_separator;
+    actual += remainder;
+
+    if update_expected {
+      std::fs::write("op2/README.md", actual)
+        .expect("Failed to write expectation file");
+    } else {
+      let expected = std::fs::read_to_string("op2/README.md")
+        .expect("Failed to read expectation file");
+      assert_eq!(
+        expected, actual,
+        "Failed to match expectation. Use UPDATE_EXPECTED=1."
+      );
+    }
+
   }
 }
