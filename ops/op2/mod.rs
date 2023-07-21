@@ -459,12 +459,7 @@ deno_ops_compile_test_runner::prelude!();";
   ) -> (&'a str, &'a str) {
     let mut parts = readme.split(start_separator);
     let header = parts.next().unwrap();
-    let remainder = parts
-      .next()
-      .unwrap()
-      .split(end_separator)
-      .nth(1)
-      .unwrap();
+    let remainder = parts.next().unwrap().split(end_separator).nth(1).unwrap();
     (header, remainder)
   }
 
