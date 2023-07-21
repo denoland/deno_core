@@ -210,44 +210,25 @@ pub fn from_arg(
     Arg::Numeric(NumericArg::u8)
     | Arg::Numeric(NumericArg::u16)
     | Arg::Numeric(NumericArg::u32) => {
-      quote! {
-        let #arg_ident = #deno_core::_ops::to_u32(&#arg_ident) as _;
-      }
+      from_arg_numeric(generator_state, &arg_ident, "u32")?
     }
     Arg::Numeric(NumericArg::i8)
     | Arg::Numeric(NumericArg::i16)
     | Arg::Numeric(NumericArg::i32)
     | Arg::Numeric(NumericArg::__SMI__) => {
-      *needs_scope = true;
-      quote! {
-        let Some(#arg_ident) = #deno_core::_ops::to_i32_option(&#arg_ident) else {
-          let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, "wrong type stupid".as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
-          let exc = #deno_core::v8::Exception::type_error(&mut #scope, msg);
-          (&mut #scope).throw_exception(exc);
-          return;
-        };
-        let #arg_ident = #arg_ident.try_into().unwrap();
-      }
+      from_arg_numeric(generator_state, &arg_ident, "i32")?
     }
     Arg::Numeric(NumericArg::u64) | Arg::Numeric(NumericArg::usize) => {
-      quote! {
-        let #arg_ident = #deno_core::_ops::to_u64(&#arg_ident) as _;
-      }
+      from_arg_numeric(generator_state, &arg_ident, "u64")?
     }
     Arg::Numeric(NumericArg::i64) | Arg::Numeric(NumericArg::isize) => {
-      quote! {
-        let #arg_ident = #deno_core::_ops::to_i64(&#arg_ident) as _;
-      }
+      from_arg_numeric(generator_state, &arg_ident, "i64")?
     }
     Arg::Numeric(NumericArg::f32) => {
-      quote! {
-        let #arg_ident = #deno_core::_ops::to_f32(&#arg_ident) as _;
-      }
+      from_arg_numeric(generator_state, &arg_ident, "f32")?
     }
     Arg::Numeric(NumericArg::f64) => {
-      quote! {
-        let #arg_ident = #deno_core::_ops::to_f64(&#arg_ident) as _;
-      }
+      from_arg_numeric(generator_state, &arg_ident, "f64")?
     }
     Arg::OptionNumeric(numeric) => {
       let some = from_arg(generator_state, index, &Arg::Numeric(*numeric))?;
@@ -404,6 +385,17 @@ pub fn from_arg(
     _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
+}
+
+pub fn from_arg_numeric(generator_state: &mut GeneratorState, arg_ident: &Ident, numeric: &str) -> Result<TokenStream, V8MappingError> {
+  let exception = throw_type_error(generator_state, format!("expected {numeric}"))?;
+  let convert = format_ident!("to_{numeric}_option");
+  Ok(gs_quote!(generator_state(deno_core) => (
+    let Some(#arg_ident) = #deno_core::_ops::#convert(&#arg_ident) else {
+      #exception
+    };
+    let #arg_ident = #arg_ident as _;
+  )))
 }
 
 pub fn from_arg_buffer(
