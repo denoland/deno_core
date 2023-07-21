@@ -463,7 +463,7 @@ deno_ops_compile_test_runner::prelude!();";
 
   #[test]
   fn test_valid_args_md() {
-    _ = README_LOCK.lock().unwrap();
+    let _readme_lock = README_LOCK.lock().unwrap();
     let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
     let md = include_str!("valid_args.md");
     let separator = "\n<!-- START ARGS -->\n";
@@ -523,7 +523,7 @@ deno_ops_compile_test_runner::prelude!();";
 
   #[test]
   fn test_valid_retvals_md() {
-    _ = README_LOCK.lock().unwrap();
+    let _readme_lock = README_LOCK.lock().unwrap();
     let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
     let md = include_str!("valid_retvals.md");
     let separator = "\n<!-- START RV -->\n";
