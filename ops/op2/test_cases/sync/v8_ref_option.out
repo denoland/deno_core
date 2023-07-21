@@ -40,18 +40,20 @@ impl op_v8_lifetime {
         let result = {
             let Ok(mut arg0) = deno_core::_ops::v8_try_convert_option::<
                 deno_core::v8::String,
-            >(arg0) else { fast_api_callback_options.fallback = true;
-            return ::std::default::Default::default();
-        };
+            >(arg0) else {
+                fast_api_callback_options.fallback = true;
+                return ::std::default::Default::default();
+            };
             let arg0 = match &arg0 {
                 None => None,
                 Some(v) => Some(::std::ops::Deref::deref(v)),
             };
             let Ok(mut arg1) = deno_core::_ops::v8_try_convert_option::<
                 deno_core::v8::String,
-            >(arg1) else { fast_api_callback_options.fallback = true;
-            return ::std::default::Default::default();
-        };
+            >(arg1) else {
+                fast_api_callback_options.fallback = true;
+                return ::std::default::Default::default();
+            };
             let arg1 = match &arg1 {
                 None => None,
                 Some(v) => Some(::std::ops::Deref::deref(v)),
@@ -72,17 +74,17 @@ impl op_v8_lifetime {
             let Ok(mut arg0) = deno_core::_ops::v8_try_convert_option::<
                 deno_core::v8::String,
             >(arg0) else {
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-            let msg = deno_core::v8::String::new_from_one_byte(
-                    &mut scope,
-                    "expected String".as_bytes(),
-                    deno_core::v8::NewStringType::Normal,
-                )
-                .unwrap();
-            let exc = deno_core::v8::Exception::error(&mut scope, msg);
-            scope.throw_exception(exc);
-            return;
-        };
+                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        "expected String".as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
+            };
             let arg0 = match &arg0 {
                 None => None,
                 Some(v) => Some(::std::ops::Deref::deref(v)),
@@ -91,17 +93,17 @@ impl op_v8_lifetime {
             let Ok(mut arg1) = deno_core::_ops::v8_try_convert_option::<
                 deno_core::v8::String,
             >(arg1) else {
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-            let msg = deno_core::v8::String::new_from_one_byte(
-                    &mut scope,
-                    "expected String".as_bytes(),
-                    deno_core::v8::NewStringType::Normal,
-                )
-                .unwrap();
-            let exc = deno_core::v8::Exception::error(&mut scope, msg);
-            scope.throw_exception(exc);
-            return;
-        };
+                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        "expected String".as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
+            };
             let arg1 = match &arg1 {
                 None => None,
                 Some(v) => Some(::std::ops::Deref::deref(v)),

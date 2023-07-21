@@ -35,16 +35,16 @@ impl op_handlescope {
             let Ok(mut arg1) = deno_core::_ops::v8_try_convert::<
                 deno_core::v8::String,
             >(arg1) else {
-            let msg = deno_core::v8::String::new_from_one_byte(
-                    &mut scope,
-                    "expected String".as_bytes(),
-                    deno_core::v8::NewStringType::Normal,
-                )
-                .unwrap();
-            let exc = deno_core::v8::Exception::error(&mut scope, msg);
-            scope.throw_exception(exc);
-            return;
-        };
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        "expected String".as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
+            };
             let arg1 = arg1;
             let arg0 = &mut scope;
             Self::call(arg0, arg1)
