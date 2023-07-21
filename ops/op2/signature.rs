@@ -165,25 +165,36 @@ pub enum Buffer {
 }
 
 impl Buffer {
-  fn is_valid_mode(&self, mode: BufferMode) -> bool {
-    match self {
-      Buffer::Bytes => matches!(mode, BufferMode::Copy),
-      Buffer::JsBuffer => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
-      Buffer::V8Slice => matches!(
-        mode,
-        BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
-      ),
-      Buffer::Vec(..) => matches!(mode, BufferMode::Copy),
-      Buffer::BoxSlice(..) => matches!(mode, BufferMode::Copy),
-      Buffer::Slice(..) => {
-        matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
-      }
-      Buffer::Ptr(..) => {
-        matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
-      }
+  fn is_valid_mode(&self, position: Position, mode: BufferMode) -> bool {
+    match position {
+      Position::Arg => match self {
+        Buffer::Bytes => matches!(mode, BufferMode::Copy),
+        Buffer::JsBuffer => matches!(
+          mode,
+          BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
+        ),
+        Buffer::V8Slice => matches!(
+          mode,
+          BufferMode::Copy | BufferMode::Detach | BufferMode::Unsafe
+        ),
+        Buffer::Vec(..) => matches!(mode, BufferMode::Copy),
+        Buffer::BoxSlice(..) => matches!(mode, BufferMode::Copy),
+        Buffer::Slice(..) => {
+          matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
+        }
+        Buffer::Ptr(..) => {
+          matches!(mode, BufferMode::Detach | BufferMode::Unsafe)
+        }
+      },
+      Position::RetVal => match self {
+        Buffer::Bytes => matches!(mode, BufferMode::Unsafe),
+        Buffer::JsBuffer => matches!(mode, BufferMode::Unsafe),
+        Buffer::V8Slice => matches!(mode, BufferMode::Unsafe),
+        Buffer::Vec(..) => matches!(mode, BufferMode::Unsafe),
+        Buffer::BoxSlice(..) => matches!(mode, BufferMode::Unsafe),
+        Buffer::Slice(..) => false,
+        Buffer::Ptr(..) => false,
+      },
     }
   }
 }
@@ -472,6 +483,15 @@ pub(crate) struct Attributes {
   primary: Option<AttributeModifier>,
 }
 
+/// Where is this type defined?
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum Position {
+  /// Argument
+  Arg,
+  /// Return value
+  RetVal,
+}
+
 impl Attributes {
   pub fn string() -> Self {
     Self {
@@ -710,6 +730,7 @@ fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
 /// Parse a raw type into a container + type, allowing us to simplify the typechecks elsewhere in
 /// this code.
 fn parse_type_path(
+  position: Position,
   attrs: Attributes,
   is_ref: bool,
   tp: &TypePath,
@@ -757,9 +778,9 @@ fn parse_type_path(
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
       ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
       ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
-      ( Rc < RefCell < $ty:ty > > ) => Ok(CRcRefCell(TSpecial(parse_type_special(attrs, &ty)?))),
+      ( Rc < RefCell < $ty:ty > > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
       ( Option < $ty:ty > ) => {
-        match parse_type(attrs, &ty)? {
+        match parse_type(position, attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::Numeric(numeric) => Ok(COption(TNumeric(numeric))),
           Arg::Buffer(buffer) => Ok(COption(TBuffer(buffer))),
@@ -805,7 +826,7 @@ fn parse_type_path(
     }
     CBare(TBuffer(buffer)) => {
       if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
-        if !buffer.is_valid_mode(mode) {
+        if !buffer.is_valid_mode(position, mode) {
           return Err(ArgError::InvalidBufferMode(
             format!("{mode:?}"),
             stringify_token(tp),
@@ -843,10 +864,11 @@ fn parse_v8_type(v8: &Ident) -> Result<V8Arg, ArgError> {
 }
 
 fn parse_type_special(
+  position: Position,
   attrs: Attributes,
   ty: &Type,
 ) -> Result<Special, ArgError> {
-  match parse_type(attrs, ty)? {
+  match parse_type(position, attrs, ty)? {
     Arg::Special(special) => Ok(special),
     _ => Err(ArgError::InvalidType(stringify_token(ty))),
   }
@@ -880,6 +902,7 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
 }
 
 pub(crate) fn parse_type(
+  position: Position,
   attrs: Attributes,
   ty: &Type,
 ) -> Result<Arg, ArgError> {
@@ -894,13 +917,15 @@ pub(crate) fn parse_type(
         }
         Type::Path(of) => {
           // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(Attributes::default(), false, of).is_ok() {
+          if parse_type_path(position, Attributes::default(), false, of).is_ok()
+          {
             return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
               ty,
             )));
           }
           // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(Attributes::string(), false, of).is_ok() {
+          if parse_type_path(position, Attributes::string(), false, of).is_ok()
+          {
             return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
               ty,
             )));
@@ -964,7 +989,7 @@ pub(crate) fn parse_type(
               numeric => {
                 if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
                   let buffer = Buffer::Slice(mut_type, numeric);
-                  if !buffer.is_valid_mode(mode) {
+                  if !buffer.is_valid_mode(position, mode) {
                     return Err(ArgError::InvalidBufferMode(
                       format!("{mode:?}"),
                       stringify_token(ty),
@@ -980,7 +1005,7 @@ pub(crate) fn parse_type(
             Err(ArgError::InvalidType(stringify_token(ty)))
           }
         }
-        Type::Path(of) => match parse_type_path(attrs, true, of)? {
+        Type::Path(of) => match parse_type_path(position, attrs, true, of)? {
           CBare(TSpecial(Special::RefStr)) => Ok(Arg::Special(Special::RefStr)),
           COption(TSpecial(Special::RefStr)) => {
             Ok(Arg::Option(Special::RefStr))
@@ -999,14 +1024,14 @@ pub(crate) fn parse_type(
         RefType::Ref
       };
       match &*of.elem {
-        Type::Path(of) => match parse_type_path(attrs, false, of)? {
+        Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
           CBare(TNumeric(numeric)) if numeric == NumericArg::__VOID__ => {
             Ok(Arg::External(External::Ptr(mut_type)))
           }
           CBare(TNumeric(numeric)) => {
             if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
               let buffer = Buffer::Ptr(mut_type, numeric);
-              if !buffer.is_valid_mode(mode) {
+              if !buffer.is_valid_mode(position, mode) {
                 return Err(ArgError::InvalidBufferMode(
                   format!("{mode:?}"),
                   stringify_token(ty),
@@ -1022,7 +1047,7 @@ pub(crate) fn parse_type(
         _ => Err(ArgError::InvalidType(stringify_token(ty))),
       }
     }
-    Type::Path(of) => match parse_type_path(attrs, false, of)? {
+    Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
       CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric)),
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
       CBare(TBuffer(buffer)) => Ok(Arg::Buffer(buffer)),
@@ -1045,7 +1070,7 @@ fn parse_arg(arg: FnArg) -> Result<Arg, ArgError> {
   let FnArg::Typed(typed) = arg else {
     return Err(ArgError::InvalidSelf);
   };
-  parse_type(parse_attributes(&typed.attrs)?, &typed.ty)
+  parse_type(Position::Arg, parse_attributes(&typed.attrs)?, &typed.ty)
 }
 
 #[cfg(test)]
@@ -1221,7 +1246,7 @@ mod tests {
     (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
   );
   test!(
-    #[buffer(copy)] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JsBuffer) -> Vec<u8>;
+    #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JsBuffer) -> Vec<u8>;
     (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes), Buffer(V8Slice), Buffer(JsBuffer)) -> Infallible(Buffer(Vec(u8)))
   );
   test!(
