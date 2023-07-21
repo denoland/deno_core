@@ -245,7 +245,7 @@ macro_rules! try_bignum {
       let $n: &v8::BigInt = unsafe { std::mem::transmute($n) };
       return Some($n.$method().0 as _);
     }
-  }
+  };
 }
 
 pub fn to_u32_option(number: &v8::Value) -> Option<i32> {

@@ -387,8 +387,13 @@ pub fn from_arg(
   Ok(res)
 }
 
-pub fn from_arg_numeric(generator_state: &mut GeneratorState, arg_ident: &Ident, numeric: &str) -> Result<TokenStream, V8MappingError> {
-  let exception = throw_type_error(generator_state, format!("expected {numeric}"))?;
+pub fn from_arg_numeric(
+  generator_state: &mut GeneratorState,
+  arg_ident: &Ident,
+  numeric: &str,
+) -> Result<TokenStream, V8MappingError> {
+  let exception =
+    throw_type_error(generator_state, format!("expected {numeric}"))?;
   let convert = format_ident!("to_{numeric}_option");
   Ok(gs_quote!(generator_state(deno_core) => (
     let Some(#arg_ident) = #deno_core::_ops::#convert(&#arg_ident) else {
