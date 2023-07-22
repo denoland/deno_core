@@ -7,10 +7,10 @@
 | X         | u16                              | X        | Uint32                        |       |
 | X         | i32                              | X        | Int32                         |       |
 | X         | u32                              | X        | Uint32                        |       |
-|           | i64                              | X        | Uint32, Int32, Number, BigInt |       |
-|           | u64                              | X        | Uint32, Int32, Number, BigInt |       |
-|           | isize                            | X        | Uint32, Int32, Number, BigInt |       |
-|           | usize                            | X        | Uint32, Int32, Number, BigInt |       |
+| X         | i64                              |          | BigInt                        |       |
+| X         | u64                              |          | BigInt                        |       |
+| X         | isize                            |          | BigInt                        |       |
+| X         | usize                            |          | BigInt                        |       |
 | X         | f32                              | X        | Number                        |       |
 | X         | f64                              | X        | Number                        |       |
 | X         | #[string] String                 |          | String                        |       |

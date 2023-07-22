@@ -982,17 +982,13 @@ mod tests {
   }
 
   #[op2(core)]
-  pub fn op_test_u64() -> u64 {
-    u64::MAX
+  pub fn op_test_u64(input: u64) -> u64 {
+    input
   }
 
   #[op2(core)]
-  pub fn op_test_i64(min: bool) -> i64 {
-    if min {
-      i64::MIN
-    } else {
-      i64::MAX
-    }
+  pub fn op_test_i64(input: i64) -> i64 {
+    input
   }
 
   #[tokio::test]
@@ -1000,17 +996,17 @@ mod tests {
     run_test2(
       10,
       "op_test_i64",
-      &format!("assert(op_test_i64(false) == {}n)", i64::MAX),
+      &format!("assert(op_test_i64({}n) == {}n)", i64::MAX, i64::MAX),
     )?;
     run_test2(
       10,
       "op_test_i64",
-      &format!("assert(op_test_i64(true) == {}n)", i64::MIN),
+      &format!("assert(op_test_i64({}n) == {}n)", i64::MIN, i64::MIN),
     )?;
     run_test2(
       10,
       "op_test_u64",
-      &format!("assert(op_test_u64() == {}n)", u64::MAX),
+      &format!("assert(op_test_u64({}n) == {}n)", u64::MAX, u64::MAX),
     )?;
     Ok(())
   }
