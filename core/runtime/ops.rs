@@ -982,12 +982,14 @@ mod tests {
   }
 
   #[op2(core)]
-  pub fn op_test_u64(input: u64) -> u64 {
+  #[bigint]
+  pub fn op_test_u64(#[bigint] input: u64) -> u64 {
     input
   }
 
   #[op2(core)]
-  pub fn op_test_i64(input: i64) -> i64 {
+  #[bigint]
+  pub fn op_test_i64(#[bigint] input: i64) -> i64 {
     input
   }
 
@@ -1370,9 +1372,9 @@ mod tests {
   #[op2(core, fast)]
   pub fn op_buffer_slice(
     #[buffer] input: &[u8],
-    inlen: usize,
+    #[bigint] inlen: usize,
     #[buffer] output: &mut [u8],
-    outlen: usize,
+    #[bigint] outlen: usize,
   ) {
     assert_eq!(inlen, input.len());
     assert_eq!(outlen, output.len());

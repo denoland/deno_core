@@ -165,6 +165,28 @@ pub enum Buffer {
 }
 
 impl Buffer {
+  const fn valid_modes(
+    &self,
+    position: Position,
+  ) -> &'static [AttributeModifier] {
+    use AttributeModifier::Buffer as B;
+    use Buffer::*;
+    use BufferMode::*;
+    match position {
+      Position::Arg => match self {
+        Bytes(..) | Vec(..) | BoxSlice(..) => &[B(Copy)],
+        JsBuffer(..) | V8Slice(..) => &[B(Copy), B(Detach), B(Default)],
+        Slice(..) | Ptr(..) => &[B(Default)],
+      },
+      Position::RetVal => match self {
+        Bytes(..) | JsBuffer(..) | V8Slice(..) | Vec(..) | BoxSlice(..) => {
+          &[B(Default)]
+        }
+        Slice(..) | Ptr(..) => &([]),
+      },
+    }
+  }
+
   fn is_valid_mode(&self, position: Position, mode: BufferMode) -> bool {
     match position {
       Position::Arg => match self {
@@ -195,15 +217,6 @@ impl Buffer {
         Buffer::Slice(..) => false,
         Buffer::Ptr(..) => false,
       },
-    }
-  }
-
-  fn update_mode(&mut self, new_mode: BufferMode) {
-    match self {
-      Buffer::Bytes(ref mut mode) => *mode = new_mode,
-      Buffer::JsBuffer(ref mut mode) => *mode = new_mode,
-      Buffer::V8Slice(ref mut mode) => *mode = new_mode,
-      _ => {}
     }
   }
 }
@@ -319,6 +332,28 @@ pub enum ParsedType {
   TNumeric(NumericArg),
 }
 
+impl ParsedType {
+  fn required_attributes(
+    &self,
+    position: Position,
+  ) -> Option<&'static [AttributeModifier]> {
+    use ParsedType::*;
+    match self {
+      TNumeric(
+        NumericArg::u64
+        | NumericArg::i64
+        | NumericArg::usize
+        | NumericArg::isize,
+      ) => Some(&[AttributeModifier::Bigint]),
+      TBuffer(buffer) => Some(buffer.valid_modes(position)),
+      TSpecial(Special::CowStr | Special::RefStr | Special::String) => {
+        Some(&[AttributeModifier::String])
+      }
+      _ => None,
+    }
+  }
+}
+
 pub enum ParsedTypeContainer {
   CBare(ParsedType),
   COption(ParsedType),
@@ -327,6 +362,20 @@ pub enum ParsedTypeContainer {
   COptionV8Global(ParsedType),
   CV8Local(ParsedType),
   CV8Global(ParsedType),
+}
+
+impl ParsedTypeContainer {
+  pub fn required_attributes(
+    &self,
+    position: Position,
+  ) -> Option<&'static [AttributeModifier]> {
+    use ParsedTypeContainer::*;
+    match self {
+      CV8Local(_) | COptionV8Local(_) => None,
+      CV8Global(_) | COptionV8Global(_) => Some(&[AttributeModifier::Global]),
+      CBare(t) | COption(t) | CRcRefCell(t) => t.required_attributes(position),
+    }
+  }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -403,6 +452,22 @@ pub enum AttributeModifier {
   Buffer(BufferMode),
   /// #[global], for [`v8::Global`]s
   Global,
+  /// #[bigint], for u64/usize/i64/isize
+  Bigint,
+}
+
+impl AttributeModifier {
+  fn name(&self) -> &'static str {
+    match self {
+      AttributeModifier::Bigint => "bigint",
+      AttributeModifier::Buffer(_) => "buffer",
+      AttributeModifier::Smi => "smi",
+      AttributeModifier::Serde => "serde",
+      AttributeModifier::String => "string",
+      AttributeModifier::State => "state",
+      AttributeModifier::Global => "global",
+    }
+  }
 }
 
 #[derive(Error, Debug)]
@@ -455,30 +520,24 @@ pub enum ArgError {
   MissingReference(String),
   #[error("Invalid or deprecated #[serde] type '{0}': {1}")]
   InvalidSerdeType(String, &'static str),
-  #[error("Invalid #[string] type: {0}")]
-  InvalidStringType(String),
-  #[error("Invalid #[buffer] type: {0}")]
-  InvalidBufferType(String),
+  #[error("Invalid #[{0}] for type: {1}")]
+  InvalidAttributeType(&'static str, String),
   #[error("Invalid #[buffer] mode {0} for {1}")]
   InvalidBufferMode(String, String),
   #[error("Cannot use #[serde] for type: {0}")]
   InvalidSerdeAttributeType(String),
-  #[error("Invalid #[global] type: {0}")]
-  InvalidGlobalType(String),
   #[error("Invalid v8 type: {0}")]
   InvalidV8Type(String),
   #[error("Internal error: {0}")]
   InternalError(String),
-  #[error("Missing a #[string] attribute")]
-  MissingStringAttribute,
-  #[error("Missing a #[buffer] attribute")]
-  MissingBufferAttribute,
-  #[error("Missing a #[global] attribute")]
-  MissingGlobalAttribute,
+  #[error("Missing a #[{0}] attribute for type: {1}")]
+  MissingAttribute(&'static str, String),
   #[error("Invalid #[state] type '{0}'")]
   InvalidStateType(String),
   #[error("Argument attribute error")]
   AttributeError(#[from] AttributeError),
+  #[error("The type '{0}' is not allowed in this position")]
+  NotAllowedInThisPosition(String),
 }
 
 #[derive(Error, Debug)]
@@ -709,6 +768,7 @@ fn parse_attribute(
   let res = std::panic::catch_unwind(|| {
     use syn2 as syn;
     rules!(tokens => {
+      (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String),
@@ -758,8 +818,13 @@ fn parse_type_path(
 
   use syn2 as syn;
 
+  let buffer_mode = || match attrs.primary {
+    Some(AttributeModifier::Buffer(mode)) => Ok(mode),
+    _ => Err(ArgError::MissingAttribute("buffer", stringify_token(tp))),
+  };
+
   let tokens = tp.clone().into_token_stream();
-  let mut res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
+  let res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
     CBare(TNumeric(numeric))
   } else {
     std::panic::catch_unwind(|| {
@@ -781,13 +846,13 @@ fn parse_type_path(
         Ok(CBare(TBuffer(Buffer::BoxSlice(parse_numeric_type(&ty)?))))
       }
       ( $( serde_v8 :: )? V8Slice ) => {
-        Ok(CBare(TBuffer(Buffer::V8Slice(BufferMode::Default))))
+        Ok(CBare(TBuffer(Buffer::V8Slice(buffer_mode()?))))
       }
       ( $( serde_v8 :: )? JsBuffer ) => {
-        Ok(CBare(TBuffer(Buffer::JsBuffer(BufferMode::Default))))
+        Ok(CBare(TBuffer(Buffer::JsBuffer(buffer_mode()?))))
       }
       ( $( bytes :: )? Bytes ) => {
-        Ok(CBare(TBuffer(Buffer::Bytes(BufferMode::Default))))
+        Ok(CBare(TBuffer(Buffer::Bytes(buffer_mode()?))))
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
@@ -830,49 +895,38 @@ fn parse_type_path(
     }
   }
 
-  match res {
-    CV8Global(_) => {
-      if attrs.primary != Some(AttributeModifier::Global) {
-        return Err(ArgError::MissingGlobalAttribute);
+  match res.required_attributes(position) {
+    None => match attrs.primary {
+      None => {}
+      Some(attr) => {
+        return Err(ArgError::InvalidAttributeType(
+          attr.name(),
+          stringify_token(tp),
+        ))
       }
-    }
-    CBare(TSpecial(Special::RefStr | Special::CowStr | Special::String)) => {
-      if attrs.primary != Some(AttributeModifier::String) {
-        return Err(ArgError::MissingStringAttribute);
+    },
+    Some(attr) => {
+      if attr.len() == 0 {
+        return Err(ArgError::NotAllowedInThisPosition(stringify_token(tp)));
       }
-    }
-    CBare(TBuffer(ref mut buffer)) => {
-      if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
-        if !buffer.is_valid_mode(position, mode) {
-          return Err(ArgError::InvalidBufferMode(
-            format!("{mode:?}"),
+      match attrs.primary {
+        None => {
+          return Err(ArgError::MissingAttribute(
+            attr[0].name(),
             stringify_token(tp),
-          ));
+          ))
         }
-        buffer.update_mode(mode)
-      } else {
-        return Err(ArgError::MissingBufferAttribute);
-      }
-    }
-    CBare(_) => {
-      if attrs.primary == Some(AttributeModifier::String) {
-        return Err(ArgError::InvalidStringType(stringify_token(tp)));
-      }
-      if let Some(AttributeModifier::Buffer(_)) = attrs.primary {
-        return Err(ArgError::InvalidBufferType(stringify_token(tp)));
-      }
-      if attrs.primary == Some(AttributeModifier::Global) {
-        return Err(ArgError::InvalidGlobalType(stringify_token(tp)));
-      }
-    }
-    _ => {
-      // Ignore for other containers
-      if attrs.primary == Some(AttributeModifier::Global) {
-        return Err(ArgError::InvalidGlobalType(stringify_token(tp)));
+        Some(primary) => {
+          if !attr.contains(&primary) {
+            return Err(ArgError::MissingAttribute(
+              attr[0].name(),
+              stringify_token(tp),
+            ));
+          }
+        }
       }
     }
   }
-
   Ok(res)
 }
 
@@ -973,6 +1027,7 @@ pub(crate) fn parse_type(
       }
       AttributeModifier::String
       | AttributeModifier::Buffer(_)
+      | AttributeModifier::Bigint
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
       }
@@ -1015,7 +1070,10 @@ pub(crate) fn parse_type(
                   }
                   Ok(Arg::Buffer(buffer))
                 } else {
-                  Err(ArgError::InvalidBufferType(stringify_token(ty)))
+                  Err(ArgError::InvalidAttributeType(
+                    "buffer",
+                    stringify_token(ty),
+                  ))
                 }
               }
             }
@@ -1055,7 +1113,10 @@ pub(crate) fn parse_type(
               }
               Ok(Arg::Buffer(buffer))
             } else {
-              Err(ArgError::InvalidBufferType(stringify_token(ty)))
+              Err(ArgError::InvalidAttributeType(
+                "buffer",
+                stringify_token(ty),
+              ))
             }
           }
         },
@@ -1217,7 +1278,7 @@ mod tests {
     (Ref(Mut, OpState)) -> Result(OptionNumeric(u32))
   );
   test!(
-    fn op_ffi_read_f64(state: &mut OpState, ptr: * mut c_void, offset: isize) -> Result <f64, AnyError>;
+    fn op_ffi_read_f64(state: &mut OpState, ptr: * mut c_void, #[bigint] offset: isize) -> Result <f64, AnyError>;
     (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize)) -> Result(Numeric(f64))
   );
   test!(
@@ -1284,27 +1345,27 @@ mod tests {
 
   expect_fail!(
     op_with_bad_string1,
-    ArgError("s", MissingStringAttribute),
+    ArgError("s", MissingAttribute("string", "str")),
     fn f(s: &str) {}
   );
   expect_fail!(
     op_with_bad_string2,
-    ArgError("s", MissingStringAttribute),
+    ArgError("s", MissingAttribute("string", "String")),
     fn f(s: String) {}
   );
   expect_fail!(
     op_with_bad_string3,
-    ArgError("s", MissingStringAttribute),
+    ArgError("s", MissingAttribute("string", "Cow<str>")),
     fn f(s: Cow<str>) {}
   );
   expect_fail!(
     op_with_invalid_string,
-    ArgError("x", InvalidStringType("u32")),
+    ArgError("x", InvalidAttributeType("string", "u32")),
     fn f(#[string] x: u32) {}
   );
   expect_fail!(
     op_with_invalid_buffer,
-    ArgError("x", InvalidBufferType("u32")),
+    ArgError("x", InvalidAttributeType("buffer", "u32")),
     fn f(#[buffer] x: u32) {}
   );
   expect_fail!(
@@ -1320,12 +1381,12 @@ mod tests {
   );
   expect_fail!(
     op_with_missing_global,
-    ArgError("g", MissingGlobalAttribute),
+    ArgError("g", MissingAttribute("global", "v8::Global<v8::String>")),
     fn f(g: v8::Global<v8::String>) {}
   );
   expect_fail!(
     op_with_invalid_global,
-    ArgError("l", InvalidGlobalType("v8::Local<v8::String>")),
+    ArgError("l", InvalidAttributeType("global", "v8::Local<v8::String>")),
     fn f(#[global] l: v8::Local<v8::String>) {}
   );
 
