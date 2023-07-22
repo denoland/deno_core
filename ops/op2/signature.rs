@@ -186,39 +186,6 @@ impl Buffer {
       },
     }
   }
-
-  fn is_valid_mode(&self, position: Position, mode: BufferMode) -> bool {
-    match position {
-      Position::Arg => match self {
-        Buffer::Bytes(..) => matches!(mode, BufferMode::Copy),
-        Buffer::JsBuffer(..) => matches!(
-          mode,
-          BufferMode::Copy | BufferMode::Detach | BufferMode::Default
-        ),
-        Buffer::V8Slice(..) => matches!(
-          mode,
-          BufferMode::Copy | BufferMode::Detach | BufferMode::Default
-        ),
-        Buffer::Vec(..) => matches!(mode, BufferMode::Copy),
-        Buffer::BoxSlice(..) => matches!(mode, BufferMode::Copy),
-        Buffer::Slice(..) => {
-          matches!(mode, BufferMode::Detach | BufferMode::Default)
-        }
-        Buffer::Ptr(..) => {
-          matches!(mode, BufferMode::Detach | BufferMode::Default)
-        }
-      },
-      Position::RetVal => match self {
-        Buffer::Bytes(..) => matches!(mode, BufferMode::Default),
-        Buffer::JsBuffer(..) => matches!(mode, BufferMode::Default),
-        Buffer::V8Slice(..) => matches!(mode, BufferMode::Default),
-        Buffer::Vec(..) => matches!(mode, BufferMode::Default),
-        Buffer::BoxSlice(..) => matches!(mode, BufferMode::Default),
-        Buffer::Slice(..) => false,
-        Buffer::Ptr(..) => false,
-      },
-    }
-  }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -333,6 +300,8 @@ pub enum ParsedType {
 }
 
 impl ParsedType {
+  /// Returns the valid attributes for this particular type, `None` if no attributes are valid and
+  /// `Some([])` if the type is not valid in this position.
   fn required_attributes(
     &self,
     position: Position,
@@ -365,6 +334,8 @@ pub enum ParsedTypeContainer {
 }
 
 impl ParsedTypeContainer {
+  /// Returns the valid attributes for this particular type, `None` if no attributes are valid and
+  /// `Some([])` if the type is not valid in this position.
   pub fn required_attributes(
     &self,
     position: Position,
@@ -375,6 +346,47 @@ impl ParsedTypeContainer {
       CV8Global(_) | COptionV8Global(_) => Some(&[AttributeModifier::Global]),
       CBare(t) | COption(t) | CRcRefCell(t) => t.required_attributes(position),
     }
+  }
+
+  fn validate_attributes(
+    &self,
+    position: Position,
+    attrs: Attributes,
+    tp: &impl ToTokens,
+  ) -> Result<(), ArgError> {
+    match self.required_attributes(position) {
+      None => match attrs.primary {
+        None => {}
+        Some(attr) => {
+          return Err(ArgError::InvalidAttributeType(
+            attr.name(),
+            stringify_token(tp),
+          ))
+        }
+      },
+      Some(attr) => {
+        if attr.is_empty() {
+          return Err(ArgError::NotAllowedInThisPosition(stringify_token(tp)));
+        }
+        match attrs.primary {
+          None => {
+            return Err(ArgError::MissingAttribute(
+              attr[0].name(),
+              stringify_token(tp),
+            ))
+          }
+          Some(primary) => {
+            if !attr.contains(&primary) {
+              return Err(ArgError::MissingAttribute(
+                attr[0].name(),
+                stringify_token(tp),
+              ));
+            }
+          }
+        }
+      }
+    };
+    Ok(())
   }
 }
 
@@ -522,8 +534,6 @@ pub enum ArgError {
   InvalidSerdeType(String, &'static str),
   #[error("Invalid #[{0}] for type: {1}")]
   InvalidAttributeType(&'static str, String),
-  #[error("Invalid #[buffer] mode {0} for {1}")]
-  InvalidBufferMode(String, String),
   #[error("Cannot use #[serde] for type: {0}")]
   InvalidSerdeAttributeType(String),
   #[error("Invalid v8 type: {0}")]
@@ -895,38 +905,8 @@ fn parse_type_path(
     }
   }
 
-  match res.required_attributes(position) {
-    None => match attrs.primary {
-      None => {}
-      Some(attr) => {
-        return Err(ArgError::InvalidAttributeType(
-          attr.name(),
-          stringify_token(tp),
-        ))
-      }
-    },
-    Some(attr) => {
-      if attr.is_empty() {
-        return Err(ArgError::NotAllowedInThisPosition(stringify_token(tp)));
-      }
-      match attrs.primary {
-        None => {
-          return Err(ArgError::MissingAttribute(
-            attr[0].name(),
-            stringify_token(tp),
-          ))
-        }
-        Some(primary) => {
-          if !attr.contains(&primary) {
-            return Err(ArgError::MissingAttribute(
-              attr[0].name(),
-              stringify_token(tp),
-            ));
-          }
-        }
-      }
-    }
-  }
+  res.validate_attributes(position, attrs, &tp)?;
+
   Ok(res)
 }
 
@@ -1060,21 +1040,10 @@ pub(crate) fn parse_type(
                 Ok(Arg::External(External::Ptr(mut_type)))
               }
               numeric => {
-                if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
-                  let buffer = Buffer::Slice(mut_type, numeric);
-                  if !buffer.is_valid_mode(position, mode) {
-                    return Err(ArgError::InvalidBufferMode(
-                      format!("{mode:?}"),
-                      stringify_token(ty),
-                    ));
-                  }
-                  Ok(Arg::Buffer(buffer))
-                } else {
-                  Err(ArgError::InvalidAttributeType(
-                    "buffer",
-                    stringify_token(ty),
-                  ))
-                }
+                let buffer = Buffer::Slice(mut_type, numeric);
+                let res = CBare(TBuffer(buffer));
+                res.validate_attributes(position, attrs, &of)?;
+                Ok(Arg::Buffer(buffer))
               }
             }
           } else {
@@ -1103,21 +1072,10 @@ pub(crate) fn parse_type(
         Type::Path(of) => match parse_numeric_type(&of.path)? {
           NumericArg::__VOID__ => Ok(Arg::External(External::Ptr(mut_type))),
           numeric => {
-            if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
-              let buffer = Buffer::Ptr(mut_type, numeric);
-              if !buffer.is_valid_mode(position, mode) {
-                return Err(ArgError::InvalidBufferMode(
-                  format!("{mode:?}"),
-                  stringify_token(ty),
-                ));
-              }
-              Ok(Arg::Buffer(buffer))
-            } else {
-              Err(ArgError::InvalidAttributeType(
-                "buffer",
-                stringify_token(ty),
-              ))
-            }
+            let buffer = Buffer::Ptr(mut_type, numeric);
+            let res = CBare(TBuffer(buffer));
+            res.validate_attributes(position, attrs, &of)?;
+            Ok(Arg::Buffer(buffer))
           }
         },
         _ => Err(ArgError::InvalidType(stringify_token(ty))),
