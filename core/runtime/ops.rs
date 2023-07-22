@@ -609,6 +609,8 @@ mod tests {
       op_test_bool_result,
       op_test_float,
       op_test_float_result,
+      op_test_i64,
+      op_test_u64,
       op_test_string_owned,
       op_test_string_ref,
       op_test_string_cow,
@@ -975,6 +977,40 @@ mod tests {
       1,
       "op_test_float_result",
       "try { op_test_float_result(-1, -1); assert(false) } catch (e) {}",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  pub fn op_test_u64() -> u64 {
+    u64::MAX
+  }
+
+  #[op2(core)]
+  pub fn op_test_i64(min: bool) -> i64 {
+    if min {
+      i64::MIN
+    } else {
+      i64::MAX
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_64() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10,
+      "op_test_i64",
+      &format!("assert(op_test_i64(false) == {}n)", i64::MAX),
+    )?;
+    run_test2(
+      10,
+      "op_test_i64",
+      &format!("assert(op_test_i64(true) == {}n)", i64::MIN),
+    )?;
+    run_test2(
+      10,
+      "op_test_u64",
+      &format!("assert(op_test_u64() == {}n)", u64::MAX),
     )?;
     Ok(())
   }

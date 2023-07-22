@@ -14,7 +14,7 @@ impl<T: Trait> deno_core::_ops::Op for op_generics<T> {
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new(
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value],
                 CType::Void,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,

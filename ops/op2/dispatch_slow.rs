@@ -525,6 +525,16 @@ pub fn return_value_infallible(
     | Arg::Numeric(NumericArg::i32) => {
       quote!(#retval.set_int32(#result as i32);)
     }
+    Arg::Numeric(NumericArg::i64) => {
+      *needs_retval = true;
+      *needs_scope = true;
+      quote!(#retval.set(v8::BigInt::new_from_i64(&mut scope, #result as _).into());)
+    }
+    Arg::Numeric(NumericArg::u64) => {
+      *needs_retval = true;
+      *needs_scope = true;
+      quote!(#retval.set(v8::BigInt::new_from_u64(&mut #scope, #result as _).into());)
+    }
     Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
       quote!(#retval.set_double(#result as _);)
     }
