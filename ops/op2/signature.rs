@@ -735,7 +735,14 @@ fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
     }
   }
 
-  Err(ArgError::InvalidNumericType(stringify_token(tp)))
+  let res = std::panic::catch_unwind(|| {
+    rules!(tp.into_token_stream() => {
+      ( $( std :: ffi :: )? c_void ) => NumericArg::__VOID__,
+    })
+  })
+  .map_err(|_| ArgError::InvalidNumericType(stringify_token(tp)))?;
+
+  Ok(res)
 }
 
 /// Parse a raw type into a container + type, allowing us to simplify the typechecks elsewhere in
@@ -782,7 +789,6 @@ fn parse_type_path(
       ( $( bytes :: )? Bytes ) => {
         Ok(CBare(TBuffer(Buffer::Bytes(BufferMode::Default))))
       }
-      ( $( std :: ffi :: )? c_void ) => Ok(CBare(TNumeric(NumericArg::__VOID__))),
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
@@ -1036,11 +1042,9 @@ pub(crate) fn parse_type(
         RefType::Ref
       };
       match &*of.elem {
-        Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
-          CBare(TNumeric(numeric)) if numeric == NumericArg::__VOID__ => {
-            Ok(Arg::External(External::Ptr(mut_type)))
-          }
-          CBare(TNumeric(numeric)) => {
+        Type::Path(of) => match parse_numeric_type(&of.path)? {
+          NumericArg::__VOID__ => Ok(Arg::External(External::Ptr(mut_type))),
+          numeric => {
             if let Some(AttributeModifier::Buffer(mode)) = attrs.primary {
               let buffer = Buffer::Ptr(mut_type, numeric);
               if !buffer.is_valid_mode(position, mode) {
@@ -1054,7 +1058,6 @@ pub(crate) fn parse_type(
               Err(ArgError::InvalidBufferType(stringify_token(ty)))
             }
           }
-          _ => Err(ArgError::InvalidType(stringify_token(ty))),
         },
         _ => Err(ArgError::InvalidType(stringify_token(ty))),
       }
