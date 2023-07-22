@@ -4,6 +4,7 @@ use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::Buffer;
+use super::signature::BufferMode;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
@@ -307,7 +308,7 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Buffer(Buffer::BoxSlice(NumericArg::u8)) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into_boxed_slice();)
     }
-    Arg::Buffer(Buffer::Bytes) => {
+    Arg::Buffer(Buffer::Bytes(BufferMode::Copy)) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into();)
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
@@ -410,7 +411,7 @@ fn map_arg_to_v8_fastcall_type(
       Buffer::Slice(_, NumericArg::u8)
       | Buffer::Vec(NumericArg::u8)
       | Buffer::BoxSlice(NumericArg::u8)
-      | Buffer::Bytes,
+      | Buffer::Bytes(BufferMode::Copy),
     ) => V8FastCallType::Uint8Array,
     Arg::Buffer(_) => return Ok(None),
     // Virtual OpState arguments

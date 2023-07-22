@@ -11,6 +11,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_v8::from_v8;
 use serde_v8::to_v8;
+use serde_v8::JsBuffer;
+use serde_v8::V8Slice;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::future::ready;
@@ -476,6 +478,98 @@ where
   Ok(slice)
 }
 
+/// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
+pub fn to_v8_slice_detachable<'a, T>(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<'a, v8::Value>,
+) -> Result<serde_v8::V8Slice, &'static str>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T>>,
+{
+  let (store, offset, length) = if let Ok(buf) = v8::Local::<T>::try_from(input)
+  {
+    let buf: v8::Local<v8::ArrayBufferView> = buf.into();
+    let Some(buffer) = buf.buffer(scope) else {
+      return Err("buffer missing");
+    };
+    let res = (
+      buffer.get_backing_store(),
+      buf.byte_offset(),
+      buf.byte_length(),
+    );
+    if !buffer.is_detachable() {
+      return Err("invalid type; expected: detachable");
+    }
+    buffer.detach(None);
+    res
+  } else {
+    return Err("expected typed ArrayBufferView");
+  };
+  let slice =
+    unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
+  Ok(slice)
+}
+
+pub trait ToV8Value {
+  /// Consume and convert this object into a [`v8::Value`]. This is similar to what serde_v8 does, but a
+  /// dedicated API for ops to use.
+  fn to_v8_value<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> v8::Local<'a, v8::Value>;
+}
+
+impl ToV8Value for V8Slice {
+  fn to_v8_value<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> v8::Local<'a, v8::Value> {
+    let (buffer, range) = self.into_parts();
+    let buffer = v8::ArrayBuffer::with_backing_store(scope, &buffer);
+    let array =
+      v8::Uint8Array::new(scope, buffer, range.start, range.len()).unwrap();
+    array.into()
+  }
+}
+
+impl ToV8Value for JsBuffer {
+  fn to_v8_value<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> v8::Local<'a, v8::Value> {
+    self.into_parts().to_v8_value(scope)
+  }
+}
+
+impl ToV8Value for Box<[u8]> {
+  fn to_v8_value<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> v8::Local<'a, v8::Value> {
+    let buf = self;
+    if buf.is_empty() {
+      let ab = v8::ArrayBuffer::new(scope, 0);
+      return v8::Uint8Array::new(scope, ab, 0, 0).unwrap().into();
+    }
+    let buf_len: usize = buf.len();
+    let backing_store =
+      v8::ArrayBuffer::new_backing_store_from_boxed_slice(buf);
+    let backing_store_shared = backing_store.make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap().into()
+  }
+}
+
+impl ToV8Value for Vec<u8> {
+  fn to_v8_value<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> v8::Local<'a, v8::Value> {
+    self.into_boxed_slice().to_v8_value(scope)
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -491,6 +585,7 @@ mod tests {
   use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
+  use serde_v8::JsBuffer;
   use std::borrow::Cow;
   use std::cell::Cell;
   use std::cell::RefCell;
@@ -548,6 +643,8 @@ mod tests {
       op_async_sleep_error,
       op_async_result_impl,
       op_async_state_rc,
+      op_async_buffer,
+      op_async_buffer_vec,
       op_async_buffer_impl,
     ],
     state = |state| {
@@ -1498,6 +1595,20 @@ mod tests {
   }
 
   #[op2(async, core)]
+  #[buffer]
+  async fn op_async_buffer(#[buffer] input: JsBuffer) -> JsBuffer {
+    input
+  }
+
+  #[op2(async, core)]
+  #[buffer]
+  async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
+    let mut output = input.to_vec();
+    output.reverse();
+    output
+  }
+
+  #[op2(async, core)]
   fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
     let l = input.len();
     async move { l as _ }
@@ -1507,7 +1618,19 @@ mod tests {
   pub async fn test_op_async_buffer() -> Result<(), Box<dyn std::error::Error>>
   {
     run_async_test(
-      5,
+      2,
+      "op_async_buffer",
+      "let output = await op_async_buffer(new Uint8Array([1,2,3])); assert(output.length == 3); assert(output[0] == 1);",
+    )
+    .await?;
+    run_async_test(
+      2,
+      "op_async_buffer_vec",
+      "let output = await op_async_buffer_vec(new Uint8Array([3,2,1])); assert(output.length == 3); assert(output[0] == 1);",
+    )
+    .await?;
+    run_async_test(
+      2,
       "op_async_buffer_impl",
       "assert(await op_async_buffer_impl(new Uint8Array(10)) == 10)",
     )

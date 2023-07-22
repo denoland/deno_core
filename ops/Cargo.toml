@@ -32,5 +32,5 @@ v8.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
-prettyplease = "0.2.10"
+prettyplease = "0.2.12"
 testing_macros = "0.2.11"

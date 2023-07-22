@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::future::Future;
 use deno_core::error::AnyError;
 use deno_core::OpState;
+use deno_core::JsBuffer;
 
 // Collect a few examples that we'll smoke test when not running on the CI.
 
@@ -40,4 +41,10 @@ pub fn op_async5(x: i32) -> Result<impl Future<Output = std::io::Result<i32>>, A
 #[op2(async)]
 pub async fn op_async_opstate(state: Rc<RefCell<OpState>>) -> std::io::Result<i32> {
     Ok(*state.borrow().borrow::<i32>())
+}
+
+#[op2(async)]
+#[buffer]
+pub async fn op_async_buffer(#[buffer] buf: JsBuffer) -> JsBuffer {
+  buf
 }

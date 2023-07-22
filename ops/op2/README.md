@@ -579,6 +579,34 @@ Safe, but forces a copy.
 <td>
 
 ```rust
+#[buffer] JsBuffer
+```
+
+</td><td>
+
+</td><td>
+ArrayBuffer, ArrayBufferView (resizable=false)
+</td><td>
+⚠️ JS may modify the contents of slices obtained from buffer.
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[buffer(detach)] JsBuffer
+```
+
+</td><td>
+
+</td><td>
+ArrayBuffer, ArrayBufferView (resizable=true,false)
+</td><td>
+Safe.
+</td></tr>
+<tr>
+<td>
+
+```rust
 &OpState
 ```
 

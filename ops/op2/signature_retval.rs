@@ -70,12 +70,18 @@ pub(crate) fn parse_return(
   let res = match rt {
     ReturnType::Default => RetVal::Infallible(Arg::Void),
     ReturnType::Type(_, rt) => match unwrap_return(rt)? {
-      Type(ty) => RetVal::Infallible(parse_type(attrs, &ty)?),
+      Type(ty) => RetVal::Infallible(parse_type(Position::RetVal, attrs, &ty)?),
       Result(ty) => match unwrap_return(&ty)? {
-        Type(ty) => RetVal::Result(parse_type(attrs, &ty)?),
+        Type(ty) => RetVal::Result(parse_type(Position::RetVal, attrs, &ty)?),
         Future(ty) => match unwrap_return(&ty)? {
-          Type(ty) => RetVal::ResultFuture(parse_type(attrs, &ty)?),
-          Result(ty) => RetVal::ResultFutureResult(parse_type(attrs, &ty)?),
+          Type(ty) => {
+            RetVal::ResultFuture(parse_type(Position::RetVal, attrs, &ty)?)
+          }
+          Result(ty) => RetVal::ResultFutureResult(parse_type(
+            Position::RetVal,
+            attrs,
+            &ty,
+          )?),
           _ => {
             return Err(RetError::InvalidType(ArgError::InvalidType(
               stringify_token(rt),
@@ -89,8 +95,10 @@ pub(crate) fn parse_return(
         }
       },
       Future(ty) => match unwrap_return(&ty)? {
-        Type(ty) => RetVal::Future(parse_type(attrs, &ty)?),
-        Result(ty) => RetVal::FutureResult(parse_type(attrs, &ty)?),
+        Type(ty) => RetVal::Future(parse_type(Position::RetVal, attrs, &ty)?),
+        Result(ty) => {
+          RetVal::FutureResult(parse_type(Position::RetVal, attrs, &ty)?)
+        }
         _ => {
           return Err(RetError::InvalidType(ArgError::InvalidType(
             stringify_token(rt),

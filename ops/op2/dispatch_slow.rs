@@ -14,6 +14,7 @@ use super::MacroConfig;
 use super::V8MappingError;
 use crate::op2::generator_state::gs_extract;
 use crate::op2::generator_state::gs_quote;
+use crate::op2::signature::BufferMode;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -411,28 +412,27 @@ pub fn from_arg_buffer(
   let err = format_ident!("{}_err", arg_ident);
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
-  let GeneratorState {
-    deno_core,
-    scope,
-    needs_scope,
-    ..
-  } = generator_state;
-
-  *needs_scope = true;
+  generator_state.needs_scope = true;
 
   // TODO(mmastrac): Other buffer types
   let array = NumericArg::u8
     .v8_array_type()
     .expect("Could not retrieve the v8 type");
 
-  let make_v8slice = quote! {
-    let mut #arg_ident = match unsafe { #deno_core::_ops::to_v8_slice::<#deno_core::v8::#array>(&mut #scope, #arg_ident) } {
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
+    quote!(to_v8_slice_detachable)
+  } else {
+    quote!(to_v8_slice)
+  };
+
+  let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
+    let mut #arg_ident = match unsafe { #deno_core::_ops::#to_v8_slice::<#deno_core::v8::#array>(&mut #scope, #arg_ident) } {
       Ok(#arg_ident) => #arg_ident,
       Err(#err) => {
         #throw_exception
       }
     };
-  };
+  });
 
   let make_arg = match buffer {
     Buffer::Slice(_, NumericArg::u8) => {
@@ -444,9 +444,11 @@ pub fn from_arg_buffer(
     Buffer::BoxSlice(NumericArg::u8) => {
       quote!(let #arg_ident = #arg_ident.to_boxed_slice();)
     }
-    Buffer::Bytes => {
-      // TODO(mmastrac): This assumes #[buffer(copy)]
+    Buffer::Bytes(BufferMode::Copy) => {
       quote!(let #arg_ident = #arg_ident.to_vec().into();)
+    }
+    Buffer::JsBuffer(BufferMode::Default | BufferMode::Detach) => {
+      gs_quote!(generator_state(deno_core) => (let #arg_ident = #deno_core::serde_v8::JsBuffer::from_parts(#arg_ident);))
     }
     _ => {
       return Err(V8MappingError::NoMapping(
@@ -499,37 +501,34 @@ pub fn return_value_infallible(
     ..
   } = generator_state;
 
+  // In the future we may be able to make this false for void again
+  *needs_retval = true;
+
   let res = match ret_type {
     Arg::Void => {
       // TODO(mmastrac): revisit this. Ideally we wouldn't need to set
       // rv to null, but because of how serde_v8 works this is required
       // to keep compatibility with existing assumptions in `deno_core`
       // and `deno` itself.
-      *needs_retval = true;
       quote! {#retval.set_null();}
     }
     Arg::Numeric(NumericArg::bool) => {
-      *needs_retval = true;
       quote!(#retval.set_bool(#result as bool);)
     }
     Arg::Numeric(NumericArg::u8)
     | Arg::Numeric(NumericArg::u16)
     | Arg::Numeric(NumericArg::u32) => {
-      *needs_retval = true;
       quote!(#retval.set_uint32(#result as u32);)
     }
     Arg::Numeric(NumericArg::i8)
     | Arg::Numeric(NumericArg::i16)
     | Arg::Numeric(NumericArg::i32) => {
-      *needs_retval = true;
       quote!(#retval.set_int32(#result as i32);)
     }
     Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
-      *needs_retval = true;
       quote!(#retval.set_double(#result as _);)
     }
     Arg::Special(Special::String) => {
-      *needs_retval = true;
       *needs_scope = true;
       quote! {
         if #result.is_empty() {
@@ -544,7 +543,6 @@ pub fn return_value_infallible(
       }
     }
     Arg::OptionNumeric(n) => {
-      *needs_retval = true;
       *needs_scope = true;
       let some = return_value_infallible(generator_state, &Arg::Numeric(*n))?;
       gs_quote!(generator_state(result, retval) => {
@@ -556,7 +554,6 @@ pub fn return_value_infallible(
       })
     }
     Arg::Option(Special::String) => {
-      *needs_retval = true;
       *needs_scope = true;
       let some = return_value_infallible(
         generator_state,
@@ -571,7 +568,6 @@ pub fn return_value_infallible(
       })
     }
     Arg::OptionV8Local(_) => {
-      *needs_retval = true;
       quote! {
         if let Some(#result) = #result {
           // We may have a non v8::Value here
@@ -582,14 +578,12 @@ pub fn return_value_infallible(
       }
     }
     Arg::V8Local(_) => {
-      *needs_retval = true;
       quote! {
         // We may have a non v8::Value here
         #retval.set(#result.into())
       }
     }
     Arg::SerdeV8(_class) => {
-      *needs_retval = true;
       *needs_scope = true;
 
       let deno_core = deno_core.clone();
@@ -608,6 +602,13 @@ pub fn return_value_infallible(
         };
         #retval.set(#result.into())
       }
+    }
+    Arg::Buffer(
+      Buffer::JsBuffer(BufferMode::Default)
+      | Buffer::Vec(NumericArg::u8)
+      | Buffer::BoxSlice(NumericArg::u8),
+    ) => {
+      quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
     }
     _ => {
       return Err(V8MappingError::NoMapping(
@@ -638,6 +639,13 @@ pub fn return_value_v8_value(
     }
     Arg::Numeric(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
       quote!(Ok(#deno_core::v8::Integer::new_from_unsigned(#scope, #result).into()))
+    }
+    Arg::Buffer(
+      Buffer::JsBuffer(BufferMode::Default)
+      | Buffer::Vec(NumericArg::u8)
+      | Buffer::BoxSlice(NumericArg::u8),
+    ) => {
+      quote!(Ok(#deno_core::_ops::ToV8Value::to_v8_value(#result, #scope)))
     }
     _ => {
       return Err(V8MappingError::NoMapping(
