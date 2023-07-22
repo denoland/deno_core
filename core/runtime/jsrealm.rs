@@ -50,18 +50,18 @@ impl Hasher for IdentityHasher {
   }
 }
 
-pub(crate) struct DynImportModEvaluate {
-  pub(crate) load_id: ModuleLoadId,
-  pub(crate) module_id: ModuleId,
-  pub(crate) promise: v8::Global<v8::Promise>,
-  pub(crate) module: v8::Global<v8::Module>,
+struct DynImportModEvaluate {
+  load_id: ModuleLoadId,
+  module_id: ModuleId,
+  promise: v8::Global<v8::Promise>,
+  module: v8::Global<v8::Module>,
 }
 
 pub(crate) struct ModEvaluate {
-  pub(crate) promise: Option<v8::Global<v8::Promise>>,
+  promise: Option<v8::Global<v8::Promise>>,
   pub(crate) has_evaluated: bool,
   pub(crate) handled_promise_rejections: Vec<v8::Global<v8::Promise>>,
-  pub(crate) sender: oneshot::Sender<Result<(), Error>>,
+  sender: oneshot::Sender<Result<(), Error>>,
 }
 
 #[derive(Default)]
@@ -73,9 +73,7 @@ pub(crate) struct ContextState {
   pub(crate) js_wasm_streaming_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) pending_promise_rejections:
     VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>,
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
-  pub(crate) pending_dyn_mod_evaluate: Vec<DynImportModEvaluate>,
+  pending_dyn_mod_evaluate: Vec<DynImportModEvaluate>,
   pub(crate) pending_mod_evaluate: Option<ModEvaluate>,
   pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
   pub(crate) pending_ops: JoinSet<(PromiseId, OpId, OpResult)>,
@@ -168,14 +166,10 @@ impl JsRealmInner {
     self.context_state.borrow().unrefed_ops.len()
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   pub fn has_pending_dyn_imports(&self) -> bool {
     self.module_map.borrow().has_pending_dynamic_imports()
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   pub fn has_pending_dyn_module_evaluation(&self) -> bool {
     !self
       .context_state
@@ -184,8 +178,6 @@ impl JsRealmInner {
       .is_empty()
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   pub fn has_pending_module_evaluation(&self) -> bool {
     self.context_state.borrow().pending_mod_evaluate.is_some()
   }
@@ -439,8 +431,6 @@ impl JsRealm {
       .instantiate_module(&mut self.handle_scope(isolate), id)
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   fn dynamic_import_module_evaluate(
     &self,
     isolate: &mut v8::Isolate,
@@ -663,8 +653,6 @@ impl JsRealm {
     receiver
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   fn dynamic_import_reject(
     &self,
     isolate: &mut v8::Isolate,
@@ -690,8 +678,6 @@ impl JsRealm {
     scope.perform_microtask_checkpoint();
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   fn dynamic_import_resolve(
     &self,
     isolate: &mut v8::Isolate,
@@ -729,8 +715,6 @@ impl JsRealm {
     scope.perform_microtask_checkpoint();
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   pub(in crate::runtime) fn prepare_dyn_imports(
     &self,
     isolate: &mut v8::Isolate,
@@ -782,8 +766,6 @@ impl JsRealm {
     }
   }
 
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   pub(in crate::runtime) fn poll_dyn_imports(
     &self,
     isolate: &mut v8::Isolate,
@@ -892,8 +874,6 @@ impl JsRealm {
   /// Thus during turn of event loop we need to check if V8 has
   /// resolved or rejected the promise. If the promise is still pending
   /// then another turn of event loop must be performed.
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   pub(in crate::runtime) fn evaluate_pending_module(
     &self,
     isolate: &mut v8::Isolate,
@@ -950,8 +930,6 @@ impl JsRealm {
   }
 
   // Returns true if some dynamic import was resolved.
-  // TODO(bartlomieju): remove, once migration to realm module handling is complete
-  #[allow(unused)]
   pub(in crate::runtime) fn evaluate_dyn_imports(
     &self,
     isolate: &mut v8::Isolate,

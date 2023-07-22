@@ -955,3 +955,71 @@ fn test_array_by_copy() {
     )
     .is_ok());
 }
+
+// Make sure that stalled top-level awaits (that is, top-level awaits that
+// aren't tied to the progress of some op) are correctly reported, even in a
+// realm other than the main one.
+#[tokio::test]
+async fn test_stalled_tla() {
+  struct Loader;
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      assert_eq!(specifier, "file:///test.js");
+      assert_eq!(referrer, ".");
+      let s = crate::resolve_import(specifier, referrer).unwrap();
+      Ok(s)
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      async {
+        Ok(ModuleSource::for_test(
+          r#"await new Promise(() => {});"#,
+          "file:///test.js",
+        ))
+      }
+      .boxed_local()
+    }
+  }
+
+  let mut runtime = JsRuntime::new(Default::default());
+  let realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(Rc::new(Loader)),
+    })
+    .unwrap();
+
+  let module_id = realm
+    .load_main_module(
+      runtime.v8_isolate(),
+      &crate::resolve_url("file:///test.js").unwrap(),
+      None,
+    )
+    .await
+    .unwrap();
+  #[allow(clippy::let_underscore_future)]
+  let _ = realm.mod_evaluate(runtime.v8_isolate(), module_id);
+
+  let error = runtime.run_event_loop(false).await.unwrap_err();
+  let js_error = error.downcast::<JsError>().unwrap();
+  assert_eq!(
+    &js_error.exception_message,
+    "Top-level await promise never resolved"
+  );
+  assert_eq!(js_error.frames.len(), 1);
+  assert_eq!(
+    js_error.frames[0].file_name.as_deref(),
+    Some("file:///test.js")
+  );
+  assert_eq!(js_error.frames[0].line_number, Some(1));
+  assert_eq!(js_error.frames[0].column_number, Some(1));
+}
