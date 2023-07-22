@@ -11,7 +11,6 @@ use crate::Resource;
 use anyhow::Error;
 use deno_ops::op;
 use deno_ops::op2;
-use serde_v8::ToJsBuffer;
 use std::cell::RefCell;
 use std::io::stderr;
 use std::io::stdout;
@@ -113,13 +112,13 @@ pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support
+// TODO(bartlomieju): migration to op2 blocked by deferred support
 #[op(deferred)]
 pub async fn op_error_async_deferred() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support
+// TODO(bartlomieju): migration to op2 blocked by deferred support
 #[op(deferred)]
 pub async fn op_void_async_deferred() {}
 
@@ -205,26 +204,23 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
-// support
-#[op]
+#[op2(async, core)]
 async fn op_read(
   state: Rc<RefCell<OpState>>,
-  rid: ResourceId,
-  buf: JsBuffer,
+  #[smi] rid: ResourceId,
+  #[buffer] buf: JsBuffer,
 ) -> Result<u32, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufMutView::from(buf);
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
-// support
-#[op]
+#[op2(async, core)]
+#[buffer]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
-  rid: ResourceId,
-) -> Result<ToJsBuffer, Error> {
+  #[smi] rid: ResourceId,
+) -> Result<Vec<u8>, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
 
   // The number of bytes we attempt to grow the buffer by each time it fills
@@ -286,16 +282,14 @@ async fn op_read_all(
     vec.truncate(nread);
   }
 
-  Ok(ToJsBuffer::from(vec))
+  Ok(vec)
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
-// support
-#[op]
+#[op2(async, core)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
-  rid: ResourceId,
-  buf: JsBuffer,
+  #[smi] rid: ResourceId,
+  #[buffer] buf: JsBuffer,
 ) -> Result<u32, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufView::from(buf);
@@ -324,13 +318,11 @@ fn op_write_sync(
   Ok(nwritten as u32)
 }
 
-// TODO(bartlomieju): migration to op2 blocked by async fn support and buffer
-// support
-#[op]
+#[op2(async, core)]
 async fn op_write_all(
   state: Rc<RefCell<OpState>>,
-  rid: ResourceId,
-  buf: JsBuffer,
+  #[smi] rid: ResourceId,
+  #[buffer] buf: JsBuffer,
 ) -> Result<(), Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufView::from(buf);

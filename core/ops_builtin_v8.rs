@@ -7,14 +7,11 @@ use crate::error::JsError;
 use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::script_origin;
-use crate::serde_v8::from_v8;
 use crate::source_map::apply_source_map;
 use crate::JsBuffer;
 use crate::JsRealm;
 use crate::JsRuntime;
-use crate::ToJsBuffer;
 use anyhow::Error;
-use deno_ops::op;
 use deno_ops::op2;
 use serde::Deserialize;
 use serde::Serialize;
@@ -161,12 +158,11 @@ pub fn op_encode<'a>(
   Ok(u8array)
 }
 
-// TODO(bartlomieju): migration to op2 blocked by buffer support
-#[op(v8)]
-fn op_decode<'a>(
+#[op2(core)]
+pub fn op_decode<'a>(
   scope: &mut v8::HandleScope<'a>,
-  zero_copy: &[u8],
-) -> Result<serde_v8::Value<'a>, Error> {
+  #[buffer] zero_copy: &[u8],
+) -> Result<v8::Local<'a, v8::String>, Error> {
   let buf = &zero_copy;
 
   // Strip BOM
@@ -186,7 +182,7 @@ fn op_decode<'a>(
   // - https://github.com/denoland/deno/issues/6649
   // - https://github.com/v8/v8/blob/d68fb4733e39525f9ff0a9222107c02c28096e2a/include/v8.h#L3277-L3278
   match v8::String::new_from_utf8(scope, buf, v8::NewStringType::Normal) {
-    Some(text) => Ok(from_v8(scope, text.into())?),
+    Some(text) => Ok(text),
     None => Err(range_error("string too long")),
   }
 }
@@ -345,25 +341,25 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SerializeDeserializeOptions<'a> {
+pub struct SerializeDeserializeOptions<'a> {
   host_objects: Option<serde_v8::Value<'a>>,
   transferred_array_buffers: Option<serde_v8::Value<'a>>,
   #[serde(default)]
   for_storage: bool,
 }
 
-// TODO(bartlomieju): migration to op2 blocked by buffer support
-#[op(v8)]
-fn op_serialize(
+#[op2(core)]
+#[buffer]
+pub fn op_serialize(
   scope: &mut v8::HandleScope,
-  value: serde_v8::Value,
-  options: Option<SerializeDeserializeOptions>,
-  error_callback: Option<serde_v8::Value>,
-) -> Result<ToJsBuffer, Error> {
+  value: v8::Local<v8::Value>,
+  #[serde] options: Option<SerializeDeserializeOptions>,
+  error_callback: Option<v8::Local<v8::Value>>,
+) -> Result<Vec<u8>, Error> {
   let options = options.unwrap_or_default();
   let error_callback = match error_callback {
     Some(cb) => Some(
-      v8::Local::<v8::Function>::try_from(cb.v8_value)
+      v8::Local::<v8::Function>::try_from(cb)
         .map_err(|_| type_error("Invalid error callback"))?,
     ),
     None => None,
@@ -427,27 +423,25 @@ fn op_serialize(
   }
 
   let scope = &mut v8::TryCatch::new(scope);
-  let ret =
-    value_serializer.write_value(scope.get_current_context(), value.v8_value);
+  let ret = value_serializer.write_value(scope.get_current_context(), value);
   if scope.has_caught() || scope.has_terminated() {
     scope.rethrow();
     // Dummy value, this result will be discarded because an error was thrown.
-    Ok(ToJsBuffer::empty())
+    Ok(vec![])
   } else if let Some(true) = ret {
     let vector = value_serializer.release();
-    Ok(vector.into())
+    Ok(vector)
   } else {
     Err(type_error("Failed to serialize response"))
   }
 }
 
-// TODO(bartlomieju): migration to op2 blocked by buffer support
-#[op(v8)]
-fn op_deserialize<'a>(
+#[op2(core)]
+pub fn op_deserialize<'a>(
   scope: &mut v8::HandleScope<'a>,
-  zero_copy: JsBuffer,
-  options: Option<SerializeDeserializeOptions>,
-) -> Result<serde_v8::Value<'a>, Error> {
+  #[buffer] zero_copy: JsBuffer,
+  #[serde] options: Option<SerializeDeserializeOptions>,
+) -> Result<v8::Local<'a, v8::Value>, Error> {
   let options = options.unwrap_or_default();
   let host_objects = match options.host_objects {
     Some(value) => Some(
@@ -509,7 +503,7 @@ fn op_deserialize<'a>(
 
   let value = value_deserializer.read_value(scope.get_current_context());
   match value {
-    Some(deserialized) => Ok(deserialized.into()),
+    Some(deserialized) => Ok(deserialized),
     None => Err(range_error("could not deserialize value")),
   }
 }
