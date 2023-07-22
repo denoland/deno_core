@@ -704,7 +704,7 @@ impl JsRuntime {
       let main_realm = JsRealmInner::new(
         context_state,
         main_context,
-        module_map_rc,
+        module_map_rc.clone(),
         state_rc.clone(),
         true,
       );
@@ -738,12 +738,17 @@ impl JsRuntime {
     let realm = js_runtime.main_realm();
     // TODO(mmastrac): We should thread errors back out of the runtime
     js_runtime
-      .init_extension_js(
-        &realm,
-        maybe_load_callback,
-        options.preserve_snapshotted_modules,
-      )
+      .init_extension_js(&realm, maybe_load_callback)
       .unwrap();
+
+    // If the user has requested that we rename modules
+    if let Some(preserve_snapshotted_modules) =
+      options.preserve_snapshotted_modules
+    {
+      module_map_rc
+        .borrow_mut()
+        .clear_module_map(preserve_snapshotted_modules);
+    }
 
     js_runtime
   }
@@ -848,7 +853,7 @@ impl JsRuntime {
         .module_loader
         .unwrap_or_else(|| Rc::new(NoopModuleLoader));
       let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
-      // TODO(andreubotella): Should the module map be initialized with snapshotted data?
+      // TODO(andreubotella): Initialize the module map with snapshotted data.
       context.set_slot(scope, module_map_rc.clone());
 
       let realm = JsRealmInner::new(
@@ -863,8 +868,10 @@ impl JsRuntime {
       JsRealm::new(realm)
     };
 
-    // TODO(andreubotella): Should preserve_snapshotted_modules be in CreateRealmOptions?
-    self.init_extension_js(&realm, None, None)?;
+    self.init_extension_js(&realm, None)?;
+
+    // TODO(andreubotella): Handle preserve_snapshotted_modules.
+
     Ok(realm)
   }
 
@@ -878,7 +885,6 @@ impl JsRuntime {
     &mut self,
     realm: &JsRealm,
     maybe_load_callback: Option<ExtModuleLoaderCb>,
-    preserve_snapshotted_modules: Option<&'static [&'static str]>,
   ) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
@@ -966,13 +972,6 @@ impl JsRuntime {
 
     self.extensions = extensions;
     module_map_rc.borrow_mut().loader = loader;
-
-    // If the user has requested that we rename modules
-    if let Some(preserve_snapshotted_modules) = preserve_snapshotted_modules {
-      module_map_rc
-        .borrow_mut()
-        .clear_module_map(preserve_snapshotted_modules);
-    }
 
     Ok(())
   }
