@@ -609,6 +609,8 @@ mod tests {
       op_test_bool_result,
       op_test_float,
       op_test_float_result,
+      op_test_i64,
+      op_test_u64,
       op_test_string_owned,
       op_test_string_ref,
       op_test_string_cow,
@@ -979,6 +981,38 @@ mod tests {
     Ok(())
   }
 
+  #[op2(core)]
+  #[bigint]
+  pub fn op_test_u64(#[bigint] input: u64) -> u64 {
+    input
+  }
+
+  #[op2(core)]
+  #[bigint]
+  pub fn op_test_i64(#[bigint] input: i64) -> i64 {
+    input
+  }
+
+  #[tokio::test]
+  pub async fn test_op_64() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10,
+      "op_test_i64",
+      &format!("assert(op_test_i64({}n) == {}n)", i64::MAX, i64::MAX),
+    )?;
+    run_test2(
+      10,
+      "op_test_i64",
+      &format!("assert(op_test_i64({}n) == {}n)", i64::MIN, i64::MIN),
+    )?;
+    run_test2(
+      10,
+      "op_test_u64",
+      &format!("assert(op_test_u64({}n) == {}n)", u64::MAX, u64::MAX),
+    )?;
+    Ok(())
+  }
+
   #[op2(core, fast)]
   pub fn op_test_string_owned(#[string] s: String) -> u32 {
     s.len() as _
@@ -1338,9 +1372,9 @@ mod tests {
   #[op2(core, fast)]
   pub fn op_buffer_slice(
     #[buffer] input: &[u8],
-    inlen: usize,
+    #[bigint] inlen: usize,
     #[buffer] output: &mut [u8],
-    outlen: usize,
+    #[bigint] outlen: usize,
   ) {
     assert_eq!(inlen, input.len());
     assert_eq!(outlen, output.len());

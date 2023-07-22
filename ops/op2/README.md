@@ -145,7 +145,7 @@ Uint32, Int32, Number, BigInt
 <td>
 
 ```rust
-i64
+#[bigint] i64
 ```
 
 </td><td>
@@ -159,7 +159,7 @@ Uint32, Int32, Number, BigInt
 <td>
 
 ```rust
-u64
+#[bigint] u64
 ```
 
 </td><td>
@@ -173,7 +173,7 @@ Uint32, Int32, Number, BigInt
 <td>
 
 ```rust
-isize
+#[bigint] isize
 ```
 
 </td><td>
@@ -187,7 +187,7 @@ Uint32, Int32, Number, BigInt
 <td>
 
 ```rust
-usize
+#[bigint] usize
 ```
 
 </td><td>
@@ -776,6 +776,62 @@ u32
 ✅
 </td><td>
 Uint32
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[bigint] i64
+```
+
+</td><td>
+
+</td><td>
+BigInt
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[bigint] u64
+```
+
+</td><td>
+
+</td><td>
+BigInt
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[bigint] isize
+```
+
+</td><td>
+
+</td><td>
+BigInt
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[bigint] usize
+```
+
+</td><td>
+
+</td><td>
+BigInt
 </td><td>
 
 </td></tr>

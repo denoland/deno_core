@@ -258,7 +258,9 @@ pub fn generate_dispatch_fast(
   let fast_definition = quote! {
     use #deno_core::v8::fast_api::Type;
     use #deno_core::v8::fast_api::CType;
-    #deno_core::v8::fast_api::FastFunction::new(
+    // TODO(mmastrac): We're setting this up for future success but returning
+    // u64/i64 from fastcall functions does not work. Test again in the future.
+    #deno_core::v8::fast_api::FastFunction::new_with_bigint(
       &[ Type::V8Value, #( #input_types ),* ],
       #output_type,
       Self::#fast_function as *const ::std::ffi::c_void
@@ -473,10 +475,14 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::Numeric(NumericArg::i16)
     | Arg::Numeric(NumericArg::i8) => V8FastCallType::I32,
     Arg::Numeric(NumericArg::u64) | Arg::Numeric(NumericArg::usize) => {
-      V8FastCallType::U64
+      // TODO(mmastrac): In my testing, I was not able to get this working properly
+      // V8FastCallType::U64
+      return Ok(None);
     }
     Arg::Numeric(NumericArg::i64) | Arg::Numeric(NumericArg::isize) => {
-      V8FastCallType::I64
+      // TODO(mmastrac): In my testing, I was not able to get this working properly
+      // V8FastCallType::I64
+      return Ok(None);
     }
     Arg::Numeric(NumericArg::f32) => V8FastCallType::F32,
     Arg::Numeric(NumericArg::f64) => V8FastCallType::F64,
