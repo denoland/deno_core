@@ -906,7 +906,7 @@ fn parse_type_path(
       }
     },
     Some(attr) => {
-      if attr.len() == 0 {
+      if attr.is_empty() {
         return Err(ArgError::NotAllowedInThisPosition(stringify_token(tp)));
       }
       match attrs.primary {
