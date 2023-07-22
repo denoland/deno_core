@@ -1491,7 +1491,7 @@ impl JsRuntime {
       {
         // pass, will be polled again
       } else {
-        let known_realms = self.inner.state.borrow().known_realms.clone();
+        let known_realms = &self.inner.state.borrow().known_realms;
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             &mut self.inner.v8_isolate,
@@ -1510,7 +1510,7 @@ impl JsRuntime {
         // pass, will be polled again
       } else if self.inner.state.borrow().dyn_module_evaluate_idle_counter >= 1
       {
-        let known_realms = self.inner.state.borrow().known_realms.clone();
+        let known_realms = &self.inner.state.borrow().known_realms;
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             &mut self.inner.v8_isolate,
@@ -1544,7 +1544,7 @@ impl JsRuntime {
 
 fn find_and_report_stalled_level_await_in_any_realm(
   v8_isolate: &mut v8::Isolate,
-  known_realms: Vec<JsRealmInner>,
+  known_realms: &[JsRealmInner],
 ) -> Error {
   for inner_realm in known_realms {
     let scope = &mut inner_realm.handle_scope(v8_isolate);
