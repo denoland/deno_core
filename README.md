@@ -2,7 +2,7 @@
 [![Twitter badge][]][Twitter link] [![Discord badge][]][Discord link]
 [![YouTube badge][]][Youtube link]
 
-<img align="right" src="https://deno.land/logo.svg" height="150px" alt="the deno mascot dinosaur standing in the rain">
+<img align="right" src="https://deno.land/logo.svg" height="150px" alt="the Deno mascot dinosaur standing in the rain">
 
 
 The core engine at the heart of [Deno](https://deno.com/runtime).
