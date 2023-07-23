@@ -427,10 +427,8 @@ fn preserve_snapshotted_modules() {
       _is_dyn_import: bool,
     ) -> Pin<Box<ModuleSourceFuture>> {
       assert_eq!(module_specifier.as_str(), "test:not-preserved");
-      futures::future::ready(Err(
-        error::generic_error("Couldn't load module").into(),
-      ))
-      .boxed_local()
+      futures::future::ready(Err(error::generic_error("Couldn't load module")))
+        .boxed_local()
     }
   }
 
