@@ -5,8 +5,6 @@ use std::ops::DerefMut;
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::error::value_to_type_str;
-
 use super::rawbytes;
 use super::transl8::FromV8;
 
@@ -128,12 +126,12 @@ impl FromV8 for V8Slice {
         if store.is_resizable_by_user_javascript() {
           Err(crate::Error::ResizableBackingStoreNotSupported)
         } else if store.is_shared() {
-          Err(crate::Error::ExpectedBuffer(value_to_type_str(value)))
+          Err(crate::Error::ExpectedBuffer(value.type_repr()))
         } else {
           Ok(V8Slice { store, range })
         }
       }
-      Err(_) => Err(crate::Error::ExpectedBuffer(value_to_type_str(value))),
+      Err(_) => Err(crate::Error::ExpectedBuffer(value.type_repr())),
     }
   }
 }

@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::buffer::JsBuffer;
 use super::transl8::FromV8;
-use crate::error::value_to_type_str;
 use crate::magic::transl8::impl_magic;
 use crate::Error;
 use std::ops::Deref;
@@ -44,7 +43,7 @@ impl FromV8 for StringOrBuffer {
     } else if let Ok(s) = crate::from_v8(scope, value) {
       return Ok(Self::String(s));
     }
-    Err(Error::ExpectedBuffer(value_to_type_str(value)))
+    Err(Error::ExpectedBuffer(value.type_repr()))
   }
 }
 
