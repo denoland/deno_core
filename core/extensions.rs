@@ -420,7 +420,7 @@ macro_rules! extension {
 }
 
 pub struct Extension {
-  pub(crate) name: &'static str,
+  pub name: &'static str,
   pub deps: &'static [&'static str],
   pub js_files: Cow<'static, [ExtensionFileSource]>,
   pub esm_files: Cow<'static, [ExtensionFileSource]>,
