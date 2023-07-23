@@ -293,6 +293,8 @@
   });
 
   const {
+    ArrayIteratorPrototype,
+    ArrayPrototype,
     ArrayPrototypeForEach,
     ArrayPrototypeJoin,
     ArrayPrototypeMap,
@@ -305,15 +307,21 @@
     PromisePrototype,
     PromisePrototypeThen,
     SymbolIterator,
+    TypedArrayPrototype,
     TypedArrayPrototypeJoin,
   } = primordials;
 
   // Because these functions are used by `makeSafe`, which is exposed
   // on the `primordials` object, it's important to use const references
   // to the primordials that they use:
-  const createSafeIterator = (factory, next) => {
+  const createSafeIterator = (factory, next, check) => {
     class SafeIterator {
       constructor(iterable) {
+        // https://github.com/denoland/deno_core/issues/6
+        if (check?.(iterable) === true) {
+          return iterable;
+        }
+
         this._iterator = factory(iterable);
       }
       next() {
@@ -329,11 +337,19 @@
     return SafeIterator;
   };
 
-  const SafeArrayIterator = createSafeIterator(
+  const OriginalArrayPrototypeSymbolIterator = ArrayPrototype[SymbolIterator];
+  const OriginalTypedArrayPrototypeSymbolIterator =
+    TypedArrayPrototype[SymbolIterator];
+  const OriginalArrayIteratorPrototypeNext = ArrayIteratorPrototype.next;
+  const SafeArrayIterator = primordials.SafeArrayIterator = createSafeIterator(
     primordials.ArrayPrototypeSymbolIterator,
     primordials.ArrayIteratorPrototypeNext,
+    (iterable) =>
+      (iterable[SymbolIterator] === OriginalArrayPrototypeSymbolIterator ||
+        iterable[SymbolIterator] ===
+          OriginalTypedArrayPrototypeSymbolIterator) &&
+      ArrayIteratorPrototype.next === OriginalArrayIteratorPrototypeNext,
   );
-  primordials.SafeArrayIterator = SafeArrayIterator;
   primordials.SafeSetIterator = createSafeIterator(
     primordials.SetPrototypeSymbolIterator,
     primordials.SetIteratorPrototypeNext,
