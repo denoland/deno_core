@@ -118,8 +118,14 @@ impl ExtModuleLoader {
     sources.extend(
       extensions
         .iter()
-        .flat_map(|e| e.get_esm_sources())
-        .map(|s| (s.specifier.to_string(), s.clone())),
+        .flat_map(|e| {
+          if e.js_enabled {
+            e.get_esm_sources()
+          } else {
+            &[]
+          }
+        })
+        .map(|s| (s.specifier.to_string(), *s)),
     );
     ExtModuleLoader {
       maybe_load_callback,
