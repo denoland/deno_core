@@ -803,3 +803,392 @@ async fn test_realm_concurrent_dynamic_imports() {
     v8::PromiseState::Fulfilled
   );
 }
+
+#[test]
+fn es_snapshot() {
+  let startup_data = {
+    let extension = Extension::builder("module_snapshot")
+      .esm(vec![ExtensionFileSource {
+        specifier: "mod:test",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "globalThis.TEST = 'foo'; export const TEST = 'bar';",
+        ),
+      }])
+      .esm_entry_point("mod:test")
+      .build();
+
+    let runtime = JsRuntimeForSnapshot::new(
+      RuntimeOptions {
+        extensions: vec![extension],
+        ..Default::default()
+      },
+      Default::default(),
+    );
+    runtime.snapshot()
+  };
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: None,
+    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    ..Default::default()
+  });
+
+  struct Loader;
+
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      assert_eq!(specifier, "mod:test");
+      Ok(resolve_import(specifier, referrer)?)
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      unreachable!()
+    }
+  }
+
+  let realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(Rc::new(Loader)),
+    })
+    .unwrap();
+
+  // The module was evaluated ahead of time
+  {
+    let global_test = realm
+      .execute_script_static(runtime.v8_isolate(), "", "globalThis.TEST")
+      .unwrap();
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    let global_test = v8::Local::new(scope, global_test);
+    assert!(global_test.is_string());
+    assert_eq!(global_test.to_rust_string_lossy(scope).as_str(), "foo");
+  }
+
+  // The module can be imported
+  {
+    let test_export_promise = realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        "import('mod:test').then(module => module.TEST)",
+      )
+      .unwrap();
+    let test_export =
+      futures::executor::block_on(runtime.resolve_value(test_export_promise))
+        .unwrap();
+
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    let test_export = v8::Local::new(scope, test_export);
+    assert!(test_export.is_string());
+    assert_eq!(test_export.to_rust_string_lossy(scope).as_str(), "bar");
+  }
+}
+
+#[test]
+fn es_snapshot_without_runtime_module_loader_in_realm() {
+  let startup_data = {
+    let extension = Extension::builder("module_snapshot")
+      .esm(vec![ExtensionFileSource {
+        specifier: "ext:module_snapshot/test.js",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "globalThis.TEST = 'foo'; export const TEST = 'bar';",
+        ),
+      }])
+      .esm_entry_point("ext:module_snapshot/test.js")
+      .build();
+
+    let runtime = JsRuntimeForSnapshot::new(
+      RuntimeOptions {
+        extensions: vec![extension],
+        ..Default::default()
+      },
+      Default::default(),
+    );
+
+    runtime.snapshot()
+  };
+
+  struct MainRealmLoader;
+
+  impl ModuleLoader for MainRealmLoader {
+    fn resolve(
+      &self,
+      _specifier: &str,
+      _referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      unreachable!()
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      unreachable!()
+    }
+  }
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(MainRealmLoader)),
+    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    ..Default::default()
+  });
+
+  let realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: None,
+    })
+    .unwrap();
+
+  // Make sure the module was evaluated.
+  {
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    let global_test: v8::Local<v8::String> =
+      JsRuntime::eval(scope, "globalThis.TEST").unwrap();
+    assert_eq!(
+      serde_v8::to_utf8(global_test.to_string(scope).unwrap(), scope),
+      String::from("foo"),
+    );
+  }
+
+  // Make sure we can't import the module.
+  let dyn_import_promise = realm
+    .execute_script_static(
+      runtime.v8_isolate(),
+      "",
+      "import('ext:module_snapshot/test.js')",
+    )
+    .unwrap();
+  let dyn_import_result =
+    futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
+  assert!(dyn_import_result.is_err());
+  assert_eq!(
+    dyn_import_result.err().unwrap().to_string().as_str(),
+    r#"Uncaught TypeError: Module loading is not supported; attempted to resolve: "ext:module_snapshot/test.js" from """#
+  );
+}
+
+#[test]
+fn preserve_snapshotted_modules() {
+  let startup_data = {
+    let extension = Extension::builder("module_snapshot")
+      .esm(vec![
+        ExtensionFileSource {
+          specifier: "test:preserved",
+          code: ExtensionFileSourceCode::IncludedInBinary(
+            "export const TEST = 'foo';",
+          ),
+        },
+        ExtensionFileSource {
+          specifier: "test:not-preserved",
+          code: ExtensionFileSourceCode::IncludedInBinary(
+            "import 'test:preserved'; export const TEST = 'bar';",
+          ),
+        },
+      ])
+      .esm_entry_point("test:not-preserved")
+      .build();
+
+    let runtime = JsRuntimeForSnapshot::new(
+      RuntimeOptions {
+        extensions: vec![extension],
+        ..Default::default()
+      },
+      Default::default(),
+    );
+
+    runtime.snapshot()
+  };
+
+  struct Loader;
+
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      Ok(resolve_import(specifier, referrer)?)
+    }
+
+    fn load(
+      &self,
+      module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      assert_eq!(module_specifier.as_str(), "test:not-preserved");
+      futures::future::ready(Err(error::generic_error("Couldn't load module")))
+        .boxed_local()
+    }
+  }
+
+  let loader = Rc::new(Loader);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    preserve_snapshotted_modules: Some(&["test:preserved"]),
+    ..Default::default()
+  });
+
+  let realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(loader),
+    })
+    .unwrap();
+
+  // We can't import "test:not-preserved"
+  {
+    let dyn_import_promise = realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        "import('test:not-preserved')",
+      )
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
+    assert!(dyn_import_result.is_err());
+    assert_eq!(
+      dyn_import_result.err().unwrap().to_string().as_str(),
+      "Uncaught TypeError: Couldn't load module"
+    );
+  }
+
+  // But we can import "test:preserved"
+  {
+    let dyn_import_promise = realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        "import('test:preserved').then(module => module.TEST)",
+      )
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
+        .unwrap();
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    assert!(dyn_import_result.open(scope).is_string());
+    assert_eq!(
+      dyn_import_result
+        .open(scope)
+        .to_rust_string_lossy(scope)
+        .as_str(),
+      "foo"
+    );
+  }
+}
+
+/// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
+/// a snapshot.
+#[test]
+fn non_snapshot_preserve_snapshotted_modules() {
+  let extension = Extension::builder("esm_extension")
+    .esm(vec![
+      ExtensionFileSource {
+        specifier: "test:preserved",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "export const TEST = 'foo';",
+        ),
+      },
+      ExtensionFileSource {
+        specifier: "test:not-preserved",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "import 'test:preserved'; export const TEST = 'bar';",
+        ),
+      },
+    ])
+    .esm_entry_point("test:not-preserved")
+    .build();
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: None,
+    extensions: vec![extension],
+    preserve_snapshotted_modules: Some(&["test:preserved"]),
+    ..Default::default()
+  });
+
+  struct Loader;
+
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      Ok(resolve_import(specifier, referrer)?)
+    }
+
+    fn load(
+      &self,
+      module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      assert_eq!(module_specifier.as_str(), "test:not-preserved");
+      futures::future::ready(Err(error::generic_error("Couldn't load module")))
+        .boxed_local()
+    }
+  }
+
+  let realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(Rc::new(Loader)),
+    })
+    .unwrap();
+
+  // We can't import "test:not-preserved"
+  {
+    let dyn_import_promise = realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        "import('test:not-preserved')",
+      )
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
+    assert!(dyn_import_result.is_err());
+    assert_eq!(
+      dyn_import_result.err().unwrap().to_string().as_str(),
+      "Uncaught TypeError: Couldn't load module"
+    );
+  }
+
+  // But we can import "test:preserved"
+  {
+    let dyn_import_promise = realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        "import('test:preserved').then(module => module.TEST)",
+      )
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
+        .unwrap();
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    assert!(dyn_import_result.open(scope).is_string());
+    assert_eq!(
+      dyn_import_result
+        .open(scope)
+        .to_rust_string_lossy(scope)
+        .as_str(),
+      "foo"
+    );
+  }
+}
