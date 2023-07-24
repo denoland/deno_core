@@ -253,8 +253,7 @@ macro_rules! extension {
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
     $(, esm_entry_point = $esm_entry_point:literal )?
-    $(, esm = [ $( dir $dir_esm:literal , )? $( $esm:literal ),* $(,)? ] )?
-    $(, esm_with_specifiers = [ $( dir $dir_esm2:literal , )? $( ($esm_specifier:literal, $esm_file:literal) ),* $(,)? ] )?
+    $(, esm = [ $( dir $dir_esm:literal , )? $( $esm:literal $( with_specifier $esm_specifier:literal )? ),* $(,)? ] )?
     $(, js = [ $( dir $dir_js:literal , )? $( $js:literal ),* $(,)? ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
@@ -274,37 +273,33 @@ macro_rules! extension {
     }
 
     impl $name {
-      const INIT: $crate::Extension = $crate::Extension {
-        // Computed at compile-time, may be modified at runtime with `Cow`:
-        name: stringify!($name),
-        deps: &[ $( $( stringify!($dep) ),* )? ],
-        js_files: std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, [])),
-        esm_files: std::borrow::Cow::Borrowed(&$crate::concat_slices!(
-          $($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm , )* ),)?
-          $($crate::include_js_files_with_specifiers!( $name $( dir $dir_esm2 , )? $( ( $esm_specifier, $esm_file) , )* ),)?
-        )), // TODO
-        esm_entry_point: $crate::or!($(Some($esm_entry_point))?, None),
-        ops: {
-          #[allow(unused_imports)]
-          use $crate::Op;
-          std::borrow::Cow::Borrowed(&[$($(
+      fn ext $( <  $( $param : $type + 'static ),+ > )?() -> $crate::Extension {
+        #[allow(unused_imports)]
+        use $crate::Op;
+        $crate::Extension {
+          // Computed at compile-time, may be modified at runtime with `Cow`:
+          name: stringify!($name),
+          deps: &[ $( $( stringify!($dep) ),* )? ],
+          js_files: std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, [])),
+          esm_files: std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, [])),
+          esm_entry_point: $crate::or!($(Some($esm_entry_point))?, None),
+          ops: std::borrow::Cow::Borrowed(&[$($(
             $( #[ $m ] )*
             $( $op )::+ $( :: < $($op_param),* > )? :: DECL
-          ),+)?])
-        },
-        external_references: std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
-
-        // Computed at runtime:
-        opstate_fn: None,
-        middleware_fn: None,
-        enabled: true,
-        js_enabled: true,
-        // TODO(nayeemrmn): Make these `fn()` and compute them at compile-time:
-        // https://github.com/denoland/deno_core/issues/48.
-        event_loop_middleware: None,
-        global_template_middleware: None,
-        global_object_middleware: None,
-      };
+          ),+)?]),
+          external_references: std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
+          // Computed at runtime:
+          opstate_fn: None,
+          middleware_fn: None,
+          enabled: true,
+          js_enabled: true,
+          // TODO(nayeemrmn): Make these `fn()` and compute them at compile-time:
+          // https://github.com/denoland/deno_core/issues/48.
+          event_loop_middleware: None,
+          global_template_middleware: None,
+          global_object_middleware: None,
+        }
+      }
 
       // If ops were specified, add those ops to the extension.
       #[inline(always)]
@@ -352,7 +347,7 @@ macro_rules! extension {
       pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
-        let mut ext = Self::INIT;
+        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_customizer(&mut ext);
         ext
@@ -362,7 +357,7 @@ macro_rules! extension {
       pub fn init_ops_and_esm $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
-        let mut ext = Self::INIT;
+        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
@@ -373,7 +368,7 @@ macro_rules! extension {
       pub fn init_ops $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
-        let mut ext = Self::INIT;
+        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
@@ -709,10 +704,10 @@ impl ExtensionBuilder {
 #[cfg(not(feature = "include_js_files_for_snapshotting"))]
 #[macro_export]
 macro_rules! include_js_files {
-  ($name:ident dir $dir:literal, $($file:literal,)+) => {
+  ($name:ident dir $dir:literal, $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
     [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
         ),
@@ -720,10 +715,10 @@ macro_rules! include_js_files {
     ]
   };
 
-  ($name:ident $($file:literal,)+) => {
+  ($name:ident $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
     [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file))
         ),
@@ -735,10 +730,10 @@ macro_rules! include_js_files {
 #[cfg(feature = "include_js_files_for_snapshotting")]
 #[macro_export]
 macro_rules! include_js_files {
-  ($name:ident dir $dir:literal, $($file:literal,)+) => {
+  ($name:ident dir $dir:literal, $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
     [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
           concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file)
         ),
@@ -746,42 +741,12 @@ macro_rules! include_js_files {
     ]
   };
 
-  ($name:ident $($file:literal,)+) => {
+  ($name:ident $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
     [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
           concat!(env!("CARGO_MANIFEST_DIR"), "/", $file)
-        ),
-      },)+
-    ]
-  };
-}
-
-#[cfg(not(feature = "include_js_files_for_snapshotting"))]
-#[macro_export]
-macro_rules! include_js_files_with_specifiers {
-  ($name:ident dir $dir:literal, $( ( $specifier:literal , $file:literal ),)+) => {
-    [
-      $($crate::ExtensionFileSource {
-        specifier: $specifier,
-        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
-          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
-        ),
-      },)+
-    ]
-  };
-}
-
-#[cfg(feature = "include_js_files_for_snapshotting")]
-#[macro_export]
-macro_rules! include_js_files_with_specifiers {
-  ($name:ident dir $dir:literal, $( ( $specifier:literal , $file:literal ),)+) => {
-    [
-      $($crate::ExtensionFileSource {
-        specifier: $specifier,
-        code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
-          concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file)
         ),
       },)+
     ]
