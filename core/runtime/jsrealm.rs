@@ -208,12 +208,13 @@ impl JsRealmInner {
 
   pub(crate) fn check_promise_rejections(
     &self,
-    scope: &mut v8::HandleScope,
+    isolate: &mut v8::Isolate,
   ) -> Result<(), Error> {
     let Some((_, handle)) = self.context_state.borrow_mut().pending_promise_rejections.pop_front() else {
       return Ok(());
     };
 
+    let scope = &mut self.handle_scope(isolate);
     let exception = v8::Local::new(scope, handle);
     let state_rc = JsRuntime::state_from(scope);
     let state = state_rc.borrow();
