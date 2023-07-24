@@ -1,20 +1,16 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::extensions::Op;
-use crate::module_specifier::ModuleSpecifier;
 use crate::modules::AssertedModuleType;
+use crate::modules::LoggingModuleLoader;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleLoadId;
-use crate::modules::ModuleLoader;
-use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
-use crate::modules::ResolutionKind;
 use crate::modules::SymbolicModule;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
-use futures::FutureExt;
-use std::pin::Pin;
 use std::rc::Rc;
+use url::Url;
 
 #[test]
 fn will_snapshot() {
@@ -135,31 +131,6 @@ fn test_from_boxed_snapshot() {
 
 #[test]
 fn es_snapshot() {
-  #[derive(Default)]
-  struct ModsLoader;
-
-  impl ModuleLoader for ModsLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      eprintln!("load() should not be called");
-      unreachable!()
-    }
-  }
-
   fn create_module(
     runtime: &mut JsRuntime,
     i: usize,
@@ -237,10 +208,8 @@ fn es_snapshot() {
     Ok(String::from("test"))
   }
 
-  let loader = Rc::new(ModsLoader);
   let mut runtime = JsRuntimeForSnapshot::new(
     RuntimeOptions {
-      module_loader: Some(loader.clone()),
       extensions: vec![Extension::builder("text_ext")
         .ops(vec![op_test::DECL])
         .build()],
@@ -278,7 +247,6 @@ fn es_snapshot() {
 
   let mut runtime2 = JsRuntimeForSnapshot::new(
     RuntimeOptions {
-      module_loader: Some(loader.clone()),
       startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
       extensions: vec![Extension::builder("text_ext")
         .ops(vec![op_test::DECL])
@@ -298,7 +266,6 @@ fn es_snapshot() {
   let snapshot2 = runtime2.snapshot();
 
   let mut runtime3 = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
     startup_snapshot: Some(Snapshot::JustCreated(snapshot2)),
     extensions: vec![Extension::builder("text_ext")
       .ops(vec![op_test::DECL])
@@ -363,16 +330,24 @@ fn es_snapshot_without_runtime_module_loader() {
     );
   }
 
-  // Make sure we can't import the module.
+  // We can still import a module that was registered manually
   let dyn_import_promise = runtime
     .execute_script_static("", "import('ext:module_snapshot/test.js')")
+    .unwrap();
+  let dyn_import_result =
+    futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
+  assert!(dyn_import_result.is_ok());
+
+  // But not a new one
+  let dyn_import_promise = runtime
+    .execute_script_static("", "import('ext:module_snapshot/test2.js')")
     .unwrap();
   let dyn_import_result =
     futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
   assert!(dyn_import_result.is_err());
   assert_eq!(
     dyn_import_result.err().unwrap().to_string().as_str(),
-    r#"Uncaught TypeError: Module loading is not supported; attempted to resolve: "ext:module_snapshot/test.js" from """#
+    r#"Uncaught TypeError: Module loading is not supported; attempted to load: "ext:module_snapshot/test2.js" from "(no referrer)""#
   );
 }
 
@@ -408,32 +383,10 @@ fn preserve_snapshotted_modules() {
     runtime.snapshot()
   };
 
-  struct Loader;
-
-  impl ModuleLoader for Loader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      Ok(resolve_import(specifier, referrer)?)
-    }
-
-    fn load(
-      &self,
-      module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      assert_eq!(module_specifier.as_str(), "test:not-preserved");
-      futures::future::ready(Err(error::generic_error("Couldn't load module")))
-        .boxed_local()
-    }
-  }
+  let loader = Rc::new(LoggingModuleLoader::new(NoopModuleLoader));
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(Rc::new(Loader)),
+    module_loader: Some(loader.clone()),
     startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
     preserve_snapshotted_modules: Some(&["test:preserved"]),
     ..Default::default()
@@ -441,6 +394,7 @@ fn preserve_snapshotted_modules() {
 
   // We can't import "test:not-preserved"
   {
+    assert_eq!(loader.log(), vec![]);
     let dyn_import_promise = runtime
       .execute_script_static("", "import('test:not-preserved')")
       .unwrap();
@@ -449,7 +403,86 @@ fn preserve_snapshotted_modules() {
     assert!(dyn_import_result.is_err());
     assert_eq!(
       dyn_import_result.err().unwrap().to_string().as_str(),
-      "Uncaught TypeError: Couldn't load module"
+      "Uncaught TypeError: Module loading is not supported; attempted to load: \"test:not-preserved\" from \"(no referrer)\""
+    );
+    // Ensure that we tried to load `test:not-preserved`
+    assert_eq!(
+      loader.log(),
+      vec![Url::parse("test:not-preserved").unwrap()]
+    );
+  }
+
+  // But we can import "test:preserved"
+  {
+    let dyn_import_promise = runtime
+      .execute_script_static(
+        "",
+        "import('test:preserved').then(module => module.TEST)",
+      )
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
+        .unwrap();
+    let scope = &mut runtime.handle_scope();
+    assert!(dyn_import_result.open(scope).is_string());
+    assert_eq!(
+      dyn_import_result
+        .open(scope)
+        .to_rust_string_lossy(scope)
+        .as_str(),
+      "foo"
+    );
+  }
+}
+
+/// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
+/// a snapshot.
+#[test]
+fn non_snapshot_preserve_snapshotted_modules() {
+  let extension = Extension::builder("esm_extension")
+    .esm(vec![
+      ExtensionFileSource {
+        specifier: "test:preserved",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "export const TEST = 'foo';",
+        ),
+      },
+      ExtensionFileSource {
+        specifier: "test:not-preserved",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "import 'test:preserved'; export const TEST = 'bar';",
+        ),
+      },
+    ])
+    .esm_entry_point("test:not-preserved")
+    .build();
+
+  let loader = Rc::new(LoggingModuleLoader::new(NoopModuleLoader));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    extensions: vec![extension],
+    preserve_snapshotted_modules: Some(&["test:preserved"]),
+    ..Default::default()
+  });
+
+  // We can't import "test:not-preserved"
+  {
+    assert_eq!(loader.log(), vec![]);
+    let dyn_import_promise = runtime
+      .execute_script_static("", "import('test:not-preserved')")
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
+    assert!(dyn_import_result.is_err());
+    assert_eq!(
+      dyn_import_result.err().unwrap().to_string().as_str(),
+      "Uncaught TypeError: Module loading is not supported; attempted to load: \"test:not-preserved\" from \"(no referrer)\""
+    );
+    // Ensure that we tried to load `test:not-preserved`
+    assert_eq!(
+      loader.log(),
+      vec![Url::parse("test:not-preserved").unwrap()]
     );
   }
 
