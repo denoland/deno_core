@@ -1399,28 +1399,48 @@ impl JsRuntime {
       loop {
         let mut has_evaluated = false;
 
-        let known_realms = self.inner.state.borrow().known_realms.clone();
-        let isolate = self.v8_isolate();
-        for inner_realm in known_realms {
-          let realm = JsRealm::new(inner_realm);
+        let known_realms = &self.inner.state.borrow().known_realms;
 
+        if known_realms.len() == 1 {
           // Try and resolve as many dynamic imports in each realm as possible
           // before moving to the next.
+          let state = self.inner.state.borrow();
+          let realm = state.main_realm.as_ref().unwrap();
           loop {
-            let poll_imports = realm.prepare_dyn_imports(isolate, cx)?;
+            let poll_imports = realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
             assert!(poll_imports.is_ready());
 
-            let poll_imports = realm.poll_dyn_imports(isolate, cx)?;
+            let poll_imports = realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
             assert!(poll_imports.is_ready());
 
-            if realm.evaluate_dyn_imports(isolate) {
+            if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
               has_evaluated = true;
             } else {
               break;
             }
           }
-        }
+        } else {
+          // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
+          for inner_realm in known_realms.clone() {
+            let realm = JsRealm::new(inner_realm);
 
+            // Try and resolve as many dynamic imports in each realm as possible
+            // before moving to the next.
+            loop {
+              let poll_imports = realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              assert!(poll_imports.is_ready());
+
+              let poll_imports = realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              assert!(poll_imports.is_ready());
+
+              if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
+                has_evaluated = true;
+              } else {
+                break;
+              }
+            }
+          }
+        }
         if !has_evaluated {
           break;
         }
@@ -1447,10 +1467,17 @@ impl JsRuntime {
 
     // Top level module
     {
-      let known_realms = self.inner.state.borrow().known_realms.clone();
-      for inner_realm in known_realms {
-        let realm = JsRealm::new(inner_realm);
+      let known_realms = &self.inner.state.borrow().known_realms;
+      if known_realms.len() == 1 {
+        let state = self.inner.state.borrow();
+        let realm = state.main_realm.as_ref().unwrap();
         realm.evaluate_pending_module(&mut self.inner.v8_isolate);
+      } else {
+        // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
+        for inner_realm in self.inner.state.borrow().known_realms.clone() {
+          let realm = JsRealm::new(inner_realm);
+          realm.evaluate_pending_module(&mut self.inner.v8_isolate);
+        }
       }
     }
 
