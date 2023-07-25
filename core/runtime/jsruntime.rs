@@ -1808,11 +1808,11 @@ impl JsRuntime {
   }
 
   fn check_promise_rejections(&mut self) -> Result<(), Error> {
-    let state = self.inner.state.clone();
-    let scope = &mut self.handle_scope();
-    let state = state.borrow();
+    let state_rc = self.inner.state.clone();
+    let isolate = &mut self.v8_isolate();
+    let state = state_rc.borrow();
     for realm in &state.known_realms {
-      realm.check_promise_rejections(scope)?;
+      realm.check_promise_rejections(isolate)?;
     }
     Ok(())
   }

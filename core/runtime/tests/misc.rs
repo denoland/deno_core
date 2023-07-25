@@ -1023,3 +1023,93 @@ async fn test_stalled_tla() {
   assert_eq!(js_error.frames[0].line_number, Some(1));
   assert_eq!(js_error.frames[0].column_number, Some(1));
 }
+
+/// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
+/// a snapshot.
+#[test]
+fn non_snapshot_preserve_snapshotted_modules() {
+  let extension = Extension::builder("esm_extension")
+    .esm(vec![
+      ExtensionFileSource {
+        specifier: "test:preserved",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "export const TEST = 'foo';",
+        ),
+      },
+      ExtensionFileSource {
+        specifier: "test:not-preserved",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "import 'test:preserved'; export const TEST = 'bar';",
+        ),
+      },
+    ])
+    .esm_entry_point("test:not-preserved")
+    .build();
+
+  struct Loader;
+
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      Ok(resolve_import(specifier, referrer)?)
+    }
+
+    fn load(
+      &self,
+      module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+    ) -> Pin<Box<ModuleSourceFuture>> {
+      assert_eq!(module_specifier.as_str(), "test:not-preserved");
+      futures::future::ready(Err(error::generic_error("Couldn't load module")))
+        .boxed_local()
+    }
+  }
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(Loader)),
+    extensions: vec![extension],
+    preserve_snapshotted_modules: Some(&["test:preserved"]),
+    ..Default::default()
+  });
+
+  // We can't import "test:not-preserved"
+  {
+    let dyn_import_promise = runtime
+      .execute_script_static("", "import('test:not-preserved')")
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
+    assert!(dyn_import_result.is_err());
+    assert_eq!(
+      dyn_import_result.err().unwrap().to_string().as_str(),
+      "Uncaught TypeError: Couldn't load module"
+    );
+  }
+
+  // But we can import "test:preserved"
+  {
+    let dyn_import_promise = runtime
+      .execute_script_static(
+        "",
+        "import('test:preserved').then(module => module.TEST)",
+      )
+      .unwrap();
+    let dyn_import_result =
+      futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
+        .unwrap();
+    let scope = &mut runtime.handle_scope();
+    assert!(dyn_import_result.open(scope).is_string());
+    assert_eq!(
+      dyn_import_result
+        .open(scope)
+        .to_rust_string_lossy(scope)
+        .as_str(),
+      "foo"
+    );
+  }
+}

@@ -64,6 +64,75 @@ async fn test_set_promise_reject_callback_realms() {
 }
 
 #[test]
+fn test_set_format_exception_callback_realms() {
+  let mut runtime = JsRuntime::new(RuntimeOptions::default());
+  let main_realm = runtime.main_realm();
+  let realm1 = runtime.create_realm(Default::default()).unwrap();
+  let realm2 = runtime.create_realm(Default::default()).unwrap();
+
+  let realm_expectations = &[
+    (&main_realm, "main_realm"),
+    (&realm1, "realm1"),
+    (&realm2, "realm2"),
+  ];
+
+  // Set up format exception callbacks.
+  for (realm, realm_name) in realm_expectations {
+    realm
+      .execute_script(
+        runtime.v8_isolate(),
+        "",
+        format!(
+          r#"
+            Deno.core.ops.op_set_format_exception_callback((error) => {{
+              return `{realm_name} / ${{error}}`;
+            }});
+          "#
+        )
+        .into(),
+      )
+      .unwrap();
+  }
+
+  for (realm, realm_name) in realm_expectations {
+    // Immediate exceptions
+    {
+      let result = realm.execute_script(
+        runtime.v8_isolate(),
+        "",
+        format!("throw new Error('{realm_name}');").into(),
+      );
+      assert!(result.is_err());
+
+      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      assert_eq!(
+        error.exception_message,
+        format!("{realm_name} / Error: {realm_name}")
+      );
+    }
+
+    // Promise rejections
+    {
+      realm
+        .execute_script(
+          runtime.v8_isolate(),
+          "",
+          format!("Promise.reject(new Error('{realm_name}'));").into(),
+        )
+        .unwrap();
+
+      let result = futures::executor::block_on(runtime.run_event_loop(false));
+      assert!(result.is_err());
+      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      assert_eq!(
+        error.exception_message,
+        format!("Uncaught (in promise) {realm_name} / Error: {realm_name}")
+      );
+    }
+  }
+}
+
+#[test]
 fn js_realm_simple() {
   let mut runtime = JsRuntime::new(Default::default());
   let main_context = runtime.main_context();
