@@ -9,8 +9,10 @@ fn op_add(#[smi] id: ResourceId, extra: u16) -> u32 {
     id as u32 + extra as u32
 }
 
+pub type StubId = i32;
+
 #[op2(fast)]
 #[smi]
-fn op_subtract(#[smi] id: ResourceId, extra: i16) -> ResourceId {
-    (id - extra) as i32
+fn op_subtract(#[smi] id: StubId, extra: i32) -> StubId {
+    id - extra
 }

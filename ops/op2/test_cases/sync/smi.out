@@ -173,7 +173,7 @@ impl op_subtract {
         rv.set_int32(result as i32);
     }
     #[inline(always)]
-    fn call(id: ResourceId, extra: i16) -> ResourceId {
-        (id - extra) as i32
+    fn call(id: StubId, extra: i32) -> StubId {
+        id - extra
     }
 }
