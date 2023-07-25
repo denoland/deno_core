@@ -648,7 +648,7 @@ pub fn return_value_v8_value(
     Arg::Numeric(
       NumericArg::i8 | NumericArg::i16 | NumericArg::i32 | NumericArg::__SMI__,
     ) => {
-      quote!(Ok(#deno_core::v8::Integer::new(#scope, #result).into()))
+      quote!(Ok(#deno_core::v8::Integer::new(#scope, #result as i32).into()))
     }
     Arg::Numeric(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
       quote!(Ok(#deno_core::v8::Integer::new_from_unsigned(#scope, #result).into()))
