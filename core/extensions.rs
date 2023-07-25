@@ -286,7 +286,6 @@ macro_rules! extension {
           opstate_fn: None,
           middleware_fn: None,
           enabled: true,
-          js_enabled: true,
           // TODO(nayeemrmn): Make these `fn()` and compute them at compile-time:
           // https://github.com/denoland/deno_core/issues/48.
           event_loop_middleware: None,
@@ -366,7 +365,9 @@ macro_rules! extension {
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
-        ext.js_enabled = false;
+        ext.js_files = std::borrow::Cow::Borrowed(&[]);
+        ext.esm_files = std::borrow::Cow::Borrowed(&[]);
+        ext.esm_entry_point = None;
         ext
       }
     }
@@ -419,7 +420,6 @@ pub struct Extension {
   pub opstate_fn: Option<Box<OpStateFn>>,
   pub middleware_fn: Option<Box<OpMiddlewareFn>>,
   pub enabled: bool,
-  pub js_enabled: bool,
   pub event_loop_middleware: Option<Box<EventLoopMiddlewareFn>>,
   pub global_template_middleware: Option<Box<GlobalTemplateMiddlewareFn>>,
   pub global_object_middleware: Option<Box<GlobalObjectMiddlewareFn>>,
@@ -638,7 +638,6 @@ impl ExtensionBuilder {
       opstate_fn: self.state,
       middleware_fn: self.middleware,
       enabled: true,
-      js_enabled: true,
       event_loop_middleware: self.event_loop_middleware,
       global_template_middleware: self.global_template_middleware,
       global_object_middleware: self.global_object_middleware,
@@ -659,7 +658,6 @@ impl ExtensionBuilder {
       opstate_fn: self.state.take(),
       middleware_fn: self.middleware.take(),
       enabled: true,
-      js_enabled: true,
       event_loop_middleware: self.event_loop_middleware.take(),
       global_template_middleware: self.global_template_middleware.take(),
       global_object_middleware: self.global_object_middleware.take(),

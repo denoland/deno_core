@@ -118,13 +118,7 @@ impl ExtModuleLoader {
     sources.extend(
       extensions
         .iter()
-        .flat_map(|e| {
-          if e.js_enabled {
-            e.get_esm_sources()
-          } else {
-            &[]
-          }
-        })
+        .flat_map(|e| e.get_esm_sources())
         .map(|s| (s.specifier.to_string(), *s)),
     );
     ExtModuleLoader {

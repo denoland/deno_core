@@ -915,10 +915,6 @@ impl JsRuntime {
       self.init_cbs(realm);
 
       for extension in &extensions {
-        if !extension.js_enabled {
-          continue;
-        }
-
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
         for file_source in extension.get_esm_sources() {
