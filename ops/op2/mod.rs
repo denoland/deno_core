@@ -472,8 +472,8 @@ deno_ops_compile_test_runner::prelude!();";
     let md = include_str!("valid_args.md");
     let separator = "\n<!-- START ARGS -->\n";
     let end_separator = "\n<!-- END ARGS -->\n";
-    let (header, remainder) =
-      split_readme(include_str!("README.md"), separator, end_separator);
+    let readme = std::fs::read_to_string("op2/README.md").unwrap();
+    let (header, remainder) = split_readme(&readme, separator, end_separator);
 
     let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
 
@@ -517,10 +517,8 @@ deno_ops_compile_test_runner::prelude!();";
       std::fs::write("op2/README.md", actual)
         .expect("Failed to write expectation file");
     } else {
-      let expected = std::fs::read_to_string("op2/README.md")
-        .expect("Failed to read expectation file");
       assert_eq!(
-        expected, actual,
+        readme, actual,
         "Failed to match expectation. Use UPDATE_EXPECTED=1."
       );
     }
@@ -533,8 +531,8 @@ deno_ops_compile_test_runner::prelude!();";
     let md = include_str!("valid_retvals.md");
     let separator = "\n<!-- START RV -->\n";
     let end_separator = "\n<!-- END RV -->\n";
-    let (header, remainder) =
-      split_readme(include_str!("README.md"), separator, end_separator);
+    let readme = std::fs::read_to_string("op2/README.md").unwrap();
+    let (header, remainder) = split_readme(&readme, separator, end_separator);
     let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
 
     parse_md(md, |line, components| {
@@ -578,10 +576,8 @@ deno_ops_compile_test_runner::prelude!();";
       std::fs::write("op2/README.md", actual)
         .expect("Failed to write expectation file");
     } else {
-      let expected = std::fs::read_to_string("op2/README.md")
-        .expect("Failed to read expectation file");
       assert_eq!(
-        expected, actual,
+        readme, actual,
         "Failed to match expectation. Use UPDATE_EXPECTED=1."
       );
     }

@@ -1450,7 +1450,7 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    self.do_js_event_loop_tick(cx)?;
+    let dispatched_ops = self.do_js_event_loop_tick(cx)?;
     self.check_promise_rejections()?;
 
     // Event loop middlewares
@@ -1519,6 +1519,8 @@ impl JsRuntime {
     if pending_state.has_pending_background_tasks
       || pending_state.has_tick_scheduled
       || maybe_scheduling
+      // If ops were dispatched we may have progress on pending modules that we should re-check
+      || (pending_state.has_pending_module_evaluation && dispatched_ops)
     {
       state.op_state.borrow().waker.wake();
     }
@@ -1848,11 +1850,13 @@ impl JsRuntime {
   }
 
   // Polls pending ops and then runs `Deno.core.eventLoopTick` callback.
-  fn do_js_event_loop_tick(&mut self, cx: &mut Context) -> Result<(), Error> {
+  fn do_js_event_loop_tick(&mut self, cx: &mut Context) -> Result<bool, Error> {
     // Handle responses for each realm.
     let state = self.inner.state.clone();
     let isolate = &mut self.inner.v8_isolate;
     let realm_count = state.borrow().known_realms.len();
+    let mut dispatched_ops = false;
+
     for realm_idx in 0..realm_count {
       let realm = state.borrow().known_realms.get(realm_idx).unwrap().clone();
       let context_state = realm.state();
@@ -1885,6 +1889,7 @@ impl JsRuntime {
           .tracker
           .track_async_completed(op_id);
         context_state.unrefed_ops.remove(&promise_id);
+        dispatched_ops |= true;
         args.push(v8::Integer::new(scope, promise_id).into());
         args.push(match resp.to_v8(scope) {
           Ok(v) => v,
@@ -1894,8 +1899,9 @@ impl JsRuntime {
         });
       }
 
-      let has_tick_scheduled =
-        v8::Boolean::new(scope, self.inner.state.borrow().has_tick_scheduled);
+      let has_tick_scheduled = self.inner.state.borrow().has_tick_scheduled;
+      dispatched_ops |= has_tick_scheduled;
+      let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
       args.push(has_tick_scheduled.into());
 
       let js_event_loop_tick_cb_handle =
@@ -1913,10 +1919,10 @@ impl JsRuntime {
       }
 
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-        return Ok(());
+        return Ok(false);
       }
     }
 
-    Ok(())
+    Ok(dispatched_ops)
   }
 }
