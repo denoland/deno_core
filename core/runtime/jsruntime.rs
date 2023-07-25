@@ -110,6 +110,7 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
+  main_realm: Option<JsRealm>,
   pub(crate) state: ManuallyDropRc<RefCell<JsRuntimeState>>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
 }
@@ -139,6 +140,7 @@ impl InnerIsolateState {
     // the runtime.
     _ = unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
 
+    self.main_realm.take();
     self.state.borrow_mut().destroy_all_realms();
 
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
@@ -283,7 +285,6 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  main_realm: Option<JsRealm>,
   known_realms: Vec<JsRealmInner>,
   pub(crate) has_tick_scheduled: bool,
   /// A counter used to delay our dynamic import deadlock detection by one spin
@@ -305,7 +306,6 @@ pub struct JsRuntimeState {
 
 impl JsRuntimeState {
   pub(crate) fn destroy_all_realms(&mut self) {
-    self.main_realm.take();
     for realm in self.known_realms.drain(..) {
       realm.destroy()
     }
@@ -573,7 +573,6 @@ impl JsRuntime {
       dispatched_exception: None,
       // Some fields are initialized later after isolate is created
       inspector: None,
-      main_realm: None,
       known_realms: Vec::with_capacity(1),
     }));
 
@@ -709,10 +708,11 @@ impl JsRuntime {
         true,
       );
       let mut state = state_rc.borrow_mut();
-      state.main_realm = Some(JsRealm::new(main_realm.clone()));
       state.inspector = inspector;
       state.known_realms.push(main_realm);
     }
+    let main_realm =
+      JsRealm::new(state_rc.borrow().known_realms.get(0).unwrap().clone());
     scope.set_data(
       STATE_DATA_OFFSET,
       Rc::into_raw(state_rc.clone()) as *mut c_void,
@@ -723,6 +723,7 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
+        main_realm: Some(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
       },
@@ -784,8 +785,7 @@ impl JsRuntime {
 
   #[inline]
   pub fn main_realm(&mut self) -> JsRealm {
-    let state = self.inner.state.borrow();
-    state.main_realm.clone().unwrap()
+    self.inner.main_realm.as_ref().unwrap().clone()
   }
 
   /// Returns the extensions that this runtime is using (including internal ones).
@@ -1399,18 +1399,19 @@ impl JsRuntime {
       loop {
         let mut has_evaluated = false;
 
-        let known_realms = &self.inner.state.borrow().known_realms;
-
-        if known_realms.len() == 1 {
+        let state = self.inner.state.borrow();
+        if state.known_realms.len() == 1 {
+          drop(state);
           // Try and resolve as many dynamic imports in each realm as possible
           // before moving to the next.
-          let state = self.inner.state.borrow();
-          let realm = state.main_realm.as_ref().unwrap();
+          let realm = self.inner.main_realm.as_ref().unwrap();
           loop {
-            let poll_imports = realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+            let poll_imports =
+              realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
             assert!(poll_imports.is_ready());
 
-            let poll_imports = realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+            let poll_imports =
+              realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
             assert!(poll_imports.is_ready());
 
             if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
@@ -1421,16 +1422,20 @@ impl JsRuntime {
           }
         } else {
           // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
-          for inner_realm in known_realms.clone() {
+          let realms = state.known_realms.clone();
+          drop(state);
+          for inner_realm in realms {
             let realm = JsRealm::new(inner_realm);
 
             // Try and resolve as many dynamic imports in each realm as possible
             // before moving to the next.
             loop {
-              let poll_imports = realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              let poll_imports =
+                realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
               assert!(poll_imports.is_ready());
 
-              let poll_imports = realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              let poll_imports =
+                realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
               assert!(poll_imports.is_ready());
 
               if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
@@ -1467,14 +1472,16 @@ impl JsRuntime {
 
     // Top level module
     {
-      let known_realms = &self.inner.state.borrow().known_realms;
-      if known_realms.len() == 1 {
-        let state = self.inner.state.borrow();
-        let realm = state.main_realm.as_ref().unwrap();
+      let state = self.inner.state.borrow();
+      if state.known_realms.len() == 1 {
+        drop(state);
+        let realm = self.inner.main_realm.as_ref().unwrap();
         realm.evaluate_pending_module(&mut self.inner.v8_isolate);
       } else {
         // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
-        for inner_realm in self.inner.state.borrow().known_realms.clone() {
+        let realms = state.known_realms.clone();
+        drop(state);
+        for inner_realm in realms {
           let realm = JsRealm::new(inner_realm);
           realm.evaluate_pending_module(&mut self.inner.v8_isolate);
         }
