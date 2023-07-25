@@ -32,7 +32,7 @@ fn main() {
       }
       ref_loop
     })),
-    opstate_fn: Some(Box::new(move |state| {
+    op_state_fn: Some(Box::new(move |state| {
       let (tx, rx) = mpsc::unbounded::<Task>();
       state.put(tx);
       state.put(rx);

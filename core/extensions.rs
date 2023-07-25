@@ -283,7 +283,7 @@ macro_rules! extension {
           ),+)?]),
           external_references: std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
           // Computed at runtime:
-          opstate_fn: None,
+          op_state_fn: None,
           middleware_fn: None,
           enabled: true,
           // TODO(nayeemrmn): Make these `fn()` and compute them at compile-time:
@@ -387,14 +387,14 @@ macro_rules! extension {
       };
 
       let state_fn: fn(&mut $crate::OpState, Config $( <  $( $param ),+ > )? ) = $(  $state_fn  )?;
-      $ext.opstate_fn = Some(Box::new(move |state: &mut $crate::OpState| {
+      $ext.op_state_fn = Some(Box::new(move |state: &mut $crate::OpState| {
         state_fn(state, config);
       }));
     }
   };
 
   (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr )? ) => {
-    $( $ext.opstate_fn = Some(Box::new($state_fn)); )?
+    $( $ext.op_state_fn = Some(Box::new($state_fn)); )?
   };
 
   (! __ops__ $ext:ident __eot__) => {
@@ -417,7 +417,7 @@ pub struct Extension {
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
   pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
-  pub opstate_fn: Option<Box<OpStateFn>>,
+  pub op_state_fn: Option<Box<OpStateFn>>,
   pub middleware_fn: Option<Box<OpMiddlewareFn>>,
   pub enabled: bool,
   pub event_loop_middleware: Option<Box<EventLoopMiddlewareFn>>,
@@ -435,7 +435,7 @@ impl Default for Extension {
       esm_entry_point: None,
       ops: Cow::Borrowed(&[]),
       external_references: Cow::Borrowed(&[]),
-      opstate_fn: None,
+      op_state_fn: None,
       middleware_fn: None,
       enabled: true,
       event_loop_middleware: None,
@@ -515,7 +515,7 @@ impl Extension {
 
   /// Allows setting up the initial op-state of an isolate at startup.
   pub fn take_state(&mut self, state: &mut OpState) {
-    if let Some(op_fn) = self.opstate_fn.take() {
+    if let Some(op_fn) = self.op_state_fn.take() {
       op_fn(state);
     }
   }
@@ -596,11 +596,11 @@ impl ExtensionBuilder {
     self
   }
 
-  pub fn state<F>(&mut self, opstate_fn: F) -> &mut Self
+  pub fn state<F>(&mut self, op_state_fn: F) -> &mut Self
   where
     F: FnOnce(&mut OpState) + 'static,
   {
-    self.state = Some(Box::new(opstate_fn));
+    self.state = Some(Box::new(op_state_fn));
     self
   }
 
@@ -659,7 +659,7 @@ impl ExtensionBuilder {
       esm_entry_point: self.esm_entry_point,
       ops: Cow::Owned(self.ops),
       external_references: Cow::Owned(self.external_references),
-      opstate_fn: self.state,
+      op_state_fn: self.state,
       middleware_fn: self.middleware,
       enabled: true,
       event_loop_middleware: self.event_loop_middleware,
@@ -679,7 +679,7 @@ impl ExtensionBuilder {
       external_references: Cow::Owned(std::mem::take(
         &mut self.external_references,
       )),
-      opstate_fn: self.state.take(),
+      op_state_fn: self.state.take(),
       middleware_fn: self.middleware.take(),
       enabled: true,
       event_loop_middleware: self.event_loop_middleware.take(),
