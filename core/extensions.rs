@@ -425,6 +425,26 @@ pub struct Extension {
   pub global_object_middleware: Option<Box<GlobalObjectMiddlewareFn>>,
 }
 
+impl Default for Extension {
+  fn default() -> Self {
+    Self {
+      name: "DEFAULT",
+      deps: &[],
+      js_files: Cow::Borrowed(&[]),
+      esm_files: Cow::Borrowed(&[]),
+      esm_entry_point: None,
+      ops: Cow::Borrowed(&[]),
+      external_references: Cow::Borrowed(&[]),
+      opstate_fn: None,
+      middleware_fn: None,
+      enabled: true,
+      event_loop_middleware: None,
+      global_template_middleware: None,
+      global_object_middleware: None,
+    }
+  }
+}
+
 // Note: this used to be a trait, but we "downgraded" it to a single concrete type
 // for the initial iteration, it will likely become a trait in the future
 impl Extension {
