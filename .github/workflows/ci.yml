@@ -47,7 +47,7 @@ jobs:
         run: cargo build --locked --release --all-features --all-targets
 
       - name: Cargo test
-        run: cargo test --locked --release --all-features --all-targets
+        run: cargo test --locked --release --all-features --bins --tests --examples
 
       - name: Cargo publish
         if: |
