@@ -72,7 +72,9 @@ impl op_async_result_impl {
                 opctx,
                 promise_id,
                 result,
-                |scope, result| { Ok(deno_core::v8::Integer::new(scope, result).into()) },
+                |scope, result| {
+                    Ok(deno_core::v8::Integer::new(scope, result as i32).into())
+                },
             ) {
             match result {
                 Ok(result) => {
