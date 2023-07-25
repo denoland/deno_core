@@ -105,7 +105,7 @@ impl deno_core::_ops::Op for op_subtract {
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::Int32, Type::Uint32],
+                &[Type::V8Value, Type::Int32, Type::Int32],
                 CType::Int32,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
@@ -123,7 +123,7 @@ impl op_subtract {
     fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: i32,
-        arg1: u32,
+        arg1: i32,
     ) -> i32 {
         let result = {
             let arg0 = arg0 as _;
@@ -155,11 +155,11 @@ impl op_subtract {
             };
             let arg0 = arg0 as _;
             let arg1 = args.get(1usize as i32);
-            let Some(arg1) = deno_core::_ops::to_u32_option(&arg1) else {
+            let Some(arg1) = deno_core::_ops::to_i32_option(&arg1) else {
                 let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                 let msg = deno_core::v8::String::new_from_one_byte(
                         &mut scope,
-                        "expected u32".as_bytes(),
+                        "expected i32".as_bytes(),
                         deno_core::v8::NewStringType::Normal,
                     )
                     .unwrap();
@@ -173,7 +173,7 @@ impl op_subtract {
         rv.set_int32(result as i32);
     }
     #[inline(always)]
-    fn call(id: ResourceId, extra: u16) -> ResourceId {
-        id - extra
+    fn call(id: ResourceId, extra: i16) -> ResourceId {
+        (id - extra) as i32
     }
 }

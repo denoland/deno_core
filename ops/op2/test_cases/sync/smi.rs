@@ -11,6 +11,6 @@ fn op_add(#[smi] id: ResourceId, extra: u16) -> u32 {
 
 #[op2(fast)]
 #[smi]
-fn op_subtract(#[smi] id: ResourceId, extra: u16) -> ResourceId {
-    id - extra
+fn op_subtract(#[smi] id: ResourceId, extra: i16) -> ResourceId {
+    (id - extra) as i32
 }
