@@ -885,7 +885,6 @@ impl JsRealm {
       .borrow_mut()
       .pending_mod_evaluate
       .take();
-
     if maybe_module_evaluation.is_none() {
       return;
     }
@@ -897,7 +896,6 @@ impl JsRealm {
     let promise_global = module_evaluation.promise.clone().unwrap();
     let promise = promise_global.open(scope);
     let promise_state = promise.state();
-
     match promise_state {
       v8::PromiseState::Pending => {
         // NOTE: `poll_event_loop` will decide if

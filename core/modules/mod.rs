@@ -27,11 +27,19 @@ mod map;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub use loaders::CountingModuleLoader;
+#[cfg(test)]
+pub use loaders::LoggingModuleLoader;
+#[cfg(test)]
+pub use loaders::ModuleLoadEventCounts;
+
 pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::ExtModuleLoaderCb;
 pub use loaders::FsModuleLoader;
 pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
+pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
 #[cfg(test)]
 pub(crate) use map::SymbolicModule;
