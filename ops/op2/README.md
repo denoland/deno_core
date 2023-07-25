@@ -145,6 +145,20 @@ Uint32, Int32, Number, BigInt
 <td>
 
 ```rust
+#[smi] ResourceId
+```
+
+</td><td>
+✅
+</td><td>
+Uint32, Int32, Number, BigInt
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
 #[bigint] i64
 ```
 
@@ -776,6 +790,20 @@ u32
 ✅
 </td><td>
 Uint32
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```rust
+#[smi] ResourceId
+```
+
+</td><td>
+✅
+</td><td>
+Int32
 </td><td>
 
 </td></tr>
