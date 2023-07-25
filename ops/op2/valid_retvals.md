@@ -7,6 +7,7 @@
 | X         | u16                              | X        | Uint32 |       |
 | X         | i32                              | X        | Int32  |       |
 | X         | u32                              | X        | Uint32 |       |
+| X         | #[smi] ResourceId                | X        | Int32  |       |
 | X         | #[bigint] i64                    |          | BigInt |       |
 | X         | #[bigint] u64                    |          | BigInt |       |
 | X         | #[bigint] isize                  |          | BigInt |       |
