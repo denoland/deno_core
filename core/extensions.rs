@@ -195,6 +195,7 @@ macro_rules! ops {
   }
 }
 
+/// Return the first argument if not empty, otherwise the second.
 #[macro_export]
 macro_rules! or {
   ($e:expr, $fallback:expr) => {
@@ -202,13 +203,6 @@ macro_rules! or {
   };
   (, $fallback:expr) => {
     $fallback
-  };
-}
-
-#[macro_export]
-macro_rules! concat_slices {
-  ($([$($el:expr),*]),*) => {
-    [$($($el),*),*]
   };
 }
 
