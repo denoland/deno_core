@@ -471,7 +471,8 @@ fn map_retval_to_v8_fastcall_type(
     Arg::Numeric(NumericArg::u32)
     | Arg::Numeric(NumericArg::u16)
     | Arg::Numeric(NumericArg::u8) => V8FastCallType::U32,
-    Arg::Numeric(NumericArg::i32)
+    Arg::Numeric(NumericArg::__SMI__)
+    | Arg::Numeric(NumericArg::i32)
     | Arg::Numeric(NumericArg::i16)
     | Arg::Numeric(NumericArg::i8) => V8FastCallType::I32,
     Arg::Numeric(NumericArg::u64) | Arg::Numeric(NumericArg::usize) => {

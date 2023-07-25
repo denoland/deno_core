@@ -54,7 +54,7 @@ impl op_async {
         let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
             .unwrap_or_default();
         if let Some(result)
-            = deno_core::_ops::map_async_op_infallible(
+            = deno_core::_ops::map_async_op_fallible(
                 opctx,
                 promise_id,
                 result,
@@ -62,11 +62,26 @@ impl op_async {
                     Ok(deno_core::v8::Integer::new(scope, result as i32).into())
                 },
             ) {
-            rv.set_int32(result as i32);
+            match result {
+                Ok(result) => {
+                    rv.set_int32(result as i32);
+                }
+                Err(err) => {
+                    let err = err.into();
+                    let opstate = ::std::cell::RefCell::borrow(&*opctx.state);
+                    let exception = deno_core::error::to_v8_error(
+                        &mut scope,
+                        opstate.get_error_class_fn,
+                        &err,
+                    );
+                    scope.throw_exception(exception);
+                    return;
+                }
+            };
         }
     }
     #[inline(always)]
-    pub async fn call(x: i32) -> i32 {
-        x
+    pub async fn call(rid: ResourceId) -> std::io::Result<ResourceId> {
+        Ok(rid as _)
     }
 }

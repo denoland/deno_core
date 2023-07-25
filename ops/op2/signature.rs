@@ -1232,6 +1232,10 @@ mod tests {
     (Numeric(__SMI__), Buffer(Slice(Ref, u8))) ->  Infallible(Void)
   );
   test!(
+    #[smi] fn op_resource2(#[smi] rid: ResourceId) -> Result<ResourceId, Error>;
+    (Numeric(__SMI__)) -> Result(Numeric(__SMI__))
+  );
+  test!(
     fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, AnyError>;
     (Ref(Mut, OpState)) -> Result(OptionNumeric(u32))
   );

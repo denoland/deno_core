@@ -522,7 +522,8 @@ pub fn return_value_infallible(
     }
     Arg::Numeric(NumericArg::i8)
     | Arg::Numeric(NumericArg::i16)
-    | Arg::Numeric(NumericArg::i32) => {
+    | Arg::Numeric(NumericArg::i32)
+    | Arg::Numeric(NumericArg::__SMI__) => {
       quote!(#retval.set_int32(#result as i32);)
     }
     Arg::Numeric(NumericArg::i64 | NumericArg::isize) => {
@@ -644,8 +645,10 @@ pub fn return_value_v8_value(
     Arg::Numeric(NumericArg::bool) => {
       quote!(Ok(#deno_core::v8::Boolean::new(#result).into()))
     }
-    Arg::Numeric(NumericArg::i8 | NumericArg::i16 | NumericArg::i32) => {
-      quote!(Ok(#deno_core::v8::Integer::new(#scope, #result).into()))
+    Arg::Numeric(
+      NumericArg::i8 | NumericArg::i16 | NumericArg::i32 | NumericArg::__SMI__,
+    ) => {
+      quote!(Ok(#deno_core::v8::Integer::new(#scope, #result as i32).into()))
     }
     Arg::Numeric(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
       quote!(Ok(#deno_core::v8::Integer::new_from_unsigned(#scope, #result).into()))
