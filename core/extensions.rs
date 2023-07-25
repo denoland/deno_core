@@ -448,6 +448,8 @@ impl Default for Extension {
 // Note: this used to be a trait, but we "downgraded" it to a single concrete type
 // for the initial iteration, it will likely become a trait in the future
 impl Extension {
+  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
+  #[allow(deprecated)]
   pub fn builder(name: &'static str) -> ExtensionBuilder {
     ExtensionBuilder {
       name,
@@ -455,6 +457,8 @@ impl Extension {
     }
   }
 
+  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
+  #[allow(deprecated)]
   pub fn builder_with_deps(
     name: &'static str,
     deps: &'static [&'static str],

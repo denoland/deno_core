@@ -9,6 +9,7 @@ use crate::modules::SymbolicModule;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
+use std::borrow::Cow;
 use std::rc::Rc;
 use url::Url;
 
@@ -210,9 +211,11 @@ fn es_snapshot() {
 
   let mut runtime = JsRuntimeForSnapshot::new(
     RuntimeOptions {
-      extensions: vec![Extension::builder("text_ext")
-        .ops(vec![op_test::DECL])
-        .build()],
+      extensions: vec![Extension {
+        name: "test_ext",
+        ops: Cow::Borrowed(&[op_test::DECL]),
+        ..Default::default()
+      }],
       ..Default::default()
     },
     Default::default(),
@@ -248,9 +251,11 @@ fn es_snapshot() {
   let mut runtime2 = JsRuntimeForSnapshot::new(
     RuntimeOptions {
       startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
-      extensions: vec![Extension::builder("text_ext")
-        .ops(vec![op_test::DECL])
-        .build()],
+      extensions: vec![Extension {
+        name: "test_ext",
+        ops: Cow::Borrowed(&[op_test::DECL]),
+        ..Default::default()
+      }],
       ..Default::default()
     },
     Default::default(),
@@ -267,9 +272,11 @@ fn es_snapshot() {
 
   let mut runtime3 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(Snapshot::JustCreated(snapshot2)),
-    extensions: vec![Extension::builder("text_ext")
-      .ops(vec![op_test::DECL])
-      .build()],
+    extensions: vec![Extension {
+      name: "test_ext",
+      ops: Cow::Borrowed(&[op_test::DECL]),
+      ..Default::default()
+    }],
     ..Default::default()
   });
 
@@ -292,15 +299,17 @@ fn es_snapshot() {
 #[test]
 fn es_snapshot_without_runtime_module_loader() {
   let startup_data = {
-    let extension = Extension::builder("module_snapshot")
-      .esm(vec![ExtensionFileSource {
+    let extension = Extension {
+      name: "module_snapshot",
+      esm_files: Cow::Borrowed(&[ExtensionFileSource {
         specifier: "ext:module_snapshot/test.js",
         code: ExtensionFileSourceCode::IncludedInBinary(
           "globalThis.TEST = 'foo'; export const TEST = 'bar';",
         ),
-      }])
-      .esm_entry_point("ext:module_snapshot/test.js")
-      .build();
+      }]),
+      esm_entry_point: Some("ext:module_snapshot/test.js"),
+      ..Default::default()
+    };
 
     let runtime = JsRuntimeForSnapshot::new(
       RuntimeOptions {
@@ -354,8 +363,9 @@ fn es_snapshot_without_runtime_module_loader() {
 #[test]
 fn preserve_snapshotted_modules() {
   let startup_data = {
-    let extension = Extension::builder("module_snapshot")
-      .esm(vec![
+    let extension = Extension {
+      name: "module_snapshot",
+      esm_files: Cow::Borrowed(&[
         ExtensionFileSource {
           specifier: "test:preserved",
           code: ExtensionFileSourceCode::IncludedInBinary(
@@ -368,9 +378,10 @@ fn preserve_snapshotted_modules() {
             "import 'test:preserved'; export const TEST = 'bar';",
           ),
         },
-      ])
-      .esm_entry_point("test:not-preserved")
-      .build();
+      ]),
+      esm_entry_point: Some("test:not-preserved"),
+      ..Default::default()
+    };
 
     let runtime = JsRuntimeForSnapshot::new(
       RuntimeOptions {
@@ -439,8 +450,9 @@ fn preserve_snapshotted_modules() {
 /// a snapshot.
 #[test]
 fn non_snapshot_preserve_snapshotted_modules() {
-  let extension = Extension::builder("esm_extension")
-    .esm(vec![
+  let extension = Extension {
+    name: "esm_extension",
+    esm_files: Cow::Borrowed(&[
       ExtensionFileSource {
         specifier: "test:preserved",
         code: ExtensionFileSourceCode::IncludedInBinary(
@@ -453,9 +465,10 @@ fn non_snapshot_preserve_snapshotted_modules() {
           "import 'test:preserved'; export const TEST = 'bar';",
         ),
       },
-    ])
-    .esm_entry_point("test:not-preserved")
-    .build();
+    ]),
+    esm_entry_point: Some("test:not-preserved"),
+    ..Default::default()
+  };
 
   let loader = Rc::new(LoggingModuleLoader::new(NoopModuleLoader));
 

@@ -95,14 +95,16 @@ impl From<tokio::net::TcpStream> for TcpStream {
 }
 
 fn create_js_runtime() -> JsRuntimeForSnapshot {
-  let ext = deno_core::Extension::builder("my_ext")
-    .ops(vec![
+  let ext = deno_core::Extension {
+    name: "my_ext",
+    ops: std::borrow::Cow::Borrowed(&[
       op_listen::DECL,
       op_accept::DECL,
       op_try_write::DECL,
       op_read_socket::DECL,
-    ])
-    .build();
+    ]),
+    ..Default::default()
+  };
 
   JsRuntimeForSnapshot::new(
     deno_core::RuntimeOptions {

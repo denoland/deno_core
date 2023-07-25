@@ -19,9 +19,10 @@ use deno_core::*;
 type Task = Box<dyn FnOnce()>;
 
 fn main() {
-  let my_ext = Extension::builder("my_ext")
-    .ops(vec![op_schedule_task::DECL])
-    .event_loop_middleware(|state_rc, cx| {
+  let my_ext = Extension {
+    name: "my_ext",
+    ops: std::borrow::Cow::Borrowed(&[op_schedule_task::DECL]),
+    event_loop_middleware: Some(Box::new(|state_rc, cx| {
       let mut state = state_rc.borrow_mut();
       let recv = state.borrow_mut::<mpsc::UnboundedReceiver<Task>>();
       let mut ref_loop = false;
@@ -30,13 +31,14 @@ fn main() {
         ref_loop = true; // `call` can callback into runtime and schedule new callbacks :-)
       }
       ref_loop
-    })
-    .state(move |state| {
+    })),
+    opstate_fn: Some(Box::new(move |state| {
       let (tx, rx) = mpsc::unbounded::<Task>();
       state.put(tx);
       state.put(rx);
-    })
-    .build();
+    })),
+    ..Default::default()
+  };
 
   // Initialize a runtime instance
   let mut js_runtime = JsRuntime::new(RuntimeOptions {

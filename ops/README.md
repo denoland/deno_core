@@ -10,9 +10,11 @@ pub fn op_add(_: &mut OpState, a: i32, b: i32) -> i32 {
 }
 
 // Register with an extension.
-Extension::builder()
-  .ops(vec![op_add::decl()])
-  .build();
+Extension {
+  name: "math",
+  ops: Cow::Borrowed(&[op_add::DECL]),
+  ..Default::default()
+}
 ```
 
 ## Performance
