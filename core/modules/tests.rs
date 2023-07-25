@@ -1,5 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ascii_str;
+use crate::modules::loaders::CountingModuleLoader;
+use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::resolve_import;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
@@ -11,11 +13,10 @@ use futures::future::FutureExt;
 use parking_lot::Mutex;
 use std::fmt;
 use std::future::Future;
-use std::io;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use url::Url;
 
 use super::*;
 
@@ -298,38 +299,7 @@ fn test_recursive_load() {
 
 #[test]
 fn test_mods() {
-  #[derive(Default)]
-  struct ModsLoader {
-    pub count: Arc<AtomicUsize>,
-  }
-
-  impl ModuleLoader for ModsLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      self.count.fetch_add(1, Ordering::Relaxed);
-      assert_eq!(specifier, "./b.js");
-      assert_eq!(referrer, "file:///a.js");
-      let s = resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      unreachable!()
-    }
-  }
-
-  let loader = Rc::new(ModsLoader::default());
-
-  let resolve_count = loader.count.clone();
+  let loader = Rc::new(CountingModuleLoader::new(NoopModuleLoader));
   static DISPATCH_COUNT: AtomicUsize = AtomicUsize::new(0);
 
   #[op]
@@ -343,7 +313,7 @@ fn test_mods() {
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    module_loader: Some(loader),
+    module_loader: Some(loader.clone()),
     ..Default::default()
   });
 
@@ -411,7 +381,7 @@ fn test_mods() {
 
   runtime.instantiate_module(mod_b).unwrap();
   assert_eq!(DISPATCH_COUNT.load(Ordering::Relaxed), 0);
-  assert_eq!(resolve_count.load(Ordering::SeqCst), 1);
+  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(1, 0, 0));
 
   runtime.instantiate_module(mod_a).unwrap();
   assert_eq!(DISPATCH_COUNT.load(Ordering::Relaxed), 0);
@@ -423,41 +393,9 @@ fn test_mods() {
 
 #[test]
 fn test_json_module() {
-  #[derive(Default)]
-  struct ModsLoader {
-    pub count: Arc<AtomicUsize>,
-  }
-
-  impl ModuleLoader for ModsLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      self.count.fetch_add(1, Ordering::Relaxed);
-      assert_eq!(specifier, "./b.json");
-      assert_eq!(referrer, "file:///a.js");
-      let s = resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      unreachable!()
-    }
-  }
-
-  let loader = Rc::new(ModsLoader::default());
-
-  let resolve_count = loader.count.clone();
-
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(loader.clone()),
     ..Default::default()
   });
 
@@ -518,7 +456,7 @@ fn test_json_module() {
   };
 
   runtime.instantiate_module(mod_b).unwrap();
-  assert_eq!(resolve_count.load(Ordering::SeqCst), 1);
+  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(1, 0, 0));
 
   runtime.instantiate_module(mod_a).unwrap();
 
@@ -529,39 +467,9 @@ fn test_json_module() {
 
 #[tokio::test]
 async fn dyn_import_err() {
-  #[derive(Clone, Default)]
-  struct DynImportErrLoader {
-    pub count: Arc<AtomicUsize>,
-  }
-
-  impl ModuleLoader for DynImportErrLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      self.count.fetch_add(1, Ordering::Relaxed);
-      assert_eq!(specifier, "/foo.js");
-      assert_eq!(referrer, "file:///dyn_import2.js");
-      let s = resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      async { Err(io::Error::from(io::ErrorKind::NotFound).into()) }.boxed()
-    }
-  }
-
-  let loader = Rc::new(DynImportErrLoader::default());
-  let count = loader.count.clone();
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(loader.clone()),
     ..Default::default()
   });
 
@@ -580,68 +488,21 @@ async fn dyn_import_err() {
 
     // We should get an error here.
     let result = runtime.poll_event_loop(cx, false);
-    if let Poll::Ready(Ok(_)) = result {
-      unreachable!();
-    }
-    assert_eq!(count.load(Ordering::Relaxed), 4);
+    assert!(matches!(result, Poll::Ready(Err(_))));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
     Poll::Ready(())
   })
   .await;
 }
 
-#[derive(Clone, Default)]
-struct DynImportOkLoader {
-  pub prepare_load_count: Arc<AtomicUsize>,
-  pub resolve_count: Arc<AtomicUsize>,
-  pub load_count: Arc<AtomicUsize>,
-}
-
-impl ModuleLoader for DynImportOkLoader {
-  fn resolve(
-    &self,
-    specifier: &str,
-    referrer: &str,
-    _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
-    let c = self.resolve_count.fetch_add(1, Ordering::Relaxed);
-    assert!(c < 7);
-    assert_eq!(specifier, "./b.js");
-    assert_eq!(referrer, "file:///dyn_import3.js");
-    let s = resolve_import(specifier, referrer).unwrap();
-    Ok(s)
-  }
-
-  fn load(
-    &self,
-    specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-  ) -> Pin<Box<ModuleSourceFuture>> {
-    self.load_count.fetch_add(1, Ordering::Relaxed);
-    let info =
-      ModuleSource::for_test("export function b() { return 'b' }", specifier);
-    async move { Ok(info) }.boxed()
-  }
-
-  fn prepare_load(
-    &self,
-    _module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<String>,
-    _is_dyn_import: bool,
-  ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
-    self.prepare_load_count.fetch_add(1, Ordering::Relaxed);
-    async { Ok(()) }.boxed_local()
-  }
-}
-
 #[tokio::test]
 async fn dyn_import_ok() {
-  let loader = Rc::new(DynImportOkLoader::default());
-  let prepare_load_count = loader.prepare_load_count.clone();
-  let resolve_count = loader.resolve_count.clone();
-  let load_count = loader.load_count.clone();
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///b.js").unwrap(),
+    ascii_str!("export function b() { return 'b' }"),
+  )));
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(loader.clone()),
     ..Default::default()
   });
   poll_fn(move |cx| {
@@ -669,15 +530,12 @@ async fn dyn_import_ok() {
       runtime.poll_event_loop(cx, false),
       Poll::Ready(Ok(_))
     ));
-    assert_eq!(prepare_load_count.load(Ordering::Relaxed), 1);
-    assert_eq!(resolve_count.load(Ordering::Relaxed), 7);
-    assert_eq!(load_count.load(Ordering::Relaxed), 1);
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
     assert!(matches!(
       runtime.poll_event_loop(cx, false),
       Poll::Ready(Ok(_))
     ));
-    assert_eq!(resolve_count.load(Ordering::Relaxed), 7);
-    assert_eq!(load_count.load(Ordering::Relaxed), 1);
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
     Poll::Ready(())
   })
   .await;
@@ -686,10 +544,12 @@ async fn dyn_import_ok() {
 #[tokio::test]
 async fn dyn_import_borrow_mut_error() {
   // https://github.com/denoland/deno/issues/6054
-  let loader = Rc::new(DynImportOkLoader::default());
-  let prepare_load_count = loader.prepare_load_count.clone();
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///b.js").unwrap(),
+    ascii_str!("export function b() { return 'b' }"),
+  )));
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(loader.clone()),
     ..Default::default()
   });
 
@@ -707,11 +567,16 @@ async fn dyn_import_borrow_mut_error() {
         "#,
       )
       .unwrap();
+    // TODO(mmastrac): These checks here are pretty broken and make a lot of assumptions
+    // about the ordering of resolution and events. If these break, we can remove them.
+
+    // Old comments that are likely wrong:
     // First poll runs `prepare_load` hook.
     let _ = runtime.poll_event_loop(cx, false);
-    assert_eq!(prepare_load_count.load(Ordering::Relaxed), 1);
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
     // Second poll triggers error
     let _ = runtime.poll_event_loop(cx, false);
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
     Poll::Ready(())
   })
   .await;
@@ -720,51 +585,24 @@ async fn dyn_import_borrow_mut_error() {
 // Regression test for https://github.com/denoland/deno/issues/3736.
 #[test]
 fn dyn_concurrent_circular_import() {
-  #[derive(Clone, Default)]
-  struct DynImportCircularLoader {
-    pub resolve_count: Arc<AtomicUsize>,
-    pub load_count: Arc<AtomicUsize>,
-  }
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([
+    (
+      Url::parse("file:///a.js").unwrap(),
+      ascii_str!("import './b.js';"),
+    ),
+    (
+      Url::parse("file:///b.js").unwrap(),
+      ascii_str!("import './c.js';\nimport './a.js';"),
+    ),
+    (
+      Url::parse("file:///c.js").unwrap(),
+      ascii_str!("import './d.js';"),
+    ),
+    (Url::parse("file:///d.js").unwrap(), ascii_str!("// pass")),
+  ])));
 
-  impl ModuleLoader for DynImportCircularLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      self.resolve_count.fetch_add(1, Ordering::Relaxed);
-      let s = resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      self.load_count.fetch_add(1, Ordering::Relaxed);
-      let filename = PathBuf::from(specifier.to_string())
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
-      let code = match filename.as_str() {
-        "a.js" => "import './b.js';",
-        "b.js" => "import './c.js';\nimport './a.js';",
-        "c.js" => "import './d.js';",
-        "d.js" => "// pass",
-        _ => unreachable!(),
-      };
-      let info = ModuleSource::for_test(code, specifier);
-      async move { Ok(info) }.boxed()
-    }
-  }
-
-  let loader = Rc::new(DynImportCircularLoader::default());
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(loader.clone()),
     ..Default::default()
   });
 
@@ -1090,46 +928,22 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
 
 #[test]
 fn main_and_side_module() {
-  struct ModsLoader {}
-
   let main_specifier = resolve_url("file:///main_module.js").unwrap();
   let side_specifier = resolve_url("file:///side_module.js").unwrap();
 
-  impl ModuleLoader for ModsLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      let s = resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
+  let loader = StaticModuleLoader::new([
+    (
+      main_specifier.clone(),
+      ascii_str!("if (!import.meta.main) throw Error();"),
+    ),
+    (
+      side_specifier.clone(),
+      ascii_str!("if (import.meta.main) throw Error();"),
+    ),
+  ]);
 
-    fn load(
-      &self,
-      module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      let module_source = match module_specifier.as_str() {
-        "file:///main_module.js" => ModuleSource::for_test(
-          "if (!import.meta.main) throw Error();",
-          "file:///main_module.js",
-        ),
-        "file:///side_module.js" => ModuleSource::for_test(
-          "if (import.meta.main) throw Error();",
-          "file:///side_module.js",
-        ),
-        _ => unreachable!(),
-      };
-      async move { Ok(module_source) }.boxed()
-    }
-  }
-
-  let loader = Rc::new(ModsLoader {});
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
 
