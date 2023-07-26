@@ -779,5 +779,3 @@ macro_rules! include_js_files {
     ]
   };
 }
-
-extension!(foo, esm_entry_point = "".to_string(),);
