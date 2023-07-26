@@ -10,6 +10,7 @@ use futures::channel::oneshot;
 use futures::future::poll_fn;
 use futures::future::Future;
 use futures::FutureExt;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -806,15 +807,17 @@ async fn test_realm_concurrent_dynamic_imports() {
 #[test]
 fn es_snapshot() {
   let startup_data = {
-    let extension = Extension::builder("module_snapshot")
-      .esm(vec![ExtensionFileSource {
+    let extension = Extension {
+      name: "module_snapshot",
+      esm_files: Cow::Borrowed(&[ExtensionFileSource {
         specifier: "mod:test",
         code: ExtensionFileSourceCode::IncludedInBinary(
           "globalThis.TEST = 'foo'; export const TEST = 'bar';",
         ),
-      }])
-      .esm_entry_point("mod:test")
-      .build();
+      }]),
+      esm_entry_point: Some("mod:test"),
+      ..Default::default()
+    };
 
     let runtime = JsRuntimeForSnapshot::new(
       RuntimeOptions {

@@ -13,6 +13,8 @@ use deno_core::RuntimeOptions;
 // You can remove this:
 use deno_core::*;
 
+/// An op for summing an array of numbers. The op-layer automatically
+/// deserializes inputs and serializes the returned Result & value.
 #[op]
 fn op_sum(nums: Vec<f64>) -> Result<f64, deno_core::error::AnyError> {
   // Sum inputs
@@ -23,14 +25,11 @@ fn op_sum(nums: Vec<f64>) -> Result<f64, deno_core::error::AnyError> {
 
 fn main() {
   // Build a deno_core::Extension providing custom ops
-  let ext = Extension::builder("my_ext")
-    .ops(vec![
-      // An op for summing an array of numbers
-      // The op-layer automatically deserializes inputs
-      // and serializes the returned Result & value
-      op_sum::DECL,
-    ])
-    .build();
+  let ext = Extension {
+    name: "my_ext",
+    ops: std::borrow::Cow::Borrowed(&[op_sum::DECL]),
+    ..Default::default()
+  };
 
   // Initialize a runtime instance
   let mut runtime = JsRuntime::new(RuntimeOptions {

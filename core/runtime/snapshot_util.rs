@@ -56,11 +56,11 @@ pub fn create_snapshot(
   mark = Instant::now();
 
   let mut files_loaded_during_snapshot = vec![];
-  for source in &*BUILTIN_SOURCES {
+  for source in &BUILTIN_SOURCES {
     if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
       &source.code
     {
-      files_loaded_during_snapshot.push(path.clone());
+      files_loaded_during_snapshot.push(PathBuf::from(path));
     }
   }
   for source in js_runtime
@@ -72,7 +72,7 @@ pub fn create_snapshot(
     if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
       &source.code
     {
-      files_loaded_during_snapshot.push(path.clone());
+      files_loaded_during_snapshot.push(PathBuf::from(path));
     }
   }
 

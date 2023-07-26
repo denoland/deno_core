@@ -38,7 +38,6 @@ use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
-use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::any::Any;
 use std::cell::RefCell;
@@ -194,15 +193,12 @@ impl InitMode {
   }
 }
 
-pub(crate) static BUILTIN_SOURCES: Lazy<Vec<ExtensionFileSource>> =
-  Lazy::new(|| {
-    include_js_files!(
-      core
-      "00_primordials.js",
-      "01_core.js",
-      "02_error.js",
-    )
-  });
+pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 3] = include_js_files!(
+  core
+  "00_primordials.js",
+  "01_core.js",
+  "02_error.js",
+);
 
 /// A single execution context of JavaScript. Corresponds roughly to the "Web
 /// Worker" concept in the DOM.
@@ -537,18 +533,17 @@ impl JsRuntime {
     let mut additional_references =
       Vec::with_capacity(options.extensions.len());
     for extension in &mut options.extensions {
-      if let Some(middleware) = extension.init_event_loop_middleware() {
+      if let Some(middleware) = extension.take_event_loop_middleware() {
         event_loop_middlewares.push(middleware);
       }
-      if let Some(middleware) = extension.init_global_template_middleware() {
+      if let Some(middleware) = extension.take_global_template_middleware() {
         global_template_middlewares.push(middleware);
       }
-      if let Some(middleware) = extension.init_global_object_middleware() {
+      if let Some(middleware) = extension.take_global_object_middleware() {
         global_object_middlewares.push(middleware);
       }
-      if let Some(ext_refs) = extension.init_external_references() {
-        additional_references.extend_from_slice(&ext_refs);
-      }
+      additional_references
+        .extend_from_slice(extension.get_external_references());
     }
 
     let align = std::mem::align_of::<usize>();
@@ -927,7 +922,7 @@ impl JsRuntime {
 
     futures::executor::block_on(async {
       if self.init_mode == InitMode::New {
-        for file_source in &*BUILTIN_SOURCES {
+        for file_source in &BUILTIN_SOURCES {
           realm.execute_script(
             self.v8_isolate(),
             file_source.specifier,
@@ -1006,7 +1001,7 @@ impl JsRuntime {
     // Middleware
     let middleware: Vec<Box<OpMiddlewareFn>> = exts
       .iter_mut()
-      .filter_map(|e| e.init_middleware())
+      .filter_map(|e| e.take_middleware())
       .collect();
 
     // macroware wraps an opfn in all the middleware
@@ -1015,11 +1010,10 @@ impl JsRuntime {
     // Flatten ops, apply middleware & override disabled ops
     let ops: Vec<_> = exts
       .iter_mut()
-      .filter_map(|e| e.init_ops())
-      .flatten()
+      .flat_map(|e| e.init_ops())
       .map(|d| OpDecl {
         name: d.name,
-        ..macroware(d)
+        ..macroware(*d)
       })
       .collect();
 
@@ -1072,7 +1066,7 @@ impl JsRuntime {
     // Setup state
     for e in &mut options.extensions {
       // ops are already registered during in bindings::initialize_context();
-      e.init_state(&mut op_state);
+      e.take_state(&mut op_state);
     }
 
     (op_state, ops)

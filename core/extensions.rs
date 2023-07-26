@@ -3,14 +3,14 @@ use crate::modules::ModuleCode;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
+use std::borrow::Cow;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::task::Context;
 use v8::fast_api::FastFunction;
 use v8::ExternalReference;
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum ExtensionFileSourceCode {
   /// Source code is included in the binary produced. Either by being defined
   /// inline, or included using `include_str!()`. If you are snapshotting, this
@@ -21,10 +21,10 @@ pub enum ExtensionFileSourceCode {
   // Source code is loaded from a file on disk. It's meant to be used if the
   // embedder is creating snapshots. Files will be loaded from the filesystem
   // during the build time and they will only be present in the V8 snapshot.
-  LoadedFromFsDuringSnapshot(PathBuf),
+  LoadedFromFsDuringSnapshot(&'static str), // <- Path
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
   pub code: ExtensionFileSourceCode,
@@ -47,7 +47,7 @@ impl ExtensionFileSource {
         Ok(ModuleCode::from_static(code))
       }
       ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) => {
-        let msg = || format!("Failed to read \"{}\"", path.display());
+        let msg = || format!("Failed to read \"{}\"", path);
         let s = std::fs::read_to_string(path).with_context(msg)?;
         debug_assert!(
           s.is_ascii(),
@@ -195,6 +195,17 @@ macro_rules! ops {
   }
 }
 
+/// Return the first argument if not empty, otherwise the second.
+#[macro_export]
+macro_rules! or {
+  ($e:expr, $fallback:expr) => {
+    $e
+  };
+  (, $fallback:expr) => {
+    $fallback
+  };
+}
+
 /// Defines a Deno extension. The first parameter is the name of the extension symbol namespace to create. This is the symbol you
 /// will use to refer to the extension.
 ///
@@ -236,8 +247,7 @@ macro_rules! extension {
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
     $(, esm_entry_point = $esm_entry_point:literal )?
-    $(, esm = [ $( dir $dir_esm:literal , )? $( $esm:literal ),* $(,)? ] )?
-    $(, esm_with_specifiers = [ $( dir $dir_esm2:literal , )? $( ($esm_specifier:literal, $esm_file:literal) ),* $(,)? ] )?
+    $(, esm = [ $( dir $dir_esm:literal , )? $( $esm:literal $( with_specifier $esm_specifier:literal )? ),* $(,)? ] )?
     $(, js = [ $( dir $dir_js:literal , )? $( $js:literal ),* $(,)? ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
@@ -257,83 +267,72 @@ macro_rules! extension {
     }
 
     impl $name {
-      #[inline(always)]
-      fn ext() -> $crate::ExtensionBuilder {
-        $crate::Extension::builder_with_deps(stringify!($name), &[ $( $( stringify!($dep) ),* )? ])
-      }
-
-      /// If ESM or JS was specified, add those files to the extension.
-      #[inline(always)]
-      #[allow(unused_variables)]
-      fn with_js(ext: &mut $crate::ExtensionBuilder) {
-        $( ext.esm(
-          $crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm , )* )
-        ); )?
-        $( ext.esm(
-          $crate::include_js_files_with_specifiers!( $name $( dir $dir_esm2 , )? $( ( $esm_specifier, $esm_file) , )* )
-        ); )?
-        $(
-          ext.esm_entry_point($esm_entry_point);
-        )?
-        $( ext.js(
-          $crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* )
-        ); )?
+      fn ext $( <  $( $param : $type + 'static ),+ > )?() -> $crate::Extension {
+        #[allow(unused_imports)]
+        use $crate::Op;
+        $crate::Extension {
+          // Computed at compile-time, may be modified at runtime with `Cow`:
+          name: stringify!($name),
+          deps: &[ $( $( stringify!($dep) ),* )? ],
+          js_files: std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, [])),
+          esm_files: std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, [])),
+          esm_entry_point: $crate::or!($(Some($esm_entry_point))?, None),
+          ops: std::borrow::Cow::Borrowed(&[$($(
+            $( #[ $m ] )*
+            $( $op )::+ $( :: < $($op_param),* > )? :: DECL
+          ),+)?]),
+          external_references: std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
+          // Computed at runtime:
+          op_state_fn: None,
+          middleware_fn: None,
+          enabled: true,
+          // TODO(nayeemrmn): Make these `fn()` and compute them at compile-time:
+          // https://github.com/denoland/deno_core/issues/48.
+          event_loop_middleware: None,
+          global_template_middleware: None,
+          global_object_middleware: None,
+        }
       }
 
       // If ops were specified, add those ops to the extension.
       #[inline(always)]
       #[allow(unused_variables)]
-      fn with_ops $( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::ExtensionBuilder)
+      fn with_ops_fn $( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::Extension)
       $( where $( $bound : $bound_type ),+ )?
       {
-        // If individual ops are specified, roll them up into a vector and apply them
-        $(
-          use $crate::Op;
-          ext.ops(vec![
-            $(
-              $( #[ $m ] )*
-              $( $op )::+ $( :: < $($op_param),* > )? :: DECL
-            ),+
-          ]);
-        )?
-
-        // Otherwise use the ops_fn, if provided
+        // Use the ops_fn, if provided
         $crate::extension!(! __ops__ ext $( $ops_symbol $( < $ops_param > )? )? __eot__);
       }
 
       // Includes the state and middleware functions, if defined.
       #[inline(always)]
       #[allow(unused_variables)]
-      fn with_state_and_middleware$( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::ExtensionBuilder, $( $( $options_id : $options_type ),* )? )
+      fn with_state_and_middleware$( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::Extension, $( $( $options_id : $options_type ),* )? )
       $( where $( $bound : $bound_type ),+ )?
       {
         $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
 
         $(
-          ext.event_loop_middleware($event_loop_middleware_fn);
+          ext.event_loop_middleware = Some(Box::new($event_loop_middleware_fn));
         )?
 
         $(
-          ext.global_template_middleware($global_template_middleware_fn);
+          ext.global_template_middleware = Some(Box::new($global_template_middleware_fn));
         )?
 
         $(
-          ext.global_object_middleware($global_object_middleware_fn);
+          ext.global_object_middleware = Some(Box::new($global_object_middleware_fn));
         )?
 
         $(
-          ext.external_references(vec![ $( $external_reference ),* ]);
-        )?
-
-        $(
-          ext.middleware($middleware_fn);
+          ext.middleware_fn = Some(Box::new($middleware_fn));
         )?
       }
 
       #[inline(always)]
       #[allow(unused_variables)]
       #[allow(clippy::redundant_closure_call)]
-      fn with_customizer(ext: &mut $crate::ExtensionBuilder) {
+      fn with_customizer(ext: &mut $crate::Extension) {
         $( ($customizer_fn)(ext); )?
       }
 
@@ -341,36 +340,35 @@ macro_rules! extension {
       pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
-        let mut ext = Self::ext();
-        // If esm or JS was specified, add JS files
-        Self::with_js(&mut ext);
-        Self::with_ops $( ::< $( $param ),+ > )?(&mut ext);
+        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
+        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_customizer(&mut ext);
-        ext.take()
+        ext
       }
 
       #[allow(dead_code)]
       pub fn init_ops_and_esm $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
-        let mut ext = Self::ext();
-        // If esm or JS was specified, add JS files
-        Self::with_js(&mut ext);
-        Self::with_ops $( ::< $( $param ),+ > )?(&mut ext);
+        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
+        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
-        ext.take()
+        ext
       }
 
       #[allow(dead_code)]
       pub fn init_ops $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
-        let mut ext = Self::ext();
-        Self::with_ops $( ::< $( $param ),+ > )?(&mut ext);
+        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
+        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
-        ext.take()
+        ext.js_files = std::borrow::Cow::Borrowed(&[]);
+        ext.esm_files = std::borrow::Cow::Borrowed(&[]);
+        ext.esm_entry_point = None;
+        ext
       }
     }
   };
@@ -389,49 +387,69 @@ macro_rules! extension {
       };
 
       let state_fn: fn(&mut $crate::OpState, Config $( <  $( $param ),+ > )? ) = $(  $state_fn  )?;
-      $ext.state(move |state: &mut $crate::OpState| {
+      $ext.op_state_fn = Some(Box::new(move |state: &mut $crate::OpState| {
         state_fn(state, config);
-      });
+      }));
     }
   };
 
   (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr )? ) => {
-    $(  $ext.state($state_fn);  )?
+    $( $ext.op_state_fn = Some(Box::new($state_fn)); )?
   };
 
   (! __ops__ $ext:ident __eot__) => {
   };
 
   (! __ops__ $ext:ident $ops_symbol:ident __eot__) => {
-    $ext.ops($ops_symbol())
+    $ext.ops.to_mut().extend($ops_symbol())
   };
 
   (! __ops__ $ext:ident $ops_symbol:ident < $ops_param:ident > __eot__) => {
-    $ext.ops($ops_symbol::<$ops_param>())
+    $ext.ops.to_mut().extend($ops_symbol::<$ops_param>())
   };
 }
 
-#[derive(Default)]
 pub struct Extension {
-  pub(crate) name: &'static str,
-  js_files: Vec<ExtensionFileSource>,
-  esm_files: Vec<ExtensionFileSource>,
-  esm_entry_point: Option<&'static str>,
-  ops: Option<Vec<OpDecl>>,
-  opstate_fn: Option<Box<OpStateFn>>,
-  middleware_fn: Option<Box<OpMiddlewareFn>>,
-  event_loop_middleware: Option<Box<EventLoopMiddlewareFn>>,
-  global_template_middleware: Option<Box<GlobalTemplateMiddlewareFn>>,
-  global_object_middleware: Option<Box<GlobalObjectMiddlewareFn>>,
-  external_references: Option<Vec<v8::ExternalReference<'static>>>,
-  initialized: bool,
-  enabled: bool,
-  deps: Option<&'static [&'static str]>,
+  pub name: &'static str,
+  pub deps: &'static [&'static str],
+  pub js_files: Cow<'static, [ExtensionFileSource]>,
+  pub esm_files: Cow<'static, [ExtensionFileSource]>,
+  pub esm_entry_point: Option<&'static str>,
+  pub ops: Cow<'static, [OpDecl]>,
+  pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
+  pub op_state_fn: Option<Box<OpStateFn>>,
+  pub middleware_fn: Option<Box<OpMiddlewareFn>>,
+  pub enabled: bool,
+  pub event_loop_middleware: Option<Box<EventLoopMiddlewareFn>>,
+  pub global_template_middleware: Option<Box<GlobalTemplateMiddlewareFn>>,
+  pub global_object_middleware: Option<Box<GlobalObjectMiddlewareFn>>,
+}
+
+impl Default for Extension {
+  fn default() -> Self {
+    Self {
+      name: "DEFAULT",
+      deps: &[],
+      js_files: Cow::Borrowed(&[]),
+      esm_files: Cow::Borrowed(&[]),
+      esm_entry_point: None,
+      ops: Cow::Borrowed(&[]),
+      external_references: Cow::Borrowed(&[]),
+      op_state_fn: None,
+      middleware_fn: None,
+      enabled: true,
+      event_loop_middleware: None,
+      global_template_middleware: None,
+      global_object_middleware: None,
+    }
+  }
 }
 
 // Note: this used to be a trait, but we "downgraded" it to a single concrete type
 // for the initial iteration, it will likely become a trait in the future
 impl Extension {
+  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
+  #[allow(deprecated)]
   pub fn builder(name: &'static str) -> ExtensionBuilder {
     ExtensionBuilder {
       name,
@@ -439,6 +457,8 @@ impl Extension {
     }
   }
 
+  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
+  #[allow(deprecated)]
   pub fn builder_with_deps(
     name: &'static str,
     deps: &'static [&'static str],
@@ -454,31 +474,29 @@ impl Extension {
   /// - The extension is depending on itself or an extension with the same name.
   /// - A dependency hasn't been loaded yet.
   pub fn check_dependencies(&self, previous_exts: &[Extension]) {
-    if let Some(deps) = self.deps {
-      'dep_loop: for dep in deps {
-        if dep == &self.name {
-          panic!("Extension '{}' is either depending on itself or there is another extension with the same name", self.name);
-        }
-
-        for ext in previous_exts {
-          if dep == &ext.name {
-            continue 'dep_loop;
-          }
-        }
-
-        panic!("Extension '{}' is missing dependency '{dep}'", self.name);
+    'dep_loop: for dep in self.deps {
+      if dep == &self.name {
+        panic!("Extension '{}' is either depending on itself or there is another extension with the same name", self.name);
       }
+
+      for ext in previous_exts {
+        if dep == &ext.name {
+          continue 'dep_loop;
+        }
+      }
+
+      panic!("Extension '{}' is missing dependency '{dep}'", self.name);
     }
   }
 
   /// returns JS source code to be loaded into the isolate (either at snapshotting,
   /// or at startup).  as a vector of a tuple of the file name, and the source code.
-  pub fn get_js_sources(&self) -> &Vec<ExtensionFileSource> {
-    &self.js_files
+  pub fn get_js_sources(&self) -> &[ExtensionFileSource] {
+    self.js_files.as_ref()
   }
 
-  pub fn get_esm_sources(&self) -> &Vec<ExtensionFileSource> {
-    &self.esm_files
+  pub fn get_esm_sources(&self) -> &[ExtensionFileSource] {
+    self.esm_files.as_ref()
   }
 
   pub fn get_esm_entry_point(&self) -> Option<&'static str> {
@@ -486,54 +504,49 @@ impl Extension {
   }
 
   /// Called at JsRuntime startup to initialize ops in the isolate.
-  pub fn init_ops(&mut self) -> Option<Vec<OpDecl>> {
-    // TODO(@AaronO): maybe make op registration idempotent
-    if self.initialized {
-      panic!("init_ops called twice: not idempotent or correct");
+  pub fn init_ops(&mut self) -> &[OpDecl] {
+    if !self.enabled {
+      for op in self.ops.to_mut() {
+        op.enabled = false;
+      }
     }
-    self.initialized = true;
-
-    let mut ops = self.ops.take()?;
-    for op in ops.iter_mut() {
-      op.enabled = self.enabled && op.enabled;
-    }
-    Some(ops)
+    self.ops.as_ref()
   }
 
   /// Allows setting up the initial op-state of an isolate at startup.
-  pub fn init_state(&mut self, state: &mut OpState) {
-    if let Some(op_fn) = self.opstate_fn.take() {
+  pub fn take_state(&mut self, state: &mut OpState) {
+    if let Some(op_fn) = self.op_state_fn.take() {
       op_fn(state);
     }
   }
 
-  /// init_middleware lets us middleware op registrations, it's called before init_ops
-  pub fn init_middleware(&mut self) -> Option<Box<OpMiddlewareFn>> {
+  /// Middleware should be called before init_ops
+  pub fn take_middleware(&mut self) -> Option<Box<OpMiddlewareFn>> {
     self.middleware_fn.take()
   }
 
-  pub fn init_event_loop_middleware(
+  pub fn take_event_loop_middleware(
     &mut self,
   ) -> Option<Box<EventLoopMiddlewareFn>> {
     self.event_loop_middleware.take()
   }
 
-  pub fn init_global_template_middleware(
+  pub fn take_global_template_middleware(
     &mut self,
   ) -> Option<Box<GlobalTemplateMiddlewareFn>> {
     self.global_template_middleware.take()
   }
 
-  pub fn init_global_object_middleware(
+  pub fn take_global_object_middleware(
     &mut self,
   ) -> Option<Box<GlobalObjectMiddlewareFn>> {
     self.global_object_middleware.take()
   }
 
-  pub fn init_external_references(
+  pub fn get_external_references(
     &mut self,
-  ) -> Option<Vec<v8::ExternalReference<'static>>> {
-    self.external_references.take()
+  ) -> &[v8::ExternalReference<'static>] {
+    self.external_references.as_ref()
   }
 
   pub fn enabled(self, enabled: bool) -> Self {
@@ -557,7 +570,7 @@ pub struct ExtensionBuilder {
   event_loop_middleware: Option<Box<EventLoopMiddlewareFn>>,
   global_template_middleware: Option<Box<GlobalTemplateMiddlewareFn>>,
   global_object_middleware: Option<Box<GlobalObjectMiddlewareFn>>,
-  external_references: Option<Vec<ExternalReference<'static>>>,
+  external_references: Vec<ExternalReference<'static>>,
   name: &'static str,
   deps: &'static [&'static str],
 }
@@ -583,11 +596,11 @@ impl ExtensionBuilder {
     self
   }
 
-  pub fn state<F>(&mut self, opstate_fn: F) -> &mut Self
+  pub fn state<F>(&mut self, op_state_fn: F) -> &mut Self
   where
     F: FnOnce(&mut OpState) + 'static,
   {
-    self.state = Some(Box::new(opstate_fn));
+    self.state = Some(Box::new(op_state_fn));
     self
   }
 
@@ -632,50 +645,46 @@ impl ExtensionBuilder {
     &mut self,
     external_references: Vec<ExternalReference<'static>>,
   ) -> &mut Self {
-    self.external_references = Some(external_references);
+    self.external_references.extend(external_references);
     self
   }
 
   /// Consume the [`ExtensionBuilder`] and return an [`Extension`].
   pub fn take(self) -> Extension {
-    let ops = Some(self.ops);
-    let deps = Some(self.deps);
     Extension {
-      js_files: self.js,
-      esm_files: self.esm,
+      name: self.name,
+      deps: self.deps,
+      js_files: Cow::Owned(self.js),
+      esm_files: Cow::Owned(self.esm),
       esm_entry_point: self.esm_entry_point,
-      ops,
-      opstate_fn: self.state,
+      ops: Cow::Owned(self.ops),
+      external_references: Cow::Owned(self.external_references),
+      op_state_fn: self.state,
       middleware_fn: self.middleware,
+      enabled: true,
       event_loop_middleware: self.event_loop_middleware,
       global_template_middleware: self.global_template_middleware,
       global_object_middleware: self.global_object_middleware,
-      external_references: self.external_references,
-      initialized: false,
-      enabled: true,
-      name: self.name,
-      deps,
     }
   }
 
   pub fn build(&mut self) -> Extension {
-    let ops = Some(std::mem::take(&mut self.ops));
-    let deps = Some(std::mem::take(&mut self.deps));
     Extension {
-      js_files: std::mem::take(&mut self.js),
-      esm_files: std::mem::take(&mut self.esm),
+      name: self.name,
+      deps: std::mem::take(&mut self.deps),
+      js_files: Cow::Owned(std::mem::take(&mut self.js)),
+      esm_files: Cow::Owned(std::mem::take(&mut self.esm)),
       esm_entry_point: self.esm_entry_point.take(),
-      ops,
-      opstate_fn: self.state.take(),
+      ops: Cow::Owned(std::mem::take(&mut self.ops)),
+      external_references: Cow::Owned(std::mem::take(
+        &mut self.external_references,
+      )),
+      op_state_fn: self.state.take(),
       middleware_fn: self.middleware.take(),
+      enabled: true,
       event_loop_middleware: self.event_loop_middleware.take(),
       global_template_middleware: self.global_template_middleware.take(),
       global_object_middleware: self.global_object_middleware.take(),
-      external_references: self.external_references.take(),
-      initialized: false,
-      enabled: true,
-      name: self.name,
-      deps,
     }
   }
 }
@@ -711,10 +720,10 @@ impl ExtensionBuilder {
 #[cfg(not(feature = "include_js_files_for_snapshotting"))]
 #[macro_export]
 macro_rules! include_js_files {
-  ($name:ident dir $dir:literal, $($file:literal,)+) => {
-    vec![
+  ($name:ident dir $dir:literal, $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+    [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
         ),
@@ -722,10 +731,10 @@ macro_rules! include_js_files {
     ]
   };
 
-  ($name:ident $($file:literal,)+) => {
-    vec![
+  ($name:ident $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+    [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file))
         ),
@@ -737,53 +746,23 @@ macro_rules! include_js_files {
 #[cfg(feature = "include_js_files_for_snapshotting")]
 #[macro_export]
 macro_rules! include_js_files {
-  ($name:ident dir $dir:literal, $($file:literal,)+) => {
-    vec![
+  ($name:ident dir $dir:literal, $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+    [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
-          std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join($dir).join($file)
+          concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file)
         ),
       },)+
     ]
   };
 
-  ($name:ident $($file:literal,)+) => {
-    vec![
+  ($name:ident $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+    [
       $($crate::ExtensionFileSource {
-        specifier: concat!("ext:", stringify!($name), "/", $file),
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
-          std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join($file)
-        ),
-      },)+
-    ]
-  };
-}
-
-#[cfg(not(feature = "include_js_files_for_snapshotting"))]
-#[macro_export]
-macro_rules! include_js_files_with_specifiers {
-  ($name:ident dir $dir:literal, $( ( $specifier:literal , $file:literal ),)+) => {
-    vec![
-      $($crate::ExtensionFileSource {
-        specifier: $specifier,
-        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
-          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
-        ),
-      },)+
-    ]
-  };
-}
-
-#[cfg(feature = "include_js_files_for_snapshotting")]
-#[macro_export]
-macro_rules! include_js_files_with_specifiers {
-  ($name:ident dir $dir:literal, $( ( $specifier:literal , $file:literal ),)+) => {
-    vec![
-      $($crate::ExtensionFileSource {
-        specifier: $specifier,
-        code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
-          std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join($dir).join($file)
+          concat!(env!("CARGO_MANIFEST_DIR"), "/", $file)
         ),
       },)+
     ]
