@@ -246,9 +246,9 @@ macro_rules! extension {
     $(, bounds = [ $( $bound:path : $bound_type:ident ),+ ] )?
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
-    $(, esm_entry_point = $esm_entry_point:literal )?
-    $(, esm = [ $( dir $dir_esm:literal , )? $( $esm:literal $( with_specifier $esm_specifier:literal )? ),* $(,)? ] )?
-    $(, js = [ $( dir $dir_js:literal , )? $( $js:literal ),* $(,)? ] )?
+    $(, esm_entry_point = $esm_entry_point:expr )?
+    $(, esm = [ $( dir $dir_esm:expr , )? $( $esm:literal $( with_specifier $esm_specifier:expr )? ),* $(,)? ] )?
+    $(, js = [ $( dir $dir_js:expr , )? $( $js:expr ),* $(,)? ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
     $(, state = $state_fn:expr )?
@@ -274,9 +274,20 @@ macro_rules! extension {
           // Computed at compile-time, may be modified at runtime with `Cow`:
           name: stringify!($name),
           deps: &[ $( $( stringify!($dep) ),* )? ],
-          js_files: std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, [])),
-          esm_files: std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, [])),
-          esm_entry_point: $crate::or!($(Some($esm_entry_point))?, None),
+          // Use intermediary `const`s here to disable user expressions which
+          // can't be evaluated at compile-time.
+          js_files: {
+            const V: std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, []));
+            V
+          },
+          esm_files: {
+            const V: std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, []));
+            V
+          },
+          esm_entry_point: {
+            const V: Option<&'static str> = $crate::or!($(Some($esm_entry_point))?, None);
+            V
+          },
           ops: std::borrow::Cow::Borrowed(&[$($(
             $( #[ $m ] )*
             $( $op )::+ $( :: < $($op_param),* > )? :: DECL
@@ -720,7 +731,7 @@ impl ExtensionBuilder {
 #[cfg(not(feature = "include_js_files_for_snapshotting"))]
 #[macro_export]
 macro_rules! include_js_files {
-  ($name:ident dir $dir:literal, $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+  ($name:ident dir $dir:expr, $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
     [
       $($crate::ExtensionFileSource {
         specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
@@ -731,7 +742,7 @@ macro_rules! include_js_files {
     ]
   };
 
-  ($name:ident $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+  ($name:ident $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
     [
       $($crate::ExtensionFileSource {
         specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
@@ -746,7 +757,7 @@ macro_rules! include_js_files {
 #[cfg(feature = "include_js_files_for_snapshotting")]
 #[macro_export]
 macro_rules! include_js_files {
-  ($name:ident dir $dir:literal, $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+  ($name:ident dir $dir:expr, $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
     [
       $($crate::ExtensionFileSource {
         specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
@@ -757,7 +768,7 @@ macro_rules! include_js_files {
     ]
   };
 
-  ($name:ident $($file:literal $(with_specifier $esm_specifier:literal)?,)+) => {
+  ($name:ident $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
     [
       $($crate::ExtensionFileSource {
         specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
@@ -768,3 +779,5 @@ macro_rules! include_js_files {
     ]
   };
 }
+
+extension!(foo, esm_entry_point = "".to_string(),);
