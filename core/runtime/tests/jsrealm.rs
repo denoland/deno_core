@@ -2,6 +2,7 @@
 use crate as deno_core;
 use crate::modules::ModuleCode;
 use crate::modules::StaticModuleLoader;
+use crate::runtime::tests::snapshot::generic_es_snapshot_without_runtime_module_loader;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
@@ -870,78 +871,7 @@ fn es_snapshot() {
 
 #[test]
 fn es_snapshot_without_runtime_module_loader_in_realm() {
-  let startup_data = {
-    let extension = Extension::builder("module_snapshot")
-      .esm(vec![ExtensionFileSource {
-        specifier: "ext:module_snapshot/test.js",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          "globalThis.TEST = 'foo'; export const TEST = 'bar';",
-        ),
-      }])
-      .esm_entry_point("ext:module_snapshot/test.js")
-      .build();
-
-    let runtime = JsRuntimeForSnapshot::new(
-      RuntimeOptions {
-        extensions: vec![extension],
-        ..Default::default()
-      },
-      Default::default(),
-    );
-
-    runtime.snapshot()
-  };
-
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
-    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
-    ..Default::default()
-  });
-
-  let realm = runtime
-    .create_realm(CreateRealmOptions {
-      module_loader: None,
-    })
-    .unwrap();
-
-  // Make sure the module was evaluated.
-  {
-    let scope = &mut realm.handle_scope(runtime.v8_isolate());
-    let global_test: v8::Local<v8::String> =
-      JsRuntime::eval(scope, "globalThis.TEST").unwrap();
-    assert_eq!(
-      serde_v8::to_utf8(global_test.to_string(scope).unwrap(), scope),
-      String::from("foo"),
-    );
-  }
-
-  // We can still import a module that was registered manually
-  let dyn_import_promise = realm
-    .execute_script_static(
-      runtime.v8_isolate(),
-      "",
-      "import('ext:module_snapshot/test.js')",
-    )
-    .unwrap();
-  let dyn_import_result =
-    futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
-  assert!(dyn_import_result.is_ok());
-
-  // But not a new one
-  let dyn_import_promise = realm
-    .execute_script_static(
-      runtime.v8_isolate(),
-      "",
-      "import('ext:module_snapshot/test2.js')",
-    )
-    .unwrap();
-  let dyn_import_result =
-    futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
-  assert!(dyn_import_result.is_err());
-  assert_eq!(
-    dyn_import_result.err().unwrap().to_string().as_str(),
-    r#"Uncaught TypeError: Module loading is not supported; attempted to load: "ext:module_snapshot/test2.js" from "(no referrer)""#
-  );
+  generic_es_snapshot_without_runtime_module_loader(true)
 }
 
 #[test]
