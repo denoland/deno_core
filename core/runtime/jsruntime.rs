@@ -211,6 +211,7 @@ pub struct JsRuntime {
   pub(crate) inner: InnerIsolateState,
   pub(crate) allocations: IsolateAllocations,
   extensions: Vec<Extension>,
+  preserve_snapshotted_modules: Option<&'static [&'static str]>,
   event_loop_middlewares: Vec<Box<EventLoopMiddlewareFn>>,
   global_template_middlewares: Vec<Box<GlobalTemplateMiddlewareFn>>,
   global_object_middlewares: Vec<Box<GlobalObjectMiddlewareFn>>,
@@ -381,8 +382,7 @@ pub struct RuntimeOptions {
   pub extensions: Vec<Extension>,
 
   /// If provided, the module map will be cleared and left only with the specifiers
-  /// in this list, with the new names provided. If not provided, the module map is
-  /// left intact.
+  /// in this list. If not provided, the module map is left intact.
   pub preserve_snapshotted_modules: Option<&'static [&'static str]>,
 
   /// V8 snapshot that should be loaded on startup.
@@ -728,6 +728,7 @@ impl JsRuntime {
       global_template_middlewares,
       global_object_middlewares,
       extensions: options.extensions,
+      preserve_snapshotted_modules: options.preserve_snapshotted_modules,
       is_main_runtime: options.is_main,
     };
 
@@ -737,7 +738,8 @@ impl JsRuntime {
       .init_extension_js(&realm, maybe_load_callback)
       .unwrap();
 
-    // If the user has requested that we rename modules
+    // If the embedder has requested to clear the module map resulting from
+    // extensions, possibly with exceptions.
     if let Some(preserve_snapshotted_modules) =
       options.preserve_snapshotted_modules
     {
@@ -848,7 +850,13 @@ impl JsRuntime {
         .module_loader
         .unwrap_or_else(|| Rc::new(NoopModuleLoader));
       let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
-      // TODO(andreubotella): Initialize the module map with snapshotted data.
+      if self.init_mode == InitMode::FromSnapshot {
+        let snapshotted_data =
+          snapshot_util::get_snapshotted_data(scope, context);
+        module_map_rc
+          .borrow_mut()
+          .update_with_snapshotted_data(scope, snapshotted_data);
+      }
       context.set_slot(scope, module_map_rc.clone());
 
       let realm = JsRealmInner::new(
@@ -865,7 +873,17 @@ impl JsRuntime {
 
     self.init_extension_js(&realm, None)?;
 
-    // TODO(andreubotella): Handle preserve_snapshotted_modules.
+    // If the embedder has requested to clear the module map resulting from
+    // extensions, possibly with exceptions.
+    if let Some(preserve_snapshotted_modules) =
+      self.preserve_snapshotted_modules
+    {
+      realm
+        .0
+        .module_map()
+        .borrow_mut()
+        .clear_module_map(preserve_snapshotted_modules);
+    }
 
     Ok(realm)
   }
@@ -918,8 +936,9 @@ impl JsRuntime {
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
         for file_source in extension.get_esm_sources() {
-          self
+          realm
             .load_side_module(
+              self.v8_isolate(),
               &ModuleSpecifier::parse(file_source.specifier)?,
               None,
             )
@@ -948,7 +967,7 @@ impl JsRuntime {
               panic!("{} not present in the module map", specifier)
             })
         };
-        let receiver = self.mod_evaluate(mod_id);
+        let receiver = realm.mod_evaluate(self.v8_isolate(), mod_id);
         self.run_event_loop(false).await?;
         receiver
           .await?

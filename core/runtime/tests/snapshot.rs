@@ -296,8 +296,9 @@ fn es_snapshot() {
   }
 }
 
-#[test]
-fn es_snapshot_without_runtime_module_loader() {
+pub(crate) fn generic_es_snapshot_without_runtime_module_loader(
+  test_realms: bool,
+) {
   let startup_data = {
     let extension = Extension {
       name: "module_snapshot",
@@ -322,15 +323,31 @@ fn es_snapshot_without_runtime_module_loader() {
     runtime.snapshot()
   };
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: None,
-    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
-    ..Default::default()
-  });
+  let mut runtime;
+  let realm;
+  if test_realms {
+    runtime = JsRuntime::new(RuntimeOptions {
+      module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
+      startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+      ..Default::default()
+    });
+    realm = runtime
+      .create_realm(CreateRealmOptions {
+        module_loader: None,
+      })
+      .unwrap();
+  } else {
+    runtime = JsRuntime::new(RuntimeOptions {
+      module_loader: None,
+      startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+      ..Default::default()
+    });
+    realm = runtime.main_realm();
+  }
 
   // Make sure the module was evaluated.
   {
-    let scope = &mut runtime.handle_scope();
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
     let global_test: v8::Local<v8::String> =
       JsRuntime::eval(scope, "globalThis.TEST").unwrap();
     assert_eq!(
@@ -340,16 +357,24 @@ fn es_snapshot_without_runtime_module_loader() {
   }
 
   // We can still import a module that was registered manually
-  let dyn_import_promise = runtime
-    .execute_script_static("", "import('ext:module_snapshot/test.js')")
+  let dyn_import_promise = realm
+    .execute_script_static(
+      runtime.v8_isolate(),
+      "",
+      "import('ext:module_snapshot/test.js')",
+    )
     .unwrap();
   let dyn_import_result =
     futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
   assert!(dyn_import_result.is_ok());
 
   // But not a new one
-  let dyn_import_promise = runtime
-    .execute_script_static("", "import('ext:module_snapshot/test2.js')")
+  let dyn_import_promise = realm
+    .execute_script_static(
+      runtime.v8_isolate(),
+      "",
+      "import('ext:module_snapshot/test2.js')",
+    )
     .unwrap();
   let dyn_import_result =
     futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
@@ -361,97 +386,16 @@ fn es_snapshot_without_runtime_module_loader() {
 }
 
 #[test]
-fn preserve_snapshotted_modules() {
-  let startup_data = {
-    let extension = Extension {
-      name: "module_snapshot",
-      esm_files: Cow::Borrowed(&[
-        ExtensionFileSource {
-          specifier: "test:preserved",
-          code: ExtensionFileSourceCode::IncludedInBinary(
-            "export const TEST = 'foo';",
-          ),
-        },
-        ExtensionFileSource {
-          specifier: "test:not-preserved",
-          code: ExtensionFileSourceCode::IncludedInBinary(
-            "import 'test:preserved'; export const TEST = 'bar';",
-          ),
-        },
-      ]),
-      esm_entry_point: Some("test:not-preserved"),
-      ..Default::default()
-    };
-
-    let runtime = JsRuntimeForSnapshot::new(
-      RuntimeOptions {
-        extensions: vec![extension],
-        ..Default::default()
-      },
-      Default::default(),
-    );
-
-    runtime.snapshot()
-  };
-
-  let loader = Rc::new(LoggingModuleLoader::new(NoopModuleLoader));
-
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader.clone()),
-    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
-    preserve_snapshotted_modules: Some(&["test:preserved"]),
-    ..Default::default()
-  });
-
-  // We can't import "test:not-preserved"
-  {
-    assert_eq!(loader.log(), vec![]);
-    let dyn_import_promise = runtime
-      .execute_script_static("", "import('test:not-preserved')")
-      .unwrap();
-    let dyn_import_result =
-      futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
-    assert!(dyn_import_result.is_err());
-    assert_eq!(
-      dyn_import_result.err().unwrap().to_string().as_str(),
-      "Uncaught TypeError: Module loading is not supported; attempted to load: \"test:not-preserved\" from \"(no referrer)\""
-    );
-    // Ensure that we tried to load `test:not-preserved`
-    assert_eq!(
-      loader.log(),
-      vec![Url::parse("test:not-preserved").unwrap()]
-    );
-  }
-
-  // But we can import "test:preserved"
-  {
-    let dyn_import_promise = runtime
-      .execute_script_static(
-        "",
-        "import('test:preserved').then(module => module.TEST)",
-      )
-      .unwrap();
-    let dyn_import_result =
-      futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
-        .unwrap();
-    let scope = &mut runtime.handle_scope();
-    assert!(dyn_import_result.open(scope).is_string());
-    assert_eq!(
-      dyn_import_result
-        .open(scope)
-        .to_rust_string_lossy(scope)
-        .as_str(),
-      "foo"
-    );
-  }
+fn es_snapshot_without_runtime_module_loader() {
+  generic_es_snapshot_without_runtime_module_loader(false)
 }
 
-/// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
-/// a snapshot.
-#[test]
-fn non_snapshot_preserve_snapshotted_modules() {
+pub(crate) fn generic_preserve_snapshotted_modules_test(
+  test_snapshot: bool,
+  test_realms: bool,
+) {
   let extension = Extension {
-    name: "esm_extension",
+    name: "module_snapshot",
     esm_files: Cow::Borrowed(&[
       ExtensionFileSource {
         specifier: "test:preserved",
@@ -472,18 +416,50 @@ fn non_snapshot_preserve_snapshotted_modules() {
 
   let loader = Rc::new(LoggingModuleLoader::new(NoopModuleLoader));
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader.clone()),
-    extensions: vec![extension],
-    preserve_snapshotted_modules: Some(&["test:preserved"]),
-    ..Default::default()
-  });
+  let mut runtime = if test_snapshot {
+    let snapshot_runtime = JsRuntimeForSnapshot::new(
+      RuntimeOptions {
+        extensions: vec![extension],
+        ..Default::default()
+      },
+      Default::default(),
+    );
+    let startup_data = snapshot_runtime.snapshot();
+
+    JsRuntime::new(RuntimeOptions {
+      module_loader: Some(loader.clone()),
+      startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+      preserve_snapshotted_modules: Some(&["test:preserved"]),
+      ..Default::default()
+    })
+  } else {
+    JsRuntime::new(RuntimeOptions {
+      module_loader: Some(loader.clone()),
+      extensions: vec![extension],
+      preserve_snapshotted_modules: Some(&["test:preserved"]),
+      ..Default::default()
+    })
+  };
+
+  let realm = if test_realms {
+    runtime
+      .create_realm(CreateRealmOptions {
+        module_loader: Some(loader.clone()),
+      })
+      .unwrap()
+  } else {
+    runtime.main_realm()
+  };
 
   // We can't import "test:not-preserved"
   {
     assert_eq!(loader.log(), vec![]);
-    let dyn_import_promise = runtime
-      .execute_script_static("", "import('test:not-preserved')")
+    let dyn_import_promise = realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        "import('test:not-preserved')",
+      )
       .unwrap();
     let dyn_import_result =
       futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
@@ -501,8 +477,9 @@ fn non_snapshot_preserve_snapshotted_modules() {
 
   // But we can import "test:preserved"
   {
-    let dyn_import_promise = runtime
+    let dyn_import_promise = realm
       .execute_script_static(
+        runtime.v8_isolate(),
         "",
         "import('test:preserved').then(module => module.TEST)",
       )
@@ -510,7 +487,7 @@ fn non_snapshot_preserve_snapshotted_modules() {
     let dyn_import_result =
       futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
         .unwrap();
-    let scope = &mut runtime.handle_scope();
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
     assert!(dyn_import_result.open(scope).is_string());
     assert_eq!(
       dyn_import_result
@@ -520,4 +497,16 @@ fn non_snapshot_preserve_snapshotted_modules() {
       "foo"
     );
   }
+}
+
+#[test]
+fn preserve_snapshotted_modules() {
+  generic_preserve_snapshotted_modules_test(true, false)
+}
+
+/// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
+/// a snapshot.
+#[test]
+fn non_snapshot_preserve_snapshotted_modules() {
+  generic_preserve_snapshotted_modules_test(false, false)
 }

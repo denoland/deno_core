@@ -2,6 +2,7 @@
 use crate as deno_core;
 use crate::modules::ModuleCode;
 use crate::modules::StaticModuleLoader;
+use crate::runtime::tests::snapshot::generic_es_snapshot_without_runtime_module_loader;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
@@ -9,6 +10,7 @@ use futures::channel::oneshot;
 use futures::future::poll_fn;
 use futures::future::Future;
 use futures::FutureExt;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -17,6 +19,8 @@ use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use url::Url;
+
+use super::snapshot::generic_preserve_snapshotted_modules_test;
 
 #[tokio::test]
 async fn test_set_promise_reject_callback_realms() {
@@ -798,4 +802,89 @@ async fn test_realm_concurrent_dynamic_imports() {
     other_realm_promise.open(runtime.v8_isolate()).state(),
     v8::PromiseState::Fulfilled
   );
+}
+
+#[test]
+fn es_snapshot() {
+  let startup_data = {
+    let extension = Extension {
+      name: "module_snapshot",
+      esm_files: Cow::Borrowed(&[ExtensionFileSource {
+        specifier: "mod:test",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          "globalThis.TEST = 'foo'; export const TEST = 'bar';",
+        ),
+      }]),
+      esm_entry_point: Some("mod:test"),
+      ..Default::default()
+    };
+
+    let runtime = JsRuntimeForSnapshot::new(
+      RuntimeOptions {
+        extensions: vec![extension],
+        ..Default::default()
+      },
+      Default::default(),
+    );
+    runtime.snapshot()
+  };
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: None,
+    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    ..Default::default()
+  });
+
+  let realm = runtime
+    .create_realm(CreateRealmOptions {
+      module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
+    })
+    .unwrap();
+
+  // The module was evaluated ahead of time
+  {
+    let global_test = realm
+      .execute_script_static(runtime.v8_isolate(), "", "globalThis.TEST")
+      .unwrap();
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    let global_test = v8::Local::new(scope, global_test);
+    assert!(global_test.is_string());
+    assert_eq!(global_test.to_rust_string_lossy(scope).as_str(), "foo");
+  }
+
+  // The module can be imported
+  {
+    let test_export_promise = realm
+      .execute_script_static(
+        runtime.v8_isolate(),
+        "",
+        "import('mod:test').then(module => module.TEST)",
+      )
+      .unwrap();
+    let test_export =
+      futures::executor::block_on(runtime.resolve_value(test_export_promise))
+        .unwrap();
+
+    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    let test_export = v8::Local::new(scope, test_export);
+    assert!(test_export.is_string());
+    assert_eq!(test_export.to_rust_string_lossy(scope).as_str(), "bar");
+  }
+}
+
+#[test]
+fn es_snapshot_without_runtime_module_loader_in_realm() {
+  generic_es_snapshot_without_runtime_module_loader(true)
+}
+
+#[test]
+fn preserve_snapshotted_modules() {
+  generic_preserve_snapshotted_modules_test(true, true)
+}
+
+/// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
+/// a snapshot.
+#[test]
+fn non_snapshot_preserve_snapshotted_modules() {
+  generic_preserve_snapshotted_modules_test(false, true)
 }
