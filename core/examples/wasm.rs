@@ -52,9 +52,11 @@ fn op_set_wasm_mem(
 
 fn main() {
   // Build a deno_core::Extension providing custom ops
-  let ext = Extension::builder("my_ext")
-    .ops(vec![op_wasm::DECL, op_set_wasm_mem::DECL])
-    .build();
+  let ext = Extension {
+    name: "my_ext",
+    ops: std::borrow::Cow::Borrowed(&[op_wasm::DECL, op_set_wasm_mem::DECL]),
+    ..Default::default()
+  };
 
   // Initialize a runtime instance
   let mut runtime = JsRuntime::new(RuntimeOptions {
