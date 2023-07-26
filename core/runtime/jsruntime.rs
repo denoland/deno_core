@@ -110,6 +110,7 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
+  main_realm: Option<JsRealm>,
   pub(crate) state: ManuallyDropRc<RefCell<JsRuntimeState>>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
 }
@@ -139,6 +140,7 @@ impl InnerIsolateState {
     // the runtime.
     _ = unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
 
+    self.main_realm.take();
     self.state.borrow_mut().destroy_all_realms();
 
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
@@ -284,7 +286,6 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  main_realm: Option<JsRealm>,
   known_realms: Vec<JsRealmInner>,
   pub(crate) has_tick_scheduled: bool,
   /// A counter used to delay our dynamic import deadlock detection by one spin
@@ -306,7 +307,6 @@ pub struct JsRuntimeState {
 
 impl JsRuntimeState {
   pub(crate) fn destroy_all_realms(&mut self) {
-    self.main_realm.take();
     for realm in self.known_realms.drain(..) {
       realm.destroy()
     }
@@ -573,7 +573,6 @@ impl JsRuntime {
       dispatched_exception: None,
       // Some fields are initialized later after isolate is created
       inspector: None,
-      main_realm: None,
       known_realms: Vec::with_capacity(1),
     }));
 
@@ -709,10 +708,11 @@ impl JsRuntime {
         true,
       );
       let mut state = state_rc.borrow_mut();
-      state.main_realm = Some(JsRealm::new(main_realm.clone()));
       state.inspector = inspector;
       state.known_realms.push(main_realm);
     }
+    let main_realm =
+      JsRealm::new(state_rc.borrow().known_realms.get(0).unwrap().clone());
     scope.set_data(
       STATE_DATA_OFFSET,
       Rc::into_raw(state_rc.clone()) as *mut c_void,
@@ -723,6 +723,7 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
+        main_realm: Some(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
       },
@@ -786,8 +787,7 @@ impl JsRuntime {
 
   #[inline]
   pub fn main_realm(&mut self) -> JsRealm {
-    let state = self.inner.state.borrow();
-    state.main_realm.clone().unwrap()
+    self.inner.main_realm.as_ref().unwrap().clone()
   }
 
   /// Returns the extensions that this runtime is using (including internal ones).
@@ -1418,28 +1418,53 @@ impl JsRuntime {
       loop {
         let mut has_evaluated = false;
 
-        let known_realms = self.inner.state.borrow().known_realms.clone();
-        let isolate = self.v8_isolate();
-        for inner_realm in known_realms {
-          let realm = JsRealm::new(inner_realm);
-
+        let state = self.inner.state.borrow();
+        if state.known_realms.len() == 1 {
+          drop(state);
           // Try and resolve as many dynamic imports in each realm as possible
           // before moving to the next.
+          let realm = self.inner.main_realm.as_ref().unwrap();
           loop {
-            let poll_imports = realm.prepare_dyn_imports(isolate, cx)?;
+            let poll_imports =
+              realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
             assert!(poll_imports.is_ready());
 
-            let poll_imports = realm.poll_dyn_imports(isolate, cx)?;
+            let poll_imports =
+              realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
             assert!(poll_imports.is_ready());
 
-            if realm.evaluate_dyn_imports(isolate) {
+            if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
               has_evaluated = true;
             } else {
               break;
             }
           }
-        }
+        } else {
+          // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
+          let realms = state.known_realms.clone();
+          drop(state);
+          for inner_realm in realms {
+            let realm = JsRealm::new(inner_realm);
 
+            // Try and resolve as many dynamic imports in each realm as possible
+            // before moving to the next.
+            loop {
+              let poll_imports =
+                realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              assert!(poll_imports.is_ready());
+
+              let poll_imports =
+                realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              assert!(poll_imports.is_ready());
+
+              if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
+                has_evaluated = true;
+              } else {
+                break;
+              }
+            }
+          }
+        }
         if !has_evaluated {
           break;
         }
@@ -1450,7 +1475,7 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    self.do_js_event_loop_tick(cx)?;
+    let dispatched_ops = self.do_js_event_loop_tick(cx)?;
     self.check_promise_rejections()?;
 
     // Event loop middlewares
@@ -1466,10 +1491,19 @@ impl JsRuntime {
 
     // Top level module
     {
-      let known_realms = self.inner.state.borrow().known_realms.clone();
-      for inner_realm in known_realms {
-        let realm = JsRealm::new(inner_realm);
+      let state = self.inner.state.borrow();
+      if state.known_realms.len() == 1 {
+        drop(state);
+        let realm = self.inner.main_realm.as_ref().unwrap();
         realm.evaluate_pending_module(&mut self.inner.v8_isolate);
+      } else {
+        // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
+        let realms = state.known_realms.clone();
+        drop(state);
+        for inner_realm in realms {
+          let realm = JsRealm::new(inner_realm);
+          realm.evaluate_pending_module(&mut self.inner.v8_isolate);
+        }
       }
     }
 
@@ -1510,6 +1544,8 @@ impl JsRuntime {
     if pending_state.has_pending_background_tasks
       || pending_state.has_tick_scheduled
       || maybe_scheduling
+      // If ops were dispatched we may have progress on pending modules that we should re-check
+      || (pending_state.has_pending_module_evaluation && dispatched_ops)
     {
       state.op_state.borrow().waker.wake();
     }
@@ -1829,21 +1865,23 @@ impl JsRuntime {
   }
 
   fn check_promise_rejections(&mut self) -> Result<(), Error> {
-    let state = self.inner.state.clone();
-    let scope = &mut self.handle_scope();
-    let state = state.borrow();
+    let state_rc = self.inner.state.clone();
+    let isolate = &mut self.v8_isolate();
+    let state = state_rc.borrow();
     for realm in &state.known_realms {
-      realm.check_promise_rejections(scope)?;
+      realm.check_promise_rejections(isolate)?;
     }
     Ok(())
   }
 
   // Polls pending ops and then runs `Deno.core.eventLoopTick` callback.
-  fn do_js_event_loop_tick(&mut self, cx: &mut Context) -> Result<(), Error> {
+  fn do_js_event_loop_tick(&mut self, cx: &mut Context) -> Result<bool, Error> {
     // Handle responses for each realm.
     let state = self.inner.state.clone();
     let isolate = &mut self.inner.v8_isolate;
     let realm_count = state.borrow().known_realms.len();
+    let mut dispatched_ops = false;
+
     for realm_idx in 0..realm_count {
       let realm = state.borrow().known_realms.get(realm_idx).unwrap().clone();
       let context_state = realm.state();
@@ -1876,6 +1914,7 @@ impl JsRuntime {
           .tracker
           .track_async_completed(op_id);
         context_state.unrefed_ops.remove(&promise_id);
+        dispatched_ops |= true;
         args.push(v8::Integer::new(scope, promise_id).into());
         args.push(match resp.to_v8(scope) {
           Ok(v) => v,
@@ -1885,8 +1924,9 @@ impl JsRuntime {
         });
       }
 
-      let has_tick_scheduled =
-        v8::Boolean::new(scope, self.inner.state.borrow().has_tick_scheduled);
+      let has_tick_scheduled = self.inner.state.borrow().has_tick_scheduled;
+      dispatched_ops |= has_tick_scheduled;
+      let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
       args.push(has_tick_scheduled.into());
 
       let js_event_loop_tick_cb_handle =
@@ -1904,10 +1944,10 @@ impl JsRuntime {
       }
 
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-        return Ok(());
+        return Ok(false);
       }
     }
 
-    Ok(())
+    Ok(dispatched_ops)
   }
 }

@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate as deno_core;
 use crate::modules::ModuleCode;
+use crate::modules::StaticModuleLoader;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
@@ -15,6 +16,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
+use url::Url;
 
 #[tokio::test]
 async fn test_set_promise_reject_callback_realms() {
@@ -60,6 +62,75 @@ async fn test_set_promise_reject_callback_realms() {
     assert!(reject_value.is_string());
     let reject_value_string = reject_value.to_rust_string_lossy(scope);
     assert_eq!(reject_value_string, format!("{realm_name}/{number}"));
+  }
+}
+
+#[test]
+fn test_set_format_exception_callback_realms() {
+  let mut runtime = JsRuntime::new(RuntimeOptions::default());
+  let main_realm = runtime.main_realm();
+  let realm1 = runtime.create_realm(Default::default()).unwrap();
+  let realm2 = runtime.create_realm(Default::default()).unwrap();
+
+  let realm_expectations = &[
+    (&main_realm, "main_realm"),
+    (&realm1, "realm1"),
+    (&realm2, "realm2"),
+  ];
+
+  // Set up format exception callbacks.
+  for (realm, realm_name) in realm_expectations {
+    realm
+      .execute_script(
+        runtime.v8_isolate(),
+        "",
+        format!(
+          r#"
+            Deno.core.ops.op_set_format_exception_callback((error) => {{
+              return `{realm_name} / ${{error}}`;
+            }});
+          "#
+        )
+        .into(),
+      )
+      .unwrap();
+  }
+
+  for (realm, realm_name) in realm_expectations {
+    // Immediate exceptions
+    {
+      let result = realm.execute_script(
+        runtime.v8_isolate(),
+        "",
+        format!("throw new Error('{realm_name}');").into(),
+      );
+      assert!(result.is_err());
+
+      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      assert_eq!(
+        error.exception_message,
+        format!("{realm_name} / Error: {realm_name}")
+      );
+    }
+
+    // Promise rejections
+    {
+      realm
+        .execute_script(
+          runtime.v8_isolate(),
+          "",
+          format!("Promise.reject(new Error('{realm_name}'));").into(),
+        )
+        .unwrap();
+
+      let result = futures::executor::block_on(runtime.run_event_loop(false));
+      assert!(result.is_err());
+      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      assert_eq!(
+        error.exception_message,
+        format!("Uncaught (in promise) {realm_name} / Error: {realm_name}")
+      );
+    }
   }
 }
 
@@ -473,45 +544,20 @@ async fn test_realm_modules() {
 
 #[tokio::test]
 async fn test_cross_realm_imports() {
-  struct Loader;
-  impl ModuleLoader for Loader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      assert_eq!(specifier, "file:///test.js");
-      assert_eq!(referrer, "");
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
+  let loader: Rc<dyn ModuleLoader> = Rc::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    ascii_str!("export default globalThis;"),
+  ));
 
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      async {
-        Ok(ModuleSource::for_test(
-          "export default globalThis;",
-          "file:///test.js",
-        ))
-      }
-      .boxed_local()
-    }
-  }
-
-  let loader = Rc::new(Loader);
+  let loader = Rc::new(loader);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader.clone()),
+    module_loader: Some(Rc::clone(&loader)),
     ..Default::default()
   });
   let main_realm = runtime.main_realm();
   let other_realm = runtime
     .create_realm(CreateRealmOptions {
-      module_loader: Some(loader),
+      module_loader: Some(Rc::clone(&loader)),
     })
     .unwrap();
 
@@ -581,35 +627,10 @@ async fn test_cross_realm_imports() {
 // different realms at the same time works.
 #[tokio::test]
 async fn test_realms_concurrent_module_evaluations() {
-  struct Loader;
-  impl ModuleLoader for Loader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      assert_eq!(specifier, "file:///test.js");
-      assert_eq!(referrer, ".");
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      async {
-        Ok(ModuleSource::for_test(
-          r#"await Deno.core.opAsync("op_wait");"#,
-          "file:///test.js",
-        ))
-      }
-      .boxed_local()
-    }
-  }
+  let loader: Rc<dyn ModuleLoader> = Rc::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    ascii_str!(r#"await Deno.core.opAsync("op_wait");"#),
+  ));
 
   #[op]
   async fn op_wait(op_state: Rc<RefCell<OpState>>) {
@@ -624,7 +645,7 @@ async fn test_realms_concurrent_module_evaluations() {
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    module_loader: Some(Rc::new(Loader)),
+    module_loader: Some(Rc::clone(&loader)),
     ..Default::default()
   });
   runtime
@@ -635,7 +656,7 @@ async fn test_realms_concurrent_module_evaluations() {
   let main_realm = runtime.main_realm();
   let other_realm = runtime
     .create_realm(CreateRealmOptions {
-      module_loader: Some(Rc::new(Loader)),
+      module_loader: Some(loader),
     })
     .unwrap();
 
@@ -688,35 +709,10 @@ async fn test_realms_concurrent_module_evaluations() {
 // realms at the same time works.
 #[tokio::test]
 async fn test_realm_concurrent_dynamic_imports() {
-  struct Loader;
-  impl ModuleLoader for Loader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      assert_eq!(specifier, "file:///test.js");
-      assert_eq!(referrer, "");
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      async {
-        Ok(ModuleSource::for_test(
-          r#"await Deno.core.opAsync("op_wait");"#,
-          "file:///test.js",
-        ))
-      }
-      .boxed_local()
-    }
-  }
+  let loader = Rc::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    ascii_str!(r#"await Deno.core.opAsync("op_wait");"#),
+  ));
 
   #[op]
   async fn op_wait(op_state: Rc<RefCell<OpState>>) {
@@ -731,7 +727,7 @@ async fn test_realm_concurrent_dynamic_imports() {
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    module_loader: Some(Rc::new(Loader)),
+    module_loader: Some(loader.clone()),
     ..Default::default()
   });
   runtime
@@ -742,7 +738,7 @@ async fn test_realm_concurrent_dynamic_imports() {
   let main_realm = runtime.main_realm();
   let other_realm = runtime
     .create_realm(CreateRealmOptions {
-      module_loader: Some(Rc::new(Loader)),
+      module_loader: Some(loader.clone()),
     })
     .unwrap();
 

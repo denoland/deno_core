@@ -2,14 +2,18 @@
 use crate as deno_core;
 use crate::extensions::Op;
 use crate::extensions::OpDecl;
+use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
 use anyhow::Error;
 use deno_ops::op;
+use log::debug;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
+use url::Url;
 
 #[tokio::test]
 async fn test_async_opstate_borrow() {
@@ -495,4 +499,69 @@ fn test_dispatch_stack_zero_copy_bufs() {
     )
     .unwrap();
   assert_eq!(dispatch_count.load(Ordering::Relaxed), 1);
+}
+
+/// Test that long-running ops do not block dynamic imports from loading.
+// https://github.com/denoland/deno/issues/19903
+// https://github.com/denoland/deno/issues/19455
+#[tokio::test]
+pub async fn test_top_level_await() {
+  #[op2(async)]
+  async fn op_sleep_forever() {
+    tokio::time::sleep(Duration::MAX).await
+  }
+
+  deno_core::extension!(testing, ops = [op_sleep_forever]);
+
+  let loader = StaticModuleLoader::new([
+    (
+      Url::parse("http://x/main.js").unwrap(),
+      ascii_str!(
+        r#"
+const { op_sleep_forever } = Deno.core.ensureFastOps();
+(async () => await op_sleep_forever())();
+await import('./mod.js');
+    "#
+      ),
+    ),
+    (
+      Url::parse("http://x/mod.js").unwrap(),
+      ascii_str!(
+        r#"
+const { op_void_async_deferred } = Deno.core.ensureFastOps();
+await op_void_async_deferred();
+    "#
+      ),
+    ),
+  ]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    extensions: vec![testing::init_ops()],
+    ..Default::default()
+  });
+
+  let id = runtime
+    .load_main_module(&Url::parse("http://x/main.js").unwrap(), None)
+    .await
+    .unwrap();
+  let mut rx = runtime.mod_evaluate(id);
+
+  let res = tokio::select! {
+    // Not using biased mode leads to non-determinism for relatively simple
+    // programs.
+    biased;
+
+    maybe_result = &mut rx => {
+      debug!("received module evaluate {:#?}", maybe_result);
+      maybe_result.expect("Module evaluation result not provided.")
+    }
+
+    event_loop_result = runtime.run_event_loop(false) => {
+      event_loop_result.unwrap();
+      let maybe_result = rx.await;
+      maybe_result.expect("Module evaluation result not provided.")
+    }
+  };
+  res.unwrap();
 }

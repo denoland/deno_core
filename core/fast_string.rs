@@ -83,6 +83,16 @@ impl FastString {
     }
   }
 
+  /// If this [`FastString`] is cheaply cloneable, returns a clone.
+  pub fn try_clone(&self) -> Option<Self> {
+    match self {
+      Self::Static(s) => Some(Self::Static(s)),
+      Self::StaticAscii(s) => Some(Self::StaticAscii(s)),
+      Self::Arc(s) => Some(Self::Arc(s.clone())),
+      Self::Owned(_s) => None,
+    }
+  }
+
   pub const fn try_static_ascii(&self) -> Option<&'static [u8]> {
     match self {
       Self::StaticAscii(s) => Some(s.as_bytes()),

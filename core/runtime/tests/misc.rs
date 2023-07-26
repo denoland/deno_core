@@ -1,13 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate as deno_core;
-use crate::error::generic_error;
+
 use crate::error::AnyError;
 use crate::error::JsError;
-use crate::module_specifier::ModuleSpecifier;
-use crate::modules::ModuleLoader;
-use crate::modules::ModuleSource;
-use crate::modules::ModuleSourceFuture;
-use crate::modules::ResolutionKind;
+use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
@@ -17,8 +13,6 @@ use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use deno_ops::op;
 use futures::future::poll_fn;
-use futures::FutureExt;
-use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
@@ -28,6 +22,7 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
+use url::Url;
 
 #[test]
 fn test_execute_script_return_value() {
@@ -379,36 +374,8 @@ fn inspector() {
 
 #[test]
 fn test_get_module_namespace() {
-  #[derive(Default)]
-  struct ModsLoader;
-
-  impl ModuleLoader for ModsLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      assert_eq!(specifier, "file:///main.js");
-      assert_eq!(referrer, ".");
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      async { Err(generic_error("Module loading is not supported")) }
-        .boxed_local()
-    }
-  }
-
-  let loader = std::rc::Rc::new(ModsLoader);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(Rc::new(NoopModuleLoader)),
     ..Default::default()
   });
 
@@ -744,41 +711,8 @@ fn test_has_tick_scheduled() {
 
 #[test]
 fn terminate_during_module_eval() {
-  #[derive(Default)]
-  struct ModsLoader;
-
-  impl ModuleLoader for ModsLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      assert_eq!(specifier, "file:///main.js");
-      assert_eq!(referrer, ".");
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      async move {
-        Ok(ModuleSource::for_test(
-          "console.log('hello world');",
-          "file:///main.js",
-        ))
-      }
-      .boxed_local()
-    }
-  }
-
-  let loader = std::rc::Rc::new(ModsLoader);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader),
+    module_loader: Some(Rc::new(NoopModuleLoader)),
     ..Default::default()
   });
 
@@ -886,43 +820,21 @@ async fn test_set_promise_reject_callback_top_level_await() {
 
   deno_core::extension!(test_ext, ops = [op_promise_reject]);
 
-  #[derive(Default)]
-  struct ModsLoader;
-
-  impl ModuleLoader for ModsLoader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      assert_eq!(specifier, "file:///main.js");
-      assert_eq!(referrer, ".");
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      let code = r#"
-      Deno.core.ops.op_set_promise_reject_callback((type, promise, reason) => {
-        Deno.core.ops.op_promise_reject();
-      });
-      throw new Error('top level throw');
-      "#;
-
-      async move { Ok(ModuleSource::for_test(code, "file:///main.js")) }
-        .boxed_local()
-    }
-  }
+  let loader = StaticModuleLoader::with(
+    Url::parse("file:///main.js").unwrap(),
+    ascii_str!(
+      r#"
+  Deno.core.ops.op_set_promise_reject_callback((type, promise, reason) => {
+    Deno.core.ops.op_promise_reject();
+  });
+  throw new Error('top level throw');
+  "#
+    ),
+  );
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    module_loader: Some(Rc::new(ModsLoader)),
+    module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
 
@@ -961,40 +873,14 @@ fn test_array_by_copy() {
 // realm other than the main one.
 #[tokio::test]
 async fn test_stalled_tla() {
-  struct Loader;
-  impl ModuleLoader for Loader {
-    fn resolve(
-      &self,
-      specifier: &str,
-      referrer: &str,
-      _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
-      assert_eq!(specifier, "file:///test.js");
-      assert_eq!(referrer, ".");
-      let s = crate::resolve_import(specifier, referrer).unwrap();
-      Ok(s)
-    }
-
-    fn load(
-      &self,
-      _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-    ) -> Pin<Box<ModuleSourceFuture>> {
-      async {
-        Ok(ModuleSource::for_test(
-          r#"await new Promise(() => {});"#,
-          "file:///test.js",
-        ))
-      }
-      .boxed_local()
-    }
-  }
-
+  let loader = StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    ascii_str!("await new Promise(() => {});"),
+  );
   let mut runtime = JsRuntime::new(Default::default());
   let realm = runtime
     .create_realm(CreateRealmOptions {
-      module_loader: Some(Rc::new(Loader)),
+      module_loader: Some(Rc::new(loader)),
     })
     .unwrap();
 
