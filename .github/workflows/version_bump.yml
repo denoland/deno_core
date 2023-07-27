@@ -45,4 +45,4 @@ jobs:
           git remote add upstream https://github.com/denoland/deno
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git config user.name "${{ github.actor }}"
-          ./tools/create_pr_for_release.ts
+          deno run -A ./tools/create_pr_for_release.ts
