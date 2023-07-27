@@ -968,7 +968,7 @@ impl JsRuntime {
             })
         };
         let mut receiver = realm.mod_evaluate(self.v8_isolate(), mod_id);
-        realm.evaluate_pending_module(&mut self.v8_isolate());
+        realm.evaluate_pending_module(self.v8_isolate());
 
         // After evaluate_pending_module, if the module isn't fully evaluated
         // and the resolver solved, it means the module or one of its imports
