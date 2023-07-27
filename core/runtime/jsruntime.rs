@@ -212,9 +212,9 @@ pub struct JsRuntime {
   pub(crate) allocations: IsolateAllocations,
   extensions: Vec<Extension>,
   preserve_snapshotted_modules: Option<&'static [&'static str]>,
-  event_loop_middlewares: Vec<Box<EventLoopMiddlewareFn>>,
-  global_template_middlewares: Vec<Box<GlobalTemplateMiddlewareFn>>,
-  global_object_middlewares: Vec<Box<GlobalObjectMiddlewareFn>>,
+  event_loop_middlewares: Vec<EventLoopMiddlewareFn>,
+  global_template_middlewares: Vec<GlobalTemplateMiddlewareFn>,
+  global_object_middlewares: Vec<GlobalObjectMiddlewareFn>,
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
@@ -533,13 +533,13 @@ impl JsRuntime {
     let mut additional_references =
       Vec::with_capacity(options.extensions.len());
     for extension in &mut options.extensions {
-      if let Some(middleware) = extension.take_event_loop_middleware() {
+      if let Some(middleware) = extension.get_event_loop_middleware() {
         event_loop_middlewares.push(middleware);
       }
-      if let Some(middleware) = extension.take_global_template_middleware() {
+      if let Some(middleware) = extension.get_global_template_middleware() {
         global_template_middlewares.push(middleware);
       }
-      if let Some(middleware) = extension.take_global_object_middleware() {
+      if let Some(middleware) = extension.get_global_object_middleware() {
         global_object_middlewares.push(middleware);
       }
       additional_references
@@ -1626,8 +1626,8 @@ fn find_and_report_stalled_level_await_in_any_realm(
 
 fn create_context<'a>(
   scope: &mut v8::HandleScope<'a, ()>,
-  global_template_middlewares: &[Box<GlobalTemplateMiddlewareFn>],
-  global_object_middlewares: &[Box<GlobalObjectMiddlewareFn>],
+  global_template_middlewares: &[GlobalTemplateMiddlewareFn],
+  global_object_middlewares: &[GlobalObjectMiddlewareFn],
 ) -> v8::Local<'a, v8::Context> {
   // Set up the global object template and create context from it.
   let mut global_object_template = v8::ObjectTemplate::new(scope);

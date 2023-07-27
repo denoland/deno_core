@@ -22,7 +22,7 @@ fn main() {
   let my_ext = Extension {
     name: "my_ext",
     ops: std::borrow::Cow::Borrowed(&[op_schedule_task::DECL]),
-    event_loop_middleware: Some(Box::new(|state_rc, cx| {
+    event_loop_middleware: Some(|state_rc, cx| {
       let mut state = state_rc.borrow_mut();
       let recv = state.borrow_mut::<mpsc::UnboundedReceiver<Task>>();
       let mut ref_loop = false;
@@ -31,7 +31,7 @@ fn main() {
         ref_loop = true; // `call` can callback into runtime and schedule new callbacks :-)
       }
       ref_loop
-    })),
+    }),
     op_state_fn: Some(Box::new(move |state| {
       let (tx, rx) = mpsc::unbounded::<Task>();
       state.put(tx);
