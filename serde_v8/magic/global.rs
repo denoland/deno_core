@@ -26,7 +26,7 @@ impl ToV8 for Global {
     &mut self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
-    Ok(v8::Local::new(scope, self.v8_value.clone()))
+    Ok(v8::Local::new(scope, &self.v8_value))
   }
 }
 
