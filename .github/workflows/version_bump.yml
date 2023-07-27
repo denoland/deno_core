@@ -1,5 +1,16 @@
 name: version_bump
 
+on:
+  workflow_dispatch:
+    inputs:
+      releaseKind:
+        description: 'Kind of release'
+        default: 'minor'
+        type: choice
+        options:
+          - minor
+        required: true
+
 jobs:
   build:
     name: version bump
