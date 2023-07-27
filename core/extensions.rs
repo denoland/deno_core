@@ -248,7 +248,7 @@ macro_rules! extension {
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
     $(, esm_entry_point = $esm_entry_point:expr )?
     $(, esm = [ $( dir $dir_esm:expr , )? $( $esm:literal $( with_specifier $esm_specifier:expr )? ),* $(,)? ] )?
-    $(, js = [ $( dir $dir_js:expr , )? $( $js:expr ),* $(,)? ] )?
+    $(, js = [ $( dir $dir_js:expr , )? $( $js:literal ),* $(,)? ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
     $(, state = $state_fn:expr )?
