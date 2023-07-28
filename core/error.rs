@@ -669,7 +669,7 @@ pub(crate) fn exception_to_err_result<T>(
     // was passed to this function.
     let state = state_rc.borrow();
     exception = if let Some(exception) = &state.dispatched_exception {
-      v8::Local::new(scope, exception.clone())
+      v8::Local::new(scope, exception)
     } else if was_terminating_execution && exception.is_null_or_undefined() {
       let message = v8::String::new(scope, "execution terminated").unwrap();
       v8::Exception::error(scope, message)

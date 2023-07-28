@@ -1615,7 +1615,7 @@ fn find_and_report_stalled_level_await_in_any_realm(
       // with source line of offending promise shown. Once user fixed it, then
       // they will get another error message for the next promise (but this
       // situation is gonna be very rare, if ever happening).
-      let msg = v8::Local::new(scope, messages[0].clone());
+      let msg = v8::Local::new(scope, &messages[0]);
       let js_error = JsError::from_v8_message(scope, msg);
       return js_error.into();
     }
