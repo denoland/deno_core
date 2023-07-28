@@ -3,8 +3,28 @@ use bytes::Buf;
 use bytes::BytesMut;
 use serde_v8::JsBuffer;
 use serde_v8::V8Slice;
+
+use anyhow::Error;
+use futures::Future;
+use futures::Stream;
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::task::Context;
+use std::task::Poll;
+
+use crate::io_adapters::DenoChannelBytesWriteResource;
+use crate::io_adapters::DenoResourceStreamResource;
+use crate::io_adapters::DenoStreamBytesReadResource;
+use crate::io_adapters::DenoTokioAsyncReadResource;
+use crate::AsyncRefCell;
+use crate::RcRef;
+use crate::Resource;
+use crate::ResourceStreamRead;
+use crate::ResourceStreamWrite;
+use crate::io_adapters::DenoTokioAsyncReadWriteResource;
 
 /// BufView is a wrapper around an underlying contiguous chunk of bytes. It can
 /// be created from a [JsBuffer], [bytes::Bytes], or [Vec<u8>] and implements
@@ -425,6 +445,480 @@ impl WriteOutcome {
     }
   }
 }
+
+trait ResourceData<D> {
+  /// Returns an asynchronously borrowable version of this resource's data.
+  fn data(&self) -> &RcRef<AsyncRefCell<D>>;
+}
+
+pub trait TokioAsyncRead: tokio::io::AsyncRead + Unpin + 'static {}
+impl<R> TokioAsyncRead for R where Self: tokio::io::AsyncRead + Unpin + 'static {}
+
+pub trait TokioAsyncWrite: tokio::io::AsyncWrite + Unpin + 'static {}
+impl<R> TokioAsyncWrite for R where Self: tokio::io::AsyncWrite + Unpin + 'static
+{}
+
+pub trait StreamBytesRead:
+  futures::stream::Stream<Item = Result<BufView, anyhow::Error>>
+  + Unpin
+  + 'static
+{
+}
+impl<R> StreamBytesRead for R where
+  Self: futures::stream::Stream<Item = Result<BufView, anyhow::Error>>
+    + Unpin
+    + 'static
+{
+}
+
+pub trait ChannelBytesRead: Unpin + 'static {
+  fn poll_recv(
+    &mut self,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<BufView, anyhow::Error>>>;
+}
+
+impl ChannelBytesRead for tokio::sync::mpsc::Receiver<bytes::Bytes> {
+  fn poll_recv(
+    &mut self,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<BufView, anyhow::Error>>> {
+    let res = self.poll_recv(cx);
+    res.map(|res| res.map(|r| r.into()).map(Ok))
+  }
+}
+
+impl ChannelBytesRead
+  for tokio::sync::mpsc::Receiver<Result<bytes::Bytes, anyhow::Error>>
+{
+  fn poll_recv(
+    &mut self,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<BufView, anyhow::Error>>> {
+    self.poll_recv(cx).map(|res| res.map(|res| res.map(|res| res.into())))
+  }
+}
+
+pub trait ChannelBytesWrite: 'static {
+  type WriteFuture: Future<Output = Result<(), anyhow::Error>>;
+  fn send(&self, buffer: BufView) -> Self::WriteFuture;
+  fn send_error(&self, error: Error) -> Self::WriteFuture;
+}
+
+impl ChannelBytesWrite for tokio::sync::mpsc::Sender<Result<BufView, Error>> {
+  type WriteFuture =
+    Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + 'static>>;
+  fn send(&self, buffer: BufView) -> Self::WriteFuture {
+    use futures::FutureExt;
+    let future = self.clone().reserve_owned();
+    future
+      .map(|r| {
+        r?.send(Ok(buffer));
+        Ok(())
+      })
+      .boxed_local()
+  }
+
+  fn send_error(&self, error: Error) -> Self::WriteFuture {
+    use futures::FutureExt;
+    let future = self.clone().reserve_owned();
+    future
+      .map(|r| {
+        r?.send(Err(error));
+        Ok(())
+      })
+      .boxed_local()
+  }
+}
+
+#[repr(transparent)]
+struct ChannelStreamAdapter<C>(C);
+
+impl<C> Stream for ChannelStreamAdapter<C>
+where
+  C: ChannelBytesRead,
+{
+  type Item = Result<BufView, anyhow::Error>;
+  fn poll_next(
+    mut self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Self::Item>> {
+    self.0.poll_recv(cx)
+  }
+}
+
+#[doc(hidden)]
+pub trait IsEmptyTuple: Default {}
+impl IsEmptyTuple for () {}
+
+type ReaderFn<R> = for<'x> fn(&'x Rc<dyn Resource>) -> Option<&'x Rc<R>>;
+
+pub struct ResourceBuilder<Reader: ?Sized, Data = ()> {
+  underlying: PhantomData<Reader>,
+  data: PhantomData<Data>,
+  this: *const (),
+  constructor_data: fn(*const (), Reader, Data) -> Rc<dyn Resource>,
+  retrieve_data: fn(&Rc<dyn Resource>) -> Option<&Data>,
+  retrieve_reader: Option<ReaderFn<()>>,
+}
+
+unsafe impl<Reader: ?Sized, Data> Send for ResourceBuilder<Reader, Data> {}
+unsafe impl<Reader: ?Sized, Data> Sync for ResourceBuilder<Reader, Data> {}
+
+impl<Reader, Data> ResourceBuilder<Reader, Data> {
+  pub fn build(&self, reader: Reader) -> Rc<dyn Resource>
+  where
+    Data: IsEmptyTuple,
+  {
+    (self.constructor_data)(self.this, reader, Data::default())
+  }
+
+  pub fn build_with_data(
+    &self,
+    reader: Reader,
+    data: Data,
+  ) -> Rc<dyn Resource> {
+    (self.constructor_data)(self.this, reader, data)
+  }
+
+  pub fn data<'b>(
+    &self,
+    resource: &'b Rc<dyn Resource>,
+  ) -> Option<&'b Data> {
+    (self.retrieve_data)(resource)
+  }
+
+  /// If the underlying `Reader` is [`RcLike`], return an [`Rc`] to it if we can.
+  pub fn reader<'b, R: ?Sized>(
+    &self,
+    resource: &'b Rc<dyn Resource>,
+  ) -> Option<&'b Rc<R>>
+  where
+    Reader: Into<Rc<R>>,
+  {
+    if let Some(f) = self.retrieve_reader {
+      let f: ReaderFn<R> = unsafe { std::mem::transmute(f) };
+      unsafe { f(resource) }
+    } else {
+      None
+    }
+  }
+}
+
+/// Builds a [`Resource`] from an underlying stream or other producer.
+pub struct ResourceBuilderImpl<State = (), Data = ()> {
+  name: &'static str,
+  on_shutdown: Option<fn(Data) -> ()>,
+  state: State,
+  data: PhantomData<Data>,
+}
+
+pub struct ResourceBuilderTokioAsyncRead<R: TokioAsyncRead> {
+  reader: PhantomData<R>,
+  fd: bool,
+}
+
+pub struct ResourceBuilderTokioAsyncWrite<W: TokioAsyncWrite> {
+  writer: PhantomData<W>,
+  fd: bool,
+}
+
+pub struct ResourceBuilderTokioAsyncReadWrite<R: TokioAsyncRead, W: TokioAsyncWrite> {
+  reader: PhantomData<R>,
+  writer: PhantomData<W>,
+  fd: bool,
+}
+
+pub struct ResourceBuilderTokioDuplex<
+  S: tokio::io::AsyncRead + tokio::io::AsyncWrite,
+> {
+  duplex: S,
+  fd: Option<std::os::fd::RawFd>,
+}
+
+pub struct ResourceBuilderStreamBytesRead<S: StreamBytesRead> {
+  stream: PhantomData<S>,
+}
+
+pub struct ResourceBuilderChannelBytesRead<C: ChannelBytesRead> {
+  channel: PhantomData<C>,
+}
+
+pub struct ResourceBuilderChannelBytesWrite<C: ChannelBytesWrite> {
+  channel: PhantomData<C>,
+}
+
+pub struct ResourceBuilderResourceStream<
+  S: ResourceStreamRead + ResourceStreamWrite + ?Sized,
+> {
+  stream: PhantomData<S>,
+}
+
+impl ResourceBuilderImpl<(), ()> {
+  pub const fn new(name: &'static str) -> Self {
+    Self {
+      name,
+      on_shutdown: None,
+      state: (),
+      data: PhantomData,
+    }
+  }
+
+  pub const fn new_with_data<D>(
+    name: &'static str,
+  ) -> ResourceBuilderImpl<(), D> {
+    ResourceBuilderImpl {
+      name,
+      on_shutdown: None,
+      state: (),
+      data: PhantomData,
+    }
+  }
+}
+
+impl<D> ResourceBuilderImpl<(), D> {
+  const fn with_state<S>(self, state: S) -> ResourceBuilderImpl<S, D> {
+    ResourceBuilderImpl {
+      name: self.name,
+      on_shutdown: self.on_shutdown,
+      data: self.data,
+      state,
+    }
+  }
+
+  pub const fn with_reader<R: TokioAsyncRead>(
+    self,
+  ) -> ResourceBuilderImpl<ResourceBuilderTokioAsyncRead<R>, D> {
+    self.with_state(ResourceBuilderTokioAsyncRead {
+      reader: PhantomData,
+      fd: false,
+    })
+  }
+
+  pub const fn with_reader_and_writer<
+    R: TokioAsyncRead,
+    W: TokioAsyncWrite
+  >(
+    self,
+  ) -> ResourceBuilderImpl<ResourceBuilderTokioAsyncReadWrite<R, W>, D> {
+    self.with_state(ResourceBuilderTokioAsyncReadWrite {
+      reader: PhantomData,
+      writer: PhantomData,
+      fd: false,
+    })
+  }
+
+  pub const fn with_stream<S: StreamBytesRead>(
+    self,
+  ) -> ResourceBuilderImpl<ResourceBuilderStreamBytesRead<S>, D> {
+    self.with_state(ResourceBuilderStreamBytesRead {
+      stream: PhantomData,
+    })
+  }
+
+  pub const fn with_read_channel<C: ChannelBytesRead>(
+    self,
+  ) -> ResourceBuilderImpl<ResourceBuilderChannelBytesRead<C>, D> {
+    self.with_state(ResourceBuilderChannelBytesRead {
+      channel: PhantomData,
+    })
+  }
+
+  pub const fn with_write_channel<C: ChannelBytesWrite>(
+    self,
+  ) -> ResourceBuilderImpl<ResourceBuilderChannelBytesWrite<C>, D> {
+    self.with_state(ResourceBuilderChannelBytesWrite {
+      channel: PhantomData,
+    })
+  }
+
+  pub const fn with_read_write_resource_stream<
+    S: ResourceStreamRead + ResourceStreamWrite + ?Sized,
+  >(
+    self,
+  ) -> ResourceBuilderImpl<ResourceBuilderResourceStream<S>, D> {
+    self.with_state(ResourceBuilderResourceStream {
+      stream: PhantomData,
+    })
+  }
+}
+
+impl<R: TokioAsyncRead, D>
+  ResourceBuilderImpl<ResourceBuilderTokioAsyncRead<R>, D>
+{
+  pub const fn build(&'static self) -> ResourceBuilder<R, D> {
+    let this = self as *const _ as *const ();
+    ResourceBuilder {
+      underlying: PhantomData,
+      data: PhantomData,
+      this,
+      constructor_data: |this, reader, data| {
+        let this = unsafe { (this as *const Self).as_ref().unwrap() };
+        Rc::new(DenoTokioAsyncReadResource::new(
+          this.name, None, None, reader, data,
+        ))
+      },
+      retrieve_data: |resource| {
+        resource
+          .downcast_rc::<DenoTokioAsyncReadResource<R, D>>()
+          .map(|res| &res.data)
+      },
+      retrieve_reader: None,
+    }
+  }
+
+  pub const fn and_fd(mut self) -> Self
+  where
+    R: std::os::fd::AsRawFd,
+  {
+    self.state.fd = true;
+    self
+  }
+}
+
+
+impl<R: TokioAsyncRead, W: TokioAsyncWrite, D>
+  ResourceBuilderImpl<ResourceBuilderTokioAsyncReadWrite<R, W>, D>
+{
+  pub const fn build(&'static self) -> ResourceBuilder<(R, W), D> {
+    let this = self as *const _ as *const ();
+    ResourceBuilder {
+      underlying: PhantomData,
+      data: PhantomData,
+      this,
+      constructor_data: |this, (reader, writer), data| {
+        let this = unsafe { (this as *const Self).as_ref().unwrap() };
+        Rc::new(DenoTokioAsyncReadWriteResource::new(
+          this.name, None, None, reader, writer, data,
+        ))
+      },
+      retrieve_data: |resource| {
+        resource
+          .downcast_rc::<DenoTokioAsyncReadWriteResource<R, W, D>>()
+          .map(|res| &res.data)
+      },
+      retrieve_reader: None,
+    }
+  }
+
+  pub const fn and_fd(mut self) -> Self
+  where
+    R: std::os::fd::AsRawFd,
+  {
+    self.state.fd = true;
+    self
+  }
+}
+
+impl<R: StreamBytesRead, D>
+  ResourceBuilderImpl<ResourceBuilderStreamBytesRead<R>, D>
+{
+  pub const fn build(&'static self) -> ResourceBuilder<R, D> {
+    let this = self as *const _ as *const ();
+    ResourceBuilder {
+      underlying: PhantomData,
+      data: PhantomData,
+      this,
+      constructor_data: |this, reader, data| {
+        let this = unsafe { (this as *const Self).as_ref().unwrap() };
+        Rc::new(DenoStreamBytesReadResource::new(
+          this.name, None, reader, data,
+        ))
+      },
+      retrieve_data: |resource| {
+        resource
+          .downcast_rc::<DenoStreamBytesReadResource<R, D>>()
+          .map(|res| &res.data)
+      },
+      retrieve_reader: None,
+    }
+  }
+}
+
+impl<C: ChannelBytesRead, D>
+  ResourceBuilderImpl<ResourceBuilderChannelBytesRead<C>, D>
+{
+  pub const fn build(&'static self) -> ResourceBuilder<C, D> {
+    let this = self as *const _ as *const ();
+    ResourceBuilder {
+      underlying: PhantomData,
+      data: PhantomData,
+      this,
+      constructor_data: |this, reader, data| {
+        let this = unsafe { (this as *const Self).as_ref().unwrap() };
+        Rc::new(DenoStreamBytesReadResource::new(
+          this.name,
+          None,
+          ChannelStreamAdapter(reader),
+          data,
+        ))
+      },
+      retrieve_data: |resource| {
+        resource.downcast_rc::<DenoStreamBytesReadResource::<ChannelStreamAdapter<C>, D>>().map(|res| &res.data)
+      },
+      retrieve_reader: None,
+    }
+  }
+}
+
+impl<C: ChannelBytesWrite, D>
+  ResourceBuilderImpl<ResourceBuilderChannelBytesWrite<C>, D>
+{
+  pub const fn build(&'static self) -> ResourceBuilder<C, D> {
+    let this = self as *const _ as *const ();
+    ResourceBuilder {
+      underlying: PhantomData,
+      data: PhantomData,
+      this,
+      constructor_data: |this, underlying, data| {
+        let this = unsafe { (this as *const Self).as_ref().unwrap() };
+        Rc::new(DenoChannelBytesWriteResource::new(
+          this.name, None, underlying, data,
+        ))
+      },
+      retrieve_data: |resource| {
+        resource
+          .downcast_rc::<DenoChannelBytesWriteResource<C, D>>()
+          .map(|res| &res.data)
+      },
+      retrieve_reader: None,
+    }
+  }
+}
+
+impl<S: std::any::Any + ResourceStreamRead + ResourceStreamWrite + ?Sized, D>
+  ResourceBuilderImpl<ResourceBuilderResourceStream<S>, D>
+{
+  pub const fn build(&'static self) -> ResourceBuilder<Rc<S>, D> {
+    let this = self as *const _ as *const ();
+    let retrieve_reader: ReaderFn<S> = |resource: &Rc<dyn Resource>| {
+      resource
+        .downcast_rc::<DenoResourceStreamResource<S, D>>()
+        .map(|res| &res.underlying)
+    };
+
+    ResourceBuilder {
+      underlying: PhantomData,
+      data: PhantomData,
+      this,
+      constructor_data: |this, underlying, data| {
+        let this = unsafe { (this as *const Self).as_ref().unwrap() };
+        Rc::new(DenoResourceStreamResource::new(
+          this.name, None, underlying, data,
+        ))
+      },
+      retrieve_data: |resource| {
+        resource
+          .downcast_rc::<DenoResourceStreamResource<S, D>>()
+          .map(|res| &res.data)
+      },
+      retrieve_reader: Some(unsafe {
+        std::mem::transmute(retrieve_reader as ReaderFn<S>)
+      }),
+    }
+  }
+}
+
 
 #[cfg(test)]
 mod tests {

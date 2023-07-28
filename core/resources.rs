@@ -292,6 +292,68 @@ pub trait Resource: Any + 'static {
   }
 }
 
+pub trait ResourceStream {
+  /// Resources backed by a file descriptor can let ops know to allow for
+  /// low-level optimizations.
+  fn backing_handle(self: Rc<Self>) -> Option<ResourceHandle> {
+    None
+  }
+}
+
+/// Implementation of the read part of a resource stream.
+pub trait ResourceStreamRead: ResourceStream {
+  /// Read a single chunk of data from the resource. This operation returns a
+  /// `BufView` that represents the data that was read. If a zero length buffer
+  /// is returned, it indicates that the resource has reached EOF.
+  ///
+  /// If this method is not implemented, the default implementation will error
+  /// with a "not supported" error.
+  ///
+  /// If a readable can provide an optimized path for BYOBs, it should also
+  /// implement `read_byob()`.
+  fn read(self: Rc<Self>, limit: usize) -> AsyncResult<BufView>;
+
+  /// Read a single chunk of data from the resource into the provided `BufMutView`.
+  ///
+  /// This operation returns the number of bytes read. If zero bytes are read,
+  /// it indicates that the resource has reached EOF.
+  ///
+  /// If this method is not implemented explicitly, the default implementation
+  /// will call `read()` and then copy the data into the provided buffer. For
+  /// readable resources that can provide an optimized path for BYOBs, it is
+  /// strongly recommended to override this method.
+  fn read_byob(
+    self: Rc<Self>,
+    buf: BufMutView,
+  ) -> AsyncResult<(usize, BufMutView)>;
+
+  /// The same as [`read_byob()`][Resource::read_byob], but synchronous.
+  fn read_byob_sync(self: Rc<Self>, data: &mut [u8]) -> Result<usize, Error>;
+}
+
+pub trait ResourceStreamWrite: ResourceStream {
+  /// Write a single chunk of data to the resource. The operation may not be
+  /// able to write the entire chunk, in which case it should return the number
+  /// of bytes written. Additionally it should return the `BufView` that was
+  /// passed in.
+  ///
+  /// If this method is not implemented, the default implementation will error
+  /// with a "not supported" error.
+  fn write(self: Rc<Self>, buf: BufView) -> AsyncResult<WriteOutcome>;
+
+  /// Write an entire chunk of data to the resource. Unlike `write()`, this will
+  /// ensure the entire chunk is written. If the operation is not able to write
+  /// the entire chunk, an error is to be returned.
+  ///
+  /// By default this method will call `write()` repeatedly until the entire
+  /// chunk is written. Resources that can write the entire chunk in a single
+  /// operation using an optimized path should override this method.
+  fn write_all(self: Rc<Self>, view: BufView) -> AsyncResult<()>;
+
+  /// The same as [`write()`][Resource::write], but synchronous.
+  fn write_sync(self: Rc<Self>, data: &[u8]) -> Result<usize, Error>;
+}
+
 impl dyn Resource {
   #[inline(always)]
   fn is<T: Resource>(&self) -> bool {
@@ -512,9 +574,12 @@ impl ResourceTable {
 #[macro_export]
 macro_rules! impl_readable_byob {
   () => {
-    fn read(self: Rc<Self>, limit: usize) -> AsyncResult<$crate::BufView> {
+    fn read(
+      self: std::rc::Rc<Self>,
+      limit: usize,
+    ) -> $crate::AsyncResult<$crate::BufView> {
       Box::pin(async move {
-        let mut vec = vec![0; limit];
+        let mut vec = vec![0_u8; limit];
         let nread = self.read(&mut vec).await?;
         if nread != vec.len() {
           vec.truncate(nread);
@@ -525,9 +590,9 @@ macro_rules! impl_readable_byob {
     }
 
     fn read_byob(
-      self: Rc<Self>,
+      self: std::rc::Rc<Self>,
       mut buf: $crate::BufMutView,
-    ) -> AsyncResult<(usize, $crate::BufMutView)> {
+    ) -> $crate::AsyncResult<(usize, $crate::BufMutView)> {
       Box::pin(async move {
         let nread = self.read(buf.as_mut()).await?;
         Ok((nread, buf))

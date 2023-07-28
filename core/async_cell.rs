@@ -142,7 +142,7 @@ impl<T> RcRef<AsyncRefCell<T>> {
 /// let bar_rc: RcRef<String> = RcRef::map(stuff_rc, |v| &v.bar);
 /// ```
 #[derive(Debug)]
-pub struct RcRef<T> {
+pub struct RcRef<T: ?Sized> {
   rc: Rc<dyn Any>,
   value: *const T,
 }
