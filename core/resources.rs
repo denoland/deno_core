@@ -25,6 +25,94 @@ use std::rc::Rc;
 /// Returned by resource read/write/shutdown methods
 pub type AsyncResult<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
 
+
+/// Represents an underlying handle for a platform. On unix, everything is an `fd`. On Windows, everything
+/// is a Windows handle except for sockets (which are `SOCKET`s).
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[allow(unused)]
+pub enum ResourceHandle {
+  /// A file handle/descriptor.
+  Fd(ResourceHandleFd),
+  /// A socket handle/file descriptor.
+  Socket(ResourceHandleSocket),
+}
+
+#[cfg(unix)]
+pub type ResourceHandleFd = std::os::fd::RawFd;
+#[cfg(unix)]
+pub type ResourceHandleSocket = std::os::fd::RawFd;
+#[cfg(windows)]
+pub type ResourceHandleFd = std::os::windows::io::RawHandle;
+#[cfg(windows)]
+pub type ResourceHandleSocket = std::os::windows::io::RawSocket;
+
+impl ResourceHandle {
+  /// Converts a file-like thing to a [`ResourceHandle`].
+  #[cfg(windows)]
+  pub fn from_fd_like(io: &impl std::os::windows::io::AsRawHandle) -> Self {
+    Self::WindowsHandle(io.as_raw_handle())
+  }
+
+  /// Converts a file-like thing to a [`ResourceHandle`].
+  #[cfg(unix)]
+  pub fn from_fd_like(io: &impl std::os::unix::io::AsRawFd) -> Self {
+    Self::Fd(io.as_raw_fd())
+  }
+
+  /// Converts a socket-like thing to a [`ResourceHandle`].
+  #[cfg(windows)]
+  pub fn from_socket_like(io: &impl std::os::windows::io::AsRawSocket) -> Self {
+    Self::WindowsSocket(io.as_raw_handle())
+  }
+
+  /// Converts a socket-like thing to a [`ResourceHandle`].
+  #[cfg(unix)]
+  pub fn from_socket_like(io: &impl std::os::unix::io::AsRawFd) -> Self {
+    Self::Fd(io.as_raw_fd())
+  }
+
+  /// Runs a basic validity check on the handle, but cannot fully determine if the handle is valid for use.
+  pub fn is_valid(&self) -> bool {
+    #[cfg(windows)]
+    {
+      match self {
+        // NULL or INVALID_HANDLE_VALUE
+        Self::Fd(handle) => {
+          return !handle.is_null()
+            && handle != -1_isize as std::os::windows::io::RawHandle
+        }
+        // INVALID_SOCKET
+        Self::Socket(socket) => {
+          return socket != -1_i64 as std::os::windows::io::RawSocket
+        }
+      }
+    }
+    #[cfg(unix)]
+    {
+      match self {
+        Self::Fd(fd) => *fd >= 0,
+        Self::Socket(fd) => *fd >= 0,
+      }
+    }
+  }
+
+  /// Returns this as a file-descriptor-like handle.
+  pub fn as_fd_like(&self) -> Option<ResourceHandleFd> {
+    match self {
+      Self::Fd(fd) => Some(*fd),
+      _ => None,
+    }
+  }
+
+  /// Returns this as a socket-like handle.
+  pub fn as_socket_like(&self) -> Option<ResourceHandleSocket> {
+    match self {
+      Self::Socket(socket) => Some(*socket),
+      _ => None,
+    }
+  }
+}
+
 /// Resources are Rust objects that are attached to a [deno_core::JsRuntime].
 /// They are identified in JS by a numeric ID (the resource ID, or rid).
 /// Resources can be created in ops. Resources can also be retrieved in ops by
@@ -180,9 +268,17 @@ pub trait Resource: Any + 'static {
   /// resource has been removed from the resource table.
   fn close(self: Rc<Self>) {}
 
+  /// Resources backed by a file descriptor or socket handle can let ops know
+  /// to allow for low-level optimizations.
+  fn backing_handle(self: Rc<Self>) -> Option<ResourceHandle> {
+    #[allow(deprecated)]
+    self.backing_fd().map(ResourceHandle::Fd)
+  }
+
   /// Resources backed by a file descriptor can let ops know to allow for
   /// low-level optimizations.
   #[cfg(unix)]
+  #[deprecated = "Use backing_handle"]
   fn backing_fd(self: Rc<Self>) -> Option<std::os::unix::prelude::RawFd> {
     None
   }
@@ -190,6 +286,7 @@ pub trait Resource: Any + 'static {
   /// Resources backed by a file descriptor can let ops know to allow for
   /// low-level optimizations.
   #[cfg(windows)]
+  #[deprecated = "Use backing_handle"]
   fn backing_fd(self: Rc<Self>) -> Option<std::os::windows::io::RawHandle> {
     None
   }
