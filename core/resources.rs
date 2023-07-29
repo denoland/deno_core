@@ -25,7 +25,6 @@ use std::rc::Rc;
 /// Returned by resource read/write/shutdown methods
 pub type AsyncResult<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
 
-
 /// Represents an underlying handle for a platform. On unix, everything is an `fd`. On Windows, everything
 /// is a Windows handle except for sockets (which are `SOCKET`s).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
