@@ -276,17 +276,8 @@ pub trait Resource: Any + 'static {
 
   /// Resources backed by a file descriptor can let ops know to allow for
   /// low-level optimizations.
-  #[cfg(unix)]
   #[deprecated = "Use backing_handle"]
-  fn backing_fd(self: Rc<Self>) -> Option<std::os::unix::prelude::RawFd> {
-    None
-  }
-
-  /// Resources backed by a file descriptor can let ops know to allow for
-  /// low-level optimizations.
-  #[cfg(windows)]
-  #[deprecated = "Use backing_handle"]
-  fn backing_fd(self: Rc<Self>) -> Option<std::os::windows::io::RawHandle> {
+  fn backing_fd(self: Rc<Self>) -> Option<ResourceHandleFd> {
     None
   }
 
