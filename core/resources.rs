@@ -61,7 +61,7 @@ impl ResourceHandle {
   /// Converts a socket-like thing to a [`ResourceHandle`].
   #[cfg(windows)]
   pub fn from_socket_like(io: &impl std::os::windows::io::AsRawSocket) -> Self {
-    Self::Socket(io.as_raw_handle())
+    Self::Socket(io.as_raw_socket())
   }
 
   /// Converts a socket-like thing to a [`ResourceHandle`].
