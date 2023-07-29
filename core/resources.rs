@@ -7,6 +7,7 @@
 // file descriptor (hence the different name).
 
 use crate::error::bad_resource_id;
+use crate::error::custom_error;
 use crate::error::not_supported;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -455,6 +456,51 @@ impl ResourceTable {
       .index
       .iter()
       .map(|(&id, resource)| (id, resource.name()))
+  }
+
+  /// Retrieves the [`ResourceHandleFd`] for a given resource, for potential optimization
+  /// purposes within ops.
+  pub fn get_fd(&self, rid: ResourceId) -> Result<ResourceHandleFd, Error> {
+    let Some(handle) = self.get_any(rid)?.backing_handle() else {
+      return Err(bad_resource_id());
+    };
+    let Some(fd) = handle.as_fd_like() else {
+      return Err(bad_resource_id());
+    };
+    if !handle.is_valid() {
+      return Err(custom_error("ReferenceError", "null or invalid handle"));
+    }
+    Ok(fd)
+  }
+
+  /// Retrieves the [`ResourceHandleSocket`] for a given resource, for potential optimization
+  /// purposes within ops.
+  pub fn get_socket(
+    &self,
+    rid: ResourceId,
+  ) -> Result<ResourceHandleSocket, Error> {
+    let Some(handle) = self.get_any(rid)?.backing_handle() else {
+      return Err(bad_resource_id());
+    };
+    let Some(socket) = handle.as_socket_like() else {
+      return Err(bad_resource_id());
+    };
+    if !handle.is_valid() {
+      return Err(custom_error("ReferenceError", "null or invalid handle"));
+    }
+    Ok(socket)
+  }
+
+  /// Retrieves the [`ResourceHandle`] for a given resource, for potential optimization
+  /// purposes within ops.
+  pub fn get_handle(&self, rid: ResourceId) -> Result<ResourceHandle, Error> {
+    let Some(handle) = self.get_any(rid)?.backing_handle() else {
+      return Err(bad_resource_id());
+    };
+    if !handle.is_valid() {
+      return Err(custom_error("ReferenceError", "null or invalid handle"));
+    }
+    Ok(handle)
   }
 }
 
