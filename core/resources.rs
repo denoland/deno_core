@@ -49,7 +49,7 @@ impl ResourceHandle {
   /// Converts a file-like thing to a [`ResourceHandle`].
   #[cfg(windows)]
   pub fn from_fd_like(io: &impl std::os::windows::io::AsRawHandle) -> Self {
-    Self::WindowsHandle(io.as_raw_handle())
+    Self::Fd(io.as_raw_handle())
   }
 
   /// Converts a file-like thing to a [`ResourceHandle`].
@@ -61,13 +61,13 @@ impl ResourceHandle {
   /// Converts a socket-like thing to a [`ResourceHandle`].
   #[cfg(windows)]
   pub fn from_socket_like(io: &impl std::os::windows::io::AsRawSocket) -> Self {
-    Self::WindowsSocket(io.as_raw_handle())
+    Self::Socket(io.as_raw_handle())
   }
 
   /// Converts a socket-like thing to a [`ResourceHandle`].
   #[cfg(unix)]
   pub fn from_socket_like(io: &impl std::os::unix::io::AsRawFd) -> Self {
-    Self::Fd(io.as_raw_fd())
+    Self::Socket(io.as_raw_fd())
   }
 
   /// Runs a basic validity check on the handle, but cannot fully determine if the handle is valid for use.
@@ -78,11 +78,11 @@ impl ResourceHandle {
         // NULL or INVALID_HANDLE_VALUE
         Self::Fd(handle) => {
           return !handle.is_null()
-            && handle != -1_isize as std::os::windows::io::RawHandle
+            && *handle != -1_isize as std::os::windows::io::RawHandle
         }
         // INVALID_SOCKET
         Self::Socket(socket) => {
-          return socket != -1_i64 as std::os::windows::io::RawSocket
+          return *socket != -1_i64 as std::os::windows::io::RawSocket
         }
       }
     }
