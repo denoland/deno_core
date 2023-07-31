@@ -1,6 +1,6 @@
 # deno_ops
 
-`proc_macro` for generating highly optimized V8 functions from Deno ops.
+`proc_macro` for generating highly optimized V8 functions from Rust functions.
 
 ```rust,ignore
 use deno_core::{op2, extension};
