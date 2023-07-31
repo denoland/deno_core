@@ -706,7 +706,7 @@ impl ExtensionBuilder {
 /// // Produces following specifiers:
 /// // - "ext:my_extension/01_hello.js"
 /// // - "ext:my_extension/02_goodbye.js"
-/// 
+///
 /// /// Example with "dir" option (for "my_extension"):
 /// include_js_files!(
 ///   dir "js",
