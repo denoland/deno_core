@@ -153,7 +153,7 @@ Uint32, Int32, Number, BigInt
 </td><td>
 Uint32, Int32, Number, BigInt
 </td><td>
-
+SMI is internally represented as a signed integer, but unsigned `#[smi]` types will be bit-converted to unsigned values for the Rust call. JavaScript code will continue to see signed integers.
 </td></tr>
 <tr>
 <td>
@@ -805,7 +805,7 @@ Uint32
 </td><td>
 Int32
 </td><td>
-
+SMI is internally represented as a signed integer, but unsigned `#[smi]` types will be bit-converted to unsigned values for the Rust call. JavaScript code will continue to see signed integers.
 </td></tr>
 <tr>
 <td>

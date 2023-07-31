@@ -60,7 +60,7 @@ impl op_v8_lifetime {
             };
             Self::call(arg0, arg1)
         };
-        result
+        result as _
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {

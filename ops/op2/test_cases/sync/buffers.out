@@ -48,7 +48,7 @@ impl op_buffers {
                 .unwrap();
             Self::call(arg0, arg1)
         };
-        result
+        result as _
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };

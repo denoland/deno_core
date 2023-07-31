@@ -2,17 +2,19 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-pub type ResourceId = i16;
-
-#[op2(fast)]
-fn op_add(#[smi] id: ResourceId, extra: u16) -> u32 {
-    id as u32 + extra as u32
-}
-
-pub type StubId = i32;
+pub type Int16 = i16;
+pub type Int32 = i32;
+pub type Uint16 = u16;
+pub type Uint32 = u32;
 
 #[op2(fast)]
 #[smi]
-fn op_subtract(#[smi] id: StubId, extra: i32) -> StubId {
-    id - extra
+fn op_smi_unsigned_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[smi] d: Uint32) -> Uint32 {
+  a as Uint32 + b as Uint32 + c as Uint32 + d as Uint32
+}
+
+#[op2(fast)]
+#[smi]
+fn op_smi_signed_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[smi] d: Uint32) -> Int32 {
+  a as Int32 + b as Int32 + c as Int32 + d as Int32
 }
