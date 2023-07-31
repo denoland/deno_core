@@ -245,6 +245,7 @@ impl Op {
 }
 
 /// Deprecated. Use [`macro@op2`].
+#[doc = include_str!("op1.md")]
 #[proc_macro_attribute]
 pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
   let margs = parse_macro_input!(attr as Attributes);

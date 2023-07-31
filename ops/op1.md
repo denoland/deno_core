@@ -2,7 +2,7 @@
 
 `proc_macro` for generating highly optimized V8 functions from Deno ops.
 
-```rust
+```rust,ignore
 // Declare an op.
 #[op(fast)]
 pub fn op_add(_: &mut OpState, a: i32, b: i32) -> i32 {
@@ -52,7 +52,7 @@ The `#[op(wasm)]` attribute should be used for calls expected to be called from
 Wasm. This enables the fast call generation and allows seamless `WasmMemory`
 integration for generic and fast calls.
 
-```rust
+```rust,ignore
 #[op(wasm)]
 pub fn op_args_get(
   offset: i32,
