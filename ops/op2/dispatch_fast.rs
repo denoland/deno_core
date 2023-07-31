@@ -283,7 +283,8 @@ pub fn generate_dispatch_fast(
         Self::call(#(#call_names),*)
       };
       #handle_error
-      #result
+      // Result may need a simple cast (eg: SMI u32->i32)
+      #result as _
     }
   );
 
