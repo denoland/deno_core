@@ -736,7 +736,6 @@ fn throw_type_error(
   // Sanity check ASCII and a valid/reasonable message size
   debug_assert!(
     message.is_ascii()
-      && message.len() < v8::String::max_length()
       && message.len() < 1024
   );
 
