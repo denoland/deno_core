@@ -599,6 +599,7 @@ mod tests {
       op_test_print_debug,
 
       op_test_add,
+      op_test_add_smi_unsigned,
       op_test_add_option,
       op_test_result_void_switch,
       op_test_result_void_ok,
@@ -609,8 +610,8 @@ mod tests {
       op_test_bool_result,
       op_test_float,
       op_test_float_result,
-      op_test_i64,
-      op_test_u64,
+      op_test_bigint_i64,
+      op_test_bigint_u64,
       op_test_string_owned,
       op_test_string_ref,
       op_test_string_cow,
@@ -791,6 +792,12 @@ mod tests {
   #[op2(core, fast)]
   pub fn op_test_add(a: u32, b: i32) -> u32 {
     (a as i32 + b) as u32
+  }
+
+  #[op2(core, fast)]
+  #[smi]
+  pub fn op_test_add_smi_unsigned(#[smi] a: u32) -> u32 {
+    a + 1
   }
 
   /// Test various numeric coercions in fast and slow mode.
@@ -983,13 +990,13 @@ mod tests {
 
   #[op2(core)]
   #[bigint]
-  pub fn op_test_u64(#[bigint] input: u64) -> u64 {
+  pub fn op_test_bigint_u64(#[bigint] input: u64) -> u64 {
     input
   }
 
   #[op2(core)]
   #[bigint]
-  pub fn op_test_i64(#[bigint] input: i64) -> i64 {
+  pub fn op_test_bigint_i64(#[bigint] input: i64) -> i64 {
     input
   }
 
@@ -997,18 +1004,18 @@ mod tests {
   pub async fn test_op_64() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
-      "op_test_i64",
-      &format!("assert(op_test_i64({}n) == {}n)", i64::MAX, i64::MAX),
+      "op_test_bigint_i64",
+      &format!("assert(op_test_bigint_i64({}n) == {}n)", i64::MAX, i64::MAX),
     )?;
     run_test2(
       10,
-      "op_test_i64",
-      &format!("assert(op_test_i64({}n) == {}n)", i64::MIN, i64::MIN),
+      "op_test_bigint_i64",
+      &format!("assert(op_test_bigint_i64({}n) == {}n)", i64::MIN, i64::MIN),
     )?;
     run_test2(
       10,
-      "op_test_u64",
-      &format!("assert(op_test_u64({}n) == {}n)", u64::MAX, u64::MAX),
+      "op_test_bigint_u64",
+      &format!("assert(op_test_bigint_u64({}n) == {}n)", u64::MAX, u64::MAX),
     )?;
     Ok(())
   }
