@@ -345,7 +345,6 @@ dependencies = [
  "syn 2.0.27",
  "testing_macros",
  "thiserror",
- "v8",
 ]
 
 [[package]]
