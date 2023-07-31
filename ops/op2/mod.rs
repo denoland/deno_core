@@ -507,7 +507,7 @@ deno_ops_compile_test_runner::prelude!();";
         )
         .expect("Failed to generate op");
       }
-      actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
     });
     actual += "</table>\n";
     actual += end_separator;
@@ -565,7 +565,7 @@ deno_ops_compile_test_runner::prelude!();";
         )
         .expect("Failed to generate op");
       }
-      actual += &format!("<tr>\n<td>\n\n```rust\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
     });
 
     actual += "</table>\n";

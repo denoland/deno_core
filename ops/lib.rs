@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+#![doc = include_str!("README.md")]
 
 use attrs::Attributes;
 use optimizer::BailoutReason;
@@ -243,6 +244,7 @@ impl Op {
   }
 }
 
+/// Deprecated. Use [`macro@op2`].
 #[proc_macro_attribute]
 pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
   let margs = parse_macro_input!(attr as Attributes);
@@ -251,6 +253,8 @@ pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
   op.gen().into()
 }
 
+/// A macro designed to provide an extremely fast V8->Rust interface layer.
+#[doc = include_str!("op2/README.md")]
 #[proc_macro_attribute]
 pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
   match crate::op2::op2(attr.into(), item.into()) {

@@ -697,18 +697,17 @@ impl ExtensionBuilder {
 /// An optional "dir" option can be specified to prefix all files with a
 /// directory name.
 ///
-/// Example (for "my_extension"):
 /// ```ignore
+/// /// Example (for "my_extension"):
 /// include_js_files!(
 ///   "01_hello.js",
 ///   "02_goodbye.js",
 /// )
 /// // Produces following specifiers:
-/// - "ext:my_extension/01_hello.js"
-/// - "ext:my_extension/02_goodbye.js"
-///
+/// // - "ext:my_extension/01_hello.js"
+/// // - "ext:my_extension/02_goodbye.js"
+/// 
 /// /// Example with "dir" option (for "my_extension"):
-/// ```ignore
 /// include_js_files!(
 ///   dir "js",
 ///   "01_hello.js",
