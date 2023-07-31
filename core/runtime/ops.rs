@@ -794,12 +794,6 @@ mod tests {
     (a as i32 + b) as u32
   }
 
-  #[op2(core, fast)]
-  #[smi]
-  pub fn op_test_add_smi_unsigned(#[smi] a: u32) -> u32 {
-    a + 1
-  }
-
   /// Test various numeric coercions in fast and slow mode.
   #[tokio::test(flavor = "current_thread")]
   pub async fn test_op_add() -> Result<(), Box<dyn std::error::Error>> {
@@ -816,6 +810,23 @@ mod tests {
       10000,
       "op_test_add",
       "assert(op_test_add(8192n, -4096n) == 4096)",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  #[smi]
+  pub fn op_test_add_smi_unsigned(#[smi] a: u32, #[smi] b: u16) -> u32 {
+    a + b as u32
+  }
+
+  /// Test various numeric coercions in fast and slow mode.
+  #[tokio::test(flavor = "current_thread")]
+  pub async fn test_op_add_smi() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_test_add_smi_unsigned",
+      "assert(op_test_add_smi_unsigned(1000, 2000) == 3000)",
     )?;
     Ok(())
   }
