@@ -19,14 +19,14 @@ buffer.
 
 Asynchronous calls are supported in two forms:
 
-```rust
-async fn op_xyz(...) -> X {}
+```rust,ignore
+async fn op_xyz(/* ... */) -> X {}
 ```
 
 and
 
-```rust
-fn op_xyz(...) -> impl Future<Output = X> {}
+```rust,ignore
+fn op_xyz(/* ... */) -> impl Future<Output = X> {}
 ```
 
 These are desugared to a function that adds a hidden `promise_id` argument, and
@@ -35,8 +35,8 @@ immediately ready, the function will return `Some(X)`. If the op is not ready,
 the function will return `None` and the future will be handled by Deno's pending
 op system.
 
-```rust
-fn op_xyz(promise_id: i32, ...) -> Option<X> {}
+```rust,ignore
+fn op_xyz(promise_id: i32, /* ... */) -> Option<X> {}
 ```
 
 # Parameters
@@ -46,7 +46,7 @@ fn op_xyz(promise_id: i32, ...) -> Option<X> {}
 <tr>
 <td>
 
-```rust
+```text
 bool
 ```
 
@@ -60,7 +60,7 @@ Bool
 <tr>
 <td>
 
-```rust
+```text
 i8
 ```
 
@@ -74,7 +74,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 u8
 ```
 
@@ -88,7 +88,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 i16
 ```
 
@@ -102,7 +102,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 u16
 ```
 
@@ -116,7 +116,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 i32
 ```
 
@@ -130,7 +130,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 u32
 ```
 
@@ -144,7 +144,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[smi] ResourceId
 ```
 
@@ -158,7 +158,7 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] i64
 ```
 
@@ -172,7 +172,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] u64
 ```
 
@@ -186,7 +186,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] isize
 ```
 
@@ -200,7 +200,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] usize
 ```
 
@@ -214,7 +214,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 f32
 ```
 
@@ -228,7 +228,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 f64
 ```
 
@@ -242,7 +242,7 @@ Uint32, Int32, Number, BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[string] String
 ```
 
@@ -256,7 +256,7 @@ Fastcall available only if string is Latin-1. Will always create an allocated, U
 <tr>
 <td>
 
-```rust
+```text
 #[string] &str
 ```
 
@@ -270,7 +270,7 @@ Fastcall available only if string is Latin-1. Will create an owned `String` copy
 <tr>
 <td>
 
-```rust
+```text
 #[string] Cow<str>
 ```
 
@@ -284,7 +284,7 @@ Fastcall available only if string is Latin-1. Will create a `Cow::Owned` copy of
 <tr>
 <td>
 
-```rust
+```text
 &v8::Value
 ```
 
@@ -298,7 +298,7 @@ any
 <tr>
 <td>
 
-```rust
+```text
 &v8::String
 ```
 
@@ -312,7 +312,7 @@ String
 <tr>
 <td>
 
-```rust
+```text
 &v8::Object
 ```
 
@@ -326,7 +326,7 @@ Object
 <tr>
 <td>
 
-```rust
+```text
 &v8::Function
 ```
 
@@ -340,7 +340,7 @@ Function
 <tr>
 <td>
 
-```rust
+```text
 &v8::...
 ```
 
@@ -354,7 +354,7 @@ Function
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::Value>
 ```
 
@@ -368,7 +368,7 @@ any
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::String>
 ```
 
@@ -382,7 +382,7 @@ String
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::Object>
 ```
 
@@ -396,7 +396,7 @@ Object
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::Function>
 ```
 
@@ -410,7 +410,7 @@ Function
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::...>
 ```
 
@@ -424,7 +424,7 @@ v8::Local<v8::...>
 <tr>
 <td>
 
-```rust
+```text
 #[global] v8::Global<v8::Value>
 ```
 
@@ -438,7 +438,7 @@ any
 <tr>
 <td>
 
-```rust
+```text
 #[global] v8::Global<v8::String>
 ```
 
@@ -452,7 +452,7 @@ String
 <tr>
 <td>
 
-```rust
+```text
 #[global] v8::Global<v8::Object>
 ```
 
@@ -466,7 +466,7 @@ Object
 <tr>
 <td>
 
-```rust
+```text
 #[global] v8::Global<v8::Function>
 ```
 
@@ -480,7 +480,7 @@ Function
 <tr>
 <td>
 
-```rust
+```text
 #[global] v8::Global<v8::...>
 ```
 
@@ -494,7 +494,7 @@ Function
 <tr>
 <td>
 
-```rust
+```text
 #[serde] SerdeType
 ```
 
@@ -508,7 +508,7 @@ any
 <tr>
 <td>
 
-```rust
+```text
 #[serde] (Tuple, Tuple)
 ```
 
@@ -522,7 +522,7 @@ any
 <tr>
 <td>
 
-```rust
+```text
 #[buffer] &mut [u8]
 ```
 
@@ -536,7 +536,7 @@ UInt8Array (resizable=true,false)
 <tr>
 <td>
 
-```rust
+```text
 #[buffer] &[u8]
 ```
 
@@ -550,7 +550,7 @@ UInt8Array (resizable=true,false)
 <tr>
 <td>
 
-```rust
+```text
 #[buffer(copy)] Vec<u8>
 ```
 
@@ -564,7 +564,7 @@ Safe, but forces a copy.
 <tr>
 <td>
 
-```rust
+```text
 #[buffer(copy)] Box<[u8]>
 ```
 
@@ -578,7 +578,7 @@ Safe, but forces a copy.
 <tr>
 <td>
 
-```rust
+```text
 #[buffer(copy)] bytes::Bytes
 ```
 
@@ -592,7 +592,7 @@ Safe, but forces a copy.
 <tr>
 <td>
 
-```rust
+```text
 #[buffer] JsBuffer
 ```
 
@@ -606,7 +606,7 @@ ArrayBuffer, ArrayBufferView (resizable=false)
 <tr>
 <td>
 
-```rust
+```text
 #[buffer(detach)] JsBuffer
 ```
 
@@ -620,7 +620,7 @@ Safe.
 <tr>
 <td>
 
-```rust
+```text
 &OpState
 ```
 
@@ -634,7 +634,7 @@ Safe.
 <tr>
 <td>
 
-```rust
+```text
 &mut OpState
 ```
 
@@ -648,7 +648,7 @@ Safe.
 <tr>
 <td>
 
-```rust
+```text
 Rc<RefCell<OpState>>
 ```
 
@@ -662,7 +662,7 @@ Rc<RefCell<OpState>>
 <tr>
 <td>
 
-```rust
+```text
 #[state] &StateObject
 ```
 
@@ -676,7 +676,7 @@ Extracts an object from `OpState`.
 <tr>
 <td>
 
-```rust
+```text
 #[state] &mut StateObject
 ```
 
@@ -698,7 +698,7 @@ Extracts an object from `OpState`.
 <tr>
 <td>
 
-```rust
+```text
 bool
 ```
 
@@ -712,7 +712,7 @@ Bool
 <tr>
 <td>
 
-```rust
+```text
 i8
 ```
 
@@ -726,7 +726,7 @@ Int32
 <tr>
 <td>
 
-```rust
+```text
 u8
 ```
 
@@ -740,7 +740,7 @@ Uint32
 <tr>
 <td>
 
-```rust
+```text
 i16
 ```
 
@@ -754,7 +754,7 @@ Int32
 <tr>
 <td>
 
-```rust
+```text
 u16
 ```
 
@@ -768,7 +768,7 @@ Uint32
 <tr>
 <td>
 
-```rust
+```text
 i32
 ```
 
@@ -782,7 +782,7 @@ Int32
 <tr>
 <td>
 
-```rust
+```text
 u32
 ```
 
@@ -796,7 +796,7 @@ Uint32
 <tr>
 <td>
 
-```rust
+```text
 #[smi] ResourceId
 ```
 
@@ -810,7 +810,7 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] i64
 ```
 
@@ -824,7 +824,7 @@ BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] u64
 ```
 
@@ -838,7 +838,7 @@ BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] isize
 ```
 
@@ -852,7 +852,7 @@ BigInt
 <tr>
 <td>
 
-```rust
+```text
 #[bigint] usize
 ```
 
@@ -866,7 +866,7 @@ BigInt
 <tr>
 <td>
 
-```rust
+```text
 f32
 ```
 
@@ -880,7 +880,7 @@ Number
 <tr>
 <td>
 
-```rust
+```text
 f64
 ```
 
@@ -894,7 +894,7 @@ Number
 <tr>
 <td>
 
-```rust
+```text
 #[string] String
 ```
 
@@ -908,7 +908,7 @@ String
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::Value>
 ```
 
@@ -922,7 +922,7 @@ any
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::String>
 ```
 
@@ -936,7 +936,7 @@ String
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::Object>
 ```
 
@@ -950,7 +950,7 @@ Object
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::Function>
 ```
 
@@ -964,7 +964,7 @@ Function
 <tr>
 <td>
 
-```rust
+```text
 v8::Local<v8::...>
 ```
 
@@ -978,7 +978,7 @@ v8::Local<v8::...>
 <tr>
 <td>
 
-```rust
+```text
 #[serde] SerdeType
 ```
 
@@ -992,7 +992,7 @@ any
 <tr>
 <td>
 
-```rust
+```text
 #[serde] (Tuple, Tuple)
 ```
 
