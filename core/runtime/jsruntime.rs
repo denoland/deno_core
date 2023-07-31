@@ -967,11 +967,36 @@ impl JsRuntime {
               panic!("{} not present in the module map", specifier)
             })
         };
-        let receiver = realm.mod_evaluate(self.v8_isolate(), mod_id);
-        self.run_event_loop(false).await?;
-        receiver
-          .await?
-          .with_context(|| format!("Couldn't execute '{specifier}'"))?;
+        let mut receiver = realm.mod_evaluate(self.v8_isolate(), mod_id);
+        realm.evaluate_pending_module(self.v8_isolate());
+
+        // After evaluate_pending_module, if the module isn't fully evaluated
+        // and the resolver solved, it means the module or one of its imports
+        // uses TLA.
+        match receiver.try_recv()? {
+          Some(result) => {
+            result
+              .with_context(|| format!("Couldn't execute '{specifier}'"))?;
+          }
+          None => {
+            // Find the TLA location to display it on the panic.
+            let location = {
+              let scope = &mut realm.handle_scope(self.v8_isolate());
+              let module_map = module_map_rc.borrow();
+              let messages = module_map.find_stalled_top_level_await(scope);
+              assert!(!messages.is_empty());
+              let msg = v8::Local::new(scope, &messages[0]);
+              let js_error = JsError::from_v8_message(scope, msg);
+              js_error
+                .frames
+                .first()
+                .unwrap()
+                .maybe_format_location()
+                .unwrap()
+            };
+            panic!("Top-level await is not allowed in extensions ({location})");
+          }
+        }
       }
 
       #[cfg(debug_assertions)]

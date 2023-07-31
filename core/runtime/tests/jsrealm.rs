@@ -888,3 +888,46 @@ fn preserve_snapshotted_modules() {
 fn non_snapshot_preserve_snapshotted_modules() {
   generic_preserve_snapshotted_modules_test(false, true)
 }
+
+/// Test that creating a realm while there are async ops running in another
+/// realm will not block until the async ops are resolved. This used to happen
+/// with non-snapshotted ESM extensions.
+#[tokio::test]
+async fn realm_creation_during_async_op_hang() {
+  #[op]
+  async fn op_listen(op_state: Rc<RefCell<OpState>>) -> Result<(), Error> {
+    let (sender, receiver) = oneshot::channel::<()>();
+    op_state.borrow_mut().put(sender);
+    receiver.await?;
+    Ok(())
+  }
+
+  let extension = Extension {
+    name: "test_ext",
+    ops: Cow::Borrowed(&[op_listen::DECL]),
+    esm_files: Cow::Borrowed(&[ExtensionFileSource {
+      specifier: "mod:test",
+      code: ExtensionFileSourceCode::IncludedInBinary(""),
+    }]),
+    esm_entry_point: Some("mod:test"),
+    ..Default::default()
+  };
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![extension],
+    ..Default::default()
+  });
+
+  // Start the op in the main realm.
+  {
+    let promise: v8::Local<v8::Promise> = JsRuntime::eval(
+      &mut runtime.handle_scope(),
+      "Deno.core.opAsync('op_listen')",
+    )
+    .unwrap();
+    assert_eq!(promise.state(), v8::PromiseState::Pending);
+  }
+
+  // Create another realm. The test succeeds if this operation doesn't hang.
+  runtime.create_realm(Default::default()).unwrap();
+}

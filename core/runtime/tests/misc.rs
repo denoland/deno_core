@@ -13,6 +13,7 @@ use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use deno_ops::op;
 use futures::future::poll_fn;
+use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
@@ -908,4 +909,44 @@ async fn test_stalled_tla() {
   );
   assert_eq!(js_error.frames[0].line_number, Some(1));
   assert_eq!(js_error.frames[0].column_number, Some(1));
+}
+
+#[tokio::test]
+#[should_panic(
+  expected = "Top-level await is not allowed in extensions (mod:tla:2:1)"
+)]
+async fn tla_in_esm_extensions_panics() {
+  #[op]
+  async fn op_wait(ms: usize) {
+    tokio::time::sleep(Duration::from_millis(ms as u64)).await
+  }
+
+  let extension = Extension {
+    name: "test_ext",
+    ops: Cow::Borrowed(&[op_wait::DECL]),
+    esm_files: Cow::Borrowed(&[
+      ExtensionFileSource {
+        specifier: "mod:tla",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          r#"
+await Deno.core.opAsync('op_wait', 0);
+export const TEST = "foo";
+        "#,
+        ),
+      },
+      ExtensionFileSource {
+        specifier: "mod:test",
+        code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:tla';"),
+      },
+    ]),
+    esm_entry_point: Some("mod:test"),
+    ..Default::default()
+  };
+
+  // Panics
+  let _runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
+    extensions: vec![extension],
+    ..Default::default()
+  });
 }
