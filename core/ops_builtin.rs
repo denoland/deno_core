@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::format_file_name;
+use crate::error::type_error;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::ops_builtin_v8;
@@ -40,6 +41,7 @@ crate::extension!(
     op_read_sync,
     op_write_sync,
     op_write_all,
+    op_write_type_error,
     op_shutdown,
     op_metrics,
     op_format_file_name,
@@ -327,6 +329,17 @@ async fn op_write_all(
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufView::from(buf);
   resource.write_all(view).await?;
+  Ok(())
+}
+
+#[op2(async, core)]
+async fn op_write_type_error(
+  state: Rc<RefCell<OpState>>,
+  #[smi] rid: ResourceId,
+  #[string] error: String,
+) -> Result<(), Error> {
+  let resource = state.borrow().resource_table.get_any(rid)?;
+  resource.write_error(type_error(error)).await?;
   Ok(())
 }
 
