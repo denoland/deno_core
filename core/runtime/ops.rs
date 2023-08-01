@@ -641,6 +641,7 @@ mod tests {
       op_async_void,
       op_async_number,
       op_async_add,
+      op_async_add_smi,
       op_async_sleep,
       op_async_sleep_impl,
       op_async_sleep_error,
@@ -794,12 +795,6 @@ mod tests {
     (a as i32 + b) as u32
   }
 
-  #[op2(core, fast)]
-  #[smi]
-  pub fn op_test_add_smi_unsigned(#[smi] a: u32) -> u32 {
-    a + 1
-  }
-
   /// Test various numeric coercions in fast and slow mode.
   #[tokio::test(flavor = "current_thread")]
   pub async fn test_op_add() -> Result<(), Box<dyn std::error::Error>> {
@@ -816,6 +811,23 @@ mod tests {
       10000,
       "op_test_add",
       "assert(op_test_add(8192n, -4096n) == 4096)",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  #[smi]
+  pub fn op_test_add_smi_unsigned(#[smi] a: u32, #[smi] b: u16) -> u32 {
+    a + b as u32
+  }
+
+  /// Test various numeric coercions in fast and slow mode.
+  #[tokio::test(flavor = "current_thread")]
+  pub async fn test_op_add_smi() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_test_add_smi_unsigned",
+      "assert(op_test_add_smi_unsigned(1000, 2000) == 3000)",
     )?;
     Ok(())
   }
@@ -1520,6 +1532,13 @@ mod tests {
     x + y
   }
 
+  #[op2(async, core)]
+  #[smi]
+  async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    x + y
+  }
+
   #[tokio::test]
   pub async fn test_op_async_number() -> Result<(), Box<dyn std::error::Error>>
   {
@@ -1533,6 +1552,12 @@ mod tests {
       10000,
       "op_async_add",
       "assert(await op_async_add(__index__, 100) == __index__ + 100)",
+    )
+    .await?;
+    run_async_test(
+      10,
+      "op_async_add_smi",
+      "assert(await op_async_add_smi(__index__, 100) == __index__ + 100)",
     )
     .await?;
     Ok(())
