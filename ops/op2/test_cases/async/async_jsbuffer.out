@@ -63,6 +63,7 @@ impl op_async_v8_buffer {
         if let Some(result)
             = deno_core::_ops::map_async_op_infallible(
                 opctx,
+                false,
                 promise_id,
                 result,
                 |scope, result| {

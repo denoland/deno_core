@@ -153,6 +153,7 @@ pub fn queue_async_op<'s>(
 #[inline]
 pub fn map_async_op_infallible<R: 'static>(
   ctx: &OpCtx,
+  lazy: bool,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
   rv_map: for<'r> fn(
@@ -162,6 +163,22 @@ pub fn map_async_op_infallible<R: 'static>(
 ) -> Option<R> {
   let id = ctx.id;
   ctx.state.borrow().tracker.track_async(id);
+
+  if lazy {
+    let mapper = move |r| {
+      (
+        promise_id,
+        id,
+        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r))),
+      )
+    };
+    ctx
+      .context_state
+      .borrow_mut()
+      .pending_ops
+      .spawn(op.map(mapper));
+    return None;
+  }
 
   // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
@@ -192,6 +209,7 @@ pub fn map_async_op_infallible<R: 'static>(
 #[inline]
 pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ctx: &OpCtx,
+  lazy: bool,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
   rv_map: for<'r> fn(
@@ -201,6 +219,25 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
 ) -> Option<Result<R, E>> {
   let id = ctx.id;
   ctx.state.borrow().tracker.track_async(id);
+
+  if lazy {
+    let get_class = RefCell::borrow(&ctx.state).get_error_class_fn;
+    ctx.context_state.borrow_mut().pending_ops.spawn(op.map(
+      move |r| match r {
+        Ok(v) => (
+          promise_id,
+          id,
+          OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+        ),
+        Err(err) => (
+          promise_id,
+          id,
+          OpResult::Err(OpError::new(get_class, err.into())),
+        ),
+      },
+    ));
+    return None;
+  }
 
   // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
@@ -645,6 +682,7 @@ mod tests {
       op_async_sleep,
       op_async_sleep_impl,
       op_async_sleep_error,
+      op_async_lazy_error,
       op_async_result_impl,
       op_async_state_rc,
       op_async_buffer,
@@ -1594,6 +1632,23 @@ mod tests {
       5,
       "op_async_sleep_error",
       "try { await op_async_sleep_error(); assert(false) } catch (e) {}",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async(lazy), core)]
+  pub async fn op_async_lazy_error() -> Result<(), Error> {
+    bail!("whoops")
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_lazy_error(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(
+      5,
+      "op_async_lazy_error",
+      "try { await op_async_lazy_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
     .await?;
     Ok(())

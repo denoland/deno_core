@@ -1,9 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use deno_proc_macro_rules::rules;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
-use proc_macro2::TokenTree;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
@@ -18,6 +16,7 @@ use syn2::LifetimeParam;
 use syn2::Path;
 use thiserror::Error;
 
+use self::config::MacroConfig;
 use self::dispatch_async::generate_dispatch_async;
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
@@ -27,6 +26,7 @@ use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::SignatureError;
 
+pub mod config;
 pub mod dispatch_async;
 pub mod dispatch_fast;
 pub mod dispatch_shared;
@@ -65,81 +65,6 @@ pub enum Op2Error {
 pub enum V8MappingError {
   #[error("Unable to map {1:?} to {0}")]
   NoMapping(&'static str, Arg),
-}
-
-#[derive(Default)]
-pub(crate) struct MacroConfig {
-  /// Use `(core)` for ops that live in `deno_core`.
-  pub core: bool,
-  /// Generate a fastcall method (must be fastcall compatible).
-  pub fast: bool,
-  /// Do not generate a fastcall method (must be fastcall compatible).
-  pub nofast: bool,
-  /// Marks an async function (either `async fn` or `fn -> impl Future`)
-  pub r#async: bool,
-}
-
-impl MacroConfig {
-  pub fn from_token_trees(flags: Vec<TokenTree>) -> Result<Self, Op2Error> {
-    Self::from_flags(flags.into_iter().map(|tt| tt.to_string()))
-  }
-
-  pub fn from_flags(
-    flags: impl IntoIterator<Item = String>,
-  ) -> Result<Self, Op2Error> {
-    let mut config: MacroConfig = Self::default();
-    let flags = flags.into_iter().collect::<Vec<_>>();
-
-    // Ensure that the flags are sorted in alphabetical order for consistency and searchability
-    let mut flags_sorted = flags.clone();
-    flags_sorted.sort();
-    if flags != flags_sorted {
-      return Err(Op2Error::ImproperlySortedAttribute(flags_sorted.join(", ")));
-    }
-
-    for flag in flags {
-      if flag == "core" {
-        config.core = true;
-      } else if flag == "fast" {
-        config.fast = true;
-      } else if flag == "nofast" {
-        config.nofast = true;
-      } else if flag == "async" {
-        config.r#async = true;
-      } else {
-        return Err(Op2Error::InvalidAttribute(flag));
-      }
-    }
-
-    // Test for invalid attribute combinations
-    if config.fast && config.nofast {
-      return Err(Op2Error::InvalidAttributeCombination("fast", "nofast"));
-    }
-    if config.fast && config.r#async {
-      return Err(Op2Error::InvalidAttributeCombination("fast", "async"));
-    }
-    if config.nofast && config.r#async {
-      return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
-    }
-
-    Ok(config)
-  }
-
-  pub fn from_tokens(tokens: TokenStream) -> Result<Self, Op2Error> {
-    let attr_string = tokens.to_string();
-    let config = std::panic::catch_unwind(|| {
-      rules!(tokens => {
-        () => {
-          Ok(MacroConfig::default())
-        }
-        ($($flags:tt),+) => {
-          Self::from_token_trees(flags)
-        }
-      })
-    })
-    .map_err(|_| Op2Error::PatternMatchFailed("attribute", attr_string))??;
-    Ok(config)
-  }
 }
 
 pub fn op2(
@@ -246,7 +171,7 @@ fn generate_op2(
   let name = func.sig.ident;
 
   let slow_fn = if signature.ret_val.is_async() {
-    generate_dispatch_async(&mut generator_state, &signature)?
+    generate_dispatch_async(&config, &mut generator_state, &signature)?
   } else {
     generate_dispatch_slow(&config, &mut generator_state, &signature)?
   };
@@ -384,18 +309,7 @@ deno_ops_compile_test_runner::prelude!();";
           let tokens = attr.into_token_stream();
           let attr_string = attr.clone().into_token_stream().to_string();
           println!("{}", attr_string);
-          use syn2 as syn;
-          if let Some(new_config) = rules!(tokens => {
-            (#[op2]) => {
-              Some(MacroConfig::default())
-            }
-            (#[op2( $($x:tt),* )]) => {
-              Some(MacroConfig::from_token_trees(x).expect("Failed to parse attribute"))
-            }
-            (#[$_attr:meta]) => {
-              None
-            }
-          }) {
+          if let Some(new_config) = MacroConfig::from_maybe_attribute_tokens(tokens).expect("Failed to parse attribute") {
             config = Some(new_config);
             false
           } else {
