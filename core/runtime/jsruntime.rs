@@ -1563,8 +1563,14 @@ impl JsRuntime {
     if pending_state.has_pending_background_tasks
       || pending_state.has_tick_scheduled
       || maybe_scheduling
-      // If ops were dispatched we may have progress on pending modules that we should re-check
-      || (pending_state.has_pending_module_evaluation && dispatched_ops)
+    {
+      state.op_state.borrow().waker.wake();
+    }
+
+    // If ops were dispatched we may have progress on pending modules that we should re-check
+    if (pending_state.has_pending_module_evaluation
+      || pending_state.has_pending_dyn_module_evaluation)
+      && dispatched_ops
     {
       state.op_state.borrow().waker.wake();
     }
