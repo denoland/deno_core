@@ -8,7 +8,7 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 
-/// Given an [`Arg`] containing a V8 value, converts this value to itself final form.
+/// Given an [`Arg`] containing a V8 value, converts this value to its final argument form.
 pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
   let arg = match arg {
     Arg::V8Ref(RefType::Ref, _) => quote!(&#i),
@@ -26,7 +26,7 @@ pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
   quote!(let #i = #arg;)
 }
 
-/// Given an [`Arg`] containing a V8 value, converts this value to itself final form.
+/// Given an [`Arg`] containing a V8 value, converts this value to its final argument form.
 pub fn v8_intermediate_to_global_arg(
   deno_core: &TokenStream,
   isolate: &Ident,

@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::config::MacroConfig;
 use super::dispatch_slow::call;
 use super::dispatch_slow::extract_arg;
 use super::dispatch_slow::from_arg;
@@ -20,6 +21,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 pub(crate) fn generate_dispatch_async(
+  config: &MacroConfig,
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
 ) -> Result<TokenStream, V8MappingError> {
@@ -99,9 +101,10 @@ pub(crate) fn generate_dispatch_async(
     }));
   }
 
+  let lazy = config.async_lazy;
   output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
     let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
-    if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #promise_id, #result, |#scope, #result| {
+    if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #lazy, #promise_id, #result, |#scope, #result| {
       #return_value
     }) {
       // Eager poll returned a value
@@ -139,21 +142,16 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
-  let GeneratorState {
-    deno_core,
-    info,
-    slow_function,
-    ..
-  } = &generator_state;
+  Ok(
+    gs_quote!(generator_state(deno_core, info, slow_function) => {
+      extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+      #with_scope
+      #with_retval
+      #with_args
+      #with_opctx
+      #with_opstate
 
-  Ok(quote! {
-    extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
-    #with_scope
-    #with_retval
-    #with_args
-    #with_opctx
-    #with_opstate
-
-    #output
-  }})
+      #output
+    }}),
+  )
 }

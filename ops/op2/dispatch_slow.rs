@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
@@ -10,7 +11,6 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
-use super::MacroConfig;
 use super::V8MappingError;
 use crate::op2::generator_state::gs_extract;
 use crate::op2::generator_state::gs_quote;
