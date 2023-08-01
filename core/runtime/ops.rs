@@ -641,6 +641,7 @@ mod tests {
       op_async_void,
       op_async_number,
       op_async_add,
+      op_async_add_smi,
       op_async_sleep,
       op_async_sleep_impl,
       op_async_sleep_error,
@@ -1531,6 +1532,13 @@ mod tests {
     x + y
   }
 
+  #[op2(async, core)]
+  #[smi]
+  async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    x + y
+  }
+
   #[tokio::test]
   pub async fn test_op_async_number() -> Result<(), Box<dyn std::error::Error>>
   {
@@ -1544,6 +1552,12 @@ mod tests {
       10000,
       "op_async_add",
       "assert(await op_async_add(__index__, 100) == __index__ + 100)",
+    )
+    .await?;
+    run_async_test(
+      10,
+      "op_async_add_smi",
+      "assert(await op_async_add_smi(__index__, 100) == __index__ + 100)",
     )
     .await?;
     Ok(())
