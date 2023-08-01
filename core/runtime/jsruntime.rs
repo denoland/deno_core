@@ -1417,7 +1417,7 @@ impl JsRuntime {
     self.pump_v8_message_loop()?;
 
     // Resolve async ops, run all next tick callbacks and macrotasks callbacks,
-    // poll pending dynamic imports and only then check for any promise 
+    // poll pending dynamic imports and only then check for any promise
     // exceptions (`unhandledrejection` handlers are run in macrotasks callbacks
     // so we need to let them run first).
     let dispatched_ops = self.do_js_event_loop_tick(cx)?;
