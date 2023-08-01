@@ -202,6 +202,11 @@ pub trait Resource: Any + 'static {
     })
   }
 
+  /// Write an error state to this resource, if the resource supports it.
+  fn write_error(self: Rc<Self>, _error: Error) -> AsyncResult<()> {
+    Box::pin(futures::future::err(not_supported()))
+  }
+
   /// Write a single chunk of data to the resource. The operation may not be
   /// able to write the entire chunk, in which case it should return the number
   /// of bytes written. Additionally it should return the `BufView` that was
