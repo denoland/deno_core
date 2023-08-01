@@ -1416,6 +1416,12 @@ impl JsRuntime {
 
     self.pump_v8_message_loop()?;
 
+    // Resolve async ops, run all next tick callbacks and macrotasks callbacks,
+    // poll pending dynamic imports and only then check for any promise 
+    // exceptions (`unhandledrejection` handlers are run in macrotasks callbacks
+    // so we need to let them run first).
+    let dispatched_ops = self.do_js_event_loop_tick(cx)?;
+
     // Dynamic module loading - ie. modules loaded using "import()"
     {
       // Run in a loop so that dynamic imports that only depend on another
@@ -1490,11 +1496,6 @@ impl JsRuntime {
       }
     }
 
-    // Resolve async ops, run all next tick callbacks and macrotasks callbacks
-    // and only then check for any promise exceptions (`unhandledrejection`
-    // handlers are run in macrotasks callbacks so we need to let them run
-    // first).
-    let dispatched_ops = self.do_js_event_loop_tick(cx)?;
     self.check_promise_rejections()?;
 
     // Event loop middlewares
