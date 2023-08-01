@@ -309,7 +309,10 @@ deno_ops_compile_test_runner::prelude!();";
           let tokens = attr.into_token_stream();
           let attr_string = attr.clone().into_token_stream().to_string();
           println!("{}", attr_string);
-          if let Some(new_config) = MacroConfig::from_maybe_attribute_tokens(tokens).expect("Failed to parse attribute") {
+          if let Some(new_config) =
+            MacroConfig::from_maybe_attribute_tokens(tokens)
+              .expect("Failed to parse attribute")
+          {
             config = Some(new_config);
             false
           } else {
