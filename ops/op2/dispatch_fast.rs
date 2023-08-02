@@ -378,6 +378,9 @@ fn map_v8_fastcall_arg_to_arg(
         let #arg_ident = #deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
     }
+    Arg::String(Strings::CowByte) => {
+      quote!(let #arg_ident = #deno_core::_ops::to_cow_byte_ptr(unsafe { &mut *#arg_ident });)
+    }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(_, v8)
@@ -431,7 +434,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
     Arg::V8Global(_) => return Ok(None),
-    // We don't support v8 type arguments
+    // We do support v8 type arguments (including Option<...>)
     Arg::V8Ref(RefType::Ref, _)
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
@@ -460,6 +463,8 @@ fn map_arg_to_v8_fastcall_type(
     Arg::String(Strings::String) => V8FastCallType::SeqOneByteString,
     // Cow strings can be fast, but may require copying
     Arg::String(Strings::CowStr) => V8FastCallType::SeqOneByteString,
+    // Cow byte strings can be fast and don't require copying
+    Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
     _ => return Err(V8MappingError::NoMapping("a fast argument", arg.clone())),
   };
   Ok(Some(rv))

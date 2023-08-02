@@ -279,6 +279,14 @@ pub fn from_arg(
         let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
+    Arg::String(Strings::CowByte) => {
+      // Only requires isolate, not a full scope
+      *needs_isolate = true;
+      quote! {
+        // Trade stack space for potentially non-allocating strings
+        let #arg_ident = #deno_core::_ops::to_cow_one_byte(&mut #scope, &#arg_ident);
+      }
+    }
     Arg::Buffer(buffer) => {
       from_arg_buffer(generator_state, &arg_ident, buffer)?
     }
@@ -554,41 +562,6 @@ pub fn return_value_infallible(
         }
       }
     }
-    Arg::OptionNumeric(n) => {
-      *needs_scope = true;
-      let some = return_value_infallible(generator_state, &Arg::Numeric(*n))?;
-      gs_quote!(generator_state(result, retval) => {
-        if let Some(#result) = #result {
-          #some
-        } else {
-          #retval.set_null();
-        }
-      })
-    }
-    Arg::OptionString(Strings::String) => {
-      *needs_scope = true;
-      let some = return_value_infallible(
-        generator_state,
-        &Arg::String(Strings::String),
-      )?;
-      gs_quote!(generator_state(result, retval) => {
-        if let Some(#result) = #result {
-          #some
-        } else {
-          #retval.set_null();
-        }
-      })
-    }
-    Arg::OptionV8Local(_) => {
-      quote! {
-        if let Some(#result) = #result {
-          // We may have a non v8::Value here
-          #retval.set(#result.into())
-        } else {
-          #retval.set_null();
-        }
-      }
-    }
     Arg::V8Local(_) => {
       quote! {
         // We may have a non v8::Value here
@@ -621,6 +594,20 @@ pub fn return_value_infallible(
       | Buffer::BoxSlice(NumericArg::u8),
     ) => {
       quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
+    }
+    arg if arg.is_option() => {
+      // We support all optional types by generating the infallible version in a branch
+      let some = return_value_infallible(
+        generator_state,
+        &ret_type.some_type().unwrap(),
+      )?;
+      gs_quote!(generator_state(result, retval) => {
+        if let Some(#result) = #result {
+          #some
+        } else {
+          #retval.set_null();
+        }
+      })
     }
     _ => {
       return Err(V8MappingError::NoMapping(

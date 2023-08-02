@@ -236,7 +236,7 @@ impl Arg {
   /// Is this argument virtual? ie: does it come from the æther rather than a concrete JavaScript input
   /// argument?
   #[allow(clippy::match_like_matches_macro)]
-  pub fn is_virtual(&self) -> bool {
+  pub const fn is_virtual(&self) -> bool {
     match self {
       Self::Special(
         Special::FastApiCallbackOptions
@@ -284,7 +284,7 @@ impl Arg {
   }
 
   /// Is this type an [`Option`]?
-  pub fn is_option(&self) -> bool {
+  pub const fn is_option(&self) -> bool {
     matches!(
       self,
       Arg::OptionV8Ref(..)
@@ -295,6 +295,20 @@ impl Arg {
         | Arg::OptionString(..)
         | Arg::OptionState(..)
     )
+  }
+
+  /// Return the `Some` part of this `Option` type, or `None` if it is not an `Option`.
+  pub fn some_type(&self) -> Option<Arg> {
+    Some(match self {
+      Arg::OptionV8Ref(r, t) => Arg::V8Ref(*r, *t),
+      Arg::OptionV8Local(t) => Arg::V8Local(*t),
+      Arg::OptionV8Global(t) => Arg::V8Global(*t),
+      Arg::OptionNumeric(t) => Arg::Numeric(*t),
+      Arg::Option(t) => Arg::Special(*t),
+      Arg::OptionString(t) => Arg::String(*t),
+      Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
+      _ => return None,
+    })
   }
 }
 
