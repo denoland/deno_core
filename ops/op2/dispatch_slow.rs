@@ -11,6 +11,7 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
+use super::signature::Strings;
 use super::V8MappingError;
 use crate::op2::generator_state::gs_extract;
 use crate::op2::generator_state::gs_quote;
@@ -242,7 +243,7 @@ pub fn from_arg(
         };
       }
     }
-    Arg::Option(Special::String) => {
+    Arg::OptionString(Strings::String) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
@@ -253,14 +254,14 @@ pub fn from_arg(
         };
       }
     }
-    Arg::Special(Special::String) => {
+    Arg::String(Strings::String) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
         let #arg_ident = #deno_core::_ops::to_string(&mut #scope, &#arg_ident);
       }
     }
-    Arg::Special(Special::RefStr) => {
+    Arg::String(Strings::RefStr) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
@@ -269,7 +270,7 @@ pub fn from_arg(
         let #arg_ident = &#deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
-    Arg::Special(Special::CowStr) => {
+    Arg::String(Strings::CowStr) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
@@ -539,7 +540,7 @@ pub fn return_value_infallible(
     Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
       quote!(#retval.set_double(#result as _);)
     }
-    Arg::Special(Special::String) => {
+    Arg::String(Strings::String) => {
       *needs_scope = true;
       quote! {
         if #result.is_empty() {
@@ -564,11 +565,11 @@ pub fn return_value_infallible(
         }
       })
     }
-    Arg::Option(Special::String) => {
+    Arg::OptionString(Strings::String) => {
       *needs_scope = true;
       let some = return_value_infallible(
         generator_state,
-        &Arg::Special(Special::String),
+        &Arg::String(Strings::String),
       )?;
       gs_quote!(generator_state(result, retval) => {
         if let Some(#result) = #result {
