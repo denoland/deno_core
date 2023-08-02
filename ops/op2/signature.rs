@@ -147,6 +147,7 @@ pub enum Strings {
   String,
   CowStr,
   RefStr,
+  CowByte,
 }
 
 /// Buffers are complicated and may be shared/owned, shared/unowned, a copy, or detached.
@@ -323,7 +324,10 @@ impl ParsedType {
         | NumericArg::isize,
       ) => Some(&[AttributeModifier::Bigint]),
       TBuffer(buffer) => Some(buffer.valid_modes(position)),
-      TString(..) => Some(&[AttributeModifier::String]),
+      TString(Strings::CowByte) => {
+        Some(&[AttributeModifier::String(StringMode::OneByte)])
+      }
+      TString(..) => Some(&[AttributeModifier::String(StringMode::Default)]),
       _ => None,
     }
   }
@@ -440,6 +444,14 @@ pub struct ParsedSignature {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StringMode {
+  /// Default mode.
+  Default,
+  /// One-byte strings (aka Latin-1).
+  OneByte,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BufferMode {
   /// Default mode.
   Default,
@@ -463,7 +475,7 @@ pub enum AttributeModifier {
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
   /// #[string], for strings.
-  String,
+  String(StringMode),
   /// #[state], for automatic OpState extraction.
   State,
   /// #[buffer], for buffers.
@@ -481,7 +493,7 @@ impl AttributeModifier {
       AttributeModifier::Buffer(_) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
-      AttributeModifier::String => "string",
+      AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
     }
@@ -581,7 +593,7 @@ pub enum Position {
 impl Attributes {
   pub fn string() -> Self {
     Self {
-      primary: Some(AttributeModifier::String),
+      primary: Some(AttributeModifier::String(StringMode::Default)),
     }
   }
 }
@@ -787,7 +799,8 @@ fn parse_attribute(
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[smi]) => Some(AttributeModifier::Smi),
-      (#[string]) => Some(AttributeModifier::String),
+      (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
+      (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
       (#[state]) => Some(AttributeModifier::State),
       (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default)),
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
@@ -854,6 +867,9 @@ fn parse_type_path(
       }
       ( $( std :: borrow :: )? Cow < str > ) => {
         Ok(CBare(TString(Strings::CowStr)))
+      }
+      ( $( std :: borrow :: )? Cow < [ u8 ] > ) => {
+        Ok(CBare(TString(Strings::CowByte)))
       }
       ( $( std :: vec ::)? Vec < $ty:path > ) => {
         Ok(CBare(TBuffer(Buffer::Vec(parse_numeric_type(&ty)?))))
@@ -1014,7 +1030,7 @@ pub(crate) fn parse_type(
       AttributeModifier::State => {
         return parse_type_state(ty);
       }
-      AttributeModifier::String
+      AttributeModifier::String(_)
       | AttributeModifier::Buffer(_)
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
@@ -1259,8 +1275,8 @@ mod tests {
     (String(RefStr), Numeric(bool)) -> Result(Void)
   );
   test!(
-    #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>) -> String;
-    (String(String), OptionString(String), String(CowStr)) -> Infallible(String(String))
+    #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>, #[string(onebyte)] s4: Cow<[u8]>) -> String;
+    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Infallible(String(String))
   );
   test!(
     #[string] fn op_lots_of_option_strings(#[string] s: Option<String>, #[string] s2: Option<&str>, #[string] s3: Option<Cow<str>>) -> Option<String>;
