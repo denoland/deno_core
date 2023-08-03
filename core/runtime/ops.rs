@@ -20,6 +20,7 @@ use std::mem::MaybeUninit;
 use std::option::Option;
 use std::task::Context;
 use std::task::Poll;
+use v8::WriteOptions;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -416,6 +417,12 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
   }
 }
 
+pub fn to_cow_byte_ptr(
+  string: &v8::fast_api::FastApiOneByteString,
+) -> Cow<[u8]> {
+  string.as_bytes().into()
+}
+
 /// Converts a [`v8::Value`] to an owned string.
 #[inline(always)]
 pub fn to_string(scope: &mut v8::Isolate, string: &v8::Value) -> String {
@@ -443,6 +450,48 @@ pub fn to_str<'a, const N: usize>(
   let string: &v8::String = unsafe { std::mem::transmute(string) };
 
   string.to_rust_cow_lossy(scope, buffer)
+}
+
+#[inline(always)]
+pub fn to_cow_one_byte(
+  scope: &mut v8::Isolate,
+  string: &v8::Value,
+) -> Result<Cow<'static, [u8]>, &'static str> {
+  if !string.is_string() {
+    return Err("expected String");
+  }
+
+  // SAFETY: We checked is_string above
+  let string: &v8::String = unsafe { std::mem::transmute(string) };
+
+  let capacity = string.length();
+  if capacity == 0 {
+    return Ok(Cow::Borrowed(&[]));
+  }
+
+  if !string.is_onebyte() && !string.contains_only_onebyte() {
+    return Err("expected one-byte String");
+  }
+
+  // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid
+  // accidentally creating a slice of u8 which would be invalid.
+  unsafe {
+    let layout = std::alloc::Layout::from_size_align(capacity, 1).unwrap();
+    let out = std::alloc::alloc(layout);
+
+    // Write the buffer to a slice made from this uninitialized data
+    {
+      let buffer = std::slice::from_raw_parts_mut(out as _, capacity);
+      string.write_one_byte_uninit(
+        scope,
+        buffer,
+        0,
+        WriteOptions::NO_NULL_TERMINATION,
+      );
+    }
+
+    Ok(Vec::from_raw_parts(out, capacity, capacity).into())
+  }
 }
 
 /// Converts from a raw [`v8::Value`] to the expected V8 data type.
@@ -653,9 +702,11 @@ mod tests {
       op_test_string_ref,
       op_test_string_cow,
       op_test_string_roundtrip_char,
+      op_test_string_roundtrip_char_onebyte,
       op_test_string_return,
       op_test_string_option_return,
       op_test_string_roundtrip,
+      op_test_string_roundtrip_onebyte,
       op_test_generics<String>,
       op_test_v8_types,
       op_test_v8_option_string,
@@ -1090,6 +1141,13 @@ mod tests {
     s.chars().next().unwrap() as u32
   }
 
+  #[op2(core, fast)]
+  pub fn op_test_string_roundtrip_char_onebyte(
+    #[string(onebyte)] s: Cow<[u8]>,
+  ) -> u32 {
+    s[0] as u32
+  }
+
   #[tokio::test]
   pub async fn test_op_strings() -> Result<(), Box<dyn std::error::Error>> {
     for op in [
@@ -1141,6 +1199,23 @@ mod tests {
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u0100') == 0x100)",
     )?;
+
+    run_test2(
+      10000,
+      "op_test_string_roundtrip_char_onebyte",
+      "assert(op_test_string_roundtrip_char_onebyte('\\u00ff') == 0xff)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_string_roundtrip_char_onebyte",
+      "assert(op_test_string_roundtrip_char_onebyte('\\u007f') == 0x7f)",
+    )?;
+    run_test2(
+      10,
+      "op_test_string_roundtrip_char_onebyte",
+      "try { op_test_string_roundtrip_char_onebyte('\\u1000'); assert(false); } catch (e) {}"
+    )?;
+
     Ok(())
   }
 
@@ -1171,6 +1246,14 @@ mod tests {
     s
   }
 
+  #[op2(core)]
+  #[string(onebyte)]
+  pub fn op_test_string_roundtrip_onebyte(
+    #[string(onebyte)] s: Cow<[u8]>,
+  ) -> Cow<[u8]> {
+    s
+  }
+
   #[tokio::test]
   pub async fn test_op_string_returns() -> Result<(), Box<dyn std::error::Error>>
   {
@@ -1193,6 +1276,11 @@ mod tests {
       1,
       "op_test_string_roundtrip",
       "assert(op_test_string_roundtrip('\\u0080\\u00a0\\u00ff') == '\\u0080\\u00a0\\u00ff')",
+    )?;
+    run_test2(
+      1,
+      "op_test_string_roundtrip_onebyte",
+      "assert(op_test_string_roundtrip_onebyte('\\u0080\\u00a0\\u00ff') == '\\u0080\\u00a0\\u00ff')",
     )?;
     Ok(())
   }

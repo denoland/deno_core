@@ -10,6 +10,7 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
+use super::signature::Strings;
 use super::V8MappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
@@ -362,20 +363,23 @@ fn map_v8_fastcall_arg_to_arg(
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
       }
     }
-    Arg::Special(Special::RefStr) => {
+    Arg::String(Strings::RefStr) => {
       quote! {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = &#deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
     }
-    Arg::Special(Special::String) => {
+    Arg::String(Strings::String) => {
       quote!(let #arg_ident = #deno_core::_ops::to_string_ptr(unsafe { &mut *#arg_ident });)
     }
-    Arg::Special(Special::CowStr) => {
+    Arg::String(Strings::CowStr) => {
       quote! {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = #deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
+    }
+    Arg::String(Strings::CowByte) => {
+      quote!(let #arg_ident = #deno_core::_ops::to_cow_byte_ptr(unsafe { &mut *#arg_ident });)
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
@@ -423,12 +427,14 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::State(..)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
-    Arg::OptionNumeric(_) | Arg::Option(_) | Arg::SerdeV8(_) | Arg::Ref(..) => {
-      return Ok(None)
-    }
+    Arg::OptionNumeric(_)
+    | Arg::Option(_)
+    | Arg::OptionString(_)
+    | Arg::SerdeV8(_)
+    | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
     Arg::V8Global(_) => return Ok(None),
-    // We don't support v8 type arguments
+    // We do support v8 type arguments (including Option<...>)
     Arg::V8Ref(RefType::Ref, _)
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
@@ -452,11 +458,13 @@ fn map_arg_to_v8_fastcall_type(
     Arg::Numeric(NumericArg::f64) => V8FastCallType::F64,
     // Ref strings that are one byte internally may be passed as a SeqOneByteString,
     // which gives us a FastApiOneByteString.
-    Arg::Special(Special::RefStr) => V8FastCallType::SeqOneByteString,
+    Arg::String(Strings::RefStr) => V8FastCallType::SeqOneByteString,
     // Owned strings can be fast, but we'll have to copy them.
-    Arg::Special(Special::String) => V8FastCallType::SeqOneByteString,
+    Arg::String(Strings::String) => V8FastCallType::SeqOneByteString,
     // Cow strings can be fast, but may require copying
-    Arg::Special(Special::CowStr) => V8FastCallType::SeqOneByteString,
+    Arg::String(Strings::CowStr) => V8FastCallType::SeqOneByteString,
+    // Cow byte strings can be fast and don't require copying
+    Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
     _ => return Err(V8MappingError::NoMapping("a fast argument", arg.clone())),
   };
   Ok(Some(rv))
@@ -490,7 +498,9 @@ fn map_retval_to_v8_fastcall_type(
     Arg::Numeric(NumericArg::f64) => V8FastCallType::F64,
     // We don't return special return types
     Arg::Option(_) => return Ok(None),
+    Arg::OptionString(_) => return Ok(None),
     Arg::Special(_) => return Ok(None),
+    Arg::String(_) => return Ok(None),
     // We don't support returning v8 types
     Arg::V8Ref(..)
     | Arg::V8Global(_)
