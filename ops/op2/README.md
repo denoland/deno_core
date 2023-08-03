@@ -293,7 +293,7 @@ Fastcall available only if string is Latin-1. Will create a `Cow::Owned` copy of
 </td><td>
 String
 </td><td>
-Fastest `String`-type method If the string is not Latin-1, will throw a TypeError.
+Fastest `String`-type method. If the string is not Latin-1, will throw a TypeError.
 </td></tr>
 <tr>
 <td>
