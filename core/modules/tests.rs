@@ -985,13 +985,10 @@ fn dynamic_imports_snapshot() {
     );
 
     let loader = MockLoader::new();
-    let mut runtime = JsRuntimeForSnapshot::new(
-      RuntimeOptions {
-        module_loader: Some(loader),
-        ..Default::default()
-      },
-      Default::default(),
-    );
+    let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      module_loader: Some(loader),
+      ..Default::default()
+    });
     // In default resolution code should be empty.
     // Instead we explicitly pass in our own code.
     // The behavior should be very similar to /a.js.
@@ -1029,13 +1026,10 @@ fn import_meta_snapshot() {
     );
 
     let loader = MockLoader::new();
-    let mut runtime = JsRuntimeForSnapshot::new(
-      RuntimeOptions {
-        module_loader: Some(loader),
-        ..Default::default()
-      },
-      Default::default(),
-    );
+    let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      module_loader: Some(loader),
+      ..Default::default()
+    });
     // In default resolution code should be empty.
     // Instead we explicitly pass in our own code.
     // The behavior should be very similar to /a.js.

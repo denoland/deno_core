@@ -183,8 +183,7 @@ fn js_realm_init() {
 #[test]
 fn js_realm_init_snapshot() {
   let snapshot = {
-    let runtime =
-      JsRuntimeForSnapshot::new(Default::default(), Default::default());
+    let runtime = JsRuntimeForSnapshot::new(Default::default());
     let snap: &[u8] = &runtime.snapshot();
     Vec::from(snap).into_boxed_slice()
   };
@@ -819,13 +818,10 @@ fn es_snapshot() {
       ..Default::default()
     };
 
-    let runtime = JsRuntimeForSnapshot::new(
-      RuntimeOptions {
-        extensions: vec![extension],
-        ..Default::default()
-      },
-      Default::default(),
-    );
+    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      extensions: vec![extension],
+      ..Default::default()
+    });
     runtime.snapshot()
   };
 

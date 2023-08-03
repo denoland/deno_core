@@ -6,11 +6,12 @@ use anyhow::Error;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Context;
 use v8::fast_api::FastFunction;
 use v8::ExternalReference;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum ExtensionFileSourceCode {
   /// Source code is included in the binary produced. Either by being defined
   /// inline, or included using `include_str!()`. If you are snapshotting, this
@@ -22,9 +23,12 @@ pub enum ExtensionFileSourceCode {
   // embedder is creating snapshots. Files will be loaded from the filesystem
   // during the build time and they will only be present in the V8 snapshot.
   LoadedFromFsDuringSnapshot(&'static str), // <- Path
+
+  /// Source code may be computed at runtime.
+  Computed(Arc<str>),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
   pub code: ExtensionFileSourceCode,
@@ -56,6 +60,15 @@ impl ExtensionFileSource {
           Self::find_non_ascii(&s)
         );
         Ok(s.into())
+      }
+      ExtensionFileSourceCode::Computed(code) => {
+        debug_assert!(
+          code.is_ascii(),
+          "Extension code must be 7-bit ASCII: {} (found {})",
+          self.specifier,
+          Self::find_non_ascii(code)
+        );
+        Ok(ModuleCode::Arc(code.clone()))
       }
     }
   }
