@@ -706,6 +706,7 @@ mod tests {
       op_test_string_return,
       op_test_string_option_return,
       op_test_string_roundtrip,
+      op_test_string_roundtrip_onebyte,
       op_test_generics<String>,
       op_test_v8_types,
       op_test_v8_option_string,
@@ -1245,6 +1246,14 @@ mod tests {
     s
   }
 
+  #[op2(core)]
+  #[string(onebyte)]
+  pub fn op_test_string_roundtrip_onebyte(
+    #[string(onebyte)] s: Cow<[u8]>,
+  ) -> Cow<[u8]> {
+    s
+  }
+
   #[tokio::test]
   pub async fn test_op_string_returns() -> Result<(), Box<dyn std::error::Error>>
   {
@@ -1267,6 +1276,11 @@ mod tests {
       1,
       "op_test_string_roundtrip",
       "assert(op_test_string_roundtrip('\\u0080\\u00a0\\u00ff') == '\\u0080\\u00a0\\u00ff')",
+    )?;
+    run_test2(
+      1,
+      "op_test_string_roundtrip_onebyte",
+      "assert(op_test_string_roundtrip_onebyte('\\u0080\\u00a0\\u00ff') == '\\u0080\\u00a0\\u00ff')",
     )?;
     Ok(())
   }

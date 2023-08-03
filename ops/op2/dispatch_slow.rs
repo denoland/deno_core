@@ -569,6 +569,17 @@ pub fn return_value_infallible(
         }
       }
     }
+    Arg::String(Strings::CowByte) => {
+      *needs_scope = true;
+      quote! {
+        if #result.is_empty() {
+          #retval.set_empty_string();
+        } else {
+          let temp = #deno_core::v8::String::new_from_one_byte(&mut #scope, &#result, #deno_core::v8::NewStringType::Normal).unwrap();
+          #retval.set(temp.into());
+        }
+      }
+    }
     Arg::V8Local(_) => {
       quote! {
         // We may have a non v8::Value here
