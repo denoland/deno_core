@@ -22,7 +22,6 @@ pub use jsruntime::JsRuntime;
 pub use jsruntime::JsRuntimeForSnapshot;
 pub use jsruntime::JsRuntimeState;
 pub use jsruntime::RuntimeOptions;
-pub use jsruntime::RuntimeSnapshotOptions;
 pub use jsruntime::SharedArrayBufferStore;
 pub use jsruntime::Snapshot;
 pub use snapshot_util::create_snapshot;

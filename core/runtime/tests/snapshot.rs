@@ -16,8 +16,7 @@ use url::Url;
 #[test]
 fn will_snapshot() {
   let snapshot = {
-    let mut runtime =
-      JsRuntimeForSnapshot::new(Default::default(), Default::default());
+    let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
     runtime.snapshot()
   };
@@ -35,8 +34,7 @@ fn will_snapshot() {
 #[test]
 fn will_snapshot2() {
   let startup_data = {
-    let mut runtime =
-      JsRuntimeForSnapshot::new(Default::default(), Default::default());
+    let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime
       .execute_script_static("a.js", "let a = 1 + 2")
       .unwrap();
@@ -44,13 +42,10 @@ fn will_snapshot2() {
   };
 
   let snapshot = Snapshot::JustCreated(startup_data);
-  let mut runtime = JsRuntimeForSnapshot::new(
-    RuntimeOptions {
-      startup_snapshot: Some(snapshot),
-      ..Default::default()
-    },
-    Default::default(),
-  );
+  let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    ..Default::default()
+  });
 
   let startup_data = {
     runtime
@@ -78,8 +73,7 @@ fn will_snapshot2() {
 #[test]
 fn test_snapshot_callbacks() {
   let snapshot = {
-    let mut runtime =
-      JsRuntimeForSnapshot::new(Default::default(), Default::default());
+    let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime
       .execute_script_static(
         "a.js",
@@ -113,8 +107,7 @@ fn test_snapshot_callbacks() {
 #[test]
 fn test_from_boxed_snapshot() {
   let snapshot = {
-    let mut runtime =
-      JsRuntimeForSnapshot::new(Default::default(), Default::default());
+    let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
     let snap: &[u8] = &runtime.snapshot();
     Vec::from(snap).into_boxed_slice()
@@ -209,17 +202,14 @@ fn es_snapshot() {
     Ok(String::from("test"))
   }
 
-  let mut runtime = JsRuntimeForSnapshot::new(
-    RuntimeOptions {
-      extensions: vec![Extension {
-        name: "test_ext",
-        ops: Cow::Borrowed(&[op_test::DECL]),
-        ..Default::default()
-      }],
+  let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    extensions: vec![Extension {
+      name: "test_ext",
+      ops: Cow::Borrowed(&[op_test::DECL]),
       ..Default::default()
-    },
-    Default::default(),
-  );
+    }],
+    ..Default::default()
+  });
 
   let specifier = crate::resolve_url("file:///0.js").unwrap();
   let source_code =
@@ -248,18 +238,15 @@ fn es_snapshot() {
 
   let snapshot = runtime.snapshot();
 
-  let mut runtime2 = JsRuntimeForSnapshot::new(
-    RuntimeOptions {
-      startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
-      extensions: vec![Extension {
-        name: "test_ext",
-        ops: Cow::Borrowed(&[op_test::DECL]),
-        ..Default::default()
-      }],
+  let mut runtime2 = JsRuntimeForSnapshot::new(RuntimeOptions {
+    startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
+    extensions: vec![Extension {
+      name: "test_ext",
+      ops: Cow::Borrowed(&[op_test::DECL]),
       ..Default::default()
-    },
-    Default::default(),
-  );
+    }],
+    ..Default::default()
+  });
 
   assert_module_map(&mut runtime2, &modules);
 
@@ -312,13 +299,10 @@ pub(crate) fn generic_es_snapshot_without_runtime_module_loader(
       ..Default::default()
     };
 
-    let runtime = JsRuntimeForSnapshot::new(
-      RuntimeOptions {
-        extensions: vec![extension],
-        ..Default::default()
-      },
-      Default::default(),
-    );
+    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      extensions: vec![extension],
+      ..Default::default()
+    });
 
     runtime.snapshot()
   };
@@ -417,13 +401,10 @@ pub(crate) fn generic_preserve_snapshotted_modules_test(
   let loader = Rc::new(LoggingModuleLoader::new(NoopModuleLoader));
 
   let mut runtime = if test_snapshot {
-    let snapshot_runtime = JsRuntimeForSnapshot::new(
-      RuntimeOptions {
-        extensions: vec![extension],
-        ..Default::default()
-      },
-      Default::default(),
-    );
+    let snapshot_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      extensions: vec![extension],
+      ..Default::default()
+    });
     let startup_data = snapshot_runtime.snapshot();
 
     JsRuntime::new(RuntimeOptions {

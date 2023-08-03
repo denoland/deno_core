@@ -5,8 +5,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::runtime::jsruntime::BUILTIN_SOURCES;
-use crate::runtime::RuntimeSnapshotOptions;
-use crate::ExtModuleLoaderCb;
 use crate::Extension;
 use crate::ExtensionFileSourceCode;
 use crate::JsRuntimeForSnapshot;
@@ -22,7 +20,6 @@ pub struct CreateSnapshotOptions {
   pub startup_snapshot: Option<Snapshot>,
   pub extensions: Vec<Extension>,
   pub compression_cb: Option<Box<CompressionCb>>,
-  pub snapshot_module_load_cb: Option<ExtModuleLoaderCb>,
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
 }
 
@@ -38,16 +35,11 @@ pub fn create_snapshot(
 ) -> CreateSnapshotOutput {
   let mut mark = Instant::now();
 
-  let mut js_runtime = JsRuntimeForSnapshot::new(
-    RuntimeOptions {
-      startup_snapshot: create_snapshot_options.startup_snapshot,
-      extensions: create_snapshot_options.extensions,
-      ..Default::default()
-    },
-    RuntimeSnapshotOptions {
-      snapshot_module_load_cb: create_snapshot_options.snapshot_module_load_cb,
-    },
-  );
+  let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    startup_snapshot: create_snapshot_options.startup_snapshot,
+    extensions: create_snapshot_options.extensions,
+    ..Default::default()
+  });
   println!(
     "JsRuntime for snapshot prepared, took {:#?} ({})",
     Instant::now().saturating_duration_since(mark),

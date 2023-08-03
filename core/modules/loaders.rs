@@ -20,7 +20,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::rc::Rc;
 
 pub trait ModuleLoader {
   /// Returns an absolute URL.
@@ -107,16 +106,12 @@ pub type ExtModuleLoaderCb =
   Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCode, Error>>;
 
 pub(crate) struct ExtModuleLoader {
-  maybe_load_callback: Option<Rc<ExtModuleLoaderCb>>,
   sources: RefCell<HashMap<String, ExtensionFileSource>>,
   used_specifiers: RefCell<HashSet<String>>,
 }
 
 impl ExtModuleLoader {
-  pub fn new(
-    extensions: &[Extension],
-    maybe_load_callback: Option<Rc<ExtModuleLoaderCb>>,
-  ) -> Self {
+  pub fn new(extensions: &[Extension]) -> Self {
     let mut sources = HashMap::new();
     sources.extend(
       extensions
@@ -125,7 +120,6 @@ impl ExtModuleLoader {
         .map(|s| (s.specifier.to_string(), s.clone())),
     );
     ExtModuleLoader {
-      maybe_load_callback,
       sources: RefCell::new(sources),
       used_specifiers: Default::default(),
     }
@@ -157,11 +151,7 @@ impl ModuleLoader for ExtModuleLoader {
       .used_specifiers
       .borrow_mut()
       .insert(specifier.to_string());
-    let result = if let Some(load_callback) = &self.maybe_load_callback {
-      load_callback(source)
-    } else {
-      source.load()
-    };
+    let result = source.load();
     match result {
       Ok(code) => {
         let res = ModuleSource::new(ModuleType::JavaScript, code, specifier);

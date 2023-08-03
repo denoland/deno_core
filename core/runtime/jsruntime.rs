@@ -16,7 +16,6 @@ use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::AssertedModuleType;
 use crate::modules::ExtModuleLoader;
-use crate::modules::ExtModuleLoaderCb;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
@@ -437,14 +436,6 @@ impl RuntimeOptions {
 }
 
 #[derive(Default)]
-pub struct RuntimeSnapshotOptions {
-  /// An optional callback that will be called for each module that is loaded
-  /// during snapshotting. This callback can be used to transpile source on the
-  /// fly, during snapshotting, eg. to transpile TypeScript to JavaScript.
-  pub snapshot_module_load_cb: Option<ExtModuleLoaderCb>,
-}
-
-#[derive(Default)]
 pub struct CreateRealmOptions {
   /// Implementation of `ModuleLoader` which will be
   /// called when V8 requests to load ES modules in the realm.
@@ -462,7 +453,7 @@ impl JsRuntime {
       cfg!(test),
       options.unsafe_expose_natives_and_gc(),
     );
-    JsRuntime::new_inner(options, false, None)
+    JsRuntime::new_inner(options, false)
   }
 
   pub(crate) fn state_from(
@@ -513,11 +504,7 @@ impl JsRuntime {
       .call_once(move || v8_init(v8_platform, predictable, expose_natives));
   }
 
-  fn new_inner(
-    mut options: RuntimeOptions,
-    will_snapshot: bool,
-    maybe_load_callback: Option<ExtModuleLoaderCb>,
-  ) -> JsRuntime {
+  fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
     let op_state = Rc::new(RefCell::new(op_state));
@@ -734,9 +721,7 @@ impl JsRuntime {
 
     let realm = js_runtime.main_realm();
     // TODO(mmastrac): We should thread errors back out of the runtime
-    js_runtime
-      .init_extension_js(&realm, maybe_load_callback)
-      .unwrap();
+    js_runtime.init_extension_js(&realm).unwrap();
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
@@ -871,7 +856,7 @@ impl JsRuntime {
       JsRealm::new(realm)
     };
 
-    self.init_extension_js(&realm, None)?;
+    self.init_extension_js(&realm)?;
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
@@ -894,11 +879,7 @@ impl JsRuntime {
   }
 
   /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(
-    &mut self,
-    realm: &JsRealm,
-    maybe_load_callback: Option<ExtModuleLoaderCb>,
-  ) -> Result<(), Error> {
+  fn init_extension_js(&mut self, realm: &JsRealm) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
@@ -912,10 +893,7 @@ impl JsRuntime {
     let extensions = std::mem::take(&mut self.extensions);
 
     let loader = module_map_rc.borrow().loader.clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(
-      &extensions,
-      maybe_load_callback.map(Rc::new),
-    ));
+    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
     module_map_rc.borrow_mut().loader = ext_loader;
 
     let mut esm_entrypoints = vec![];
@@ -1683,20 +1661,13 @@ fn create_context<'a>(
 }
 
 impl JsRuntimeForSnapshot {
-  pub fn new(
-    mut options: RuntimeOptions,
-    runtime_snapshot_options: RuntimeSnapshotOptions,
-  ) -> JsRuntimeForSnapshot {
+  pub fn new(mut options: RuntimeOptions) -> JsRuntimeForSnapshot {
     JsRuntime::init_v8(
       options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),
     );
-    JsRuntimeForSnapshot(JsRuntime::new_inner(
-      options,
-      true,
-      runtime_snapshot_options.snapshot_module_load_cb,
-    ))
+    JsRuntimeForSnapshot(JsRuntime::new_inner(options, true))
   }
 
   /// Takes a snapshot and consumes the runtime.

@@ -106,13 +106,10 @@ fn create_js_runtime() -> JsRuntimeForSnapshot {
     ..Default::default()
   };
 
-  JsRuntimeForSnapshot::new(
-    deno_core::RuntimeOptions {
-      extensions: vec![ext],
-      ..Default::default()
-    },
-    Default::default(),
-  )
+  JsRuntimeForSnapshot::new(deno_core::RuntimeOptions {
+    extensions: vec![ext],
+    ..Default::default()
+  })
 }
 
 #[op]
