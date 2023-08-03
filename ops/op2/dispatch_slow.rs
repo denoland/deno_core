@@ -11,6 +11,7 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
+use super::signature::Strings;
 use super::V8MappingError;
 use crate::op2::generator_state::gs_extract;
 use crate::op2::generator_state::gs_quote;
@@ -242,7 +243,7 @@ pub fn from_arg(
         };
       }
     }
-    Arg::Option(Special::String) => {
+    Arg::OptionString(Strings::String) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
@@ -253,14 +254,14 @@ pub fn from_arg(
         };
       }
     }
-    Arg::Special(Special::String) => {
+    Arg::String(Strings::String) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
         let #arg_ident = #deno_core::_ops::to_string(&mut #scope, &#arg_ident);
       }
     }
-    Arg::Special(Special::RefStr) => {
+    Arg::String(Strings::RefStr) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
@@ -269,7 +270,7 @@ pub fn from_arg(
         let #arg_ident = &#deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
     }
-    Arg::Special(Special::CowStr) => {
+    Arg::String(Strings::CowStr) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       quote! {
@@ -277,6 +278,21 @@ pub fn from_arg(
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; #deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); #deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = #deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
       }
+    }
+    Arg::String(Strings::CowByte) => {
+      // Only requires isolate, not a full scope
+      *needs_isolate = true;
+      let throw_exception =
+        throw_type_error_static_string(generator_state, &arg_ident)?;
+      gs_quote!(generator_state(deno_core, scope) => {
+        // Trade stack space for potentially non-allocating strings
+        let #arg_ident = match #deno_core::_ops::to_cow_one_byte(&mut #scope, &#arg_ident) {
+          Ok(#arg_ident) => #arg_ident,
+          Err(#arg_ident) => {
+            #throw_exception
+          }
+        };
+      })
     }
     Arg::Buffer(buffer) => {
       from_arg_buffer(generator_state, &arg_ident, buffer)?
@@ -539,7 +555,7 @@ pub fn return_value_infallible(
     Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
       quote!(#retval.set_double(#result as _);)
     }
-    Arg::Special(Special::String) => {
+    Arg::String(Strings::String) => {
       *needs_scope = true;
       quote! {
         if #result.is_empty() {
@@ -553,38 +569,14 @@ pub fn return_value_infallible(
         }
       }
     }
-    Arg::OptionNumeric(n) => {
+    Arg::String(Strings::CowByte) => {
       *needs_scope = true;
-      let some = return_value_infallible(generator_state, &Arg::Numeric(*n))?;
-      gs_quote!(generator_state(result, retval) => {
-        if let Some(#result) = #result {
-          #some
-        } else {
-          #retval.set_null();
-        }
-      })
-    }
-    Arg::Option(Special::String) => {
-      *needs_scope = true;
-      let some = return_value_infallible(
-        generator_state,
-        &Arg::Special(Special::String),
-      )?;
-      gs_quote!(generator_state(result, retval) => {
-        if let Some(#result) = #result {
-          #some
-        } else {
-          #retval.set_null();
-        }
-      })
-    }
-    Arg::OptionV8Local(_) => {
       quote! {
-        if let Some(#result) = #result {
-          // We may have a non v8::Value here
-          #retval.set(#result.into())
+        if #result.is_empty() {
+          #retval.set_empty_string();
         } else {
-          #retval.set_null();
+          let temp = #deno_core::v8::String::new_from_one_byte(&mut #scope, &#result, #deno_core::v8::NewStringType::Normal).unwrap();
+          #retval.set(temp.into());
         }
       }
     }
@@ -620,6 +612,20 @@ pub fn return_value_infallible(
       | Buffer::BoxSlice(NumericArg::u8),
     ) => {
       quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
+    }
+    arg if arg.is_option() => {
+      // We support all optional types by generating the infallible version in a branch
+      let some = return_value_infallible(
+        generator_state,
+        &ret_type.some_type().unwrap(),
+      )?;
+      gs_quote!(generator_state(result, retval) => {
+        if let Some(#result) = #result {
+          #some
+        } else {
+          #retval.set_null();
+        }
+      })
     }
     _ => {
       return Err(V8MappingError::NoMapping(

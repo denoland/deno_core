@@ -139,10 +139,15 @@ impl ToTokens for V8Arg {
 pub enum Special {
   HandleScope,
   OpState,
+  FastApiCallbackOptions,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Strings {
   String,
   CowStr,
   RefStr,
-  FastApiCallbackOptions,
+  CowByte,
 }
 
 /// Buffers are complicated and may be shared/owned, shared/unowned, a copy, or detached.
@@ -207,11 +212,13 @@ pub enum RefType {
 pub enum Arg {
   Void,
   Special(Special),
+  String(Strings),
   Buffer(Buffer),
   External(External),
   Ref(RefType, Special),
   RcRefCell(Special),
   Option(Special),
+  OptionString(Strings),
   OptionNumeric(NumericArg),
   OptionV8Local(V8Arg),
   OptionV8Global(V8Arg),
@@ -229,7 +236,7 @@ impl Arg {
   /// Is this argument virtual? ie: does it come from the æther rather than a concrete JavaScript input
   /// argument?
   #[allow(clippy::match_like_matches_macro)]
-  pub fn is_virtual(&self) -> bool {
+  pub const fn is_virtual(&self) -> bool {
     match self {
       Self::Special(
         Special::FastApiCallbackOptions
@@ -277,7 +284,7 @@ impl Arg {
   }
 
   /// Is this type an [`Option`]?
-  pub fn is_option(&self) -> bool {
+  pub const fn is_option(&self) -> bool {
     matches!(
       self,
       Arg::OptionV8Ref(..)
@@ -285,13 +292,29 @@ impl Arg {
         | Arg::OptionV8Global(..)
         | Arg::OptionNumeric(..)
         | Arg::Option(..)
+        | Arg::OptionString(..)
         | Arg::OptionState(..)
     )
+  }
+
+  /// Return the `Some` part of this `Option` type, or `None` if it is not an `Option`.
+  pub fn some_type(&self) -> Option<Arg> {
+    Some(match self {
+      Arg::OptionV8Ref(r, t) => Arg::V8Ref(*r, *t),
+      Arg::OptionV8Local(t) => Arg::V8Local(*t),
+      Arg::OptionV8Global(t) => Arg::V8Global(*t),
+      Arg::OptionNumeric(t) => Arg::Numeric(*t),
+      Arg::Option(t) => Arg::Special(*t),
+      Arg::OptionString(t) => Arg::String(*t),
+      Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
+      _ => return None,
+    })
   }
 }
 
 pub enum ParsedType {
   TSpecial(Special),
+  TString(Strings),
   TBuffer(Buffer),
   TV8(V8Arg),
   // TODO(mmastrac): We need to carry the mut status through somehow
@@ -315,9 +338,10 @@ impl ParsedType {
         | NumericArg::isize,
       ) => Some(&[AttributeModifier::Bigint]),
       TBuffer(buffer) => Some(buffer.valid_modes(position)),
-      TSpecial(Special::CowStr | Special::RefStr | Special::String) => {
-        Some(&[AttributeModifier::String])
+      TString(Strings::CowByte) => {
+        Some(&[AttributeModifier::String(StringMode::OneByte)])
       }
+      TString(..) => Some(&[AttributeModifier::String(StringMode::Default)]),
       _ => None,
     }
   }
@@ -434,6 +458,14 @@ pub struct ParsedSignature {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StringMode {
+  /// Default mode.
+  Default,
+  /// One-byte strings (aka Latin-1).
+  OneByte,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BufferMode {
   /// Default mode.
   Default,
@@ -457,7 +489,7 @@ pub enum AttributeModifier {
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
   /// #[string], for strings.
-  String,
+  String(StringMode),
   /// #[state], for automatic OpState extraction.
   State,
   /// #[buffer], for buffers.
@@ -475,7 +507,7 @@ impl AttributeModifier {
       AttributeModifier::Buffer(_) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
-      AttributeModifier::String => "string",
+      AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
     }
@@ -575,7 +607,7 @@ pub enum Position {
 impl Attributes {
   pub fn string() -> Self {
     Self {
-      primary: Some(AttributeModifier::String),
+      primary: Some(AttributeModifier::String(StringMode::Default)),
     }
   }
 }
@@ -781,7 +813,8 @@ fn parse_attribute(
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[smi]) => Some(AttributeModifier::Smi),
-      (#[string]) => Some(AttributeModifier::String),
+      (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
+      (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
       (#[state]) => Some(AttributeModifier::State),
       (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default)),
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
@@ -840,14 +873,17 @@ fn parse_type_path(
     std::panic::catch_unwind(|| {
     rules!(tokens => {
       ( $( std :: str  :: )? String ) => {
-        Ok(CBare(TSpecial(Special::String)))
+        Ok(CBare(TString(Strings::String)))
       }
       // Note that the reference is checked below
       ( $( std :: str :: )? str ) => {
-        Ok(CBare(TSpecial(Special::RefStr)))
+        Ok(CBare(TString(Strings::RefStr)))
       }
       ( $( std :: borrow :: )? Cow < str > ) => {
-        Ok(CBare(TSpecial(Special::CowStr)))
+        Ok(CBare(TString(Strings::CowStr)))
+      }
+      ( $( std :: borrow :: )? Cow < [ u8 ] > ) => {
+        Ok(CBare(TString(Strings::CowByte)))
       }
       ( $( std :: vec ::)? Vec < $ty:path > ) => {
         Ok(CBare(TBuffer(Buffer::Vec(parse_numeric_type(&ty)?))))
@@ -874,6 +910,7 @@ fn parse_type_path(
       ( Option < $ty:ty > ) => {
         match parse_type(position, attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
+          Arg::String(string) => Ok(COption(TString(string))),
           Arg::Numeric(numeric) => Ok(COption(TNumeric(numeric))),
           Arg::Buffer(buffer) => Ok(COption(TBuffer(buffer))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
@@ -893,7 +930,9 @@ fn parse_type_path(
   match res {
     // OpState appears in both ways
     CBare(TSpecial(Special::OpState)) => {}
-    CBare(TSpecial(Special::RefStr | Special::HandleScope) | TV8(_)) => {
+    CBare(
+      TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
+    ) => {
       if !is_ref {
         return Err(ArgError::MissingReference(stringify_token(tp)));
       }
@@ -1005,7 +1044,7 @@ pub(crate) fn parse_type(
       AttributeModifier::State => {
         return parse_type_state(ty);
       }
-      AttributeModifier::String
+      AttributeModifier::String(_)
       | AttributeModifier::Buffer(_)
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
@@ -1051,9 +1090,9 @@ pub(crate) fn parse_type(
           }
         }
         Type::Path(of) => match parse_type_path(position, attrs, true, of)? {
-          CBare(TSpecial(Special::RefStr)) => Ok(Arg::Special(Special::RefStr)),
-          COption(TSpecial(Special::RefStr)) => {
-            Ok(Arg::Option(Special::RefStr))
+          CBare(TString(Strings::RefStr)) => Ok(Arg::String(Strings::RefStr)),
+          COption(TString(Strings::RefStr)) => {
+            Ok(Arg::OptionString(Strings::RefStr))
           }
           CBare(TV8(v8)) => Ok(Arg::V8Ref(mut_type, v8)),
           CBare(TSpecial(special)) => Ok(Arg::Ref(mut_type, special)),
@@ -1084,9 +1123,11 @@ pub(crate) fn parse_type(
     Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
       CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric)),
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
+      CBare(TString(string)) => Ok(Arg::String(string)),
       CBare(TBuffer(buffer)) => Ok(Arg::Buffer(buffer)),
       COption(TNumeric(special)) => Ok(Arg::OptionNumeric(special)),
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
+      COption(TString(string)) => Ok(Arg::OptionString(string)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
       COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
@@ -1245,23 +1286,23 @@ mod tests {
   );
   test!(
     fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error>;
-    (Special(RefStr), Numeric(bool)) -> Result(Void)
+    (String(RefStr), Numeric(bool)) -> Result(Void)
   );
   test!(
-    #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>) -> String;
-    (Special(String), Option(String), Special(CowStr)) -> Infallible(Special(String))
+    #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>, #[string(onebyte)] s4: Cow<[u8]>) -> String;
+    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Infallible(String(String))
   );
   test!(
     #[string] fn op_lots_of_option_strings(#[string] s: Option<String>, #[string] s2: Option<&str>, #[string] s3: Option<Cow<str>>) -> Option<String>;
-    (Option(String), Option(RefStr), Option(CowStr)) -> Infallible(Option(String))
+    (OptionString(String), OptionString(RefStr), OptionString(CowStr)) -> Infallible(OptionString(String))
   );
   test!(
     fn op_scope<'s>(#[string] msg: &'s str);
-    <'s> (Special(RefStr)) -> Infallible(Void)
+    <'s> (String(RefStr)) -> Infallible(Void)
   );
   test!(
     fn op_scope_and_generics<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait, BC: OtherTrait;
-    <'s, AB: some::Trait, BC: OtherTrait> (Special(RefStr)) -> Infallible(Void)
+    <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Infallible(Void)
   );
   test!(
     fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, #[global] s3: v8::Global<v8::String>);
