@@ -161,7 +161,7 @@ bench();
 }
 
 const BENCH_COUNT: usize = 1000;
-const LARGE_BENCH_COUNT: usize = 10;
+const LARGE_BENCH_COUNT: usize = 5;
 
 /// Tests the overhead of execute_script.
 fn baseline(b: &mut Bencher) {
