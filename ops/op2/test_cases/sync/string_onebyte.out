@@ -1,0 +1,80 @@
+#[allow(non_camel_case_types)]
+struct op_string_onebyte {
+    _unconstructable: ::std::marker::PhantomData<()>,
+}
+impl deno_core::_ops::Op for op_string_onebyte {
+    const NAME: &'static str = stringify!(op_string_onebyte);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_string_onebyte),
+        false,
+        false,
+        false,
+        1usize as u8,
+        Self::v8_fn_ptr as _,
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value, Type::SeqOneByteString],
+                CType::Uint32,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+    );
+}
+impl op_string_onebyte {
+    pub const fn name() -> &'static str {
+        stringify!(op_string_onebyte)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    fn v8_fn_ptr_fast(
+        _: deno_core::v8::Local<deno_core::v8::Object>,
+        arg0: *mut deno_core::v8::fast_api::FastApiOneByteString,
+    ) -> u32 {
+        let result = {
+            let arg0 = deno_core::_ops::to_cow_byte_ptr(unsafe { &mut *arg0 });
+            Self::call(arg0)
+        };
+        result as _
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let mut scope = unsafe { &mut *opctx.isolate };
+        let result = {
+            let arg0 = args.get(0usize as i32);
+            let arg0 = match deno_core::_ops::to_cow_one_byte(&mut scope, &arg0) {
+                Ok(arg0) => arg0,
+                Err(arg0) => {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            arg0.as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            Self::call(arg0)
+        };
+        rv.set_uint32(result as u32);
+    }
+    #[inline(always)]
+    fn call(s: Cow<[u8]>) -> u32 {
+        s.len() as _
+    }
+}

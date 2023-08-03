@@ -456,24 +456,26 @@ pub fn to_str<'a, const N: usize>(
 pub fn to_cow_one_byte(
   scope: &mut v8::Isolate,
   string: &v8::Value,
-) -> Cow<'static, [u8]> {
+) -> Result<Cow<'static, [u8]>, &'static str> {
   if !string.is_string() {
-    return Cow::Borrowed(&[]);
+    return Err("expected String");
   }
 
   // SAFETY: We checked is_string above
   let string: &v8::String = unsafe { std::mem::transmute(string) };
 
-  if !string.is_onebyte() {
-    if !string.contains_only_onebyte() {
-      return Cow::Borrowed(&[]);
-    }
+  let capacity = string.length();
+  if capacity == 0 {
+    return Ok(Cow::Borrowed(&[]));
+  }
+
+  if !string.is_onebyte() && !string.contains_only_onebyte() {
+    return Err("expected one-byte String");
   }
 
   // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid
   // accidentally creating a slice of u8 which would be invalid.
   unsafe {
-    let capacity = string.length();
     let layout = std::alloc::Layout::from_size_align(capacity, 1).unwrap();
     let out = std::alloc::alloc(layout);
 
@@ -488,7 +490,7 @@ pub fn to_cow_one_byte(
       );
     }
 
-    Vec::from_raw_parts(out, capacity, capacity).into()
+    Ok(Vec::from_raw_parts(out, capacity, capacity).into())
   }
 }
 
@@ -1206,6 +1208,11 @@ mod tests {
       10000,
       "op_test_string_roundtrip_char_onebyte",
       "assert(op_test_string_roundtrip_char_onebyte('\\u007f') == 0x7f)",
+    )?;
+    run_test2(
+      10,
+      "op_test_string_roundtrip_char_onebyte",
+      "try { op_test_string_roundtrip_char_onebyte('\\u1000'); assert(false); } catch (e) {}"
     )?;
 
     Ok(())

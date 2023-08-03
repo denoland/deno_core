@@ -12,6 +12,7 @@ deno_core::extension!(
     op_option_u32,
     op_string,
     op_string_onebyte,
+    op_string_bytestring,
     op_string_old,
     op_string_option_u32,
     op_local,
@@ -46,6 +47,11 @@ pub fn op_string(#[string] s: &str) -> u32 {
 
 #[op2(fast)]
 pub fn op_string_onebyte(#[string(onebyte)] s: Cow<[u8]>) -> u32 {
+  s.len() as _
+}
+
+#[op2]
+pub fn op_string_bytestring(#[serde] s: ByteString) -> u32 {
   s.len() as _
 }
 
@@ -238,6 +244,11 @@ fn bench_op_string_onebyte_large_1000000(b: &mut Bencher) {
 }
 
 /// A string function with a numeric return value.
+fn bench_op_string_bytestring(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_string_bytestring", 1, "accum += op_string_bytestring('this is a reasonably long string that we would like to get the length of!');");
+}
+
+/// A string function with a numeric return value.
 fn bench_op_string_large_utf8_1000(b: &mut Bencher) {
   bench_op(
     b,
@@ -344,6 +355,7 @@ benchmark_group!(
   bench_op_void,
   bench_op_u32,
   bench_op_option_u32,
+  bench_op_string_bytestring,
   bench_op_string,
   bench_op_string_large_1000,
   bench_op_string_large_1000000,
