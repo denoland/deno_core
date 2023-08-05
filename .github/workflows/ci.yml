@@ -38,8 +38,8 @@ jobs:
       - name: Format
         if: contains(matrix.os, 'ubuntu')
         run: |
-          cargo fmt --all --check
-          deno fmt --check
+          cargo fmt -- --check
+          deno fmt --check ./core/ ./ops/ ./serde_v8/
 
       - name: Lint
         if: contains(matrix.os, 'ubuntu')
