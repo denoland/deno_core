@@ -38,7 +38,7 @@ jobs:
       - name: Format
         if: contains(matrix.os, 'ubuntu')
         run: |
-          cargo fmt -- --all --check
+          cargo fmt --all --check
           deno fmt --check
 
       - name: Lint
