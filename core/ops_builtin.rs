@@ -291,7 +291,6 @@ async fn op_read_all(
 //
 //
 
-
 #[op2(async, core)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
