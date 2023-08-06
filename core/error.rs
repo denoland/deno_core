@@ -624,6 +624,30 @@ pub(crate) fn is_aggregate_error(
   false
 }
 
+/// Check if the error has a proper stack trace. The stack trace checked is the
+/// one passed to `prepareStackTrace()`, not `msg.get_stack_trace()`.
+pub(crate) fn has_call_site(
+  scope: &mut v8::HandleScope,
+  exception: v8::Local<v8::Value>,
+) -> bool {
+  if !exception.is_object() {
+    return false;
+  }
+  let exception = exception.to_object(scope).unwrap();
+  // Access error.stack to ensure that prepareStackTrace() has been called.
+  // This should populate error.__callSiteEvals.
+  get_property(scope, exception, "stack");
+  let frames_v8 = get_property(scope, exception, "__callSiteEvals");
+  let frames_v8: Option<v8::Local<v8::Array>> =
+    frames_v8.and_then(|a| a.try_into().ok());
+  if let Some(frames_v8) = frames_v8 {
+    if frames_v8.length() > 0 {
+      return true;
+    }
+  }
+  false
+}
+
 const DATA_URL_ABBREV_THRESHOLD: usize = 150;
 
 pub fn format_file_name(file_name: &str) -> String {

@@ -6,6 +6,7 @@ use std::option::Option;
 use std::os::raw::c_void;
 use v8::MapFnTo;
 
+use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
 use crate::error::JsStackFrame;
@@ -392,8 +393,8 @@ fn catch_dynamic_import_promise_error(
   if is_instance_of_error(scope, arg) {
     let e: crate::error::NativeJsError = serde_v8::from_v8(scope, arg).unwrap();
     let name = e.name.unwrap_or_else(|| "Error".to_string());
-    let msg = v8::Exception::create_message(scope, arg);
-    if msg.get_stack_trace(scope).unwrap().get_frame_count() == 0 {
+    if !has_call_site(scope, arg) {
+      let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
       let message_key =
         v8::String::new_external_onebyte_static(scope, b"message").unwrap();
