@@ -911,6 +911,52 @@ async fn test_stalled_tla() {
   assert_eq!(js_error.frames[0].column_number, Some(1));
 }
 
+// Regression test for https://github.com/denoland/deno/issues/20034.
+#[tokio::test]
+async fn test_dynamic_import_module_error_stack() {
+  #[op]
+  async fn op_async_error() -> Result<(), Error> {
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    Err(crate::error::type_error("foo"))
+  }
+  deno_core::extension!(test_ext, ops = [op_async_error]);
+  let loader = StaticModuleLoader::new([
+    (
+      Url::parse("file:///main.js").unwrap(),
+      ascii_str!(
+        "
+        Error.prepareStackTrace = Deno.core.prepareStackTrace;
+        await import(\"file:///import.js\");
+        "
+      ),
+    ),
+    (
+      Url::parse("file:///import.js").unwrap(),
+      ascii_str!("await Deno.core.opAsync(\"op_async_error\");"),
+    ),
+  ]);
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops()],
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+
+  let module_id = runtime
+    .load_main_module(&crate::resolve_url("file:///main.js").unwrap(), None)
+    .await
+    .unwrap();
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(module_id);
+
+  let error = runtime.run_event_loop(false).await.unwrap_err();
+  let js_error = error.downcast::<JsError>().unwrap();
+  assert_eq!(
+    js_error.to_string(),
+    "Error: foo
+    at async file:///import.js:1:1"
+  );
+}
+
 #[tokio::test]
 #[should_panic(
   expected = "Top-level await is not allowed in extensions (mod:tla:2:1)"
