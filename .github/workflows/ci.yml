@@ -39,7 +39,7 @@ jobs:
         if: contains(matrix.os, 'ubuntu')
         run: |
           cargo fmt -- --check
-          deno fmt --check
+          deno fmt --check ./core/ ./ops/ ./serde_v8/
 
       - name: Lint
         if: contains(matrix.os, 'ubuntu')
