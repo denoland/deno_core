@@ -365,7 +365,7 @@ pub(crate) fn generic_es_snapshot_without_runtime_module_loader(
   assert!(dyn_import_result.is_err());
   assert_eq!(
     dyn_import_result.err().unwrap().to_string().as_str(),
-    r#"Uncaught TypeError: Module loading is not supported; attempted to load: "ext:module_snapshot/test2.js" from "(no referrer)""#
+    r#"Uncaught (in promise) TypeError: Module loading is not supported; attempted to load: "ext:module_snapshot/test2.js" from "(no referrer)""#
   );
 }
 
@@ -447,7 +447,7 @@ pub(crate) fn generic_preserve_snapshotted_modules_test(
     assert!(dyn_import_result.is_err());
     assert_eq!(
       dyn_import_result.err().unwrap().to_string().as_str(),
-      "Uncaught TypeError: Module loading is not supported; attempted to load: \"test:not-preserved\" from \"(no referrer)\""
+      "Uncaught (in promise) TypeError: Module loading is not supported; attempted to load: \"test:not-preserved\" from \"(no referrer)\""
     );
     // Ensure that we tried to load `test:not-preserved`
     assert_eq!(
