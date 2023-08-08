@@ -1220,7 +1220,9 @@ impl JsRuntime {
       }
       v8::Global::new(scope, promise.unwrap())
     };
-    self.resolve_value(promise).await
+    let result = self.resolve_value(promise).await;
+    self.check_promise_rejections()?;
+    result
   }
 
   /// Returns the namespace object of a module.
@@ -1315,34 +1317,59 @@ impl JsRuntime {
     global: &v8::Global<v8::Value>,
     cx: &mut Context,
   ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
-    let state = self.poll_event_loop(cx, false);
-
-    let mut scope = self.handle_scope();
-    let local = v8::Local::<v8::Value>::new(&mut scope, global);
-
-    if let Ok(promise) = v8::Local::<v8::Promise>::try_from(local) {
-      match promise.state() {
-        v8::PromiseState::Pending => match state {
-          Poll::Ready(Ok(_)) => {
-            let msg = "Promise resolution is still pending but the event loop has already resolved.";
-            Poll::Ready(Err(generic_error(msg)))
+    // Check if the value is not a promise or already settled before polling the
+    // event loop.
+    let promise_global = {
+      let scope = &mut self.handle_scope();
+      let local = v8::Local::<v8::Value>::new(scope, global);
+      if let Ok(promise) = v8::Local::<v8::Promise>::try_from(local) {
+        match promise.state() {
+          v8::PromiseState::Pending => v8::Global::new(scope, promise),
+          v8::PromiseState::Fulfilled => {
+            let value = promise.result(scope);
+            let value_handle = v8::Global::new(scope, value);
+            return Poll::Ready(Ok(value_handle));
           }
-          Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-          Poll::Pending => Poll::Pending,
-        },
-        v8::PromiseState::Fulfilled => {
-          let value = promise.result(&mut scope);
-          let value_handle = v8::Global::new(&mut scope, value);
-          Poll::Ready(Ok(value_handle))
+          v8::PromiseState::Rejected => {
+            let exception = promise.result(scope);
+            let promise_global = v8::Global::new(scope, promise);
+            JsRealm::state_from_scope(scope)
+              .borrow_mut()
+              .pending_promise_rejections
+              .retain(|(key, _)| key != &promise_global);
+            return Poll::Ready(exception_to_err_result(
+              scope, exception, false,
+            ));
+          }
         }
-        v8::PromiseState::Rejected => {
-          let exception = promise.result(&mut scope);
-          Poll::Ready(exception_to_err_result(&mut scope, exception, false))
-        }
+      } else {
+        return Poll::Ready(Ok(global.clone()));
       }
-    } else {
-      let value_handle = v8::Global::new(&mut scope, local);
-      Poll::Ready(Ok(value_handle))
+    };
+
+    // Poll the event loop.
+    let event_loop_result = self.poll_event_loop(cx, false)?;
+
+    // Check the promise state again.
+    let scope = &mut self.handle_scope();
+    let promise = v8::Local::new(scope, promise_global);
+    match promise.state() {
+      v8::PromiseState::Pending => match event_loop_result {
+        Poll::Ready(_) => {
+          let msg = "Promise resolution is still pending but the event loop has already resolved.";
+          Poll::Ready(Err(generic_error(msg)))
+        }
+        Poll::Pending => Poll::Pending,
+      },
+      v8::PromiseState::Fulfilled => {
+        let value = promise.result(scope);
+        let value_handle = v8::Global::new(scope, value);
+        Poll::Ready(Ok(value_handle))
+      }
+      v8::PromiseState::Rejected => {
+        let exception = promise.result(scope);
+        Poll::Ready(exception_to_err_result(scope, exception, false))
+      }
     }
   }
 
