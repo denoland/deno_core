@@ -212,7 +212,6 @@ impl OpCtx {
 /// Maintains the resources and ops inside a JS runtime.
 pub struct OpState {
   pub resource_table: ResourceTable,
-  pub get_error_class_fn: GetErrorClassFn,
   pub tracker: OpsTracker,
   pub last_fast_op_error: Option<AnyError>,
   pub(crate) gotham_state: GothamState,
@@ -223,7 +222,6 @@ impl OpState {
   pub fn new(ops_count: usize) -> OpState {
     OpState {
       resource_table: Default::default(),
-      get_error_class_fn: &|_| "Error",
       gotham_state: Default::default(),
       last_fast_op_error: None,
       tracker: OpsTracker::new(ops_count),

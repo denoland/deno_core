@@ -92,7 +92,7 @@ impl op_read_sync {
             Err(err) => {
                 let exception = deno_core::error::to_v8_error(
                     scope,
-                    op_state.get_error_class_fn,
+                    ctx.get_error_class_fn,
                     &err,
                 );
                 scope.throw_exception(exception);

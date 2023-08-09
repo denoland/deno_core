@@ -1064,10 +1064,6 @@ impl JsRuntime {
 
     let mut op_state = OpState::new(ops.len());
 
-    if let Some(get_error_class_fn) = options.get_error_class_fn {
-      op_state.get_error_class_fn = get_error_class_fn;
-    }
-
     // Setup state
     for e in &mut options.extensions {
       // ops are already registered during in bindings::initialize_context();

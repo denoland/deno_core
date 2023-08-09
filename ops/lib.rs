@@ -437,7 +437,7 @@ fn codegen_v8_sync(
       {
         let op_state = &mut std::cell::RefCell::borrow_mut(&ctx.state);
         if let Some(err) = op_state.last_fast_op_error.take() {
-          let exception = #core::error::to_v8_error(scope, op_state.get_error_class_fn, &err);
+          let exception = #core::error::to_v8_error(scope, ctx.get_error_class_fn, &err);
           scope.throw_exception(exception);
           return;
         }
@@ -791,7 +791,7 @@ fn codegen_sync_ret(
         #ok_block
       },
       Err(err) => {
-        let exception = #core::error::to_v8_error(scope, op_state.get_error_class_fn, &err);
+        let exception = #core::error::to_v8_error(scope, ctx.get_error_class_fn, &err);
         scope.throw_exception(exception);
       },
     };

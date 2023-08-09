@@ -723,10 +723,9 @@ pub(crate) fn throw_exception(
     #maybe_args
     #maybe_opctx
     let err = err.into();
-    let opstate = ::std::cell::RefCell::borrow(&*#opctx.state);
     let exception = #deno_core::error::to_v8_error(
       &mut #scope,
-      opstate.get_error_class_fn,
+      #opctx.get_error_class_fn,
       &err,
     );
     #scope.throw_exception(exception);
