@@ -571,6 +571,7 @@ impl JsRuntime {
           Rc::new(decl),
           op_state.clone(),
           weak.clone(),
+          options.get_error_class_fn.unwrap_or(&|_| "Error"),
         )
       })
       .collect::<Vec<_>>()
@@ -800,6 +801,7 @@ impl JsRuntime {
             op_ctx.decl.clone(),
             op_ctx.state.clone(),
             op_ctx.runtime_state.clone(),
+            op_ctx.get_error_class_fn,
           )
         })
         .collect();
