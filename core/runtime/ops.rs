@@ -3,10 +3,12 @@ use crate::ops::*;
 use crate::OpResult;
 use crate::PromiseId;
 use anyhow::Error;
+use bytes::BytesMut;
 use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
+use libc::c_void;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_v8::from_v8;
@@ -18,6 +20,7 @@ use std::cell::RefCell;
 use std::future::ready;
 use std::mem::MaybeUninit;
 use std::option::Option;
+use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 use v8::WriteOptions;
@@ -640,6 +643,32 @@ impl ToV8Value for Vec<u8> {
   }
 }
 
+impl ToV8Value for BytesMut {
+  fn to_v8_value<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> v8::Local<'a, v8::Value> {
+    let ptr = self.as_ptr();
+    let len = self.len() as _;
+    let rc = Rc::into_raw(Rc::new(self)) as *const c_void;
+
+    extern "C" fn drop_rc(_ptr: *mut c_void, _len: usize, data: *mut c_void) {
+      // SAFETY: We know that data is a raw Rc from above
+      unsafe { drop(Rc::<BytesMut>::from_raw(data as _)) }
+    }
+
+    // SAFETY: We are using the BytesMut backing store here
+    let backing_store_shared = unsafe {
+      v8::ArrayBuffer::new_backing_store_from_ptr(
+        ptr as _, len, drop_rc, rc as _,
+      )
+    }
+    .make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    v8::Uint8Array::new(scope, ab, 0, len).unwrap().into()
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -651,6 +680,7 @@ mod tests {
   use crate::RuntimeOptions;
   use anyhow::bail;
   use anyhow::Error;
+  use bytes::BytesMut;
   use deno_ops::op2;
   use futures::Future;
   use serde::Deserialize;
@@ -709,6 +739,7 @@ mod tests {
       op_buffer_slice,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
+      op_buffer_bytesmut,
 
       op_async_void,
       op_async_number,
@@ -1619,6 +1650,27 @@ mod tests {
       input[0] = 1;
       op_buffer_copy(input, input, input);
       assert(input[0] == 1);",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  #[buffer]
+  pub fn op_buffer_bytesmut() -> BytesMut {
+    let mut buffer = BytesMut::new();
+    buffer.extend_from_slice(&[1, 2, 3]);
+    buffer
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_bytesmut(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10,
+      "op_buffer_bytesmut",
+      r"
+      const array = op_buffer_bytesmut();
+      assert(array.length == 3);",
     )?;
     Ok(())
   }
