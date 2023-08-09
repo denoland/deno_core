@@ -681,7 +681,7 @@ mod tests {
   use anyhow::bail;
   use anyhow::Error;
   use bytes::BytesMut;
-use deno_ops::op2;
+  use deno_ops::op2;
   use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
@@ -1658,12 +1658,13 @@ use deno_ops::op2;
   #[buffer]
   pub fn op_buffer_bytesmut() -> BytesMut {
     let mut buffer = BytesMut::new();
-    buffer.extend_from_slice(&[1,2,3]);
+    buffer.extend_from_slice(&[1, 2, 3]);
     buffer
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut() -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut(
+  ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
