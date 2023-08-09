@@ -48,7 +48,7 @@ jobs:
           deno lint
 
       - name: Cargo test
-        run: cargo test --locked --release --all-features --bins --tests --examples
+        run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
 
       - name: Cargo publish
         if: |

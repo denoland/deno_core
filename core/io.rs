@@ -1,12 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
+use bytes::Buf;
+use bytes::BytesMut;
+use serde_v8::JsBuffer;
+use serde_v8::V8Slice;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use bytes::Buf;
-use serde_v8::JsBuffer;
-
-/// BufView is a wrapper around an underlying contiguous chunk  of bytes. It can
+/// BufView is a wrapper around an underlying contiguous chunk of bytes. It can
 /// be created from a [JsBuffer], [bytes::Bytes], or [Vec<u8>] and implements
 /// `Deref<[u8]>` and `AsRef<[u8]>`.
 ///
@@ -14,16 +14,17 @@ use serde_v8::JsBuffer;
 /// the underlying buffer. This is useful for write operations, because they may
 /// have to be called multiple times, with different views onto the buffer to be
 /// able to write it entirely.
+#[derive(Debug)]
 pub struct BufView {
   inner: BufViewInner,
   cursor: usize,
 }
 
+#[derive(Debug)]
 enum BufViewInner {
   Empty,
   Bytes(bytes::Bytes),
-  JsBuffer(JsBuffer),
-  Vec(Vec<u8>),
+  JsBuffer(V8Slice),
 }
 
 impl BufView {
@@ -42,7 +43,6 @@ impl BufView {
       BufViewInner::Empty => 0,
       BufViewInner::Bytes(bytes) => bytes.len() - self.cursor,
       BufViewInner::JsBuffer(js_buf) => js_buf.len() - self.cursor,
-      BufViewInner::Vec(vec) => vec.len() - self.cursor,
     }
   }
 
@@ -63,6 +63,53 @@ impl BufView {
     let old = self.cursor;
     self.cursor = 0;
     old
+  }
+
+  /// Adjust the length of the remaining buffer. If the requested size is greater than the current
+  /// length, no changes are made.
+  pub fn truncate(&mut self, size: usize) {
+    match &mut self.inner {
+      BufViewInner::Empty => {}
+      BufViewInner::Bytes(bytes) => bytes.truncate(size + self.cursor),
+      BufViewInner::JsBuffer(buffer) => buffer.truncate(size + self.cursor),
+    }
+  }
+
+  /// Split the underlying buffer. The other piece will maintain the current cursor position while this buffer
+  /// will have a cursor of zero.
+  pub fn split_off(&mut self, at: usize) -> Self {
+    let at = at + self.cursor;
+    assert!(at <= self.len());
+    let other = match &mut self.inner {
+      BufViewInner::Empty => BufViewInner::Empty,
+      BufViewInner::Bytes(bytes) => BufViewInner::Bytes(bytes.split_off(at)),
+      BufViewInner::JsBuffer(buffer) => {
+        BufViewInner::JsBuffer(buffer.split_off(at))
+      }
+    };
+    Self {
+      inner: other,
+      cursor: 0,
+    }
+  }
+
+  /// Split the underlying buffer. The other piece will have a cursor of zero while this buffer
+  /// will maintain the current cursor position.
+  pub fn split_to(&mut self, at: usize) -> Self {
+    assert!(at <= self.len());
+    let at = at + self.cursor;
+    let other = match &mut self.inner {
+      BufViewInner::Empty => BufViewInner::Empty,
+      BufViewInner::Bytes(bytes) => BufViewInner::Bytes(bytes.split_to(at)),
+      BufViewInner::JsBuffer(buffer) => {
+        BufViewInner::JsBuffer(buffer.split_to(at))
+      }
+    };
+    let cursor = std::mem::take(&mut self.cursor);
+    Self {
+      inner: other,
+      cursor,
+    }
   }
 }
 
@@ -88,7 +135,6 @@ impl Deref for BufView {
       BufViewInner::Empty => &[],
       BufViewInner::Bytes(bytes) => bytes.deref(),
       BufViewInner::JsBuffer(js_buf) => js_buf.deref(),
-      BufViewInner::Vec(vec) => vec.deref(),
     };
     &buf[self.cursor..]
   }
@@ -102,13 +148,13 @@ impl AsRef<[u8]> for BufView {
 
 impl From<JsBuffer> for BufView {
   fn from(buf: JsBuffer) -> Self {
-    Self::from_inner(BufViewInner::JsBuffer(buf))
+    Self::from_inner(BufViewInner::JsBuffer(buf.into_parts()))
   }
 }
 
 impl From<Vec<u8>> for BufView {
   fn from(vec: Vec<u8>) -> Self {
-    Self::from_inner(BufViewInner::Vec(vec))
+    Self::from_inner(BufViewInner::Bytes(vec.into()))
   }
 }
 
@@ -124,7 +170,6 @@ impl From<BufView> for bytes::Bytes {
       BufViewInner::Empty => bytes::Bytes::new(),
       BufViewInner::Bytes(bytes) => bytes,
       BufViewInner::JsBuffer(js_buf) => js_buf.into(),
-      BufViewInner::Vec(vec) => vec.into(),
     }
   }
 }
@@ -139,14 +184,16 @@ impl From<BufView> for bytes::Bytes {
 /// able to write it entirely.
 ///
 /// A `BufMutView` can be turned into a `BufView` by calling `BufMutView::into_view`.
+#[derive(Debug)]
 pub struct BufMutView {
   inner: BufMutViewInner,
   cursor: usize,
 }
 
+#[derive(Debug)]
 enum BufMutViewInner {
-  JsBuffer(JsBuffer),
-  Vec(Vec<u8>),
+  JsBuffer(V8Slice),
+  Bytes(BytesMut),
 }
 
 impl BufMutView {
@@ -155,7 +202,8 @@ impl BufMutView {
   }
 
   pub fn new(len: usize) -> Self {
-    Self::from_inner(BufMutViewInner::Vec(vec![0; len]))
+    let bytes = BytesMut::zeroed(len);
+    Self::from_inner(BufMutViewInner::Bytes(bytes))
   }
 
   /// Get the length of the buffer view. This is the length of the underlying
@@ -163,7 +211,7 @@ impl BufMutView {
   pub fn len(&self) -> usize {
     match &self.inner {
       BufMutViewInner::JsBuffer(js_buf) => js_buf.len() - self.cursor,
-      BufMutViewInner::Vec(vec) => vec.len() - self.cursor,
+      BufMutViewInner::Bytes(bytes) => bytes.len() - self.cursor,
     }
   }
 
@@ -190,7 +238,7 @@ impl BufMutView {
   pub fn into_view(self) -> BufView {
     let inner = match self.inner {
       BufMutViewInner::JsBuffer(js_buf) => BufViewInner::JsBuffer(js_buf),
-      BufMutViewInner::Vec(vec) => BufViewInner::Vec(vec),
+      BufMutViewInner::Bytes(bytes) => BufViewInner::Bytes(bytes.into()),
     };
     BufView {
       inner,
@@ -198,29 +246,108 @@ impl BufMutView {
     }
   }
 
-  /// Unwrap the underlying buffer into a `Vec<u8>`, consuming the `BufMutView`.
-  ///
-  /// This method panics when called on a `BufMutView` that was created from a
-  /// `JsBuffer`.
-  pub fn unwrap_vec(self) -> Vec<u8> {
+  /// Attempts to unwrap the underlying buffer into a [`BytesMut`], consuming the `BufMutView`. If
+  /// this buffer does not have a [`BytesMut`], returns `Self`.
+  pub fn maybe_unwrap_bytes(self) -> Result<BytesMut, Self> {
     match self.inner {
-      BufMutViewInner::JsBuffer(_) => {
-        panic!("Cannot unwrap a JsBuffer backed BufMutView into a Vec");
-      }
-      BufMutViewInner::Vec(vec) => vec,
+      BufMutViewInner::JsBuffer(_) => Err(self),
+      BufMutViewInner::Bytes(bytes) => Ok(bytes),
     }
   }
 
-  /// Get a mutable reference to an underlying `Vec<u8>`.
-  ///
-  /// This method panics when called on a `BufMutView` that was created from a
-  /// `JsBuffer`.
-  pub fn get_mut_vec(&mut self) -> &mut Vec<u8> {
-    match &mut self.inner {
-      BufMutViewInner::JsBuffer(_) => {
-        panic!("Cannot unwrap a JsBuffer backed BufMutView into a Vec");
+  /// This attempts to grow the `BufMutView` to a target size, by a maximum increment. This method
+  /// will be replaced by a better API in the future and should not be used at this time.
+  #[must_use = "The result of this method should be tested"]
+  #[deprecated = "API will be replaced in the future"]
+  #[doc(hidden)]
+  pub fn maybe_resize(
+    &mut self,
+    target_size: usize,
+    maximum_increment: usize,
+  ) -> Option<usize> {
+    if let BufMutViewInner::Bytes(bytes) = &mut self.inner {
+      use std::cmp::Ordering::*;
+      let len = bytes.len();
+      let target_size = target_size + self.cursor;
+      match target_size.cmp(&len) {
+        Greater => {
+          bytes.resize(std::cmp::min(target_size, len + maximum_increment), 0);
+        }
+        Less => {
+          bytes.truncate(target_size);
+        }
+        Equal => {}
       }
-      BufMutViewInner::Vec(vec) => vec,
+      Some(bytes.len())
+    } else {
+      None
+    }
+  }
+
+  /// This attempts to grow the `BufMutView` to a target size, by a maximum increment. This method
+  /// will be replaced by a better API in the future and should not be used at this time.
+  #[must_use = "The result of this method should be tested"]
+  #[deprecated = "API will be replaced in the future"]
+  #[doc(hidden)]
+  pub fn maybe_grow(&mut self, target_size: usize) -> Option<usize> {
+    if let BufMutViewInner::Bytes(bytes) = &mut self.inner {
+      let len = bytes.len();
+      let target_size = target_size + self.cursor;
+      if target_size > len {
+        bytes.resize(target_size, 0);
+      }
+      Some(bytes.len())
+    } else {
+      None
+    }
+  }
+
+  /// Adjust the length of the remaining buffer and ensure that the cursor continues to
+  /// stay in-bounds.
+  pub fn truncate(&mut self, size: usize) {
+    match &mut self.inner {
+      BufMutViewInner::Bytes(bytes) => bytes.truncate(size + self.cursor),
+      BufMutViewInner::JsBuffer(buffer) => buffer.truncate(size + self.cursor),
+    }
+    self.cursor = std::cmp::min(self.cursor, self.len());
+  }
+
+  /// Split the underlying buffer. The other piece will maintain the current cursor position while this buffer
+  /// will have a cursor of zero.
+  pub fn split_off(&mut self, at: usize) -> Self {
+    let at = at + self.cursor;
+    assert!(at <= self.len());
+    let other = match &mut self.inner {
+      BufMutViewInner::Bytes(bytes) => {
+        BufMutViewInner::Bytes(bytes.split_off(at))
+      }
+      BufMutViewInner::JsBuffer(buffer) => {
+        BufMutViewInner::JsBuffer(buffer.split_off(at))
+      }
+    };
+    Self {
+      inner: other,
+      cursor: 0,
+    }
+  }
+
+  /// Split the underlying buffer. The other piece will have a cursor of zero while this buffer
+  /// will maintain the current cursor position.
+  pub fn split_to(&mut self, at: usize) -> Self {
+    assert!(at <= self.len());
+    let at = at + self.cursor;
+    let other = match &mut self.inner {
+      BufMutViewInner::Bytes(bytes) => {
+        BufMutViewInner::Bytes(bytes.split_to(at))
+      }
+      BufMutViewInner::JsBuffer(buffer) => {
+        BufMutViewInner::JsBuffer(buffer.split_to(at))
+      }
+    };
+    let cursor = std::mem::take(&mut self.cursor);
+    Self {
+      inner: other,
+      cursor,
     }
   }
 }
@@ -245,7 +372,7 @@ impl Deref for BufMutView {
   fn deref(&self) -> &[u8] {
     let buf = match &self.inner {
       BufMutViewInner::JsBuffer(js_buf) => js_buf.deref(),
-      BufMutViewInner::Vec(vec) => vec.deref(),
+      BufMutViewInner::Bytes(vec) => vec.deref(),
     };
     &buf[self.cursor..]
   }
@@ -255,7 +382,7 @@ impl DerefMut for BufMutView {
   fn deref_mut(&mut self) -> &mut [u8] {
     let buf = match &mut self.inner {
       BufMutViewInner::JsBuffer(js_buf) => js_buf.deref_mut(),
-      BufMutViewInner::Vec(vec) => vec.deref_mut(),
+      BufMutViewInner::Bytes(vec) => vec.deref_mut(),
     };
     &mut buf[self.cursor..]
   }
@@ -275,13 +402,13 @@ impl AsMut<[u8]> for BufMutView {
 
 impl From<JsBuffer> for BufMutView {
   fn from(buf: JsBuffer) -> Self {
-    Self::from_inner(BufMutViewInner::JsBuffer(buf))
+    Self::from_inner(BufMutViewInner::JsBuffer(buf.into_parts()))
   }
 }
 
-impl From<Vec<u8>> for BufMutView {
-  fn from(buf: Vec<u8>) -> Self {
-    Self::from_inner(BufMutViewInner::Vec(buf))
+impl From<BytesMut> for BufMutView {
+  fn from(buf: BytesMut) -> Self {
+    Self::from_inner(BufMutViewInner::Bytes(buf))
   }
 }
 
@@ -296,5 +423,133 @@ impl WriteOutcome {
       WriteOutcome::Partial { nwritten, .. } => *nwritten,
       WriteOutcome::Full { nwritten } => *nwritten,
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  pub fn bufview_read_and_truncate() {
+    let mut buf = BufView::from(vec![1, 2, 3, 4]);
+    assert_eq!(4, buf.len());
+    assert_eq!(0, buf.cursor);
+    assert_eq!(1, buf.get_u8());
+    assert_eq!(3, buf.len());
+    // The cursor is at position 1, so this truncates the underlying buffer to 2+1
+    buf.truncate(2);
+    assert_eq!(2, buf.len());
+    assert_eq!(2, buf.get_u8());
+    assert_eq!(1, buf.len());
+
+    buf.reset_cursor();
+    assert_eq!(3, buf.len());
+  }
+
+  #[test]
+  pub fn bufview_split() {
+    let mut buf = BufView::from(Vec::from_iter(0..100));
+    assert_eq!(100, buf.len());
+    buf.advance_cursor(25);
+    assert_eq!(75, buf.len());
+    let mut other = buf.split_off(10);
+    assert_eq!(25, buf.cursor);
+    assert_eq!(10, buf.len());
+    assert_eq!(65, other.len());
+
+    let other2 = other.split_to(20);
+    assert_eq!(20, other2.len());
+    assert_eq!(45, other.len());
+
+    assert_eq!(100, buf.cursor + buf.len() + other.len() + other2.len());
+    buf.reset_cursor();
+    assert_eq!(100, buf.cursor + buf.len() + other.len() + other2.len());
+  }
+
+  #[test]
+  pub fn bufmutview_read_and_truncate() {
+    let mut buf = BufMutView::from(BytesMut::from([1, 2, 3, 4].as_slice()));
+    assert_eq!(4, buf.len());
+    assert_eq!(0, buf.cursor);
+    assert_eq!(1, buf.get_u8());
+    assert_eq!(3, buf.len());
+    // The cursor is at position 1, so this truncates the underlying buffer to 2+1
+    buf.truncate(2);
+    assert_eq!(2, buf.len());
+    assert_eq!(2, buf.get_u8());
+    assert_eq!(1, buf.len());
+
+    buf.reset_cursor();
+    assert_eq!(3, buf.len());
+  }
+
+  #[test]
+  pub fn bufmutview_split() {
+    let mut buf =
+      BufMutView::from(BytesMut::from(Vec::from_iter(0..100).as_slice()));
+    assert_eq!(100, buf.len());
+    buf.advance_cursor(25);
+    assert_eq!(75, buf.len());
+    let mut other = buf.split_off(10);
+    assert_eq!(25, buf.cursor);
+    assert_eq!(10, buf.len());
+    assert_eq!(65, other.len());
+
+    let other2 = other.split_to(20);
+    assert_eq!(20, other2.len());
+    assert_eq!(45, other.len());
+
+    assert_eq!(100, buf.cursor + buf.len() + other.len() + other2.len());
+    buf.reset_cursor();
+    assert_eq!(100, buf.cursor + buf.len() + other.len() + other2.len());
+  }
+
+  #[test]
+  #[allow(deprecated)]
+  fn bufmutview_resize() {
+    let new =
+      || BufMutView::from(BytesMut::from(Vec::from_iter(0..100).as_slice()));
+    let mut buf = new();
+    assert_eq!(100, buf.len());
+    buf.maybe_resize(200, 10).unwrap();
+    assert_eq!(110, buf.len());
+
+    let mut buf = new();
+    assert_eq!(100, buf.len());
+    buf.maybe_resize(200, 100).unwrap();
+    assert_eq!(200, buf.len());
+
+    let mut buf = new();
+    assert_eq!(100, buf.len());
+    buf.maybe_resize(200, 1000).unwrap();
+    assert_eq!(200, buf.len());
+
+    let mut buf = new();
+    buf.advance_cursor(50);
+    assert_eq!(50, buf.len());
+    buf.maybe_resize(100, 100).unwrap();
+    assert_eq!(100, buf.len());
+    buf.reset_cursor();
+    assert_eq!(150, buf.len());
+  }
+
+  #[test]
+  #[allow(deprecated)]
+  fn bufmutview_grow() {
+    let new =
+      || BufMutView::from(BytesMut::from(Vec::from_iter(0..100).as_slice()));
+    let mut buf = new();
+    assert_eq!(100, buf.len());
+    buf.maybe_grow(200).unwrap();
+    assert_eq!(200, buf.len());
+
+    let mut buf = new();
+    buf.advance_cursor(50);
+    assert_eq!(50, buf.len());
+    buf.maybe_grow(100).unwrap();
+    assert_eq!(100, buf.len());
+    buf.reset_cursor();
+    assert_eq!(150, buf.len());
   }
 }

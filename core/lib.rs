@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 mod async_cancel;
 mod async_cell;
+mod buffer_strategy;
 pub mod error;
 mod error_codes;
 mod extensions;

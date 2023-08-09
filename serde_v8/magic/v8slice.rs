@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ops::Range;
@@ -23,6 +24,16 @@ use super::transl8::FromV8;
 pub struct V8Slice {
   pub(crate) store: v8::SharedRef<v8::BackingStore>,
   pub(crate) range: Range<usize>,
+}
+
+impl Debug for V8Slice {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_fmt(format_args!(
+      "V8Slice({:?} of {} bytes)",
+      self.range,
+      self.store.len()
+    ))
+  }
 }
 
 // SAFETY: unsafe trait must have unsafe implementation
@@ -82,6 +93,14 @@ impl V8Slice {
     }
   }
 
+  pub fn len(&self) -> usize {
+    self.range.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.range.is_empty()
+  }
+
   /// Create a [`Vec<u8>`] copy of this slice data.
   pub fn to_vec(&self) -> Vec<u8> {
     self.as_slice().to_vec()
@@ -95,6 +114,45 @@ impl V8Slice {
   /// Returns the slice to the parts it came from.
   pub fn into_parts(self) -> (v8::SharedRef<v8::BackingStore>, Range<usize>) {
     (self.store, self.range)
+  }
+
+  /// Splits the buffer into two at the given index.
+  ///
+  /// Afterwards `self` contains elements `[at, len)`, and the returned `V8Slice` contains elements `[0, at)`.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `at > len`.
+  pub fn split_to(&mut self, at: usize) -> Self {
+    let len = self.len();
+    assert!(at <= len);
+    let mut other = self.clone();
+    self.range = at..len;
+    other.range = 0..at;
+    other
+  }
+
+  /// Splits the buffer into two at the given index.
+  ///
+  /// Afterwards `self` contains elements `[0, at)`, and the returned `V8Slice` contains elements `[at, len)`.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `at > len`.
+  pub fn split_off(&mut self, at: usize) -> Self {
+    let len = self.len();
+    assert!(at <= len);
+    let mut other = self.clone();
+    self.range = 0..at;
+    other.range = at..len;
+    other
+  }
+
+  /// Shortens the buffer, keeping the first `len` bytes and dropping the rest.
+  ///
+  /// If `len` is greater than the buffer's current length, this has no effect.
+  pub fn truncate(&mut self, len: usize) {
+    self.range.end = std::cmp::min(len, self.range.end)
   }
 }
 
