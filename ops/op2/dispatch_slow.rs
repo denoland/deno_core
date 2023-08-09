@@ -612,6 +612,7 @@ pub fn return_value_infallible(
       | Buffer::BoxSlice(NumericArg::u8)
       | Buffer::BytesMut(BufferMode::Default),
     ) => {
+      *needs_scope = true;
       quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
     }
     arg if arg.is_option() => {
