@@ -507,6 +507,7 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Ref(..) => return Ok(None),
+    Arg::Buffer(..) => return Ok(None),
     _ => {
       return Err(V8MappingError::NoMapping(
         "a fast return value",

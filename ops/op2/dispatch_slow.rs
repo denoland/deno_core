@@ -609,7 +609,8 @@ pub fn return_value_infallible(
     Arg::Buffer(
       Buffer::JsBuffer(BufferMode::Default)
       | Buffer::Vec(NumericArg::u8)
-      | Buffer::BoxSlice(NumericArg::u8),
+      | Buffer::BoxSlice(NumericArg::u8)
+      | Buffer::BytesMut(BufferMode::Default),
     ) => {
       quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
     }
@@ -649,7 +650,7 @@ pub fn return_value_v8_value(
       quote!(Ok(#deno_core::v8::null(#scope).into()))
     }
     Arg::Numeric(NumericArg::bool) => {
-      quote!(Ok(#deno_core::v8::Boolean::new(#result).into()))
+      quote!(Ok(#deno_core::v8::Boolean::new(#scope, #result).into()))
     }
     Arg::Numeric(
       NumericArg::i8 | NumericArg::i16 | NumericArg::i32 | NumericArg::__SMI__,
@@ -662,7 +663,8 @@ pub fn return_value_v8_value(
     Arg::Buffer(
       Buffer::JsBuffer(BufferMode::Default)
       | Buffer::Vec(NumericArg::u8)
-      | Buffer::BoxSlice(NumericArg::u8),
+      | Buffer::BoxSlice(NumericArg::u8)
+      | Buffer::BytesMut(BufferMode::Default),
     ) => {
       quote!(Ok(#deno_core::_ops::ToV8Value::to_v8_value(#result, #scope)))
     }

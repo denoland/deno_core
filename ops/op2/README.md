@@ -923,6 +923,48 @@ String
 <td>
 
 ```text
+#[buffer] Vec<u8>
+```
+
+</td><td>
+
+</td><td>
+ArrayBuffer
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[buffer] Box<[u8]>
+```
+
+</td><td>
+
+</td><td>
+ArrayBuffer
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[buffer] bytes::BytesMut
+```
+
+</td><td>
+
+</td><td>
+ArrayBuffer
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
 v8::Local<v8::Value>
 ```
 

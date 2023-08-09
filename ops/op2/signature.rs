@@ -163,6 +163,8 @@ pub enum Buffer {
   Vec(NumericArg),
   /// Maybe shared or a copy. Stored in `bytes::Bytes`
   Bytes(BufferMode),
+  /// Owned, copy. Stored in `bytes::BytesMut`
+  BytesMut(BufferMode),
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::V8Slice`
   V8Slice(BufferMode),
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JsBuffer`
@@ -179,14 +181,13 @@ impl Buffer {
     use BufferMode::*;
     match position {
       Position::Arg => match self {
-        Bytes(..) | Vec(..) | BoxSlice(..) => &[B(Copy)],
+        Bytes(..) | BytesMut(..) | Vec(..) | BoxSlice(..) => &[B(Copy)],
         JsBuffer(..) | V8Slice(..) => &[B(Copy), B(Detach), B(Default)],
         Slice(..) | Ptr(..) => &[B(Default)],
       },
       Position::RetVal => match self {
-        Bytes(..) | JsBuffer(..) | V8Slice(..) | Vec(..) | BoxSlice(..) => {
-          &[B(Default)]
-        }
+        Bytes(..) | BytesMut(..) | JsBuffer(..) | V8Slice(..) | Vec(..)
+        | BoxSlice(..) => &[B(Default)],
         Slice(..) | Ptr(..) => &([]),
       },
     }
@@ -900,6 +901,9 @@ fn parse_type_path(
       ( $( bytes :: )? Bytes ) => {
         Ok(CBare(TBuffer(Buffer::Bytes(buffer_mode()?))))
       }
+      ( $( bytes :: )? BytesMut ) => {
+        Ok(CBare(TBuffer(Buffer::BytesMut(buffer_mode()?))))
+      }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
@@ -1327,6 +1331,10 @@ mod tests {
   test!(
     #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
     (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes(Copy)), Buffer(V8Slice(Default)), Buffer(JsBuffer(Default)), Buffer(JsBuffer(Detach))) -> Infallible(Buffer(Vec(u8)))
+  );
+  test!(
+    #[buffer] fn op_return_bytesmut() -> bytes::BytesMut;
+    () -> Infallible(Buffer(BytesMut(Default)))
   );
   test!(
     async fn op_async_void();
