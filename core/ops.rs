@@ -129,6 +129,7 @@ pub struct OpCtx {
   /// A stashed Isolate that ops can use in callbacks
   pub isolate: *mut Isolate,
   pub state: Rc<RefCell<OpState>>,
+  pub get_error_class_fn: GetErrorClassFn,
   pub decl: Rc<OpDecl>,
   pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub runtime_state: Weak<RefCell<JsRuntimeState>>,
@@ -145,6 +146,7 @@ impl OpCtx {
     decl: Rc<OpDecl>,
     state: Rc<RefCell<OpState>>,
     runtime_state: Weak<RefCell<JsRuntimeState>>,
+    get_error_class_fn: GetErrorClassFn,
   ) -> Self {
     let mut fast_fn_c_info = None;
 
@@ -170,6 +172,7 @@ impl OpCtx {
     OpCtx {
       id,
       state,
+      get_error_class_fn,
       runtime_state,
       decl,
       context_state,
@@ -209,7 +212,6 @@ impl OpCtx {
 /// Maintains the resources and ops inside a JS runtime.
 pub struct OpState {
   pub resource_table: ResourceTable,
-  pub get_error_class_fn: GetErrorClassFn,
   pub tracker: OpsTracker,
   pub last_fast_op_error: Option<AnyError>,
   pub(crate) gotham_state: GothamState,
@@ -220,7 +222,6 @@ impl OpState {
   pub fn new(ops_count: usize) -> OpState {
     OpState {
       resource_table: Default::default(),
-      get_error_class_fn: &|_| "Error",
       gotham_state: Default::default(),
       last_fast_op_error: None,
       tracker: OpsTracker::new(ops_count),

@@ -571,6 +571,7 @@ impl JsRuntime {
           Rc::new(decl),
           op_state.clone(),
           weak.clone(),
+          options.get_error_class_fn.unwrap_or(&|_| "Error"),
         )
       })
       .collect::<Vec<_>>()
@@ -800,6 +801,7 @@ impl JsRuntime {
             op_ctx.decl.clone(),
             op_ctx.state.clone(),
             op_ctx.runtime_state.clone(),
+            op_ctx.get_error_class_fn,
           )
         })
         .collect();
@@ -1061,10 +1063,6 @@ impl JsRuntime {
     let ops = Self::collect_ops(&mut options.extensions);
 
     let mut op_state = OpState::new(ops.len());
-
-    if let Some(get_error_class_fn) = options.get_error_class_fn {
-      op_state.get_error_class_fn = get_error_class_fn;
-    }
 
     // Setup state
     for e in &mut options.extensions {

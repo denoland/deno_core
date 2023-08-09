@@ -73,7 +73,7 @@ impl op_listen {
             if let Some(err) = op_state.last_fast_op_error.take() {
                 let exception = deno_core::error::to_v8_error(
                     scope,
-                    op_state.get_error_class_fn,
+                    ctx.get_error_class_fn,
                     &err,
                 );
                 scope.throw_exception(exception);
@@ -101,7 +101,7 @@ impl op_listen {
             Err(err) => {
                 let exception = deno_core::error::to_v8_error(
                     scope,
-                    op_state.get_error_class_fn,
+                    ctx.get_error_class_fn,
                     &err,
                 );
                 scope.throw_exception(exception);

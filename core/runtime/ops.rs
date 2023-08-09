@@ -33,12 +33,9 @@ pub fn queue_fast_async_op<R: serde::Serialize + 'static>(
   promise_id: PromiseId,
   op: impl Future<Output = Result<R, Error>> + 'static,
 ) {
-  let get_class = {
-    let state = RefCell::borrow(&ctx.state);
-    state.tracker.track_async(ctx.id);
-    state.get_error_class_fn
-  };
-  let fut = op.map(|result| crate::_ops::to_op_result(get_class, result));
+  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
+  let fut =
+    op.map(|result| crate::_ops::to_op_result(ctx.get_error_class_fn, result));
   ctx
     .context_state
     .borrow_mut()
@@ -51,13 +48,8 @@ pub fn map_async_op1<R: serde::Serialize + 'static>(
   ctx: &OpCtx,
   op: impl Future<Output = Result<R, Error>> + 'static,
 ) -> impl Future<Output = OpResult> {
-  let get_class = {
-    let state = RefCell::borrow(&ctx.state);
-    state.tracker.track_async(ctx.id);
-    state.get_error_class_fn
-  };
-
-  op.map(|res| crate::_ops::to_op_result(get_class, res))
+  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
+  op.map(|res| crate::_ops::to_op_result(ctx.get_error_class_fn, res))
 }
 
 #[inline]
@@ -76,19 +68,15 @@ pub fn map_async_op3<R: serde::Serialize + 'static>(
   ctx: &OpCtx,
   op: Result<impl Future<Output = Result<R, Error>> + 'static, Error>,
 ) -> impl Future<Output = OpResult> {
-  let get_class = {
-    let state = RefCell::borrow(&ctx.state);
-    state.tracker.track_async(ctx.id);
-    state.get_error_class_fn
-  };
-
+  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
   match op {
-    Err(err) => {
-      Either::Left(ready(OpResult::Err(OpError::new(get_class, err))))
-    }
-    Ok(fut) => {
-      Either::Right(fut.map(|res| crate::_ops::to_op_result(get_class, res)))
-    }
+    Err(err) => Either::Left(ready(OpResult::Err(OpError::new(
+      ctx.get_error_class_fn,
+      err,
+    )))),
+    Ok(fut) => Either::Right(
+      fut.map(|res| crate::_ops::to_op_result(ctx.get_error_class_fn, res)),
+    ),
   }
 }
 
@@ -97,16 +85,12 @@ pub fn map_async_op4<R: serde::Serialize + 'static>(
   ctx: &OpCtx,
   op: Result<impl Future<Output = R> + 'static, Error>,
 ) -> impl Future<Output = OpResult> {
-  let get_class = {
-    let state = RefCell::borrow(&ctx.state);
-    state.tracker.track_async(ctx.id);
-    state.get_error_class_fn
-  };
-
+  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
   match op {
-    Err(err) => {
-      Either::Left(ready(OpResult::Err(OpError::new(get_class, err))))
-    }
+    Err(err) => Either::Left(ready(OpResult::Err(OpError::new(
+      ctx.get_error_class_fn,
+      err,
+    )))),
     Ok(fut) => Either::Right(fut.map(|r| OpResult::Ok(r.into()))),
   }
 }
@@ -222,7 +206,7 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ctx.state.borrow().tracker.track_async(id);
 
   if lazy {
-    let get_class = RefCell::borrow(&ctx.state).get_error_class_fn;
+    let get_class = ctx.get_error_class_fn;
     ctx.context_state.borrow_mut().pending_ops.spawn(op.map(
       move |r| match r {
         Ok(v) => (
@@ -252,7 +236,7 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
     }
   }
 
-  let get_class = RefCell::borrow(&ctx.state).get_error_class_fn;
+  let get_class = ctx.get_error_class_fn;
   ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
     move |r| match r.2 {
       Ok(v) => (
