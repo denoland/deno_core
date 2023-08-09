@@ -3,7 +3,6 @@ use crate::ops::*;
 use crate::OpResult;
 use crate::PromiseId;
 use anyhow::Error;
-use bytes::Bytes;
 use bytes::BytesMut;
 use futures::future::Either;
 use futures::future::Future;
@@ -653,7 +652,7 @@ impl ToV8Value for BytesMut {
     let len = self.len() as _;
     let rc = Rc::into_raw(Rc::new(self)) as *const c_void;
 
-    extern "C" fn drop_rc(ptr: *mut c_void, len: usize, data: *mut c_void) {
+    extern "C" fn drop_rc(_ptr: *mut c_void, _len: usize, data: *mut c_void) {
       // SAFETY: We know that data is a raw Rc from above
       unsafe { drop(Rc::<BytesMut>::from_raw(data as _)) }
     }
@@ -681,7 +680,8 @@ mod tests {
   use crate::RuntimeOptions;
   use anyhow::bail;
   use anyhow::Error;
-  use deno_ops::op2;
+  use bytes::BytesMut;
+use deno_ops::op2;
   use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
@@ -739,6 +739,7 @@ mod tests {
       op_buffer_slice,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
+      op_buffer_bytesmut,
 
       op_async_void,
       op_async_number,
@@ -1649,6 +1650,26 @@ mod tests {
       input[0] = 1;
       op_buffer_copy(input, input, input);
       assert(input[0] == 1);",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core)]
+  #[buffer]
+  pub fn op_buffer_bytesmut() -> BytesMut {
+    let mut buffer = BytesMut::new();
+    buffer.extend_from_slice(&[1,2,3]);
+    buffer
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_bytesmut() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10,
+      "op_buffer_bytesmut",
+      r"
+      const array = op_buffer_bytesmut();
+      assert(array.length == 3);",
     )?;
     Ok(())
   }
