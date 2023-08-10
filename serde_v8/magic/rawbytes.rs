@@ -26,6 +26,13 @@ impl RawBytes {
   }
 }
 
+impl Drop for RawBytes {
+  #[inline]
+  fn drop(&mut self) {
+    unsafe { (self.vtable.drop)(&mut self.data, self.ptr, self.len) }
+  }
+}
+
 // Validate some bytes::Bytes layout assumptions at compile time.
 const _: () = {
   assert!(
@@ -50,6 +57,15 @@ pub(crate) struct Vtable {
 
 impl From<RawBytes> for bytes::Bytes {
   fn from(b: RawBytes) -> Self {
+    // SAFETY: RawBytes has the same layout as bytes::Bytes
+    // this is tested below, both are composed of usize-d ptrs/values
+    // thus aren't currently subject to rust's field re-ordering to minimize padding
+    unsafe { std::mem::transmute(b) }
+  }
+}
+
+impl From<bytes::Bytes> for RawBytes {
+  fn from(b: bytes::Bytes) -> Self {
     // SAFETY: RawBytes has the same layout as bytes::Bytes
     // this is tested below, both are composed of usize-d ptrs/values
     // thus aren't currently subject to rust's field re-ordering to minimize padding
