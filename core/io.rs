@@ -478,6 +478,25 @@ pub trait ChannelBytesRead: Unpin + 'static {
   ) -> Poll<Option<Result<BufView, anyhow::Error>>>;
 }
 
+impl ChannelBytesRead for tokio::sync::mpsc::Receiver<BufView> {
+  fn poll_recv(
+    &mut self,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<BufView, anyhow::Error>>> {
+    let res = self.poll_recv(cx);
+    res.map(|res| res.map(Ok))
+  }
+}
+
+impl ChannelBytesRead for tokio::sync::mpsc::Receiver<Result<BufView, Error>> {
+  fn poll_recv(
+    &mut self,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<BufView, anyhow::Error>>> {
+    self.poll_recv(cx)
+  }
+}
+
 impl ChannelBytesRead for tokio::sync::mpsc::Receiver<bytes::Bytes> {
   fn poll_recv(
     &mut self,

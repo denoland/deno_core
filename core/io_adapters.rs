@@ -35,14 +35,14 @@ pub fn type_name_of_val<T: ?Sized>(_val: &T) -> &'static str {
 
 macro_rules! io_debug {
   ($this:ident, $($arg:tt)*) => {
-    // eprint!("{}({}) ", type_name_of_val(& $this), $this.name);
-    // eprintln!($($arg)*);
+    eprint!("{}({}) ", type_name_of_val(& $this), $this.name);
+    eprintln!($($arg)*);
   };
 }
 
 macro_rules! io_debug_new {
   ($this:ident, $name:ident) => {
-    // eprintln!("{}({})::new()", ::std::any::type_name::<$this>(), $name);
+    eprintln!("{}({})::new()", ::std::any::type_name::<$this>(), $name);
   };
 }
 
