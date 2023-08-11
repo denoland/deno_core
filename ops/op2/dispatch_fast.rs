@@ -465,6 +465,7 @@ fn map_arg_to_v8_fastcall_type(
     Arg::String(Strings::CowStr) => V8FastCallType::SeqOneByteString,
     // Cow byte strings can be fast and don't require copying
     Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
+    Arg::External(..) => V8FastCallType::Pointer,
     _ => return Err(V8MappingError::NoMapping("a fast argument", arg.clone())),
   };
   Ok(Some(rv))
@@ -508,6 +509,7 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Ref(..) => return Ok(None),
     Arg::Buffer(..) => return Ok(None),
+    Arg::External(..) => V8FastCallType::Pointer,
     _ => {
       return Err(V8MappingError::NoMapping(
         "a fast return value",

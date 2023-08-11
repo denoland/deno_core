@@ -8,7 +8,6 @@ use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
-use libc::c_void;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_v8::from_v8;
@@ -17,6 +16,7 @@ use serde_v8::JsBuffer;
 use serde_v8::V8Slice;
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::ffi::c_void;
 use std::future::ready;
 use std::mem::MaybeUninit;
 use std::option::Option;
@@ -317,6 +317,16 @@ pub fn to_f64_option(number: &v8::Value) -> Option<f64> {
   try_number_some!(number Number is_number);
   try_bignum!(number i64_value);
   None
+}
+
+pub fn to_external_option(external: &v8::Value) -> Option<*mut c_void> {
+  if external.is_external() {
+    // SAFETY: We know this is an external
+    let external: &v8::External = unsafe { std::mem::transmute(external) };
+    Some(external.value())
+  } else {
+    None
+  }
 }
 
 /// Expands `inbuf` to `outbuf`, assuming that `outbuf` has at least 2x `input_length`.
@@ -740,6 +750,8 @@ mod tests {
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
+      op_external_make,
+      op_external_process,
 
       op_async_void,
       op_async_number,
@@ -754,6 +766,7 @@ mod tests {
       op_async_buffer,
       op_async_buffer_vec,
       op_async_buffer_impl,
+      op_async_external,
     ],
     state = |state| {
       state.put(1234u32);
@@ -1675,6 +1688,31 @@ mod tests {
     Ok(())
   }
 
+  static STRING: &str = "hello world";
+
+  #[op2(core, fast)]
+  fn op_external_make() -> *const std::ffi::c_void {
+    STRING.as_ptr() as _
+  }
+
+  #[op2(core, fast)]
+  fn op_external_process(
+    input: *const std::ffi::c_void,
+  ) -> *const std::ffi::c_void {
+    assert_eq!(input, STRING.as_ptr() as _);
+    input
+  }
+
+  #[tokio::test]
+  pub async fn test_external() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_external_make, op_external_process",
+      "op_external_process(op_external_make())",
+    )?;
+    Ok(())
+  }
+
   #[op2(async, core)]
   async fn op_async_void() {}
 
@@ -1878,6 +1916,26 @@ mod tests {
       2,
       "op_async_buffer_impl",
       "assert(await op_async_buffer_impl(new Uint8Array(10)) == 10)",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  async fn op_async_external(
+    input: *const std::ffi::c_void,
+  ) -> *const std::ffi::c_void {
+    assert_eq!(input, STRING.as_ptr() as _);
+    input
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_external() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
+      2,
+      "op_external_make, op_async_external",
+      "await op_async_external(op_external_make())",
     )
     .await?;
     Ok(())

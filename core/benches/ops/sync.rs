@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use bencher::*;
 use deno_core::error::generic_error;
 use deno_core::*;
+use std::ffi::c_void;
 
 deno_core::extension!(
   testing,
@@ -20,6 +21,9 @@ deno_core::extension!(
     op_local_nofast,
     op_global,
     op_global_scope,
+    op_make_external,
+    op_external,
+    op_external_nofast,
   ],
   state = |state| {
     state.put(1234u32);
@@ -85,6 +89,17 @@ pub fn op_global_scope(
 ) {
 }
 
+#[op2(fast)]
+pub fn op_make_external() -> *const c_void {
+  std::ptr::null()
+}
+
+#[op2(fast)]
+pub fn op_external(_input: *const c_void) {}
+
+#[op2(nofast)]
+pub fn op_external_nofast(_input: *const c_void) {}
+
 fn bench_op(
   b: &mut Bencher,
   count: usize,
@@ -124,6 +139,8 @@ const LARGE_STRING_1000 = '*'.repeat(1000);
 const LARGE_STRING_UTF8_1000000 = '\u1000'.repeat(1000000);
 const LARGE_STRING_UTF8_1000 = '\u1000'.repeat(1000);
 const {{ {op}: op }} = Deno.core.ensureFastOps();
+const {{ op_make_external }} = Deno.core.ensureFastOps();
+const EXTERNAL = op_make_external();
 function {op}({args}) {{
   op({args});
 }}
@@ -349,6 +366,20 @@ fn bench_op_v8_global_scope(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_global_scope", 1, "op_global_scope('this is a reasonably long string that we would like to get the length of!');");
 }
 
+fn bench_op_external(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_external", 1, "op_external(EXTERNAL)");
+}
+
+fn bench_op_external_nofast(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_external_nofast",
+    1,
+    "op_external_nofast(EXTERNAL)",
+  );
+}
+
 benchmark_group!(
   benches,
   baseline,
@@ -375,6 +406,8 @@ benchmark_group!(
   bench_op_v8_local_nofast,
   bench_op_v8_global,
   bench_op_v8_global_scope,
+  bench_op_external,
+  bench_op_external_nofast,
 );
 
 benchmark_main!(benches);

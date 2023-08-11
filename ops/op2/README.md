@@ -635,6 +635,34 @@ Safe.
 <td>
 
 ```text
+*const std::ffi::c_void
+```
+
+</td><td>
+✅
+</td><td>
+External
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+*mut std::ffi::c_void
+```
+
+</td><td>
+✅
+</td><td>
+External
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
 &OpState
 ```
 
@@ -958,6 +986,34 @@ ArrayBuffer
 
 </td><td>
 ArrayBuffer
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+*const std::ffi::c_void
+```
+
+</td><td>
+✅
+</td><td>
+External
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+*mut std::ffi::c_void
+```
+
+</td><td>
+✅
+</td><td>
+External
 </td><td>
 
 </td></tr>
