@@ -750,6 +750,8 @@ mod tests {
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
+      op_external_make,
+      op_external_process,
 
       op_async_void,
       op_async_number,
@@ -1681,6 +1683,31 @@ mod tests {
       r"
       const array = op_buffer_bytesmut();
       assert(array.length == 3);",
+    )?;
+    Ok(())
+  }
+
+  static STRING: &'static str = "hello world";
+
+  #[op2(core, fast)]
+  fn op_external_make() -> *const std::ffi::c_void {
+    STRING.as_ptr() as _
+  }
+
+  #[op2(core, fast)]
+  fn op_external_process(
+    input: *const std::ffi::c_void,
+  ) -> *const std::ffi::c_void {
+    assert_eq!(input, STRING.as_ptr() as _);
+    input
+  }
+
+  #[tokio::test]
+  pub async fn test_external() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_external_make, op_external_process",
+      "op_external_process(op_external_make())",
     )?;
     Ok(())
   }

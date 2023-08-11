@@ -95,14 +95,10 @@ pub fn op_make_external() -> *const c_void {
 }
 
 #[op2(fast)]
-pub fn op_external(input: *const c_void) -> *const c_void {
-  input
-}
+pub fn op_external(_input: *const c_void) {}
 
 #[op2(nofast)]
-pub fn op_external_nofast(input: *const c_void) -> *const c_void {
-  input
-}
+pub fn op_external_nofast(_input: *const c_void) {}
 
 fn bench_op(
   b: &mut Bencher,
