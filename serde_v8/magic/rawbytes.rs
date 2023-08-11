@@ -88,7 +88,13 @@ unsafe fn arc_u8_clone(
   let arc = (*boxed_arc).clone();
   std::mem::forget(boxed_arc);
   let data = Box::into_raw(Box::new(arc));
-  RawBytes { ptr, len, data: data as _, vtable: &ARC_U8_VTABLE }.into()
+  RawBytes {
+    ptr,
+    len,
+    data: data as _,
+    vtable: &ARC_U8_VTABLE,
+  }
+  .into()
 }
 
 unsafe fn arc_u8_to_vec(
@@ -109,7 +115,12 @@ impl From<std::sync::Arc<[u8]>> for RawBytes {
     let len = b.len();
     let ptr = b.as_ref().as_ptr();
     let data = Box::into_raw(Box::new(b));
-    RawBytes { ptr, len, data: data as _, vtable: &ARC_U8_VTABLE }
+    RawBytes {
+      ptr,
+      len,
+      data: data as _,
+      vtable: &ARC_U8_VTABLE,
+    }
   }
 }
 
@@ -117,7 +128,7 @@ impl From<std::sync::Arc<[u8]>> for RawBytes {
 mod tests {
   use bytes::Bytes;
 
-use super::*;
+  use super::*;
   use std::{mem, sync::Arc};
 
   const HELLO: &str = "hello";
