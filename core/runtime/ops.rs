@@ -766,6 +766,7 @@ mod tests {
       op_async_buffer,
       op_async_buffer_vec,
       op_async_buffer_impl,
+      op_async_external,
     ],
     state = |state| {
       state.put(1234u32);
@@ -1915,6 +1916,26 @@ mod tests {
       2,
       "op_async_buffer_impl",
       "assert(await op_async_buffer_impl(new Uint8Array(10)) == 10)",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  async fn op_async_external(
+    input: *const std::ffi::c_void,
+  ) -> *const std::ffi::c_void {
+    assert_eq!(input, STRING.as_ptr() as _);
+    input
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_external() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
+      2,
+      "op_external_make, op_async_external",
+      "await op_async_external(op_external_make())",
     )
     .await?;
     Ok(())
