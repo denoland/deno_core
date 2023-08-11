@@ -1,3 +1,4 @@
+use crate::buffer_strategy::AdaptiveBufferStrategy;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::format_file_name;
 use crate::error::type_error;
@@ -10,6 +11,7 @@ use crate::JsBuffer;
 use crate::OpState;
 use crate::Resource;
 use anyhow::Error;
+use bytes::BytesMut;
 use deno_ops::op;
 use deno_ops::op2;
 use std::cell::RefCell;
@@ -222,69 +224,34 @@ async fn op_read(
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-) -> Result<Vec<u8>, Error> {
+) -> Result<BytesMut, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
 
-  // The number of bytes we attempt to grow the buffer by each time it fills
-  // up and we have more data to read. We start at 64 KB. The grow_len is
-  // doubled if the nread returned from a single read is equal or greater than
-  // the grow_len. This allows us to reduce allocations for resources that can
-  // read large chunks of data at a time.
-  let mut grow_len: usize = 64 * 1024;
-
   let (min, maybe_max) = resource.size_hint();
-  // Try to determine an optimal starting buffer size for this resource based
-  // on the size hint.
-  let initial_size = match (min, maybe_max) {
-    (min, Some(max)) if min == max => min as usize,
-    (_min, Some(max)) if (max as usize) < grow_len => max as usize,
-    (min, _) if (min as usize) < grow_len => grow_len,
-    (min, _) => min as usize,
-  };
+  let mut buffer_strategy =
+    AdaptiveBufferStrategy::new_from_hint_u64(min, maybe_max);
+  let mut buf = BufMutView::new(buffer_strategy.buffer_size());
 
-  let mut buf = BufMutView::new(initial_size);
   loop {
-    // if the buffer does not have much remaining space, we may have to grow it.
-    if buf.len() < grow_len {
-      let vec = buf.get_mut_vec();
-      match maybe_max {
-        Some(max) if vec.len() >= max as usize => {
-          // no need to resize the vec, because the vec is already large enough
-          // to accommodate the maximum size of the read data.
-        }
-        Some(max) if (max as usize) < vec.len() + grow_len => {
-          // grow the vec to the maximum size of the read data
-          vec.resize(max as usize, 0);
-        }
-        _ => {
-          // grow the vec by grow_len
-          vec.resize(vec.len() + grow_len, 0);
-        }
-      }
-    }
+    #[allow(deprecated)]
+    buf.maybe_grow(buffer_strategy.buffer_size()).unwrap();
+
     let (n, new_buf) = resource.clone().read_byob(buf).await?;
     buf = new_buf;
     buf.advance_cursor(n);
     if n == 0 {
       break;
     }
-    if n >= grow_len {
-      // we managed to read more or equal data than fits in a single grow_len in
-      // a single go, so let's attempt to read even more next time. this reduces
-      // allocations for resources that can read large chunks of data at a time.
-      grow_len *= 2;
-    }
+
+    buffer_strategy.notify_read(n);
   }
 
   let nread = buf.reset_cursor();
-  let mut vec = buf.unwrap_vec();
   // If the buffer is larger than the amount of data read, shrink it to the
   // amount of data read.
-  if nread < vec.len() {
-    vec.truncate(nread);
-  }
+  buf.truncate(nread);
 
-  Ok(vec)
+  Ok(buf.maybe_unwrap_bytes().unwrap())
 }
 
 #[op2(async, core)]
