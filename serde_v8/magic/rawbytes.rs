@@ -73,10 +73,52 @@ impl From<bytes::Bytes> for RawBytes {
   }
 }
 
+const ARC_U8_VTABLE: Vtable = Vtable {
+  clone: arc_u8_clone,
+  drop: arc_u8_drop,
+  to_vec: arc_u8_to_vec,
+};
+
+unsafe fn arc_u8_clone(
+  data: &AtomicPtr<()>,
+  ptr: *const u8,
+  len: usize,
+) -> bytes::Bytes {
+  let boxed_arc: Box<std::sync::Arc<[u8]>> = Box::from_raw((*data) as _);
+  let arc = (*boxed_arc).clone();
+  std::mem::forget(boxed_arc);
+  let data = Box::into_raw(Box::new(arc));
+  RawBytes { ptr, len, data: data as _, vtable: &ARC_U8_VTABLE }.into()
+}
+
+unsafe fn arc_u8_to_vec(
+  _: &AtomicPtr<()>,
+  ptr: *const u8,
+  len: usize,
+) -> Vec<u8> {
+  std::slice::from_raw_parts(ptr, len).to_vec()
+}
+
+unsafe fn arc_u8_drop(data: &mut AtomicPtr<()>, _: *const u8, _: usize) {
+  let boxed_arc: Box<std::sync::Arc<[u8]>> = Box::from_raw((*data) as _);
+  drop(boxed_arc);
+}
+
+impl From<std::sync::Arc<[u8]>> for RawBytes {
+  fn from(b: std::sync::Arc<[u8]>) -> Self {
+    let len = b.len();
+    let ptr = b.as_ref().as_ptr();
+    let data = Box::into_raw(Box::new(b));
+    RawBytes { ptr, len, data: data as _, vtable: &ARC_U8_VTABLE }
+  }
+}
+
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use std::mem;
+  use bytes::Bytes;
+
+use super::*;
+  use std::{mem, sync::Arc};
 
   const HELLO: &str = "hello";
 
@@ -144,5 +186,32 @@ mod tests {
       }
     }
     assert_eq!(diffs, 1);
+  }
+
+  #[test]
+  fn bytes_drop() {
+    let bytes: Arc<[u8]> = Arc::new([1, 2, 3]);
+    assert_eq!(1, Arc::strong_count(&bytes));
+    let clone = bytes.clone();
+    assert_eq!(2, Arc::strong_count(&bytes));
+    let raw_bytes = RawBytes::from(bytes);
+    assert_eq!(2, Arc::strong_count(&clone));
+    drop(raw_bytes);
+    assert_eq!(1, Arc::strong_count(&clone));
+  }
+
+  #[test]
+  fn bytes_clone_and_drop() {
+    let bytes: Arc<[u8]> = Arc::new([1, 2, 3]);
+    assert_eq!(1, Arc::strong_count(&bytes));
+    let clone = bytes.clone();
+    assert_eq!(2, Arc::strong_count(&bytes));
+    let raw_bytes = Bytes::from(RawBytes::from(bytes));
+    let raw_bytes2 = raw_bytes.clone();
+    assert_eq!(3, Arc::strong_count(&clone));
+    drop(raw_bytes);
+    assert_eq!(2, Arc::strong_count(&clone));
+    drop(raw_bytes2);
+    assert_eq!(1, Arc::strong_count(&clone));
   }
 }
