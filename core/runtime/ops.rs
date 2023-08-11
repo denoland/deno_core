@@ -1688,7 +1688,7 @@ mod tests {
     Ok(())
   }
 
-  static STRING: &'static str = "hello world";
+  static STRING: &str = "hello world";
 
   #[op2(core, fast)]
   fn op_external_make() -> *const std::ffi::c_void {
