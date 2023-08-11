@@ -8,7 +8,6 @@ use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
-use libc::c_void;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_v8::from_v8;
@@ -17,6 +16,7 @@ use serde_v8::JsBuffer;
 use serde_v8::V8Slice;
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::ffi::c_void;
 use std::future::ready;
 use std::mem::MaybeUninit;
 use std::option::Option;
@@ -319,7 +319,7 @@ pub fn to_f64_option(number: &v8::Value) -> Option<f64> {
   None
 }
 
-pub fn to_external_option(external: &v8::Value) -> Option<*mut libc::c_void> {
+pub fn to_external_option(external: &v8::Value) -> Option<*mut c_void> {
   if external.is_external() {
     // SAFETY: We know this is an external
     let external: &v8::External = unsafe { std::mem::transmute(external) };

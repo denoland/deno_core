@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use bencher::*;
 use deno_core::error::generic_error;
 use deno_core::*;
-use libc::c_void;
+use std::ffi::c_void;
 
 deno_core::extension!(
   testing,
