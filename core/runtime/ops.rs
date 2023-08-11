@@ -319,6 +319,16 @@ pub fn to_f64_option(number: &v8::Value) -> Option<f64> {
   None
 }
 
+pub fn to_external_option(external: &v8::Value) -> Option<*mut libc::c_void> {
+  if external.is_external() {
+    // SAFETY: We know this is an external
+    let external: &v8::External = unsafe { std::mem::transmute(external) };
+    Some(external.value())
+  } else {
+    None
+  }
+}
+
 /// Expands `inbuf` to `outbuf`, assuming that `outbuf` has at least 2x `input_length`.
 #[inline(always)]
 unsafe fn latin1_to_utf8(

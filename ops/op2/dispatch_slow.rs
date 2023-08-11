@@ -6,6 +6,7 @@ use super::dispatch_shared::v8_to_arg;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::Buffer;
+use super::signature::External;
 use super::signature::NumericArg;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
@@ -296,6 +297,9 @@ pub fn from_arg(
     }
     Arg::Buffer(buffer) => {
       from_arg_buffer(generator_state, &arg_ident, buffer)?
+    }
+    Arg::External(External::Ptr(_)) => {
+      from_arg_numeric(generator_state, &arg_ident, "external")?
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
@@ -615,6 +619,10 @@ pub fn return_value_infallible(
       *needs_scope = true;
       quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
     }
+    Arg::External(External::Ptr(_)) => {
+      *needs_scope = true;
+      quote! { #retval.set(#deno_core::v8::External::new(&mut #scope, #result as _).into()) }
+    }
     arg if arg.is_option() => {
       // We support all optional types by generating the infallible version in a branch
       let some = return_value_infallible(
@@ -668,6 +676,9 @@ pub fn return_value_v8_value(
       | Buffer::BytesMut(BufferMode::Default),
     ) => {
       quote!(Ok(#deno_core::_ops::ToV8Value::to_v8_value(#result, #scope)))
+    }
+    Arg::External(External::Ptr(_)) => {
+      quote!(Ok(#deno_core::v8::External::new(#scope, #result as _).into()))
     }
     _ => {
       return Err(V8MappingError::NoMapping(

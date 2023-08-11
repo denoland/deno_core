@@ -24,16 +24,18 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
       if imp.bounds.len() != 1 {
         return Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
+          "for impl trait bounds",
         )));
       }
       if let Some(TypeParamBound::Trait(t)) = imp.bounds.first() {
         rules!(t.into_token_stream() => {
           ($($_package:ident ::)* Future < Output = $ty:ty >) => Ok(UnwrappedReturn::Future(ty)),
-          ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty)))),
+          ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty), "for impl Future"))),
         })
       } else {
         Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
+          "for impl",
         )))
       }
     }
@@ -54,8 +56,10 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
       })
     }
     Type::Tuple(_) => Ok(UnwrappedReturn::Type(ty.clone())),
+    Type::Ptr(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     _ => Err(RetError::InvalidType(ArgError::InvalidType(
       stringify_token(ty),
+      "for return type",
     ))),
   }
 }
@@ -85,12 +89,14 @@ pub(crate) fn parse_return(
           _ => {
             return Err(RetError::InvalidType(ArgError::InvalidType(
               stringify_token(rt),
+              "for result of future",
             )))
           }
         },
         _ => {
           return Err(RetError::InvalidType(ArgError::InvalidType(
             stringify_token(rt),
+            "for result",
           )))
         }
       },
@@ -102,6 +108,7 @@ pub(crate) fn parse_return(
         _ => {
           return Err(RetError::InvalidType(ArgError::InvalidType(
             stringify_token(rt),
+            "for future",
           )))
         }
       },
@@ -116,6 +123,7 @@ pub(crate) fn parse_return(
       _ => {
         return Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(rt),
+          "for async return",
         )))
       }
     };

@@ -551,8 +551,8 @@ pub enum AttributeError {
 pub enum ArgError {
   #[error("Invalid self argument")]
   InvalidSelf,
-  #[error("Invalid argument type: {0}")]
-  InvalidType(String),
+  #[error("Invalid argument type: {0} ({1})")]
+  InvalidType(String, &'static str),
   #[error("Invalid numeric argument type: {0}")]
   InvalidNumericType(String),
   #[error(
@@ -921,7 +921,7 @@ fn parse_type_path(
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
           Arg::V8Global(v8) => Ok(COptionV8Global(TV8(v8))),
-          _ => Err(ArgError::InvalidType(stringify_token(ty)))
+          _ => Err(ArgError::InvalidType(stringify_token(ty), "for option"))
         }
       }
       ( $any:ty ) => Err(ArgError::InvalidTypePath(stringify_token(any))),
@@ -965,7 +965,10 @@ fn parse_type_special(
 ) -> Result<Special, ArgError> {
   match parse_type(position, attrs, ty)? {
     Arg::Special(special) => Ok(special),
-    _ => Err(ArgError::InvalidType(stringify_token(ty))),
+    _ => Err(ArgError::InvalidType(
+      stringify_token(ty),
+      "for special type",
+    )),
   }
 }
 
@@ -1064,7 +1067,7 @@ pub(crate) fn parse_type(
       if of.elems.is_empty() {
         Ok(Arg::Void)
       } else {
-        Err(ArgError::InvalidType(stringify_token(ty)))
+        Err(ArgError::InvalidType(stringify_token(ty), "for tuple"))
       }
     }
     Type::Reference(of) => {
@@ -1090,7 +1093,7 @@ pub(crate) fn parse_type(
               }
             }
           } else {
-            Err(ArgError::InvalidType(stringify_token(ty)))
+            Err(ArgError::InvalidType(stringify_token(ty), "for slice"))
           }
         }
         Type::Path(of) => match parse_type_path(position, attrs, true, of)? {
@@ -1100,9 +1103,12 @@ pub(crate) fn parse_type(
           }
           CBare(TV8(v8)) => Ok(Arg::V8Ref(mut_type, v8)),
           CBare(TSpecial(special)) => Ok(Arg::Ref(mut_type, special)),
-          _ => Err(ArgError::InvalidType(stringify_token(ty))),
+          _ => Err(ArgError::InvalidType(
+            stringify_token(ty),
+            "for reference path",
+          )),
         },
-        _ => Err(ArgError::InvalidType(stringify_token(ty))),
+        _ => Err(ArgError::InvalidType(stringify_token(ty), "for reference")),
       }
     }
     Type::Ptr(of) => {
@@ -1121,7 +1127,7 @@ pub(crate) fn parse_type(
             Ok(Arg::Buffer(buffer))
           }
         },
-        _ => Err(ArgError::InvalidType(stringify_token(ty))),
+        _ => Err(ArgError::InvalidType(stringify_token(ty), "for pointer")),
       }
     }
     Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
@@ -1139,9 +1145,12 @@ pub(crate) fn parse_type(
       COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
       CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
-      _ => Err(ArgError::InvalidType(stringify_token(ty))),
+      _ => Err(ArgError::InvalidType(stringify_token(ty), "for path")),
     },
-    _ => Err(ArgError::InvalidType(stringify_token(ty))),
+    _ => Err(ArgError::InvalidType(
+      stringify_token(ty),
+      "for top-level type",
+    )),
   }
 }
 
@@ -1285,8 +1294,12 @@ mod tests {
     (Ref(Mut, OpState)) -> Result(OptionNumeric(u32))
   );
   test!(
-    fn op_ffi_read_f64(state: &mut OpState, ptr: * mut c_void, #[bigint] offset: isize) -> Result <f64, AnyError>;
+    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result <f64, AnyError>;
     (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize)) -> Result(Numeric(f64))
+  );
+  test!(
+    fn op_ptr_out(ptr: *const c_void) -> *mut c_void;
+    (External(Ptr(Ref))) -> Infallible(External(Ptr(Mut)))
   );
   test!(
     fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error>;
