@@ -1,3 +1,5 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+
 /// Our standard buffer size if we don't know what else to do.
 const STANDARD_BUFFER_SIZE: usize = 64 * 1024;
 /// Our buffer size if the resource is tiny or likely empty.
