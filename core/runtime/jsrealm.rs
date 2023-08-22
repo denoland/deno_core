@@ -3,7 +3,7 @@ use super::bindings;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::to_v8_type_error;
-use crate::joinset::JoinSet;
+use deno_unsync::JoinSet;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
