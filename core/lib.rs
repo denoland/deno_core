@@ -25,6 +25,7 @@ mod task_queue;
 
 // Re-exports
 pub use anyhow;
+pub use deno_unsync as unsync;
 pub use futures;
 pub use parking_lot;
 pub use serde;
