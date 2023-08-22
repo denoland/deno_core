@@ -297,6 +297,7 @@ dependencies = [
  "cooked-waker",
  "deno_ast",
  "deno_ops",
+ "deno_unsync",
  "futures",
  "indexmap 1.9.3",
  "libc",
@@ -361,6 +362,15 @@ dependencies = [
  "syn 2.0.27",
  "testing_macros",
  "trybuild",
+]
+
+[[package]]
+name = "deno_unsync"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c870ce140f67570e2058e82b699c2476a647c28791b3955cfd0e6afdc3c8badf"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]

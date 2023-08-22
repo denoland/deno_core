@@ -26,6 +26,7 @@ serde_v8 = { version = "0.113.0", path = "./serde_v8" }
 anyhow = "1.0.57"
 bencher = "0.1"
 bytes = "1.4.0"
+deno_unsync = "0.1"
 futures = "0.3.21"
 hex = "0.4"
 libc = "0.2.126"

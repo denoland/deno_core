@@ -10,7 +10,6 @@ mod flags;
 mod gotham_state;
 mod inspector;
 mod io;
-mod joinset;
 mod module_specifier;
 mod modules;
 mod normalize_path;
@@ -22,11 +21,11 @@ mod path;
 mod resources;
 mod runtime;
 mod source_map;
-pub mod task;
 mod task_queue;
 
 // Re-exports
 pub use anyhow;
+pub use deno_unsync as unsync;
 pub use futures;
 pub use parking_lot;
 pub use serde;
