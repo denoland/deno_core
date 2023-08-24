@@ -19,6 +19,7 @@ use std::any::Any;
 use std::any::TypeId;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::io::IsTerminal;
 use std::iter::Iterator;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -109,6 +110,26 @@ impl ResourceHandle {
     match self {
       Self::Socket(socket) => Some(*socket),
       _ => None,
+    }
+  }
+
+  pub fn is_terminal(&self) -> bool {
+    match self {
+      Self::Fd(fd) if self.is_valid() => {
+        #[cfg(windows)]
+        {
+          // SAFETY: The resource remains open for the for the duration of borrow_raw
+          unsafe {
+            std::os::windows::io::BorrowedHandle::borrow_raw(*fd).is_terminal()
+          }
+        }
+        #[cfg(unix)]
+        {
+          // SAFETY: The resource remains open for the for the duration of borrow_raw
+          unsafe { std::os::fd::BorrowedFd::borrow_raw(*fd).is_terminal() }
+        }
+      }
+      _ => false,
     }
   }
 }
