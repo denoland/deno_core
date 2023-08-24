@@ -113,6 +113,7 @@ impl ResourceHandle {
     }
   }
 
+  /// Determines if this handle is a terminal. Analagous to [`std::io::IsTerminal`].
   pub fn is_terminal(&self) -> bool {
     match self {
       Self::Fd(fd) if self.is_valid() => {
