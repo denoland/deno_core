@@ -6,14 +6,14 @@ use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
 use std::iter::zip;
-use syn2::parse2;
-use syn2::parse_str;
-use syn2::spanned::Spanned;
-use syn2::FnArg;
-use syn2::ItemFn;
-use syn2::Lifetime;
-use syn2::LifetimeParam;
-use syn2::Path;
+use syn::parse2;
+use syn::parse_str;
+use syn::spanned::Spanned;
+use syn::FnArg;
+use syn::ItemFn;
+use syn::Lifetime;
+use syn::LifetimeParam;
+use syn::Path;
 use thiserror::Error;
 
 use self::config::MacroConfig;
@@ -42,7 +42,7 @@ pub enum Op2Error {
   #[error("Invalid attribute: '{0}'")]
   InvalidAttribute(String),
   #[error("Failed to parse syntax tree")]
-  ParseError(#[from] syn2::Error),
+  ParseError(#[from] syn::Error),
   #[error("Failed to map a parsed signature to a V8 call")]
   V8MappingError(#[from] V8MappingError),
   #[error("Failed to parse signature")]
@@ -104,7 +104,7 @@ fn generate_op2(
   let signature = parse_signature(func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
   {
-    op_fn.sig.generics.params.push(syn2::GenericParam::Lifetime(
+    op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
       LifetimeParam::new(Lifetime {
         apostrophe: op_fn.span(),
         ident,
@@ -136,9 +136,9 @@ fn generate_op2(
     Ident::new("fast_api_callback_options", Span::call_site());
 
   let deno_core = if config.core {
-    syn2::parse_str::<Path>("crate")
+    syn::parse_str::<Path>("crate")
   } else {
-    syn2::parse_str::<Path>("deno_core")
+    syn::parse_str::<Path>("deno_core")
   }
   .expect("Parsing crate should not fail")
   .into_token_stream();
@@ -272,9 +272,9 @@ mod tests {
   use super::*;
   use pretty_assertions::assert_eq;
   use std::path::PathBuf;
-  use syn2::parse_str;
-  use syn2::File;
-  use syn2::Item;
+  use syn::parse_str;
+  use syn::File;
+  use syn::Item;
 
   #[testing_macros::fixture("op2/test_cases/sync/*.rs")]
   fn test_proc_macro_sync(input: PathBuf) {
@@ -322,7 +322,7 @@ deno_ops_compile_test_runner::prelude!();";
         let tokens =
           generate_op2(config.unwrap(), func).expect("Failed to generate op");
         println!("======== Raw tokens ========:\n{}", tokens.clone());
-        let tree = syn2::parse2(tokens).unwrap();
+        let tree = syn::parse2(tokens).unwrap();
         let actual = prettyplease::unparse(&tree);
         println!("======== Generated ========:\n{}", actual);
         expected_out.push(actual);
@@ -411,7 +411,7 @@ deno_ops_compile_test_runner::prelude!();";
       if !line.contains("...") {
         let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
         let function =
-          syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+          syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
         let sig = parse_signature(vec![], function.sig.clone())
           .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
@@ -469,7 +469,7 @@ deno_ops_compile_test_runner::prelude!();";
       if !line.contains("...") {
         let function = format!("{} fn op_test() -> {} {{}}", attr, ty);
         let function =
-          syn2::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+          syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
         let sig = parse_signature(function.attrs.clone(), function.sig.clone())
           .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");

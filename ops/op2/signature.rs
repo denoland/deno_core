@@ -12,15 +12,15 @@ use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
 use strum_macros::EnumIter;
 use strum_macros::EnumString;
-use syn2::Attribute;
-use syn2::FnArg;
-use syn2::GenericParam;
-use syn2::Generics;
-use syn2::Pat;
-use syn2::Path;
-use syn2::Signature;
-use syn2::Type;
-use syn2::TypePath;
+use syn::Attribute;
+use syn::FnArg;
+use syn::GenericParam;
+use syn::Generics;
+use syn::Pat;
+use syn::Path;
+use syn::Signature;
+use syn::Type;
+use syn::TypePath;
 use thiserror::Error;
 
 use super::signature_retval::parse_return;
@@ -688,7 +688,7 @@ pub fn parse_signature(
   })
 }
 
-/// Extract one lifetime from the [`syn2::Generics`], ensuring that the lifetime is valid
+/// Extract one lifetime from the [`syn::Generics`], ensuring that the lifetime is valid
 /// and has no bounds.
 fn parse_lifetime(
   generics: &Generics,
@@ -722,7 +722,6 @@ fn parse_generics(
     for predicate in &where_clause.predicates {
       let predicate = predicate.to_token_stream();
       let (generic_name, bound) = std::panic::catch_unwind(|| {
-        use syn2 as syn;
         rules!(predicate => {
           ($t:ident : $bound:path) => (t.to_string(), stringify_token(bound)),
         })
@@ -741,7 +740,6 @@ fn parse_generics(
     if let GenericParam::Type(ty) = param {
       let ty = ty.to_token_stream();
       let (name, bound) = std::panic::catch_unwind(|| {
-        use syn2 as syn;
         rules!(ty => {
           ($t:ident : $bound:path) => (t.to_string(), Some(stringify_token(bound))),
           ($t:ident) => (t.to_string(), None),
@@ -809,7 +807,6 @@ fn parse_attribute(
 ) -> Result<Option<AttributeModifier>, AttributeError> {
   let tokens = attr.into_token_stream();
   let res = std::panic::catch_unwind(|| {
-    use syn2 as syn;
     rules!(tokens => {
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[serde]) => Some(AttributeModifier::Serde),
@@ -859,8 +856,6 @@ fn parse_type_path(
 ) -> Result<ParsedTypeContainer, ArgError> {
   use ParsedType::*;
   use ParsedTypeContainer::*;
-
-  use syn2 as syn;
 
   let buffer_mode = || match attrs.primary {
     Some(AttributeModifier::Buffer(mode)) => Ok(mode),
@@ -976,7 +971,6 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   let s = match ty {
     Type::Path(of) => {
       let inner_type = std::panic::catch_unwind(|| {
-        use syn2 as syn;
         rules!(of.into_token_stream() => {
           (Option< $ty:ty >) => ty,
         })
@@ -1033,7 +1027,6 @@ pub(crate) fn parse_type(
           let ty = of.into_token_stream();
           let token = stringify_token(of.path.clone());
           if let Ok(Some(err)) = std::panic::catch_unwind(|| {
-            use syn2 as syn;
             rules!(ty => {
               ( $( serde_v8:: )? Value $( < $_lifetime:lifetime >)? ) => Some("use v8::Value"),
               ( $_ty:ty ) => None,
@@ -1164,8 +1157,8 @@ fn parse_arg(arg: FnArg) -> Result<Arg, ArgError> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use syn2::parse_str;
-  use syn2::ItemFn;
+  use syn::parse_str;
+  use syn::ItemFn;
 
   // We can't test pattern args :/
   // https://github.com/rust-lang/rfcs/issues/2688

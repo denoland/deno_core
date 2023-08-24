@@ -342,7 +342,6 @@ dependencies = [
  "regex",
  "strum",
  "strum_macros",
- "syn 1.0.109",
  "syn 2.0.27",
  "testing_macros",
  "thiserror",
