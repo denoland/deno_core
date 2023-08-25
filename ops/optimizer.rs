@@ -11,7 +11,7 @@ use proc_macro2::TokenStream;
 
 use syn::parse_quote;
 use syn::punctuated::Punctuated;
-use syn::token::Colon2;
+use syn::token::PathSep;
 use syn::AngleBracketedGenericArguments;
 use syn::FnArg;
 use syn::GenericArgument;
@@ -911,7 +911,7 @@ impl Optimizer {
 }
 
 fn single_segment(
-  segments: &Punctuated<PathSegment, Colon2>,
+  segments: &Punctuated<PathSegment, PathSep>,
 ) -> Result<&PathSegment, BailoutReason> {
   if segments.len() != 1 {
     return Err(BailoutReason::MustBeSingleSegment);
@@ -924,7 +924,7 @@ fn single_segment(
 }
 
 fn double_segment(
-  segments: &Punctuated<PathSegment, Colon2>,
+  segments: &Punctuated<PathSegment, PathSep>,
 ) -> Result<[&PathSegment; 2], BailoutReason> {
   match (segments.first(), segments.last()) {
     (Some(first), Some(last)) => Ok([first, last]),

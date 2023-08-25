@@ -123,7 +123,6 @@ impl MacroConfig {
   pub fn from_maybe_attribute_tokens(
     tokens: TokenStream,
   ) -> Result<Option<Self>, Op2Error> {
-    use syn2 as syn;
     Ok(rules!(tokens => {
       (#[op2]) => {
         Some(MacroConfig::default())
@@ -141,10 +140,10 @@ impl MacroConfig {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use syn2::{ItemFn, Meta};
+  use syn::{ItemFn, Meta};
 
   fn test_parse(s: &str, expected: MacroConfig) {
-    let item_fn = syn2::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))
+    let item_fn = syn::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))
       .expect("Failed to parse function");
     let attr = item_fn.attrs.get(0).unwrap();
     let config =

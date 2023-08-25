@@ -17,7 +17,7 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use std::iter::zip;
-use syn2::Type;
+use syn::Type;
 
 #[allow(unused)]
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -330,7 +330,7 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::State(RefType::Ref, state) => {
       *needs_opctx = true;
       let state =
-        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
+        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let #arg_ident = #opctx.state.borrow();
         let #arg_ident = #arg_ident.borrow::<#state>();
@@ -339,7 +339,7 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::State(RefType::Mut, state) => {
       *needs_opctx = true;
       let state =
-        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
+        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let mut #arg_ident = #opctx.state.borrow_mut();
         let #arg_ident = #arg_ident.borrow_mut::<#state>();
@@ -348,7 +348,7 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::OptionState(RefType::Ref, state) => {
       *needs_opctx = true;
       let state =
-        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
+        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let #arg_ident = #opctx.state.borrow();
         let #arg_ident = #arg_ident.try_borrow::<#state>();
@@ -357,7 +357,7 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::OptionState(RefType::Mut, state) => {
       *needs_opctx = true;
       let state =
-        syn2::parse_str::<Type>(state).expect("Failed to reparse state type");
+        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let mut #arg_ident = #opctx.state.borrow_mut();
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();

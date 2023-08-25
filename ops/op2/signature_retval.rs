@@ -4,10 +4,10 @@ use deno_proc_macro_rules::rules;
 
 use quote::ToTokens;
 
-use syn2::ReturnType;
+use syn::ReturnType;
 
-use syn2::Type;
-use syn2::TypeParamBound;
+use syn::Type;
+use syn::TypeParamBound;
 
 /// One level of type unwrapping for a return value. We cannot rely on `proc-macro-rules` to correctly
 /// unwrap `impl Future<...>`, so we do it by hand.
@@ -18,7 +18,6 @@ enum UnwrappedReturn {
 }
 
 fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
-  use syn2 as syn;
   match ty {
     Type::ImplTrait(imp) => {
       if imp.bounds.len() != 1 {
@@ -136,7 +135,7 @@ pub(crate) fn parse_return(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use syn2::parse_str;
+  use syn::parse_str;
 
   #[test]
   fn test_parse_result() {

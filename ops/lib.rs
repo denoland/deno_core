@@ -19,7 +19,7 @@ use syn::GenericParam;
 use syn::Ident;
 use syn::ItemFn;
 use syn::Lifetime;
-use syn::LifetimeDef;
+use syn::LifetimeParam;
 
 mod attrs;
 mod deno;
@@ -32,7 +32,7 @@ const SCOPE_LIFETIME: &str = "'scope";
 /// Add the 'scope lifetime to the function signature.
 fn add_scope_lifetime(func: &mut ItemFn) {
   let span = Span::call_site();
-  let lifetime = LifetimeDef::new(Lifetime::new(SCOPE_LIFETIME, span));
+  let lifetime = LifetimeParam::new(Lifetime::new(SCOPE_LIFETIME, span));
   let generics = &mut func.sig.generics;
   if !generics.lifetimes().any(|def| *def == lifetime) {
     generics.params.push(GenericParam::Lifetime(lifetime));
@@ -998,7 +998,7 @@ mod tests {
     println!("-----Raw tokens-----\n{}----------\n", actual);
 
     // Validate syntax tree.
-    let tree = syn2::parse2(actual).unwrap();
+    let tree = syn::parse2(actual).unwrap();
     let actual = prettyplease::unparse(&tree);
     if update_expected {
       std::fs::write(input.with_extension("out"), actual)
