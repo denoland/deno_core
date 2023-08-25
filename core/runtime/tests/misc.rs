@@ -26,6 +26,16 @@ use std::time::Duration;
 use url::Url;
 
 #[test]
+fn icu() {
+  // If this test fails, update core/runtime/icudtl.dat from
+  // rusty_v8/third_party/icu/common/icudtl.dat
+  let mut runtime = JsRuntime::new(Default::default());
+  runtime
+    .execute_script_static("a.js", "(new Date()).toLocaleString('ja-JP')")
+    .unwrap();
+}
+
+#[test]
 fn test_execute_script_return_value() {
   let mut runtime = JsRuntime::new(Default::default());
   let value_global =
