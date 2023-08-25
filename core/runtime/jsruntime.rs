@@ -324,7 +324,7 @@ fn v8_init(
 ) {
   // Include 10MB ICU data file.
   #[repr(C, align(16))]
-  struct IcuData([u8; 10541264]);
+  struct IcuData([u8; 10631872]);
   static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
   v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
 

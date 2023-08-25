@@ -26,6 +26,22 @@ use std::time::Duration;
 use url::Url;
 
 #[test]
+fn icu() {
+  // If this test fail you might need to update core/runtime/icudtl.dat which
+  // should be copied from rusty_v8/third_party/icu/common/icudtl.dat
+  let mut runtime = JsRuntime::new(Default::default());
+  let source = r#"
+      (new Date(Date.UTC(2020, 5, 26, 7, 0, 0))).toLocaleString("de-DE", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    "#;
+  runtime.execute_script_static("a.js", source).unwrap();
+}
+
+#[test]
 fn test_execute_script_return_value() {
   let mut runtime = JsRuntime::new(Default::default());
   let value_global =
