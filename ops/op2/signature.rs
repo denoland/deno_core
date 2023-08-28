@@ -1228,10 +1228,15 @@ mod tests {
         .trim_matches(|c| c == '[' || c == ']')
         .replace('\n', " ")
         .replace('"', "")
+        // Use the turbofish syntax (ugly but it's just for tests)
+        .replace('<', "::<")
     );
     assert_eq!(
       return_expected,
-      format!("{:?}", sig.ret_val).replace('"', "")
+      format!("{:?}", sig.ret_val)
+        .replace('"', "")
+        // Use the turbofish syntax (ugly but it's just for tests)
+        .replace('<', "::<")
     );
   }
 
@@ -1265,6 +1270,11 @@ mod tests {
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
     (SerdeV8(package::SerdeInputType)) -> Result(SerdeV8(package::SerdeReturnType))
+  );
+  // Note the turbofish syntax here because of macro constraints
+  test!(
+    #[serde] fn op_serde_option(#[serde] maybe: Option<package::SerdeInputType>) -> Result<Option<package::SerdeReturnType>, Error>;
+    (SerdeV8(Option::<package::SerdeInputType>)) -> Result(SerdeV8(Option::<package::SerdeReturnType>))
   );
   test!(
     #[serde] fn op_serde_tuple(#[serde] input: (A, B)) -> (A, B);
