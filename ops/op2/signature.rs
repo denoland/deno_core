@@ -20,6 +20,7 @@ use syn::Pat;
 use syn::Path;
 use syn::Signature;
 use syn::Type;
+use syn::TypeParamBound;
 use syn::TypePath;
 use thiserror::Error;
 
@@ -710,6 +711,52 @@ fn parse_lifetime(
   Ok(res)
 }
 
+/// Parse a bound as a string. Valid bounds include "Trait" and "Trait + 'static". All
+/// other bounds are invalid.
+fn parse_bound(bound: &Type) -> Result<String, SignatureError> {
+  let error = || {
+    Err(SignatureError::InvalidWherePredicate(stringify_token(
+      bound,
+    )))
+  };
+
+  Ok(match bound {
+    Type::TraitObject(t) => {
+      let mut has_static_lifetime = false;
+      let mut bound = None;
+      for b in &t.bounds {
+        match b {
+          TypeParamBound::Lifetime(lt) => {
+            if lt.ident != "static" || has_static_lifetime {
+              return error();
+            }
+            has_static_lifetime = true;
+          }
+          TypeParamBound::Trait(t) => {
+            if bound.is_some() {
+              return error();
+            }
+            bound = Some(stringify_token(t));
+          }
+          _ => return error(),
+        }
+      }
+      let Some(bound) = bound else {
+        return error();
+      };
+      if has_static_lifetime {
+        format!("{bound} + 'static")
+      } else {
+        bound
+      }
+    }
+    Type::Path(p) => stringify_token(p),
+    _ => {
+      return error();
+    }
+  })
+}
+
 /// Parse and validate generics. We require one and only one trait bound for each generic
 /// parameter. Tries to sanity check and return reasonable errors for possible signature errors.
 fn parse_generics(
@@ -723,12 +770,13 @@ fn parse_generics(
       let predicate = predicate.to_token_stream();
       let (generic_name, bound) = std::panic::catch_unwind(|| {
         rules!(predicate => {
-          ($t:ident : $bound:path) => (t.to_string(), stringify_token(bound)),
+          ($t:ident : $bound:ty) => (t.to_string(), bound),
         })
       })
       .map_err(|_| {
         SignatureError::InvalidWherePredicate(predicate.to_string())
       })?;
+      let bound = parse_bound(&bound)?;
       if where_clauses.insert(generic_name.clone(), bound).is_some() {
         return Err(SignatureError::DuplicateGeneric(generic_name));
       }
@@ -741,16 +789,17 @@ fn parse_generics(
       let ty = ty.to_token_stream();
       let (name, bound) = std::panic::catch_unwind(|| {
         rules!(ty => {
-          ($t:ident : $bound:path) => (t.to_string(), Some(stringify_token(bound))),
+          ($t:ident : $bound:ty) => (t.to_string(), Some(bound)),
           ($t:ident) => (t.to_string(), None),
         })
-      }).map_err(|_| SignatureError::InvalidGeneric(ty.to_string()))?;
+      })
+      .map_err(|_| SignatureError::InvalidGeneric(ty.to_string()))?;
       let bound = match bound {
         Some(bound) => {
           if where_clauses.contains_key(&name) {
             return Err(SignatureError::GenericBoundCardinality(name));
           }
-          bound
+          parse_bound(&bound)?
         }
         None => {
           let Some(bound) = where_clauses.remove(&name) else {
@@ -1177,10 +1226,10 @@ mod tests {
       // Return value
       $(-> $(# [ $ret_attr:meta ])? $ret:ty)?
       // Where clause
-      $( where $($trait:ident : $bounds:path),* )?
+      $( where $($trait:ident : $bounds:ty),* )?
       ;
       // Expected return value
-      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:path )* >)? ( $( $arg_res:expr ),* ) -> $ret_res:expr ) => {
+      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:ty )* >)? ( $( $arg_res:expr ),* ) -> $ret_res:expr ) => {
       #[test]
       fn $($name1)? $($name2)? () {
         test(
@@ -1323,6 +1372,10 @@ mod tests {
   test!(
     fn op_scope_and_generics<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait, BC: OtherTrait;
     <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Infallible(Void)
+  );
+  test!(
+    fn op_generics_static<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait + 'static, BC: OtherTrait;
+    <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Infallible(Void)
   );
   test!(
     fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, #[global] s3: v8::Global<v8::String>);

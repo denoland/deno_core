@@ -14,6 +14,7 @@ use syn::ItemFn;
 use syn::Lifetime;
 use syn::LifetimeParam;
 use syn::Path;
+use syn::Type;
 use thiserror::Error;
 
 use self::config::MacroConfig;
@@ -223,7 +224,7 @@ fn generate_op2(
   let bound = signature
     .generic_bounds
     .values()
-    .map(|p| parse_str::<Path>(p).expect("Failed to reparse path"))
+    .map(|p| parse_str::<Type>(p).expect("Failed to reparse type bounds"))
     .collect::<Vec<_>>();
 
   Ok(quote! {
