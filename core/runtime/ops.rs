@@ -767,6 +767,7 @@ mod tests {
       op_async_buffer_vec,
       op_async_buffer_impl,
       op_async_external,
+      op_async_serde_option_v8,
     ],
     state = |state| {
       state.put(1234u32);
@@ -1936,6 +1937,27 @@ mod tests {
       2,
       "op_external_make, op_async_external",
       "await op_async_external(op_external_make())",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async, core)]
+  #[serde]
+  pub async fn op_async_serde_option_v8(
+    #[serde] mut serde: Serde,
+  ) -> Result<Option<Serde>, AnyError> {
+    serde.s += "!";
+    Ok(Some(serde))
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_serde_option_v8(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(
+      2,
+      "op_async_serde_option_v8",
+      "assert((await op_async_serde_option_v8({s: 'abc'})).s == 'abc!')",
     )
     .await?;
     Ok(())

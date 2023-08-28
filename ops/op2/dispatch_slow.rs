@@ -681,6 +681,9 @@ pub fn return_value_v8_value(
     Arg::External(External::Ptr(_)) => {
       quote!(Ok(#deno_core::v8::External::new(#scope, #result as _).into()))
     }
+    Arg::SerdeV8(_) => {
+      quote!(#deno_core::_ops::serde_rust_to_v8(#scope, #result))
+    }
     _ => {
       return Err(V8MappingError::NoMapping(
         "a v8 return value",
