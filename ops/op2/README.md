@@ -736,7 +736,7 @@ Extracts an object from `OpState`.
 # Return Values
 
 <!-- START RV -->
-<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>
+<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>
 <tr>
 <td>
 
@@ -744,6 +744,8 @@ Extracts an object from `OpState`.
 bool
 ```
 
+</td><td>
+✅
 </td><td>
 ✅
 </td><td>
@@ -761,6 +763,8 @@ i8
 </td><td>
 ✅
 </td><td>
+✅
+</td><td>
 Int32
 </td><td>
 
@@ -772,6 +776,8 @@ Int32
 u8
 ```
 
+</td><td>
+✅
 </td><td>
 ✅
 </td><td>
@@ -789,6 +795,8 @@ i16
 </td><td>
 ✅
 </td><td>
+✅
+</td><td>
 Int32
 </td><td>
 
@@ -800,6 +808,8 @@ Int32
 u16
 ```
 
+</td><td>
+✅
 </td><td>
 ✅
 </td><td>
@@ -817,6 +827,8 @@ i32
 </td><td>
 ✅
 </td><td>
+✅
+</td><td>
 Int32
 </td><td>
 
@@ -828,6 +840,8 @@ Int32
 u32
 ```
 
+</td><td>
+✅
 </td><td>
 ✅
 </td><td>
@@ -845,6 +859,8 @@ Uint32
 </td><td>
 ✅
 </td><td>
+✅
+</td><td>
 Int32
 </td><td>
 SMI is internally represented as a signed integer, but unsigned `#[smi]` types will be bit-converted to unsigned values for the Rust call. JavaScript code will continue to see signed integers.
@@ -858,6 +874,8 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 
 </td><td>
 
+</td><td>
+✅
 </td><td>
 BigInt
 </td><td>
@@ -873,6 +891,8 @@ BigInt
 </td><td>
 
 </td><td>
+✅
+</td><td>
 BigInt
 </td><td>
 
@@ -886,6 +906,8 @@ BigInt
 
 </td><td>
 
+</td><td>
+✅
 </td><td>
 BigInt
 </td><td>
@@ -901,6 +923,8 @@ BigInt
 </td><td>
 
 </td><td>
+✅
+</td><td>
 BigInt
 </td><td>
 
@@ -912,6 +936,8 @@ BigInt
 f32
 ```
 
+</td><td>
+✅
 </td><td>
 ✅
 </td><td>
@@ -929,6 +955,8 @@ f64
 </td><td>
 ✅
 </td><td>
+✅
+</td><td>
 Number
 </td><td>
 
@@ -942,6 +970,8 @@ Number
 
 </td><td>
 
+</td><td>
+✅
 </td><td>
 String
 </td><td>
@@ -957,6 +987,8 @@ String
 </td><td>
 
 </td><td>
+✅
+</td><td>
 ArrayBuffer
 </td><td>
 
@@ -970,6 +1002,8 @@ ArrayBuffer
 
 </td><td>
 
+</td><td>
+✅
 </td><td>
 ArrayBuffer
 </td><td>
@@ -985,6 +1019,8 @@ ArrayBuffer
 </td><td>
 
 </td><td>
+✅
+</td><td>
 ArrayBuffer
 </td><td>
 
@@ -998,6 +1034,8 @@ ArrayBuffer
 
 </td><td>
 ✅
+</td><td>
+
 </td><td>
 External
 </td><td>
@@ -1013,6 +1051,8 @@ External
 </td><td>
 ✅
 </td><td>
+
+</td><td>
 External
 </td><td>
 
@@ -1023,6 +1063,8 @@ External
 ```text
 v8::Local<v8::Value>
 ```
+
+</td><td>
 
 </td><td>
 
@@ -1041,6 +1083,8 @@ v8::Local<v8::String>
 </td><td>
 
 </td><td>
+
+</td><td>
 String
 </td><td>
 
@@ -1051,6 +1095,8 @@ String
 ```text
 v8::Local<v8::Object>
 ```
+
+</td><td>
 
 </td><td>
 
@@ -1069,6 +1115,8 @@ v8::Local<v8::Function>
 </td><td>
 
 </td><td>
+
+</td><td>
 Function
 </td><td>
 
@@ -1079,6 +1127,8 @@ Function
 ```text
 v8::Local<v8::...>
 ```
+
+</td><td>
 
 </td><td>
 
@@ -1097,6 +1147,8 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
+✅
+</td><td>
 any
 </td><td>
 
@@ -1110,6 +1162,8 @@ any
 
 </td><td>
 
+</td><td>
+✅
 </td><td>
 any
 </td><td>

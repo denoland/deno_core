@@ -670,6 +670,21 @@ pub fn return_value_v8_value(
     Arg::Numeric(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
       quote!(Ok(#deno_core::v8::Integer::new_from_unsigned(#scope, #result).into()))
     }
+    Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
+      quote!(Ok(#deno_core::v8::Number::new(#scope, #result as _).into()))
+    }
+    Arg::Numeric(NumericArg::i64 | NumericArg::isize) => {
+      quote!(Ok(#deno_core::v8::BigInt::new_from_i64(#scope, #result as _).into()))
+    }
+    Arg::Numeric(NumericArg::u64 | NumericArg::usize) => {
+      quote!(Ok(#deno_core::v8::BigInt::new_from_u64(#scope, #result as _).into()))
+    }
+    Arg::String(Strings::String) => {
+      quote!(match #deno_core::v8::String::new(#scope, &#result) {
+        Some(s) => Ok(s.into()),
+        None => Err(#deno_core::serde_v8::Error::Message("Failed to convert string return value".into()))
+      })
+    }
     Arg::Buffer(
       Buffer::JsBuffer(BufferMode::Default)
       | Buffer::Vec(NumericArg::u8)
