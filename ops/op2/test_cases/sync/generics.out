@@ -44,3 +44,100 @@ impl<T: Trait> op_generics<T> {
     #[inline(always)]
     pub fn call() {}
 }
+
+#[allow(non_camel_case_types)]
+pub struct op_generics_static<T> {
+    _unconstructable: ::std::marker::PhantomData<(T)>,
+}
+impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static<T> {
+    const NAME: &'static str = stringify!(op_generics_static);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_generics_static),
+        false,
+        false,
+        false,
+        0usize as u8,
+        Self::v8_fn_ptr as _,
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+    );
+}
+impl<T: Trait + 'static> op_generics_static<T> {
+    pub const fn name() -> &'static str {
+        stringify!(op_generics_static)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+        let result = { Self::call() };
+        result as _
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let result = { Self::call() };
+        rv.set_null();
+    }
+    #[inline(always)]
+    pub fn call() {}
+}
+
+#[allow(non_camel_case_types)]
+pub struct op_generics_static_where<T> {
+    _unconstructable: ::std::marker::PhantomData<(T)>,
+}
+impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static_where<T> {
+    const NAME: &'static str = stringify!(op_generics_static_where);
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+        stringify!(op_generics_static_where),
+        false,
+        false,
+        false,
+        0usize as u8,
+        Self::v8_fn_ptr as _,
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+    );
+}
+impl<T: Trait + 'static> op_generics_static_where<T> {
+    pub const fn name() -> &'static str {
+        stringify!(op_generics_static_where)
+    }
+    #[deprecated(note = "Use the const op::DECL instead")]
+    pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
+    }
+    fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+        let result = { Self::call() };
+        result as _
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+            &*info
+        });
+        let result = { Self::call() };
+        rv.set_null();
+    }
+    #[inline(always)]
+    pub fn call()
+    where
+        T: Trait + 'static,
+    {}
+}
