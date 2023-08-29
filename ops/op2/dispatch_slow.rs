@@ -16,6 +16,8 @@ use super::signature::Strings;
 use super::V8MappingError;
 use crate::op2::generator_state::gs_extract;
 use crate::op2::generator_state::gs_quote;
+use crate::op2::signature::ArgMarker;
+use crate::op2::signature::ArgSlowRetval;
 use crate::op2::signature::BufferMode;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
@@ -512,133 +514,51 @@ pub fn return_value_infallible(
   generator_state: &mut GeneratorState,
   ret_type: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
-  let GeneratorState {
-    deno_core,
-    scope,
-    result,
-    retval,
-    needs_retval,
-    needs_scope,
-    ..
-  } = generator_state;
-
   // In the future we may be able to make this false for void again
-  *needs_retval = true;
+  generator_state.needs_retval = true;
 
-  let res = match ret_type {
-    Arg::Void => {
-      // TODO(mmastrac): revisit this. Ideally we wouldn't need to set
-      // rv to null, but because of how serde_v8 works this is required
-      // to keep compatibility with existing assumptions in `deno_core`
-      // and `deno` itself.
-      quote! {#retval.set_null();}
+  let result = match ret_type.marker() {
+    ArgMarker::Serde => {
+      gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result)))
     }
-    Arg::Numeric(NumericArg::bool) => {
-      quote!(#retval.set_bool(#result as bool);)
+    ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
+  };
+  let res = match ret_type.slow_retval() {
+    ArgSlowRetval::RetVal => {
+      gs_quote!(generator_state(deno_core, retval) => (#deno_core::_ops::RustToV8RetVal::to_v8_rv(#result, &mut #retval)))
     }
-    Arg::Numeric(NumericArg::u8)
-    | Arg::Numeric(NumericArg::u16)
-    | Arg::Numeric(NumericArg::u32) => {
-      quote!(#retval.set_uint32(#result as u32);)
-    }
-    Arg::Numeric(NumericArg::i8)
-    | Arg::Numeric(NumericArg::i16)
-    | Arg::Numeric(NumericArg::i32)
-    | Arg::Numeric(NumericArg::__SMI__) => {
-      quote!(#retval.set_int32(#result as i32);)
-    }
-    Arg::Numeric(NumericArg::i64 | NumericArg::isize) => {
-      *needs_retval = true;
-      *needs_scope = true;
-      quote!(#retval.set(v8::BigInt::new_from_i64(&mut scope, #result as _).into());)
-    }
-    Arg::Numeric(NumericArg::u64 | NumericArg::usize) => {
-      *needs_retval = true;
-      *needs_scope = true;
-      quote!(#retval.set(v8::BigInt::new_from_u64(&mut #scope, #result as _).into());)
-    }
-    Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
-      quote!(#retval.set_double(#result as _);)
-    }
-    Arg::String(Strings::String) => {
-      *needs_scope = true;
-      quote! {
-        if #result.is_empty() {
-          #retval.set_empty_string();
-        } else {
-          // This should not fail in normal cases
-          // TODO(mmastrac): This has extra allocations that we need to get rid of, especially if the string
-          // is ASCII. We could make an "external Rust String" string in V8 from these and re-use the allocation.
-          let temp = #deno_core::v8::String::new(&mut #scope, &#result).unwrap();
-          #retval.set(temp.into());
-        }
-      }
-    }
-    Arg::String(Strings::CowByte) => {
-      *needs_scope = true;
-      quote! {
-        if #result.is_empty() {
-          #retval.set_empty_string();
-        } else {
-          let temp = #deno_core::v8::String::new_from_one_byte(&mut #scope, &#result, #deno_core::v8::NewStringType::Normal).unwrap();
-          #retval.set(temp.into());
-        }
-      }
-    }
-    Arg::V8Local(_) => {
-      quote! {
-        // We may have a non v8::Value here
-        #retval.set(#result.into())
-      }
-    }
-    Arg::SerdeV8(_class) => {
-      *needs_scope = true;
-
-      let deno_core = deno_core.clone();
-      let scope = scope.clone();
-      let result = result.clone();
-      let retval = retval.clone();
-      let err = format_ident!("{}_err", retval);
+    ArgSlowRetval::RetValFallible => {
+      generator_state.needs_scope = true;
+      let err = format_ident!("{}_err", generator_state.retval);
       let throw_exception = throw_type_error_string(generator_state, &err)?;
 
-      quote! {
-        let #result = match #deno_core::_ops::serde_rust_to_v8(&mut #scope, #result) {
-          Ok(t) => t,
-          Err(#err) => {
-            #throw_exception
-          }
-        };
-        #retval.set(#result.into())
-      }
+      gs_quote!(generator_state(deno_core, scope, retval) => (match #deno_core::_ops::RustToV8Fallible::to_v8_fallible(#result, &mut #scope) {
+        Ok(v) => #retval.set(v),
+        Err(#err) => {
+          #throw_exception
+        },
+      }))
     }
-    Arg::Buffer(
-      Buffer::JsBuffer(BufferMode::Default)
-      | Buffer::Vec(NumericArg::u8)
-      | Buffer::BoxSlice(NumericArg::u8)
-      | Buffer::BytesMut(BufferMode::Default),
-    ) => {
-      *needs_scope = true;
-      quote! { #retval.set(#deno_core::_ops::ToV8Value::to_v8_value(#result, &mut #scope)); }
+    ArgSlowRetval::V8Local => {
+      generator_state.needs_scope = true;
+      gs_quote!(generator_state(deno_core, scope, retval) => (#retval.set(#deno_core::_ops::RustToV8::to_v8(#result, &mut #scope))))
     }
-    Arg::External(External::Ptr(_)) => {
-      *needs_scope = true;
-      quote! { #retval.set(#deno_core::v8::External::new(&mut #scope, #result as _).into()) }
+    ArgSlowRetval::V8LocalNoScope => {
+      gs_quote!(generator_state(deno_core, retval) => (#retval.set(#deno_core::_ops::RustToV8NoScope::to_v8(#result))))
     }
-    arg if arg.is_option() => {
-      // We support all optional types by generating the infallible version in a branch
-      let some = return_value_infallible(
-        generator_state,
-        &ret_type.some_type().unwrap(),
-      )?;
-      gs_quote!(generator_state(result, retval) => {
-        if let Some(#result) = #result {
-          #some
-        } else {
-          #retval.set_null();
-        }
-      })
+    ArgSlowRetval::V8LocalFalliable => {
+      generator_state.needs_scope = true;
+      let err = format_ident!("{}_err", generator_state.retval);
+      let throw_exception = throw_type_error_string(generator_state, &err)?;
+
+      gs_quote!(generator_state(deno_core, scope, retval) => (match #deno_core::_ops::RustToV8Fallible::to_v8_fallible(#result, &mut #scope) {
+        Ok(v) => #retval.set(v),
+        Err(#err) => {
+          #throw_exception
+        },
+      }))
     }
-    _ => {
+    ArgSlowRetval::None => {
       return Err(V8MappingError::NoMapping(
         "a slow return value",
         ret_type.clone(),
@@ -655,51 +575,23 @@ pub fn return_value_v8_value(
   ret_type: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
   gs_extract!(generator_state(deno_core, scope, result));
-  let res = match ret_type {
-    Arg::Void => {
-      quote!(Ok(#deno_core::v8::null(#scope).into()))
+  let result = match ret_type.marker() {
+    ArgMarker::Serde => {
+      quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result))
     }
-    Arg::Numeric(NumericArg::bool) => {
-      quote!(Ok(#deno_core::v8::Boolean::new(#scope, #result).into()))
+    ArgMarker::None => quote!(#result),
+  };
+  let res = match ret_type.slow_retval() {
+    ArgSlowRetval::RetVal | ArgSlowRetval::V8Local => {
+      quote!(Ok(#deno_core::_ops::RustToV8::to_v8(#result, #scope)))
     }
-    Arg::Numeric(
-      NumericArg::i8 | NumericArg::i16 | NumericArg::i32 | NumericArg::__SMI__,
-    ) => {
-      quote!(Ok(#deno_core::v8::Integer::new(#scope, #result as i32).into()))
+    ArgSlowRetval::V8LocalNoScope => {
+      quote!(Ok(#deno_core::_ops::RustToV8NoScope::to_v8(#result)))
     }
-    Arg::Numeric(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
-      quote!(Ok(#deno_core::v8::Integer::new_from_unsigned(#scope, #result).into()))
+    ArgSlowRetval::RetValFallible | ArgSlowRetval::V8LocalFalliable => {
+      quote!(#deno_core::_ops::RustToV8Fallible::to_v8_fallible(#result, #scope))
     }
-    Arg::Numeric(NumericArg::f32 | NumericArg::f64) => {
-      quote!(Ok(#deno_core::v8::Number::new(#scope, #result as _).into()))
-    }
-    Arg::Numeric(NumericArg::i64 | NumericArg::isize) => {
-      quote!(Ok(#deno_core::v8::BigInt::new_from_i64(#scope, #result as _).into()))
-    }
-    Arg::Numeric(NumericArg::u64 | NumericArg::usize) => {
-      quote!(Ok(#deno_core::v8::BigInt::new_from_u64(#scope, #result as _).into()))
-    }
-    Arg::String(Strings::String) => {
-      quote!(match #deno_core::v8::String::new(#scope, &#result) {
-        Some(s) => Ok(s.into()),
-        None => Err(#deno_core::serde_v8::Error::Message("Failed to convert string return value".into()))
-      })
-    }
-    Arg::Buffer(
-      Buffer::JsBuffer(BufferMode::Default)
-      | Buffer::Vec(NumericArg::u8)
-      | Buffer::BoxSlice(NumericArg::u8)
-      | Buffer::BytesMut(BufferMode::Default),
-    ) => {
-      quote!(Ok(#deno_core::_ops::ToV8Value::to_v8_value(#result, #scope)))
-    }
-    Arg::External(External::Ptr(_)) => {
-      quote!(Ok(#deno_core::v8::External::new(#scope, #result as _).into()))
-    }
-    Arg::SerdeV8(_) => {
-      quote!(#deno_core::_ops::serde_rust_to_v8(#scope, #result))
-    }
-    _ => {
+    ArgSlowRetval::None => {
       return Err(V8MappingError::NoMapping(
         "a v8 return value",
         ret_type.clone(),

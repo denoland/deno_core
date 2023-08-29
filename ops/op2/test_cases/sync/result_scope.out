@@ -35,9 +35,7 @@ impl op_void_with_result {
             Self::call(arg0)
         };
         match result {
-            Ok(result) => {
-                rv.set_null();
-            }
+            Ok(result) => deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv),
             Err(err) => {
                 let opctx = unsafe {
                     &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())

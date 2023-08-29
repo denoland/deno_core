@@ -144,6 +144,7 @@ pub mod _ops {
   pub use super::ops::OpCtx;
   pub use super::ops::OpResult;
   pub use super::runtime::ops::*;
+  pub use super::runtime::ops_rust_to_v8::*;
   pub use super::runtime::V8_WRAPPER_OBJECT_INDEX;
   pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
 }

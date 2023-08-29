@@ -69,7 +69,7 @@ impl op_state_rc {
             let arg1 = arg1.try_borrow::<Something>();
             Self::call(arg0, arg1)
         };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(_arg: &Something, _arg_opt: Option<&Something>) {}

@@ -43,14 +43,10 @@ impl op_async {
                 false,
                 promise_id,
                 result,
-                |scope, result| {
-                    Ok(deno_core::v8::Integer::new(scope, result as i32).into())
-                },
+                |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
             ) {
             match result {
-                Ok(result) => {
-                    rv.set_int32(result as i32);
-                }
+                Ok(result) => deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv),
                 Err(err) => {
                     let err = err.into();
                     let exception = deno_core::error::to_v8_error(

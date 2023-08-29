@@ -4,6 +4,7 @@ mod jsrealm;
 mod jsruntime;
 #[doc(hidden)]
 pub mod ops;
+pub mod ops_rust_to_v8;
 mod snapshot_util;
 
 #[cfg(test)]

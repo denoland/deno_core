@@ -52,7 +52,7 @@ impl op_bool {
             let arg0 = arg0.is_true();
             Self::call(arg0)
         };
-        rv.set_bool(result as bool);
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     pub fn call(arg: bool) -> bool {

@@ -5,4 +5,7 @@ deno_ops_compile_test_runner::prelude!();
 use deno_core::v8;
 
 #[op2]
-pub fn op_global(#[global] _g: v8::Global<v8::String>) {}
+#[global]
+pub fn op_global(#[global] g: v8::Global<v8::String>) -> v8::Global<v8::String> {
+    g
+}

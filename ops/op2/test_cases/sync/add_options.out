@@ -65,7 +65,7 @@ impl op_test_add_option {
             };
             Self::call(arg0, arg1)
         };
-        rv.set_uint32(result as u32);
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     pub fn call(a: u32, b: Option<u32>) -> u32 {

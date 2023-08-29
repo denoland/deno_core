@@ -112,7 +112,7 @@ impl op_smi_unsigned_return {
             let arg3 = arg3 as _;
             Self::call(arg0, arg1, arg2, arg3)
         };
-        rv.set_int32(result as i32);
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Uint32 {
@@ -234,7 +234,7 @@ impl op_smi_signed_return {
             let arg3 = arg3 as _;
             Self::call(arg0, arg1, arg2, arg3)
         };
-        rv.set_int32(result as i32);
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Int32 {

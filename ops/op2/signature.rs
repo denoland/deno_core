@@ -312,6 +312,77 @@ impl Arg {
       _ => return None,
     })
   }
+
+  /// This must be kept in sync with the `RustToV8`/`RustToV8Fallible` implementations in `deno_core`. If
+  /// this falls out of sync, you will see compile errors.
+  pub fn slow_retval(&self) -> ArgSlowRetval {
+    if let Some(some) = self.some_type() {
+      // If this is an optional return value, we use the same return type as the underlying object.
+      match some.slow_retval() {
+        // We need a scope in the case of an option so we can allocate a null
+        ArgSlowRetval::V8LocalNoScope => ArgSlowRetval::RetVal,
+        rv => rv,
+      }
+    } else {
+      match self {
+        Arg::Numeric(
+          NumericArg::i64
+          | NumericArg::u64
+          | NumericArg::isize
+          | NumericArg::usize,
+        ) => ArgSlowRetval::V8Local,
+        Arg::Void | Arg::Numeric(_) => ArgSlowRetval::RetVal,
+        Arg::External(_) => ArgSlowRetval::V8Local,
+        // Fast return value path for empty strings
+        Arg::String(_) => ArgSlowRetval::RetValFallible,
+        Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
+        // No scope required for these
+        Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
+        Arg::V8Global(_) => ArgSlowRetval::V8Local,
+        Arg::Buffer(
+          Buffer::JsBuffer(BufferMode::Default)
+          | Buffer::Vec(NumericArg::u8)
+          | Buffer::BoxSlice(NumericArg::u8)
+          | Buffer::BytesMut(BufferMode::Default),
+        ) => ArgSlowRetval::V8LocalFalliable,
+        _ => ArgSlowRetval::None,
+      }
+    }
+  }
+
+  /// Does this type have a marker (used for specialization of serialization/deserialization)?
+  pub fn marker(&self) -> ArgMarker {
+    match self {
+      Arg::SerdeV8(_) => ArgMarker::Serde,
+      _ => ArgMarker::None,
+    }
+  }
+}
+
+#[derive(PartialEq, Eq)]
+/// How can this argument be represented?
+pub enum ArgSlowRetval {
+  /// The argument is not supported in the return position.
+  None,
+  /// The argument is supported as a fast path in `v8::ReturnValue`. Implies that there is also
+  /// a `V8Local` implementation in cases where there is no [`v8::ReturnValue`]. Does not require
+  /// a scope.
+  RetVal,
+  /// Like `RetVal`, but fallible. Unlike `RetVal`, requires a scope.
+  RetValFallible,
+  /// The argument is only supported as a `v8::Local`, and it may not fail (eg: integers, floats).
+  V8Local,
+  /// The argument is only supported as a `v8::Local`, and it does not allocate (ie: it is already
+  /// a `v8::Local`).
+  V8LocalNoScope,
+  /// The argument is only supported as a `v8::Local`, and it may fail (eg: strings, arrays).
+  V8LocalFalliable,
+}
+
+/// Specifies an ArgMarker wrapper for a type used for trait-based serialization.
+pub enum ArgMarker {
+  None,
+  Serde,
 }
 
 pub enum ParsedType {
@@ -924,10 +995,10 @@ fn parse_type_path(
       ( $( std :: str :: )? str ) => {
         Ok(CBare(TString(Strings::RefStr)))
       }
-      ( $( std :: borrow :: )? Cow < str > ) => {
+      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? str > ) => {
         Ok(CBare(TString(Strings::CowStr)))
       }
-      ( $( std :: borrow :: )? Cow < [ u8 ] > ) => {
+      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? [ u8 ] > ) => {
         Ok(CBare(TString(Strings::CowByte)))
       }
       ( $( std :: vec ::)? Vec < $ty:path > ) => {

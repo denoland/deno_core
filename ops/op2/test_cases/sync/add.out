@@ -80,7 +80,7 @@ impl op_add {
             let arg1 = arg1 as _;
             Self::call(arg0, arg1)
         };
-        rv.set_uint32(result as u32);
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(a: u32, b: u32) -> u32 {

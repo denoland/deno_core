@@ -47,8 +47,14 @@ impl op_serde_v8 {
             };
             Self::call(arg0)
         };
-        let result = match deno_core::_ops::serde_rust_to_v8(&mut scope, result) {
-            Ok(t) => t,
+        match deno_core::_ops::RustToV8Fallible::to_v8_fallible(
+            deno_core::_ops::RustToV8Marker::<
+                deno_core::_ops::SerdeMarker,
+                _,
+            >::from(result),
+            &mut scope,
+        ) {
+            Ok(v) => rv.set(v),
             Err(rv_err) => {
                 let msg = deno_core::v8::String::new(
                         &mut scope,
@@ -59,8 +65,7 @@ impl op_serde_v8 {
                 scope.throw_exception(exc);
                 return;
             }
-        };
-        rv.set(result.into())
+        }
     }
     #[inline(always)]
     pub fn call(_input: Input) -> Output {

@@ -102,7 +102,7 @@ impl op_buffers {
             let arg1 = &mut arg1;
             Self::call(arg0, arg1)
         };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(_a: &[u8], _b: &mut [u8]) {}
