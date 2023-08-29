@@ -61,9 +61,9 @@ impl op_async_v8_global {
                 false,
                 promise_id,
                 result,
-                |scope, result| { Ok(deno_core::v8::null(scope).into()) },
+                |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
             ) {
-            rv.set_null();
+            deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
         }
     }
     #[inline(always)]

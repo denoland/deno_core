@@ -66,7 +66,7 @@ impl op_string_owned {
             let arg0 = &deno_core::_ops::to_str(&mut scope, &arg0, &mut arg0_temp);
             Self::call(arg0)
         };
-        rv.set_uint32(result as u32);
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(s: &str) -> u32 {

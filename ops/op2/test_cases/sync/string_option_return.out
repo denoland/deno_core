@@ -39,15 +39,18 @@ impl op_string_return {
             };
             Self::call(arg0)
         };
-        if let Some(result) = result {
-            if result.is_empty() {
-                rv.set_empty_string();
-            } else {
-                let temp = deno_core::v8::String::new(&mut scope, &result).unwrap();
-                rv.set(temp.into());
+        match deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, &mut scope) {
+            Ok(v) => rv.set(v),
+            Err(rv_err) => {
+                let msg = deno_core::v8::String::new(
+                        &mut scope,
+                        &format!("{}", deno_core::anyhow::Error::from(rv_err)),
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
             }
-        } else {
-            rv.set_null();
         }
     }
     #[inline(always)]

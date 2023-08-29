@@ -747,9 +747,9 @@ bool
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Bool
+
 </td><td>
 
 </td></tr>
@@ -763,9 +763,9 @@ i8
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Int32
+
 </td><td>
 
 </td></tr>
@@ -779,9 +779,9 @@ u8
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Uint32
+
 </td><td>
 
 </td></tr>
@@ -795,9 +795,9 @@ i16
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Int32
+
 </td><td>
 
 </td></tr>
@@ -811,9 +811,9 @@ u16
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Uint32
+
 </td><td>
 
 </td></tr>
@@ -827,9 +827,9 @@ i32
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Int32
+
 </td><td>
 
 </td></tr>
@@ -843,9 +843,9 @@ u32
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Uint32
+
 </td><td>
 
 </td></tr>
@@ -859,11 +859,11 @@ Uint32
 </td><td>
 ✅
 </td><td>
-✅
-</td><td>
-Int32
+
 </td><td>
 SMI is internally represented as a signed integer, but unsigned `#[smi]` types will be bit-converted to unsigned values for the Rust call. JavaScript code will continue to see signed integers.
+</td><td>
+
 </td></tr>
 <tr>
 <td>
@@ -875,9 +875,9 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-BigInt
+
 </td><td>
 
 </td></tr>
@@ -891,9 +891,9 @@ BigInt
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-BigInt
+
 </td><td>
 
 </td></tr>
@@ -907,9 +907,9 @@ BigInt
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-BigInt
+
 </td><td>
 
 </td></tr>
@@ -923,9 +923,9 @@ BigInt
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-BigInt
+
 </td><td>
 
 </td></tr>
@@ -939,9 +939,9 @@ f32
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Number
+
 </td><td>
 
 </td></tr>
@@ -955,9 +955,9 @@ f64
 </td><td>
 ✅
 </td><td>
-✅
+
 </td><td>
-Number
+
 </td><td>
 
 </td></tr>
@@ -971,9 +971,57 @@ Number
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-String
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[string] &str
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[string] Cow<str>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[string(onebyte)] Cow<[u8]>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
 </td><td>
 
 </td></tr>
@@ -987,9 +1035,9 @@ String
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-ArrayBuffer
+
 </td><td>
 
 </td></tr>
@@ -1003,9 +1051,9 @@ ArrayBuffer
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-ArrayBuffer
+
 </td><td>
 
 </td></tr>
@@ -1019,9 +1067,9 @@ ArrayBuffer
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-ArrayBuffer
+
 </td><td>
 
 </td></tr>
@@ -1037,7 +1085,7 @@ ArrayBuffer
 </td><td>
 
 </td><td>
-External
+
 </td><td>
 
 </td></tr>
@@ -1053,7 +1101,7 @@ External
 </td><td>
 
 </td><td>
-External
+
 </td><td>
 
 </td></tr>
@@ -1069,7 +1117,7 @@ v8::Local<v8::Value>
 </td><td>
 
 </td><td>
-any
+
 </td><td>
 
 </td></tr>
@@ -1085,7 +1133,7 @@ v8::Local<v8::String>
 </td><td>
 
 </td><td>
-String
+
 </td><td>
 
 </td></tr>
@@ -1101,7 +1149,7 @@ v8::Local<v8::Object>
 </td><td>
 
 </td><td>
-Object
+
 </td><td>
 
 </td></tr>
@@ -1117,7 +1165,7 @@ v8::Local<v8::Function>
 </td><td>
 
 </td><td>
-Function
+
 </td><td>
 
 </td></tr>
@@ -1133,7 +1181,87 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-...
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[global] v8::Global<v8::Value>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[global] v8::Global<v8::String>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[global] v8::Global<v8::Object>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[global] v8::Global<v8::Function>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[global] v8::Global<v8::...>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
 </td><td>
 
 </td></tr>
@@ -1147,9 +1275,9 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-any
+
 </td><td>
 
 </td></tr>
@@ -1163,9 +1291,9 @@ any
 </td><td>
 
 </td><td>
-✅
+
 </td><td>
-any
+
 </td><td>
 
 </td></tr>

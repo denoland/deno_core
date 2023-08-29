@@ -48,7 +48,7 @@ impl op_v8_lifetime {
             let arg0 = arg0;
             Self::call(arg0)
         };
-        rv.set(result.into())
+        rv.set(deno_core::_ops::RustToV8NoScope::to_v8(result))
     }
     #[inline(always)]
     pub fn call<'s>(_s: v8::Local<'s, v8::String>) -> v8::Local<'s, v8::String> {

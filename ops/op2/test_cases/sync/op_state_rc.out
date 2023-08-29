@@ -63,7 +63,7 @@ impl op_state_rc {
             let arg0 = opstate.clone();
             Self::call(arg0)
         };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(_state: Rc<RefCell<OpState>>) {}

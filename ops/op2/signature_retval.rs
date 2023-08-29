@@ -56,6 +56,7 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
     }
     Type::Tuple(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     Type::Ptr(_) => Ok(UnwrappedReturn::Type(ty.clone())),
+    Type::Reference(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     _ => Err(RetError::InvalidType(ArgError::InvalidType(
       stringify_token(ty),
       "for return type",

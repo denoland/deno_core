@@ -3,24 +3,18 @@ use crate::ops::*;
 use crate::OpResult;
 use crate::PromiseId;
 use anyhow::Error;
-use bytes::BytesMut;
 use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
 use serde::Deserialize;
-use serde::Serialize;
 use serde_v8::from_v8;
-use serde_v8::to_v8;
-use serde_v8::JsBuffer;
-use serde_v8::V8Slice;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::future::ready;
 use std::mem::MaybeUninit;
 use std::option::Option;
-use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 use v8::WriteOptions;
@@ -519,13 +513,6 @@ where
   }
 }
 
-pub fn serde_rust_to_v8<'a, T: Serialize>(
-  scope: &mut v8::HandleScope<'a>,
-  input: T,
-) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
-  to_v8(scope, input)
-}
-
 pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
   scope: &mut v8::HandleScope,
   input: v8::Local<v8::Value>,
@@ -592,91 +579,6 @@ where
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
-}
-
-pub trait ToV8Value {
-  /// Consume and convert this object into a [`v8::Value`]. This is similar to what serde_v8 does, but a
-  /// dedicated API for ops to use.
-  fn to_v8_value<'a>(
-    self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::Value>;
-}
-
-impl ToV8Value for V8Slice {
-  fn to_v8_value<'a>(
-    self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::Value> {
-    let (buffer, range) = self.into_parts();
-    let buffer = v8::ArrayBuffer::with_backing_store(scope, &buffer);
-    let array =
-      v8::Uint8Array::new(scope, buffer, range.start, range.len()).unwrap();
-    array.into()
-  }
-}
-
-impl ToV8Value for JsBuffer {
-  fn to_v8_value<'a>(
-    self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::Value> {
-    self.into_parts().to_v8_value(scope)
-  }
-}
-
-impl ToV8Value for Box<[u8]> {
-  fn to_v8_value<'a>(
-    self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::Value> {
-    let buf = self;
-    if buf.is_empty() {
-      let ab = v8::ArrayBuffer::new(scope, 0);
-      return v8::Uint8Array::new(scope, ab, 0, 0).unwrap().into();
-    }
-    let buf_len: usize = buf.len();
-    let backing_store =
-      v8::ArrayBuffer::new_backing_store_from_boxed_slice(buf);
-    let backing_store_shared = backing_store.make_shared();
-    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
-    v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap().into()
-  }
-}
-
-impl ToV8Value for Vec<u8> {
-  fn to_v8_value<'a>(
-    self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::Value> {
-    self.into_boxed_slice().to_v8_value(scope)
-  }
-}
-
-impl ToV8Value for BytesMut {
-  fn to_v8_value<'a>(
-    self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::Value> {
-    let ptr = self.as_ptr();
-    let len = self.len() as _;
-    let rc = Rc::into_raw(Rc::new(self)) as *const c_void;
-
-    extern "C" fn drop_rc(_ptr: *mut c_void, _len: usize, data: *mut c_void) {
-      // SAFETY: We know that data is a raw Rc from above
-      unsafe { drop(Rc::<BytesMut>::from_raw(data as _)) }
-    }
-
-    // SAFETY: We are using the BytesMut backing store here
-    let backing_store_shared = unsafe {
-      v8::ArrayBuffer::new_backing_store_from_ptr(
-        ptr as _, len, drop_rc, rc as _,
-      )
-    }
-    .make_shared();
-    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
-    v8::Uint8Array::new(scope, ab, 0, len).unwrap().into()
-  }
 }
 
 #[cfg(test)]

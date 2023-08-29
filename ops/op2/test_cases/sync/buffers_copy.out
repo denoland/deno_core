@@ -132,7 +132,7 @@ impl op_buffers {
             let arg2 = arg2.to_vec().into();
             Self::call(arg0, arg1, arg2)
         };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     fn call(_a: Vec<u8>, _b: Box<[u8]>, _c: bytes::Bytes) {}

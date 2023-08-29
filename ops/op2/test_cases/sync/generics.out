@@ -39,7 +39,7 @@ impl<T: Trait> op_generics<T> {
             &*info
         });
         let result = { Self::call() };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     pub fn call() {}
@@ -86,7 +86,7 @@ impl<T: Trait + 'static> op_generics_static<T> {
             &*info
         });
         let result = { Self::call() };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     pub fn call() {}
@@ -133,7 +133,7 @@ impl<T: Trait + 'static> op_generics_static_where<T> {
             &*info
         });
         let result = { Self::call() };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     pub fn call()

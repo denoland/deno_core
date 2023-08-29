@@ -49,7 +49,7 @@ impl op_handlescope {
             let arg0 = &mut scope;
             Self::call(arg0, arg1)
         };
-        rv.set(result.into())
+        rv.set(deno_core::_ops::RustToV8NoScope::to_v8(result))
     }
     #[inline(always)]
     fn call<'a>(

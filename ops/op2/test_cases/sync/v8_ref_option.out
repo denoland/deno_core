@@ -110,7 +110,7 @@ impl op_v8_lifetime {
             };
             Self::call(arg0, arg1)
         };
-        rv.set_null();
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
     pub fn call<'s>(_s: Option<&v8::String>, _s2: Option<&v8::String>) {}

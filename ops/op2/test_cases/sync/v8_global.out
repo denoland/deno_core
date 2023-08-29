@@ -23,17 +23,13 @@ impl op_global {
         <Self as deno_core::_ops::Op>::DECL
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
-        };
-        let mut scope = unsafe { &mut *opctx.isolate };
         let result = {
             let arg0 = args.get(0usize as i32);
             let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
@@ -53,8 +49,10 @@ impl op_global {
             let arg0 = deno_core::v8::Global::new(&mut scope, arg0);
             Self::call(arg0)
         };
-        rv.set_null();
+        rv.set(deno_core::_ops::RustToV8::to_v8(result, &mut scope))
     }
     #[inline(always)]
-    pub fn call(_g: v8::Global<v8::String>) {}
+    pub fn call(g: v8::Global<v8::String>) -> v8::Global<v8::String> {
+        g
+    }
 }
