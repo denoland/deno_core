@@ -397,8 +397,7 @@ deno_ops_compile_test_runner::prelude!();";
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
-      let fastcall = components.get(1).unwrap().to_owned();
-      let fast = fastcall == "X";
+      let fast = components.get(1).unwrap() == &"X";
       let v8 = components.get(2).unwrap().to_owned();
       let notes = components.get(3).unwrap().to_owned();
       let (attr, ty) = if type_param.starts_with('#') {
@@ -451,14 +450,14 @@ deno_ops_compile_test_runner::prelude!();";
     let end_separator = "\n<!-- END RV -->\n";
     let readme = std::fs::read_to_string("op2/README.md").unwrap();
     let (header, remainder) = split_readme(&readme, separator, end_separator);
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>\n");
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
-      let fastcall = components.get(1).unwrap().to_owned();
-      let fast = fastcall == "X";
-      let v8 = components.get(2).unwrap().to_owned();
-      let notes = components.get(3).unwrap().to_owned();
+      let fast = components.get(1).unwrap() == &"X";
+      let async_support = components.get(2).unwrap() == &"X";
+      let v8 = components.get(3).unwrap().to_owned();
+      let notes = components.get(4).unwrap().to_owned();
       let (attr, ty) = if type_param.starts_with('#') {
         type_param.split_once(' ').expect(
           "Expected an attribute separated by a space (ie: #[attr] type)",
@@ -482,8 +481,26 @@ deno_ops_compile_test_runner::prelude!();";
           function,
         )
         .expect("Failed to generate op");
+
+        if async_support {
+          let function = format!("{} async fn op_test() -> {} {{}}", attr, ty);
+          let function =
+            syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
+          let sig =
+            parse_signature(function.attrs.clone(), function.sig.clone())
+              .expect("Failed to parse signature");
+          println!("Parsed signature: {sig:?}");
+          generate_op2(
+            MacroConfig {
+              r#async: true,
+              ..Default::default()
+            },
+            function,
+          )
+          .expect("Failed to generate op");
+        }
       }
-      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, if async_support { "✅" } else { "" }, v8, notes);
     });
 
     actual += "</table>\n";
