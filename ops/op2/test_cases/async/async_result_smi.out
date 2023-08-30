@@ -59,10 +59,28 @@ impl op_async {
                 false,
                 promise_id,
                 result,
-                |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
+                |scope, result| {
+                    Ok(
+                        deno_core::_ops::RustToV8::to_v8(
+                            deno_core::_ops::RustToV8Marker::<
+                                deno_core::_ops::SmiMarker,
+                                _,
+                            >::from(result),
+                            scope,
+                        ),
+                    )
+                },
             ) {
             match result {
-                Ok(result) => deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv),
+                Ok(result) => {
+                    deno_core::_ops::RustToV8RetVal::to_v8_rv(
+                        deno_core::_ops::RustToV8Marker::<
+                            deno_core::_ops::SmiMarker,
+                            _,
+                        >::from(result),
+                        &mut rv,
+                    )
+                }
                 Err(err) => {
                     let err = err.into();
                     let exception = deno_core::error::to_v8_error(

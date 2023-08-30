@@ -354,6 +354,7 @@ impl Arg {
   pub fn marker(&self) -> ArgMarker {
     match self {
       Arg::SerdeV8(_) => ArgMarker::Serde,
+      Arg::Numeric(NumericArg::__SMI__) => ArgMarker::Smi,
       _ => ArgMarker::None,
     }
   }
@@ -382,7 +383,10 @@ pub enum ArgSlowRetval {
 /// Specifies an ArgMarker wrapper for a type used for trait-based serialization.
 pub enum ArgMarker {
   None,
+  /// This type should be serialized with serde_v8.
   Serde,
+  /// This type should be serialized as an SMI.
+  Smi,
 }
 
 pub enum ParsedType {
