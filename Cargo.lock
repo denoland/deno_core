@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.206.0"
+version = "0.207.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.84.0"
+version = "0.85.0"
 dependencies = [
  "deno-proc-macro-rules",
  "lazy-regex",
@@ -1274,7 +1274,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "bencher",
  "bytes",
