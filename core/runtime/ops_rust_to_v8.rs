@@ -147,6 +147,9 @@ impl<M, T> From<T> for RustToV8Marker<M, T> {
 /// This struct should be serialized using `serde`.
 pub struct SerdeMarker;
 
+/// This primitive should be serialized as an SMI.
+pub struct SmiMarker;
+
 /// Helper macro for [`RustToV8`] to reduce boilerplate.
 ///
 /// Implements a Rust-to-v8 conversion that cannot fail. Multiple types may be specified
@@ -361,6 +364,36 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
     serde_v8::to_v8(scope, self.0)
   }
 }
+
+//
+// SMI
+//
+
+/// Implement an infallible SMI conversion from each of the integer types. SMI has a subset
+/// of the range of a normal integer, so we just do a bitwise cast.
+// TODO(mmastrac): We should be able to make these things much faster and without a scope
+macro_rules! smi_to_v8 {
+  ($($ty:ident),*) => {
+    $(
+      impl<'a> RustToV8<'a> for RustToV8Marker<SmiMarker, $ty>
+      {
+        #[inline(always)]
+        fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+          v8::Integer::new(scope, self.0 as _).into()
+        }
+      }
+
+      impl <'a> RustToV8RetVal<'a> for RustToV8Marker<SmiMarker, $ty> {
+        #[inline(always)]
+        fn to_v8_rv(self, rv: &mut v8::ReturnValue<'a>) {
+          rv.set_int32(self.0 as _)
+        }
+      }
+    )*
+  };
+}
+
+smi_to_v8!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 //
 // Globals

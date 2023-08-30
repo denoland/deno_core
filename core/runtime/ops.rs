@@ -835,6 +835,8 @@ mod tests {
     Ok(())
   }
 
+  // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
+  // of valid ranges result in automatic wrapping.
   #[op2(core, fast)]
   #[smi]
   pub fn op_test_add_smi_unsigned(#[smi] a: u32, #[smi] b: u16) -> u32 {
@@ -848,6 +850,11 @@ mod tests {
       10000,
       "op_test_add_smi_unsigned",
       "assert(op_test_add_smi_unsigned(1000, 2000) == 3000)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_add_smi_unsigned",
+      "assert(op_test_add_smi_unsigned(-1000, 10) == -990)",
     )?;
     Ok(())
   }
@@ -1632,14 +1639,16 @@ mod tests {
 
   #[op2(async, core)]
   async fn op_async_add(x: u32, y: u32) -> u32 {
-    x + y
+    x.wrapping_add(y)
   }
 
+  // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
+  // of valid ranges result in automatic wrapping.
   #[op2(async, core)]
   #[smi]
   async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
     tokio::time::sleep(Duration::from_millis(10)).await;
-    x + y
+    x.wrapping_add(y)
   }
 
   #[tokio::test]
@@ -1663,6 +1672,12 @@ mod tests {
       "assert(await op_async_add_smi(__index__, 100) == __index__ + 100)",
     )
     .await?;
+    // See note about overflow on the op method
+    run_async_test(
+      10,
+      "op_async_add_smi",
+      "assert(await op_async_add_smi(__index__ * -100, 100) == __index__ * -100 + 100)",
+    ).await?;
     Ok(())
   }
 

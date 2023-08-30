@@ -521,6 +521,9 @@ pub fn return_value_infallible(
     ArgMarker::Serde => {
       gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result)))
     }
+    ArgMarker::Smi => {
+      gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SmiMarker, _>::from(#result)))
+    }
     ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
   };
   let res = match ret_type.slow_retval() {
@@ -578,6 +581,9 @@ pub fn return_value_v8_value(
   let result = match ret_type.marker() {
     ArgMarker::Serde => {
       quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result))
+    }
+    ArgMarker::Smi => {
+      quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SmiMarker, _>::from(#result))
     }
     ArgMarker::None => quote!(#result),
   };
