@@ -13,7 +13,7 @@ members = [
 authors = ["the Deno authors"]
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/denoland/deno"
+repository = "https://github.com/denoland/deno_core"
 
 [workspace.dependencies]
 v8 = { version = "0.75.1", default-features = false }
