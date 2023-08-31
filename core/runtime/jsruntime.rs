@@ -331,6 +331,7 @@ fn v8_init(
   let base_flags = concat!(
     " --wasm-test-streaming",
     " --harmony-import-assertions",
+    " --harmony-import-attributes",
     " --no-validate-asm",
     " --turbo_fast_api_calls",
     " --harmony-change-array-by-copy",
