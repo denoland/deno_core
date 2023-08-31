@@ -414,10 +414,11 @@ fn test_json_module() {
 
   let module_map_rc = runtime.module_map().clone();
 
-  let (mod_a, mod_b) = {
+  let (mod_a, mod_b, mod_c) = {
     let scope = &mut runtime.handle_scope();
     let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
+    let specifier_b = ascii_str!("file:///b.js");
     let mod_a = module_map
       .new_es_module(
         scope,
@@ -425,7 +426,7 @@ fn test_json_module() {
         specifier_a,
         ascii_str!(
           r#"
-          import jsonData from './b.json' assert {type: "json"};
+          import jsonData from './c.json' assert {type: "json"};
           assert(jsonData.a == "b");
           assert(jsonData.c.d == 10);
         "#
@@ -438,29 +439,60 @@ fn test_json_module() {
     assert_eq!(
       imports,
       Some(&vec![ModuleRequest {
-        specifier: "file:///b.json".to_string(),
+        specifier: "file:///c.json".to_string(),
         asserted_module_type: AssertedModuleType::Json,
       },])
     );
 
     let mod_b = module_map
+      .new_es_module(
+        scope,
+        false,
+        specifier_b,
+        ascii_str!(
+          r#"
+          import jsonData from './c.json' with {type: "json"};
+          assert(jsonData.a == "b");
+          assert(jsonData.c.d == 10);
+        "#
+        ),
+        false,
+      )
+      .unwrap();
+
+    let imports = module_map.get_requested_modules(mod_b);
+    assert_eq!(
+      imports,
+      Some(&vec![ModuleRequest {
+        specifier: "file:///c.json".to_string(),
+        asserted_module_type: AssertedModuleType::Json,
+      },])
+    );
+
+    let mod_c = module_map
       .new_json_module(
         scope,
-        ascii_str!("file:///b.json"),
+        ascii_str!("file:///c.json"),
         ascii_str!("{\"a\": \"b\", \"c\": {\"d\": 10}}"),
       )
       .unwrap();
-    let imports = module_map.get_requested_modules(mod_b).unwrap();
+    let imports = module_map.get_requested_modules(mod_c).unwrap();
     assert_eq!(imports.len(), 0);
-    (mod_a, mod_b)
+    (mod_a, mod_b, mod_c)
   };
 
-  runtime.instantiate_module(mod_b).unwrap();
-  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(1, 0, 0));
+  runtime.instantiate_module(mod_c).unwrap();
+  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(2, 0, 0));
 
   runtime.instantiate_module(mod_a).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_a);
+  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(receiver).unwrap().unwrap();
+
+  runtime.instantiate_module(mod_b).unwrap();
+
+  let receiver = runtime.mod_evaluate(mod_b);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
   futures::executor::block_on(receiver).unwrap().unwrap();
 }
