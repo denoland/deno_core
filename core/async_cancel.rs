@@ -809,6 +809,57 @@ mod tests {
     }
   }
 
+  /// Test polling without tokio so we can use miri.
+  #[test]
+  fn abort_poll_once() {
+    let cancel_handle = Rc::new(CancelHandle::new());
+    let f = pending::<u32>();
+    let mut f = Box::pin(f.or_abort(&cancel_handle));
+    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    assert!(res.is_pending());
+    cancel_handle.cancel();
+    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    let Poll::Ready(Err(mut f)) = res else {
+      panic!("wasn't cancelled!");
+    };
+    assert!(f
+      .poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+      .is_pending());
+  }
+
+  /// Test polling without tokio so we can use miri.
+  #[test]
+  fn abort_poll() {
+    struct CountdownFuture(u32, String);
+    impl Future for CountdownFuture {
+      type Output = String;
+      fn poll(
+        mut self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+      ) -> Poll<Self::Output> {
+        self.as_mut().0 = self.as_mut().0 - 1;
+        if self.as_mut().0 == 0 {
+          Poll::Ready(self.1.clone())
+        } else {
+          Poll::Pending
+        }
+      }
+    }
+
+    let cancel_handle = Rc::new(CancelHandle::new());
+    let f = CountdownFuture(2, "hello world!".into());
+    let mut f = Box::pin(f.or_abort(cancel_handle.clone()));
+    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    assert!(res.is_pending());
+    cancel_handle.clone().cancel();
+    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    let Poll::Ready(Err(mut f)) = res else {
+      panic!("wasn't cancelled!");
+    };
+    let res = f.poll_unpin(&mut Context::from_waker(noop_waker_ref()));
+    assert_eq!(res, Poll::Ready("hello world!".into()));
+  }
+
   #[tokio::test]
   async fn abort_future() {
     // Abort a spawned task before it actually runs.
