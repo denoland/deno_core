@@ -321,6 +321,38 @@ fn terminate_execution() {
   terminator_thread.join().unwrap();
 }
 
+#[tokio::test]
+async fn wasm_streaming_op_invocation_in_import() {
+  let (mut runtime, _dispatch_count) = setup(Mode::Async);
+
+  // Run an infinite loop in WebAssembly code, which should be terminated.
+  runtime.execute_script_static("setup.js",
+                               r#"
+                                Deno.core.setWasmStreamingCallback((source, rid) => {
+                                  Deno.core.ops.op_wasm_streaming_set_url(rid, "file:///foo.wasm");
+                                  Deno.core.ops.op_wasm_streaming_feed(rid, source);
+                                  Deno.core.close(rid);
+                                });
+                               "#).unwrap();
+
+  let promise = runtime.execute_script_static("main.js",
+                            r#"
+                             // (module (import "env" "data" (global i64)))
+                             const bytes = new Uint8Array([0,97,115,109,1,0,0,0,2,13,1,3,101,110,118,4,100,97,116,97,3,126,0,0,8,4,110,97,109,101,2,1,0]);
+                             WebAssembly.instantiateStreaming(bytes, {
+                               env: {
+                                 get data() {
+                                   Deno.core.ops.op_resources();
+                                   return new WebAssembly.Global({ value: "i64", mutable: false }, 42n);
+                                 }
+                               }
+                             });
+                            "#).unwrap();
+  let value = runtime.resolve_value(promise).await.unwrap();
+  let val = value.open(&mut runtime.handle_scope());
+  assert!(val.is_object());
+}
+
 #[test]
 fn dangling_shared_isolate() {
   let v8_isolate_handle = {
