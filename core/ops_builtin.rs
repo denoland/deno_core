@@ -132,7 +132,8 @@ pub fn op_close(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
 ) -> Result<(), Error> {
-  state.borrow_mut().resource_table.take_any(rid)?.close();
+  let resource = state.borrow_mut().resource_table.take_any(rid)?;
+  resource.close();
   Ok(())
 }
 
