@@ -658,49 +658,54 @@ mod tests {
     }
   }
 
-  #[tokio::test]
-  async fn async_ref_cell_borrow() {
-    let cell = AsyncRefCell::<Thing>::default_rc();
+  #[test]
+  fn async_ref_cell_borrow() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+    runtime.block_on(async {
+      let cell = AsyncRefCell::<Thing>::default_rc();
 
-    let fut1 = cell.borrow();
-    let fut2 = cell.borrow_mut();
-    let fut3 = cell.borrow();
-    let fut4 = cell.borrow();
-    let fut5 = cell.borrow();
-    let fut6 = cell.borrow();
-    let fut7 = cell.borrow_mut();
-    let fut8 = cell.borrow();
+      let fut1 = cell.borrow();
+      let fut2 = cell.borrow_mut();
+      let fut3 = cell.borrow();
+      let fut4 = cell.borrow();
+      let fut5 = cell.borrow();
+      let fut6 = cell.borrow();
+      let fut7 = cell.borrow_mut();
+      let fut8 = cell.borrow();
 
-    // The `try_borrow` and `try_borrow_mut` methods should always return `None`
-    // if there's a queue of async borrowers.
-    assert!(cell.try_borrow().is_none());
-    assert!(cell.try_borrow_mut().is_none());
+      // The `try_borrow` and `try_borrow_mut` methods should always return `None`
+      // if there's a queue of async borrowers.
+      assert!(cell.try_borrow().is_none());
+      assert!(cell.try_borrow_mut().is_none());
 
-    assert_eq!(fut1.await.look(), 0);
+      assert_eq!(fut1.await.look(), 0);
 
-    assert_eq!(fut2.await.touch(), 1);
+      assert_eq!(fut2.await.touch(), 1);
 
-    {
-      let ref5 = fut5.await;
-      let ref4 = fut4.await;
-      let ref3 = fut3.await;
-      let ref6 = fut6.await;
-      assert_eq!(ref3.look(), 1);
-      assert_eq!(ref4.look(), 1);
-      assert_eq!(ref5.look(), 1);
-      assert_eq!(ref6.look(), 1);
-    }
+      {
+        let ref5 = fut5.await;
+        let ref4 = fut4.await;
+        let ref3 = fut3.await;
+        let ref6 = fut6.await;
+        assert_eq!(ref3.look(), 1);
+        assert_eq!(ref4.look(), 1);
+        assert_eq!(ref5.look(), 1);
+        assert_eq!(ref6.look(), 1);
+      }
 
-    {
-      let mut ref7 = fut7.await;
-      assert_eq!(ref7.look(), 1);
-      assert_eq!(ref7.touch(), 2);
-    }
+      {
+        let mut ref7 = fut7.await;
+        assert_eq!(ref7.look(), 1);
+        assert_eq!(ref7.touch(), 2);
+      }
 
-    {
-      let ref8 = fut8.await;
-      assert_eq!(ref8.look(), 2);
-    }
+      {
+        let ref8 = fut8.await;
+        assert_eq!(ref8.look(), 2);
+      }
+    });
   }
 
   #[test]
@@ -755,26 +760,31 @@ mod tests {
     pub thing3: AsyncRefCell<Thing>,
   }
 
-  #[tokio::test]
-  async fn rc_ref_map() {
-    let three_cells = Rc::new(ThreeThings::default());
+  #[test]
+  fn rc_ref_map() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+    runtime.block_on(async {
+      let three_cells = Rc::new(ThreeThings::default());
 
-    let rc1 = RcRef::map(three_cells.clone(), |things| &things.thing1);
-    let rc2 = RcRef::map(three_cells.clone(), |things| &things.thing2);
-    let rc3 = RcRef::map(three_cells, |things| &things.thing3);
+      let rc1 = RcRef::map(three_cells.clone(), |things| &things.thing1);
+      let rc2 = RcRef::map(three_cells.clone(), |things| &things.thing2);
+      let rc3 = RcRef::map(three_cells, |things| &things.thing3);
 
-    let mut ref1 = rc1.borrow_mut().await;
-    let ref2 = rc2.borrow().await;
-    let mut ref3 = rc3.borrow_mut().await;
+      let mut ref1 = rc1.borrow_mut().await;
+      let ref2 = rc2.borrow().await;
+      let mut ref3 = rc3.borrow_mut().await;
 
-    assert_eq!(ref1.look(), 0);
-    assert_eq!(ref3.touch(), 1);
-    assert_eq!(ref1.touch(), 1);
-    assert_eq!(ref2.look(), 0);
-    assert_eq!(ref3.touch(), 2);
-    assert_eq!(ref1.look(), 1);
-    assert_eq!(ref1.touch(), 2);
-    assert_eq!(ref3.touch(), 3);
-    assert_eq!(ref1.touch(), 3);
+      assert_eq!(ref1.look(), 0);
+      assert_eq!(ref3.touch(), 1);
+      assert_eq!(ref1.touch(), 1);
+      assert_eq!(ref2.look(), 0);
+      assert_eq!(ref3.touch(), 2);
+      assert_eq!(ref1.look(), 1);
+      assert_eq!(ref1.touch(), 2);
+      assert_eq!(ref3.touch(), 3);
+      assert_eq!(ref1.touch(), 3);
+    });
   }
 }
