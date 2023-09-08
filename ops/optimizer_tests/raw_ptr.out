@@ -82,10 +82,9 @@ where
                     }
                 }
                 Err(_) => {
-                    if let Ok(view)
-                        = deno_core::v8::Local::<
-                            deno_core::v8::ArrayBufferView,
-                        >::try_from(value) {
+                    if let Ok(view) = deno_core::v8::Local::<
+                        deno_core::v8::ArrayBufferView,
+                    >::try_from(value) {
                         let offset = view.byte_offset();
                         let buffer = match view.buffer(scope) {
                             Some(v) => v,
@@ -111,10 +110,9 @@ where
                 }
             }
         };
-        let arg_1 = if let Ok(view)
-            = deno_core::v8::Local::<
-                deno_core::v8::Uint32Array,
-            >::try_from(args.get(1usize as i32)) {
+        let arg_1 = if let Ok(view) = deno_core::v8::Local::<
+            deno_core::v8::Uint32Array,
+        >::try_from(args.get(1usize as i32)) {
             let (offset, len) = (view.byte_offset(), view.byte_length());
             let buffer = match view.buffer(scope) {
                 Some(v) => v,

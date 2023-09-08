@@ -64,8 +64,9 @@ impl op_ffi_ptr_value {
             let value = args.get(0usize as i32);
             if value.is_null() {
                 std::ptr::null_mut()
-            } else if let Ok(b)
-                = deno_core::v8::Local::<deno_core::v8::External>::try_from(value) {
+            } else if let Ok(b) = deno_core::v8::Local::<
+                deno_core::v8::External,
+            >::try_from(value) {
                 b.value()
             } else {
                 return deno_core::_ops::throw_type_error(
@@ -74,10 +75,9 @@ impl op_ffi_ptr_value {
                 );
             }
         };
-        let arg_1 = if let Ok(view)
-            = deno_core::v8::Local::<
-                deno_core::v8::Uint32Array,
-            >::try_from(args.get(1usize as i32)) {
+        let arg_1 = if let Ok(view) = deno_core::v8::Local::<
+            deno_core::v8::Uint32Array,
+        >::try_from(args.get(1usize as i32)) {
             let (offset, len) = (view.byte_offset(), view.byte_length());
             let buffer = match view.buffer(scope) {
                 Some(v) => v,

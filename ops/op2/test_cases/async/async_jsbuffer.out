@@ -60,16 +60,15 @@ impl op_async_v8_buffer {
         };
         let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
             .unwrap_or_default();
-        if let Some(result)
-            = deno_core::_ops::map_async_op_infallible(
-                opctx,
-                false,
-                promise_id,
-                result,
-                |scope, result| {
-                    deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, scope)
-                },
-            ) {
+        if let Some(result) = deno_core::_ops::map_async_op_infallible(
+            opctx,
+            false,
+            promise_id,
+            result,
+            |scope, result| {
+                deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, scope)
+            },
+        ) {
             match deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, &mut scope) {
                 Ok(v) => rv.set(v),
                 Err(rv_err) => {

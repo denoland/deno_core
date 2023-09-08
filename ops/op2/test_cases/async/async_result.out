@@ -37,14 +37,13 @@ impl op_async {
         let result = { Self::call() };
         let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
             .unwrap_or_default();
-        if let Some(result)
-            = deno_core::_ops::map_async_op_fallible(
-                opctx,
-                false,
-                promise_id,
-                result,
-                |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
-            ) {
+        if let Some(result) = deno_core::_ops::map_async_op_fallible(
+            opctx,
+            false,
+            promise_id,
+            result,
+            |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
+        ) {
             match result {
                 Ok(result) => deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv),
                 Err(err) => {
