@@ -458,7 +458,7 @@ impl ResourceTable {
   /// counted, therefore pending ops are not automatically cancelled. A resource
   /// may implement the `close()` method to perform clean-ups such as canceling
   /// ops.
-  #[deprecated="This method may deadlock. Use take() and close() instead."]
+  #[deprecated = "This method may deadlock. Use take() and close() instead."]
   pub fn close(&mut self, rid: ResourceId) -> Result<(), Error> {
     self
       .index
