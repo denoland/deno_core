@@ -60,10 +60,9 @@ impl op_f64_buf {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
-        let arg_0 = if let Ok(view)
-            = deno_core::v8::Local::<
-                deno_core::v8::Float64Array,
-            >::try_from(args.get(0usize as i32)) {
+        let arg_0 = if let Ok(view) = deno_core::v8::Local::<
+            deno_core::v8::Float64Array,
+        >::try_from(args.get(0usize as i32)) {
             let (offset, len) = (view.byte_offset(), view.byte_length());
             let buffer = match view.buffer(scope) {
                 Some(v) => v,

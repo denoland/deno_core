@@ -25,9 +25,7 @@ bytes.workspace = true
 deno_ops.workspace = true
 deno_unsync.workspace = true
 futures.workspace = true
-# Stay on 1.6 to avoid a dependency cycle in ahash https://github.com/tkaitchuck/aHash/issues/95
-# Projects not depending on ahash are unaffected as cargo will pull any 1.X that is >= 1.6.
-indexmap = "1.6"
+indexmap.workspace = true
 libc.workspace = true
 log.workspace = true
 once_cell.workspace = true
@@ -37,7 +35,7 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 serde_v8.workspace = true
 smallvec.workspace = true
-sourcemap = "6.1"
+sourcemap.workspace = true
 tokio.workspace = true
 url.workspace = true
 v8.workspace = true
@@ -48,7 +46,7 @@ path = "examples/http_bench_json_ops/main.rs"
 
 # These dependencies are only used for the 'http_bench_*_ops' examples.
 [dev-dependencies]
-cooked-waker = "5"
+cooked-waker.workspace = true
 deno_ast.workspace = true
 bencher.workspace = true
 

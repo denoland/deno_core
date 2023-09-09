@@ -73,10 +73,9 @@ impl op_import_spki_x25519 {
                     }
                 }
                 Err(_) => {
-                    if let Ok(view)
-                        = deno_core::v8::Local::<
-                            deno_core::v8::ArrayBufferView,
-                        >::try_from(value) {
+                    if let Ok(view) = deno_core::v8::Local::<
+                        deno_core::v8::ArrayBufferView,
+                    >::try_from(value) {
                         let len = view.byte_length();
                         let offset = view.byte_offset();
                         let buffer = match view.buffer(scope) {
@@ -118,10 +117,9 @@ impl op_import_spki_x25519 {
                     }
                 }
                 Err(_) => {
-                    if let Ok(view)
-                        = deno_core::v8::Local::<
-                            deno_core::v8::ArrayBufferView,
-                        >::try_from(value) {
+                    if let Ok(view) = deno_core::v8::Local::<
+                        deno_core::v8::ArrayBufferView,
+                    >::try_from(value) {
                         let len = view.byte_length();
                         let offset = view.byte_offset();
                         let buffer = match view.buffer(scope) {

@@ -15,7 +15,7 @@ path = "lib.rs"
 
 [dependencies]
 bytes.workspace = true
-derive_more = "0.99.17"
+derive_more.workspace = true
 num-bigint.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
