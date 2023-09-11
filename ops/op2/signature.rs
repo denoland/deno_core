@@ -12,6 +12,7 @@ use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
 use strum_macros::EnumIter;
 use strum_macros::EnumString;
+use syn::AttrStyle;
 use syn::Attribute;
 use syn::FnArg;
 use syn::GenericParam;
@@ -619,6 +620,8 @@ pub enum SignatureError {
 pub enum AttributeError {
   #[error("Unknown or invalid attribute '{0}'")]
   InvalidAttribute(String),
+  #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead.")]
+  InvalidInnerAttribute,
   #[error("Too many attributes")]
   TooManyAttributes,
 }
@@ -930,6 +933,9 @@ fn parse_attribute(
   attr: &Attribute,
 ) -> Result<Option<AttributeModifier>, AttributeError> {
   let tokens = attr.into_token_stream();
+  if matches!(attr.style, AttrStyle::Inner(_)) {
+    return Err(AttributeError::InvalidInnerAttribute);
+  }
   let res = std::panic::catch_unwind(|| {
     rules!(tokens => {
       (#[bigint]) => Some(AttributeModifier::Bigint),
@@ -945,6 +951,7 @@ fn parse_attribute(
       (#[global]) => Some(AttributeModifier::Global),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
+      (#[cfg $_cfg:tt]) => None,
     })
   }).map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
   Ok(res)

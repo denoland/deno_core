@@ -123,17 +123,17 @@ impl MacroConfig {
   pub fn from_maybe_attribute_tokens(
     tokens: TokenStream,
   ) -> Result<Option<Self>, Op2Error> {
-    Ok(rules!(tokens => {
+    rules!(tokens => {
       (#[op2]) => {
-        Some(MacroConfig::default())
+        Ok(Some(MacroConfig::default()))
       }
       (#[op2 $flags:tt ]) => {
-        Some(MacroConfig::from_token_tree(flags)?)
+        Ok(Some(MacroConfig::from_token_tree(flags)?))
       }
       (#[$_attr:meta]) => {
-        None
+        Ok(None)
       }
-    }))
+    })
   }
 }
 
