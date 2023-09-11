@@ -42,7 +42,7 @@ impl op_v8_lifetime {
                 deno_core::v8::String,
             >(arg0) else {
                 fast_api_callback_options.fallback = true;
-                return ::std::default::Default::default();
+                return unsafe { std::mem::zeroed() };
             };
             let arg0 = match &arg0 {
                 None => None,
@@ -52,7 +52,7 @@ impl op_v8_lifetime {
                 deno_core::v8::String,
             >(arg1) else {
                 fast_api_callback_options.fallback = true;
-                return ::std::default::Default::default();
+                return unsafe { std::mem::zeroed() };
             };
             let arg1 = match &arg1 {
                 None => None,
