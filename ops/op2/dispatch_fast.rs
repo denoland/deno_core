@@ -222,7 +222,9 @@ pub fn generate_dispatch_fast(
             // allowing us to perform this one little bit of mutable magic.
             unsafe { #opctx.unsafely_set_last_error_for_ops_only(err); }
             #fast_api_callback_options.fallback = true;
-            return ::std::default::Default::default();
+
+            // SAFETY: All fast return types have zero as a valid value
+            return unsafe { std::mem::zeroed() };
           }
         };
       }
@@ -392,7 +394,8 @@ fn map_v8_fastcall_arg_to_arg(
         *needs_fast_api_callback_options = true;
         Ok(quote! {
           #fast_api_callback_options.fallback = true;
-          return ::std::default::Default::default();
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
         })
       };
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);

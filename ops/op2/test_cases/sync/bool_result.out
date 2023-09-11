@@ -53,7 +53,7 @@ impl op_bool {
                     opctx.unsafely_set_last_error_for_ops_only(err);
                 }
                 fast_api_callback_options.fallback = true;
-                return ::std::default::Default::default();
+                return unsafe { std::mem::zeroed() };
             }
         };
         result as _

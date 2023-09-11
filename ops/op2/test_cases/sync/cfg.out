@@ -1,13 +1,13 @@
 #[allow(non_camel_case_types)]
 /// This is a doc comment.
-#[allow(clippy::some_annotation)]
-pub struct op_extra_annotation {
+#[cfg(windows)]
+pub struct op_maybe_windows {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_extra_annotation {
-    const NAME: &'static str = stringify!(op_extra_annotation);
+impl deno_core::_ops::Op for op_maybe_windows {
+    const NAME: &'static str = stringify!(op_maybe_windows);
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
-        stringify!(op_extra_annotation),
+        stringify!(op_maybe_windows),
         false,
         false,
         false,
@@ -24,9 +24,9 @@ impl deno_core::_ops::Op for op_extra_annotation {
         }),
     );
 }
-impl op_extra_annotation {
+impl op_maybe_windows {
     pub const fn name() -> &'static str {
-        stringify!(op_extra_annotation)
+        stringify!(op_maybe_windows)
     }
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
@@ -45,18 +45,20 @@ impl op_extra_annotation {
     }
     #[inline(always)]
     /// This is a doc comment.
-    #[allow(clippy::some_annotation)]
+    #[cfg(windows)]
     pub fn call() -> () {}
 }
 
 #[allow(non_camel_case_types)]
-pub struct op_clippy_internal {
+/// This is a doc comment.
+#[cfg(not(windows))]
+pub struct op_maybe_windows {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_clippy_internal {
-    const NAME: &'static str = stringify!(op_clippy_internal);
+impl deno_core::_ops::Op for op_maybe_windows {
+    const NAME: &'static str = stringify!(op_maybe_windows);
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
-        stringify!(op_clippy_internal),
+        stringify!(op_maybe_windows),
         false,
         false,
         false,
@@ -73,9 +75,9 @@ impl deno_core::_ops::Op for op_clippy_internal {
         }),
     );
 }
-impl op_clippy_internal {
+impl op_maybe_windows {
     pub const fn name() -> &'static str {
-        stringify!(op_clippy_internal)
+        stringify!(op_maybe_windows)
     }
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
@@ -93,7 +95,7 @@ impl op_clippy_internal {
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
-    pub fn call() -> () {
-        { #![allow(clippy::await_holding_refcell_ref)] }
-    }
+    /// This is a doc comment.
+    #[cfg(not(windows))]
+    pub fn call() -> () {}
 }
