@@ -643,6 +643,8 @@ pub enum ArgError {
   InvalidType(String, &'static str),
   #[error("Invalid numeric argument type: {0}")]
   InvalidNumericType(String),
+  #[error("Invalid numeric #[smi] argument type: {0}")]
+  InvalidSmiType(String),
   #[error(
     "Invalid argument type path (should this be #[smi] or #[serde]?): {0}"
   )]
@@ -1191,9 +1193,20 @@ pub(crate) fn parse_type(
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
       }
-      AttributeModifier::Smi => {
-        return Ok(Arg::Numeric(NumericArg::__SMI__));
-      }
+      AttributeModifier::Smi => match ty {
+        Type::Path(of) => {
+          let is_option = rules!(of.into_token_stream() => {
+            ( Option < $_ty:ty > ) => true,
+            ( $_ty:ty ) => false,
+          });
+          if is_option {
+            return Ok(Arg::OptionNumeric(NumericArg::__SMI__));
+          } else {
+            return Ok(Arg::Numeric(NumericArg::__SMI__));
+          }
+        }
+        _ => return Err(ArgError::InvalidSmiType(stringify_token(ty))),
+      },
     }
   };
   match ty {
@@ -1437,6 +1450,10 @@ mod tests {
   test!(
     fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, AnyError>;
     (Ref(Mut, OpState)) -> Result(OptionNumeric(u32))
+  );
+  test!(
+    #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, AnyError>;
+    (OptionNumeric(__SMI__)) -> Result(OptionNumeric(__SMI__))
   );
   test!(
     fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result <f64, AnyError>;
