@@ -298,7 +298,27 @@ pub fn from_arg(
       })
     }
     Arg::Buffer(buffer) => {
-      from_arg_buffer(generator_state, &arg_ident, buffer)?
+      // Explicit temporary lifetime extension so we can take a reference
+      let temp = format_ident!("{}_temp", arg_ident);
+      let buffer = from_arg_buffer(generator_state, &arg_ident, buffer, &temp)?;
+      quote! {
+        let mut #temp;
+        #buffer
+      }
+    }
+    Arg::OptionBuffer(buffer) => {
+      // Explicit temporary lifetime extension so we can take a reference
+      let temp = format_ident!("{}_temp", arg_ident);
+      let some = from_arg_buffer(generator_state, &arg_ident, buffer, &temp)?;
+      quote! {
+        let mut #temp;
+        let #arg_ident = if #arg_ident.is_null_or_undefined() {
+          None
+        } else {
+          #some
+          Some(#arg_ident)
+        };
+      }
     }
     Arg::External(External::Ptr(_)) => {
       from_arg_option(generator_state, &arg_ident, "external")?
@@ -431,6 +451,7 @@ pub fn from_arg_buffer(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
   buffer: &Buffer,
+  temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   let err = format_ident!("{}_err", arg_ident);
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
@@ -449,7 +470,7 @@ pub fn from_arg_buffer(
   };
 
   let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
-    let mut #arg_ident = match unsafe { #deno_core::_ops::#to_v8_slice::<#deno_core::v8::#array>(&mut #scope, #arg_ident) } {
+    #temp = match unsafe { #deno_core::_ops::#to_v8_slice::<#deno_core::v8::#array>(&mut #scope, #arg_ident) } {
       Ok(#arg_ident) => #arg_ident,
       Err(#err) => {
         #throw_exception
@@ -458,20 +479,23 @@ pub fn from_arg_buffer(
   });
 
   let make_arg = match buffer {
-    Buffer::Slice(_, NumericArg::u8) => {
-      quote!(let #arg_ident = &mut #arg_ident;)
+    Buffer::Slice(RefType::Ref, NumericArg::u8) => {
+      quote!(let #arg_ident = #temp.as_ref();)
+    }
+    Buffer::Slice(RefType::Mut, NumericArg::u8) => {
+      quote!(let #arg_ident = #temp.as_mut();)
     }
     Buffer::Vec(NumericArg::u8) => {
-      quote!(let #arg_ident = #arg_ident.to_vec();)
+      quote!(let #arg_ident = #temp.to_vec();)
     }
     Buffer::BoxSlice(NumericArg::u8) => {
-      quote!(let #arg_ident = #arg_ident.to_boxed_slice();)
+      quote!(let #arg_ident = #temp.to_boxed_slice();)
     }
     Buffer::Bytes(BufferMode::Copy) => {
-      quote!(let #arg_ident = #arg_ident.to_vec().into();)
+      quote!(let #arg_ident = #temp.to_vec().into();)
     }
     Buffer::JsBuffer(BufferMode::Default | BufferMode::Detach) => {
-      gs_quote!(generator_state(deno_core) => (let #arg_ident = #deno_core::serde_v8::JsBuffer::from_parts(#arg_ident);))
+      gs_quote!(generator_state(deno_core) => (let #arg_ident = #deno_core::serde_v8::JsBuffer::from_parts(#temp);))
     }
     _ => {
       return Err(V8MappingError::NoMapping(

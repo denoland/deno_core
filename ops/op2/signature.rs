@@ -223,6 +223,7 @@ pub enum Arg {
   Option(Special),
   OptionString(Strings),
   OptionNumeric(NumericArg),
+  OptionBuffer(Buffer),
   OptionV8Local(V8Arg),
   OptionV8Global(V8Arg),
   V8Local(V8Arg),
@@ -296,6 +297,7 @@ impl Arg {
         | Arg::OptionNumeric(..)
         | Arg::Option(..)
         | Arg::OptionString(..)
+        | Arg::OptionBuffer(..)
         | Arg::OptionState(..)
     )
   }
@@ -309,6 +311,7 @@ impl Arg {
       Arg::OptionNumeric(t) => Arg::Numeric(*t),
       Arg::Option(t) => Arg::Special(*t),
       Arg::OptionString(t) => Arg::String(*t),
+      Arg::OptionBuffer(t) => Arg::Buffer(*t),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
       _ => return None,
     })
@@ -341,6 +344,12 @@ impl Arg {
         Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
         Arg::V8Global(_) => ArgSlowRetval::V8Local,
         Arg::Buffer(
+          Buffer::JsBuffer(BufferMode::Default)
+          | Buffer::Vec(NumericArg::u8)
+          | Buffer::BoxSlice(NumericArg::u8)
+          | Buffer::BytesMut(BufferMode::Default),
+        ) => ArgSlowRetval::V8LocalFalliable,
+        Arg::OptionBuffer(
           Buffer::JsBuffer(BufferMode::Default)
           | Buffer::Vec(NumericArg::u8)
           | Buffer::BoxSlice(NumericArg::u8)
@@ -1159,7 +1168,8 @@ pub(crate) fn parse_type(
           let token = stringify_token(of.path.clone());
           if let Ok(Some(err)) = std::panic::catch_unwind(|| {
             rules!(ty => {
-              ( $( serde_v8:: )? Value $( < $_lifetime:lifetime >)? ) => Some("use v8::Value"),
+              ( serde_v8::Value $( < $_lifetime:lifetime >)? ) => Some("use v8::Value"),
+              ( Value $( < $_lifetime:lifetime >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
               ( $_ty:ty ) => None,
             })
           }) {
@@ -1262,6 +1272,7 @@ pub(crate) fn parse_type(
       COption(TNumeric(special)) => Ok(Arg::OptionNumeric(special)),
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       COption(TString(string)) => Ok(Arg::OptionString(string)),
+      COption(TBuffer(buffer)) => Ok(Arg::OptionBuffer(buffer)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
       COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
