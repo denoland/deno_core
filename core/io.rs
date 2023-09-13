@@ -24,7 +24,7 @@ pub struct BufView {
 enum BufViewInner {
   Empty,
   Bytes(bytes::Bytes),
-  JsBuffer(V8Slice),
+  JsBuffer(V8Slice<u8>),
 }
 
 impl BufView {
@@ -192,7 +192,7 @@ pub struct BufMutView {
 
 #[derive(Debug)]
 enum BufMutViewInner {
-  JsBuffer(V8Slice),
+  JsBuffer(V8Slice<u8>),
   Bytes(BytesMut),
 }
 

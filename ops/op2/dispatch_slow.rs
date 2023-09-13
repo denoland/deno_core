@@ -458,10 +458,7 @@ pub fn from_arg_buffer(
 
   generator_state.needs_scope = true;
 
-  // TODO(mmastrac): Other buffer types
-  let array = NumericArg::u8
-    .v8_array_type()
-    .expect("Could not retrieve the v8 type");
+  let array = buffer.element();
 
   let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
     quote!(to_v8_slice_detachable)
@@ -470,7 +467,7 @@ pub fn from_arg_buffer(
   };
 
   let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
-    #temp = match unsafe { #deno_core::_ops::#to_v8_slice::<#deno_core::v8::#array>(&mut #scope, #arg_ident) } {
+    #temp = match unsafe { #deno_core::_ops::#to_v8_slice::<#array>(&mut #scope, #arg_ident) } {
       Ok(#arg_ident) => #arg_ident,
       Err(#err) => {
         #throw_exception
@@ -479,16 +476,22 @@ pub fn from_arg_buffer(
   });
 
   let make_arg = match buffer {
-    Buffer::Slice(RefType::Ref, NumericArg::u8) => {
+    Buffer::Slice(
+      RefType::Ref,
+      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
+    ) => {
       quote!(let #arg_ident = #temp.as_ref();)
     }
-    Buffer::Slice(RefType::Mut, NumericArg::u8) => {
+    Buffer::Slice(
+      RefType::Mut,
+      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
+    ) => {
       quote!(let #arg_ident = #temp.as_mut();)
     }
-    Buffer::Vec(NumericArg::u8) => {
+    Buffer::Vec(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.to_vec();)
     }
-    Buffer::BoxSlice(NumericArg::u8) => {
+    Buffer::BoxSlice(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.to_boxed_slice();)
     }
     Buffer::Bytes(BufferMode::Copy) => {

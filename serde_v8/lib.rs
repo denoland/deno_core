@@ -24,6 +24,7 @@ pub use magic::detached_buffer::DetachedBuffer;
 pub use magic::string_or_buffer::StringOrBuffer;
 pub use magic::u16string::U16String;
 pub use magic::v8slice::V8Slice;
+pub use magic::v8slice::V8Sliceable;
 pub use magic::ExternalPointer;
 pub use magic::Global;
 pub use magic::Value;

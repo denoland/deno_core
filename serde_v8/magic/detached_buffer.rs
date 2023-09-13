@@ -11,7 +11,7 @@ use super::v8slice::V8Slice;
 use crate::magic::transl8::impl_magic;
 
 // A buffer that detaches when deserialized from JS
-pub struct DetachedBuffer(V8Slice);
+pub struct DetachedBuffer(V8Slice<u8>);
 impl_magic!(DetachedBuffer);
 
 impl AsRef<[u8]> for DetachedBuffer {
@@ -64,6 +64,7 @@ impl FromV8 for DetachedBuffer {
     }
     let store = b.get_backing_store();
     b.detach(None); // Detach
-    Ok(Self(V8Slice { store, range }))
+                    // SAFETY: We got these values from to_ranged_buffer
+    Ok(Self(unsafe { V8Slice::from_parts(store, range) }))
   }
 }

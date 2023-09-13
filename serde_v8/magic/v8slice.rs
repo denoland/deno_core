@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ops::Range;
@@ -8,6 +9,19 @@ use std::rc::Rc;
 
 use super::rawbytes;
 use super::transl8::FromV8;
+
+/// A type that may be represented as a [`V8Slice`].
+pub trait V8Sliceable: Copy + Clone {
+  /// The concrete V8 data view type.
+  type V8;
+}
+
+impl V8Sliceable for u8 {
+  type V8 = v8::Uint8Array;
+}
+impl V8Sliceable for u32 {
+  type V8 = v8::Uint32Array;
+}
 
 /// A V8Slice encapsulates a slice that's been borrowed from a JavaScript
 /// ArrayBuffer object. JavaScript objects can normally be garbage collected,
@@ -21,25 +35,36 @@ use super::transl8::FromV8;
 /// To actually clone the contents of the buffer do
 /// `let copy = Vec::from(&*zero_copy_buf);`
 #[derive(Clone)]
-pub struct V8Slice {
+pub struct V8Slice<T>
+where
+  T: V8Sliceable,
+{
   pub(crate) store: v8::SharedRef<v8::BackingStore>,
   pub(crate) range: Range<usize>,
+  _phantom: PhantomData<T>,
 }
 
-impl Debug for V8Slice {
+impl<T> Debug for V8Slice<T>
+where
+  T: V8Sliceable,
+{
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.write_fmt(format_args!(
-      "V8Slice({:?} of {} bytes)",
+      "V8Slice({:?} of {} {})",
       self.range,
-      self.store.len()
+      self.store.len(),
+      std::any::type_name::<T>()
     ))
   }
 }
 
 // SAFETY: unsafe trait must have unsafe implementation
-unsafe impl Send for V8Slice {}
+unsafe impl<T> Send for V8Slice<T> where T: V8Sliceable {}
 
-impl V8Slice {
+impl<T> V8Slice<T>
+where
+  T: V8Sliceable,
+{
   /// Create one of these for testing. We create and forget an isolate here. If we decide to perform more v8-requiring tests,
   /// this code will probably need to be hoisted to another location.
   #[cfg(test)]
@@ -73,15 +98,20 @@ impl V8Slice {
     store: v8::SharedRef<v8::BackingStore>,
     range: Range<usize>,
   ) -> Self {
-    Self { store, range }
+    Self {
+      store,
+      range: range.start / std::mem::size_of::<T>()
+        ..range.end / std::mem::size_of::<T>(),
+      _phantom: PhantomData,
+    }
   }
 
-  fn as_slice(&self) -> &[u8] {
+  fn as_slice(&self) -> &[T] {
     let store = &self.store;
     let Some(ptr) = store.data() else {
       return &[];
     };
-    let ptr = ptr.cast::<u8>().as_ptr();
+    let ptr = ptr.cast::<T>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
     // We assume it's initialized and thus safe to read (though may not contain
@@ -95,12 +125,12 @@ impl V8Slice {
     }
   }
 
-  fn as_slice_mut(&mut self) -> &mut [u8] {
+  fn as_slice_mut(&mut self) -> &mut [T] {
     let store = &self.store;
     let Some(ptr) = store.data() else {
       return &mut [];
     };
-    let ptr = ptr.cast::<u8>().as_ptr();
+    let ptr = ptr.cast::<T>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
     // We assume it's initialized and thus safe to read (though may not contain
@@ -122,19 +152,23 @@ impl V8Slice {
     self.range.is_empty()
   }
 
-  /// Create a [`Vec<u8>`] copy of this slice data.
-  pub fn to_vec(&self) -> Vec<u8> {
+  /// Create a [`Vec<T>`] copy of this slice data.
+  pub fn to_vec(&self) -> Vec<T> {
     self.as_slice().to_vec()
   }
 
-  /// Create a [`Box<[u8]>`] copy of this slice data.
-  pub fn to_boxed_slice(&self) -> Box<[u8]> {
+  /// Create a [`Box<[T]>`] copy of this slice data.
+  pub fn to_boxed_slice(&self) -> Box<[T]> {
     self.to_vec().into_boxed_slice()
   }
 
   /// Returns the slice to the parts it came from.
   pub fn into_parts(self) -> (v8::SharedRef<v8::BackingStore>, Range<usize>) {
-    (self.store, self.range)
+    (
+      self.store,
+      self.range.start * std::mem::size_of::<T>()
+        ..self.range.end * std::mem::size_of::<T>(),
+    )
   }
 
   /// Splits the buffer into two at the given index.
@@ -197,7 +231,10 @@ pub(crate) fn to_ranged_buffer<'s>(
   Ok((b, 0..b.byte_length()))
 }
 
-impl FromV8 for V8Slice {
+impl<T> FromV8 for V8Slice<T>
+where
+  T: V8Sliceable,
+{
   fn from_v8(
     scope: &mut v8::HandleScope,
     value: v8::Local<v8::Value>,
@@ -210,7 +247,8 @@ impl FromV8 for V8Slice {
         } else if store.is_shared() {
           Err(crate::Error::ExpectedBuffer(value.type_repr()))
         } else {
-          Ok(V8Slice { store, range })
+          // SAFETY: we got these parts from to_ranged_buffer
+          Ok(unsafe { V8Slice::from_parts(store, range) })
         }
       }
       Err(_) => Err(crate::Error::ExpectedBuffer(value.type_repr())),
@@ -218,46 +256,60 @@ impl FromV8 for V8Slice {
   }
 }
 
-impl Deref for V8Slice {
-  type Target = [u8];
-  fn deref(&self) -> &[u8] {
+impl<T> Deref for V8Slice<T>
+where
+  T: V8Sliceable,
+{
+  type Target = [T];
+  fn deref(&self) -> &[T] {
     self.as_slice()
   }
 }
 
-impl DerefMut for V8Slice {
-  fn deref_mut(&mut self) -> &mut [u8] {
+impl<T> DerefMut for V8Slice<T>
+where
+  T: V8Sliceable,
+{
+  fn deref_mut(&mut self) -> &mut [T] {
     self.as_slice_mut()
   }
 }
 
-impl AsRef<[u8]> for V8Slice {
-  fn as_ref(&self) -> &[u8] {
+impl<T> AsRef<[T]> for V8Slice<T>
+where
+  T: V8Sliceable,
+{
+  fn as_ref(&self) -> &[T] {
     self.as_slice()
   }
 }
 
-impl AsMut<[u8]> for V8Slice {
-  fn as_mut(&mut self) -> &mut [u8] {
+impl<T> AsMut<[T]> for V8Slice<T>
+where
+  T: V8Sliceable,
+{
+  fn as_mut(&mut self) -> &mut [T] {
     self.as_slice_mut()
   }
 }
 
 // Implement V8Slice -> bytes::Bytes
-impl V8Slice {
-  fn rc_into_byte_parts(self: Rc<Self>) -> (*const u8, usize, *mut V8Slice) {
+impl V8Slice<u8> {
+  fn rc_into_byte_parts(
+    self: Rc<Self>,
+  ) -> (*const u8, usize, *mut V8Slice<u8>) {
     let (ptr, len) = {
       let slice = self.as_ref();
       (slice.as_ptr(), slice.len())
     };
     let rc_raw = Rc::into_raw(self);
-    let data = rc_raw as *mut V8Slice;
+    let data = rc_raw as *mut V8Slice<u8>;
     (ptr, len, data)
   }
 }
 
-impl From<V8Slice> for bytes::Bytes {
-  fn from(v8slice: V8Slice) -> Self {
+impl From<V8Slice<u8>> for bytes::Bytes {
+  fn from(v8slice: V8Slice<u8>) -> Self {
     let (ptr, len, data) = Rc::new(v8slice).rc_into_byte_parts();
     rawbytes::RawBytes::new_raw(ptr, len, data.cast(), &V8SLICE_VTABLE)
   }
@@ -277,7 +329,7 @@ unsafe fn v8slice_clone(
   ptr: *const u8,
   len: usize,
 ) -> bytes::Bytes {
-  let rc = Rc::from_raw(*data as *const V8Slice);
+  let rc = Rc::from_raw(*data as *const V8Slice<u8>);
   let (_, _, data) = rc.clone().rc_into_byte_parts();
   std::mem::forget(rc);
   // NOTE: `bytes::Bytes` does bounds checking so we trust its ptr, len inputs
@@ -302,16 +354,29 @@ unsafe fn v8slice_drop(
   _: *const u8,
   _: usize,
 ) {
-  drop(Rc::from_raw(*data as *const V8Slice))
+  drop(Rc::from_raw(*data as *const V8Slice<u8>))
 }
 
 #[cfg(test)]
 mod tests {
-  use super::V8Slice;
+  use super::*;
+
+  fn make_slice<T: V8Sliceable>(len: usize) -> V8Slice<T> {
+    let slice = V8Slice::<T>::very_unsafe_new_only_for_test(
+      len * std::mem::size_of::<T>(),
+    );
+    assert_eq!(slice.len(), len);
+    slice
+  }
 
   #[test]
   pub fn test_split_off() {
-    let mut slice = V8Slice::very_unsafe_new_only_for_test(1024);
+    test_split_off_generic::<u8>();
+    test_split_off_generic::<u32>();
+  }
+
+  pub fn test_split_off_generic<T: V8Sliceable>() {
+    let mut slice = make_slice::<T>(1024);
     let mut other = slice.split_off(16);
     assert_eq!(0..16, slice.range);
     assert_eq!(16..1024, other.range);
@@ -322,7 +387,12 @@ mod tests {
 
   #[test]
   pub fn test_split_to() {
-    let mut slice = V8Slice::very_unsafe_new_only_for_test(1024);
+    test_split_to_generic::<u8>();
+    test_split_to_generic::<u32>();
+  }
+
+  pub fn test_split_to_generic<T: V8Sliceable>() {
+    let mut slice = make_slice::<T>(1024);
     let other = slice.split_to(16);
     assert_eq!(16..1024, slice.range);
     assert_eq!(0..16, other.range);
@@ -333,14 +403,24 @@ mod tests {
 
   #[test]
   pub fn test_truncate() {
-    let mut slice = V8Slice::very_unsafe_new_only_for_test(1024);
+    test_truncate_generic::<u8>();
+    test_truncate_generic::<u32>();
+  }
+
+  pub fn test_truncate_generic<T: V8Sliceable>() {
+    let mut slice = make_slice::<T>(1024);
     slice.truncate(16);
     assert_eq!(0..16, slice.range);
   }
 
   #[test]
-  pub fn test_truncate_after_split() {
-    let mut slice = V8Slice::very_unsafe_new_only_for_test(1024);
+  fn test_truncate_after_split() {
+    test_truncate_after_split_generic::<u8>();
+    test_truncate_after_split_generic::<u32>();
+  }
+
+  pub fn test_truncate_after_split_generic<T: V8Sliceable>() {
+    let mut slice = make_slice::<T>(1024);
     _ = slice.split_to(16);
     assert_eq!(16..1024, slice.range);
     slice.truncate(16);

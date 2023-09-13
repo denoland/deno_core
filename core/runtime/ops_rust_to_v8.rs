@@ -306,7 +306,7 @@ to_v8_retval_fallible!(Cow<'a, [u8]>: |value, scope, rv| {
 // Buffers
 //
 
-to_v8_fallible!(serde_v8::V8Slice: |value, scope| {
+to_v8_fallible!(serde_v8::V8Slice<u8>: |value, scope| {
   let (buffer, range) = value.into_parts();
   let buffer = v8::ArrayBuffer::with_backing_store(scope, &buffer);
   v8::Uint8Array::new(scope, buffer, range.start, range.len()).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))

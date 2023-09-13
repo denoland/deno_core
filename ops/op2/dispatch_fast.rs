@@ -34,6 +34,7 @@ pub(crate) enum V8FastCallType {
   Pointer,
   V8Value,
   Uint8Array,
+  Uint16Array,
   Uint32Array,
   Float64Array,
   SeqOneByteString,
@@ -67,6 +68,9 @@ impl V8FastCallType {
       V8FastCallType::Uint8Array => {
         quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u8>)
       }
+      V8FastCallType::Uint16Array => {
+        quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u16>)
+      }
       V8FastCallType::Uint32Array => {
         quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<u32>)
       }
@@ -92,6 +96,7 @@ impl V8FastCallType {
       V8FastCallType::V8Value => quote!(CType::V8Value),
       V8FastCallType::CallbackOptions => quote!(CType::CallbackOptions),
       V8FastCallType::Uint8Array => unreachable!(),
+      V8FastCallType::Uint16Array => unreachable!(),
       V8FastCallType::Uint32Array => unreachable!(),
       V8FastCallType::Float64Array => unreachable!(),
       V8FastCallType::SeqOneByteString => quote!(CType::SeqOneByteString),
@@ -114,6 +119,7 @@ impl V8FastCallType {
       V8FastCallType::V8Value => quote!(Type::V8Value),
       V8FastCallType::CallbackOptions => quote!(Type::CallbackOptions),
       V8FastCallType::Uint8Array => quote!(Type::TypedArray(CType::Uint8)),
+      V8FastCallType::Uint16Array => quote!(Type::TypedArray(CType::Uint16)),
       V8FastCallType::Uint32Array => quote!(Type::TypedArray(CType::Uint32)),
       V8FastCallType::Float64Array => quote!(Type::TypedArray(CType::Float64)),
       V8FastCallType::SeqOneByteString => quote!(Type::SeqOneByteString),
@@ -305,13 +311,20 @@ fn map_v8_fastcall_arg_to_arg(
 ) -> Result<TokenStream, V8MappingError> {
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
-    Arg::Buffer(Buffer::Slice(_, NumericArg::u8)) => {
+    Arg::Buffer(Buffer::Slice(
+      _,
+      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
+    )) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap();)
     }
-    Arg::Buffer(Buffer::Vec(NumericArg::u8)) => {
+    Arg::Buffer(Buffer::Vec(
+      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
+    )) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec();)
     }
-    Arg::Buffer(Buffer::BoxSlice(NumericArg::u8)) => {
+    Arg::Buffer(Buffer::BoxSlice(
+      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
+    )) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into_boxed_slice();)
     }
     Arg::Buffer(Buffer::Bytes(BufferMode::Copy)) => {
@@ -423,6 +436,16 @@ fn map_arg_to_v8_fastcall_type(
       | Buffer::BoxSlice(NumericArg::u8)
       | Buffer::Bytes(BufferMode::Copy),
     ) => V8FastCallType::Uint8Array,
+    Arg::Buffer(
+      Buffer::Slice(_, NumericArg::u16)
+      | Buffer::Vec(NumericArg::u16)
+      | Buffer::BoxSlice(NumericArg::u16),
+    ) => V8FastCallType::Uint16Array,
+    Arg::Buffer(
+      Buffer::Slice(_, NumericArg::u32)
+      | Buffer::Vec(NumericArg::u32)
+      | Buffer::BoxSlice(NumericArg::u32),
+    ) => V8FastCallType::Uint32Array,
     Arg::Buffer(_) => return Ok(None),
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)

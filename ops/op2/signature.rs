@@ -174,7 +174,7 @@ pub enum Buffer {
 }
 
 impl Buffer {
-  const fn valid_modes(
+  pub const fn valid_modes(
     &self,
     position: Position,
   ) -> &'static [AttributeModifier] {
@@ -192,6 +192,17 @@ impl Buffer {
         | BoxSlice(..) => &[B(Default)],
         Slice(..) | Ptr(..) => &([]),
       },
+    }
+  }
+
+  pub const fn element(&self) -> NumericArg {
+    match self {
+      Self::Slice(_, arg) => *arg,
+      Self::BoxSlice(arg) => *arg,
+      Self::Bytes(_) | Self::BytesMut(_) | Self::JsBuffer(_) => NumericArg::u8,
+      Self::Ptr(_, arg) => *arg,
+      Self::Vec(arg) => *arg,
+      Self::V8Slice(_) => NumericArg::u8,
     }
   }
 }
@@ -345,14 +356,14 @@ impl Arg {
         Arg::V8Global(_) => ArgSlowRetval::V8Local,
         Arg::Buffer(
           Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8)
-          | Buffer::BoxSlice(NumericArg::u8)
+          | Buffer::Vec(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
+          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
           | Buffer::BytesMut(BufferMode::Default),
         ) => ArgSlowRetval::V8LocalFalliable,
         Arg::OptionBuffer(
           Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8)
-          | Buffer::BoxSlice(NumericArg::u8)
+          | Buffer::Vec(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
+          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
           | Buffer::BytesMut(BufferMode::Default),
         ) => ArgSlowRetval::V8LocalFalliable,
         _ => ArgSlowRetval::None,
@@ -978,12 +989,14 @@ fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
     }
   }
 
-  let res = std::panic::catch_unwind(|| {
+  let Ok(Some(res)) = std::panic::catch_unwind(|| {
     rules!(tp.into_token_stream() => {
-      ( $( std :: ffi :: )? c_void ) => NumericArg::__VOID__,
+      ( $( std :: ffi :: )? c_void ) => Some(NumericArg::__VOID__),
+      ( $_ty:ty ) => None,
     })
-  })
-  .map_err(|_| ArgError::InvalidNumericType(stringify_token(tp)))?;
+  }) else {
+    return Err(ArgError::InvalidNumericType(stringify_token(tp)));
+  };
 
   Ok(res)
 }

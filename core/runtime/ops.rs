@@ -9,6 +9,7 @@ use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
 use serde::Deserialize;
 use serde_v8::from_v8;
+use serde_v8::V8Sliceable;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -524,25 +525,26 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
 pub fn to_v8_slice<'a, T>(
   scope: &mut v8::HandleScope,
   input: v8::Local<'a, v8::Value>,
-) -> Result<serde_v8::V8Slice, &'static str>
+) -> Result<serde_v8::V8Slice<T>, &'static str>
 where
-  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
-  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T>>,
+  T: V8Sliceable,
+  v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
 {
-  let (store, offset, length) = if let Ok(buf) = v8::Local::<T>::try_from(input)
-  {
-    let buf: v8::Local<v8::ArrayBufferView> = buf.into();
-    let Some(buffer) = buf.buffer(scope) else {
+  let (store, offset, length) =
+    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+      let buf: v8::Local<v8::ArrayBufferView> = buf.into();
+      let Some(buffer) = buf.buffer(scope) else {
       return Err("buffer missing");
     };
-    (
-      buffer.get_backing_store(),
-      buf.byte_offset(),
-      buf.byte_length(),
-    )
-  } else {
-    return Err("expected typed ArrayBufferView");
-  };
+      (
+        buffer.get_backing_store(),
+        buf.byte_offset(),
+        buf.byte_length(),
+      )
+    } else {
+      return Err("expected typed ArrayBufferView");
+    };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -552,30 +554,31 @@ where
 pub fn to_v8_slice_detachable<'a, T>(
   scope: &mut v8::HandleScope,
   input: v8::Local<'a, v8::Value>,
-) -> Result<serde_v8::V8Slice, &'static str>
+) -> Result<serde_v8::V8Slice<T>, &'static str>
 where
-  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
-  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T>>,
+  T: V8Sliceable,
+  v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
 {
-  let (store, offset, length) = if let Ok(buf) = v8::Local::<T>::try_from(input)
-  {
-    let buf: v8::Local<v8::ArrayBufferView> = buf.into();
-    let Some(buffer) = buf.buffer(scope) else {
+  let (store, offset, length) =
+    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+      let buf: v8::Local<v8::ArrayBufferView> = buf.into();
+      let Some(buffer) = buf.buffer(scope) else {
       return Err("buffer missing");
     };
-    let res = (
-      buffer.get_backing_store(),
-      buf.byte_offset(),
-      buf.byte_length(),
-    );
-    if !buffer.is_detachable() {
-      return Err("invalid type; expected: detachable");
-    }
-    buffer.detach(None);
-    res
-  } else {
-    return Err("expected typed ArrayBufferView");
-  };
+      let res = (
+        buffer.get_backing_store(),
+        buf.byte_offset(),
+        buf.byte_length(),
+      );
+      if !buffer.is_detachable() {
+        return Err("invalid type; expected: detachable");
+      }
+      buffer.detach(None);
+      res
+    } else {
+      return Err("expected typed ArrayBufferView");
+    };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -649,6 +652,7 @@ mod tests {
       op_state_mut_attr,
       op_state_multi_attr,
       op_buffer_slice,
+      op_buffer_slice_32,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
@@ -1464,54 +1468,79 @@ mod tests {
     output[0] = input[0];
   }
 
+  #[op2(core, fast)]
+  pub fn op_buffer_slice_32(
+    #[buffer] input: &[u32],
+    #[bigint] inlen: usize,
+    #[buffer] output: &mut [u32],
+    #[bigint] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    output[0] = input[0];
+  }
+
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
-    // Uint8Array -> Uint8Array
-    run_test2(
-      10000,
-      "op_buffer_slice",
-      r"
-      let out = new Uint8Array(10);
-      op_buffer_slice(new Uint8Array([1,2,3]), 3, out, 10);
-      assert(out[0] == 1);",
-    )?;
-    // Uint8Array(ArrayBuffer) -> Uint8Array(ArrayBuffer)
-    run_test2(
-      10000,
-      "op_buffer_slice",
-      r"
-      let inbuf = new ArrayBuffer(10);
-      let in_u8 = new Uint8Array(inbuf);
-      in_u8[0] = 1;
-      let out = new ArrayBuffer(10);
-      op_buffer_slice(in_u8, 10, new Uint8Array(out), 10);
-      assert(new Uint8Array(out)[0] == 1);",
-    )?;
-    // Uint8Array(ArrayBuffer, 5, 5) -> Uint8Array(ArrayBuffer)
-    run_test2(
-      10000,
-      "op_buffer_slice",
-      r"
-      let inbuf = new ArrayBuffer(10);
-      let in_u8 = new Uint8Array(inbuf);
-      in_u8[5] = 1;
-      let out = new ArrayBuffer(10);
-      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
-      assert(new Uint8Array(out)[0] == 1);",
-    )?;
-    // Resizable
-    run_test2(
-      10000,
-      "op_buffer_slice",
-      r"
-      let inbuf = new ArrayBuffer(10, { maxByteLength: 100 });
-      let in_u8 = new Uint8Array(inbuf);
-      in_u8[5] = 1;
-      let out = new ArrayBuffer(10, { maxByteLength: 100 });
-      op_buffer_slice(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
-      assert(new Uint8Array(out)[0] == 1);",
-    )?;
+    for (op, arr, size) in [
+      ("op_buffer_slice", "Uint8Array", 1),
+      ("op_buffer_slice_32", "Uint32Array", 4),
+    ] {
+      // UintXArray -> UintXArray
+      run_test2(
+        10000,
+        op,
+        &format!(
+          r"
+        let out = new {arr}(10);
+        {op}(new {arr}([1,2,3]), 3, out, 10);
+        assert(out[0] == 1);"
+        ),
+      )?;
+      // UintXArray(ArrayBuffer) -> UintXArray(ArrayBuffer)
+      run_test2(
+        10000,
+        op,
+        &format!(
+          r"
+        let inbuf = new ArrayBuffer(10 * {size});
+        let in_u8 = new {arr}(inbuf);
+        in_u8[0] = 1;
+        let out = new ArrayBuffer(10 * {size});
+        {op}(in_u8, 10, new {arr}(out), 10);
+        assert(new {arr}(out)[0] == 1);"
+        ),
+      )?;
+      // UintXArray(ArrayBuffer, 5, 5) -> UintXArray(ArrayBuffer)
+      run_test2(
+        10000,
+        op,
+        &format!(
+          r"
+        let inbuf = new ArrayBuffer(10 * {size});
+        let in_u8 = new {arr}(inbuf);
+        in_u8[5] = 1;
+        let out = new ArrayBuffer(10 * {size});
+        {op}(new {arr}(inbuf, 5 * {size}, 5), 5, new {arr}(out), 10);
+        assert(new {arr}(out)[0] == 1);"
+        ),
+      )?;
+      // Resizable
+      run_test2(
+        10000,
+        op,
+        &format!(
+          r"
+        let inbuf = new ArrayBuffer(10 * {size}, {{ maxByteLength: 100 * {size} }});
+        let in_u8 = new {arr}(inbuf);
+        in_u8[5] = 1;
+        let out = new ArrayBuffer(10 * {size}, {{ maxByteLength: 100 * {size} }});
+        {op}(new {arr}(inbuf, 5 * {size}, 5), 5, new {arr}(out), 10);
+        assert(new {arr}(out)[0] == 1);"
+        ),
+      )?;
+    }
     Ok(())
   }
 
