@@ -2,6 +2,12 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
+use deno_core::JsBuffer;
+
 #[op2(fast)]
 fn op_buffers(#[buffer] _a: &[u8], #[buffer] _b: &mut [u8]) {
+}
+
+#[op2]
+fn op_buffers_option(#[buffer] _a: Option<&[u8]>, #[buffer] _b: Option<JsBuffer>) {
 }

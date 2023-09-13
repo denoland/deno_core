@@ -433,6 +433,7 @@ fn map_arg_to_v8_fastcall_type(
     Arg::OptionNumeric(_)
     | Arg::Option(_)
     | Arg::OptionString(_)
+    | Arg::OptionBuffer(_)
     | Arg::SerdeV8(_)
     | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments

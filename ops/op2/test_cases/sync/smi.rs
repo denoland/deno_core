@@ -18,3 +18,9 @@ fn op_smi_unsigned_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[
 fn op_smi_signed_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[smi] d: Uint32) -> Int32 {
   a as Int32 + b as Int32 + c as Int32 + d as Int32
 }
+
+#[op2]
+#[smi]
+fn op_smi_option(#[smi] a: Option<Uint32>) -> Option<Uint32> {
+  a
+}

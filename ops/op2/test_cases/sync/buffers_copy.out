@@ -70,7 +70,8 @@ impl op_buffers {
         });
         let result = {
             let arg0 = args.get(0usize as i32);
-            let mut arg0 = match unsafe {
+            let mut arg0_temp;
+            arg0_temp = match unsafe {
                 deno_core::_ops::to_v8_slice::<
                     deno_core::v8::Uint8Array,
                 >(&mut scope, arg0)
@@ -89,9 +90,10 @@ impl op_buffers {
                     return;
                 }
             };
-            let arg0 = arg0.to_vec();
+            let arg0 = arg0_temp.to_vec();
             let arg1 = args.get(1usize as i32);
-            let mut arg1 = match unsafe {
+            let mut arg1_temp;
+            arg1_temp = match unsafe {
                 deno_core::_ops::to_v8_slice::<
                     deno_core::v8::Uint8Array,
                 >(&mut scope, arg1)
@@ -109,9 +111,10 @@ impl op_buffers {
                     return;
                 }
             };
-            let arg1 = arg1.to_boxed_slice();
+            let arg1 = arg1_temp.to_boxed_slice();
             let arg2 = args.get(2usize as i32);
-            let mut arg2 = match unsafe {
+            let mut arg2_temp;
+            arg2_temp = match unsafe {
                 deno_core::_ops::to_v8_slice::<
                     deno_core::v8::Uint8Array,
                 >(&mut scope, arg2)
@@ -129,7 +132,7 @@ impl op_buffers {
                     return;
                 }
             };
-            let arg2 = arg2.to_vec().into();
+            let arg2 = arg2_temp.to_vec().into();
             Self::call(arg0, arg1, arg2)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
