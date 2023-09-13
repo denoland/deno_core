@@ -424,11 +424,6 @@ fn map_arg_to_v8_fastcall_type(
       | Buffer::Bytes(BufferMode::Copy),
     ) => V8FastCallType::Uint8Array,
     Arg::Buffer(
-      Buffer::Slice(_, NumericArg::u16)
-      | Buffer::Vec(NumericArg::u16)
-      | Buffer::BoxSlice(NumericArg::u16),
-    ) => V8FastCallType::Uint16Array,
-    Arg::Buffer(
       Buffer::Slice(_, NumericArg::u32)
       | Buffer::Vec(NumericArg::u32)
       | Buffer::BoxSlice(NumericArg::u32),
