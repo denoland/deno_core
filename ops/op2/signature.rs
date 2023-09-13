@@ -168,7 +168,7 @@ pub enum Buffer {
   /// Owned, copy. Stored in `bytes::BytesMut`
   BytesMut(BufferMode),
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::V8Slice`
-  V8Slice(BufferMode),
+  V8Slice(BufferMode, NumericArg),
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JsBuffer`
   JsBuffer(BufferMode),
 }
@@ -202,7 +202,7 @@ impl Buffer {
       Self::Bytes(_) | Self::BytesMut(_) | Self::JsBuffer(_) => NumericArg::u8,
       Self::Ptr(_, arg) => *arg,
       Self::Vec(arg) => *arg,
-      Self::V8Slice(_) => NumericArg::u8,
+      Self::V8Slice(_, arg) => *arg,
     }
   }
 }
@@ -356,14 +356,18 @@ impl Arg {
         Arg::V8Global(_) => ArgSlowRetval::V8Local,
         Arg::Buffer(
           Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
-          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
+          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
+          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
+          | Buffer::V8Slice(
+            BufferMode::Default,
+            NumericArg::u8 | NumericArg::u32,
+          )
           | Buffer::BytesMut(BufferMode::Default),
         ) => ArgSlowRetval::V8LocalFalliable,
         Arg::OptionBuffer(
           Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
-          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u16 | NumericArg::u32)
+          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
+          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
           | Buffer::BytesMut(BufferMode::Default),
         ) => ArgSlowRetval::V8LocalFalliable,
         _ => ArgSlowRetval::None,
@@ -1042,8 +1046,8 @@ fn parse_type_path(
       ( $( std :: boxed ::)? Box < [ $ty:path ] > ) => {
         Ok(CBare(TBuffer(Buffer::BoxSlice(parse_numeric_type(&ty)?))))
       }
-      ( $( serde_v8 :: )? V8Slice ) => {
-        Ok(CBare(TBuffer(Buffer::V8Slice(buffer_mode()?))))
+      ( $( serde_v8 :: )? V8Slice < $ty:path > ) => {
+        Ok(CBare(TBuffer(Buffer::V8Slice(buffer_mode()?, parse_numeric_type(&ty)?))))
       }
       ( $( serde_v8 :: )? JsBuffer ) => {
         Ok(CBare(TBuffer(Buffer::JsBuffer(buffer_mode()?))))
@@ -1521,8 +1525,8 @@ mod tests {
     (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
   );
   test!(
-    #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
-    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes(Copy)), Buffer(V8Slice(Default)), Buffer(JsBuffer(Default)), Buffer(JsBuffer(Detach))) -> Infallible(Buffer(Vec(u8)))
+    #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice<u8>, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
+    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes(Copy)), Buffer(V8Slice(Default, u8)), Buffer(JsBuffer(Default)), Buffer(JsBuffer(Detach))) -> Infallible(Buffer(Vec(u8)))
   );
   test!(
     #[buffer] fn op_return_bytesmut() -> bytes::BytesMut;

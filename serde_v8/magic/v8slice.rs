@@ -14,13 +14,36 @@ use super::transl8::FromV8;
 pub trait V8Sliceable: Copy + Clone {
   /// The concrete V8 data view type.
   type V8;
+  fn new_buf<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    buf: v8::Local<v8::ArrayBuffer>,
+    byte_offset: usize,
+    length: usize,
+  ) -> Option<v8::Local<'s, Self::V8>>;
 }
 
 impl V8Sliceable for u8 {
   type V8 = v8::Uint8Array;
+  fn new_buf<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    buf: v8::Local<v8::ArrayBuffer>,
+    byte_offset: usize,
+    length: usize,
+  ) -> Option<v8::Local<'s, Self::V8>> {
+    v8::Uint8Array::new(scope, buf, byte_offset, length)
+  }
 }
+
 impl V8Sliceable for u32 {
   type V8 = v8::Uint32Array;
+  fn new_buf<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    buf: v8::Local<v8::ArrayBuffer>,
+    byte_offset: usize,
+    length: usize,
+  ) -> Option<v8::Local<'s, Self::V8>> {
+    v8::Uint32Array::new(scope, buf, byte_offset, length)
+  }
 }
 
 /// A V8Slice encapsulates a slice that's been borrowed from a JavaScript
@@ -160,6 +183,20 @@ where
   /// Create a [`Box<[T]>`] copy of this slice data.
   pub fn to_boxed_slice(&self) -> Box<[T]> {
     self.to_vec().into_boxed_slice()
+  }
+
+  pub fn into_v8_local<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> Option<v8::Local<'a, T::V8>> {
+    let (store, range) = self.into_parts();
+    let buffer = v8::ArrayBuffer::with_backing_store(scope, &store);
+    T::new_buf(
+      scope,
+      buffer,
+      range.start,
+      range.len() / std::mem::size_of::<T>(),
+    )
   }
 
   /// Returns the slice to the parts it came from.

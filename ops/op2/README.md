@@ -1085,6 +1085,22 @@ f64
 <td>
 
 ```text
+#[buffer] V8Slice<u8>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
 #[buffer] Vec<u8>
 ```
 
@@ -1133,23 +1149,7 @@ f64
 <td>
 
 ```text
-#[buffer] Vec<u32>
-```
-
-</td><td>
-
-</td><td>
-
-</td><td>
-
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```text
-#[buffer] Box<[u32]>
+#[buffer] V8Slice<u32>
 ```
 
 </td><td>

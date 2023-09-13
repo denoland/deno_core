@@ -307,9 +307,10 @@ to_v8_retval_fallible!(Cow<'a, [u8]>: |value, scope, rv| {
 //
 
 to_v8_fallible!(serde_v8::V8Slice<u8>: |value, scope| {
-  let (buffer, range) = value.into_parts();
-  let buffer = v8::ArrayBuffer::with_backing_store(scope, &buffer);
-  v8::Uint8Array::new(scope, buffer, range.start, range.len()).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+  value.into_v8_local(scope).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+});
+to_v8_fallible!(serde_v8::V8Slice<u32>: |value, scope| {
+  value.into_v8_local(scope).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
 to_v8_fallible!(serde_v8::JsBuffer: |value, scope| {
   value.into_parts().to_v8_fallible(scope)

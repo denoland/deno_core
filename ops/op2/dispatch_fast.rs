@@ -311,20 +311,13 @@ fn map_v8_fastcall_arg_to_arg(
 ) -> Result<TokenStream, V8MappingError> {
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
-    Arg::Buffer(Buffer::Slice(
-      _,
-      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
-    )) => {
+    Arg::Buffer(Buffer::Slice(_, NumericArg::u8 | NumericArg::u32)) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap();)
     }
-    Arg::Buffer(Buffer::Vec(
-      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
-    )) => {
+    Arg::Buffer(Buffer::Vec(NumericArg::u8 | NumericArg::u32)) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec();)
     }
-    Arg::Buffer(Buffer::BoxSlice(
-      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
-    )) => {
+    Arg::Buffer(Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)) => {
       quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into_boxed_slice();)
     }
     Arg::Buffer(Buffer::Bytes(BufferMode::Copy)) => {
