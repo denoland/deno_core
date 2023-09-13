@@ -40,7 +40,7 @@ impl op_serde_v8 {
                             &format!("{}", deno_core::anyhow::Error::from(arg0_err)),
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -61,7 +61,7 @@ impl op_serde_v8 {
                         &format!("{}", deno_core::anyhow::Error::from(rv_err)),
                     )
                     .unwrap();
-                let exc = deno_core::v8::Exception::error(&mut scope, msg);
+                let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
                 scope.throw_exception(exc);
                 return;
             }
