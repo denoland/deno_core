@@ -476,16 +476,10 @@ pub fn from_arg_buffer(
   });
 
   let make_arg = match buffer {
-    Buffer::Slice(
-      RefType::Ref,
-      NumericArg::u8 | NumericArg::u32,
-    ) => {
+    Buffer::Slice(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.as_ref();)
     }
-    Buffer::Slice(
-      RefType::Mut,
-      NumericArg::u8 | NumericArg::u32,
-    ) => {
+    Buffer::Slice(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.as_mut();)
     }
     Buffer::Vec(NumericArg::u8 | NumericArg::u32) => {
