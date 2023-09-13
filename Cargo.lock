@@ -357,9 +357,9 @@ dependencies = [
 
 [[package]]
 name = "deno_unsync"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac0984205f25e71ddd1be603d76e70255953c12ff864707359ab195d26dfc7b3"
+checksum = "ba41c59b995867599fe10af6ef6ea5516778843b2a1884be37baa265ba2682ef"
 dependencies = [
  "tokio",
 ]
