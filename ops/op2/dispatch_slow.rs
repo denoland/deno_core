@@ -726,7 +726,7 @@ fn throw_type_error_string(
     #maybe_scope
     // TODO(mmastrac): This might be allocating too much, even if it's on the error path
     let msg = #deno_core::v8::String::new(&mut #scope, &format!("{}", #deno_core::anyhow::Error::from(#message))).unwrap();
-    let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
+    let exc = #deno_core::v8::Exception::type_error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
   }))
@@ -746,7 +746,7 @@ fn throw_type_error_static_string(
   Ok(gs_quote!(generator_state(deno_core, scope) => {
     #maybe_scope
     let msg = #deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), #deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = #deno_core::v8::Exception::error(&mut #scope, msg);
+    let exc = #deno_core::v8::Exception::type_error(&mut #scope, msg);
     #scope.throw_exception(exc);
     return;
   }))
