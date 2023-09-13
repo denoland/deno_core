@@ -478,20 +478,20 @@ pub fn from_arg_buffer(
   let make_arg = match buffer {
     Buffer::Slice(
       RefType::Ref,
-      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
+      NumericArg::u8 | NumericArg::u32,
     ) => {
       quote!(let #arg_ident = #temp.as_ref();)
     }
     Buffer::Slice(
       RefType::Mut,
-      NumericArg::u8 | NumericArg::u16 | NumericArg::u32,
+      NumericArg::u8 | NumericArg::u32,
     ) => {
       quote!(let #arg_ident = #temp.as_mut();)
     }
-    Buffer::Vec(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
+    Buffer::Vec(NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.to_vec();)
     }
-    Buffer::BoxSlice(NumericArg::u8 | NumericArg::u16 | NumericArg::u32) => {
+    Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.to_boxed_slice();)
     }
     Buffer::Bytes(BufferMode::Copy) => {

@@ -185,6 +185,7 @@ where
     self.to_vec().into_boxed_slice()
   }
 
+  /// Takes this slice and converts it into a strongly-typed v8 array.
   pub fn into_v8_local<'a>(
     self,
     scope: &mut v8::HandleScope<'a>,
