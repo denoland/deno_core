@@ -989,6 +989,70 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 <td>
 
 ```text
+#[number] i64
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+Result must fit within `Number.MIN_SAFE_INTEGER` and `Number.MAX_SAFE_INTEGER`
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[number] u64
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+Result must fit within `Number.MIN_SAFE_INTEGER` and `Number.MAX_SAFE_INTEGER`
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[number] isize
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+Result must fit within `Number.MIN_SAFE_INTEGER` and `Number.MAX_SAFE_INTEGER`
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[number] usize
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+Result must fit within `Number.MIN_SAFE_INTEGER` and `Number.MAX_SAFE_INTEGER`
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
 f32
 ```
 

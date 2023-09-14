@@ -8,6 +8,7 @@ use super::signature::Arg;
 use super::signature::Buffer;
 use super::signature::External;
 use super::signature::NumericArg;
+use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::RetVal;
@@ -209,34 +210,39 @@ pub fn from_arg(
     .clone();
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
-    Arg::Numeric(NumericArg::bool) => quote! {
+    Arg::Numeric(NumericArg::bool, _) => quote! {
       let #arg_ident = #arg_ident.is_true();
     },
-    Arg::Numeric(NumericArg::u8)
-    | Arg::Numeric(NumericArg::u16)
-    | Arg::Numeric(NumericArg::u32) => {
+    Arg::Numeric(NumericArg::u8, _)
+    | Arg::Numeric(NumericArg::u16, _)
+    | Arg::Numeric(NumericArg::u32, _) => {
       from_arg_option(generator_state, &arg_ident, "u32")?
     }
-    Arg::Numeric(NumericArg::i8)
-    | Arg::Numeric(NumericArg::i16)
-    | Arg::Numeric(NumericArg::i32)
-    | Arg::Numeric(NumericArg::__SMI__) => {
+    Arg::Numeric(NumericArg::i8, _)
+    | Arg::Numeric(NumericArg::i16, _)
+    | Arg::Numeric(NumericArg::i32, _)
+    | Arg::Numeric(NumericArg::__SMI__, _) => {
       from_arg_option(generator_state, &arg_ident, "i32")?
     }
-    Arg::Numeric(NumericArg::u64) | Arg::Numeric(NumericArg::usize) => {
+    Arg::Numeric(NumericArg::u64 | NumericArg::usize, NumericFlag::None) => {
       from_arg_option(generator_state, &arg_ident, "u64")?
     }
-    Arg::Numeric(NumericArg::i64) | Arg::Numeric(NumericArg::isize) => {
+    Arg::Numeric(NumericArg::i64 | NumericArg::isize, NumericFlag::None) => {
       from_arg_option(generator_state, &arg_ident, "i64")?
     }
-    Arg::Numeric(NumericArg::f32) => {
+    Arg::Numeric(
+      NumericArg::u64 | NumericArg::usize | NumericArg::i64 | NumericArg::isize,
+      NumericFlag::Number,
+    ) => from_arg_option(generator_state, &arg_ident, "f64")?,
+    Arg::Numeric(NumericArg::f32, _) => {
       from_arg_option(generator_state, &arg_ident, "f32")?
     }
-    Arg::Numeric(NumericArg::f64) => {
+    Arg::Numeric(NumericArg::f64, _) => {
       from_arg_option(generator_state, &arg_ident, "f64")?
     }
-    Arg::OptionNumeric(numeric) => {
-      let some = from_arg(generator_state, index, &Arg::Numeric(*numeric))?;
+    Arg::OptionNumeric(numeric, flag) => {
+      let some =
+        from_arg(generator_state, index, &Arg::Numeric(*numeric, *flag))?;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
@@ -545,6 +551,9 @@ pub fn return_value_infallible(
     ArgMarker::Smi => {
       gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SmiMarker, _>::from(#result)))
     }
+    ArgMarker::Number => {
+      gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::NumberMarker, _>::from(#result)))
+    }
     ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
   };
   let res = match ret_type.slow_retval() {
@@ -605,6 +614,9 @@ pub fn return_value_v8_value(
     }
     ArgMarker::Smi => {
       quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SmiMarker, _>::from(#result))
+    }
+    ArgMarker::Number => {
+      quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::NumberMarker, _>::from(#result))
     }
     ArgMarker::None => quote!(#result),
   };
