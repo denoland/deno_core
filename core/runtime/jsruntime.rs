@@ -206,6 +206,11 @@ pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 3] = include_js_files!(
 /// pending ops have completed.
 ///
 /// Use [`JsRuntimeForSnapshot`] to be able to create a snapshot.
+///
+/// Note: since V8 11.6, all runtimes must have a common parent thread that
+/// initalized the V8 platform. This can be done by calling
+/// [`JsRuntime::init_platform`] explicitly, or it will be done automatically on
+/// the calling thread when the first runtime is created.
 pub struct JsRuntime {
   pub(crate) inner: InnerIsolateState,
   pub(crate) allocations: IsolateAllocations,
@@ -447,6 +452,30 @@ pub struct CreateRealmOptions {
 }
 
 impl JsRuntime {
+  /// Explicitly initalizes the V8 platform using the passed platform. This
+  /// should only be called once per process. Further calls will be silently
+  /// ignored.
+  #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
+  pub fn init_platform(v8_platform: Option<v8::SharedRef<v8::Platform>>) {
+    JsRuntime::init_v8(v8_platform, cfg!(test), false);
+  }
+
+  /// Explicitly initalizes the V8 platform using the passed platform. This
+  /// should only be called once per process. Further calls will be silently
+  /// ignored.
+  ///
+  /// The `expose_natives` flag is used to expose the v8 natives
+  /// (eg: %OptimizeFunctionOnNextCall) and GC control functions (`gc()`).
+  /// WARNING: This should not be used for production code as
+  /// this may expose the runtime to security vulnerabilities.
+  #[cfg(any(test, feature = "unsafe_runtime_options"))]
+  pub fn init_platform(
+    v8_platform: Option<v8::SharedRef<v8::Platform>>,
+    expose_natives: bool,
+  ) {
+    JsRuntime::init_v8(v8_platform, cfg!(test), expose_natives);
+  }
+
   /// Only constructor, configuration is done through `options`.
   pub fn new(mut options: RuntimeOptions) -> JsRuntime {
     JsRuntime::init_v8(
