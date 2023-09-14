@@ -219,6 +219,12 @@ pub enum RefType {
   Mut,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum NumericFlag {
+  None,
+  Number,
+}
+
 /// Args are not a 1:1 mapping with Rust types, rather they represent broad classes of types that
 /// tend to have similar argument handling characteristics. This may need one more level of indirection
 /// given how many of these types have option variants, however.
@@ -233,7 +239,7 @@ pub enum Arg {
   RcRefCell(Special),
   Option(Special),
   OptionString(Strings),
-  OptionNumeric(NumericArg),
+  OptionNumeric(NumericArg, NumericFlag),
   OptionBuffer(Buffer),
   OptionV8Local(V8Arg),
   OptionV8Global(V8Arg),
@@ -241,7 +247,7 @@ pub enum Arg {
   V8Global(V8Arg),
   OptionV8Ref(RefType, V8Arg),
   V8Ref(RefType, V8Arg),
-  Numeric(NumericArg),
+  Numeric(NumericArg, NumericFlag),
   SerdeV8(String),
   State(RefType, String),
   OptionState(RefType, String),
@@ -319,7 +325,7 @@ impl Arg {
       Arg::OptionV8Ref(r, t) => Arg::V8Ref(*r, *t),
       Arg::OptionV8Local(t) => Arg::V8Local(*t),
       Arg::OptionV8Global(t) => Arg::V8Global(*t),
-      Arg::OptionNumeric(t) => Arg::Numeric(*t),
+      Arg::OptionNumeric(t, flag) => Arg::Numeric(*t, *flag),
       Arg::Option(t) => Arg::Special(*t),
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t) => Arg::Buffer(*t),
@@ -345,8 +351,16 @@ impl Arg {
           | NumericArg::u64
           | NumericArg::isize
           | NumericArg::usize,
+          NumericFlag::None,
         ) => ArgSlowRetval::V8Local,
-        Arg::Void | Arg::Numeric(_) => ArgSlowRetval::RetVal,
+        Arg::Numeric(
+          NumericArg::i64
+          | NumericArg::u64
+          | NumericArg::isize
+          | NumericArg::usize,
+          NumericFlag::Number,
+        ) => ArgSlowRetval::RetVal,
+        Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
         Arg::External(_) => ArgSlowRetval::V8Local,
         // Fast return value path for empty strings
         Arg::String(_) => ArgSlowRetval::RetValFallible,
@@ -379,7 +393,8 @@ impl Arg {
   pub fn marker(&self) -> ArgMarker {
     match self {
       Arg::SerdeV8(_) => ArgMarker::Serde,
-      Arg::Numeric(NumericArg::__SMI__) => ArgMarker::Smi,
+      Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
+      Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
       _ => ArgMarker::None,
     }
   }
@@ -412,6 +427,8 @@ pub enum ArgMarker {
   Serde,
   /// This type should be serialized as an SMI.
   Smi,
+  /// This type should be serialized as a number.
+  Number,
 }
 
 pub enum ParsedType {
@@ -438,7 +455,7 @@ impl ParsedType {
         | NumericArg::i64
         | NumericArg::usize
         | NumericArg::isize,
-      ) => Some(&[AttributeModifier::Bigint]),
+      ) => Some(&[AttributeModifier::Bigint, AttributeModifier::Number]),
       TBuffer(buffer) => Some(buffer.valid_modes(position)),
       TString(Strings::CowByte) => {
         Some(&[AttributeModifier::String(StringMode::OneByte)])
@@ -598,14 +615,17 @@ pub enum AttributeModifier {
   Buffer(BufferMode),
   /// #[global], for [`v8::Global`]s
   Global,
-  /// #[bigint], for u64/usize/i64/isize
+  /// #[bigint], for u64/usize/i64/isize indicating value is a BigInt
   Bigint,
+  /// #[number], for u64/usize/i64/isize indicating value is a Number
+  Number,
 }
 
 impl AttributeModifier {
   fn name(&self) -> &'static str {
     match self {
       AttributeModifier::Bigint => "bigint",
+      AttributeModifier::Number => "bigint",
       AttributeModifier::Buffer(_) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
@@ -674,6 +694,8 @@ pub enum ArgError {
   InvalidAttributeType(&'static str, String),
   #[error("Cannot use #[serde] for type: {0}")]
   InvalidSerdeAttributeType(String),
+  #[error("Cannot use #[number] for type: {0}")]
+  InvalidNumberAttributeType(String),
   #[error("Invalid v8 type: {0}")]
   InvalidV8Type(String),
   #[error("Internal error: {0}")]
@@ -965,6 +987,7 @@ fn parse_attribute(
   let res = std::panic::catch_unwind(|| {
     rules!(tokens => {
       (#[bigint]) => Some(AttributeModifier::Bigint),
+      (#[number]) => Some(AttributeModifier::Number),
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
@@ -1069,7 +1092,7 @@ fn parse_type_path(
         match parse_type(position, attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::String(string) => Ok(COption(TString(string))),
-          Arg::Numeric(numeric) => Ok(COption(TNumeric(numeric))),
+          Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
           Arg::Buffer(buffer) => Ok(COption(TBuffer(buffer))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
@@ -1210,6 +1233,30 @@ pub(crate) fn parse_type(
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
       }
+      AttributeModifier::Number => match ty {
+        Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
+          COption(TNumeric(
+            n @ (NumericArg::u64
+            | NumericArg::usize
+            | NumericArg::i64
+            | NumericArg::isize),
+          )) => return Ok(Arg::OptionNumeric(n, NumericFlag::Number)),
+          CBare(TNumeric(
+            n @ (NumericArg::u64
+            | NumericArg::usize
+            | NumericArg::i64
+            | NumericArg::isize),
+          )) => return Ok(Arg::Numeric(n, NumericFlag::Number)),
+          _ => {
+            return Err(ArgError::InvalidNumberAttributeType(stringify_token(
+              ty,
+            )))
+          }
+        },
+        _ => {
+          return Err(ArgError::InvalidNumberAttributeType(stringify_token(ty)))
+        }
+      },
       AttributeModifier::Smi => match ty {
         Type::Path(of) => {
           let is_option = rules!(of.into_token_stream() => {
@@ -1217,9 +1264,12 @@ pub(crate) fn parse_type(
             ( $_ty:ty ) => false,
           });
           if is_option {
-            return Ok(Arg::OptionNumeric(NumericArg::__SMI__));
+            return Ok(Arg::OptionNumeric(
+              NumericArg::__SMI__,
+              NumericFlag::None,
+            ));
           } else {
-            return Ok(Arg::Numeric(NumericArg::__SMI__));
+            return Ok(Arg::Numeric(NumericArg::__SMI__, NumericFlag::None));
           }
         }
         _ => return Err(ArgError::InvalidSmiType(stringify_token(ty))),
@@ -1295,11 +1345,13 @@ pub(crate) fn parse_type(
       }
     }
     Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
-      CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric)),
+      CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric, NumericFlag::None)),
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
       CBare(TString(string)) => Ok(Arg::String(string)),
       CBare(TBuffer(buffer)) => Ok(Arg::Buffer(buffer)),
-      COption(TNumeric(special)) => Ok(Arg::OptionNumeric(special)),
+      COption(TNumeric(special)) => {
+        Ok(Arg::OptionNumeric(special, NumericFlag::None))
+      }
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       COption(TString(string)) => Ok(Arg::OptionString(string)),
       COption(TBuffer(buffer)) => Ok(Arg::OptionBuffer(buffer)),
@@ -1433,7 +1485,7 @@ mod tests {
 
   test!(
     fn op_state_and_number(opstate: &mut OpState, a: u32) -> ();
-    (Ref(Mut, OpState), Numeric(u32)) -> Infallible(Void)
+    (Ref(Mut, OpState), Numeric(u32, None)) -> Infallible(Void)
   );
   test!(
     fn op_slices(#[buffer] r#in: &[u8], #[buffer] out: &mut [u8]);
@@ -1458,23 +1510,27 @@ mod tests {
   );
   test!(
     fn op_resource(#[smi] rid: ResourceId, #[buffer] buffer: &[u8]);
-    (Numeric(__SMI__), Buffer(Slice(Ref, u8))) ->  Infallible(Void)
+    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8))) ->  Infallible(Void)
   );
   test!(
     #[smi] fn op_resource2(#[smi] rid: ResourceId) -> Result<ResourceId, Error>;
-    (Numeric(__SMI__)) -> Result(Numeric(__SMI__))
+    (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None))
   );
   test!(
     fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, AnyError>;
-    (Ref(Mut, OpState)) -> Result(OptionNumeric(u32))
+    (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None))
   );
   test!(
     #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, AnyError>;
-    (OptionNumeric(__SMI__)) -> Result(OptionNumeric(__SMI__))
+    (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
   );
   test!(
     fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result <f64, AnyError>;
-    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize)) -> Result(Numeric(f64))
+    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
+  );
+  test!(
+    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result <u64, AnyError>;
+    (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
   );
   test!(
     fn op_ptr_out(ptr: *const c_void) -> *mut c_void;
@@ -1482,7 +1538,7 @@ mod tests {
   );
   test!(
     fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error>;
-    (String(RefStr), Numeric(bool)) -> Result(Void)
+    (String(RefStr), Numeric(bool, None)) -> Result(Void)
   );
   test!(
     #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>, #[string(onebyte)] s4: Cow<[u8]>) -> String;

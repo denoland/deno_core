@@ -6,6 +6,7 @@ use super::signature::Arg;
 use super::signature::Buffer;
 use super::signature::BufferMode;
 use super::signature::NumericArg;
+use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::RetVal;
@@ -435,7 +436,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::State(..)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
-    Arg::OptionNumeric(_)
+    Arg::OptionNumeric(..)
     | Arg::Option(_)
     | Arg::OptionString(_)
     | Arg::OptionBuffer(_)
@@ -449,22 +450,26 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Ref(RefType::Ref, _) => V8FastCallType::V8Value,
 
-    Arg::Numeric(NumericArg::bool) => V8FastCallType::Bool,
-    Arg::Numeric(NumericArg::u32)
-    | Arg::Numeric(NumericArg::u16)
-    | Arg::Numeric(NumericArg::u8) => V8FastCallType::U32,
-    Arg::Numeric(NumericArg::i32)
-    | Arg::Numeric(NumericArg::i16)
-    | Arg::Numeric(NumericArg::i8)
-    | Arg::Numeric(NumericArg::__SMI__) => V8FastCallType::I32,
-    Arg::Numeric(NumericArg::u64) | Arg::Numeric(NumericArg::usize) => {
+    Arg::Numeric(NumericArg::bool, _) => V8FastCallType::Bool,
+    Arg::Numeric(NumericArg::u32, _)
+    | Arg::Numeric(NumericArg::u16, _)
+    | Arg::Numeric(NumericArg::u8, _) => V8FastCallType::U32,
+    Arg::Numeric(NumericArg::i32, _)
+    | Arg::Numeric(NumericArg::i16, _)
+    | Arg::Numeric(NumericArg::i8, _)
+    | Arg::Numeric(NumericArg::__SMI__, _) => V8FastCallType::I32,
+    Arg::Numeric(NumericArg::u64 | NumericArg::usize, NumericFlag::None) => {
       V8FastCallType::U64
     }
-    Arg::Numeric(NumericArg::i64) | Arg::Numeric(NumericArg::isize) => {
+    Arg::Numeric(NumericArg::i64 | NumericArg::isize, NumericFlag::None) => {
       V8FastCallType::I64
     }
-    Arg::Numeric(NumericArg::f32) => V8FastCallType::F32,
-    Arg::Numeric(NumericArg::f64) => V8FastCallType::F64,
+    Arg::Numeric(
+      NumericArg::u64 | NumericArg::usize | NumericArg::i64 | NumericArg::isize,
+      NumericFlag::Number,
+    ) => V8FastCallType::F64,
+    Arg::Numeric(NumericArg::f32, _) => V8FastCallType::F32,
+    Arg::Numeric(NumericArg::f64, _) => V8FastCallType::F64,
     // Ref strings that are one byte internally may be passed as a SeqOneByteString,
     // which gives us a FastApiOneByteString.
     Arg::String(Strings::RefStr) => V8FastCallType::SeqOneByteString,
@@ -484,28 +489,32 @@ fn map_retval_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
-    Arg::OptionNumeric(_) | Arg::SerdeV8(_) => return Ok(None),
+    Arg::OptionNumeric(..) | Arg::SerdeV8(_) => return Ok(None),
     Arg::Void => V8FastCallType::Void,
-    Arg::Numeric(NumericArg::bool) => V8FastCallType::Bool,
-    Arg::Numeric(NumericArg::u32)
-    | Arg::Numeric(NumericArg::u16)
-    | Arg::Numeric(NumericArg::u8) => V8FastCallType::U32,
-    Arg::Numeric(NumericArg::__SMI__)
-    | Arg::Numeric(NumericArg::i32)
-    | Arg::Numeric(NumericArg::i16)
-    | Arg::Numeric(NumericArg::i8) => V8FastCallType::I32,
-    Arg::Numeric(NumericArg::u64) | Arg::Numeric(NumericArg::usize) => {
+    Arg::Numeric(NumericArg::bool, _) => V8FastCallType::Bool,
+    Arg::Numeric(NumericArg::u32, _)
+    | Arg::Numeric(NumericArg::u16, _)
+    | Arg::Numeric(NumericArg::u8, _) => V8FastCallType::U32,
+    Arg::Numeric(NumericArg::__SMI__, _)
+    | Arg::Numeric(NumericArg::i32, _)
+    | Arg::Numeric(NumericArg::i16, _)
+    | Arg::Numeric(NumericArg::i8, _) => V8FastCallType::I32,
+    Arg::Numeric(NumericArg::u64 | NumericArg::usize, NumericFlag::None) => {
       // TODO(mmastrac): In my testing, I was not able to get this working properly
       // V8FastCallType::U64
       return Ok(None);
     }
-    Arg::Numeric(NumericArg::i64) | Arg::Numeric(NumericArg::isize) => {
+    Arg::Numeric(NumericArg::i64 | NumericArg::isize, NumericFlag::None) => {
       // TODO(mmastrac): In my testing, I was not able to get this working properly
       // V8FastCallType::I64
       return Ok(None);
     }
-    Arg::Numeric(NumericArg::f32) => V8FastCallType::F32,
-    Arg::Numeric(NumericArg::f64) => V8FastCallType::F64,
+    Arg::Numeric(
+      NumericArg::u64 | NumericArg::usize | NumericArg::i64 | NumericArg::isize,
+      NumericFlag::Number,
+    ) => V8FastCallType::F64,
+    Arg::Numeric(NumericArg::f32, _) => V8FastCallType::F32,
+    Arg::Numeric(NumericArg::f64, _) => V8FastCallType::F64,
     // We don't return special return types
     Arg::Option(_) => return Ok(None),
     Arg::OptionString(_) => return Ok(None),

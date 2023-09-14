@@ -626,6 +626,7 @@ mod tests {
       op_test_float,
       op_test_float_result,
       op_test_bigint_i64,
+      op_test_bigint_i64_as_number,
       op_test_bigint_u64,
       op_test_string_owned,
       op_test_string_ref,
@@ -1043,12 +1044,28 @@ mod tests {
     input
   }
 
+  #[op2(core, fast)]
+  #[number]
+  pub fn op_test_bigint_i64_as_number(#[number] input: i64) -> i64 {
+    input
+  }
+
   #[tokio::test]
   pub async fn test_op_64() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_test_bigint_i64",
       &format!("assert(op_test_bigint_i64({}n) == {}n)", i64::MAX, i64::MAX),
+    )?;
+    run_test2(
+      10000,
+      "op_test_bigint_i64_as_number",
+      "assert(op_test_bigint_i64_as_number(Number.MAX_SAFE_INTEGER) == Number.MAX_SAFE_INTEGER)",
+    )?;
+    run_test2(
+      10000,
+      "op_test_bigint_i64_as_number",
+      "assert(op_test_bigint_i64_as_number(Number.MIN_SAFE_INTEGER) == Number.MIN_SAFE_INTEGER)",
     )?;
     run_test2(
       10,
@@ -1459,9 +1476,9 @@ mod tests {
   #[op2(core, fast)]
   pub fn op_buffer_slice(
     #[buffer] input: &[u8],
-    #[bigint] inlen: usize,
+    #[number] inlen: usize,
     #[buffer] output: &mut [u8],
-    #[bigint] outlen: usize,
+    #[number] outlen: usize,
   ) {
     assert_eq!(inlen, input.len());
     assert_eq!(outlen, output.len());
@@ -1471,9 +1488,9 @@ mod tests {
   #[op2(core, fast)]
   pub fn op_buffer_slice_32(
     #[buffer] input: &[u32],
-    #[bigint] inlen: usize,
+    #[number] inlen: usize,
     #[buffer] output: &mut [u32],
-    #[bigint] outlen: usize,
+    #[number] outlen: usize,
   ) {
     assert_eq!(inlen, input.len());
     assert_eq!(outlen, output.len());
