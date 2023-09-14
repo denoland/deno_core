@@ -9,17 +9,17 @@ use super::transl8::ToV8;
 use super::v8slice::V8Slice;
 use crate::magic::transl8::impl_magic;
 
-pub struct JsBuffer(V8Slice);
+pub struct JsBuffer(V8Slice<u8>);
 
 impl_magic!(JsBuffer);
 
 impl JsBuffer {
-  pub fn from_parts(slice: V8Slice) -> Self {
+  pub fn from_parts(slice: V8Slice<u8>) -> Self {
     Self(slice)
   }
 
   /// Returns the buffer to its parts.
-  pub fn into_parts(self) -> V8Slice {
+  pub fn into_parts(self) -> V8Slice<u8> {
     self.0
   }
 }
@@ -76,8 +76,8 @@ impl From<JsBuffer> for bytes::Bytes {
   }
 }
 
-impl From<V8Slice> for JsBuffer {
-  fn from(value: V8Slice) -> Self {
+impl From<V8Slice<u8>> for JsBuffer {
+  fn from(value: V8Slice<u8>) -> Self {
     JsBuffer(value)
   }
 }

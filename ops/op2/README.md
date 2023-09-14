@@ -607,6 +607,62 @@ Safe, but forces a copy.
 <td>
 
 ```text
+#[buffer] &mut [u32]
+```
+
+</td><td>
+✅
+</td><td>
+UInt32Array (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[buffer] &[u32]
+```
+
+</td><td>
+✅
+</td><td>
+UInt32Array (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[buffer(copy)] Vec<u32>
+```
+
+</td><td>
+✅
+</td><td>
+UInt32Array (resizable=true,false)
+</td><td>
+Safe, but forces a copy.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[buffer(copy)] Box<[u32]>
+```
+
+</td><td>
+✅
+</td><td>
+UInt32Array (resizable=true,false)
+</td><td>
+Safe, but forces a copy.
+</td></tr>
+<tr>
+<td>
+
+```text
 #[buffer] JsBuffer
 ```
 
@@ -1029,6 +1085,22 @@ f64
 <td>
 
 ```text
+#[buffer] V8Slice<u8>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
 #[buffer] Vec<u8>
 ```
 
@@ -1062,6 +1134,22 @@ f64
 
 ```text
 #[buffer] bytes::BytesMut
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[buffer] V8Slice<u32>
 ```
 
 </td><td>

@@ -38,9 +38,7 @@ impl op_async_v8_buffer {
             let arg0 = args.get(1usize as i32);
             let mut arg0_temp;
             arg0_temp = match unsafe {
-                deno_core::_ops::to_v8_slice::<
-                    deno_core::v8::Uint8Array,
-                >(&mut scope, arg0)
+                deno_core::_ops::to_v8_slice::<u8>(&mut scope, arg0)
             } {
                 Ok(arg0) => arg0,
                 Err(arg0_err) => {
