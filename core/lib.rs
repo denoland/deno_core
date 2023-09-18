@@ -104,6 +104,7 @@ pub use crate::ops_builtin::op_print;
 pub use crate::ops_builtin::op_resources;
 pub use crate::ops_builtin::op_void_async;
 pub use crate::ops_builtin::op_void_sync;
+pub use crate::ops_metrics::OpMetrics;
 pub use crate::ops_metrics::OpsTracker;
 pub use crate::path::strip_unc_prefix;
 pub use crate::resources::AsyncResult;
