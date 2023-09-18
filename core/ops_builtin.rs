@@ -150,7 +150,7 @@ pub fn op_try_close(state: Rc<RefCell<OpState>>, #[smi] rid: ResourceId) {
 #[serde]
 pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
   let aggregate = state.tracker.aggregate();
-  let per_op = state.tracker.per_op();
+  let per_op = state.tracker.per_op().clone();
   (aggregate, per_op)
 }
 

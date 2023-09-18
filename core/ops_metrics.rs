@@ -2,6 +2,7 @@
 
 use crate::serde::Serialize;
 use crate::OpId;
+use std::cell::Ref;
 use std::cell::RefCell;
 use std::cell::RefMut;
 
@@ -37,8 +38,8 @@ impl OpsTracker {
     }
   }
 
-  pub fn per_op(&self) -> Vec<OpMetrics> {
-    self.ops.borrow().clone()
+  pub fn per_op(&self) -> Ref<'_, Vec<OpMetrics>> {
+    self.ops.borrow()
   }
 
   pub fn aggregate(&self) -> OpMetrics {
