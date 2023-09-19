@@ -6,148 +6,167 @@
   const ops = core.ops;
   const {
     Error,
+    ObjectCreate,
     StringPrototypeStartsWith,
     StringPrototypeEndsWith,
-    ObjectDefineProperties,
-    ArrayPrototypePush,
-    ArrayPrototypeMap,
-    ArrayPrototypeJoin,
+    Uint8Array,
+    Uint32Array,
   } = window.__bootstrap.primordials;
 
+  const DATA_URL_ABBREV_THRESHOLD = 150; // keep in sync with ops_builtin_v8.rs
+
+  // Keep in sync with `op_format_file_name` ./ops_builtin.rs
+  function formatFileName(fileName) {
+    if (
+      fileName.startsWith("data:") &&
+      fileName.length > DATA_URL_ABBREV_THRESHOLD
+    ) {
+      return ops.op_format_data_url(fileName);
+    }
+    return fileName;
+  }
+
   // Keep in sync with `cli/fmt_errors.rs`.
-  function formatLocation(cse) {
-    if (cse.isNative) {
+  function formatLocation(callSite) {
+    if (callSite.isNative) {
       return "native";
     }
     let result = "";
-    if (cse.fileName) {
-      result += ops.op_format_file_name(cse.fileName);
+    if (callSite.fileName) {
+      result += formatFileName(callSite.fileName);
     } else {
-      if (cse.isEval) {
-        if (cse.evalOrigin == null) {
+      if (callSite.isEval) {
+        if (callSite.evalOrigin == null) {
           throw new Error("assert evalOrigin");
         }
-        result += `${cse.evalOrigin}, `;
+        result += `${callSite.evalOrigin}, `;
       }
       result += "<anonymous>";
     }
-    if (cse.lineNumber != null) {
-      result += `:${cse.lineNumber}`;
-      if (cse.columnNumber != null) {
-        result += `:${cse.columnNumber}`;
+    if (callSite.lineNumber !== null) {
+      result += `:${callSite.lineNumber}`;
+      if (callSite.columnNumber !== null) {
+        result += `:${callSite.columnNumber}`;
       }
     }
     return result;
   }
 
   // Keep in sync with `cli/fmt_errors.rs`.
-  function formatCallSiteEval(cse) {
+  function formatCallSiteEval(callSite) {
     let result = "";
-    if (cse.isAsync) {
+    if (callSite.isAsync) {
       result += "async ";
     }
-    if (cse.isPromiseAll) {
-      result += `Promise.all (index ${cse.promiseIndex})`;
+    if (callSite.isPromiseAll) {
+      result += `Promise.all (index ${callSite.promiseIndex})`;
       return result;
     }
-    const isMethodCall = !(cse.isToplevel || cse.isConstructor);
+    const isMethodCall = !(callSite.isToplevel || callSite.isConstructor);
     if (isMethodCall) {
-      if (cse.functionName) {
-        if (cse.typeName) {
-          if (!StringPrototypeStartsWith(cse.functionName, cse.typeName)) {
-            result += `${cse.typeName}.`;
+      if (callSite.functionName) {
+        if (callSite.typeName) {
+          if (
+            !StringPrototypeStartsWith(callSite.functionName, callSite.typeName)
+          ) {
+            result += `${callSite.typeName}.`;
           }
         }
-        result += cse.functionName;
-        if (cse.methodName) {
-          if (!StringPrototypeEndsWith(cse.functionName, cse.methodName)) {
-            result += ` [as ${cse.methodName}]`;
+        result += callSite.functionName;
+        if (callSite.methodName) {
+          if (
+            !StringPrototypeEndsWith(callSite.functionName, callSite.methodName)
+          ) {
+            result += ` [as ${callSite.methodName}]`;
           }
         }
       } else {
-        if (cse.typeName) {
-          result += `${cse.typeName}.`;
+        if (callSite.typeName) {
+          result += `${callSite.typeName}.`;
         }
-        if (cse.methodName) {
-          result += cse.methodName;
+        if (callSite.methodName) {
+          result += callSite.methodName;
         } else {
           result += "<anonymous>";
         }
       }
-    } else if (cse.isConstructor) {
+    } else if (callSite.isConstructor) {
       result += "new ";
-      if (cse.functionName) {
-        result += cse.functionName;
+      if (callSite.functionName) {
+        result += callSite.functionName;
       } else {
         result += "<anonymous>";
       }
-    } else if (cse.functionName) {
-      result += cse.functionName;
+    } else if (callSite.functionName) {
+      result += callSite.functionName;
     } else {
-      result += formatLocation(cse);
+      result += formatLocation(callSite);
       return result;
     }
 
-    result += ` (${formatLocation(cse)})`;
+    result += ` (${formatLocation(callSite)})`;
     return result;
   }
 
-  function evaluateCallSite(callSite) {
-    return {
-      this: callSite.getThis(),
-      typeName: callSite.getTypeName(),
-      function: callSite.getFunction(),
-      functionName: callSite.getFunctionName(),
-      methodName: callSite.getMethodName(),
-      fileName: callSite.getFileName(),
-      lineNumber: callSite.getLineNumber(),
-      columnNumber: callSite.getColumnNumber(),
-      evalOrigin: callSite.getEvalOrigin(),
-      isToplevel: callSite.isToplevel(),
-      isEval: callSite.isEval(),
-      isNative: callSite.isNative(),
-      isConstructor: callSite.isConstructor(),
-      isAsync: callSite.isAsync(),
-      isPromiseAll: callSite.isPromiseAll(),
-      promiseIndex: callSite.getPromiseIndex(),
-    };
-  }
+  const applySourceMapRetBuf = new Uint32Array(2);
+  const applySourceMapRetBufView = new Uint8Array(applySourceMapRetBuf.buffer);
 
-  function sourceMapCallSiteEval(cse) {
-    if (cse.fileName && cse.lineNumber != null && cse.columnNumber != null) {
-      return { ...cse, ...ops.op_apply_source_map(cse) };
-    }
-    return cse;
-  }
-
-  /** A function that can be used as `Error.prepareStackTrace`. */
   function prepareStackTrace(error, callSites) {
-    let callSiteEvals = ArrayPrototypeMap(callSites, evaluateCallSite);
-    callSiteEvals = ArrayPrototypeMap(callSiteEvals, sourceMapCallSiteEval);
-    ObjectDefineProperties(error, {
-      __callSiteEvals: { __proto__: null, value: [], configurable: true },
-    });
-    const formattedCallSites = [];
-    for (let i = 0; i < callSiteEvals.length; ++i) {
-      const cse = callSiteEvals[i];
-      ArrayPrototypePush(error.__callSiteEvals, cse);
-      ArrayPrototypePush(formattedCallSites, formatCallSiteEval(cse));
-    }
     const message = error.message !== undefined ? error.message : "";
     const name = error.name !== undefined ? error.name : "Error";
-    let messageLine;
+    let stack;
     if (name != "" && message != "") {
-      messageLine = `${name}: ${message}`;
+      stack = `${name}: ${message}`;
     } else if ((name || message) != "") {
-      messageLine = name || message;
+      stack = name || message;
     } else {
-      messageLine = "";
+      stack = "";
     }
-    return messageLine +
-      ArrayPrototypeJoin(
-        ArrayPrototypeMap(formattedCallSites, (s) => `\n    at ${s}`),
-        "",
-      );
+    const mappedCallSites = [];
+    for (let i = 0; i < callSites.length; ++i) {
+      const v8CallSite = callSites[i];
+      const callSite = {
+        this: v8CallSite.getThis(),
+        typeName: v8CallSite.getTypeName(),
+        function: v8CallSite.getFunction(),
+        functionName: v8CallSite.getFunctionName(),
+        methodName: v8CallSite.getMethodName(),
+        fileName: v8CallSite.getFileName(),
+        lineNumber: v8CallSite.getLineNumber(),
+        columnNumber: v8CallSite.getColumnNumber(),
+        evalOrigin: v8CallSite.getEvalOrigin(),
+        isToplevel: v8CallSite.isToplevel(),
+        isEval: v8CallSite.isEval(),
+        isNative: v8CallSite.isNative(),
+        isConstructor: v8CallSite.isConstructor(),
+        isAsync: v8CallSite.isAsync(),
+        isPromiseAll: v8CallSite.isPromiseAll(),
+        promiseIndex: v8CallSite.getPromiseIndex(),
+      };
+      let res = 0;
+      if (
+        callSite.fileName !== null && callSite.lineNumber !== null &&
+        callSite.columnNumber !== null
+      ) {
+        res = ops.op_apply_source_map(
+          callSite.fileName,
+          callSite.lineNumber,
+          callSite.columnNumber,
+          applySourceMapRetBufView,
+        );
+      }
+      if (res >= 1) {
+        callSite.lineNumber = applySourceMapRetBuf[0];
+        callSite.columnNumber = applySourceMapRetBuf[1];
+      }
+      if (res >= 2) {
+        callSite.fileName = ops.op_apply_source_map_filename();
+      }
+      mappedCallSites.push(callSite);
+      stack += `\n    at ${formatCallSiteEval(callSite)}`;
+    }
+    error.__callSiteEvals = mappedCallSites;
+    return stack;
   }
 
   Error.prepareStackTrace = prepareStackTrace;
