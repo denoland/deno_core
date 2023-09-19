@@ -352,7 +352,7 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::RcRefCell(Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
-      quote!(let #arg_ident = #js_runtime_state.unwrap();)
+      quote!(let #arg_ident = #js_runtime_state.clone();)
     }
     Arg::State(RefType::Ref, state) => {
       *needs_opctx = true;

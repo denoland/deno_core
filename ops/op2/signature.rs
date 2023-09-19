@@ -1625,7 +1625,19 @@ mod tests {
     fn op_async_result_impl_void() -> Result<impl Future<Output = ()>, Error>;
     () -> ResultFuture(Void)
   );
-  // Args
+  test!(
+    fn op_js_runtime_state_ref(state: &JsRuntimeState);
+    (Ref(Ref, JsRuntimeState)) -> Infallible(Void)
+  );
+  test!(
+    fn op_js_runtime_state_mut(state: &mut JsRuntimeState);
+    (Ref(Mut, JsRuntimeState)) -> Infallible(Void)
+  );
+  test!(
+    fn op_js_runtime_state_rc(state: Rc<RefCell<JsRuntimeState>>);
+    (RcRefCell(JsRuntimeState)) -> Infallible(Void)
+  );
+ // Args
 
   expect_fail!(
     op_with_bad_string1,
@@ -1672,6 +1684,11 @@ mod tests {
     op_with_invalid_global,
     ArgError("l", InvalidAttributeType("global", "v8::Local<v8::String>")),
     fn f(#[global] l: v8::Local<v8::String>) {}
+  );
+  expect_fail!(
+    op_duplicate_js_runtime_state,
+    InvalidMultipleJsRuntimeState,
+    fn f(s1: &JsRuntimeState, s2: &mut JsRuntimeState) {}
   );
 
   // Generics

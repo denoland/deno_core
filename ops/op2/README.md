@@ -797,7 +797,7 @@ Extracts an object from `OpState`.
 </td><td>
 
 </td><td>
-
+Only usable in `deno_core`.
 </td></tr>
 <tr>
 <td>
@@ -811,7 +811,7 @@ Extracts an object from `OpState`.
 </td><td>
 
 </td><td>
-
+Only usable in `deno_core`.
 </td></tr>
 <tr>
 <td>
@@ -825,7 +825,7 @@ Rc<RefCell<JsRuntimeState>>
 </td><td>
 
 </td><td>
-
+Only usable in `deno_core`.
 </td></tr>
 </table>
 
