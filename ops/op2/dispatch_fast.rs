@@ -160,19 +160,6 @@ pub fn generate_dispatch_fast(
     Some(rv) => rv,
   };
 
-  let GeneratorState {
-    fast_function,
-    deno_core,
-    result,
-    opctx,
-    js_runtime_state,
-    fast_api_callback_options,
-    needs_fast_api_callback_options,
-    needs_fast_opctx,
-    needs_fast_js_runtime_state,
-    ..
-  } = generator_state;
-
   // Collect the names and types for the fastcall and the underlying op call
   let mut fastcall_names = vec![];
   let mut fastcall_types = vec![];
@@ -183,23 +170,26 @@ pub fn generate_dispatch_fast(
     let name = format_ident!("arg{i}");
     if let Input::Concrete(fv) = input {
       fastcall_names.push(name.clone());
-      fastcall_types.push(fv.quote_rust_type(deno_core));
+      fastcall_types.push(fv.quote_rust_type(&generator_state.deno_core));
       input_types.push(fv.quote_type());
     }
 
     call_names.push(name.clone());
-    call_args.push(map_v8_fastcall_arg_to_arg(
-      deno_core,
-      opctx,
-      fast_api_callback_options,
-      js_runtime_state,
-      needs_fast_opctx,
-      needs_fast_api_callback_options,
-      needs_fast_js_runtime_state,
-      &name,
-      arg,
-    )?)
+    call_args.push(map_v8_fastcall_arg_to_arg(generator_state, &name, arg)?)
   }
+
+  let GeneratorState {
+    deno_core,
+    result,
+    fast_function,
+    opctx,
+    js_runtime_state,
+    fast_api_callback_options,
+    needs_fast_opctx,
+    needs_fast_api_callback_options,
+    needs_fast_js_runtime_state,
+    ..
+  } = generator_state;
 
   let handle_error = match signature.ret_val {
     RetVal::Infallible(_) => quote!(),
@@ -309,17 +299,23 @@ pub fn generate_dispatch_fast(
   Ok(Some((fast_definition, fast_fn)))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn map_v8_fastcall_arg_to_arg(
-  deno_core: &TokenStream,
-  opctx: &Ident,
-  fast_api_callback_options: &Ident,
-  js_runtime_state: &Ident,
-  needs_opctx: &mut bool,
-  needs_fast_api_callback_options: &mut bool,
-  needs_js_runtime_state: &mut bool,
+  generator_state: &mut GeneratorState,
   arg_ident: &Ident,
   arg: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
+  let GeneratorState {
+    deno_core,
+    opctx,
+    js_runtime_state,
+    fast_api_callback_options,
+    needs_fast_opctx: needs_opctx,
+    needs_fast_api_callback_options,
+    needs_fast_js_runtime_state: needs_js_runtime_state,
+    ..
+  } = generator_state;
+
   let arg_temp = format_ident!("{}_temp", arg_ident);
   let res = match arg {
     Arg::Buffer(Buffer::Slice(_, NumericArg::u8 | NumericArg::u32)) => {
