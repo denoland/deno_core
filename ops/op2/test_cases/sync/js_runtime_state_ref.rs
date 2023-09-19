@@ -2,7 +2,7 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::OpState;
+use deno_core::JsRuntimeState;
 
 #[op2(fast)]
-fn op_state_ref(_state: &OpState) {}
+fn js_runtime_state_ref(_state: &JsRuntimeState) {}

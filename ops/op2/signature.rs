@@ -141,6 +141,7 @@ impl ToTokens for V8Arg {
 pub enum Special {
   HandleScope,
   OpState,
+  JsRuntimeState,
   FastApiCallbackOptions,
 }
 
@@ -262,17 +263,20 @@ impl Arg {
       Self::Special(
         Special::FastApiCallbackOptions
         | Special::OpState
+        | Special::JsRuntimeState
         | Special::HandleScope,
       ) => true,
       Self::Ref(
         _,
         Special::FastApiCallbackOptions
         | Special::OpState
+        | Special::JsRuntimeState
         | Special::HandleScope,
       ) => true,
       Self::RcRefCell(
         Special::FastApiCallbackOptions
         | Special::OpState
+        | Special::JsRuntimeState
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
@@ -658,6 +662,8 @@ pub enum SignatureError {
   InvalidWherePredicate(String),
   #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s")]
   InvalidOpStateCombination,
+  #[error("JsRuntimeState may only be used in one parameter")]
+  InvalidMultipleJsRuntimeState,
 }
 
 #[derive(Error, Debug)]
@@ -783,6 +789,8 @@ pub fn parse_signature(
   let mut has_mut_state = false;
   let mut has_ref_state = false;
 
+  let mut jsruntimestate_count = 0;
+
   for arg in &args {
     match arg {
       Arg::RcRefCell(Special::OpState) | Arg::Ref(_, Special::OpState) => {
@@ -797,6 +805,12 @@ pub fn parse_signature(
         }
         has_mut_state = true;
       }
+      Arg::Ref(_, Special::JsRuntimeState) => {
+        jsruntimestate_count += 1;
+      }
+      Arg::RcRefCell(Special::JsRuntimeState) => {
+        jsruntimestate_count += 1;
+      }
       _ => {}
     }
   }
@@ -804,6 +818,11 @@ pub fn parse_signature(
   // Ensure that either zero or one and only one of these are true
   if has_opstate as u8 + has_mut_state as u8 + has_ref_state as u8 > 1 {
     return Err(SignatureError::InvalidOpStateCombination);
+  }
+
+  // Ensure that there is at most one JsRuntimeState
+  if jsruntimestate_count > 1 {
+    return Err(SignatureError::InvalidMultipleJsRuntimeState);
   }
 
   Ok(ParsedSignature {
@@ -1082,6 +1101,7 @@ fn parse_type_path(
         Ok(CBare(TBuffer(Buffer::BytesMut(buffer_mode()?))))
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
+      ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
@@ -1109,8 +1129,9 @@ fn parse_type_path(
   // Ensure that we have the correct reference state. This is a bit awkward but it's
   // the easiest way to work with the 'rules!' macro above.
   match res {
-    // OpState appears in both ways
+    // OpState and JsRuntimeState appears in both ways
     CBare(TSpecial(Special::OpState)) => {}
+    CBare(TSpecial(Special::JsRuntimeState)) => {}
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {

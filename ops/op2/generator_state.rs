@@ -23,6 +23,8 @@ pub struct GeneratorState {
   pub opctx: Ident,
   /// The `OpState` used for storing op state.
   pub opstate: Ident,
+  /// The `JsRuntimeState` used for storing the Rc<RefCell<JsRuntimeState>>.
+  pub js_runtime_state: Ident,
   /// The `FastApiCallbackOptions` used in fast calls for fallback returns.
   pub fast_api_callback_options: Ident,
   /// The `v8::ReturnValue` used in the slow function
@@ -40,8 +42,10 @@ pub struct GeneratorState {
   pub needs_isolate: bool,
   pub needs_opstate: bool,
   pub needs_opctx: bool,
+  pub needs_js_runtime_state: bool,
   pub needs_fast_opctx: bool,
   pub needs_fast_api_callback_options: bool,
+  pub needs_fast_js_runtime_state: bool,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from

@@ -94,6 +94,12 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
+  let with_js_runtime_state = if generator_state.needs_js_runtime_state {
+    with_js_runtime_state(generator_state)
+  } else {
+    quote!()
+  };
+
   let with_opctx = if generator_state.needs_opctx {
     with_opctx(generator_state)
   } else {
@@ -121,6 +127,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_opctx
         #with_isolate
         #with_opstate
+        #with_js_runtime_state
 
         #output
       }
@@ -176,6 +183,15 @@ pub(crate) fn with_opstate(
   )
 }
 
+pub(crate) fn with_js_runtime_state(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
+  generator_state.needs_opctx = true;
+  gs_quote!(generator_state(opctx, js_runtime_state) =>
+    (let #js_runtime_state = std::rc::Weak::upgrade(&#opctx.runtime_state).unwrap();)
+  )
+}
+
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
   index: usize,
@@ -199,9 +215,11 @@ pub fn from_arg(
     args,
     scope,
     opstate,
+    js_runtime_state,
     needs_scope,
     needs_isolate,
     needs_opstate,
+    needs_js_runtime_state,
     ..
   } = &mut generator_state;
   let arg_ident = args
@@ -344,6 +362,18 @@ pub fn from_arg(
     Arg::RcRefCell(Special::OpState) => {
       *needs_opstate = true;
       quote!(let #arg_ident = #opstate.clone();)
+    }
+    Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
+      *needs_js_runtime_state = true;
+      quote!(let #arg_ident = &#js_runtime_state.borrow();)
+    }
+    Arg::Ref(RefType::Mut, Special::JsRuntimeState) => {
+      *needs_js_runtime_state = true;
+      quote!(let #arg_ident = &mut #js_runtime_state.borrow_mut();)
+    }
+    Arg::RcRefCell(Special::JsRuntimeState) => {
+      *needs_js_runtime_state = true;
+      quote!(let #arg_ident = #js_runtime_state.unwrap();)
     }
     Arg::State(RefType::Ref, state) => {
       *needs_opstate = true;

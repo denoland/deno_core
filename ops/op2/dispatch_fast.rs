@@ -165,9 +165,11 @@ pub fn generate_dispatch_fast(
     deno_core,
     result,
     opctx,
+    js_runtime_state,
     fast_api_callback_options,
     needs_fast_api_callback_options,
     needs_fast_opctx,
+    needs_fast_js_runtime_state,
     ..
   } = generator_state;
 
@@ -190,8 +192,10 @@ pub fn generate_dispatch_fast(
       deno_core,
       opctx,
       fast_api_callback_options,
+      js_runtime_state,
       needs_fast_opctx,
       needs_fast_api_callback_options,
+      needs_fast_js_runtime_state,
       &name,
       arg,
     )?)
@@ -231,6 +235,15 @@ pub fn generate_dispatch_fast(
       }
     }
     _ => todo!(),
+  };
+
+  let with_js_runtime_state = if *needs_fast_js_runtime_state {
+    *needs_fast_opctx = true;
+    quote! {
+      let #js_runtime_state = std::rc::Weak::upgrade(&#opctx.runtime_state).unwrap();
+    }
+  } else {
+    quote!()
   };
 
   let with_opctx = if *needs_fast_opctx {
@@ -282,6 +295,7 @@ pub fn generate_dispatch_fast(
     ) -> #output_type {
       #with_fast_api_callback_options
       #with_opctx
+      #with_js_runtime_state
       let #result = {
         #(#call_args)*
         Self::call(#(#call_names),*)
@@ -299,8 +313,10 @@ fn map_v8_fastcall_arg_to_arg(
   deno_core: &TokenStream,
   opctx: &Ident,
   fast_api_callback_options: &Ident,
+  js_runtime_state: &Ident,
   needs_opctx: &mut bool,
   needs_fast_api_callback_options: &mut bool,
+  needs_js_runtime_state: &mut bool,
   arg_ident: &Ident,
   arg: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
@@ -329,6 +345,18 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::RcRefCell(Special::OpState) => {
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.state.clone();)
+    }
+    Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
+      *needs_js_runtime_state = true;
+      quote!(let #arg_ident = &#js_runtime_state.borrow();)
+    }
+    Arg::Ref(RefType::Mut, Special::JsRuntimeState) => {
+      *needs_js_runtime_state = true;
+      quote!(let #arg_ident = &mut #js_runtime_state.borrow_mut();)
+    }
+    Arg::RcRefCell(Special::JsRuntimeState) => {
+      *needs_js_runtime_state = true;
+      quote!(let #arg_ident = #js_runtime_state.unwrap();)
     }
     Arg::State(RefType::Ref, state) => {
       *needs_opctx = true;
@@ -433,6 +461,8 @@ fn map_arg_to_v8_fastcall_type(
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)
     | Arg::Ref(_, Special::OpState)
+    | Arg::RcRefCell(Special::JsRuntimeState)
+    | Arg::Ref(_, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled

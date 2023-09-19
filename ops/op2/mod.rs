@@ -130,6 +130,7 @@ fn generate_op2(
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
   let opstate = Ident::new("opstate", Span::call_site());
+  let js_runtime_state = Ident::new("js_runtime_state", Span::call_site());
   let promise_id = Ident::new("promise_id", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
   let fast_function = Ident::new("v8_fn_ptr_fast", Span::call_site());
@@ -152,6 +153,7 @@ fn generate_op2(
     info,
     opctx,
     opstate,
+    js_runtime_state,
     fast_api_callback_options,
     deno_core,
     result,
@@ -165,8 +167,10 @@ fn generate_op2(
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,
+    needs_js_runtime_state: false,
     needs_fast_opctx: false,
     needs_fast_api_callback_options: false,
+    needs_fast_js_runtime_state: false,
   };
 
   let name = func.sig.ident;
