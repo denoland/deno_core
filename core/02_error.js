@@ -6,8 +6,6 @@
   const ops = core.ops;
   const {
     Error,
-    ObjectFreeze,
-    ObjectAssign,
     StringPrototypeStartsWith,
     StringPrototypeEndsWith,
     ObjectDefineProperties,
@@ -152,6 +150,5 @@
       );
   }
 
-  ObjectAssign(globalThis.__bootstrap.core, { prepareStackTrace });
-  ObjectFreeze(globalThis.__bootstrap.core);
+  Error.prepareStackTrace = prepareStackTrace;
 })(this);

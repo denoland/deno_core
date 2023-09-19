@@ -4,6 +4,8 @@
 //!
 //! It will only transpile, not typecheck (like Deno's `--no-check` flag).
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::rc::Rc;
 
@@ -25,9 +27,29 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
+use deno_core::SourceMapGetter;
 use futures::FutureExt;
 
-struct TypescriptModuleLoader;
+#[derive(Clone)]
+struct SourceMapStore(Rc<RefCell<HashMap<String, Vec<u8>>>>);
+
+impl SourceMapGetter for SourceMapStore {
+  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
+    self.0.borrow().get(specifier).cloned()
+  }
+
+  fn get_source_line(
+    &self,
+    _file_name: &str,
+    _line_number: usize,
+  ) -> Option<String> {
+    None
+  }
+}
+
+struct TypescriptModuleLoader {
+  source_maps: SourceMapStore,
+}
 
 impl ModuleLoader for TypescriptModuleLoader {
   fn resolve(
@@ -45,7 +67,9 @@ impl ModuleLoader for TypescriptModuleLoader {
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
+    let source_maps = self.source_maps.clone();
     fn load(
+      source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
     ) -> Result<ModuleSource, AnyError> {
       let path = module_specifier
@@ -79,7 +103,18 @@ impl ModuleLoader for TypescriptModuleLoader {
           scope_analysis: false,
           maybe_syntax: None,
         })?;
-        parsed.transpile(&Default::default())?.text
+        let res = parsed.transpile(&deno_ast::EmitOptions {
+          inline_source_map: false,
+          source_map: true,
+          inline_sources: true,
+          ..Default::default()
+        })?;
+        let source_map = res.source_map.unwrap();
+        source_maps
+          .0
+          .borrow_mut()
+          .insert(module_specifier.to_string(), source_map.into_bytes());
+        res.text
       } else {
         code
       };
@@ -90,7 +125,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       ))
     }
 
-    futures::future::ready(load(module_specifier)).boxed_local()
+    futures::future::ready(load(source_maps, module_specifier)).boxed_local()
   }
 }
 
@@ -103,8 +138,13 @@ fn main() -> Result<(), Error> {
   let main_url = &args[1];
   println!("Run {main_url}");
 
+  let source_map_store = SourceMapStore(Rc::new(RefCell::new(HashMap::new())));
+
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(Rc::new(TypescriptModuleLoader)),
+    module_loader: Some(Rc::new(TypescriptModuleLoader {
+      source_maps: source_map_store.clone(),
+    })),
+    source_map_getter: Some(Box::new(source_map_store)),
     ..Default::default()
   });
 

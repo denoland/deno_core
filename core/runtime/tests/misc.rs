@@ -967,7 +967,6 @@ async fn test_dynamic_import_module_error_stack() {
       Url::parse("file:///main.js").unwrap(),
       ascii_str!(
         "
-        Error.prepareStackTrace = Deno.core.prepareStackTrace;
         await import(\"file:///import.js\");
         "
       ),
