@@ -826,8 +826,8 @@ pub fn op_apply_source_map(
   if let Some(source_map_getter) = state.source_map_getter.as_ref() {
     let application = apply_source_map(
       file_name,
-      line_number.into(),
-      column_number.into(),
+      line_number,
+      column_number,
       &mut cache,
       &***source_map_getter,
     );

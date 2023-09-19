@@ -80,7 +80,7 @@ pub fn apply_source_map<G: SourceMapGetter + ?Sized>(
     .map(Cow::Borrowed)
     .unwrap_or_else(|| {
       let maybe_source_map = getter
-        .get_source_map(&file_name)
+        .get_source_map(file_name)
         .and_then(|raw_source_map| SourceMap::from_slice(&raw_source_map).ok());
       Cow::Owned(maybe_source_map)
     });
