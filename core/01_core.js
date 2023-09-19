@@ -869,10 +869,10 @@ for (let i = 0; i < 10; i++) {
     setBuildInfo,
   });
 
-  ObjectAssign(globalThis.__bootstrap, { core });
   const internals = {};
-  ObjectAssign(globalThis.__bootstrap, { internals });
+  ObjectAssign(globalThis.__bootstrap, { core, internals });
   ObjectAssign(globalThis.Deno, { core });
+  ObjectFreeze(globalThis.__bootstrap.core);
 
   // Direct bindings on `globalThis`
   ObjectAssign(globalThis, { queueMicrotask });
