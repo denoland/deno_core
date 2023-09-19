@@ -6,7 +6,8 @@
   const ops = core.ops;
   const {
     Error,
-    ObjectCreate,
+    ObjectDefineProperties,
+    ArrayPrototypePush,
     StringPrototypeStartsWith,
     StringPrototypeEndsWith,
     Uint8Array,
@@ -122,7 +123,9 @@
     } else {
       stack = "";
     }
-    const mappedCallSites = [];
+    ObjectDefineProperties(error, {
+      __callSiteEvals: { __proto__: null, value: [], configurable: true },
+    });
     for (let i = 0; i < callSites.length; ++i) {
       const v8CallSite = callSites[i];
       const callSite = {
@@ -162,10 +165,9 @@
       if (res >= 2) {
         callSite.fileName = ops.op_apply_source_map_filename();
       }
-      mappedCallSites.push(callSite);
+      ArrayPrototypePush(error.__callSiteEvals, callSite);
       stack += `\n    at ${formatCallSiteEval(callSite)}`;
     }
-    error.__callSiteEvals = mappedCallSites;
     return stack;
   }
 
