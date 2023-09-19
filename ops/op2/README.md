@@ -785,6 +785,48 @@ Extracts an object from `OpState`.
 </td><td>
 Extracts an object from `OpState`.
 </td></tr>
+<tr>
+<td>
+
+```text
+&JsRuntimeState
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+Only usable in `deno_core`.
+</td></tr>
+<tr>
+<td>
+
+```text
+&mut JsRuntimeState
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+Only usable in `deno_core`.
+</td></tr>
+<tr>
+<td>
+
+```text
+Rc<RefCell<JsRuntimeState>>
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+Only usable in `deno_core`.
+</td></tr>
 </table>
 
 <!-- END ARGS -->

@@ -1,11 +1,11 @@
 #[allow(non_camel_case_types)]
-struct op_state_rc {
+struct op_state_ref {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_state_rc {
-    const NAME: &'static str = stringify!(op_state_rc);
+impl deno_core::_ops::Op for op_state_ref {
+    const NAME: &'static str = stringify!(op_state_ref);
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
-        stringify!(op_state_rc),
+        stringify!(op_state_ref),
         false,
         false,
         false,
@@ -22,9 +22,9 @@ impl deno_core::_ops::Op for op_state_rc {
         }),
     );
 }
-impl op_state_rc {
+impl op_state_ref {
     pub const fn name() -> &'static str {
-        stringify!(op_state_rc)
+        stringify!(op_state_ref)
     }
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {

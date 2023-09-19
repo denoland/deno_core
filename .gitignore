@@ -19,9 +19,10 @@ gclient_config.py_entries
 .DS_Store
 .DS_Store?
 
-# Flamegraphs
+# Flamegraphs & profiles
 /flamebench*.svg
 /flamegraph*.svg
+profile.json
 
 # WPT generated cert files
 /tools/wpt/certs/index.txt*

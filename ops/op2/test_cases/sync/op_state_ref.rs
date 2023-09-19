@@ -5,4 +5,4 @@ deno_ops_compile_test_runner::prelude!();
 use deno_core::OpState;
 
 #[op2(fast)]
-fn op_state_rc(_state: &OpState) {}
+fn op_state_ref(_state: &OpState) {}
