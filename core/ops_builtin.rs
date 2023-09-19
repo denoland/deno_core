@@ -75,6 +75,7 @@ crate::extension!(
     ops_builtin_v8::op_op_names,
     ops_builtin_v8::op_apply_source_map,
     ops_builtin_v8::op_apply_source_map_filename,
+    ops_builtin_v8::op_current_user_call_site,
     ops_builtin_v8::op_set_format_exception_callback,
     ops_builtin_v8::op_event_loop_has_more_work,
     ops_builtin_v8::op_store_pending_promise_rejection,

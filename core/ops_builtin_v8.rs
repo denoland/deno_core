@@ -803,6 +803,15 @@ pub struct Location {
   column_number: u32,
 }
 
+fn write_line_and_col_to_ret_buf(
+  ret_buf: &mut [u8],
+  line_number: u32,
+  column_number: u32,
+) {
+  ret_buf[0..4].copy_from_slice(&line_number.to_le_bytes());
+  ret_buf[4..8].copy_from_slice(&column_number.to_le_bytes());
+}
+
 // Returns:
 // 0: no source mapping performed, use original location
 // 1: mapped line and column, but not file name. new line and column are in
@@ -822,8 +831,8 @@ pub fn op_apply_source_map(
   if ret_buf.len() != 8 {
     return Err(type_error("retBuf must be 8 bytes"));
   }
-  let mut cache = state.source_map_cache.borrow_mut();
   if let Some(source_map_getter) = state.source_map_getter.as_ref() {
+    let mut cache = state.source_map_cache.borrow_mut();
     let application = apply_source_map(
       file_name,
       line_number,
@@ -831,17 +840,13 @@ pub fn op_apply_source_map(
       &mut cache,
       &***source_map_getter,
     );
-    fn write_ret_buf(ret_buf: &mut [u8], line_number: u32, column_number: u32) {
-      ret_buf[0..4].copy_from_slice(&line_number.to_le_bytes());
-      ret_buf[4..8].copy_from_slice(&column_number.to_le_bytes());
-    }
     match application {
       SourceMapApplication::Unchanged => Ok(0),
       SourceMapApplication::LineAndColumn {
         line_number,
         column_number,
       } => {
-        write_ret_buf(ret_buf, line_number, column_number);
+        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
         Ok(1)
       }
       SourceMapApplication::LineAndColumnAndFileName {
@@ -849,7 +854,7 @@ pub fn op_apply_source_map(
         column_number,
         file_name,
       } => {
-        write_ret_buf(ret_buf, line_number, column_number);
+        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
         cache.stashed_file_name.replace(file_name);
         Ok(2)
       }
@@ -872,6 +877,73 @@ pub fn op_apply_source_map_filename(
     .stashed_file_name
     .take()
     .ok_or_else(|| type_error("No stashed file name"))
+}
+
+#[op2(core)]
+#[string]
+pub fn op_current_user_call_site(
+  scope: &mut v8::HandleScope,
+  js_runtime_state: &mut JsRuntimeState,
+  #[buffer] ret_buf: &mut [u8],
+) -> String {
+  let stack_trace = v8::StackTrace::current_stack_trace(scope, 10).unwrap();
+  let frame_count = stack_trace.get_frame_count();
+  for i in 0..frame_count {
+    let frame = stack_trace.get_frame(scope, i).unwrap();
+    if !frame.is_user_javascript() {
+      continue;
+    }
+    let file_name = frame
+      .get_script_name(scope)
+      .unwrap()
+      .to_rust_string_lossy(scope);
+    // TODO: this condition should be configurable. It's a CLI assumption.
+    if (file_name.starts_with("ext:") || file_name.starts_with("node:"))
+      && i != frame_count - 1
+    {
+      continue;
+    }
+    let line_number = frame.get_line_number() as u32;
+    let column_number = frame.get_column() as u32;
+    let application = if let Some(source_map_getter) =
+      js_runtime_state.source_map_getter.as_ref()
+    {
+      let mut cache = js_runtime_state.source_map_cache.borrow_mut();
+      apply_source_map(
+        &file_name,
+        line_number,
+        column_number,
+        &mut cache,
+        &***source_map_getter,
+      )
+    } else {
+      SourceMapApplication::Unchanged
+    };
+
+    match application {
+      SourceMapApplication::Unchanged => {
+        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
+        return file_name;
+      }
+      SourceMapApplication::LineAndColumn {
+        line_number,
+        column_number,
+      } => {
+        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
+        return file_name;
+      }
+      SourceMapApplication::LineAndColumnAndFileName {
+        line_number,
+        column_number,
+        file_name,
+      } => {
+        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
+        return file_name;
+      }
+    }
+  }
+
+  unreachable!("No stack frames found on stack at all");
 }
 
 /// Set a callback which formats exception messages as stored in
