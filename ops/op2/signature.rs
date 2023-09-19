@@ -1637,7 +1637,7 @@ mod tests {
     fn op_js_runtime_state_rc(state: Rc<RefCell<JsRuntimeState>>);
     (RcRefCell(JsRuntimeState)) -> Infallible(Void)
   );
- // Args
+  // Args
 
   expect_fail!(
     op_with_bad_string1,
