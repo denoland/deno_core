@@ -714,6 +714,8 @@ pub enum ArgError {
   AttributeError(#[from] AttributeError),
   #[error("The type '{0}' is not allowed in this position")]
   NotAllowedInThisPosition(String),
+  #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
+  InvalidDenoCorePrefix(String, String, String),
 }
 
 #[derive(Error, Debug)]
@@ -1107,7 +1109,7 @@ fn parse_type_path(
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
       ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
       ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
-      ( Rc < RefCell < $ty:ty > > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
+      ( $( std :: rc :: )? Rc < RefCell < $ty:ty > > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
       ( Option < $ty:ty > ) => {
         match parse_type(position, attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
@@ -1121,7 +1123,15 @@ fn parse_type_path(
           _ => Err(ArgError::InvalidType(stringify_token(ty), "for option"))
         }
       }
-      ( $any:ty ) => Err(ArgError::InvalidTypePath(stringify_token(any))),
+      ( deno_core :: $next:ident $(:: $any:ty)? ) => {
+        // Stylistically it makes more sense just to import deno_core::v8 and other types at the top of the file
+        let any = any.map(|any| format!("::{}", any.into_token_stream())).unwrap_or_default();
+        let instead = format!("{next}{any}");
+        Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), stringify_token(next), instead))
+      }
+      ( $any:ty ) => {
+        Err(ArgError::InvalidTypePath(stringify_token(any)))
+      }
     })
   }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
   };
@@ -1501,7 +1511,11 @@ mod tests {
     let attrs = item_fn.attrs;
     let err = parse_signature(attrs, item_fn.sig)
       .expect_err("Expected function to fail to parse");
-    assert_eq!(format!("{err:?}"), error.to_owned());
+    // TODO(mmastrac): this might fail if debug output spacing changes
+    assert_eq!(
+      format!("{err:?}").replace("\n     ", " "),
+      error.to_owned().replace("\n    ", " ")
+    );
   }
 
   test!(
@@ -1689,6 +1703,22 @@ mod tests {
     op_duplicate_js_runtime_state,
     InvalidMultipleJsRuntimeState,
     fn f(s1: &JsRuntimeState, s2: &mut JsRuntimeState) {}
+  );
+  expect_fail!(
+    op_extra_deno_core_v8,
+    ArgError(
+      "a",
+      InvalidDenoCorePrefix("deno_core::v8::Function", "v8", "v8::Function")
+    ),
+    fn f(a: &deno_core::v8::Function) {}
+  );
+  expect_fail!(
+    op_extra_deno_core_opstate,
+    ArgError(
+      "a",
+      InvalidDenoCorePrefix("deno_core::OpState", "OpState", "OpState")
+    ),
+    fn f(a: &deno_core::OpState) {}
   );
 
   // Generics
