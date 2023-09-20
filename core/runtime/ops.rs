@@ -1506,7 +1506,9 @@ mod tests {
   ) {
     assert_eq!(inlen, input.len());
     assert_eq!(outlen, output.len());
-    output[0] = input[0];
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
   }
 
   #[op2(core, fast)]
@@ -1518,7 +1520,9 @@ mod tests {
   ) {
     assert_eq!(inlen, input.len());
     assert_eq!(outlen, output.len());
-    output[0] = input[0];
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
   }
 
   #[tokio::test]
@@ -1528,6 +1532,11 @@ mod tests {
       ("op_buffer_slice", "Uint8Array", 1),
       ("op_buffer_slice_32", "Uint32Array", 4),
     ] {
+      run_test2(
+        10000,
+        op,
+        &format!("{op}(new {arr}(0), 0, new {arr}(0), 0);"),
+      )?;
       // UintXArray -> UintXArray
       run_test2(
         10000,
