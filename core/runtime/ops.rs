@@ -597,6 +597,7 @@ mod tests {
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
+  use crate::runtime::JsRuntimeState;
   use crate::FastString;
   use crate::JsRuntime;
   use crate::OpState;
@@ -655,6 +656,8 @@ mod tests {
       op_test_v8_type_handle_scope_result,
       op_test_v8_global,
       op_test_serde_v8,
+      op_jsruntimestate,
+      op_jsruntimestate_mut,
       op_state_rc,
       op_state_ref,
       op_state_mut,
@@ -1421,6 +1424,19 @@ mod tests {
       "op_test_serde_v8",
       "try { op_test_serde_v8({}); assert(false) } catch (e) { assertErrorContains(e, 'missing field') }",
     )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_jsruntimestate(_state: &JsRuntimeState) {}
+
+  #[op2(core, fast)]
+  pub fn op_jsruntimestate_mut(_state: &mut JsRuntimeState) {}
+
+  #[tokio::test]
+  pub async fn test_jsruntimestate() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(10000, "op_jsruntimestate", "op_jsruntimestate()")?;
+    run_test2(10000, "op_jsruntimestate_mut", "op_jsruntimestate_mut()")?;
     Ok(())
   }
 
