@@ -176,6 +176,9 @@ fn js_realm_init() {
     .execute_script_static(runtime.v8_isolate(), "", "Deno.core.ops.op_test()")
     .unwrap();
 
+  let op_names = runtime.op_names();
+  assert_eq!(op_names[op_names.len() - 1], "op_test");
+
   let scope = &mut realm.handle_scope(runtime.v8_isolate());
   assert_eq!(ret, serde_v8::to_v8(scope, "Test").unwrap());
 }
