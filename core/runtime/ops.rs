@@ -270,6 +270,14 @@ macro_rules! try_bignum {
   };
 }
 
+pub fn opstate_borrow<T: 'static>(state: &OpState) -> &T {
+  state.borrow()
+}
+
+pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
+  state.borrow_mut()
+}
+
 pub fn to_u32_option(number: &v8::Value) -> Option<i32> {
   try_number_some!(number Integer is_uint32);
   try_number_some!(number Int32 is_int32);

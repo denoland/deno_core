@@ -141,7 +141,7 @@ where
             );
         };
         let result = Self::call(
-            &mut std::cell::RefCell::borrow_mut(&ctx.state),
+            &mut ::std::cell::RefCell::borrow_mut(&ctx.state),
             arg_0,
             arg_1,
         );
