@@ -501,6 +501,22 @@ fn test_dispatch_stack_zero_copy_bufs() {
   assert_eq!(dispatch_count.load(Ordering::Relaxed), 1);
 }
 
+#[test]
+fn test_call_site() {
+  let (mut runtime, _) = setup(Mode::Async);
+  runtime
+    .execute_script_static(
+      "file:///filename.js",
+      r#"
+      const cs = Deno.core.currentUserCallSite();
+      assert(cs.fileName === "file:///filename.js");
+      assert(cs.lineNumber === 2);
+      assert(cs.columnNumber === 28);
+    "#,
+    )
+    .unwrap();
+}
+
 /// Test that long-running ops do not block dynamic imports from loading.
 // https://github.com/denoland/deno/issues/19903
 // https://github.com/denoland/deno/issues/19455
