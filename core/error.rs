@@ -13,6 +13,7 @@ use crate::runtime::JsRealm;
 use crate::runtime::JsRuntime;
 use crate::source_map::apply_source_map;
 use crate::source_map::get_source_line;
+use crate::source_map::SourceMapApplication;
 use crate::url::Url;
 
 /// A generic wrapper that can encapsulate any concrete error type.
@@ -208,9 +209,9 @@ impl JsStackFrame {
     let f = message.get_script_resource_name(scope)?;
     let f: v8::Local<v8::String> = f.try_into().ok()?;
     let f = f.to_rust_string_lossy(scope);
-    let l = message.get_line_number(scope)? as i64;
+    let l = message.get_line_number(scope)? as u32;
     // V8's column numbers are 0-based, we want 1-based.
-    let c = message.get_start_column() as i64 + 1;
+    let c = message.get_start_column() as u32 + 1;
     let state_rc = JsRuntime::state_from(scope);
     let (getter, cache) = {
       let state = state_rc.borrow();
@@ -220,13 +221,36 @@ impl JsStackFrame {
       )
     };
 
-    if let Some(source_map_getter) = getter {
+    let application = if let Some(source_map_getter) = getter {
       let mut cache = cache.borrow_mut();
-      let (f, l, c) =
-        apply_source_map(f, l, c, &mut cache, &**source_map_getter);
-      Some(JsStackFrame::from_location(Some(f), Some(l), Some(c)))
+      apply_source_map(&f, l, c, &mut cache, &**source_map_getter)
     } else {
-      Some(JsStackFrame::from_location(Some(f), Some(l), Some(c)))
+      SourceMapApplication::Unchanged
+    };
+
+    match application {
+      SourceMapApplication::Unchanged => Some(JsStackFrame::from_location(
+        Some(f),
+        Some(l.into()),
+        Some(c.into()),
+      )),
+      SourceMapApplication::LineAndColumn {
+        line_number,
+        column_number,
+      } => Some(JsStackFrame::from_location(
+        Some(f),
+        Some(line_number.into()),
+        Some(column_number.into()),
+      )),
+      SourceMapApplication::LineAndColumnAndFileName {
+        file_name,
+        line_number,
+        column_number,
+      } => Some(JsStackFrame::from_location(
+        Some(file_name),
+        Some(line_number.into()),
+        Some(column_number.into()),
+      )),
     }
   }
 

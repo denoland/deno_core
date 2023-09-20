@@ -7,7 +7,9 @@ use crate::error::JsError;
 use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::script_origin;
+use crate::runtime::JsRuntimeState;
 use crate::source_map::apply_source_map;
+use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRealm;
 use crate::JsRuntime;
@@ -801,38 +803,75 @@ pub struct Location {
   column_number: u32,
 }
 
-#[op2(core)]
-#[serde]
+// Returns:
+// 0: no source mapping performed, use original location
+// 1: mapped line and column, but not file name. new line and column are in
+//    ret_buf, use original file name.
+// 2: mapped line, column, and file name. new line, column, and file name are in
+//    ret_buf. retrieve file name by calling `op_apply_source_map_filename`
+//    immediately after this op returns.
+#[op2(core, fast)]
+#[smi]
 pub fn op_apply_source_map(
-  scope: &mut v8::HandleScope,
-  #[serde] location: Location,
-) -> Result<Location, Error> {
-  let state_rc = JsRuntime::state_from(scope);
-  let (getter, cache) = {
-    let state = state_rc.borrow();
-    (
-      state.source_map_getter.clone(),
-      state.source_map_cache.clone(),
-    )
-  };
-
-  if let Some(source_map_getter) = getter {
-    let mut cache = cache.borrow_mut();
-    let mut location = location;
-    let (f, l, c) = apply_source_map(
-      location.file_name,
-      location.line_number.into(),
-      location.column_number.into(),
-      &mut cache,
-      &**source_map_getter,
-    );
-    location.file_name = f;
-    location.line_number = l as u32;
-    location.column_number = c as u32;
-    Ok(location)
-  } else {
-    Ok(location)
+  state: &JsRuntimeState,
+  #[string] file_name: &str,
+  #[smi] line_number: u32,
+  #[smi] column_number: u32,
+  #[buffer] ret_buf: &mut [u8],
+) -> Result<u8, Error> {
+  if ret_buf.len() != 8 {
+    return Err(type_error("retBuf must be 8 bytes"));
   }
+  let mut cache = state.source_map_cache.borrow_mut();
+  if let Some(source_map_getter) = state.source_map_getter.as_ref() {
+    let application = apply_source_map(
+      file_name,
+      line_number,
+      column_number,
+      &mut cache,
+      &***source_map_getter,
+    );
+    fn write_ret_buf(ret_buf: &mut [u8], line_number: u32, column_number: u32) {
+      ret_buf[0..4].copy_from_slice(&line_number.to_le_bytes());
+      ret_buf[4..8].copy_from_slice(&column_number.to_le_bytes());
+    }
+    match application {
+      SourceMapApplication::Unchanged => Ok(0),
+      SourceMapApplication::LineAndColumn {
+        line_number,
+        column_number,
+      } => {
+        write_ret_buf(ret_buf, line_number, column_number);
+        Ok(1)
+      }
+      SourceMapApplication::LineAndColumnAndFileName {
+        line_number,
+        column_number,
+        file_name,
+      } => {
+        write_ret_buf(ret_buf, line_number, column_number);
+        cache.stashed_file_name.replace(file_name);
+        Ok(2)
+      }
+    }
+  } else {
+    Ok(0)
+  }
+}
+
+// Call to retrieve the stashed file name from a previous call to
+// `op_apply_source_map` that returned `2`.
+#[op2(core)]
+#[string]
+pub fn op_apply_source_map_filename(
+  state: &JsRuntimeState,
+) -> Result<String, Error> {
+  state
+    .source_map_cache
+    .borrow_mut()
+    .stashed_file_name
+    .take()
+    .ok_or_else(|| type_error("No stashed file name"))
 }
 
 /// Set a callback which formats exception messages as stored in
