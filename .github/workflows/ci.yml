@@ -35,6 +35,10 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Clean
+        if: github.ref == 'refs/heads/main'
+        run: cargo clean
+
       - name: Format
         if: contains(matrix.os, 'ubuntu')
         run: |
