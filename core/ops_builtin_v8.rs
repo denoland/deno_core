@@ -813,7 +813,7 @@ pub struct Location {
 #[op2(core, fast)]
 #[smi]
 pub fn op_apply_source_map(
-  state: &mut JsRuntimeState,
+  state: &JsRuntimeState,
   #[string] file_name: &str,
   #[smi] line_number: u32,
   #[smi] column_number: u32,
@@ -864,7 +864,7 @@ pub fn op_apply_source_map(
 #[op2(core)]
 #[string]
 pub fn op_apply_source_map_filename(
-  state: &mut JsRuntimeState,
+  state: &JsRuntimeState,
 ) -> Result<String, Error> {
   state
     .source_map_cache
