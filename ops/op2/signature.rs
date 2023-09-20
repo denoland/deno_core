@@ -1125,7 +1125,7 @@ fn parse_type_path(
       }
       ( deno_core :: $next:ident $(:: $any:ty)? ) => {
         // Stylistically it makes more sense just to import deno_core::v8 and other types at the top of the file
-        let any = any.map(|any| format!("::{}", any.into_token_stream().to_string())).unwrap_or_default();
+        let any = any.map(|any| format!("::{}", any.into_token_stream())).unwrap_or_default();
         let instead = format!("{next}{any}");
         Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), stringify_token(next), instead))
       }
