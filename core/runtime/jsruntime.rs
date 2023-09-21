@@ -1151,15 +1151,11 @@ impl JsRuntime {
   }
 
   /// Returns the runtime's op names, ordered by OpId.
-  pub fn op_names(&self) -> Vec<String> {
+  pub fn op_names(&self) -> Vec<&'static str> {
     let main_realm = self.inner.main_realm.as_ref().unwrap().clone();
     let state_rc = main_realm.0.state();
     let state = state_rc.borrow();
-    state
-      .op_ctxs
-      .iter()
-      .map(|o| o.decl.name.to_string())
-      .collect()
+    state.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
