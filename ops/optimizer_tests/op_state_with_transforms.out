@@ -110,7 +110,10 @@ where
                 }
             }
         };
-        let result = Self::call(&mut std::cell::RefCell::borrow_mut(&ctx.state), arg_0);
+        let result = Self::call(
+            &mut ::std::cell::RefCell::borrow_mut(&ctx.state),
+            arg_0,
+        );
         let op_state = ::std::cell::RefCell::borrow(&*ctx.state);
         op_state.tracker.track_sync(ctx.id);
     }

@@ -332,11 +332,11 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = &#opctx.state.borrow();)
+      quote!(let #arg_ident = &::std::cell::RefCell::borrow(&#opctx.state);)
     }
     Arg::Ref(RefType::Mut, Special::OpState) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = &mut #opctx.state.borrow_mut();)
+      quote!(let #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);)
     }
     Arg::RcRefCell(Special::OpState) => {
       *needs_opctx = true;
@@ -344,11 +344,11 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
-      quote!(let #arg_ident = &#js_runtime_state.borrow();)
+      quote!(let #arg_ident = &::std::cell::RefCell::borrow(&#js_runtime_state);)
     }
     Arg::Ref(RefType::Mut, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
-      quote!(let #arg_ident = &mut #js_runtime_state.borrow_mut();)
+      quote!(let #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#js_runtime_state);)
     }
     Arg::RcRefCell(Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
@@ -359,8 +359,8 @@ fn map_v8_fastcall_arg_to_arg(
       let state =
         syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
-        let #arg_ident = #opctx.state.borrow();
-        let #arg_ident = #arg_ident.borrow::<#state>();
+        let #arg_ident = ::std::cell::RefCell::borrow(&#opctx.state);
+        let #arg_ident = #deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
       }
     }
     Arg::State(RefType::Mut, state) => {
@@ -368,8 +368,8 @@ fn map_v8_fastcall_arg_to_arg(
       let state =
         syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
-        let mut #arg_ident = #opctx.state.borrow_mut();
-        let #arg_ident = #arg_ident.borrow_mut::<#state>();
+        let mut #arg_ident = ::std::cell::RefCell::borrow_mut(&#opctx.state);
+        let #arg_ident = #deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
       }
     }
     Arg::OptionState(RefType::Ref, state) => {
@@ -377,7 +377,7 @@ fn map_v8_fastcall_arg_to_arg(
       let state =
         syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
-        let #arg_ident = #opctx.state.borrow();
+        let #arg_ident = &::std::cell::RefCell::borrow(&#opctx.state);
         let #arg_ident = #arg_ident.try_borrow::<#state>();
       }
     }
@@ -386,7 +386,7 @@ fn map_v8_fastcall_arg_to_arg(
       let state =
         syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
-        let mut #arg_ident = #opctx.state.borrow_mut();
+        let mut #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
       }
     }

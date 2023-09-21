@@ -63,7 +63,7 @@ impl op_unit_result {
                 as *const deno_core::_ops::OpCtx)
         };
         {
-            let op_state = &mut std::cell::RefCell::borrow_mut(&ctx.state);
+            let op_state = &mut ::std::cell::RefCell::borrow_mut(&ctx.state);
             if let Some(err) = op_state.last_fast_op_error.take() {
                 let exception = deno_core::error::to_v8_error(
                     scope,

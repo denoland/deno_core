@@ -66,7 +66,7 @@ where
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
-        let result = Self::call(&mut std::cell::RefCell::borrow_mut(&ctx.state));
+        let result = Self::call(&mut ::std::cell::RefCell::borrow_mut(&ctx.state));
         let op_state = ::std::cell::RefCell::borrow(&*ctx.state);
         op_state.tracker.track_sync(ctx.id);
     }

@@ -395,7 +395,7 @@ fn opstate_arg(arg: &FnArg) -> Option<TokenStream2> {
   match arg {
     arg if is_rc_refcell_opstate(arg) => Some(quote! { ctx.state.clone(), }),
     arg if is_mut_ref_opstate(arg) => {
-      Some(quote! { &mut std::cell::RefCell::borrow_mut(&ctx.state), })
+      Some(quote! { &mut ::std::cell::RefCell::borrow_mut(&ctx.state), })
     }
     _ => None,
   }
@@ -435,7 +435,7 @@ fn codegen_v8_sync(
   let fast_error_handler = if has_fallible_fast_call {
     quote! {
       {
-        let op_state = &mut std::cell::RefCell::borrow_mut(&ctx.state);
+        let op_state = &mut ::std::cell::RefCell::borrow_mut(&ctx.state);
         if let Some(err) = op_state.last_fast_op_error.take() {
           let exception = #core::error::to_v8_error(scope, ctx.get_error_class_fn, &err);
           scope.throw_exception(exception);

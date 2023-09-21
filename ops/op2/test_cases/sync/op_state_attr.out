@@ -42,9 +42,9 @@ impl op_state_rc {
                 .value() as *const deno_core::_ops::OpCtx)
         };
         let result = {
-            let arg0 = opctx.state.borrow();
-            let arg0 = arg0.borrow::<Something>();
-            let arg1 = opctx.state.borrow();
+            let arg0 = ::std::cell::RefCell::borrow(&opctx.state);
+            let arg0 = deno_core::_ops::opstate_borrow::<Something>(&arg0);
+            let arg1 = &::std::cell::RefCell::borrow(&opctx.state);
             let arg1 = arg1.try_borrow::<Something>();
             Self::call(arg0, arg1)
         };
@@ -63,9 +63,9 @@ impl op_state_rc {
         };
         let opstate = &opctx.state;
         let result = {
-            let arg0 = opstate.borrow();
-            let arg0 = arg0.borrow::<Something>();
-            let arg1 = opstate.borrow();
+            let arg0 = ::std::cell::RefCell::borrow(&opstate);
+            let arg0 = deno_core::_ops::opstate_borrow::<Something>(&arg0);
+            let arg1 = &::std::cell::RefCell::borrow(&opstate);
             let arg1 = arg1.try_borrow::<Something>();
             Self::call(arg0, arg1)
         };
