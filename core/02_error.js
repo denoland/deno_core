@@ -14,9 +14,9 @@
     Uint32Array,
   } = window.__bootstrap.primordials;
 
-  const DATA_URL_ABBREV_THRESHOLD = 150; // keep in sync with ops_builtin_v8.rs
+  const DATA_URL_ABBREV_THRESHOLD = 150; // keep in sync with ./error.rs
 
-  // Keep in sync with `op_format_file_name` ./ops_builtin.rs
+  // Keep in sync with `format_file_name` in ./error.rs
   function formatFileName(fileName) {
     if (
       fileName.startsWith("data:") &&
