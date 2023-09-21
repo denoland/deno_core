@@ -64,6 +64,8 @@ pub enum SourceMapApplication {
 /// Apply a source map to the passed location. If there is no source map for
 /// this location, or if the location remains unchanged after mapping, the
 /// changed values are returned.
+///
+/// Line and column numbers are 1-based.
 pub fn apply_source_map<G: SourceMapGetter + ?Sized>(
   file_name: &str,
   line_number: u32,
