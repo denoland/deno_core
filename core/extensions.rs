@@ -232,6 +232,7 @@ macro_rules! or {
 ///   my_extension,
 ///   ops = [ op_xyz ],
 ///   esm = [ "my_script.js" ],
+///   docs = "A small sample extension"
 /// );
 /// ```
 ///
@@ -249,6 +250,7 @@ macro_rules! or {
 ///  * event_loop_middleware: an event-loop middleware function (see [`ExtensionBuilder::event_loop_middleware`])
 ///  * global_template_middleware: a global template middleware function (see [`ExtensionBuilder::global_template_middleware`])
 ///  * global_object_middleware: a global object middleware function (see [`ExtensionBuilder::global_object_middleware`])
+///  * docs: comma separated list of toplevel #[doc=...] tags to be applied to the extension's resulting struct
 #[macro_export]
 macro_rules! extension {
   (
@@ -269,11 +271,11 @@ macro_rules! extension {
     $(, global_object_middleware = $global_object_middleware_fn:expr )?
     $(, external_references = [ $( $external_reference:expr ),* $(,)? ] )?
     $(, customizer = $customizer_fn:expr )?
+    $(, docs = $docblock:expr$(, $($docblocks:expr),+)?)?
     $(,)?
   ) => {
-    /// Extension struct for
-    #[doc = stringify!($name)]
-    /// .
+    $( #[doc = $docblock] )?
+    $( $( #[doc = $($docblocks)+])? )?
     #[allow(non_camel_case_types)]
     pub struct $name {
     }
@@ -358,6 +360,8 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
+      /// Initialize this extension for use with CommonJS
+      /// For modules, use init_ops_and_esm instead 
       pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
@@ -368,6 +372,8 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
+      /// Initialize this extension for use with ES modules 
+      /// For CommonJS, use init_js_only instead
       pub fn init_ops_and_esm $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
@@ -379,6 +385,8 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
+      /// Initialize this extension's OPs
+      /// See[OP2](https://docs.rs/deno_core/latest/deno_core/attr.op2.html)
       pub fn init_ops $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
