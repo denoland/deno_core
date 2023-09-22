@@ -361,7 +361,7 @@ macro_rules! extension {
 
       #[allow(dead_code)]
       /// Initialize this extension for use with CommonJS
-      /// For modules, use init_ops_and_esm instead 
+      /// For modules, use init_ops_and_esm instead
       pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
@@ -372,7 +372,7 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
-      /// Initialize this extension for use with ES modules 
+      /// Initialize this extension for use with ES modules
       /// For CommonJS, use init_js_only instead
       pub fn init_ops_and_esm $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
