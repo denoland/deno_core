@@ -363,7 +363,7 @@ macro_rules! extension {
       #[allow(dead_code)]
       /// Initialize this extension for use with CommonJS
       /// For modules, use init_ops_and_esm instead
-      /// 
+      ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
       pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
@@ -378,7 +378,7 @@ macro_rules! extension {
       #[allow(dead_code)]
       /// Initialize this extension for use with ES modules
       /// For CommonJS, use init_js_only instead
-      /// 
+      ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
       pub fn init_ops_and_esm $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
@@ -394,7 +394,7 @@ macro_rules! extension {
       #[allow(dead_code)]
       /// Initialize this extension's OPs
       /// See[OP2](https://docs.rs/deno_core/latest/deno_core/attr.op2.html)
-      /// 
+      ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
       pub fn init_ops $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
