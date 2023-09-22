@@ -22,7 +22,7 @@
       fileName.startsWith("data:") &&
       fileName.length > DATA_URL_ABBREV_THRESHOLD
     ) {
-      return ops.op_format_data_url(fileName);
+      return ops.op_format_file_name(fileName);
     }
     return fileName;
   }
