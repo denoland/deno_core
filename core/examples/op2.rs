@@ -23,7 +23,7 @@ extension!(
   ops = [op_use_state],
   esm_entry_point = "ext:op2_sample/op2.js",
   esm = [ dir "examples", "op2.js" ],
-  docs = "A small sample extension demonstrating op2 usage", "Contains one op"
+  docs = "A small example demonstrating op2 usage", "Contains one op"
 );
 
 fn main() -> Result<(), Error> {
