@@ -40,12 +40,18 @@ impl op_buffers {
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
         let result = {
-            let arg0 = unsafe { arg0.as_mut().unwrap() }
-                .get_storage_if_aligned()
-                .unwrap();
-            let arg1 = unsafe { arg1.as_mut().unwrap() }
-                .get_storage_if_aligned()
-                .unwrap();
+            let arg0 = (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg0,
+                )
+            }
+                .expect("Invalid buffer"));
+            let arg1 = (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg1,
+                )
+            }
+                .expect("Invalid buffer"));
             Self::call(arg0, arg1)
         };
         result as _
@@ -148,12 +154,18 @@ impl op_buffers_32 {
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
     ) -> () {
         let result = {
-            let arg0 = unsafe { arg0.as_mut().unwrap() }
-                .get_storage_if_aligned()
-                .unwrap();
-            let arg1 = unsafe { arg1.as_mut().unwrap() }
-                .get_storage_if_aligned()
-                .unwrap();
+            let arg0 = (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg0,
+                )
+            }
+                .expect("Invalid buffer"));
+            let arg1 = (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg1,
+                )
+            }
+                .expect("Invalid buffer"));
             Self::call(arg0, arg1)
         };
         result as _
