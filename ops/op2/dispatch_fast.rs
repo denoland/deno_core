@@ -317,18 +317,23 @@ fn map_v8_fastcall_arg_to_arg(
   } = generator_state;
 
   let arg_temp = format_ident!("{}_temp", arg_ident);
+  let buf = quote!((
+    // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
+    // fastcall
+    unsafe { #deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(#arg_ident) }.expect("Invalid buffer"))
+  );
   let res = match arg {
     Arg::Buffer(Buffer::Slice(_, NumericArg::u8 | NumericArg::u32)) => {
-      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap();)
+      quote!(let #arg_ident = #buf;)
     }
     Arg::Buffer(Buffer::Vec(NumericArg::u8 | NumericArg::u32)) => {
-      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec();)
+      quote!(let #arg_ident = #buf.to_vec();)
     }
     Arg::Buffer(Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)) => {
-      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into_boxed_slice();)
+      quote!(let #arg_ident = #buf.to_vec().into_boxed_slice();)
     }
     Arg::Buffer(Buffer::Bytes(BufferMode::Copy)) => {
-      quote!(let #arg_ident = unsafe { #arg_ident.as_mut().unwrap() }.get_storage_if_aligned().unwrap().to_vec().into();)
+      quote!(let #arg_ident = #buf.to_vec().into();)
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
