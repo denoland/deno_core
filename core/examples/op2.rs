@@ -43,7 +43,7 @@ fn main() -> Result<(), Error> {
 
   let main_module = resolve_path(
     module_name,
-    &std::env::current_dir().context("Unable to get CWD")?,
+    &std::env::current_dir().context("Unable to get current working directory")?,
   )?;
 
   let future = async move {
