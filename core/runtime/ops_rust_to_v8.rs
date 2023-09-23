@@ -286,7 +286,7 @@ to_v8!((i64, isize): |value, scope| v8::BigInt::new_from_i64(scope, value as _))
 // Strings
 //
 
-to_v8_fallible!((String, Cow<'a, str>, &'a str): |value, scope| v8::String::new(scope, &value).ok_or_else(|| serde_v8::Error::Message("failed to allocate string".into())));
+to_v8_fallible!((String, Cow<'a, str>, &'a str): |value, scope| v8::String::new(scope, &value).ok_or_else(|| serde_v8::Error::Message("failed to allocate string; buffer exceeds maximum length".into())));
 to_v8_retval_fallible!((String, Cow<'a, str>, &'a str): |value, scope, rv| {
   if value.is_empty() {
     rv.set_empty_string();
@@ -295,7 +295,7 @@ to_v8_retval_fallible!((String, Cow<'a, str>, &'a str): |value, scope, rv| {
   }
   Ok(())
 });
-to_v8_fallible!(Cow<'a, [u8]>: |value, scope| v8::String::new_from_one_byte(scope, &value, v8::NewStringType::Normal).ok_or_else(|| serde_v8::Error::Message("failed to allocate string".into())));
+to_v8_fallible!(Cow<'a, [u8]>: |value, scope| v8::String::new_from_one_byte(scope, &value, v8::NewStringType::Normal).ok_or_else(|| serde_v8::Error::Message("failed to allocate string; buffer exceeds maximum length".into())));
 to_v8_retval_fallible!(Cow<'a, [u8]>: |value, scope, rv| {
   if value.is_empty() {
     rv.set_empty_string();
