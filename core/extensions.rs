@@ -271,12 +271,20 @@ macro_rules! extension {
     $(, global_object_middleware = $global_object_middleware_fn:expr )?
     $(, external_references = [ $( $external_reference:expr ),* $(,)? ] )?
     $(, customizer = $customizer_fn:expr )?
-    $(, docs = $docblock:expr$(, $($docblocks:expr),+)?)?
+    $(, docs = $($docblocks:expr),+)?
     $(,)?
   ) => {
-    $( #[doc = $docblock] )?
-    $( $( #[doc = $($docblocks)+])? )?
+    $( $(#[doc = $docblocks])+ )?
     /// An extension for use with the Deno JS runtime
+    /// To use it, provide it as an argument when instantiating your runtime:
+    ///
+    /// ```rust
+    /// let mut extensions = vec![extension_name::init_ops_and_esm()];
+    /// let mut js_runtime = JsRuntime::new(RuntimeOptions {
+    ///   extensions
+    /// })
+    /// ```
+    ///
     #[allow(non_camel_case_types)]
     pub struct $name {
     }
