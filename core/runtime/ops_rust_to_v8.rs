@@ -278,7 +278,13 @@ to_v8_retval!((f32, f64): |value, rv| rv.set_double(value as _));
 // Heavier primitives with no retval shortcuts
 //
 
-to_v8!((*const c_void, *mut c_void): |value, scope| v8::External::new(scope, value as _));
+to_v8!((*const c_void, *mut c_void): |value, scope| {
+  if value.is_null() {
+    v8::Local::<v8::Value>::from(v8::null(scope))
+  } else {
+    v8::Local::<v8::Value>::from(v8::External::new(scope, value as _))
+  }
+});
 to_v8!((u64, usize): |value, scope| v8::BigInt::new_from_u64(scope, value as _));
 to_v8!((i64, isize): |value, scope| v8::BigInt::new_from_i64(scope, value as _));
 

@@ -327,6 +327,8 @@ pub fn to_external_option(external: &v8::Value) -> Option<*mut c_void> {
     // SAFETY: We know this is an external
     let external: &v8::External = unsafe { std::mem::transmute(external) };
     Some(external.value())
+  } else if external.is_null() {
+    Some(0 as _)
   } else {
     None
   }
@@ -670,6 +672,8 @@ mod tests {
       op_buffer_bytesmut,
       op_external_make,
       op_external_process,
+      op_external_make_null,
+      op_external_process_null,
 
       op_async_void,
       op_async_number,
@@ -1698,6 +1702,29 @@ mod tests {
       10000,
       "op_external_make, op_external_process",
       "op_external_process(op_external_make())",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  fn op_external_make_null() -> *const std::ffi::c_void {
+    0 as _
+  }
+
+  #[op2(core, fast)]
+  fn op_external_process_null(
+    input: *const std::ffi::c_void,
+  ) -> *const std::ffi::c_void {
+    assert_eq!(input, 0 as _);
+    input
+  }
+
+  #[tokio::test]
+  pub async fn test_external_null() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_external_make_null, op_external_process_null",
+      "assert(op_external_process_null(op_external_make_null()) === null)",
     )?;
     Ok(())
   }
