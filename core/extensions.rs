@@ -279,14 +279,14 @@ macro_rules! extension {
     /// An extension for use with the Deno JS runtime.
     /// To use it, provide it as an argument when instantiating your runtime:
     ///
-    /// ```rust
-    /// use deno_core::RuntimeOptions;
+    /// ```rust,ignore
+    /// use deno_core::{ JsRuntime, RuntimeOptions };
     ///
     #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init_ops_and_esm()];")]
     /// let mut js_runtime = JsRuntime::new(RuntimeOptions {
     ///   extensions,
     ///   ..Default::default()
-    /// })
+    /// });
     /// ```
     ///
     #[allow(non_camel_case_types)]
