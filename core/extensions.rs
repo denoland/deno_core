@@ -280,6 +280,8 @@ macro_rules! extension {
     /// To use it, provide it as an argument when instantiating your runtime:
     ///
     /// ```rust
+    /// use deno_core::RuntimeOptions;
+    ///
     #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init_ops_and_esm()];")]
     /// let mut js_runtime = JsRuntime::new(RuntimeOptions {
     ///   extensions
