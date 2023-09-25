@@ -275,7 +275,8 @@ macro_rules! extension {
     $(,)?
   ) => {
     $( $(#[doc = $docblocks])+ )?
-    /// An extension for use with the Deno JS runtime
+    ///
+    /// An extension for use with the Deno JS runtime.
     /// To use it, provide it as an argument when instantiating your runtime:
     ///
     /// ```rust
