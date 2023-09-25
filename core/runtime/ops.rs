@@ -1587,6 +1587,17 @@ mod tests {
         assert(out[0] == 1);"
         ),
       )?;
+      // UintXArray -> UintXArray
+      run_test2(
+        10000,
+        op_ptr,
+        &format!(
+          r"
+        let out = new {arr}(10);
+        {op_ptr}(new {arr}([1,2,3]), 3, out, 10);
+        assert(out[0] == 1);"
+        ),
+      )?;
       // UintXArray(ArrayBuffer) -> UintXArray(ArrayBuffer)
       run_test2(
         10000,
