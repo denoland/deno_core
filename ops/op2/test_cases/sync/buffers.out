@@ -9,7 +9,7 @@ impl deno_core::_ops::Op for op_buffers {
         false,
         false,
         false,
-        2usize as u8,
+        4usize as u8,
         Self::v8_fn_ptr as _,
         Some({
             use deno_core::v8::fast_api::Type;
@@ -17,6 +17,8 @@ impl deno_core::_ops::Op for op_buffers {
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[
                     Type::V8Value,
+                    Type::TypedArray(CType::Uint8),
+                    Type::TypedArray(CType::Uint8),
                     Type::TypedArray(CType::Uint8),
                     Type::TypedArray(CType::Uint8),
                 ],
@@ -39,6 +41,8 @@ impl op_buffers {
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
         let result = {
             let arg0 = (unsafe {
@@ -53,7 +57,43 @@ impl op_buffers {
                 )
             }
                 .expect("Invalid buffer"));
-            Self::call(arg0, arg1)
+            let arg2 = if (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg2,
+                )
+            }
+                .expect("Invalid buffer"))
+                .len() == 0
+            {
+                ::std::ptr::null_mut()
+            } else {
+                (unsafe {
+                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                        arg2,
+                    )
+                }
+                    .expect("Invalid buffer"))
+                    .as_mut_ptr() as _
+            };
+            let arg3 = if (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg3,
+                )
+            }
+                .expect("Invalid buffer"))
+                .len() == 0
+            {
+                ::std::ptr::null_mut()
+            } else {
+                (unsafe {
+                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                        arg3,
+                    )
+                }
+                    .expect("Invalid buffer"))
+                    .as_mut_ptr() as _
+            };
+            Self::call(arg0, arg1, arg2, arg3)
         };
         result as _
     }
@@ -105,12 +145,58 @@ impl op_buffers {
                 }
             };
             let arg1 = arg1_temp.as_mut();
-            Self::call(arg0, arg1)
+            let arg2 = args.get(2usize as i32);
+            let mut arg2_temp;
+            arg2_temp = match unsafe {
+                deno_core::_ops::to_v8_slice::<u8>(&mut scope, arg2)
+            } {
+                Ok(arg2) => arg2,
+                Err(arg2_err) => {
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            arg2_err.as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            let arg2 = if arg2_temp.len() == 0 {
+                std::ptr::null()
+            } else {
+                arg2_temp.as_ref().as_ptr()
+            };
+            let arg3 = args.get(3usize as i32);
+            let mut arg3_temp;
+            arg3_temp = match unsafe {
+                deno_core::_ops::to_v8_slice::<u8>(&mut scope, arg3)
+            } {
+                Ok(arg3) => arg3,
+                Err(arg3_err) => {
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            arg3_err.as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            let arg3 = if arg3_temp.len() == 0 {
+                std::ptr::null_mut()
+            } else {
+                arg3_temp.as_mut().as_mut_ptr()
+            };
+            Self::call(arg0, arg1, arg2, arg3)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
-    fn call(_a: &[u8], _b: &mut [u8]) {}
+    fn call(_a: &[u8], _b: &mut [u8], _c: *const u8, _d: *mut u8) {}
 }
 
 #[allow(non_camel_case_types)]
@@ -124,7 +210,7 @@ impl deno_core::_ops::Op for op_buffers_32 {
         false,
         false,
         false,
-        2usize as u8,
+        4usize as u8,
         Self::v8_fn_ptr as _,
         Some({
             use deno_core::v8::fast_api::Type;
@@ -132,6 +218,8 @@ impl deno_core::_ops::Op for op_buffers_32 {
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[
                     Type::V8Value,
+                    Type::TypedArray(CType::Uint32),
+                    Type::TypedArray(CType::Uint32),
                     Type::TypedArray(CType::Uint32),
                     Type::TypedArray(CType::Uint32),
                 ],
@@ -154,6 +242,8 @@ impl op_buffers_32 {
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
     ) -> () {
         let result = {
             let arg0 = (unsafe {
@@ -168,7 +258,43 @@ impl op_buffers_32 {
                 )
             }
                 .expect("Invalid buffer"));
-            Self::call(arg0, arg1)
+            let arg2 = if (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg2,
+                )
+            }
+                .expect("Invalid buffer"))
+                .len() == 0
+            {
+                ::std::ptr::null_mut()
+            } else {
+                (unsafe {
+                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                        arg2,
+                    )
+                }
+                    .expect("Invalid buffer"))
+                    .as_mut_ptr() as _
+            };
+            let arg3 = if (unsafe {
+                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                    arg3,
+                )
+            }
+                .expect("Invalid buffer"))
+                .len() == 0
+            {
+                ::std::ptr::null_mut()
+            } else {
+                (unsafe {
+                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                        arg3,
+                    )
+                }
+                    .expect("Invalid buffer"))
+                    .as_mut_ptr() as _
+            };
+            Self::call(arg0, arg1, arg2, arg3)
         };
         result as _
     }
@@ -220,12 +346,58 @@ impl op_buffers_32 {
                 }
             };
             let arg1 = arg1_temp.as_mut();
-            Self::call(arg0, arg1)
+            let arg2 = args.get(2usize as i32);
+            let mut arg2_temp;
+            arg2_temp = match unsafe {
+                deno_core::_ops::to_v8_slice::<u32>(&mut scope, arg2)
+            } {
+                Ok(arg2) => arg2,
+                Err(arg2_err) => {
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            arg2_err.as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            let arg2 = if arg2_temp.len() == 0 {
+                std::ptr::null()
+            } else {
+                arg2_temp.as_ref().as_ptr()
+            };
+            let arg3 = args.get(3usize as i32);
+            let mut arg3_temp;
+            arg3_temp = match unsafe {
+                deno_core::_ops::to_v8_slice::<u32>(&mut scope, arg3)
+            } {
+                Ok(arg3) => arg3,
+                Err(arg3_err) => {
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            arg3_err.as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return;
+                }
+            };
+            let arg3 = if arg3_temp.len() == 0 {
+                std::ptr::null_mut()
+            } else {
+                arg3_temp.as_mut().as_mut_ptr()
+            };
+            Self::call(arg0, arg1, arg2, arg3)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     #[inline(always)]
-    fn call(_a: &[u32], _b: &mut [u32]) {}
+    fn call(_a: &[u32], _b: &mut [u32], _c: *const u32, _d: *mut u32) {}
 }
 
 #[allow(non_camel_case_types)]

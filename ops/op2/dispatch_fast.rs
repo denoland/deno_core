@@ -329,6 +329,9 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Buffer(Buffer::Slice(_, NumericArg::u8 | NumericArg::u32)) => {
       quote!(let #arg_ident = #buf;)
     }
+    Arg::Buffer(Buffer::Ptr(_, NumericArg::u8 | NumericArg::u32)) => {
+      quote!(let #arg_ident = if #buf.len() == 0 { ::std::ptr::null_mut() } else { #buf.as_mut_ptr() as _ };)
+    }
     Arg::Buffer(Buffer::Vec(NumericArg::u8 | NumericArg::u32)) => {
       quote!(let #arg_ident = #buf.to_vec();)
     }
@@ -452,12 +455,14 @@ fn map_arg_to_v8_fastcall_type(
   let rv = match arg {
     Arg::Buffer(
       Buffer::Slice(_, NumericArg::u8)
+      | Buffer::Ptr(_, NumericArg::u8)
       | Buffer::Vec(NumericArg::u8)
       | Buffer::BoxSlice(NumericArg::u8)
       | Buffer::Bytes(BufferMode::Copy),
     ) => V8FastCallType::Uint8Array,
     Arg::Buffer(
       Buffer::Slice(_, NumericArg::u32)
+      | Buffer::Ptr(_, NumericArg::u32)
       | Buffer::Vec(NumericArg::u32)
       | Buffer::BoxSlice(NumericArg::u32),
     ) => V8FastCallType::Uint32Array,

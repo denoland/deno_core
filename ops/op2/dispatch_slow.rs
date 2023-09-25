@@ -518,6 +518,12 @@ pub fn from_arg_buffer(
     Buffer::Slice(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.as_mut();)
     }
+    Buffer::Ptr(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
+      quote!(let #arg_ident = if #temp.len() == 0 { std::ptr::null() } else { #temp.as_ref().as_ptr() };)
+    }
+    Buffer::Ptr(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
+      quote!(let #arg_ident = if #temp.len() == 0 { std::ptr::null_mut() } else { #temp.as_mut().as_mut_ptr() };)
+    }
     Buffer::Vec(NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #temp.to_vec();)
     }

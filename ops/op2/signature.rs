@@ -1527,6 +1527,10 @@ mod tests {
     (Buffer(Slice(Ref, u8)), Buffer(Slice(Mut, u8))) -> Infallible(Void)
   );
   test!(
+    fn op_pointers(#[buffer] r#in: *const u8, #[buffer] out: *mut u8);
+    (Buffer(Ptr(Ref, u8)), Buffer(Ptr(Mut, u8))) -> Infallible(Void)
+  );
+  test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
     (SerdeV8(package::SerdeInputType)) -> Result(SerdeV8(package::SerdeReturnType))
   );
