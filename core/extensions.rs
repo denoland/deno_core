@@ -279,7 +279,7 @@ macro_rules! extension {
     /// To use it, provide it as an argument when instantiating your runtime:
     ///
     /// ```rust
-    /// let mut extensions = vec![extension_name::init_ops_and_esm()];
+    #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init_ops_and_esm()];")]
     /// let mut js_runtime = JsRuntime::new(RuntimeOptions {
     ///   extensions
     /// })
