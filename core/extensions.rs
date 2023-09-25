@@ -284,7 +284,8 @@ macro_rules! extension {
     ///
     #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init_ops_and_esm()];")]
     /// let mut js_runtime = JsRuntime::new(RuntimeOptions {
-    ///   extensions
+    ///   extensions,
+    ///   Default::default()
     /// })
     /// ```
     ///
