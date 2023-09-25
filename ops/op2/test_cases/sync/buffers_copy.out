@@ -35,6 +35,7 @@ impl op_buffers {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
+    #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
@@ -180,6 +181,7 @@ impl op_buffers_32 {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
+    #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,

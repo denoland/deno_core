@@ -32,6 +32,7 @@ impl op_maybe_windows {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
+    #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         let result = { Self::call() };
         result as _
@@ -83,6 +84,7 @@ impl op_maybe_windows {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
+    #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         let result = { Self::call() };
         result as _
