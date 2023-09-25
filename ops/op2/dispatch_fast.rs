@@ -278,7 +278,10 @@ pub fn generate_dispatch_fast(
   debug_assert!(fastcall_types.len() == input_types.len());
 
   let output_type = output.quote_rust_type(deno_core);
+  // We don't want clippy to trigger warnings on number of arguments of the fastcall
+  // function -- these will still trigger on our normal call function, however.
   let fast_fn = quote!(
+    #[allow(clippy::too_many_arguments)]
     fn #fast_function(
       _: #deno_core::v8::Local<#deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
