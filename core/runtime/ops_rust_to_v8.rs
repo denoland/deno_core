@@ -334,6 +334,9 @@ to_v8!(RustToV8Marker<ArrayBufferMarker, serde_v8::V8Slice<u8>>: |value, scope| 
 to_v8_fallible!(serde_v8::V8Slice<u32>: |value, scope| {
   value.into_v8_local(scope).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
+to_v8!(RustToV8Marker<ArrayBufferMarker, serde_v8::JsBuffer>: |value, scope| {
+  RustToV8Marker::<ArrayBufferMarker, _>::from(value.0.into_parts()).to_v8(scope)
+});
 to_v8_fallible!(serde_v8::JsBuffer: |value, scope| {
   value.into_parts().to_v8_fallible(scope)
 });

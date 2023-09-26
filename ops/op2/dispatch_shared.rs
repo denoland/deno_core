@@ -85,6 +85,9 @@ pub fn v8slice_to_buffer(
   buffer: Buffer,
 ) -> Result<TokenStream, V8MappingError> {
   let make_arg = match buffer {
+    Buffer::V8Slice(_, _) => {
+      quote!(let #arg_ident = #arg_ident;)
+    }
     Buffer::Slice(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #v8slice.as_ref();)
     }

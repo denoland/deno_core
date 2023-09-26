@@ -479,8 +479,9 @@ fn map_arg_to_v8_fastcall_type(
       | Buffer::Ptr(_, NumericArg::u8)
       | Buffer::Vec(NumericArg::u8)
       | Buffer::BoxSlice(NumericArg::u8)
-      | Buffer::Bytes(BufferMode::Copy),
+      | Buffer::Bytes(BufferMode::Copy)
     ) => V8FastCallType::ArrayBuffer,
+    Arg::ArrayBuffer(_) => return Ok(None),
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)
     | Arg::Ref(_, Special::OpState)
@@ -492,6 +493,7 @@ fn map_arg_to_v8_fastcall_type(
     Arg::OptionNumeric(..)
     | Arg::Option(_)
     | Arg::OptionString(_)
+    | Arg::OptionArrayBuffer(_)
     | Arg::OptionBuffer(_)
     | Arg::SerdeV8(_)
     | Arg::Ref(..) => return Ok(None),

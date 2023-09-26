@@ -432,7 +432,7 @@ impl Arg {
             NumericArg::u8 | NumericArg::u32,
           )
           | Buffer::BytesMut(BufferMode::Default),
-        ) => ArgSlowRetval::V8LocalFalliable,
+        ) => ArgSlowRetval::V8Local,
         Arg::Buffer(
           Buffer::JsBuffer(BufferMode::Default)
           | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
@@ -448,7 +448,7 @@ impl Arg {
           | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
           | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
           | Buffer::BytesMut(BufferMode::Default),
-        ) => ArgSlowRetval::V8LocalFalliable,
+        ) => ArgSlowRetval::V8Local,
         Arg::OptionBuffer(
           Buffer::JsBuffer(BufferMode::Default)
           | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
@@ -463,7 +463,7 @@ impl Arg {
   /// Does this type have a marker (used for specialization of serialization/deserialization)?
   pub fn marker(&self) -> ArgMarker {
     match self {
-      Arg::ArrayBuffer(_) => ArgMarker::ArrayBuffer,
+      Arg::ArrayBuffer(_) | Arg::OptionArrayBuffer(_) => ArgMarker::ArrayBuffer,
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
