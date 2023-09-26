@@ -45,53 +45,41 @@ impl op_buffers {
         arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
         let result = {
-            let arg0 = (unsafe {
+            let arg0 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg0,
                 )
             }
-                .expect("Invalid buffer"));
-            let arg1 = (unsafe {
+                .expect("Invalid buffer");
+            let arg0 = arg0;
+            let arg1 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg1,
                 )
             }
-                .expect("Invalid buffer"));
-            let arg2 = if (unsafe {
+                .expect("Invalid buffer");
+            let arg1 = arg1;
+            let arg2 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg2,
                 )
             }
-                .expect("Invalid buffer"))
-                .len() == 0
-            {
+                .expect("Invalid buffer");
+            let arg2 = if arg2.len() == 0 {
                 ::std::ptr::null_mut()
             } else {
-                (unsafe {
-                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
-                        arg2,
-                    )
-                }
-                    .expect("Invalid buffer"))
-                    .as_mut_ptr() as _
+                arg2.as_mut_ptr() as _
             };
-            let arg3 = if (unsafe {
+            let arg3 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg3,
                 )
             }
-                .expect("Invalid buffer"))
-                .len() == 0
-            {
+                .expect("Invalid buffer");
+            let arg3 = if arg3.len() == 0 {
                 ::std::ptr::null_mut()
             } else {
-                (unsafe {
-                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
-                        arg3,
-                    )
-                }
-                    .expect("Invalid buffer"))
-                    .as_mut_ptr() as _
+                arg3.as_mut_ptr() as _
             };
             Self::call(arg0, arg1, arg2, arg3)
         };
@@ -246,53 +234,41 @@ impl op_buffers_32 {
         arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
     ) -> () {
         let result = {
-            let arg0 = (unsafe {
+            let arg0 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg0,
                 )
             }
-                .expect("Invalid buffer"));
-            let arg1 = (unsafe {
+                .expect("Invalid buffer");
+            let arg0 = arg0;
+            let arg1 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg1,
                 )
             }
-                .expect("Invalid buffer"));
-            let arg2 = if (unsafe {
+                .expect("Invalid buffer");
+            let arg1 = arg1;
+            let arg2 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg2,
                 )
             }
-                .expect("Invalid buffer"))
-                .len() == 0
-            {
+                .expect("Invalid buffer");
+            let arg2 = if arg2.len() == 0 {
                 ::std::ptr::null_mut()
             } else {
-                (unsafe {
-                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
-                        arg2,
-                    )
-                }
-                    .expect("Invalid buffer"))
-                    .as_mut_ptr() as _
+                arg2.as_mut_ptr() as _
             };
-            let arg3 = if (unsafe {
+            let arg3 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg3,
                 )
             }
-                .expect("Invalid buffer"))
-                .len() == 0
-            {
+                .expect("Invalid buffer");
+            let arg3 = if arg3.len() == 0 {
                 ::std::ptr::null_mut()
             } else {
-                (unsafe {
-                    deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
-                        arg3,
-                    )
-                }
-                    .expect("Invalid buffer"))
-                    .as_mut_ptr() as _
+                arg3.as_mut_ptr() as _
             };
             Self::call(arg0, arg1, arg2, arg3)
         };

@@ -43,29 +43,27 @@ impl op_buffers {
         arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
         let result = {
-            let arg0 = (unsafe {
+            let arg0 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg0,
                 )
             }
-                .expect("Invalid buffer"))
-                .to_vec();
-            let arg1 = (unsafe {
+                .expect("Invalid buffer");
+            let arg0 = arg0.to_vec();
+            let arg1 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg1,
                 )
             }
-                .expect("Invalid buffer"))
-                .to_vec()
-                .into_boxed_slice();
-            let arg2 = (unsafe {
+                .expect("Invalid buffer");
+            let arg1 = arg1.to_vec().into_boxed_slice();
+            let arg2 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg2,
                 )
             }
-                .expect("Invalid buffer"))
-                .to_vec()
-                .into();
+                .expect("Invalid buffer");
+            let arg2 = arg2.to_vec().into();
             Self::call(arg0, arg1, arg2)
         };
         result as _
@@ -188,21 +186,20 @@ impl op_buffers_32 {
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
     ) -> () {
         let result = {
-            let arg0 = (unsafe {
+            let arg0 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg0,
                 )
             }
-                .expect("Invalid buffer"))
-                .to_vec();
-            let arg1 = (unsafe {
+                .expect("Invalid buffer");
+            let arg0 = arg0.to_vec();
+            let arg1 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg1,
                 )
             }
-                .expect("Invalid buffer"))
-                .to_vec()
-                .into_boxed_slice();
+                .expect("Invalid buffer");
+            let arg1 = arg1.to_vec().into_boxed_slice();
             Self::call(arg0, arg1)
         };
         result as _
