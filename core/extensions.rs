@@ -388,8 +388,10 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
-      /// Initialize this extension for use with ES modules
-      /// For CommonJS, use init_js_only instead
+      /// Initialize this extension for runtime or snapshot creation. Use this
+      /// function if the runtime or snapshot is not created from a (separate)
+      /// snapshot, or that snapshot does not contain this extension. Otherwise
+      /// use `init_ops()` instead.
       ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
