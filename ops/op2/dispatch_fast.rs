@@ -1,3 +1,5 @@
+use crate::op2::dispatch_shared::byte_slice_to_buffer;
+
 use super::dispatch_shared::fast_api_typed_array_to_buffer;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::dispatch_shared::v8_intermediate_to_arg;
@@ -333,11 +335,24 @@ fn map_v8_fastcall_arg_to_arg(
   let arg_temp = format_ident!("{}_temp", arg_ident);
 
   let res = match arg {
-    Arg::ArrayBuffer(buffer) => {
+    Arg::ArrayBuffer(buffer @ (Buffer::V8Slice(..) | Buffer::JsBuffer(..))) => {
       *needs_fast_api_callback_options = true;
       let buf = v8slice_to_buffer(deno_core, arg_ident, &arg_temp, *buffer)?;
       quote!(
         let Ok(mut #arg_temp) = #deno_core::_ops::to_v8_slice_buffer(#arg_ident.into()) else {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
+        };
+        #buf
+      )
+    }
+    Arg::ArrayBuffer(buffer) => {
+      *needs_fast_api_callback_options = true;
+      let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
+      quote!(
+        // SAFETY: This slice doesn't outlive the function
+        let Ok(mut #arg_temp) = (unsafe { #deno_core::_ops::to_slice_buffer(#arg_ident.into()) }) else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };

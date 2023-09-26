@@ -594,17 +594,41 @@ where
   Ok(slice)
 }
 
+/// Retrieve a byte slice from a [`v8::ArrayBuffer`], avoiding the intermediate [`v8::BackingStore`].
+///
+/// # Safety
+///
+/// Callers must ensure that the returned slice does not outlive the [`v8::BackingStore`] of the
+/// [`v8::ArrayBuffer`].
+pub unsafe fn to_slice_buffer(
+  input: v8::Local<v8::Value>,
+) -> Result<&mut [u8], &'static str> {
+  let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
+    return Err("expected ArrayBuffer");
+  };
+  let len = buf.byte_length();
+  let slice = if len > 0 {
+    if let Some(ptr) = buf.data() {
+      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+    } else {
+      &mut []
+    }
+  } else {
+    &mut []
+  };
+  Ok(slice)
+}
+
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
 pub fn to_v8_slice_buffer(
   input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
-  let (store, length) =
-    if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
-      (buf.get_backing_store(), buf.byte_length())
-    } else {
-      return Err("expected ArrayBuffer");
-    };
-  let slice = unsafe { serde_v8::V8Slice::from_parts(store, 0..length) };
+  let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
+    return Err("expected ArrayBuffer");
+  };
+  let slice = unsafe {
+    serde_v8::V8Slice::from_parts(buf.get_backing_store(), 0..buf.byte_length())
+  };
   Ok(slice)
 }
 

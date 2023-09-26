@@ -122,18 +122,11 @@ pub fn v8slice_to_buffer(
   Ok(make_arg)
 }
 
-pub fn fast_api_typed_array_to_buffer(
-  deno_core: &TokenStream,
+pub fn byte_slice_to_buffer(
   arg_ident: &Ident,
-  input: &Ident,
+  buf: &Ident,
   buffer: Buffer,
 ) -> Result<TokenStream, V8MappingError> {
-  let buf = quote!((
-    // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
-    // fastcall
-    unsafe { #deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(#input) }.expect("Invalid buffer"))
-  );
-
   let res = match buffer {
     Buffer::Slice(_, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #buf;)
@@ -159,4 +152,19 @@ pub fn fast_api_typed_array_to_buffer(
   };
 
   Ok(res)
+}
+
+pub fn fast_api_typed_array_to_buffer(
+  deno_core: &TokenStream,
+  arg_ident: &Ident,
+  input: &Ident,
+  buffer: Buffer,
+) -> Result<TokenStream, V8MappingError> {
+  let convert = byte_slice_to_buffer(arg_ident, input, buffer)?;
+  Ok(quote! {
+    // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
+    // fastcall
+    let #input = unsafe { #deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(#input) }.expect("Invalid buffer");
+    #convert
+  })
 }
