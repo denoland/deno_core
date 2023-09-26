@@ -373,11 +373,12 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
-      /// Initialize this extension for use with CommonJS
-      /// For modules, use init_ops_and_esm instead
+      /// Legacy function for extension instantiation.
+      /// Please use `init_ops_and_esm` or `init_ops` instead
       ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
+      #[deprecated(since="0.216.0", note="please use `init_ops_and_esm` or `init_ops` instead")]
       pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
