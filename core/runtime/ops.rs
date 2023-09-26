@@ -1728,13 +1728,11 @@ mod tests {
     run_test2(
       10000,
       "op_arraybuffer_slice",
-      &format!(
-        r"let inbuf = new ArrayBuffer(10);
+      r"let inbuf = new ArrayBuffer(10);
       (new Uint8Array(inbuf))[0] = 1;
       let outbuf = new ArrayBuffer(10);
       op_arraybuffer_slice(inbuf, 10, outbuf, 10);
-      assert((new Uint8Array(outbuf))[0] == 1);"
-      ),
+      assert((new Uint8Array(outbuf))[0] == 1);",
     )?;
     Ok(())
   }
