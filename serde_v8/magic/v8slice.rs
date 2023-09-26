@@ -200,6 +200,15 @@ where
     )
   }
 
+  /// Takes this slice and converts it into a strongly-typed v8 array, ignoring the underlying range.
+  pub fn into_v8_unsliced_arraybuffer_local<'a>(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> v8::Local<'a, v8::ArrayBuffer> {
+    let (store, _range) = self.into_parts();
+    v8::ArrayBuffer::with_backing_store(scope, &store)
+  }
+
   /// Returns the slice to the parts it came from.
   pub fn into_parts(self) -> (v8::SharedRef<v8::BackingStore>, Range<usize>) {
     (

@@ -423,6 +423,16 @@ impl Arg {
         // No scope required for these
         Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
         Arg::V8Global(_) => ArgSlowRetval::V8Local,
+        Arg::ArrayBuffer(
+          Buffer::JsBuffer(BufferMode::Default)
+          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
+          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
+          | Buffer::V8Slice(
+            BufferMode::Default,
+            NumericArg::u8 | NumericArg::u32,
+          )
+          | Buffer::BytesMut(BufferMode::Default),
+        ) => ArgSlowRetval::V8LocalFalliable,
         Arg::Buffer(
           Buffer::JsBuffer(BufferMode::Default)
           | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
@@ -431,6 +441,12 @@ impl Arg {
             BufferMode::Default,
             NumericArg::u8 | NumericArg::u32,
           )
+          | Buffer::BytesMut(BufferMode::Default),
+        ) => ArgSlowRetval::V8LocalFalliable,
+        Arg::OptionArrayBuffer(
+          Buffer::JsBuffer(BufferMode::Default)
+          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
+          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
           | Buffer::BytesMut(BufferMode::Default),
         ) => ArgSlowRetval::V8LocalFalliable,
         Arg::OptionBuffer(
@@ -447,6 +463,7 @@ impl Arg {
   /// Does this type have a marker (used for specialization of serialization/deserialization)?
   pub fn marker(&self) -> ArgMarker {
     match self {
+      Arg::ArrayBuffer(_) => ArgMarker::ArrayBuffer,
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
@@ -484,6 +501,8 @@ pub enum ArgMarker {
   Smi,
   /// This type should be serialized as a number.
   Number,
+  /// This buffer type should be serialized as an ArrayBuffer.
+  ArrayBuffer,
 }
 
 pub enum ParsedType {

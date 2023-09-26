@@ -579,7 +579,7 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Ref(..) => return Ok(None),
-    Arg::Buffer(..) => return Ok(None),
+    Arg::ArrayBuffer(..) | Arg::Buffer(..) => return Ok(None),
     Arg::External(..) => V8FastCallType::Pointer,
     _ => {
       return Err(V8MappingError::NoMapping(

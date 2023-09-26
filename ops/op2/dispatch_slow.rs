@@ -586,6 +586,9 @@ pub fn return_value_infallible(
   generator_state.needs_retval = true;
 
   let result = match ret_type.marker() {
+    ArgMarker::ArrayBuffer => {
+      gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::ArrayBufferMarker, _>::from(#result)))
+    }
     ArgMarker::Serde => {
       gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result)))
     }
@@ -650,6 +653,9 @@ pub fn return_value_v8_value(
 ) -> Result<TokenStream, V8MappingError> {
   gs_extract!(generator_state(deno_core, scope, result));
   let result = match ret_type.marker() {
+    ArgMarker::ArrayBuffer => {
+      quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::ArrayBufferMarker, _>::from(#result))
+    }
     ArgMarker::Serde => {
       quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result))
     }

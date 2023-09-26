@@ -537,6 +537,104 @@ any
 <td>
 
 ```text
+#[arraybuffer] &mut [u8]
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer] &[u8]
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer] *mut u8
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly. Because of how V8 treats empty arrays in fastcalls, they will always be passed as null.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer] *const u8
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer (resizable=true,false)
+</td><td>
+⚠️ JS may modify the contents of the slice if V8 is called re-entrantly. Because of how V8 treats empty arrays in fastcalls, they will always be passed as null.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer(copy)] Vec<u8>
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer (resizable=true,false)
+</td><td>
+Safe, but forces a copy.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer(copy)] Box<[u8]>
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer (resizable=true,false)
+</td><td>
+Safe, but forces a copy.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer(copy)] bytes::Bytes
+```
+
+</td><td>
+✅
+</td><td>
+ArrayBuffer (resizable=true,false)
+</td><td>
+Safe, but forces a copy.
+</td></tr>
+<tr>
+<td>
+
+```text
 #[buffer] &mut [u8]
 ```
 
@@ -1204,6 +1302,70 @@ f64
 
 ```text
 #[string(onebyte)] Cow<[u8]>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer] V8Slice<u8>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer] Vec<u8>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer] Box<[u8]>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+#[arraybuffer] bytes::BytesMut
 ```
 
 </td><td>
