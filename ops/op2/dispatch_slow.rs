@@ -325,12 +325,8 @@ pub fn from_arg(
     Arg::Buffer(_) | Arg::ArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let buffer = from_arg_array_or_buffer(
-        generator_state,
-        &arg_ident,
-        arg,
-        &temp,
-      )?;
+      let buffer =
+        from_arg_array_or_buffer(generator_state, &arg_ident, arg, &temp)?;
       quote! {
         let mut #temp;
         #buffer
@@ -339,12 +335,8 @@ pub fn from_arg(
     Arg::OptionBuffer(_) | Arg::OptionArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let some = from_arg_array_or_buffer(
-        generator_state,
-        &arg_ident,
-        arg,
-        &temp,
-      )?;
+      let some =
+        from_arg_array_or_buffer(generator_state, &arg_ident, arg, &temp)?;
       quote! {
         let mut #temp;
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
@@ -501,9 +493,13 @@ pub fn from_arg_array_or_buffer(
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   match buffer {
-    Arg::Buffer(buffer) | Arg::OptionBuffer(buffer) => from_arg_buffer(generator_state, arg_ident, buffer, temp),
-    Arg::ArrayBuffer(buffer) | Arg::OptionArrayBuffer(buffer) => from_arg_arraybuffer(generator_state, arg_ident, buffer, temp),
-    _ => unreachable!()
+    Arg::Buffer(buffer) | Arg::OptionBuffer(buffer) => {
+      from_arg_buffer(generator_state, arg_ident, buffer, temp)
+    }
+    Arg::ArrayBuffer(buffer) | Arg::OptionArrayBuffer(buffer) => {
+      from_arg_arraybuffer(generator_state, arg_ident, buffer, temp)
+    }
+    _ => unreachable!(),
   }
 }
 
@@ -519,8 +515,7 @@ pub fn from_arg_buffer(
   let array = buffer.element();
   generator_state.needs_scope = true;
 
-  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach))
-  {
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
     quote!(to_v8_slice_detachable)
   } else {
     quote!(to_v8_slice)
@@ -553,8 +548,7 @@ pub fn from_arg_arraybuffer(
   let err = format_ident!("{}_err", arg_ident);
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
-  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach))
-  {
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
     quote!(to_v8_slice_buffer_detachable)
   } else {
     quote!(to_v8_slice_buffer)
