@@ -406,8 +406,10 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
-      /// Initialize this extension's OPs
-      /// See[OP2](https://docs.rs/deno_core/latest/deno_core/attr.op2.html)
+      /// Initialize this extension for runtime or snapshot creation, excluding
+      /// its JavaScript sources and evaluation. This is used when the runtime
+      /// or snapshot is created from a (separate) snapshot which includes this
+      /// extension in order to avoid evaluating the JavaScript twice.
       ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
