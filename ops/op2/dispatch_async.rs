@@ -12,11 +12,11 @@ use super::dispatch_slow::with_opctx;
 use super::dispatch_slow::with_opstate;
 use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
+use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
 use super::V8MappingError;
-use crate::op2::generator_state::gs_quote;
 use proc_macro2::TokenStream;
 use quote::quote;
 

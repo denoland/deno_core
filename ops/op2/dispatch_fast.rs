@@ -1,7 +1,6 @@
-use crate::op2::dispatch_shared::byte_slice_to_buffer;
-
-use super::dispatch_shared::fast_api_typed_array_to_buffer;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::dispatch_shared::byte_slice_to_buffer;
+use super::dispatch_shared::fast_api_typed_array_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
