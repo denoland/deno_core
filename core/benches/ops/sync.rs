@@ -24,6 +24,8 @@ deno_core::extension!(
     op_make_external,
     op_external,
     op_external_nofast,
+    op_buffer,
+    op_arraybuffer,
   ],
   state = |state| {
     state.put(1234u32);
@@ -100,6 +102,12 @@ pub fn op_external(_input: *const c_void) {}
 #[op2(nofast)]
 pub fn op_external_nofast(_input: *const c_void) {}
 
+#[op2(fast)]
+pub fn op_buffer(#[buffer] _buffer: &[u8]) {}
+
+#[op2(fast)]
+pub fn op_arraybuffer(#[arraybuffer] _buffer: &[u8]) {}
+
 fn bench_op(
   b: &mut Bencher,
   count: usize,
@@ -138,6 +146,8 @@ const LARGE_STRING_1000000 = '*'.repeat(1000000);
 const LARGE_STRING_1000 = '*'.repeat(1000);
 const LARGE_STRING_UTF8_1000000 = '\u1000'.repeat(1000000);
 const LARGE_STRING_UTF8_1000 = '\u1000'.repeat(1000);
+const BUFFER = new Uint8Array(1024);
+const ARRAYBUFFER = new ArrayBuffer(1024);
 const {{ {op}: op }} = Deno.core.ensureFastOps();
 const {{ op_make_external }} = Deno.core.ensureFastOps();
 const EXTERNAL = op_make_external();
@@ -380,6 +390,26 @@ fn bench_op_external_nofast(b: &mut Bencher) {
   );
 }
 
+fn bench_op_buffer(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_buffer",
+    1,
+    "op_buffer(BUFFER)",
+  );
+}
+
+fn bench_op_arraybuffer(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_arraybuffer",
+    1,
+    "op_arraybuffer(ARRAYBUFFER)",
+  );
+}
+
 benchmark_group!(
   benches,
   baseline,
@@ -408,6 +438,8 @@ benchmark_group!(
   bench_op_v8_global_scope,
   bench_op_external,
   bench_op_external_nofast,
+  bench_op_buffer,
+  bench_op_arraybuffer,
 );
 
 benchmark_main!(benches);
