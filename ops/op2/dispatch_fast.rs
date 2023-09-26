@@ -42,7 +42,7 @@ pub(crate) enum V8FastCallType {
   Float64Array,
   SeqOneByteString,
   CallbackOptions,
-  /// ArrayBuffer are currently supported in fastcalls by passing a V8Value and manually unwrapping
+  /// ArrayBuffers are currently supported in fastcalls by passing a V8Value and manually unwrapping
   /// the buffer. In the future, V8 may be able to support ArrayBuffer fastcalls in the same way that
   /// a TypedArray overload works and we may be able to adjust the support here.
   ArrayBuffer,
