@@ -322,14 +322,13 @@ pub fn from_arg(
         };
       })
     }
-    Arg::Buffer(buffer) | Arg::ArrayBuffer(buffer) => {
+    Arg::Buffer(_) | Arg::ArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let buffer = from_arg_buffer(
+      let buffer = from_arg_array_or_buffer(
         generator_state,
         &arg_ident,
-        matches!(arg, Arg::ArrayBuffer(_)),
-        buffer,
+        arg,
         &temp,
       )?;
       quote! {
@@ -337,14 +336,13 @@ pub fn from_arg(
         #buffer
       }
     }
-    Arg::OptionBuffer(buffer) | Arg::OptionArrayBuffer(buffer) => {
+    Arg::OptionBuffer(_) | Arg::OptionArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let some = from_arg_buffer(
+      let some = from_arg_array_or_buffer(
         generator_state,
         &arg_ident,
-        matches!(arg, Arg::ArrayBuffer(_)),
-        buffer,
+        arg,
         &temp,
       )?;
       quote! {
@@ -496,10 +494,22 @@ pub fn from_arg_option(
   )))
 }
 
+pub fn from_arg_array_or_buffer(
+  generator_state: &mut GeneratorState,
+  arg_ident: &Ident,
+  buffer: &Arg,
+  temp: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  match buffer {
+    Arg::Buffer(buffer) | Arg::OptionBuffer(buffer) => from_arg_buffer(generator_state, arg_ident, buffer, temp),
+    Arg::ArrayBuffer(buffer) | Arg::OptionArrayBuffer(buffer) => from_arg_arraybuffer(generator_state, arg_ident, buffer, temp),
+    _ => unreachable!()
+  }
+}
+
 pub fn from_arg_buffer(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
-  is_array_buffer: bool,
   buffer: &Buffer,
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
@@ -507,44 +517,57 @@ pub fn from_arg_buffer(
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
   let array = buffer.element();
+  generator_state.needs_scope = true;
 
-  let (make_v8slice, temp) = if is_array_buffer {
-    let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach))
-    {
-      quote!(to_v8_slice_buffer_detachable)
-    } else {
-      quote!(to_v8_slice_buffer)
-    };
-
-    let make_v8slice = gs_quote!(generator_state(deno_core) => {
-      #temp = match unsafe { #deno_core::_ops::#to_v8_slice(#arg_ident) } {
-        Ok(#arg_ident) => #arg_ident,
-        Err(#err) => {
-          #throw_exception
-        }
-      };
-    });
-    (make_v8slice, temp)
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach))
+  {
+    quote!(to_v8_slice_detachable)
   } else {
-    generator_state.needs_scope = true;
-
-    let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach))
-    {
-      quote!(to_v8_slice_detachable)
-    } else {
-      quote!(to_v8_slice)
-    };
-
-    let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
-      #temp = match unsafe { #deno_core::_ops::#to_v8_slice::<#array>(&mut #scope, #arg_ident) } {
-        Ok(#arg_ident) => #arg_ident,
-        Err(#err) => {
-          #throw_exception
-        }
-      };
-    });
-    (make_v8slice, temp)
+    quote!(to_v8_slice)
   };
+
+  let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
+    #temp = match unsafe { #deno_core::_ops::#to_v8_slice::<#array>(&mut #scope, #arg_ident) } {
+      Ok(#arg_ident) => #arg_ident,
+      Err(#err) => {
+        #throw_exception
+      }
+    };
+  });
+
+  let make_arg =
+    v8slice_to_buffer(&generator_state.deno_core, arg_ident, temp, *buffer)?;
+
+  Ok(quote! {
+    #make_v8slice
+    #make_arg
+  })
+}
+
+pub fn from_arg_arraybuffer(
+  generator_state: &mut GeneratorState,
+  arg_ident: &Ident,
+  buffer: &Buffer,
+  temp: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  let err = format_ident!("{}_err", arg_ident);
+  let throw_exception = throw_type_error_static_string(generator_state, &err)?;
+
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach))
+  {
+    quote!(to_v8_slice_buffer_detachable)
+  } else {
+    quote!(to_v8_slice_buffer)
+  };
+
+  let make_v8slice = gs_quote!(generator_state(deno_core) => {
+    #temp = match unsafe { #deno_core::_ops::#to_v8_slice(#arg_ident) } {
+      Ok(#arg_ident) => #arg_ident,
+      Err(#err) => {
+        #throw_exception
+      }
+    };
+  });
 
   let make_arg =
     v8slice_to_buffer(&generator_state.deno_core, arg_ident, temp, *buffer)?;
