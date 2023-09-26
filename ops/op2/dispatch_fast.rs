@@ -1,6 +1,8 @@
+use super::dispatch_shared::fast_api_typed_array_to_buffer;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
+use super::dispatch_shared::v8slice_to_buffer;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::Buffer;
@@ -39,6 +41,10 @@ pub(crate) enum V8FastCallType {
   Float64Array,
   SeqOneByteString,
   CallbackOptions,
+  /// ArrayBuffer are currently supported in fastcalls by passing a V8Value and manually unwrapping
+  /// the buffer. In the future, V8 may be able to support ArrayBuffer fastcalls in the same way that
+  /// a TypedArray overload works and we may be able to adjust the support here.
+  ArrayBuffer,
   /// Used for virtual arguments that do not contribute a raw argument
   Virtual,
 }
@@ -74,6 +80,9 @@ impl V8FastCallType {
       V8FastCallType::Float64Array => {
         quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<f64>)
       }
+      V8FastCallType::ArrayBuffer => {
+        quote!(#deno_core::v8::Local<#deno_core::v8::ArrayBuffer>)
+      }
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
@@ -96,6 +105,7 @@ impl V8FastCallType {
       V8FastCallType::Uint32Array => unreachable!(),
       V8FastCallType::Float64Array => unreachable!(),
       V8FastCallType::SeqOneByteString => quote!(CType::SeqOneByteString),
+      V8FastCallType::ArrayBuffer => unreachable!(),
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
@@ -118,6 +128,7 @@ impl V8FastCallType {
       V8FastCallType::Uint32Array => quote!(Type::TypedArray(CType::Uint32)),
       V8FastCallType::Float64Array => quote!(Type::TypedArray(CType::Float64)),
       V8FastCallType::SeqOneByteString => quote!(Type::SeqOneByteString),
+      V8FastCallType::ArrayBuffer => quote!(Type::V8Value),
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
@@ -320,26 +331,22 @@ fn map_v8_fastcall_arg_to_arg(
   } = generator_state;
 
   let arg_temp = format_ident!("{}_temp", arg_ident);
-  let buf = quote!((
-    // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
-    // fastcall
-    unsafe { #deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(#arg_ident) }.expect("Invalid buffer"))
-  );
+
   let res = match arg {
-    Arg::Buffer(Buffer::Slice(_, NumericArg::u8 | NumericArg::u32)) => {
-      quote!(let #arg_ident = #buf;)
+    Arg::ArrayBuffer(buffer) => {
+      *needs_fast_api_callback_options = true;
+      let buf = v8slice_to_buffer(&deno_core, arg_ident, &arg_temp, *buffer)?;
+      quote!(
+        let Ok(mut #arg_temp) = #deno_core::_ops::to_v8_slice_buffer(#arg_ident.into()) else {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
+        };
+        #buf
+      )
     }
-    Arg::Buffer(Buffer::Ptr(_, NumericArg::u8 | NumericArg::u32)) => {
-      quote!(let #arg_ident = if #buf.len() == 0 { ::std::ptr::null_mut() } else { #buf.as_mut_ptr() as _ };)
-    }
-    Arg::Buffer(Buffer::Vec(NumericArg::u8 | NumericArg::u32)) => {
-      quote!(let #arg_ident = #buf.to_vec();)
-    }
-    Arg::Buffer(Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)) => {
-      quote!(let #arg_ident = #buf.to_vec().into_boxed_slice();)
-    }
-    Arg::Buffer(Buffer::Bytes(BufferMode::Copy)) => {
-      quote!(let #arg_ident = #buf.to_vec().into();)
+    Arg::Buffer(buffer) => {
+      fast_api_typed_array_to_buffer(&deno_core, arg_ident, arg_ident, *buffer)?
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
@@ -434,11 +441,11 @@ fn map_v8_fastcall_arg_to_arg(
           return unsafe { std::mem::zeroed() };
         })
       };
-      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
+      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, &arg);
       v8_to_arg(
         v8,
         &arg_ident,
-        arg,
+        &arg,
         &deno_core,
         throw_type_error,
         extract_intermediate,
@@ -467,6 +474,13 @@ fn map_arg_to_v8_fastcall_type(
       | Buffer::BoxSlice(NumericArg::u32),
     ) => V8FastCallType::Uint32Array,
     Arg::Buffer(_) => return Ok(None),
+    Arg::ArrayBuffer(
+      Buffer::Slice(_, NumericArg::u8)
+      | Buffer::Ptr(_, NumericArg::u8)
+      | Buffer::Vec(NumericArg::u8)
+      | Buffer::BoxSlice(NumericArg::u8)
+      | Buffer::Bytes(BufferMode::Copy),
+    ) => V8FastCallType::ArrayBuffer,
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)
     | Arg::Ref(_, Special::OpState)

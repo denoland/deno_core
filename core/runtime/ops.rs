@@ -594,6 +594,39 @@ where
   Ok(slice)
 }
 
+/// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
+pub fn to_v8_slice_buffer<'a>(
+  input: v8::Local<'a, v8::Value>,
+) -> Result<serde_v8::V8Slice<u8>, &'static str> {
+  let (store, length) =
+    if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+      (buf.get_backing_store(), buf.byte_length())
+    } else {
+      return Err("expected ArrayBuffer");
+    };
+  let slice = unsafe { serde_v8::V8Slice::from_parts(store, 0..length) };
+  Ok(slice)
+}
+
+/// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
+pub fn to_v8_slice_buffer_detachable<'a>(
+  input: v8::Local<'a, v8::Value>,
+) -> Result<serde_v8::V8Slice<u8>, &'static str> {
+  let (store, length) =
+    if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+      let res = (buf.get_backing_store(), buf.byte_length());
+      if !buf.is_detachable() {
+        return Err("invalid type; expected: detachable");
+      }
+      buf.detach(None);
+      res
+    } else {
+      return Err("expected ArrayBuffer");
+    };
+  let slice = unsafe { serde_v8::V8Slice::from_parts(store, 0..length) };
+  Ok(slice)
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -672,6 +705,7 @@ mod tests {
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
+      op_arraybuffer_slice,
       op_external_make,
       op_external_process,
       op_external_make_null,
@@ -1641,6 +1675,34 @@ mod tests {
         ),
       )?;
     }
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_arraybuffer_slice(
+    #[arraybuffer] input: &[u8],
+    #[number] inlen: usize,
+    #[arraybuffer] output: &mut [u8],
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_arraybuffer_slice(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    // Zero-length buffers
+    run_test2(
+      10000,
+      "op_arraybuffer_slice",
+      &format!(
+        "op_arraybuffer_slice(new ArrayBuffer(0), 0, new ArrayBuffer(0), 0);"
+      ),
+    )?;
     Ok(())
   }
 

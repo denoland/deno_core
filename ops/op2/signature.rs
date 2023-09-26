@@ -179,18 +179,28 @@ impl Buffer {
     &self,
     position: Position,
   ) -> &'static [AttributeModifier] {
+    use AttributeModifier::ArrayBuffer as A;
     use AttributeModifier::Buffer as B;
     use Buffer::*;
     use BufferMode::*;
     match position {
       Position::Arg => match self {
-        Bytes(..) | BytesMut(..) | Vec(..) | BoxSlice(..) => &[B(Copy)],
-        JsBuffer(..) | V8Slice(..) => &[B(Copy), B(Detach), B(Default)],
-        Slice(..) | Ptr(..) => &[B(Default)],
+        Bytes(..) | BytesMut(..) | Vec(..) | BoxSlice(..) => {
+          &[A(Copy), B(Copy)]
+        }
+        JsBuffer(..) | V8Slice(..) => &[
+          A(Copy),
+          A(Detach),
+          A(Default),
+          B(Copy),
+          B(Detach),
+          B(Default),
+        ],
+        Slice(..) | Ptr(..) => &[A(Default), B(Default)],
       },
       Position::RetVal => match self {
         Bytes(..) | BytesMut(..) | JsBuffer(..) | V8Slice(..) | Vec(..)
-        | BoxSlice(..) => &[B(Default)],
+        | BoxSlice(..) => &[A(Default), B(Default)],
         Slice(..) | Ptr(..) => &([]),
       },
     }
@@ -234,6 +244,7 @@ pub enum Arg {
   Void,
   Special(Special),
   String(Strings),
+  ArrayBuffer(Buffer),
   Buffer(Buffer),
   External(External),
   Ref(RefType, Special),
@@ -241,6 +252,7 @@ pub enum Arg {
   Option(Special),
   OptionString(Strings),
   OptionNumeric(NumericArg, NumericFlag),
+  OptionArrayBuffer(Buffer),
   OptionBuffer(Buffer),
   OptionV8Local(V8Arg),
   OptionV8Global(V8Arg),
@@ -255,6 +267,44 @@ pub enum Arg {
 }
 
 impl Arg {
+  const fn from_parsed(
+    parsed: ParsedTypeContainer,
+    attr: Attributes,
+  ) -> Result<Self, ()> {
+    use ParsedType::*;
+    use ParsedTypeContainer::*;
+    match parsed {
+      CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric, NumericFlag::None)),
+      CBare(TSpecial(special)) => Ok(Arg::Special(special)),
+      CBare(TString(string)) => Ok(Arg::String(string)),
+      CBare(TBuffer(buffer))
+        if matches!(attr.primary, Some(AttributeModifier::ArrayBuffer(_))) =>
+      {
+        Ok(Arg::ArrayBuffer(buffer))
+      }
+      CBare(TBuffer(buffer)) => Ok(Arg::Buffer(buffer)),
+      COption(TNumeric(special)) => {
+        Ok(Arg::OptionNumeric(special, NumericFlag::None))
+      }
+      COption(TSpecial(special)) => Ok(Arg::Option(special)),
+      COption(TString(string)) => Ok(Arg::OptionString(string)),
+      COption(TBuffer(buffer))
+        if matches!(attr.primary, Some(AttributeModifier::ArrayBuffer(_))) =>
+      {
+        Ok(Arg::OptionArrayBuffer(buffer))
+      }
+      COption(TBuffer(buffer)) => Ok(Arg::OptionBuffer(buffer)),
+      CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
+      COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
+      COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
+      COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
+      COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
+      CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
+      CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
+      _ => Err(()),
+    }
+  }
+
   /// Is this argument virtual? ie: does it come from the æther rather than a concrete JavaScript input
   /// argument?
   #[allow(clippy::match_like_matches_macro)]
@@ -332,6 +382,7 @@ impl Arg {
       Arg::OptionNumeric(t, flag) => Arg::Numeric(*t, *flag),
       Arg::Option(t) => Arg::Special(*t),
       Arg::OptionString(t) => Arg::String(*t),
+      Arg::OptionArrayBuffer(t) => Arg::ArrayBuffer(*t),
       Arg::OptionBuffer(t) => Arg::Buffer(*t),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
       _ => return None,
@@ -617,6 +668,8 @@ pub enum AttributeModifier {
   State,
   /// #[buffer], for buffers.
   Buffer(BufferMode),
+  /// #[arraybuffer], for buffers backed directly by v8::ArrayBuffer rather than views.
+  ArrayBuffer(BufferMode),
   /// #[global], for [`v8::Global`]s
   Global,
   /// #[bigint], for u64/usize/i64/isize indicating value is a BigInt
@@ -629,7 +682,8 @@ impl AttributeModifier {
   fn name(&self) -> &'static str {
     match self {
       AttributeModifier::Bigint => "bigint",
-      AttributeModifier::Number => "bigint",
+      AttributeModifier::Number => "number",
+      AttributeModifier::ArrayBuffer(_) => "buffer",
       AttributeModifier::Buffer(_) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
@@ -1018,6 +1072,10 @@ fn parse_attribute(
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
       (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy)),
       (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach)),
+      (#[arraybuffer]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Default)),
+      (#[arraybuffer(unsafe)]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Unsafe)),
+      (#[arraybuffer(copy)]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Copy)),
+      (#[arraybuffer(detach)]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Detach)),
       (#[global]) => Some(AttributeModifier::Global),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
@@ -1061,7 +1119,9 @@ fn parse_type_path(
   use ParsedTypeContainer::*;
 
   let buffer_mode = || match attrs.primary {
-    Some(AttributeModifier::Buffer(mode)) => Ok(mode),
+    Some(
+      AttributeModifier::Buffer(mode) | AttributeModifier::ArrayBuffer(mode),
+    ) => Ok(mode),
     _ => Err(ArgError::MissingAttribute("buffer", stringify_token(tp))),
   };
 
@@ -1115,7 +1175,7 @@ fn parse_type_path(
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::String(string) => Ok(COption(TString(string))),
           Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
-          Arg::Buffer(buffer) => Ok(COption(TBuffer(buffer))),
+          Arg::Buffer(buffer) | Arg::ArrayBuffer(buffer) => Ok(COption(TBuffer(buffer))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
@@ -1259,6 +1319,7 @@ pub(crate) fn parse_type(
         return parse_type_state(ty);
       }
       AttributeModifier::String(_)
+      | AttributeModifier::ArrayBuffer(_)
       | AttributeModifier::Buffer(_)
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
@@ -1334,7 +1395,9 @@ pub(crate) fn parse_type(
                 let buffer = Buffer::Slice(mut_type, numeric);
                 let res = CBare(TBuffer(buffer));
                 res.validate_attributes(position, attrs, &of)?;
-                Ok(Arg::Buffer(buffer))
+                Arg::from_parsed(res, attrs).map_err(|_| {
+                  ArgError::InvalidType(stringify_token(ty), "for slice")
+                })
               }
             }
           } else {
@@ -1369,32 +1432,18 @@ pub(crate) fn parse_type(
             let buffer = Buffer::Ptr(mut_type, numeric);
             let res = CBare(TBuffer(buffer));
             res.validate_attributes(position, attrs, &of)?;
-            Ok(Arg::Buffer(buffer))
+            Arg::from_parsed(res, attrs).map_err(|_| {
+              ArgError::InvalidType(stringify_token(ty), "for pointer")
+            })
           }
         },
         _ => Err(ArgError::InvalidType(stringify_token(ty), "for pointer")),
       }
     }
-    Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
-      CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric, NumericFlag::None)),
-      CBare(TSpecial(special)) => Ok(Arg::Special(special)),
-      CBare(TString(string)) => Ok(Arg::String(string)),
-      CBare(TBuffer(buffer)) => Ok(Arg::Buffer(buffer)),
-      COption(TNumeric(special)) => {
-        Ok(Arg::OptionNumeric(special, NumericFlag::None))
-      }
-      COption(TSpecial(special)) => Ok(Arg::Option(special)),
-      COption(TString(string)) => Ok(Arg::OptionString(string)),
-      COption(TBuffer(buffer)) => Ok(Arg::OptionBuffer(buffer)),
-      CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
-      COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
-      COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
-      COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
-      COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
-      CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
-      CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
-      _ => Err(ArgError::InvalidType(stringify_token(ty), "for path")),
-    },
+    Type::Path(of) => {
+      Arg::from_parsed(parse_type_path(position, attrs, false, of)?, attrs)
+        .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
+    }
     _ => Err(ArgError::InvalidType(
       stringify_token(ty),
       "for top-level type",
@@ -1529,6 +1578,10 @@ mod tests {
   test!(
     fn op_pointers(#[buffer] r#in: *const u8, #[buffer] out: *mut u8);
     (Buffer(Ptr(Ref, u8)), Buffer(Ptr(Mut, u8))) -> Infallible(Void)
+  );
+  test!(
+    fn op_arraybuffer(#[arraybuffer] r#in: &[u8]);
+    (ArrayBuffer(Slice(Ref, u8))) -> Infallible(Void)
   );
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
