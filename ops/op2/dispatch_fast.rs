@@ -335,7 +335,7 @@ fn map_v8_fastcall_arg_to_arg(
   let res = match arg {
     Arg::ArrayBuffer(buffer) => {
       *needs_fast_api_callback_options = true;
-      let buf = v8slice_to_buffer(&deno_core, arg_ident, &arg_temp, *buffer)?;
+      let buf = v8slice_to_buffer(deno_core, arg_ident, &arg_temp, *buffer)?;
       quote!(
         let Ok(mut #arg_temp) = #deno_core::_ops::to_v8_slice_buffer(#arg_ident.into()) else {
           #fast_api_callback_options.fallback = true;
@@ -346,7 +346,7 @@ fn map_v8_fastcall_arg_to_arg(
       )
     }
     Arg::Buffer(buffer) => {
-      fast_api_typed_array_to_buffer(&deno_core, arg_ident, arg_ident, *buffer)?
+      fast_api_typed_array_to_buffer(deno_core, arg_ident, arg_ident, *buffer)?
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
@@ -441,11 +441,11 @@ fn map_v8_fastcall_arg_to_arg(
           return unsafe { std::mem::zeroed() };
         })
       };
-      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, &arg);
+      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(
         v8,
         &arg_ident,
-        &arg,
+        arg,
         &deno_core,
         throw_type_error,
         extract_intermediate,

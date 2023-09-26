@@ -595,8 +595,8 @@ where
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
-pub fn to_v8_slice_buffer<'a>(
-  input: v8::Local<'a, v8::Value>,
+pub fn to_v8_slice_buffer(
+  input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
   let (store, length) =
     if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
@@ -609,8 +609,8 @@ pub fn to_v8_slice_buffer<'a>(
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
-pub fn to_v8_slice_buffer_detachable<'a>(
-  input: v8::Local<'a, v8::Value>,
+pub fn to_v8_slice_buffer_detachable(
+  input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
   let (store, length) =
     if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
@@ -1699,9 +1699,7 @@ mod tests {
     run_test2(
       10000,
       "op_arraybuffer_slice",
-      &format!(
-        "op_arraybuffer_slice(new ArrayBuffer(0), 0, new ArrayBuffer(0), 0);"
-      ),
+      "op_arraybuffer_slice(new ArrayBuffer(0), 0, new ArrayBuffer(0), 0);",
     )?;
     Ok(())
   }
