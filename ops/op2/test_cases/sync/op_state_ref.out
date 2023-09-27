@@ -43,7 +43,23 @@ impl op_state_ref {
         this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
-        Self::v8_fn_ptr_fast(this, fast_api_callback_options)
+        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<
+                deno_core::v8::External,
+            >::cast(unsafe { fast_api_callback_options.data.data })
+                .value() as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_fast(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        let res = Self::v8_fn_ptr_fast(this, fast_api_callback_options);
+        deno_core::_ops::dispatch_metrics_fast(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
+        res
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
@@ -82,7 +98,22 @@ impl op_state_ref {
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::v8_fn_ptr(info)
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        Self::v8_fn_ptr(info);
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
     }
     #[inline(always)]
     fn call(_state: &OpState) {}
@@ -133,7 +164,23 @@ impl op_state_mut {
         this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
-        Self::v8_fn_ptr_fast(this, fast_api_callback_options)
+        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<
+                deno_core::v8::External,
+            >::cast(unsafe { fast_api_callback_options.data.data })
+                .value() as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_fast(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        let res = Self::v8_fn_ptr_fast(this, fast_api_callback_options);
+        deno_core::_ops::dispatch_metrics_fast(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
+        res
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
@@ -172,7 +219,22 @@ impl op_state_mut {
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::v8_fn_ptr(info)
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        Self::v8_fn_ptr(info);
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
     }
     #[inline(always)]
     fn call(_state: &mut OpState) {}
@@ -238,7 +300,22 @@ impl op_state_and_v8 {
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::v8_fn_ptr(info)
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        Self::v8_fn_ptr(info);
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
     }
     #[inline(always)]
     fn call(_state: &mut OpState, _callback: v8::Global<v8::Function>) {}

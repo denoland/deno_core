@@ -140,6 +140,7 @@ pub mod _ops {
   pub use super::extensions::OpDecl;
   pub use super::ops::to_op_result;
   pub use super::ops::OpCtx;
+  pub use super::ops::OpMetricsEvent;
   pub use super::ops::OpResult;
   pub use super::runtime::ops::*;
   pub use super::runtime::ops_rust_to_v8::*;

@@ -4,6 +4,7 @@ use super::dispatch_shared::fast_api_typed_array_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
+use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::Buffer;
@@ -191,13 +192,9 @@ pub fn generate_dispatch_fast(
   }
 
   let GeneratorState {
-    deno_core,
     result,
     fast_function,
     fast_function_metrics,
-    opctx,
-    js_runtime_state,
-    fast_api_callback_options,
     needs_fast_opctx,
     needs_fast_api_callback_options,
     needs_fast_js_runtime_state,
@@ -209,7 +206,7 @@ pub fn generate_dispatch_fast(
     RetVal::Result(_) => {
       *needs_fast_api_callback_options = true;
       *needs_fast_opctx = true;
-      quote! {
+      gs_quote!(generator_state(fast_api_callback_options, opctx) => {
         let #result = match #result {
           Ok(#result) => #result,
           Err(err) => {
@@ -235,28 +232,28 @@ pub fn generate_dispatch_fast(
             return unsafe { std::mem::zeroed() };
           }
         };
-      }
+      })
     }
     _ => todo!(),
   };
 
   let with_js_runtime_state = if *needs_fast_js_runtime_state {
     *needs_fast_opctx = true;
-    quote! {
+    gs_quote!(generator_state(js_runtime_state, opctx) => {
       let #js_runtime_state = std::rc::Weak::upgrade(&#opctx.runtime_state).unwrap();
-    }
+    })
   } else {
     quote!()
   };
 
   let with_opctx = if *needs_fast_opctx {
     *needs_fast_api_callback_options = true;
-    quote!(
+    gs_quote!(generator_state(deno_core, opctx, fast_api_callback_options) => {
       let #opctx = unsafe {
         &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
             as *const #deno_core::_ops::OpCtx)
       };
-    )
+    })
   } else {
     quote!()
   };
@@ -267,24 +264,28 @@ pub fn generate_dispatch_fast(
 
   let with_fast_api_callback_options = if *needs_fast_api_callback_options {
     input_types.push(V8FastCallType::CallbackOptions.quote_type());
-    fastcall_types
-      .push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
-    fastcall_names.push(fast_api_callback_options.clone());
-    quote! {
+    fastcall_types.push(
+      V8FastCallType::CallbackOptions
+        .quote_rust_type(&generator_state.deno_core),
+    );
+    fastcall_names.push(generator_state.fast_api_callback_options.clone());
+    gs_quote!(generator_state(fast_api_callback_options) => {
       let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
-    }
+    })
   } else {
     quote!()
   };
 
   input_types_metrics.push(V8FastCallType::CallbackOptions.quote_type());
-  fastcall_metrics_types
-    .push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
-  fastcall_metrics_names.push(fast_api_callback_options.clone());
+  fastcall_metrics_types.push(
+    V8FastCallType::CallbackOptions.quote_rust_type(&generator_state.deno_core),
+  );
+  fastcall_metrics_names
+    .push(generator_state.fast_api_callback_options.clone());
 
   let output_type = output.quote_ctype();
 
-  let fast_definition = quote! {
+  let fast_definition = gs_quote!(generator_state(deno_core) => {
     use #deno_core::v8::fast_api::Type;
     use #deno_core::v8::fast_api::CType;
     // TODO(mmastrac): We're setting this up for future success but returning
@@ -294,9 +295,9 @@ pub fn generate_dispatch_fast(
       #output_type,
       Self::#fast_function as *const ::std::ffi::c_void
     )
-  };
+  });
 
-  let fast_definition_metrics = quote! {
+  let fast_definition_metrics = gs_quote!(generator_state(deno_core) => {
     use #deno_core::v8::fast_api::Type;
     use #deno_core::v8::fast_api::CType;
     // TODO(mmastrac): We're setting this up for future success but returning
@@ -306,21 +307,30 @@ pub fn generate_dispatch_fast(
       #output_type,
       Self::#fast_function as *const ::std::ffi::c_void
     )
-  };
+  });
 
   // Ensure that we have the same types in the fast function definition as we do in the signature
   debug_assert!(fastcall_types.len() == input_types.len());
 
-  let output_type = output.quote_rust_type(deno_core);
+  let output_type = output.quote_rust_type(&generator_state.deno_core);
   // We don't want clippy to trigger warnings on number of arguments of the fastcall
   // function -- these will still trigger on our normal call function, however.
-  let fast_fn = quote!(
+  let fast_fn = gs_quote!(generator_state(deno_core, fast_api_callback_options) => {
     #[allow(clippy::too_many_arguments)]
     fn #fast_function_metrics(
       this: #deno_core::v8::Local<#deno_core::v8::Object>,
       #( #fastcall_metrics_names: #fastcall_metrics_types, )*
     ) -> #output_type {
-      Self::#fast_function( this, #( #fastcall_names, )* )
+      let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
+      let opctx = unsafe {
+          &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(
+            unsafe { #fast_api_callback_options.data.data }
+          ).value() as *const #deno_core::_ops::OpCtx)
+      };
+      #deno_core::_ops::dispatch_metrics_fast(&opctx, #deno_core::_ops::OpMetricsEvent::Enter);
+      let res = Self::#fast_function( this, #( #fastcall_names, )* );
+      #deno_core::_ops::dispatch_metrics_fast(&opctx, #deno_core::_ops::OpMetricsEvent::Leave);
+      res
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -339,7 +349,7 @@ pub fn generate_dispatch_fast(
       // Result may need a simple cast (eg: SMI u32->i32)
       #result as _
     }
-  );
+  });
 
   Ok(Some((fast_definition, fast_definition_metrics, fast_fn)))
 }

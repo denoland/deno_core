@@ -51,7 +51,22 @@ impl op_v8_lifetime {
         rv.set(deno_core::_ops::RustToV8NoScope::to_v8(result))
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::v8_fn_ptr(info)
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        Self::v8_fn_ptr(info);
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
     }
     #[inline(always)]
     pub fn call<'s>(_s: v8::Local<'s, v8::String>) -> v8::Local<'s, v8::String> {

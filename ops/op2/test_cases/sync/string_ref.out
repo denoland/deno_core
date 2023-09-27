@@ -44,7 +44,23 @@ impl op_string_owned {
         arg0: *mut deno_core::v8::fast_api::FastApiOneByteString,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> u32 {
-        Self::v8_fn_ptr_fast(this, arg0)
+        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<
+                deno_core::v8::External,
+            >::cast(unsafe { fast_api_callback_options.data.data })
+                .value() as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_fast(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        let res = Self::v8_fn_ptr_fast(this, arg0);
+        deno_core::_ops::dispatch_metrics_fast(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
+        res
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
@@ -86,7 +102,22 @@ impl op_string_owned {
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::v8_fn_ptr(info)
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Enter,
+        );
+        Self::v8_fn_ptr(info);
+        deno_core::_ops::dispatch_metrics_slow(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Leave,
+        );
     }
     #[inline(always)]
     fn call(s: &str) -> u32 {

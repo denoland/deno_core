@@ -250,6 +250,10 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   None
 }
 
+pub fn dispatch_metrics_fast(_opctx: &OpCtx, _metrics: OpMetricsEvent) {}
+
+pub fn dispatch_metrics_slow(_opctx: &OpCtx, _metrics: OpMetricsEvent) {}
+
 macro_rules! try_number_some {
   ($n:ident $type:ident $is:ident) => {
     if $n.$is() {

@@ -120,6 +120,12 @@ pub fn to_op_result<R: Serialize + 'static>(
   }
 }
 
+pub enum OpMetricsEvent {
+  Enter,
+  Leave,
+  Exception,
+}
+
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
@@ -133,7 +139,7 @@ pub struct OpCtx {
   pub decl: Rc<OpDecl>,
   pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub runtime_state: Weak<RefCell<JsRuntimeState>>,
-  pub(crate) metrics_fn: Option<fn(&OpDecl)>,
+  pub(crate) metrics_fn: Option<fn(&OpDecl, OpMetricsEvent)>,
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
