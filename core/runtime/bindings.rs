@@ -43,18 +43,34 @@ pub(crate) fn external_references(
   });
 
   for ctx in ops {
-    let ctx_ptr = ctx as *const OpCtx as _;
-    references.push(v8::ExternalReference { pointer: ctx_ptr });
-    references.push(v8::ExternalReference {
-      function: ctx.decl.slow_fn,
-    });
-    if let Some(fast_fn) = &ctx.decl.fast_fn {
+    if ctx.metrics_enabled() {
+      let ctx_ptr = ctx as *const OpCtx as _;
+      references.push(v8::ExternalReference { pointer: ctx_ptr });
       references.push(v8::ExternalReference {
-        pointer: fast_fn.function as _,
+        function: ctx.decl.slow_fn_metrics,
       });
+      if let Some(fast_fn) = &ctx.decl.fast_fn_metrics {
+        references.push(v8::ExternalReference {
+          pointer: fast_fn.function as _,
+        });
+        references.push(v8::ExternalReference {
+          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
+        });
+      }
+    } else {
+      let ctx_ptr = ctx as *const OpCtx as _;
+      references.push(v8::ExternalReference { pointer: ctx_ptr });
       references.push(v8::ExternalReference {
-        pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
+        function: ctx.decl.slow_fn,
       });
+      if let Some(fast_fn) = &ctx.decl.fast_fn {
+        references.push(v8::ExternalReference {
+          pointer: fast_fn.function as _,
+        });
+        references.push(v8::ExternalReference {
+          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
+        });
+      }
     }
   }
 
@@ -190,12 +206,19 @@ fn op_ctx_function<'s>(
   let v8name =
     v8::String::new_external_onebyte_static(scope, op_ctx.decl.name.as_bytes())
       .unwrap();
+
+  let (slow_fn, fast_fn) = if op_ctx.metrics_enabled() {
+    (op_ctx.decl.slow_fn_metrics, op_ctx.decl.fast_fn_metrics)
+  } else {
+    (op_ctx.decl.slow_fn, op_ctx.decl.fast_fn)
+  };
+
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
-    v8::FunctionTemplate::builder_raw(op_ctx.decl.slow_fn)
+    v8::FunctionTemplate::builder_raw(slow_fn)
       .data(external.into())
       .length(op_ctx.decl.arg_count as i32);
 
-  let template = if let Some(fast_function) = &op_ctx.decl.fast_fn {
+  let template = if let Some(fast_function) = &fast_fn {
     builder.build_fast(
       scope,
       fast_function,

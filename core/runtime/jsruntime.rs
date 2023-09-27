@@ -361,6 +361,8 @@ fn v8_init(
   v8::V8::initialize();
 }
 
+pub type MetricsFn = fn(&OpDecl) -> Option<fn(&OpDecl, OpMetricsEvent)>;
+
 #[derive(Default)]
 pub struct RuntimeOptions {
   /// Source map reference for errors.
@@ -376,6 +378,8 @@ pub struct RuntimeOptions {
   /// If not provided runtime will error if code being
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
+
+  pub metrics_fn: Option<MetricsFn>,
 
   /// JsRuntime extensions, not to be confused with ES modules.
   /// Only ops registered by extensions will be initialized. If you need
@@ -594,6 +598,7 @@ impl JsRuntime {
       .into_iter()
       .enumerate()
       .map(|(id, decl)| {
+        let metrics_fn = options.metrics_fn.and_then(|f| (f)(&decl));
         OpCtx::new(
           id as u16,
           std::ptr::null_mut(),
@@ -602,6 +607,7 @@ impl JsRuntime {
           op_state.clone(),
           weak.clone(),
           options.get_error_class_fn.unwrap_or(&|_| "Error"),
+          metrics_fn,
         )
       })
       .collect::<Vec<_>>()
@@ -832,6 +838,7 @@ impl JsRuntime {
             op_ctx.state.clone(),
             op_ctx.runtime_state.clone(),
             op_ctx.get_error_class_fn,
+            op_ctx.metrics_fn,
           )
         })
         .collect();

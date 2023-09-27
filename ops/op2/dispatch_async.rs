@@ -79,7 +79,10 @@ pub(crate) fn generate_dispatch_async(
 
   args.extend(deferred);
   args.extend(call(generator_state)?);
-  output.extend(gs_quote!(generator_state(result) => {
+  output.extend(gs_quote!(generator_state(deno_core, result, opctx) => {
+    if #opctx.metrics_enabled() {
+      #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Enter);
+    }
     let #result = {
       #args
     };
@@ -90,10 +93,13 @@ pub(crate) fn generate_dispatch_async(
     RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
   ) {
     let exception = throw_exception(generator_state)?;
-    output.extend(gs_quote!(generator_state(result) => {
+    output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
       let #result = match #result {
         Ok(#result) => #result,
         Err(err) => {
+          if #opctx.metrics_enabled() {
+            #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Exception);
+          }
           // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
           #exception
         }
@@ -107,6 +113,9 @@ pub(crate) fn generate_dispatch_async(
     if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #lazy, #promise_id, #result, |#scope, #result| {
       #return_value
     }) {
+      if #opctx.metrics_enabled() {
+        #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Leave);
+      }
       // Eager poll returned a value
       #return_value_immediate
     }

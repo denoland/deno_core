@@ -100,7 +100,7 @@ pub struct OpDecl {
   pub is_v8: bool,
   pub arg_count: u8,
   pub(crate) slow_fn: OpFnRef,
-  pub(crate) slow_fn_metrics: Option<OpFnRef>,
+  pub(crate) slow_fn_metrics: OpFnRef,
   pub(crate) fast_fn: Option<FastFunction>,
   pub(crate) fast_fn_metrics: Option<FastFunction>,
 }
@@ -125,9 +125,9 @@ impl OpDecl {
       is_v8,
       arg_count,
       slow_fn,
-      slow_fn_metrics: None,
+      slow_fn_metrics: slow_fn,
       fast_fn,
-      fast_fn_metrics: None,
+      fast_fn_metrics: fast_fn,
     }
   }
 
@@ -150,7 +150,7 @@ impl OpDecl {
       is_v8: false,
       arg_count,
       slow_fn,
-      slow_fn_metrics: Some(slow_fn_metrics),
+      slow_fn_metrics,
       fast_fn,
       fast_fn_metrics,
     }

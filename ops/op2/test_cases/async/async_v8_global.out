@@ -34,6 +34,12 @@ impl op_async_v8_global {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
+        if opctx.metrics_enabled() {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Enter,
+            );
+        }
         let result = {
             let arg0 = args.get(1usize as i32);
             let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
@@ -62,6 +68,12 @@ impl op_async_v8_global {
             result,
             |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
         ) {
+            if opctx.metrics_enabled() {
+                deno_core::_ops::dispatch_metrics_async(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Leave,
+                );
+            }
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
         }
     }

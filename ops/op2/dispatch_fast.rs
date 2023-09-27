@@ -305,7 +305,7 @@ pub fn generate_dispatch_fast(
     #deno_core::v8::fast_api::FastFunction::new_with_bigint(
       &[ Type::V8Value, #( #input_types_metrics ),* ],
       #output_type,
-      Self::#fast_function as *const ::std::ffi::c_void
+      Self::#fast_function_metrics as *const ::std::ffi::c_void
     )
   });
 

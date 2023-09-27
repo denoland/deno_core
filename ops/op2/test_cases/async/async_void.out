@@ -34,6 +34,12 @@ impl op_async {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
+        if opctx.metrics_enabled() {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Enter,
+            );
+        }
         let result = { Self::call() };
         let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
             .unwrap_or_default();
@@ -44,6 +50,12 @@ impl op_async {
             result,
             |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
         ) {
+            if opctx.metrics_enabled() {
+                deno_core::_ops::dispatch_metrics_async(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Leave,
+                );
+            }
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
         }
     }

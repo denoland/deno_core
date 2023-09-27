@@ -250,9 +250,17 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   None
 }
 
-pub fn dispatch_metrics_fast(_opctx: &OpCtx, _metrics: OpMetricsEvent) {}
+pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.unwrap())(&opctx.decl, metrics)
+}
 
-pub fn dispatch_metrics_slow(_opctx: &OpCtx, _metrics: OpMetricsEvent) {}
+pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.unwrap())(&opctx.decl, metrics)
+}
+
+pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.unwrap())(&opctx.decl, metrics)
+}
 
 macro_rules! try_number_some {
   ($n:ident $type:ident $is:ident) => {

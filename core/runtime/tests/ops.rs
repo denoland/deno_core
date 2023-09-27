@@ -1,11 +1,13 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate as deno_core;
+use crate::error::AnyError;
 use crate::extensions::Op;
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
+use anyhow::bail;
 use anyhow::Error;
 use deno_ops::op;
 use log::debug;
@@ -580,4 +582,69 @@ await op_void_async_deferred();
     }
   };
   res.unwrap();
+}
+
+#[tokio::test]
+pub async fn test_op_metrics() {
+  #[op2(async, core)]
+  pub async fn op_async() {
+    println!("op_async!");
+  }
+
+  #[op2(async, core)]
+  pub async fn op_async_deferred() {
+    tokio::task::yield_now().await;
+    println!("op_async_deferred!");
+  }
+
+  #[op2(async, core)]
+  pub async fn op_async_deferred_error() -> Result<(), AnyError> {
+    tokio::task::yield_now().await;
+    println!("op_async_deferred_error!");
+    bail!("dead");
+  }
+
+  #[op2(core, fast)]
+  pub fn op_sync() {
+    println!("op_sync!");
+  }
+
+  deno_core::extension!(
+    test_ext,
+    ops = [
+      op_async,
+      op_async_deferred,
+      op_async_deferred_error,
+      op_sync
+    ],
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops()],
+    metrics_fn: Some(|op| {
+      Some(|op, metrics| println!("{} {:?}", op.name, metrics))
+    }),
+    ..Default::default()
+  });
+
+  let promise = runtime
+  .execute_script_static(
+    "filename.js",
+    r#"
+  const { op_async, op_async_deferred, op_async_deferred_error, op_sync } = Deno.core.ensureFastOps();
+    async function go() {
+      op_sync();
+      await op_async();
+      await op_async_deferred();
+      try { await op_async_deferred_error() } catch {}
+    }
+
+    go()
+    "#,
+  )
+  .unwrap();
+  runtime
+    .resolve_value(promise)
+    .await
+    .expect("Failed to await promise");
 }

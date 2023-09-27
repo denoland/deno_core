@@ -120,9 +120,11 @@ pub fn to_op_result<R: Serialize + 'static>(
   }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum OpMetricsEvent {
   Enter,
   Leave,
+  LeaveAsync,
   Exception,
 }
 
@@ -154,10 +156,17 @@ impl OpCtx {
     state: Rc<RefCell<OpState>>,
     runtime_state: Weak<RefCell<JsRuntimeState>>,
     get_error_class_fn: GetErrorClassFn,
+    metrics_fn: Option<fn(&OpDecl, OpMetricsEvent)>,
   ) -> Self {
     let mut fast_fn_c_info = None;
 
-    if let Some(fast_fn) = &decl.fast_fn {
+    let fast_fn = if metrics_fn.is_some() {
+      &decl.fast_fn
+    } else {
+      &decl.fast_fn_metrics
+    };
+
+    if let Some(fast_fn) = fast_fn {
       let args = CTypeInfo::new_from_slice(fast_fn.args);
       let ret = CTypeInfo::new(fast_fn.return_type);
 
@@ -176,7 +185,7 @@ impl OpCtx {
       fast_fn_c_info = Some(c_fn);
     }
 
-    OpCtx {
+    Self {
       id,
       state,
       get_error_class_fn,
@@ -186,8 +195,12 @@ impl OpCtx {
       fast_fn_c_info,
       last_fast_error: UnsafeCell::new(None),
       isolate,
-      metrics_fn: None,
+      metrics_fn,
     }
+  }
+
+  pub fn metrics_enabled(&self) -> bool {
+    self.metrics_fn.is_some()
   }
 
   /// This takes the last error from an [`OpCtx`], assuming that no other code anywhere

@@ -34,6 +34,12 @@ impl op_async {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
+        if opctx.metrics_enabled() {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Enter,
+            );
+        }
         let result = {
             let arg0 = args.get(1usize as i32);
             let Some(arg0) = deno_core::_ops::to_i32_option(&arg0) else {
@@ -70,6 +76,12 @@ impl op_async {
                 )
             },
         ) {
+            if opctx.metrics_enabled() {
+                deno_core::_ops::dispatch_metrics_async(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Leave,
+                );
+            }
             match result {
                 Ok(result) => {
                     deno_core::_ops::RustToV8RetVal::to_v8_rv(

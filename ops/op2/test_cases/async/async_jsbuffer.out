@@ -34,6 +34,12 @@ impl op_async_v8_buffer {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
+        if opctx.metrics_enabled() {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Enter,
+            );
+        }
         let result = {
             let arg0 = args.get(1usize as i32);
             let mut arg0_temp;
@@ -68,6 +74,12 @@ impl op_async_v8_buffer {
                 deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, scope)
             },
         ) {
+            if opctx.metrics_enabled() {
+                deno_core::_ops::dispatch_metrics_async(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Leave,
+                );
+            }
             match deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, &mut scope) {
                 Ok(v) => rv.set(v),
                 Err(rv_err) => {
