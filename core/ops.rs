@@ -60,7 +60,9 @@ impl<F: Future<Output = OpResult>> Future for OpCall<F> {
     let promise_id = self.promise_id;
     let op_id = self.op_id;
     let fut = self.project().fut;
-    fut.poll(cx).map(move |res| PendingOp(promise_id, op_id, res, false))
+    fut
+      .poll(cx)
+      .map(move |res| PendingOp(promise_id, op_id, res, false))
   }
 }
 
@@ -135,6 +137,8 @@ pub enum OpMetricsEvent {
   ExceptionAsync,
 }
 
+pub type MetricsFn = Rc<dyn Fn(&OpDecl, OpMetricsEvent)>;
+
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
@@ -148,7 +152,7 @@ pub struct OpCtx {
   pub decl: Rc<OpDecl>,
   pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub runtime_state: Weak<RefCell<JsRuntimeState>>,
-  pub(crate) metrics_fn: Option<fn(&OpDecl, OpMetricsEvent)>,
+  pub(crate) metrics_fn: Option<MetricsFn>,
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
@@ -163,7 +167,7 @@ impl OpCtx {
     state: Rc<RefCell<OpState>>,
     runtime_state: Weak<RefCell<JsRuntimeState>>,
     get_error_class_fn: GetErrorClassFn,
-    metrics_fn: Option<fn(&OpDecl, OpMetricsEvent)>,
+    metrics_fn: Option<MetricsFn>,
   ) -> Self {
     let mut fast_fn_c_info = None;
 

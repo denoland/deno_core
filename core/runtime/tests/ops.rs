@@ -629,7 +629,7 @@ pub async fn test_op_metrics() {
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     metrics_fn: Some(|_op| {
-      Some(|op, metrics| println!("{} {:?}", op.name, metrics))
+      Some(Rc::new(|op, metrics| println!("{} {:?}", op.name, metrics)))
     }),
     ..Default::default()
   });

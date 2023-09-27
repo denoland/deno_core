@@ -115,7 +115,9 @@ pub fn queue_async_op<'s>(
 
   // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-  let mut pinned = op.map(move |res| PendingOp(promise_id, id, res, metrics)).boxed_local();
+  let mut pinned = op
+    .map(move |res| PendingOp(promise_id, id, res, metrics))
+    .boxed_local();
 
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
@@ -242,8 +244,9 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
       if ctx.metrics_enabled() {
         if res.2.is_err() {
           dispatch_metrics_async(&ctx, OpMetricsEvent::Exception);
+        } else {
+          dispatch_metrics_async(&ctx, OpMetricsEvent::Leave);
         }
-        dispatch_metrics_async(&ctx, OpMetricsEvent::Leave);
       }
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
       return Some(res.2);
@@ -259,24 +262,27 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
         OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
         metrics,
       ),
-      Err(err) => {
-        PendingOp(r.0, r.1, OpResult::Err(OpError::new(get_class, err.into())), metrics)
-      }
+      Err(err) => PendingOp(
+        r.0,
+        r.1,
+        OpResult::Err(OpError::new(get_class, err.into())),
+        metrics,
+      ),
     },
   ));
   None
 }
 
 pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.unwrap())(&opctx.decl, metrics)
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
 }
 
 pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.unwrap())(&opctx.decl, metrics)
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
 }
 
 pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.unwrap())(&opctx.decl, metrics)
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
 }
 
 macro_rules! try_number_some {

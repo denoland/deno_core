@@ -362,7 +362,7 @@ fn v8_init(
   v8::V8::initialize();
 }
 
-pub type MetricsFn = fn(&OpDecl) -> Option<fn(&OpDecl, OpMetricsEvent)>;
+pub type MetricsFactoryFn = fn(&OpDecl) -> Option<MetricsFn>;
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -380,7 +380,7 @@ pub struct RuntimeOptions {
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
 
-  pub metrics_fn: Option<MetricsFn>,
+  pub metrics_fn: Option<MetricsFactoryFn>,
 
   /// JsRuntime extensions, not to be confused with ES modules.
   /// Only ops registered by extensions will be initialized. If you need
@@ -839,7 +839,7 @@ impl JsRuntime {
             op_ctx.state.clone(),
             op_ctx.runtime_state.clone(),
             op_ctx.get_error_class_fn,
-            op_ctx.metrics_fn,
+            op_ctx.metrics_fn.clone(),
           )
         })
         .collect();
@@ -1973,7 +1973,7 @@ impl JsRuntime {
           break;
         };
         // TODO(mmastrac): If this task is really errored, things could be pretty bad
-        let PendingOp (promise_id, op_id, resp, metrics_event) = item.unwrap();
+        let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
         state
           .borrow()
           .op_state
@@ -1987,9 +1987,15 @@ impl JsRuntime {
         let res = resp.to_v8(scope);
         if metrics_event {
           if res.is_ok() && !was_error {
-            dispatch_metrics_async(&context_state.op_ctxs[op_id as usize], OpMetricsEvent::LeaveAsync);
+            dispatch_metrics_async(
+              &context_state.op_ctxs[op_id as usize],
+              OpMetricsEvent::LeaveAsync,
+            );
           } else {
-            dispatch_metrics_async(&context_state.op_ctxs[op_id as usize], OpMetricsEvent::ExceptionAsync);
+            dispatch_metrics_async(
+              &context_state.op_ctxs[op_id as usize],
+              OpMetricsEvent::ExceptionAsync,
+            );
           }
         }
         args.push(match res {
