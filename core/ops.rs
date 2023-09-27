@@ -28,6 +28,7 @@ use v8::Isolate;
 
 pub type PromiseId = i32;
 pub type OpId = u16;
+pub struct PendingOp(pub PromiseId, pub OpId, pub OpResult, pub bool);
 
 #[pin_project]
 pub struct OpCall<F: Future<Output = OpResult>> {
@@ -50,7 +51,7 @@ impl<F: Future<Output = OpResult>> OpCall<F> {
 }
 
 impl<F: Future<Output = OpResult>> Future for OpCall<F> {
-  type Output = (PromiseId, OpId, OpResult);
+  type Output = PendingOp;
 
   fn poll(
     self: std::pin::Pin<&mut Self>,
@@ -59,7 +60,7 @@ impl<F: Future<Output = OpResult>> Future for OpCall<F> {
     let promise_id = self.promise_id;
     let op_id = self.op_id;
     let fut = self.project().fut;
-    fut.poll(cx).map(move |res| (promise_id, op_id, res))
+    fut.poll(cx).map(move |res| PendingOp(promise_id, op_id, res, false))
   }
 }
 
@@ -122,10 +123,16 @@ pub fn to_op_result<R: Serialize + 'static>(
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum OpMetricsEvent {
+  /// Entered an op.
   Enter,
+  /// Left an op synchronously.
   Leave,
+  /// Left an op asynchronously.
   LeaveAsync,
+  /// Left an op synchronously with an exception.
   Exception,
+  /// Left an op asynchronously with an exception.
+  ExceptionAsync,
 }
 
 /// Per-op context.

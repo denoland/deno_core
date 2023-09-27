@@ -113,9 +113,6 @@ pub(crate) fn generate_dispatch_async(
     if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #lazy, #promise_id, #result, |#scope, #result| {
       #return_value
     }) {
-      if #opctx.metrics_enabled() {
-        #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Leave);
-      }
       // Eager poll returned a value
       #return_value_immediate
     }

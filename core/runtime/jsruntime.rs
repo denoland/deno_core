@@ -2,6 +2,7 @@
 
 use super::bindings;
 use super::jsrealm::JsRealmInner;
+use super::ops::dispatch_metrics_async;
 use super::snapshot_util;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -1972,7 +1973,7 @@ impl JsRuntime {
           break;
         };
         // TODO(mmastrac): If this task is really errored, things could be pretty bad
-        let (promise_id, op_id, resp) = item.unwrap();
+        let PendingOp (promise_id, op_id, resp, metrics_event) = item.unwrap();
         state
           .borrow()
           .op_state
@@ -1982,7 +1983,16 @@ impl JsRuntime {
         context_state.unrefed_ops.remove(&promise_id);
         dispatched_ops |= true;
         args.push(v8::Integer::new(scope, promise_id).into());
-        args.push(match resp.to_v8(scope) {
+        let was_error = matches!(resp, OpResult::Err(_));
+        let res = resp.to_v8(scope);
+        if metrics_event {
+          if res.is_ok() && !was_error {
+            dispatch_metrics_async(&context_state.op_ctxs[op_id as usize], OpMetricsEvent::LeaveAsync);
+          } else {
+            dispatch_metrics_async(&context_state.op_ctxs[op_id as usize], OpMetricsEvent::ExceptionAsync);
+          }
+        }
+        args.push(match res {
           Ok(v) => v,
           Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
             .to_v8(scope)

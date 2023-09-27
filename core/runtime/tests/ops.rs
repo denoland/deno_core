@@ -604,6 +604,12 @@ pub async fn test_op_metrics() {
     bail!("dead");
   }
 
+  #[op2(async, core)]
+  pub async fn op_async_error() -> Result<(), AnyError> {
+    println!("op_async_error!");
+    bail!("dead");
+  }
+
   #[op2(core, fast)]
   pub fn op_sync() {
     println!("op_sync!");
@@ -613,6 +619,7 @@ pub async fn test_op_metrics() {
     test_ext,
     ops = [
       op_async,
+      op_async_error,
       op_async_deferred,
       op_async_deferred_error,
       op_sync
@@ -621,7 +628,7 @@ pub async fn test_op_metrics() {
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    metrics_fn: Some(|op| {
+    metrics_fn: Some(|_op| {
       Some(|op, metrics| println!("{} {:?}", op.name, metrics))
     }),
     ..Default::default()
@@ -631,10 +638,11 @@ pub async fn test_op_metrics() {
   .execute_script_static(
     "filename.js",
     r#"
-  const { op_async, op_async_deferred, op_async_deferred_error, op_sync } = Deno.core.ensureFastOps();
+  const { op_sync, op_async, op_async_error, op_async_deferred, op_async_deferred_error } = Deno.core.ensureFastOps();
     async function go() {
       op_sync();
       await op_async();
+      try { await op_async_error() } catch {}
       await op_async_deferred();
       try { await op_async_deferred_error() } catch {}
     }
