@@ -99,8 +99,10 @@ pub struct OpDecl {
   pub is_unstable: bool,
   pub is_v8: bool,
   pub arg_count: u8,
-  pub(crate) v8_fn_ptr: OpFnRef,
+  pub(crate) slow_fn: OpFnRef,
+  pub(crate) slow_fn_metrics: Option<OpFnRef>,
   pub(crate) fast_fn: Option<FastFunction>,
+  pub(crate) fast_fn_metrics: Option<FastFunction>,
 }
 
 impl OpDecl {
@@ -112,7 +114,7 @@ impl OpDecl {
     is_unstable: bool,
     is_v8: bool,
     arg_count: u8,
-    v8_fn_ptr: OpFnRef,
+    slow_fn: OpFnRef,
     fast_fn: Option<FastFunction>,
   ) -> Self {
     Self {
@@ -122,8 +124,35 @@ impl OpDecl {
       is_unstable,
       is_v8,
       arg_count,
-      v8_fn_ptr,
+      slow_fn,
+      slow_fn_metrics: None,
       fast_fn,
+      fast_fn_metrics: None,
+    }
+  }
+
+  /// For use by internal op implementation only.
+  #[doc(hidden)]
+  pub const fn new_internal_op2(
+    name: &'static str,
+    is_async: bool,
+    arg_count: u8,
+    slow_fn: OpFnRef,
+    slow_fn_metrics: OpFnRef,
+    fast_fn: Option<FastFunction>,
+    fast_fn_metrics: Option<FastFunction>,
+  ) -> Self {
+    Self {
+      name,
+      enabled: true,
+      is_async,
+      is_unstable: false,
+      is_v8: false,
+      arg_count,
+      slow_fn,
+      slow_fn_metrics: Some(slow_fn_metrics),
+      fast_fn,
+      fast_fn_metrics,
     }
   }
 
@@ -141,8 +170,10 @@ impl OpDecl {
   /// `OpDecl`.
   pub const fn with_implementation_from(self, from: &Self) -> Self {
     Self {
-      v8_fn_ptr: from.v8_fn_ptr,
+      slow_fn: from.slow_fn,
+      slow_fn_metrics: from.slow_fn_metrics,
       fast_fn: from.fast_fn,
+      fast_fn_metrics: from.fast_fn_metrics,
       ..self
     }
   }

@@ -4,13 +4,12 @@ struct op_buffers {
 }
 impl deno_core::_ops::Op for op_buffers {
     const NAME: &'static str = stringify!(op_buffers);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_buffers),
-        false,
-        false,
         false,
         4usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
@@ -26,6 +25,22 @@ impl deno_core::_ops::Op for op_buffers {
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
         }),
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[
+                    Type::V8Value,
+                    Type::TypedArray(CType::Uint8),
+                    Type::TypedArray(CType::Uint8),
+                    Type::TypedArray(CType::Uint8),
+                    Type::TypedArray(CType::Uint8),
+                    Type::CallbackOptions,
+                ],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
     );
 }
 impl op_buffers {
@@ -35,6 +50,17 @@ impl op_buffers {
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn v8_fn_ptr_fast_metrics(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+        arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> () {
+        Self::v8_fn_ptr_fast(this, arg0, arg1, arg2, arg3)
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
@@ -183,6 +209,9 @@ impl op_buffers {
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
+    }
     #[inline(always)]
     fn call(_a: &[u8], _b: &mut [u8], _c: *const u8, _d: *mut u8) {}
 }
@@ -193,13 +222,12 @@ struct op_buffers_32 {
 }
 impl deno_core::_ops::Op for op_buffers_32 {
     const NAME: &'static str = stringify!(op_buffers_32);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_buffers_32),
-        false,
-        false,
         false,
         4usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
@@ -215,6 +243,22 @@ impl deno_core::_ops::Op for op_buffers_32 {
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
         }),
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[
+                    Type::V8Value,
+                    Type::TypedArray(CType::Uint32),
+                    Type::TypedArray(CType::Uint32),
+                    Type::TypedArray(CType::Uint32),
+                    Type::TypedArray(CType::Uint32),
+                    Type::CallbackOptions,
+                ],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
     );
 }
 impl op_buffers_32 {
@@ -224,6 +268,17 @@ impl op_buffers_32 {
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn v8_fn_ptr_fast_metrics(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+        arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> () {
+        Self::v8_fn_ptr_fast(this, arg0, arg1, arg2, arg3)
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
@@ -372,6 +427,9 @@ impl op_buffers_32 {
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
+    }
     #[inline(always)]
     fn call(_a: &[u32], _b: &mut [u32], _c: *const u32, _d: *mut u32) {}
 }
@@ -382,13 +440,13 @@ struct op_buffers_option {
 }
 impl deno_core::_ops::Op for op_buffers_option {
     const NAME: &'static str = stringify!(op_buffers_option);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_buffers_option),
-        false,
-        false,
         false,
         2usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
+        None,
         None,
     );
 }
@@ -463,6 +521,9 @@ impl op_buffers_option {
             Self::call(arg0, arg1)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     fn call(_a: Option<&[u8]>, _b: Option<JsBuffer>) {}

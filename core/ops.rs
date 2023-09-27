@@ -133,6 +133,7 @@ pub struct OpCtx {
   pub decl: Rc<OpDecl>,
   pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub runtime_state: Weak<RefCell<JsRuntimeState>>,
+  pub(crate) metrics_fn: Option<fn(&OpDecl)>,
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
@@ -179,6 +180,7 @@ impl OpCtx {
       fast_fn_c_info,
       last_fast_error: UnsafeCell::new(None),
       isolate,
+      metrics_fn: None,
     }
   }
 

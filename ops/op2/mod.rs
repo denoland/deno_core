@@ -133,7 +133,11 @@ fn generate_op2(
   let js_runtime_state = Ident::new("js_runtime_state", Span::call_site());
   let promise_id = Ident::new("promise_id", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
+  let slow_function_metrics =
+    Ident::new("v8_fn_ptr_metrics", Span::call_site());
   let fast_function = Ident::new("v8_fn_ptr_fast", Span::call_site());
+  let fast_function_metrics =
+    Ident::new("v8_fn_ptr_fast_metrics", Span::call_site());
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
 
@@ -160,7 +164,9 @@ fn generate_op2(
     retval,
     needs_args,
     slow_function,
+    slow_function_metrics,
     fast_function,
+    fast_function_metrics,
     promise_id,
     needs_retval: false,
     needs_scope: false,
@@ -188,17 +194,21 @@ fn generate_op2(
     _ => {}
   }
 
-  let (fast_definition, fast_fn) =
+  let (fast_definition, fast_definition_metrics, fast_fn) =
     match generate_dispatch_fast(&mut generator_state, &signature)? {
-      Some((fast_definition, fast_fn)) => {
+      Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast && !config.nofast {
           return Err(Op2Error::ShouldBeFast);
         }
         // nofast requires the function to be valid for fast
         if config.nofast {
-          (quote!(None), quote!())
+          (quote!(None), quote!(None), quote!())
         } else {
-          (quote!(Some({#fast_definition})), fast_fn)
+          (
+            quote!(Some({#fast_definition})),
+            quote!(Some({#fast_metrics_definition})),
+            fast_fn,
+          )
         }
       }
       None => {
@@ -208,13 +218,14 @@ fn generate_op2(
         if config.nofast {
           return Err(Op2Error::ShouldNotBeFast("nofast"));
         }
-        (quote!(None), quote!())
+        (quote!(None), quote!(None), quote!())
       }
     };
 
   let GeneratorState {
     deno_core,
     slow_function,
+    slow_function_metrics,
     ..
   } = &generator_state;
 
@@ -241,14 +252,14 @@ fn generate_op2(
 
     impl <#(#generic : #bound),*> #deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal(
+      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal_op2(
         /*name*/ stringify!(#name),
         /*is_async*/ #is_async,
-        /*is_unstable*/ false,
-        /*is_v8*/ false,
         /*arg_count*/ #arg_count as u8,
-        /*v8_fn_ptr*/ Self::#slow_function as _,
+        /*slow_fn*/ Self::#slow_function as _,
+        /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
         /*fast_fn*/ #fast_definition,
+        /*fast_fn_metrics*/ #fast_definition_metrics,
       );
     }
 

@@ -4,13 +4,13 @@ pub struct op_v8_lifetime {
 }
 impl deno_core::_ops::Op for op_v8_lifetime {
     const NAME: &'static str = stringify!(op_v8_lifetime);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_v8_lifetime),
-        false,
-        false,
         false,
         1usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
+        None,
         None,
     );
 }
@@ -49,6 +49,9 @@ impl op_v8_lifetime {
             Self::call(arg0)
         };
         rv.set(deno_core::_ops::RustToV8NoScope::to_v8(result))
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     pub fn call<'s>(_s: v8::Local<'s, v8::String>) -> v8::Local<'s, v8::String> {

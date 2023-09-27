@@ -143,15 +143,20 @@ pub(crate) fn generate_dispatch_async(
   };
 
   Ok(
-    gs_quote!(generator_state(deno_core, info, slow_function) => {
+    gs_quote!(generator_state(deno_core, info, slow_function, slow_function_metrics) => {
       extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
-      #with_scope
-      #with_retval
-      #with_args
-      #with_opctx
-      #with_opstate
+        #with_scope
+        #with_retval
+        #with_args
+        #with_opctx
+        #with_opstate
 
-      #output
-    }}),
+        #output
+      }
+
+      extern "C" fn #slow_function_metrics(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+        Self::#slow_function(#info)
+      }
+    }),
   )
 }

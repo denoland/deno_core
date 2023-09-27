@@ -46,7 +46,7 @@ pub(crate) fn external_references(
     let ctx_ptr = ctx as *const OpCtx as _;
     references.push(v8::ExternalReference { pointer: ctx_ptr });
     references.push(v8::ExternalReference {
-      function: ctx.decl.v8_fn_ptr,
+      function: ctx.decl.slow_fn,
     });
     if let Some(fast_fn) = &ctx.decl.fast_fn {
       references.push(v8::ExternalReference {
@@ -191,7 +191,7 @@ fn op_ctx_function<'s>(
     v8::String::new_external_onebyte_static(scope, op_ctx.decl.name.as_bytes())
       .unwrap();
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
-    v8::FunctionTemplate::builder_raw(op_ctx.decl.v8_fn_ptr)
+    v8::FunctionTemplate::builder_raw(op_ctx.decl.slow_fn)
       .data(external.into())
       .length(op_ctx.decl.arg_count as i32);
 

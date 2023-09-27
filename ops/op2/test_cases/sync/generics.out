@@ -4,18 +4,26 @@ pub struct op_generics<T> {
 }
 impl<T: Trait> deno_core::_ops::Op for op_generics<T> {
     const NAME: &'static str = stringify!(op_generics);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_generics),
-        false,
-        false,
         false,
         0usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value, Type::CallbackOptions],
                 CType::Void,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
@@ -31,6 +39,13 @@ impl<T: Trait> op_generics<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
+    fn v8_fn_ptr_fast_metrics(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> () {
+        Self::v8_fn_ptr_fast(this)
+    }
+    #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         let result = { Self::call() };
         result as _
@@ -42,6 +57,9 @@ impl<T: Trait> op_generics<T> {
         let result = { Self::call() };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
+    }
     #[inline(always)]
     pub fn call() {}
 }
@@ -52,18 +70,26 @@ pub struct op_generics_static<T> {
 }
 impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static<T> {
     const NAME: &'static str = stringify!(op_generics_static);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_generics_static),
-        false,
-        false,
         false,
         0usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value, Type::CallbackOptions],
                 CType::Void,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
@@ -79,6 +105,13 @@ impl<T: Trait + 'static> op_generics_static<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
+    fn v8_fn_ptr_fast_metrics(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> () {
+        Self::v8_fn_ptr_fast(this)
+    }
+    #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         let result = { Self::call() };
         result as _
@@ -90,6 +123,9 @@ impl<T: Trait + 'static> op_generics_static<T> {
         let result = { Self::call() };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
+    }
     #[inline(always)]
     pub fn call() {}
 }
@@ -100,18 +136,26 @@ pub struct op_generics_static_where<T> {
 }
 impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static_where<T> {
     const NAME: &'static str = stringify!(op_generics_static_where);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_generics_static_where),
-        false,
-        false,
         false,
         0usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value, Type::CallbackOptions],
                 CType::Void,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
@@ -127,6 +171,13 @@ impl<T: Trait + 'static> op_generics_static_where<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
+    fn v8_fn_ptr_fast_metrics(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> () {
+        Self::v8_fn_ptr_fast(this)
+    }
+    #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         let result = { Self::call() };
         result as _
@@ -137,6 +188,9 @@ impl<T: Trait + 'static> op_generics_static_where<T> {
         });
         let result = { Self::call() };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     pub fn call()

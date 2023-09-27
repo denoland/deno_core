@@ -138,7 +138,7 @@ impl V8FastCallType {
 pub fn generate_dispatch_fast(
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
-) -> Result<Option<(TokenStream, TokenStream)>, V8MappingError> {
+) -> Result<Option<(TokenStream, TokenStream, TokenStream)>, V8MappingError> {
   enum Input<'a> {
     Concrete(V8FastCallType),
     Virtual(&'a Arg),
@@ -194,6 +194,7 @@ pub fn generate_dispatch_fast(
     deno_core,
     result,
     fast_function,
+    fast_function_metrics,
     opctx,
     js_runtime_state,
     fast_api_callback_options,
@@ -260,6 +261,10 @@ pub fn generate_dispatch_fast(
     quote!()
   };
 
+  let mut fastcall_metrics_names = fastcall_names.clone();
+  let mut fastcall_metrics_types = fastcall_types.clone();
+  let mut input_types_metrics = input_types.clone();
+
   let with_fast_api_callback_options = if *needs_fast_api_callback_options {
     input_types.push(V8FastCallType::CallbackOptions.quote_type());
     fastcall_types
@@ -271,6 +276,11 @@ pub fn generate_dispatch_fast(
   } else {
     quote!()
   };
+
+  input_types_metrics.push(V8FastCallType::CallbackOptions.quote_type());
+  fastcall_metrics_types
+    .push(V8FastCallType::CallbackOptions.quote_rust_type(deno_core));
+  fastcall_metrics_names.push(fast_api_callback_options.clone());
 
   let output_type = output.quote_ctype();
 
@@ -286,6 +296,18 @@ pub fn generate_dispatch_fast(
     )
   };
 
+  let fast_definition_metrics = quote! {
+    use #deno_core::v8::fast_api::Type;
+    use #deno_core::v8::fast_api::CType;
+    // TODO(mmastrac): We're setting this up for future success but returning
+    // u64/i64 from fastcall functions does not work. Test again in the future.
+    #deno_core::v8::fast_api::FastFunction::new_with_bigint(
+      &[ Type::V8Value, #( #input_types_metrics ),* ],
+      #output_type,
+      Self::#fast_function as *const ::std::ffi::c_void
+    )
+  };
+
   // Ensure that we have the same types in the fast function definition as we do in the signature
   debug_assert!(fastcall_types.len() == input_types.len());
 
@@ -293,6 +315,14 @@ pub fn generate_dispatch_fast(
   // We don't want clippy to trigger warnings on number of arguments of the fastcall
   // function -- these will still trigger on our normal call function, however.
   let fast_fn = quote!(
+    #[allow(clippy::too_many_arguments)]
+    fn #fast_function_metrics(
+      this: #deno_core::v8::Local<#deno_core::v8::Object>,
+      #( #fastcall_metrics_names: #fastcall_metrics_types, )*
+    ) -> #output_type {
+      Self::#fast_function( this, #( #fastcall_names, )* )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn #fast_function(
       _: #deno_core::v8::Local<#deno_core::v8::Object>,
@@ -311,7 +341,7 @@ pub fn generate_dispatch_fast(
     }
   );
 
-  Ok(Some((fast_definition, fast_fn)))
+  Ok(Some((fast_definition, fast_definition_metrics, fast_fn)))
 }
 
 #[allow(clippy::too_many_arguments)]

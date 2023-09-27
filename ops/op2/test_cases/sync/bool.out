@@ -4,18 +4,26 @@ pub struct op_bool {
 }
 impl deno_core::_ops::Op for op_bool {
     const NAME: &'static str = stringify!(op_bool);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_bool),
-        false,
-        false,
         false,
         1usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value, Type::Bool],
+                CType::Bool,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value, Type::Bool, Type::CallbackOptions],
                 CType::Bool,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
@@ -29,6 +37,14 @@ impl op_bool {
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn v8_fn_ptr_fast_metrics(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+        arg0: bool,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> bool {
+        Self::v8_fn_ptr_fast(this, arg0)
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
@@ -54,6 +70,9 @@ impl op_bool {
             Self::call(arg0)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     pub fn call(arg: bool) -> bool {

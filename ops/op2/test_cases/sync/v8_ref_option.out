@@ -4,13 +4,21 @@ pub struct op_v8_lifetime {
 }
 impl deno_core::_ops::Op for op_v8_lifetime {
     const NAME: &'static str = stringify!(op_v8_lifetime);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_v8_lifetime),
-        false,
-        false,
         false,
         2usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
+        Some({
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                &[Type::V8Value, Type::V8Value, Type::V8Value, Type::CallbackOptions],
+                CType::Void,
+                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+            )
+        }),
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
@@ -29,6 +37,15 @@ impl op_v8_lifetime {
     #[deprecated(note = "Use the const op::DECL instead")]
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn v8_fn_ptr_fast_metrics(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+        arg0: deno_core::v8::Local<deno_core::v8::Value>,
+        arg1: deno_core::v8::Local<deno_core::v8::Value>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+    ) -> () {
+        Self::v8_fn_ptr_fast(this, arg0, arg1, fast_api_callback_options)
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
@@ -112,6 +129,9 @@ impl op_v8_lifetime {
             Self::call(arg0, arg1)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     pub fn call<'s>(_s: Option<&v8::String>, _s2: Option<&v8::String>) {}
