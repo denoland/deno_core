@@ -11,6 +11,7 @@ use anyhow::bail;
 use anyhow::Error;
 use deno_ops::op;
 use log::debug;
+use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -626,11 +627,22 @@ pub async fn test_op_metrics() {
     ],
   );
 
+  let out = Rc::new(RefCell::new(vec![]));
+
+  let out_clone = out.clone();
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    metrics_fn: Some(|_op| {
-      Some(Rc::new(|op, metrics| println!("{} {:?}", op.name, metrics)))
-    }),
+    metrics_fn: Some(Box::new(move |op| {
+      if !op.name.starts_with("op_async") && !op.name.starts_with("op_sync") {
+        return None;
+      }
+      let out_clone = out_clone.clone();
+      Some(Rc::new(move |op, metrics| {
+        let s = format!("{} {:?}", op.name, metrics);
+        println!("{s}");
+        out_clone.borrow_mut().push(s);
+      }))
+    })),
     ..Default::default()
   });
 
@@ -655,4 +667,19 @@ pub async fn test_op_metrics() {
     .resolve_value(promise)
     .await
     .expect("Failed to await promise");
+  drop(runtime);
+  let out = Rc::try_unwrap(out).unwrap().into_inner().join("\n");
+  assert_eq!(
+    out,
+    r#"op_sync Enter
+op_sync Leave
+op_async Enter
+op_async Leave
+op_async_error Enter
+op_async_error Exception
+op_async_deferred Enter
+op_async_deferred LeaveAsync
+op_async_deferred_error Enter
+op_async_deferred_error ExceptionAsync"#
+  );
 }

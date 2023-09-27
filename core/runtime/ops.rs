@@ -176,7 +176,7 @@ pub fn map_async_op_infallible<R: 'static>(
     Poll::Pending => {}
     Poll::Ready(res) => {
       if ctx.metrics_enabled() {
-        dispatch_metrics_async(&ctx, OpMetricsEvent::Leave);
+        dispatch_metrics_async(ctx, OpMetricsEvent::Leave);
       }
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
       return Some(res.2);
@@ -243,9 +243,9 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
     Poll::Ready(res) => {
       if ctx.metrics_enabled() {
         if res.2.is_err() {
-          dispatch_metrics_async(&ctx, OpMetricsEvent::Exception);
+          dispatch_metrics_async(ctx, OpMetricsEvent::Exception);
         } else {
-          dispatch_metrics_async(&ctx, OpMetricsEvent::Leave);
+          dispatch_metrics_async(ctx, OpMetricsEvent::Leave);
         }
       }
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);

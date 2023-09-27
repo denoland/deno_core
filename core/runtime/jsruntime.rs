@@ -362,7 +362,7 @@ fn v8_init(
   v8::V8::initialize();
 }
 
-pub type MetricsFactoryFn = fn(&OpDecl) -> Option<MetricsFn>;
+pub type MetricsFactoryFn = Box<dyn Fn(&OpDecl) -> Option<MetricsFn>>;
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -599,7 +599,7 @@ impl JsRuntime {
       .into_iter()
       .enumerate()
       .map(|(id, decl)| {
-        let metrics_fn = options.metrics_fn.and_then(|f| (f)(&decl));
+        let metrics_fn = options.metrics_fn.as_ref().and_then(|f| (f)(&decl));
         OpCtx::new(
           id as u16,
           std::ptr::null_mut(),
