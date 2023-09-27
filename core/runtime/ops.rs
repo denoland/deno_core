@@ -1855,8 +1855,8 @@ mod tests {
     input: *const std::ffi::c_void,
     #[number] offset: isize,
   ) -> *const std::ffi::c_void {
-    // SAFETY: for testing
-    unsafe { input.offset(offset) }
+    // NOTE: This doesn't work with `ptr::offset` because the unsafe behaviour is actually UB!
+    input.wrapping_offset(offset)
   }
 
   #[tokio::test]
