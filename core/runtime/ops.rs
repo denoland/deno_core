@@ -732,8 +732,8 @@ mod tests {
       op_arraybuffer_slice,
       op_external_make,
       op_external_process,
-      op_external_make_null,
-      op_external_process_null,
+      op_external_make_ptr,
+      op_external_process_ptr,
 
       op_async_void,
       op_async_number,
@@ -1846,24 +1846,30 @@ mod tests {
   }
 
   #[op2(core, fast)]
-  fn op_external_make_null() -> *const std::ffi::c_void {
-    0 as _
+  fn op_external_make_ptr(#[bigint] value: u64) -> *const std::ffi::c_void {
+    value as _
   }
 
   #[op2(core, fast)]
-  fn op_external_process_null(
+  fn op_external_process_ptr(
     input: *const std::ffi::c_void,
+    #[number] offset: isize,
   ) -> *const std::ffi::c_void {
-    assert_eq!(input, 0 as _);
-    input
+    // SAFETY: for testing
+    unsafe { input.offset(offset) }
   }
 
   #[tokio::test]
   pub async fn test_external_null() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10000,
-      "op_external_make_null, op_external_process_null",
-      "assert(op_external_process_null(op_external_make_null()) === null)",
+      "op_external_make_ptr, op_external_process_ptr",
+      "assert(op_external_process_ptr(op_external_make_ptr(0), 0) === null)",
+    )?;
+    run_test2(
+      10000,
+      "op_external_make_ptr, op_external_process_ptr",
+      "assert(op_external_process_ptr(op_external_make_ptr(6), -6) === null)",
     )?;
     Ok(())
   }
