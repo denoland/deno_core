@@ -327,9 +327,9 @@ pub fn generate_dispatch_fast(
             unsafe { #fast_api_callback_options.data.data }
           ).value() as *const #deno_core::_ops::OpCtx)
       };
-      #deno_core::_ops::dispatch_metrics_fast(&opctx, #deno_core::_ops::OpMetricsEvent::Enter);
+      #deno_core::_ops::dispatch_metrics_fast(&opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
       let res = Self::#fast_function( this, #( #fastcall_names, )* );
-      #deno_core::_ops::dispatch_metrics_fast(&opctx, #deno_core::_ops::OpMetricsEvent::Leave);
+      #deno_core::_ops::dispatch_metrics_fast(&opctx, #deno_core::_ops::OpMetricsEvent::Completed);
       res
     }
 

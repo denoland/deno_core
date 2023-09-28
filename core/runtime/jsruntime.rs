@@ -1992,12 +1992,12 @@ impl JsRuntime {
           if res.is_ok() && !was_error {
             dispatch_metrics_async(
               &context_state.op_ctxs[op_id as usize],
-              OpMetricsEvent::LeaveAsync,
+              OpMetricsEvent::CompletedAsync,
             );
           } else {
             dispatch_metrics_async(
               &context_state.op_ctxs[op_id as usize],
-              OpMetricsEvent::ExceptionAsync,
+              OpMetricsEvent::ErrorAsync,
             );
           }
         }

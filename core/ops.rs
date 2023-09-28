@@ -126,15 +126,15 @@ pub fn to_op_result<R: Serialize + 'static>(
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum OpMetricsEvent {
   /// Entered an op.
-  Enter,
+  Dispatched,
   /// Left an op synchronously.
-  Leave,
+  Completed,
   /// Left an op asynchronously.
-  LeaveAsync,
+  CompletedAsync,
   /// Left an op synchronously with an exception.
-  Exception,
+  Error,
   /// Left an op asynchronously with an exception.
-  ExceptionAsync,
+  ErrorAsync,
 }
 
 pub type OpMetricsFn = Rc<dyn Fn(&OpDecl, OpMetricsEvent)>;

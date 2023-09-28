@@ -53,12 +53,12 @@ impl op_bool {
         };
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Enter,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Leave,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
         res
     }
@@ -143,12 +143,12 @@ impl op_bool {
         };
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Enter,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         Self::v8_fn_ptr(info);
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Leave,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
     }
     #[inline(always)]

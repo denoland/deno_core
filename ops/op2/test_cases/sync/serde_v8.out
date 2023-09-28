@@ -77,12 +77,12 @@ impl op_serde_v8 {
         };
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Enter,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         Self::v8_fn_ptr(info);
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Leave,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
     }
     #[inline(always)]

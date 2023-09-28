@@ -81,7 +81,7 @@ pub(crate) fn generate_dispatch_async(
   args.extend(call(generator_state)?);
   output.extend(gs_quote!(generator_state(deno_core, result, opctx) => {
     if #opctx.metrics_enabled() {
-      #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Enter);
+      #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
     }
     let #result = {
       #args
@@ -98,7 +98,7 @@ pub(crate) fn generate_dispatch_async(
         Ok(#result) => #result,
         Err(err) => {
           if #opctx.metrics_enabled() {
-            #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Exception);
+            #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Error);
           }
           // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
           #exception

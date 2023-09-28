@@ -175,9 +175,9 @@ impl OpDecl {
   pub const fn with_implementation_from(self, from: &Self) -> Self {
     Self {
       slow_fn: from.slow_fn,
-      slow_fn_metrics: from.slow_fn_metrics,
+      slow_fn_with_metrics: from.slow_fn_with_metrics,
       fast_fn: from.fast_fn,
-      fast_fn_metrics: from.fast_fn_metrics,
+      fast_fn_with_metrics: from.fast_fn_with_metrics,
       ..self
     }
   }

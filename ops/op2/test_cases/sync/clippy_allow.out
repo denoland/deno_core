@@ -54,12 +54,12 @@ impl op_extra_annotation {
         };
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Enter,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         let res = Self::v8_fn_ptr_fast(this);
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Leave,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
         res
     }
@@ -85,12 +85,12 @@ impl op_extra_annotation {
         };
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Enter,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         Self::v8_fn_ptr(info);
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Leave,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
     }
     #[inline(always)]
@@ -153,12 +153,12 @@ impl op_clippy_internal {
         };
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Enter,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         let res = Self::v8_fn_ptr_fast(this);
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Leave,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
         res
     }
@@ -184,12 +184,12 @@ impl op_clippy_internal {
         };
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Enter,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         Self::v8_fn_ptr(info);
         deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Leave,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
     }
     #[inline(always)]
