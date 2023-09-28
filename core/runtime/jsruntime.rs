@@ -2015,3 +2015,52 @@ impl JsRuntime {
     Ok(dispatched_ops)
   }
 }
+
+#[cfg(test)]
+mod test_module_unload {
+  fn get_numbered_module(
+    i: usize,
+  ) -> (crate::url::Url, Option<crate::FastString>) {
+    let name = crate::resolve_path(
+      &format!("module{i}.js"),
+      &std::env::current_dir()
+        .expect("Unable to get current working directory"),
+    )
+    .expect("Unable to get module url");
+
+    let code = Some(crate::FastString::from(
+      "export const foo = 'bar';".to_string(),
+    ));
+
+    (name, code)
+  }
+
+  #[test]
+  fn test_unload() {
+    let mut js_runtime = crate::JsRuntime::new(Default::default());
+
+    for _ in 0..1000 {
+      let runtime = &mut js_runtime;
+      let future = async move {
+        for i in 0..1000 {
+          let (name, code) = get_numbered_module(i);
+          let mod_id = runtime.load_side_module(&name, code).await?;
+          let result = runtime.mod_evaluate(mod_id);
+          runtime.run_event_loop(false).await?;
+          result.await??;
+        }
+
+        Ok::<(), anyhow::Error>(())
+      };
+
+      tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(future)
+        .expect("Could not run tokio");
+
+      js_runtime.clear_modules();
+    }
+  }
+}
