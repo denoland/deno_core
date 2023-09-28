@@ -137,7 +137,7 @@ pub enum OpMetricsEvent {
   ExceptionAsync,
 }
 
-pub type MetricsFn = Rc<dyn Fn(&OpDecl, OpMetricsEvent)>;
+pub type OpMetricsFn = Rc<dyn Fn(&OpDecl, OpMetricsEvent)>;
 
 /// Per-op context.
 ///
@@ -152,7 +152,7 @@ pub struct OpCtx {
   pub decl: Rc<OpDecl>,
   pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub runtime_state: Weak<RefCell<JsRuntimeState>>,
-  pub(crate) metrics_fn: Option<MetricsFn>,
+  pub(crate) metrics_fn: Option<OpMetricsFn>,
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
@@ -168,7 +168,7 @@ impl OpCtx {
     state: Rc<RefCell<OpState>>,
     runtime_state: Weak<RefCell<JsRuntimeState>>,
     get_error_class_fn: GetErrorClassFn,
-    metrics_fn: Option<MetricsFn>,
+    metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
     let mut fast_fn_c_info = None;
 

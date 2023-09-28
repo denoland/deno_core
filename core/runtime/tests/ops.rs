@@ -632,7 +632,7 @@ pub async fn test_op_metrics() {
   let out_clone = out.clone();
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    metrics_fn: Some(Box::new(move |op| {
+    op_metrics_fn: Some(Box::new(move |op| {
       if !op.name.starts_with("op_async") && !op.name.starts_with("op_sync") {
         return None;
       }

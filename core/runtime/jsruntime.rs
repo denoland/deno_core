@@ -362,7 +362,7 @@ fn v8_init(
   v8::V8::initialize();
 }
 
-pub type MetricsFactoryFn = Box<dyn Fn(&OpDecl) -> Option<MetricsFn>>;
+pub type OpMetricsFactoryFn = Box<dyn Fn(&OpDecl) -> Option<OpMetricsFn>>;
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -380,7 +380,9 @@ pub struct RuntimeOptions {
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
 
-  pub metrics_fn: Option<MetricsFactoryFn>,
+  /// Provide a function that may optionally provide a metrics collector
+  /// for a given op.
+  pub op_metrics_fn: Option<OpMetricsFactoryFn>,
 
   /// JsRuntime extensions, not to be confused with ES modules.
   /// Only ops registered by extensions will be initialized. If you need
@@ -599,7 +601,8 @@ impl JsRuntime {
       .into_iter()
       .enumerate()
       .map(|(id, decl)| {
-        let metrics_fn = options.metrics_fn.as_ref().and_then(|f| (f)(&decl));
+        let metrics_fn =
+          options.op_metrics_fn.as_ref().and_then(|f| (f)(&decl));
         OpCtx::new(
           id as u16,
           std::ptr::null_mut(),
