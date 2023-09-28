@@ -172,10 +172,14 @@ impl OpCtx {
   ) -> Self {
     let mut fast_fn_c_info = None;
 
+    // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
+    // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
+    // version and require a slightly different set of arguments (for example, it may need the fastcall
+    // callback information to get the `OpCtx`).
     let fast_fn = if metrics_fn.is_some() {
       &decl.fast_fn
     } else {
-      &decl.fast_fn_metrics
+      &decl.fast_fn_with_metrics
     };
 
     if let Some(fast_fn) = fast_fn {

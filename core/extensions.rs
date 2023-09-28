@@ -99,10 +99,14 @@ pub struct OpDecl {
   pub is_unstable: bool,
   pub is_v8: bool,
   pub arg_count: u8,
+  /// The slow dispatch call. If metrics are disabled, the `v8::Function` is created with this callback.
   pub(crate) slow_fn: OpFnRef,
-  pub(crate) slow_fn_metrics: OpFnRef,
+  /// The slow dispatch call with metrics enabled. If metrics are enabled, the `v8::Function` is created with this callback.
+  pub(crate) slow_fn_with_metrics: OpFnRef,
+  /// The fast dispatch call. If metrics are disabled, the `v8::Function`'s fastcall is created with this callback.
   pub(crate) fast_fn: Option<FastFunction>,
-  pub(crate) fast_fn_metrics: Option<FastFunction>,
+  /// The fast dispatch call with metrics enabled. If metrics are enabled, the `v8::Function`'s fastcall is created with this callback.
+  pub(crate) fast_fn_with_metrics: Option<FastFunction>,
 }
 
 impl OpDecl {
@@ -125,9 +129,9 @@ impl OpDecl {
       is_v8,
       arg_count,
       slow_fn,
-      slow_fn_metrics: slow_fn,
+      slow_fn_with_metrics: slow_fn,
       fast_fn,
-      fast_fn_metrics: fast_fn,
+      fast_fn_with_metrics: fast_fn,
     }
   }
 
@@ -138,9 +142,9 @@ impl OpDecl {
     is_async: bool,
     arg_count: u8,
     slow_fn: OpFnRef,
-    slow_fn_metrics: OpFnRef,
+    slow_fn_with_metrics: OpFnRef,
     fast_fn: Option<FastFunction>,
-    fast_fn_metrics: Option<FastFunction>,
+    fast_fn_with_metrics: Option<FastFunction>,
   ) -> Self {
     Self {
       name,
@@ -150,9 +154,9 @@ impl OpDecl {
       is_v8: false,
       arg_count,
       slow_fn,
-      slow_fn_metrics,
+      slow_fn_with_metrics,
       fast_fn,
-      fast_fn_metrics,
+      fast_fn_with_metrics,
     }
   }
 
