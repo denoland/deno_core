@@ -1,3 +1,4 @@
 # Use Unix line endings in all text files.
 * text=auto eol=lf
 *.png -text
+*.out linguist-generated=true
