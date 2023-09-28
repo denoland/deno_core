@@ -47,9 +47,9 @@ pub(crate) fn external_references(
       let ctx_ptr = ctx as *const OpCtx as _;
       references.push(v8::ExternalReference { pointer: ctx_ptr });
       references.push(v8::ExternalReference {
-        function: ctx.decl.slow_fn_metrics,
+        function: ctx.decl.slow_fn_with_metrics,
       });
-      if let Some(fast_fn) = &ctx.decl.fast_fn_metrics {
+      if let Some(fast_fn) = &ctx.decl.fast_fn_with_metrics {
         references.push(v8::ExternalReference {
           pointer: fast_fn.function as _,
         });
@@ -208,7 +208,10 @@ fn op_ctx_function<'s>(
       .unwrap();
 
   let (slow_fn, fast_fn) = if op_ctx.metrics_enabled() {
-    (op_ctx.decl.slow_fn_metrics, op_ctx.decl.fast_fn_metrics)
+    (
+      op_ctx.decl.slow_fn_with_metrics,
+      op_ctx.decl.fast_fn_with_metrics,
+    )
   } else {
     (op_ctx.decl.slow_fn, op_ctx.decl.fast_fn)
   };
