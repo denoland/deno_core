@@ -4,13 +4,13 @@ pub struct op_async_v8_buffer {
 }
 impl deno_core::_ops::Op for op_async_v8_buffer {
     const NAME: &'static str = stringify!(op_async_v8_buffer);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_async_v8_buffer),
         true,
-        false,
-        false,
         2usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
+        None,
         None,
     );
 }
@@ -34,6 +34,12 @@ impl op_async_v8_buffer {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
+        if opctx.metrics_enabled() {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
+            );
+        }
         let result = {
             let arg0 = args.get(1usize as i32);
             let mut arg0_temp;
@@ -82,6 +88,9 @@ impl op_async_v8_buffer {
                 }
             }
         }
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     pub async fn call(buf: JsBuffer) -> JsBuffer {

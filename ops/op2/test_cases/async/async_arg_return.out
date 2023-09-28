@@ -4,13 +4,13 @@ pub struct op_async {
 }
 impl deno_core::_ops::Op for op_async {
     const NAME: &'static str = stringify!(op_async);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_async),
         true,
-        false,
-        false,
         2usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
+        None,
         None,
     );
 }
@@ -34,6 +34,12 @@ impl op_async {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
+        if opctx.metrics_enabled() {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
+            );
+        }
         let result = {
             let arg0 = args.get(1usize as i32);
             let Some(arg0) = deno_core::_ops::to_i32_option(&arg0) else {
@@ -62,6 +68,9 @@ impl op_async {
         ) {
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
         }
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     pub async fn call(x: i32) -> i32 {

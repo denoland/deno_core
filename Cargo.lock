@@ -297,6 +297,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "pin-project",
+ "pretty_assertions",
  "serde",
  "serde_json",
  "serde_v8",

@@ -111,10 +111,13 @@ pub fn queue_async_op<'s>(
   // );
 
   let id = ctx.id;
+  let metrics = ctx.metrics_enabled();
 
   // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-  let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
+  let mut pinned = op
+    .map(move |res| PendingOp(promise_id, id, res, metrics))
+    .boxed_local();
 
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
@@ -146,13 +149,15 @@ pub fn map_async_op_infallible<R: 'static>(
 ) -> Option<R> {
   let id = ctx.id;
   ctx.state.borrow().tracker.track_async(id);
+  let metrics = ctx.metrics_enabled();
 
   if lazy {
     let mapper = move |r| {
-      (
+      PendingOp(
         promise_id,
         id,
         OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r))),
+        metrics,
       )
     };
     ctx
@@ -170,6 +175,9 @@ pub fn map_async_op_infallible<R: 'static>(
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
     Poll::Ready(res) => {
+      if ctx.metrics_enabled() {
+        dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+      }
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
       return Some(res.2);
     }
@@ -180,10 +188,11 @@ pub fn map_async_op_infallible<R: 'static>(
     .borrow_mut()
     .pending_ops
     .spawn(pinned.map(move |r| {
-      (
+      PendingOp(
         r.0,
         r.1,
         OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r.2))),
+        metrics,
       )
     }));
   None
@@ -202,20 +211,23 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
 ) -> Option<Result<R, E>> {
   let id = ctx.id;
   ctx.state.borrow().tracker.track_async(id);
+  let metrics = ctx.metrics_enabled();
 
   if lazy {
     let get_class = ctx.get_error_class_fn;
     ctx.context_state.borrow_mut().pending_ops.spawn(op.map(
       move |r| match r {
-        Ok(v) => (
+        Ok(v) => PendingOp(
           promise_id,
           id,
           OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+          metrics,
         ),
-        Err(err) => (
+        Err(err) => PendingOp(
           promise_id,
           id,
           OpResult::Err(OpError::new(get_class, err.into())),
+          metrics,
         ),
       },
     ));
@@ -229,6 +241,13 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
     Poll::Ready(res) => {
+      if ctx.metrics_enabled() {
+        if res.2.is_err() {
+          dispatch_metrics_async(ctx, OpMetricsEvent::Error);
+        } else {
+          dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+        }
+      }
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
       return Some(res.2);
     }
@@ -237,17 +256,33 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   let get_class = ctx.get_error_class_fn;
   ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
     move |r| match r.2 {
-      Ok(v) => (
+      Ok(v) => PendingOp(
         r.0,
         r.1,
         OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+        metrics,
       ),
-      Err(err) => {
-        (r.0, r.1, OpResult::Err(OpError::new(get_class, err.into())))
-      }
+      Err(err) => PendingOp(
+        r.0,
+        r.1,
+        OpResult::Err(OpError::new(get_class, err.into())),
+        metrics,
+      ),
     },
   ));
   None
+}
+
+pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
+}
+
+pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
+}
+
+pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
 }
 
 macro_rules! try_number_some {

@@ -120,7 +120,7 @@ pub(crate) fn generate_dispatch_slow(
   };
 
   Ok(
-    gs_quote!(generator_state(deno_core, info, slow_function) => {
+    gs_quote!(generator_state(deno_core, opctx, info, slow_function, slow_function_metrics) => {
       extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
         #with_scope
         #with_retval
@@ -131,6 +131,19 @@ pub(crate) fn generate_dispatch_slow(
         #with_js_runtime_state
 
         #output
+      }
+      extern "C" fn #slow_function_metrics(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+        let args = #deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+          &*info
+        });
+        let #opctx = unsafe {
+            &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(args.data()).value()
+                as *const #deno_core::_ops::OpCtx)
+        };
+
+        #deno_core::_ops::dispatch_metrics_slow(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
+        Self::#slow_function(#info);
+        #deno_core::_ops::dispatch_metrics_slow(&#opctx, #deno_core::_ops::OpMetricsEvent::Completed);
       }
     }),
   )

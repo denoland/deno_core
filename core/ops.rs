@@ -28,6 +28,7 @@ use v8::Isolate;
 
 pub type PromiseId = i32;
 pub type OpId = u16;
+pub struct PendingOp(pub PromiseId, pub OpId, pub OpResult, pub bool);
 
 #[pin_project]
 pub struct OpCall<F: Future<Output = OpResult>> {
@@ -50,7 +51,7 @@ impl<F: Future<Output = OpResult>> OpCall<F> {
 }
 
 impl<F: Future<Output = OpResult>> Future for OpCall<F> {
-  type Output = (PromiseId, OpId, OpResult);
+  type Output = PendingOp;
 
   fn poll(
     self: std::pin::Pin<&mut Self>,
@@ -59,7 +60,9 @@ impl<F: Future<Output = OpResult>> Future for OpCall<F> {
     let promise_id = self.promise_id;
     let op_id = self.op_id;
     let fut = self.project().fut;
-    fut.poll(cx).map(move |res| (promise_id, op_id, res))
+    fut
+      .poll(cx)
+      .map(move |res| PendingOp(promise_id, op_id, res, false))
   }
 }
 
@@ -120,6 +123,22 @@ pub fn to_op_result<R: Serialize + 'static>(
   }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum OpMetricsEvent {
+  /// Entered an op.
+  Dispatched,
+  /// Left an op synchronously.
+  Completed,
+  /// Left an op asynchronously.
+  CompletedAsync,
+  /// Left an op synchronously with an exception.
+  Error,
+  /// Left an op asynchronously with an exception.
+  ErrorAsync,
+}
+
+pub type OpMetricsFn = Rc<dyn Fn(&OpDecl, OpMetricsEvent)>;
+
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
@@ -133,12 +152,14 @@ pub struct OpCtx {
   pub decl: Rc<OpDecl>,
   pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub runtime_state: Weak<RefCell<JsRuntimeState>>,
+  pub(crate) metrics_fn: Option<OpMetricsFn>,
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 }
 
 impl OpCtx {
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn new(
     id: OpId,
     isolate: *mut Isolate,
@@ -147,10 +168,21 @@ impl OpCtx {
     state: Rc<RefCell<OpState>>,
     runtime_state: Weak<RefCell<JsRuntimeState>>,
     get_error_class_fn: GetErrorClassFn,
+    metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
     let mut fast_fn_c_info = None;
 
-    if let Some(fast_fn) = &decl.fast_fn {
+    // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
+    // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
+    // version and require a slightly different set of arguments (for example, it may need the fastcall
+    // callback information to get the `OpCtx`).
+    let fast_fn = if metrics_fn.is_some() {
+      &decl.fast_fn
+    } else {
+      &decl.fast_fn_with_metrics
+    };
+
+    if let Some(fast_fn) = fast_fn {
       let args = CTypeInfo::new_from_slice(fast_fn.args);
       let ret = CTypeInfo::new(fast_fn.return_type);
 
@@ -169,7 +201,7 @@ impl OpCtx {
       fast_fn_c_info = Some(c_fn);
     }
 
-    OpCtx {
+    Self {
       id,
       state,
       get_error_class_fn,
@@ -179,7 +211,12 @@ impl OpCtx {
       fast_fn_c_info,
       last_fast_error: UnsafeCell::new(None),
       isolate,
+      metrics_fn,
     }
+  }
+
+  pub fn metrics_enabled(&self) -> bool {
+    self.metrics_fn.is_some()
   }
 
   /// This takes the last error from an [`OpCtx`], assuming that no other code anywhere
