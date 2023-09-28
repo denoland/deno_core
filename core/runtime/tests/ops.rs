@@ -671,15 +671,15 @@ pub async fn test_op_metrics() {
   let out = Rc::try_unwrap(out).unwrap().into_inner().join("\n");
   assert_eq!(
     out,
-    r#"op_sync Enter
-op_sync Leave
-op_async Enter
-op_async Leave
-op_async_error Enter
-op_async_error Exception
-op_async_deferred Enter
-op_async_deferred LeaveAsync
-op_async_deferred_error Enter
-op_async_deferred_error ExceptionAsync"#
+    r#"op_sync Dispatched
+op_sync Completed
+op_async Dispatched
+op_async Completed
+op_async_error Dispatched
+op_async_error Error
+op_async_deferred Dispatched
+op_async_deferred CompletedAsync
+op_async_deferred_error Dispatched
+op_async_deferred_error ErrorAsync"#
   );
 }
