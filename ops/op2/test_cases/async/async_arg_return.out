@@ -66,12 +66,6 @@ impl op_async {
             result,
             |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
         ) {
-            if opctx.metrics_enabled() {
-                deno_core::_ops::dispatch_metrics_async(
-                    &opctx,
-                    deno_core::_ops::OpMetricsEvent::Leave,
-                );
-            }
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
         }
     }

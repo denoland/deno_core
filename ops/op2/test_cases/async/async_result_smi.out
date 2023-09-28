@@ -76,12 +76,6 @@ impl op_async {
                 )
             },
         ) {
-            if opctx.metrics_enabled() {
-                deno_core::_ops::dispatch_metrics_async(
-                    &opctx,
-                    deno_core::_ops::OpMetricsEvent::Leave,
-                );
-            }
             match result {
                 Ok(result) => {
                     deno_core::_ops::RustToV8RetVal::to_v8_rv(

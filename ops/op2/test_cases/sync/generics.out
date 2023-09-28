@@ -25,7 +25,7 @@ impl<T: Trait> deno_core::_ops::Op for op_generics<T> {
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value, Type::CallbackOptions],
                 CType::Void,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
     );
@@ -122,7 +122,7 @@ impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static<T> {
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value, Type::CallbackOptions],
                 CType::Void,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
     );
@@ -219,7 +219,7 @@ impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static_where<T> {
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value, Type::CallbackOptions],
                 CType::Void,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
     );
