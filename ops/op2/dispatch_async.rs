@@ -12,11 +12,11 @@ use super::dispatch_slow::with_opctx;
 use super::dispatch_slow::with_opstate;
 use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
+use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
 use super::V8MappingError;
-use crate::op2::generator_state::gs_quote;
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -79,7 +79,10 @@ pub(crate) fn generate_dispatch_async(
 
   args.extend(deferred);
   args.extend(call(generator_state)?);
-  output.extend(gs_quote!(generator_state(result) => {
+  output.extend(gs_quote!(generator_state(deno_core, result, opctx) => {
+    if #opctx.metrics_enabled() {
+      #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
+    }
     let #result = {
       #args
     };
@@ -90,10 +93,13 @@ pub(crate) fn generate_dispatch_async(
     RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
   ) {
     let exception = throw_exception(generator_state)?;
-    output.extend(gs_quote!(generator_state(result) => {
+    output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
       let #result = match #result {
         Ok(#result) => #result,
         Err(err) => {
+          if #opctx.metrics_enabled() {
+            #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Error);
+          }
           // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
           #exception
         }
@@ -143,15 +149,20 @@ pub(crate) fn generate_dispatch_async(
   };
 
   Ok(
-    gs_quote!(generator_state(deno_core, info, slow_function) => {
+    gs_quote!(generator_state(deno_core, info, slow_function, slow_function_metrics) => {
       extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
-      #with_scope
-      #with_retval
-      #with_args
-      #with_opctx
-      #with_opstate
+        #with_scope
+        #with_retval
+        #with_args
+        #with_opctx
+        #with_opstate
 
-      #output
-    }}),
+        #output
+      }
+
+      extern "C" fn #slow_function_metrics(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+        Self::#slow_function(#info)
+      }
+    }),
   )
 }

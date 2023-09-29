@@ -4,13 +4,13 @@ pub struct op_async_opstate {
 }
 impl deno_core::_ops::Op for op_async_opstate {
     const NAME: &'static str = stringify!(op_async_opstate);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal(
+    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_async_opstate),
         true,
-        false,
-        false,
         2usize as u8,
         Self::v8_fn_ptr as _,
+        Self::v8_fn_ptr_metrics as _,
+        None,
         None,
     );
 }
@@ -35,6 +35,12 @@ impl op_async_opstate {
                 as *const deno_core::_ops::OpCtx)
         };
         let opstate = &opctx.state;
+        if opctx.metrics_enabled() {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
+            );
+        }
         let result = {
             let arg0 = opstate.clone();
             Self::call(arg0)
@@ -62,6 +68,9 @@ impl op_async_opstate {
                 }
             };
         }
+    }
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::v8_fn_ptr(info)
     }
     #[inline(always)]
     pub async fn call(state: Rc<RefCell<OpState>>) -> std::io::Result<i32> {

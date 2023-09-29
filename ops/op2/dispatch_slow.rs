@@ -3,9 +3,15 @@ use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
+use super::dispatch_shared::v8slice_to_buffer;
+use super::generator_state::gs_extract;
+use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
+use super::signature::ArgMarker;
+use super::signature::ArgSlowRetval;
 use super::signature::Buffer;
+use super::signature::BufferMode;
 use super::signature::External;
 use super::signature::NumericArg;
 use super::signature::NumericFlag;
@@ -15,11 +21,6 @@ use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::V8MappingError;
-use crate::op2::generator_state::gs_extract;
-use crate::op2::generator_state::gs_quote;
-use crate::op2::signature::ArgMarker;
-use crate::op2::signature::ArgSlowRetval;
-use crate::op2::signature::BufferMode;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -119,7 +120,7 @@ pub(crate) fn generate_dispatch_slow(
   };
 
   Ok(
-    gs_quote!(generator_state(deno_core, info, slow_function) => {
+    gs_quote!(generator_state(deno_core, opctx, info, slow_function, slow_function_metrics) => {
       extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
         #with_scope
         #with_retval
@@ -130,6 +131,19 @@ pub(crate) fn generate_dispatch_slow(
         #with_js_runtime_state
 
         #output
+      }
+      extern "C" fn #slow_function_metrics(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+        let args = #deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+          &*info
+        });
+        let #opctx = unsafe {
+            &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(args.data()).value()
+                as *const #deno_core::_ops::OpCtx)
+        };
+
+        #deno_core::_ops::dispatch_metrics_slow(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
+        Self::#slow_function(#info);
+        #deno_core::_ops::dispatch_metrics_slow(&#opctx, #deno_core::_ops::OpMetricsEvent::Completed);
       }
     }),
   )
@@ -321,19 +335,21 @@ pub fn from_arg(
         };
       })
     }
-    Arg::Buffer(buffer) => {
+    Arg::Buffer(_) | Arg::ArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let buffer = from_arg_buffer(generator_state, &arg_ident, buffer, &temp)?;
+      let buffer =
+        from_arg_array_or_buffer(generator_state, &arg_ident, arg, &temp)?;
       quote! {
         let mut #temp;
         #buffer
       }
     }
-    Arg::OptionBuffer(buffer) => {
+    Arg::OptionBuffer(_) | Arg::OptionArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let some = from_arg_buffer(generator_state, &arg_ident, buffer, &temp)?;
+      let some =
+        from_arg_array_or_buffer(generator_state, &arg_ident, arg, &temp)?;
       quote! {
         let mut #temp;
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
@@ -483,6 +499,23 @@ pub fn from_arg_option(
   )))
 }
 
+pub fn from_arg_array_or_buffer(
+  generator_state: &mut GeneratorState,
+  arg_ident: &Ident,
+  buffer: &Arg,
+  temp: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  match buffer {
+    Arg::Buffer(buffer) | Arg::OptionBuffer(buffer) => {
+      from_arg_buffer(generator_state, arg_ident, buffer, temp)
+    }
+    Arg::ArrayBuffer(buffer) | Arg::OptionArrayBuffer(buffer) => {
+      from_arg_arraybuffer(generator_state, arg_ident, buffer, temp)
+    }
+    _ => unreachable!(),
+  }
+}
+
 pub fn from_arg_buffer(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
@@ -492,9 +525,8 @@ pub fn from_arg_buffer(
   let err = format_ident!("{}_err", arg_ident);
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
-  generator_state.needs_scope = true;
-
   let array = buffer.element();
+  generator_state.needs_scope = true;
 
   let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
     quote!(to_v8_slice_detachable)
@@ -511,32 +543,41 @@ pub fn from_arg_buffer(
     };
   });
 
-  let make_arg = match buffer {
-    Buffer::Slice(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
-      quote!(let #arg_ident = #temp.as_ref();)
-    }
-    Buffer::Slice(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
-      quote!(let #arg_ident = #temp.as_mut();)
-    }
-    Buffer::Vec(NumericArg::u8 | NumericArg::u32) => {
-      quote!(let #arg_ident = #temp.to_vec();)
-    }
-    Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
-      quote!(let #arg_ident = #temp.to_boxed_slice();)
-    }
-    Buffer::Bytes(BufferMode::Copy) => {
-      quote!(let #arg_ident = #temp.to_vec().into();)
-    }
-    Buffer::JsBuffer(BufferMode::Default | BufferMode::Detach) => {
-      gs_quote!(generator_state(deno_core) => (let #arg_ident = #deno_core::serde_v8::JsBuffer::from_parts(#temp);))
-    }
-    _ => {
-      return Err(V8MappingError::NoMapping(
-        "a buffer argument",
-        Arg::Buffer(*buffer),
-      ))
-    }
+  let make_arg =
+    v8slice_to_buffer(&generator_state.deno_core, arg_ident, temp, *buffer)?;
+
+  Ok(quote! {
+    #make_v8slice
+    #make_arg
+  })
+}
+
+pub fn from_arg_arraybuffer(
+  generator_state: &mut GeneratorState,
+  arg_ident: &Ident,
+  buffer: &Buffer,
+  temp: &Ident,
+) -> Result<TokenStream, V8MappingError> {
+  let err = format_ident!("{}_err", arg_ident);
+  let throw_exception = throw_type_error_static_string(generator_state, &err)?;
+
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
+    quote!(to_v8_slice_buffer_detachable)
+  } else {
+    quote!(to_v8_slice_buffer)
   };
+
+  let make_v8slice = gs_quote!(generator_state(deno_core) => {
+    #temp = match unsafe { #deno_core::_ops::#to_v8_slice(#arg_ident) } {
+      Ok(#arg_ident) => #arg_ident,
+      Err(#err) => {
+        #throw_exception
+      }
+    };
+  });
+
+  let make_arg =
+    v8slice_to_buffer(&generator_state.deno_core, arg_ident, temp, *buffer)?;
 
   Ok(quote! {
     #make_v8slice
@@ -575,6 +616,9 @@ pub fn return_value_infallible(
   generator_state.needs_retval = true;
 
   let result = match ret_type.marker() {
+    ArgMarker::ArrayBuffer => {
+      gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::ArrayBufferMarker, _>::from(#result)))
+    }
     ArgMarker::Serde => {
       gs_quote!(generator_state(deno_core, result) => (#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result)))
     }
@@ -639,6 +683,9 @@ pub fn return_value_v8_value(
 ) -> Result<TokenStream, V8MappingError> {
   gs_extract!(generator_state(deno_core, scope, result));
   let result = match ret_type.marker() {
+    ArgMarker::ArrayBuffer => {
+      quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::ArrayBufferMarker, _>::from(#result))
+    }
     ArgMarker::Serde => {
       quote!(#deno_core::_ops::RustToV8Marker::<#deno_core::_ops::SerdeMarker, _>::from(#result))
     }

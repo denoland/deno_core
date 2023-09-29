@@ -10,11 +10,9 @@ use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
+use crate::ops::PendingOp;
 use crate::runtime::JsRuntimeState;
 use crate::JsRuntime;
-use crate::OpId;
-use crate::OpResult;
-use crate::PromiseId;
 use anyhow::Error;
 use deno_unsync::JoinSet;
 use futures::channel::oneshot;
@@ -76,7 +74,7 @@ pub(crate) struct ContextState {
   pending_dyn_mod_evaluate: Vec<DynImportModEvaluate>,
   pub(crate) pending_mod_evaluate: Option<ModEvaluate>,
   pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
-  pub(crate) pending_ops: JoinSet<(PromiseId, OpId, OpResult)>,
+  pub(crate) pending_ops: JoinSet<PendingOp>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,

@@ -138,7 +138,8 @@ where
 /// `v8::BigInt` objects.
 #[repr(transparent)]
 pub struct RustToV8Marker<M, T>(T, PhantomData<M>);
-impl<M, T> From<T> for RustToV8Marker<M, T> {
+impl<M: Marker, T> From<T> for RustToV8Marker<M, T> {
+  #[inline(always)]
   fn from(value: T) -> Self {
     RustToV8Marker(value, PhantomData)
   }
@@ -146,12 +147,21 @@ impl<M, T> From<T> for RustToV8Marker<M, T> {
 
 /// This struct should be serialized using `serde`.
 pub struct SerdeMarker;
+impl Marker for SerdeMarker {}
 
 /// This primitive should be serialized as an SMI.
 pub struct SmiMarker;
+impl Marker for SmiMarker {}
 
 /// This primitive should be serialized as a number.
 pub struct NumberMarker;
+impl Marker for NumberMarker {}
+
+/// This buffer should be serialized as an ArrayBuffer.
+pub struct ArrayBufferMarker;
+impl Marker for ArrayBufferMarker {}
+
+trait Marker {}
 
 /// Helper macro for [`RustToV8`] to reduce boilerplate.
 ///
@@ -278,7 +288,13 @@ to_v8_retval!((f32, f64): |value, rv| rv.set_double(value as _));
 // Heavier primitives with no retval shortcuts
 //
 
-to_v8!((*const c_void, *mut c_void): |value, scope| v8::External::new(scope, value as _));
+to_v8!((*const c_void, *mut c_void): |value, scope| {
+  if value.is_null() {
+    v8::Local::<v8::Value>::from(v8::null(scope))
+  } else {
+    v8::Local::<v8::Value>::from(v8::External::new(scope, value as _))
+  }
+});
 to_v8!((u64, usize): |value, scope| v8::BigInt::new_from_u64(scope, value as _));
 to_v8!((i64, isize): |value, scope| v8::BigInt::new_from_i64(scope, value as _));
 
@@ -286,7 +302,7 @@ to_v8!((i64, isize): |value, scope| v8::BigInt::new_from_i64(scope, value as _))
 // Strings
 //
 
-to_v8_fallible!((String, Cow<'a, str>, &'a str): |value, scope| v8::String::new(scope, &value).ok_or_else(|| serde_v8::Error::Message("failed to allocate string".into())));
+to_v8_fallible!((String, Cow<'a, str>, &'a str): |value, scope| v8::String::new(scope, &value).ok_or_else(|| serde_v8::Error::Message("failed to allocate string; buffer exceeds maximum length".into())));
 to_v8_retval_fallible!((String, Cow<'a, str>, &'a str): |value, scope, rv| {
   if value.is_empty() {
     rv.set_empty_string();
@@ -295,7 +311,7 @@ to_v8_retval_fallible!((String, Cow<'a, str>, &'a str): |value, scope, rv| {
   }
   Ok(())
 });
-to_v8_fallible!(Cow<'a, [u8]>: |value, scope| v8::String::new_from_one_byte(scope, &value, v8::NewStringType::Normal).ok_or_else(|| serde_v8::Error::Message("failed to allocate string".into())));
+to_v8_fallible!(Cow<'a, [u8]>: |value, scope| v8::String::new_from_one_byte(scope, &value, v8::NewStringType::Normal).ok_or_else(|| serde_v8::Error::Message("failed to allocate string; buffer exceeds maximum length".into())));
 to_v8_retval_fallible!(Cow<'a, [u8]>: |value, scope, rv| {
   if value.is_empty() {
     rv.set_empty_string();
@@ -312,27 +328,40 @@ to_v8_retval_fallible!(Cow<'a, [u8]>: |value, scope, rv| {
 to_v8_fallible!(serde_v8::V8Slice<u8>: |value, scope| {
   value.into_v8_local(scope).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
+to_v8!(RustToV8Marker<ArrayBufferMarker, serde_v8::V8Slice<u8>>: |value, scope| {
+  value.0.into_v8_unsliced_arraybuffer_local(scope)
+});
 to_v8_fallible!(serde_v8::V8Slice<u32>: |value, scope| {
   value.into_v8_local(scope).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+});
+to_v8!(RustToV8Marker<ArrayBufferMarker, serde_v8::JsBuffer>: |value, scope| {
+  RustToV8Marker::<ArrayBufferMarker, _>::from(value.0.into_parts()).to_v8(scope)
 });
 to_v8_fallible!(serde_v8::JsBuffer: |value, scope| {
   value.into_parts().to_v8_fallible(scope)
 });
-to_v8_fallible!(Box<[u8]>: |buf, scope| {
+to_v8!(RustToV8Marker<ArrayBufferMarker, Box<[u8]>>: |buf, scope| {
+  let buf = buf.0;
   if buf.is_empty() {
-    let ab = v8::ArrayBuffer::new(scope, 0);
-    v8::Uint8Array::new(scope, ab, 0, 0).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+    v8::ArrayBuffer::new(scope, 0)
   } else {
-    let buf_len: usize = buf.len();
     let backing_store =
       v8::ArrayBuffer::new_backing_store_from_boxed_slice(buf);
     let backing_store_shared = backing_store.make_shared();
-    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
-    v8::Uint8Array::new(scope, ab, 0, buf_len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+    v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared)
   }
 });
+to_v8_fallible!(Box<[u8]>: |buf, scope| {
+  let len = buf.len();
+  let ab = unsafe { v8::Local::cast(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
+  v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+});
+to_v8!(RustToV8Marker<ArrayBufferMarker, Vec<u8>>: |value, scope| {
+  RustToV8Marker::<ArrayBufferMarker, _>::from(value.0.into_boxed_slice()).to_v8(scope)
+});
 to_v8_fallible!(Vec<u8>: |value, scope| value.into_boxed_slice().to_v8_fallible(scope));
-to_v8_fallible!(BytesMut: |value, scope| {
+to_v8!(RustToV8Marker<ArrayBufferMarker, BytesMut>: |value, scope| {
+  let value = value.0;
   let ptr = value.as_ptr();
   let len = value.len() as _;
   let rc = Rc::into_raw(Rc::new(value)) as *const c_void;
@@ -349,7 +378,11 @@ to_v8_fallible!(BytesMut: |value, scope| {
     )
   }
   .make_shared();
-  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+  v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared)
+});
+to_v8_fallible!(BytesMut: |buf, scope| {
+  let len = buf.len();
+  let ab = unsafe { v8::Local::cast(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
   v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
 

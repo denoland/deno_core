@@ -111,10 +111,13 @@ pub fn queue_async_op<'s>(
   // );
 
   let id = ctx.id;
+  let metrics = ctx.metrics_enabled();
 
   // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-  let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
+  let mut pinned = op
+    .map(move |res| PendingOp(promise_id, id, res, metrics))
+    .boxed_local();
 
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
@@ -146,13 +149,15 @@ pub fn map_async_op_infallible<R: 'static>(
 ) -> Option<R> {
   let id = ctx.id;
   ctx.state.borrow().tracker.track_async(id);
+  let metrics = ctx.metrics_enabled();
 
   if lazy {
     let mapper = move |r| {
-      (
+      PendingOp(
         promise_id,
         id,
         OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r))),
+        metrics,
       )
     };
     ctx
@@ -170,6 +175,9 @@ pub fn map_async_op_infallible<R: 'static>(
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
     Poll::Ready(res) => {
+      if ctx.metrics_enabled() {
+        dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+      }
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
       return Some(res.2);
     }
@@ -180,10 +188,11 @@ pub fn map_async_op_infallible<R: 'static>(
     .borrow_mut()
     .pending_ops
     .spawn(pinned.map(move |r| {
-      (
+      PendingOp(
         r.0,
         r.1,
         OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r.2))),
+        metrics,
       )
     }));
   None
@@ -202,20 +211,23 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
 ) -> Option<Result<R, E>> {
   let id = ctx.id;
   ctx.state.borrow().tracker.track_async(id);
+  let metrics = ctx.metrics_enabled();
 
   if lazy {
     let get_class = ctx.get_error_class_fn;
     ctx.context_state.borrow_mut().pending_ops.spawn(op.map(
       move |r| match r {
-        Ok(v) => (
+        Ok(v) => PendingOp(
           promise_id,
           id,
           OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+          metrics,
         ),
-        Err(err) => (
+        Err(err) => PendingOp(
           promise_id,
           id,
           OpResult::Err(OpError::new(get_class, err.into())),
+          metrics,
         ),
       },
     ));
@@ -229,6 +241,13 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
     Poll::Pending => {}
     Poll::Ready(res) => {
+      if ctx.metrics_enabled() {
+        if res.2.is_err() {
+          dispatch_metrics_async(ctx, OpMetricsEvent::Error);
+        } else {
+          dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+        }
+      }
       ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
       return Some(res.2);
     }
@@ -237,17 +256,33 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   let get_class = ctx.get_error_class_fn;
   ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
     move |r| match r.2 {
-      Ok(v) => (
+      Ok(v) => PendingOp(
         r.0,
         r.1,
         OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+        metrics,
       ),
-      Err(err) => {
-        (r.0, r.1, OpResult::Err(OpError::new(get_class, err.into())))
-      }
+      Err(err) => PendingOp(
+        r.0,
+        r.1,
+        OpResult::Err(OpError::new(get_class, err.into())),
+        metrics,
+      ),
     },
   ));
   None
+}
+
+pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
+}
+
+pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
+}
+
+pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
 }
 
 macro_rules! try_number_some {
@@ -327,6 +362,8 @@ pub fn to_external_option(external: &v8::Value) -> Option<*mut c_void> {
     // SAFETY: We know this is an external
     let external: &v8::External = unsafe { std::mem::transmute(external) };
     Some(external.value())
+  } else if external.is_null() {
+    Some(0 as _)
   } else {
     None
   }
@@ -592,6 +629,63 @@ where
   Ok(slice)
 }
 
+/// Retrieve a byte slice from a [`v8::ArrayBuffer`], avoiding the intermediate [`v8::BackingStore`].
+///
+/// # Safety
+///
+/// Callers must ensure that the returned slice does not outlive the [`v8::BackingStore`] of the
+/// [`v8::ArrayBuffer`].
+pub unsafe fn to_slice_buffer(
+  input: v8::Local<v8::Value>,
+) -> Result<&mut [u8], &'static str> {
+  let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
+    return Err("expected ArrayBuffer");
+  };
+  let len = buf.byte_length();
+  let slice = if len > 0 {
+    if let Some(ptr) = buf.data() {
+      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+    } else {
+      &mut []
+    }
+  } else {
+    &mut []
+  };
+  Ok(slice)
+}
+
+/// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
+pub fn to_v8_slice_buffer(
+  input: v8::Local<v8::Value>,
+) -> Result<serde_v8::V8Slice<u8>, &'static str> {
+  let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
+    return Err("expected ArrayBuffer");
+  };
+  let slice = unsafe {
+    serde_v8::V8Slice::from_parts(buf.get_backing_store(), 0..buf.byte_length())
+  };
+  Ok(slice)
+}
+
+/// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
+pub fn to_v8_slice_buffer_detachable(
+  input: v8::Local<v8::Value>,
+) -> Result<serde_v8::V8Slice<u8>, &'static str> {
+  let (store, length) =
+    if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+      let res = (buf.get_backing_store(), buf.byte_length());
+      if !buf.is_detachable() {
+        return Err("invalid type; expected: detachable");
+      }
+      buf.detach(None);
+      res
+    } else {
+      return Err("expected ArrayBuffer");
+    };
+  let slice = unsafe { serde_v8::V8Slice::from_parts(store, 0..length) };
+  Ok(slice)
+}
+
 #[cfg(test)]
 mod tests {
   use crate::error::generic_error;
@@ -664,12 +758,17 @@ mod tests {
       op_state_mut_attr,
       op_state_multi_attr,
       op_buffer_slice,
+      op_buffer_ptr,
       op_buffer_slice_32,
+      op_buffer_ptr_32,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
+      op_arraybuffer_slice,
       op_external_make,
       op_external_process,
+      op_external_make_ptr,
+      op_external_process_ptr,
 
       op_async_void,
       op_async_number,
@@ -1512,6 +1611,19 @@ mod tests {
   }
 
   #[op2(core, fast)]
+  pub fn op_buffer_ptr(
+    #[buffer] input: *const u8,
+    #[number] inlen: usize,
+    #[buffer] output: *mut u8,
+    #[number] outlen: usize,
+  ) {
+    if inlen > 0 && outlen > 0 {
+      // SAFETY: for test
+      unsafe { std::ptr::write(output, std::ptr::read(input)) }
+    }
+  }
+
+  #[op2(core, fast)]
   pub fn op_buffer_slice_32(
     #[buffer] input: &[u32],
     #[number] inlen: usize,
@@ -1525,17 +1637,37 @@ mod tests {
     }
   }
 
+  #[op2(core, fast)]
+  pub fn op_buffer_ptr_32(
+    #[buffer] input: *const u32,
+    #[number] inlen: usize,
+    #[buffer] output: *mut u32,
+    #[number] outlen: usize,
+  ) {
+    if inlen > 0 && outlen > 0 {
+      // SAFETY: for test
+      unsafe { std::ptr::write(output, std::ptr::read(input)) }
+    }
+  }
+
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
-    for (op, arr, size) in [
-      ("op_buffer_slice", "Uint8Array", 1),
-      ("op_buffer_slice_32", "Uint32Array", 4),
+    for (op, op_ptr, arr, size) in [
+      ("op_buffer_slice", "op_buffer_ptr", "Uint8Array", 1),
+      ("op_buffer_slice_32", "op_buffer_ptr_32", "Uint32Array", 4),
     ] {
+      // Zero-length buffers
       run_test2(
         10000,
         op,
         &format!("{op}(new {arr}(0), 0, new {arr}(0), 0);"),
+      )?;
+      // Zero-length ptrs
+      run_test2(
+        10000,
+        op_ptr,
+        &format!("{op_ptr}(new {arr}(0), 0, new {arr}(0), 0);"),
       )?;
       // UintXArray -> UintXArray
       run_test2(
@@ -1545,6 +1677,17 @@ mod tests {
           r"
         let out = new {arr}(10);
         {op}(new {arr}([1,2,3]), 3, out, 10);
+        assert(out[0] == 1);"
+        ),
+      )?;
+      // UintXArray -> UintXArray
+      run_test2(
+        10000,
+        op_ptr,
+        &format!(
+          r"
+        let out = new {arr}(10);
+        {op_ptr}(new {arr}([1,2,3]), 3, out, 10);
         assert(out[0] == 1);"
         ),
       )?;
@@ -1591,6 +1734,41 @@ mod tests {
         ),
       )?;
     }
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_arraybuffer_slice(
+    #[arraybuffer] input: &[u8],
+    #[number] inlen: usize,
+    #[arraybuffer] output: &mut [u8],
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_arraybuffer_slice(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    // Zero-length buffers
+    run_test2(
+      10000,
+      "op_arraybuffer_slice",
+      "op_arraybuffer_slice(new ArrayBuffer(0), 0, new ArrayBuffer(0), 0);",
+    )?;
+    run_test2(
+      10000,
+      "op_arraybuffer_slice",
+      r"let inbuf = new ArrayBuffer(10);
+      (new Uint8Array(inbuf))[0] = 1;
+      let outbuf = new ArrayBuffer(10);
+      op_arraybuffer_slice(inbuf, 10, outbuf, 10);
+      assert((new Uint8Array(outbuf))[0] == 1);",
+    )?;
     Ok(())
   }
 
@@ -1698,6 +1876,35 @@ mod tests {
       10000,
       "op_external_make, op_external_process",
       "op_external_process(op_external_make())",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  fn op_external_make_ptr(#[bigint] value: u64) -> *const std::ffi::c_void {
+    value as _
+  }
+
+  #[op2(core, fast)]
+  fn op_external_process_ptr(
+    input: *const std::ffi::c_void,
+    #[number] offset: isize,
+  ) -> *const std::ffi::c_void {
+    // NOTE: This doesn't work with `ptr::offset` because the unsafe behaviour is actually UB!
+    input.wrapping_offset(offset)
+  }
+
+  #[tokio::test]
+  pub async fn test_external_null() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_external_make_ptr, op_external_process_ptr",
+      "assert(op_external_process_ptr(op_external_make_ptr(0), 0) === null)",
+    )?;
+    run_test2(
+      10000,
+      "op_external_make_ptr, op_external_process_ptr",
+      "assert(op_external_process_ptr(op_external_make_ptr(6), -6) === null)",
     )?;
     Ok(())
   }

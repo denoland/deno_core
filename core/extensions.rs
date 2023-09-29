@@ -99,8 +99,14 @@ pub struct OpDecl {
   pub is_unstable: bool,
   pub is_v8: bool,
   pub arg_count: u8,
-  pub(crate) v8_fn_ptr: OpFnRef,
+  /// The slow dispatch call. If metrics are disabled, the `v8::Function` is created with this callback.
+  pub(crate) slow_fn: OpFnRef,
+  /// The slow dispatch call with metrics enabled. If metrics are enabled, the `v8::Function` is created with this callback.
+  pub(crate) slow_fn_with_metrics: OpFnRef,
+  /// The fast dispatch call. If metrics are disabled, the `v8::Function`'s fastcall is created with this callback.
   pub(crate) fast_fn: Option<FastFunction>,
+  /// The fast dispatch call with metrics enabled. If metrics are enabled, the `v8::Function`'s fastcall is created with this callback.
+  pub(crate) fast_fn_with_metrics: Option<FastFunction>,
 }
 
 impl OpDecl {
@@ -112,7 +118,7 @@ impl OpDecl {
     is_unstable: bool,
     is_v8: bool,
     arg_count: u8,
-    v8_fn_ptr: OpFnRef,
+    slow_fn: OpFnRef,
     fast_fn: Option<FastFunction>,
   ) -> Self {
     Self {
@@ -122,8 +128,35 @@ impl OpDecl {
       is_unstable,
       is_v8,
       arg_count,
-      v8_fn_ptr,
+      slow_fn,
+      slow_fn_with_metrics: slow_fn,
       fast_fn,
+      fast_fn_with_metrics: fast_fn,
+    }
+  }
+
+  /// For use by internal op implementation only.
+  #[doc(hidden)]
+  pub const fn new_internal_op2(
+    name: &'static str,
+    is_async: bool,
+    arg_count: u8,
+    slow_fn: OpFnRef,
+    slow_fn_with_metrics: OpFnRef,
+    fast_fn: Option<FastFunction>,
+    fast_fn_with_metrics: Option<FastFunction>,
+  ) -> Self {
+    Self {
+      name,
+      enabled: true,
+      is_async,
+      is_unstable: false,
+      is_v8: false,
+      arg_count,
+      slow_fn,
+      slow_fn_with_metrics,
+      fast_fn,
+      fast_fn_with_metrics,
     }
   }
 
@@ -141,8 +174,10 @@ impl OpDecl {
   /// `OpDecl`.
   pub const fn with_implementation_from(self, from: &Self) -> Self {
     Self {
-      v8_fn_ptr: from.v8_fn_ptr,
+      slow_fn: from.slow_fn,
+      slow_fn_with_metrics: from.slow_fn_with_metrics,
       fast_fn: from.fast_fn,
+      fast_fn_with_metrics: from.fast_fn_with_metrics,
       ..self
     }
   }
