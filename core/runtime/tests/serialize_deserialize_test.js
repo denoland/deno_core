@@ -17,6 +17,35 @@ function assertArrayEquals(a1, a2) {
   }
 }
 
+function testIssue20727() {
+  // https://github.com/denoland/deno/issues/20727
+  const ab = new ArrayBuffer(10);
+  Deno.core.ops.op_serialize(
+    { ab },
+    { transferredArrayBuffers: [ab] },
+  );
+
+  const data = {
+    array1: new Uint32Array([]),
+    array2: new Float32Array([]),
+  };
+
+  const transferredArrayBuffers = [
+    data.array1.buffer,
+    data.array2.buffer,
+  ];
+  const serializedMultipleTransferredBuffers = Deno.core.ops.op_serialize(
+    { id: 2, data },
+    { transferredArrayBuffers },
+  );
+  // should not throw
+  Deno.core.ops.op_deserialize(
+    serializedMultipleTransferredBuffers,
+    { transferredArrayBuffers },
+  );
+}
+
+
 function main() {
   const emptyString = "";
   const emptyStringSerialized = [255, 15, 34, 0];
@@ -69,6 +98,8 @@ function main() {
     new Uint8Array(circularObjectSerialized),
   );
   assert(deserializedCircularObject.test == deserializedCircularObject);
+
+  testIssue20727();
 }
 
 main();
