@@ -3,6 +3,7 @@ use crate::error::AnyError;
 use crate::JsRuntime;
 use crate::OpState;
 use crate::RuntimeOptions;
+use crate::CrossIsolateStore;
 use deno_ops::op;
 use serde_v8::JsBuffer;
 use std::cell::RefCell;
@@ -82,6 +83,7 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
     get_error_class_fn: Some(&|error| {
       crate::error::get_custom_error_class(error).unwrap()
     }),
+    shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   });
 

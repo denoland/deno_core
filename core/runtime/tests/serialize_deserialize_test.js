@@ -20,31 +20,36 @@ function assertArrayEquals(a1, a2) {
 function testIssue20727() {
   // https://github.com/denoland/deno/issues/20727
   const ab = new ArrayBuffer(10);
-  Deno.core.ops.op_serialize(
+  const transferList = [ab];
+  Deno.core.serialize(
     { ab },
-    { transferredArrayBuffers: [ab] },
+    { transferredArrayBuffers: transferList },
   );
 
+  // check that shared_array_buffer_store is set
+  assert(typeof transferList[0] === "number");
   const data = {
     array1: new Uint32Array([]),
     array2: new Float32Array([]),
   };
 
-  const transferredArrayBuffers = [
+  const transferListTwo = [
     data.array1.buffer,
     data.array2.buffer,
   ];
   const serializedMultipleTransferredBuffers = Deno.core.ops.op_serialize(
     { id: 2, data },
-    { transferredArrayBuffers },
+    { transferredArrayBuffers: transferListTwo },
   );
+
+  assert(typeof transferListTwo[0] === "number");
+  assert(typeof transferListTwo[1] === "number");
   // should not throw
   Deno.core.ops.op_deserialize(
     serializedMultipleTransferredBuffers,
-    { transferredArrayBuffers },
+    { transferredArrayBuffers: transferListTwo },
   );
 }
-
 
 function main() {
   const emptyString = "";
