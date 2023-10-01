@@ -404,7 +404,7 @@ impl JsRealm {
 
   /// Clears all loaded modules
   /// May not clear all associated memory and should not
-  /// be used in production 
+  /// be used in production
   pub fn clear_modules(&mut self) {
     self.0.module_map().borrow_mut().clear();
   }
