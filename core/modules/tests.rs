@@ -574,6 +574,32 @@ async fn dyn_import_ok() {
 }
 
 #[tokio::test]
+async fn clear_modules_works() {
+  fn count_modules(runtime: &mut JsRuntime) -> usize {
+    runtime
+      .main_realm()
+      .0
+      .module_map()
+      .borrow_mut()
+      .handles
+      .len()
+  }
+
+  let mut runtime = JsRuntime::new(Default::default());
+  futures::executor::block_on(runtime.load_main_module(
+    &Url::parse("file:///a.js").unwrap(),
+    Some(ascii_str!("")),
+  ))
+  .unwrap();
+
+  let result = futures::executor::block_on(runtime.run_event_loop(false));
+  assert!(result.is_ok());
+
+  runtime.clear_modules();
+  assert_eq!(0, count_modules(&mut runtime));
+}
+
+#[tokio::test]
 async fn dyn_import_borrow_mut_error() {
   // https://github.com/denoland/deno/issues/6054
   let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::with(
