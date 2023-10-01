@@ -1,5 +1,6 @@
 use crate as deno_core;
 use crate::error::AnyError;
+use crate::CrossIsolateStore;
 use crate::JsRuntime;
 use crate::OpState;
 use crate::RuntimeOptions;
@@ -82,6 +83,7 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
     get_error_class_fn: Some(&|error| {
       crate::error::get_custom_error_class(error).unwrap()
     }),
+    shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   });
 

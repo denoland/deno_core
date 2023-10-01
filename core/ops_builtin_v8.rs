@@ -493,7 +493,7 @@ pub fn op_deserialize<'a>(
           let array_buffer =
             v8::ArrayBuffer::with_backing_store(scope, &backing_store);
           value_deserializer.transfer_array_buffer(id, array_buffer);
-          transferred_array_buffers.set(scope, id_val, array_buffer.into());
+          transferred_array_buffers.set(scope, i, array_buffer.into());
         } else {
           return Err(type_error(
             "transferred array buffer not present in shared_array_buffer_store",
