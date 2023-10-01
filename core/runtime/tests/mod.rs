@@ -1,9 +1,9 @@
 use crate as deno_core;
 use crate::error::AnyError;
+use crate::CrossIsolateStore;
 use crate::JsRuntime;
 use crate::OpState;
 use crate::RuntimeOptions;
-use crate::CrossIsolateStore;
 use deno_ops::op;
 use serde_v8::JsBuffer;
 use std::cell::RefCell;
