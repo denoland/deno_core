@@ -1902,7 +1902,7 @@ impl JsRuntime {
   /// May not free all associated memory, and should not be used
   /// in production environments
   pub fn clear_modules(&mut self) {
-    self.main_realm().clear_modules(&mut self.v8_isolate())
+    self.main_realm().clear_modules()
   }
 
   /// Asynchronously load specified module and all of its dependencies.
