@@ -403,9 +403,10 @@ impl JsRealm {
   }
 
   /// Clears all loaded modules
-  pub fn clear_modules(&mut self, isolate: &mut v8::Isolate) {
+  /// May not clear all associated memory and should not
+  /// be used in production 
+  pub fn clear_modules(&mut self) {
     self.0.module_map().borrow_mut().clear();
-    self.0.context_state = Rc::new(RefCell::new(ContextState::default()));
   }
 
   /// Returns the namespace object of a module.
