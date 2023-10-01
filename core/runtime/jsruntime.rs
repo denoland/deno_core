@@ -1899,6 +1899,8 @@ impl JsRuntime {
   }
 
   /// Clears all loaded modules
+  /// May not free all associated memory, and should not be used
+  /// in production environments
   pub fn clear_modules(&mut self) {
     self.main_realm().clear_modules(&mut self.v8_isolate())
   }
