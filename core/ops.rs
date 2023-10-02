@@ -6,6 +6,7 @@ use crate::gotham_state::GothamState;
 use crate::resources::ResourceTable;
 use crate::runtime::ContextState;
 use crate::runtime::JsRuntimeState;
+use crate::FeatureChecker;
 use crate::OpDecl;
 use crate::OpsTracker;
 use anyhow::Error;
@@ -253,6 +254,7 @@ pub struct OpState {
   pub last_fast_op_error: Option<AnyError>,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
+  pub feature_checker: FeatureChecker,
 }
 
 impl OpState {
@@ -263,6 +265,7 @@ impl OpState {
       last_fast_op_error: None,
       tracker: OpsTracker::new(ops_count),
       waker: Arc::new(AtomicWaker::new()),
+      feature_checker: FeatureChecker::default(),
     }
   }
 
