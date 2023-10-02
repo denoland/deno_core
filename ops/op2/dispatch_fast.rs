@@ -1,5 +1,3 @@
-use crate::op2::V8SignatureMappingError;
-
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::fast_api_typed_array_to_buffer;
@@ -20,6 +18,7 @@ use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::V8MappingError;
+use super::V8SignatureMappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
