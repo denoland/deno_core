@@ -1808,16 +1808,16 @@ mod tests {
       "op_buffer_any",
       "assert(op_buffer_any(new ArrayBuffer(10)) == 10);",
     )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any",
-    //   "assert(op_buffer_any(new Uint32Array(10)) == 40);",
-    // )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any",
-    //   "assert(op_buffer_any(new DataView(new ArrayBuffer(10))) == 10);",
-    // )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint32Array(10)) == 40);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new DataView(new ArrayBuffer(10))) == 10);",
+    )?;
     Ok(())
   }
 
