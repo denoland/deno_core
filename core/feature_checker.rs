@@ -23,7 +23,7 @@ impl FeatureChecker {
     *self.features.get(feature).unwrap_or(&false)
   }
 
-  #[deprecated]
+  // TODO(bartlomieju): remove this.
   pub fn enable_legacy_unstable(&mut self) {
     self.legacy_unstable = true;
   }
@@ -31,7 +31,6 @@ impl FeatureChecker {
   // TODO(bartlomieju): remove this.
   /// Check if `--unstable` flag has been passed. If not then exit the process
   /// with exit code 70.
-  #[deprecated]
   pub fn check_legacy_unstable(&self, api_name: &str) {
     if !self.legacy_unstable {
       eprintln!(
