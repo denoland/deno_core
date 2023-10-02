@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use crate::FeatureChecker;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
