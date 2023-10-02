@@ -726,7 +726,12 @@ pub fn to_v8_slice_any(
     let Some(buf) = buf.buffer(scope) else {
       return Err("buffer missing");
     };
-    return Ok(unsafe { serde_v8::V8Slice::<u8>::from_parts(buf.get_backing_store(), 0..buf.byte_length()) });
+    return Ok(unsafe {
+      serde_v8::V8Slice::<u8>::from_parts(
+        buf.get_backing_store(),
+        0..buf.byte_length(),
+      )
+    });
   }
   if let Ok(buf) = to_v8_slice_buffer(input) {
     return Ok(buf);
@@ -1786,7 +1791,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
     buffer.len() as _
   }

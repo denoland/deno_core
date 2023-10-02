@@ -132,7 +132,7 @@ impl V8FastCallType {
       V8FastCallType::Pointer => quote!(Type::Pointer),
       V8FastCallType::V8Value => quote!(Type::V8Value),
       V8FastCallType::CallbackOptions => quote!(Type::CallbackOptions),
-      V8FastCallType::AnyArray => quote!(Type::TypedArray(CType::Void)),
+      V8FastCallType::AnyArray => quote!(Type::V8Value),
       V8FastCallType::Uint8Array => quote!(Type::TypedArray(CType::Uint8)),
       V8FastCallType::Uint32Array => quote!(Type::TypedArray(CType::Uint32)),
       V8FastCallType::Float64Array => quote!(Type::TypedArray(CType::Float64)),
@@ -201,9 +201,8 @@ pub fn generate_dispatch_fast(
 
     call_names.push(name.clone());
     call_args.push(
-      map_v8_fastcall_arg_to_arg(generator_state, &name, arg).map_err(|s| {
-        V8SignatureMappingError::NoArgMapping(s, arg.clone())
-      })?,
+      map_v8_fastcall_arg_to_arg(generator_state, &name, arg)
+        .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?,
     )
   }
 
@@ -419,6 +418,19 @@ fn map_v8_fastcall_arg_to_arg(
         #buf
       )
     }
+    Arg::Buffer(buffer, _, BufferSource::Any) => {
+      *needs_fast_api_callback_options = true;
+      let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
+      quote!(
+        // SAFETY: This slice doesn't outlive the function
+        let Ok(mut #arg_temp) = (unsafe { #deno_core::_ops::to_slice_buffer_any(#arg_ident.into()) }) else {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
+        };
+        #buf
+      )
+    }
     Arg::Buffer(buffer, _, BufferSource::TypedArray) => {
       fast_api_typed_array_to_buffer(deno_core, arg_ident, arg_ident, *buffer)?
     }
@@ -538,8 +550,18 @@ fn map_arg_to_v8_fastcall_type(
     Arg::Buffer(_, BufferMode::Detach, _) => return Ok(None),
     // We don't allow JsBuffer or V8Slice fastcalls for TypedArray
     // TODO(mmastrac): we can enable these soon
-    Arg::Buffer(BufferType::JsBuffer | BufferType::V8Slice(..), _, BufferSource::TypedArray) => return Ok(None),
-    // TODO(mmastrac): implement fast for any buffer
+    Arg::Buffer(
+      BufferType::JsBuffer | BufferType::V8Slice(..),
+      _,
+      BufferSource::TypedArray,
+    ) => return Ok(None),
+    Arg::Buffer(
+      BufferType::Slice(.., NumericArg::u8)
+      | BufferType::Ptr(.., NumericArg::u8),
+      _,
+      BufferSource::Any,
+    ) => V8FastCallType::AnyArray,
+    // TODO(mmastrac): implement fast for any Any-typed buffer
     Arg::Buffer(_, _, BufferSource::Any) => return Ok(None),
     Arg::Buffer(_, _, BufferSource::ArrayBuffer) => V8FastCallType::ArrayBuffer,
     Arg::Buffer(
