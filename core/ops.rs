@@ -125,7 +125,7 @@ pub fn to_op_result<R: Serialize + 'static>(
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum OpMetricsEvent {
-  /// Entered an op.
+  /// Entered an op dispatch.
   Dispatched,
   /// Left an op synchronously.
   Completed,

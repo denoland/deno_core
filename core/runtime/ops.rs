@@ -16,6 +16,7 @@ use std::ffi::c_void;
 use std::future::ready;
 use std::mem::MaybeUninit;
 use std::option::Option;
+use std::ptr::NonNull;
 use std::task::Context;
 use std::task::Poll;
 use v8::WriteOptions;
@@ -654,6 +655,36 @@ pub unsafe fn to_slice_buffer(
   Ok(slice)
 }
 
+/// Retrieve a byte slice from a [`v8::ArrayBuffer`], avoiding the intermediate [`v8::BackingStore`].
+///
+/// # Safety
+///
+/// Callers must ensure that the returned slice does not outlive the [`v8::BackingStore`] of the
+/// [`v8::ArrayBuffer`].
+pub unsafe fn to_slice_buffer_any(
+  input: v8::Local<v8::Value>,
+) -> Result<&mut [u8], &'static str> {
+  let (data, len) = {
+    if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+      (NonNull::new(buf.data()), buf.byte_length())
+    } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+      (buf.data(), buf.byte_length())
+    } else {
+      return Err("expected ArrayBuffer or ArrayBufferView");
+    }
+  };
+  let slice = if len > 0 {
+    if let Some(ptr) = data {
+      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+    } else {
+      &mut []
+    }
+  } else {
+    &mut []
+  };
+  Ok(slice)
+}
+
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
 pub fn to_v8_slice_buffer(
   input: v8::Local<v8::Value>,
@@ -684,6 +715,28 @@ pub fn to_v8_slice_buffer_detachable(
     };
   let slice = unsafe { serde_v8::V8Slice::from_parts(store, 0..length) };
   Ok(slice)
+}
+
+/// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
+pub fn to_v8_slice_any(
+  scope: &mut v8::HandleScope,
+  input: v8::Local<v8::Value>,
+) -> Result<serde_v8::V8Slice<u8>, &'static str> {
+  if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+    let Some(buf) = buf.buffer(scope) else {
+      return Err("buffer missing");
+    };
+    return Ok(unsafe {
+      serde_v8::V8Slice::<u8>::from_parts(
+        buf.get_backing_store(),
+        0..buf.byte_length(),
+      )
+    });
+  }
+  if let Ok(buf) = to_v8_slice_buffer(input) {
+    return Ok(buf);
+  }
+  Err("expected ArrayBuffer or ArrayBufferView")
 }
 
 #[cfg(test)]
@@ -764,6 +817,7 @@ mod tests {
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
+      op_buffer_any,
       op_arraybuffer_slice,
       op_external_make,
       op_external_process,
@@ -1734,6 +1788,36 @@ mod tests {
         ),
       )?;
     }
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
+    buffer.len() as _
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_any() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint8Array(10)) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new ArrayBuffer(10)) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint32Array(10)) == 40);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new DataView(new ArrayBuffer(10))) == 10);",
+    )?;
     Ok(())
   }
 
