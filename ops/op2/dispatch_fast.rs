@@ -1,3 +1,5 @@
+use crate::op2::V8SignatureMappingError;
+
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::fast_api_typed_array_to_buffer;
@@ -7,8 +9,9 @@ use super::dispatch_shared::v8slice_to_buffer;
 use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::Arg;
-use super::signature::Buffer;
 use super::signature::BufferMode;
+use super::signature::BufferSource;
+use super::signature::BufferType;
 use super::signature::NumericArg;
 use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
@@ -38,6 +41,8 @@ pub(crate) enum V8FastCallType {
   F64,
   Pointer,
   V8Value,
+  /// Any typed array.
+  AnyArray,
   Uint8Array,
   Uint32Array,
   Float64Array,
@@ -82,8 +87,8 @@ impl V8FastCallType {
       V8FastCallType::Float64Array => {
         quote!(*mut #deno_core::v8::fast_api::FastApiTypedArray<f64>)
       }
-      V8FastCallType::ArrayBuffer => {
-        quote!(#deno_core::v8::Local<#deno_core::v8::ArrayBuffer>)
+      V8FastCallType::AnyArray | V8FastCallType::ArrayBuffer => {
+        quote!(#deno_core::v8::Local<#deno_core::v8::Value>)
       }
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
@@ -103,6 +108,7 @@ impl V8FastCallType {
       V8FastCallType::Pointer => quote!(CType::Pointer),
       V8FastCallType::V8Value => quote!(CType::V8Value),
       V8FastCallType::CallbackOptions => quote!(CType::CallbackOptions),
+      V8FastCallType::AnyArray => unreachable!(),
       V8FastCallType::Uint8Array => unreachable!(),
       V8FastCallType::Uint32Array => unreachable!(),
       V8FastCallType::Float64Array => unreachable!(),
@@ -126,6 +132,7 @@ impl V8FastCallType {
       V8FastCallType::Pointer => quote!(Type::Pointer),
       V8FastCallType::V8Value => quote!(Type::V8Value),
       V8FastCallType::CallbackOptions => quote!(Type::CallbackOptions),
+      V8FastCallType::AnyArray => quote!(Type::TypedArray(CType::Void)),
       V8FastCallType::Uint8Array => quote!(Type::TypedArray(CType::Uint8)),
       V8FastCallType::Uint32Array => quote!(Type::TypedArray(CType::Uint32)),
       V8FastCallType::Float64Array => quote!(Type::TypedArray(CType::Float64)),
@@ -139,7 +146,10 @@ impl V8FastCallType {
 pub fn generate_dispatch_fast(
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
-) -> Result<Option<(TokenStream, TokenStream, TokenStream)>, V8MappingError> {
+) -> Result<
+  Option<(TokenStream, TokenStream, TokenStream)>,
+  V8SignatureMappingError,
+> {
   enum Input<'a> {
     Concrete(V8FastCallType),
     Virtual(&'a Arg),
@@ -152,7 +162,7 @@ pub fn generate_dispatch_fast(
 
   let mut inputs = vec![];
   for arg in &signature.args {
-    let Some(fv) = map_arg_to_v8_fastcall_type(arg)? else {
+    let Some(fv) = map_arg_to_v8_fastcall_type(arg).map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))? else {
       return Ok(None);
     };
     if fv == V8FastCallType::Virtual {
@@ -168,7 +178,9 @@ pub fn generate_dispatch_fast(
     _ => todo!(),
   };
 
-  let output = match map_retval_to_v8_fastcall_type(ret_val)? {
+  let output = match map_retval_to_v8_fastcall_type(ret_val).map_err(|s| {
+    V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+  })? {
     None => return Ok(None),
     Some(rv) => rv,
   };
@@ -188,7 +200,11 @@ pub fn generate_dispatch_fast(
     }
 
     call_names.push(name.clone());
-    call_args.push(map_v8_fastcall_arg_to_arg(generator_state, &name, arg)?)
+    call_args.push(
+      map_v8_fastcall_arg_to_arg(generator_state, &name, arg).map_err(|s| {
+        V8SignatureMappingError::NoArgMapping(s, arg.clone())
+      })?,
+    )
   }
 
   let GeneratorState {
@@ -374,7 +390,11 @@ fn map_v8_fastcall_arg_to_arg(
   let arg_temp = format_ident!("{}_temp", arg_ident);
 
   let res = match arg {
-    Arg::ArrayBuffer(buffer @ (Buffer::V8Slice(..) | Buffer::JsBuffer(..))) => {
+    Arg::Buffer(
+      buffer @ (BufferType::V8Slice(..) | BufferType::JsBuffer),
+      _,
+      BufferSource::ArrayBuffer,
+    ) => {
       *needs_fast_api_callback_options = true;
       let buf = v8slice_to_buffer(deno_core, arg_ident, &arg_temp, *buffer)?;
       quote!(
@@ -386,7 +406,7 @@ fn map_v8_fastcall_arg_to_arg(
         #buf
       )
     }
-    Arg::ArrayBuffer(buffer) => {
+    Arg::Buffer(buffer, _, BufferSource::ArrayBuffer) => {
       *needs_fast_api_callback_options = true;
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
@@ -399,7 +419,7 @@ fn map_v8_fastcall_arg_to_arg(
         #buf
       )
     }
-    Arg::Buffer(buffer) => {
+    Arg::Buffer(buffer, _, BufferSource::TypedArray) => {
       fast_api_typed_array_to_buffer(deno_core, arg_ident, arg_ident, *buffer)?
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
@@ -514,28 +534,23 @@ fn map_arg_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
+    // We don't allow detaching buffers in fast mode
+    Arg::Buffer(_, BufferMode::Detach, _) => return Ok(None),
+    // We don't allow JsBuffer or V8Slice fastcalls for TypedArray
+    // TODO(mmastrac): we can enable these soon
+    Arg::Buffer(BufferType::JsBuffer | BufferType::V8Slice(..), _, BufferSource::TypedArray) => return Ok(None),
+    // TODO(mmastrac): implement fast for any buffer
+    Arg::Buffer(_, _, BufferSource::Any) => return Ok(None),
+    Arg::Buffer(_, _, BufferSource::ArrayBuffer) => V8FastCallType::ArrayBuffer,
     Arg::Buffer(
-      Buffer::Slice(_, NumericArg::u8)
-      | Buffer::Ptr(_, NumericArg::u8)
-      | Buffer::Vec(NumericArg::u8)
-      | Buffer::BoxSlice(NumericArg::u8)
-      | Buffer::Bytes(BufferMode::Copy),
-    ) => V8FastCallType::Uint8Array,
-    Arg::Buffer(
-      Buffer::Slice(_, NumericArg::u32)
-      | Buffer::Ptr(_, NumericArg::u32)
-      | Buffer::Vec(NumericArg::u32)
-      | Buffer::BoxSlice(NumericArg::u32),
+      BufferType::Slice(.., NumericArg::u32)
+      | BufferType::Ptr(.., NumericArg::u32)
+      | BufferType::Vec(.., NumericArg::u32)
+      | BufferType::BoxSlice(.., NumericArg::u32),
+      _,
+      BufferSource::TypedArray,
     ) => V8FastCallType::Uint32Array,
-    Arg::Buffer(_) => return Ok(None),
-    Arg::ArrayBuffer(
-      Buffer::Slice(_, NumericArg::u8)
-      | Buffer::Ptr(_, NumericArg::u8)
-      | Buffer::Vec(NumericArg::u8)
-      | Buffer::BoxSlice(NumericArg::u8)
-      | Buffer::Bytes(BufferMode::Copy),
-    ) => V8FastCallType::ArrayBuffer,
-    Arg::ArrayBuffer(_) => return Ok(None),
+    Arg::Buffer(_, _, BufferSource::TypedArray) => V8FastCallType::Uint8Array,
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)
     | Arg::Ref(_, Special::OpState)
@@ -547,8 +562,7 @@ fn map_arg_to_v8_fastcall_type(
     Arg::OptionNumeric(..)
     | Arg::Option(_)
     | Arg::OptionString(_)
-    | Arg::OptionArrayBuffer(_)
-    | Arg::OptionBuffer(_)
+    | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
     | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
@@ -589,7 +603,7 @@ fn map_arg_to_v8_fastcall_type(
     // Cow byte strings can be fast and don't require copying
     Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
     Arg::External(..) => V8FastCallType::Pointer,
-    _ => return Err(V8MappingError::NoMapping("a fast argument", arg.clone())),
+    _ => return Err("a fast argument"),
   };
   Ok(Some(rv))
 }
@@ -635,14 +649,9 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Ref(..) => return Ok(None),
-    Arg::ArrayBuffer(..) | Arg::Buffer(..) => return Ok(None),
+    Arg::Buffer(..) | Arg::OptionBuffer(..) => return Ok(None),
     Arg::External(..) => V8FastCallType::Pointer,
-    _ => {
-      return Err(V8MappingError::NoMapping(
-        "a fast return value",
-        arg.clone(),
-      ))
-    }
+    _ => return Err("a fast return value"),
   };
   Ok(Some(rv))
 }

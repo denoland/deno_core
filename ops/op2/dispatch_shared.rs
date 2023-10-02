@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::signature::Arg;
-use super::signature::Buffer;
-use super::signature::BufferMode;
+use super::signature::BufferType;
 use super::signature::NumericArg;
 use super::signature::RefType;
 use super::signature::V8Arg;
@@ -77,78 +76,69 @@ pub fn v8_to_arg(
   })
 }
 
-/// Given a V8Slice in `v8slice`, turns it into the appropriate slice type in `arg_ident`.
+/// Given a `V8Slice` in `v8slice`, turns it into the appropriate buffer type in `arg_ident`.
 pub fn v8slice_to_buffer(
   deno_core: &TokenStream,
   arg_ident: &Ident,
   v8slice: &Ident,
-  buffer: Buffer,
+  buffer: BufferType,
 ) -> Result<TokenStream, V8MappingError> {
   let make_arg = match buffer {
-    Buffer::V8Slice(_, _) => {
+    BufferType::V8Slice(..) => {
       quote!(let #arg_ident = #arg_ident;)
     }
-    Buffer::Slice(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Slice(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #v8slice.as_ref();)
     }
-    Buffer::Slice(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Slice(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #v8slice.as_mut();)
     }
-    Buffer::Ptr(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Ptr(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = if #v8slice.len() == 0 { std::ptr::null() } else { #v8slice.as_ref().as_ptr() };)
     }
-    Buffer::Ptr(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Ptr(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = if #v8slice.len() == 0 { std::ptr::null_mut() } else { #v8slice.as_mut().as_mut_ptr() };)
     }
-    Buffer::Vec(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Vec(NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #v8slice.to_vec();)
     }
-    Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #v8slice.to_boxed_slice();)
     }
-    Buffer::Bytes(BufferMode::Copy) => {
+    BufferType::Bytes => {
       quote!(let #arg_ident = #v8slice.to_vec().into();)
     }
-    Buffer::JsBuffer(BufferMode::Default | BufferMode::Detach) => {
+    BufferType::JsBuffer => {
       quote!(let #arg_ident = #deno_core::serde_v8::JsBuffer::from_parts(#v8slice);)
     }
-    _ => {
-      return Err(V8MappingError::NoMapping(
-        "a v8slice argument",
-        Arg::Buffer(buffer),
-      ))
-    }
+    _ => return Err("a v8slice argument"),
   };
   Ok(make_arg)
 }
 
+// Given a `&[u8]` in `buf`, turns it into the appropriate buffer type in `arg_ident`.
 pub fn byte_slice_to_buffer(
   arg_ident: &Ident,
   buf: &Ident,
-  buffer: Buffer,
+  buffer: BufferType,
 ) -> Result<TokenStream, V8MappingError> {
   let res = match buffer {
-    Buffer::Slice(_, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Slice(_, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #buf;)
     }
-    Buffer::Ptr(_, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Ptr(_, NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = if #buf.len() == 0 { ::std::ptr::null_mut() } else { #buf.as_mut_ptr() as _ };)
     }
-    Buffer::Vec(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Vec(NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #buf.to_vec();)
     }
-    Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
       quote!(let #arg_ident = #buf.to_vec().into_boxed_slice();)
     }
-    Buffer::Bytes(BufferMode::Copy) => {
+    BufferType::Bytes => {
       quote!(let #arg_ident = #buf.to_vec().into();)
     }
-    _ => {
-      return Err(V8MappingError::NoMapping(
-        "a fast typed array buffer argument",
-        Arg::Buffer(buffer),
-      ))
-    }
+    _ => return Err("a fast typed array buffer argument"),
   };
 
   Ok(res)
@@ -158,7 +148,7 @@ pub fn fast_api_typed_array_to_buffer(
   deno_core: &TokenStream,
   arg_ident: &Ident,
   input: &Ident,
-  buffer: Buffer,
+  buffer: BufferType,
 ) -> Result<TokenStream, V8MappingError> {
   let convert = byte_slice_to_buffer(arg_ident, input, buffer)?;
   Ok(quote! {
