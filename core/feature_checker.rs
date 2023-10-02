@@ -23,7 +23,7 @@ impl FeatureChecker {
     *self.features.get(feature).unwrap_or(&false)
   }
 
-  #[deprecated]  
+  #[deprecated]
   pub fn enable_legacy_unstable(&mut self) {
     self.legacy_unstable = true;
   }
