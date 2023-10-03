@@ -1198,13 +1198,13 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   #[bigint]
   pub fn op_test_bigint_u64(#[bigint] input: u64) -> u64 {
     input
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   #[bigint]
   pub fn op_test_bigint_i64(#[bigint] input: i64) -> i64 {
     input

@@ -302,8 +302,6 @@ pub fn generate_dispatch_fast(
   let fast_definition = gs_quote!(generator_state(deno_core) => {
     use #deno_core::v8::fast_api::Type;
     use #deno_core::v8::fast_api::CType;
-    // TODO(mmastrac): We're setting this up for future success but returning
-    // u64/i64 from fastcall functions does not work. Test again in the future.
     #deno_core::v8::fast_api::FastFunction::new_with_bigint(
       &[ Type::V8Value, #( #input_types ),* ],
       #output_type,
@@ -314,8 +312,6 @@ pub fn generate_dispatch_fast(
   let fast_definition_metrics = gs_quote!(generator_state(deno_core) => {
     use #deno_core::v8::fast_api::Type;
     use #deno_core::v8::fast_api::CType;
-    // TODO(mmastrac): We're setting this up for future success but returning
-    // u64/i64 from fastcall functions does not work. Test again in the future.
     #deno_core::v8::fast_api::FastFunction::new_with_bigint(
       &[ Type::V8Value, #( #input_types_metrics ),* ],
       #output_type,
@@ -644,14 +640,10 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::Numeric(NumericArg::i16, _)
     | Arg::Numeric(NumericArg::i8, _) => V8FastCallType::I32,
     Arg::Numeric(NumericArg::u64 | NumericArg::usize, NumericFlag::None) => {
-      // TODO(mmastrac): In my testing, I was not able to get this working properly
-      // V8FastCallType::U64
-      return Ok(None);
+      V8FastCallType::U64
     }
     Arg::Numeric(NumericArg::i64 | NumericArg::isize, NumericFlag::None) => {
-      // TODO(mmastrac): In my testing, I was not able to get this working properly
-      // V8FastCallType::I64
-      return Ok(None);
+      V8FastCallType::I64
     }
     Arg::Numeric(
       NumericArg::u64 | NumericArg::usize | NumericArg::i64 | NumericArg::isize,

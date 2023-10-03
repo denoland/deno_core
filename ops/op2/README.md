@@ -1153,7 +1153,7 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 ```
 
 </td><td>
-
+✅
 </td><td>
 
 </td><td>
@@ -1169,7 +1169,7 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 ```
 
 </td><td>
-
+✅
 </td><td>
 
 </td><td>
@@ -1185,7 +1185,7 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 ```
 
 </td><td>
-
+✅
 </td><td>
 
 </td><td>
@@ -1201,7 +1201,7 @@ SMI is internally represented as a signed integer, but unsigned `#[smi]` types w
 ```
 
 </td><td>
-
+✅
 </td><td>
 
 </td><td>
