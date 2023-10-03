@@ -718,17 +718,17 @@ pub fn to_v8_slice_buffer_detachable(
 
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
 pub fn to_v8_slice_any(
-  scope: &mut v8::HandleScope,
   input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
   if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-    let Some(buf) = buf.buffer(scope) else {
+    let Some(buf) = buf.get_backing_store() else {
       return Err("buffer missing");
     };
+    let len = buf.byte_length();
     return Ok(unsafe {
       serde_v8::V8Slice::<u8>::from_parts(
-        buf.get_backing_store(),
-        0..buf.byte_length(),
+        buf,
+        0..len,
       )
     });
   }

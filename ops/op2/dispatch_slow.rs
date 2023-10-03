@@ -645,11 +645,8 @@ pub fn from_arg_any_buffer(
     quote!(to_v8_slice_any)
   };
 
-  // TODO(mmastrac): upstream change required to avoid scope
-  generator_state.needs_scope = true;
-
-  let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
-    #temp = match unsafe { #deno_core::_ops::#to_v8_slice(&mut #scope, #arg_ident) } {
+  let make_v8slice = gs_quote!(generator_state(deno_core) => {
+    #temp = match unsafe { #deno_core::_ops::#to_v8_slice(#arg_ident) } {
       Ok(#arg_ident) => #arg_ident,
       Err(#err) => {
         #throw_exception
