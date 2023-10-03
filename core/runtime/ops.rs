@@ -758,6 +758,7 @@ mod tests {
       op_state_mut_attr,
       op_state_multi_attr,
       op_buffer_slice,
+      op_buffer_jsbuffer,
       op_buffer_ptr,
       op_buffer_slice_32,
       op_buffer_ptr_32,
@@ -1734,6 +1735,70 @@ mod tests {
         ),
       )?;
     }
+    Ok(())
+  }
+
+  #[op2(core)]
+  pub fn op_buffer_jsbuffer(
+    #[buffer] input: JsBuffer,
+    #[number] inlen: usize,
+    #[buffer] mut output: JsBuffer,
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_jsbuffer() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_jsbuffer",
+      r"
+        let inbuf = new ArrayBuffer(10);
+        let in_u8 = new Uint8Array(inbuf);
+        in_u8[5] = 1;
+        let out = new ArrayBuffer(10);
+        op_buffer_jsbuffer(new Uint8Array(inbuf, 5, 5), 5, new Uint8Array(out), 10);
+        assert(new Uint8Array(out)[0] == 1);",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, fast)]
+  pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
+    let mut sum: u32 = 0;
+    for i in buffer {
+      sum += *i as u32;
+    }
+    sum
+  }
+
+  #[tokio::test]
+  pub async fn test_op_buffer_any() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint8Array([1,2,3,4])) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint8Array([1,2,3,4]).buffer) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint32Array([1,2,3,4,0x01010101])) == 14);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new DataView(new Uint8Array([1,2,3,4]).buffer)) == 10);",
+    )?;
     Ok(())
   }
 
