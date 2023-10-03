@@ -24,7 +24,6 @@ use std::rc::Weak;
 use std::sync::Arc;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::CTypeInfo;
-use v8::fast_api::Int64Representation;
 use v8::Isolate;
 
 pub type PromiseId = i32;
@@ -194,9 +193,7 @@ impl OpCtx {
           args.as_ptr(),
           fast_fn.args.len(),
           ret.as_ptr(),
-          // TODO(bartlomieju): in the future we might want to change it
-          // to use BigInt representation.
-          Int64Representation::Number,
+          fast_fn.repr,
         )
       };
       fast_fn_c_info = Some(c_fn);
