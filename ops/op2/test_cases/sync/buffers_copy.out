@@ -109,7 +109,6 @@ impl op_buffers {
         result as _
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -119,9 +118,7 @@ impl op_buffers {
         let result = {
             let arg0 = args.get(0usize as i32);
             let mut arg0_temp;
-            arg0_temp = match unsafe {
-                deno_core::_ops::to_v8_slice::<u8>(&mut scope, arg0)
-            } {
+            arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg0) } {
                 Ok(arg0) => arg0,
                 Err(arg0_err) => {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
@@ -139,11 +136,10 @@ impl op_buffers {
             let arg0 = arg0_temp.to_vec();
             let arg1 = args.get(1usize as i32);
             let mut arg1_temp;
-            arg1_temp = match unsafe {
-                deno_core::_ops::to_v8_slice::<u8>(&mut scope, arg1)
-            } {
+            arg1_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg1) } {
                 Ok(arg1) => arg1,
                 Err(arg1_err) => {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                     let msg = deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg1_err.as_bytes(),
@@ -158,11 +154,10 @@ impl op_buffers {
             let arg1 = arg1_temp.to_boxed_slice();
             let arg2 = args.get(2usize as i32);
             let mut arg2_temp;
-            arg2_temp = match unsafe {
-                deno_core::_ops::to_v8_slice::<u8>(&mut scope, arg2)
-            } {
+            arg2_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg2) } {
                 Ok(arg2) => arg2,
                 Err(arg2_err) => {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                     let msg = deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg2_err.as_bytes(),
@@ -301,7 +296,6 @@ impl op_buffers_32 {
         result as _
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -311,9 +305,7 @@ impl op_buffers_32 {
         let result = {
             let arg0 = args.get(0usize as i32);
             let mut arg0_temp;
-            arg0_temp = match unsafe {
-                deno_core::_ops::to_v8_slice::<u32>(&mut scope, arg0)
-            } {
+            arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg0) } {
                 Ok(arg0) => arg0,
                 Err(arg0_err) => {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
@@ -331,11 +323,10 @@ impl op_buffers_32 {
             let arg0 = arg0_temp.to_vec();
             let arg1 = args.get(1usize as i32);
             let mut arg1_temp;
-            arg1_temp = match unsafe {
-                deno_core::_ops::to_v8_slice::<u32>(&mut scope, arg1)
-            } {
+            arg1_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg1) } {
                 Ok(arg1) => arg1,
                 Err(arg1_err) => {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                     let msg = deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg1_err.as_bytes(),

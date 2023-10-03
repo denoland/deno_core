@@ -569,7 +569,6 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
 
 /// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
 pub fn to_v8_slice<'a, T>(
-  scope: &mut v8::HandleScope,
   input: v8::Local<'a, v8::Value>,
 ) -> Result<serde_v8::V8Slice<T>, &'static str>
 where
@@ -580,11 +579,11 @@ where
   let (store, offset, length) =
     if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
-      let Some(buffer) = buf.buffer(scope) else {
+      let Some(buffer) = buf.get_backing_store() else {
       return Err("buffer missing");
     };
       (
-        buffer.get_backing_store(),
+        buffer,
         buf.byte_offset(),
         buf.byte_length(),
       )
@@ -1793,7 +1792,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   pub fn op_buffer_jsbuffer(
     #[buffer] input: JsBuffer,
     #[number] inlen: usize,

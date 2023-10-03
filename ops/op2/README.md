@@ -849,9 +849,9 @@ Safe, but forces a copy.
 ```
 
 </td><td>
-
+✅
 </td><td>
-ArrayBuffer, ArrayBufferView (resizable=false)
+ArrayBufferView (resizable=false)
 </td><td>
 ⚠️ JS may modify the contents of slices obtained from buffer.
 </td></tr>
@@ -865,7 +865,7 @@ ArrayBuffer, ArrayBufferView (resizable=false)
 </td><td>
 
 </td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
+ArrayBufferView (resizable=true,false)
 </td><td>
 Safe.
 </td></tr>

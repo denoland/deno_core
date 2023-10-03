@@ -561,22 +561,22 @@ pub fn from_arg_buffer(
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
   let array = buffer_type.element();
-  generator_state.needs_scope = true;
 
   let to_v8_slice = if matches!(buffer_mode, BufferMode::Detach) {
-    quote!(to_v8_slice_detachable)
+    generator_state.needs_scope = true;
+    gs_quote!(generator_state(deno_core, scope) => { #deno_core::_ops::to_v8_slice_detachable::<#array>(&mut #scope, #arg_ident) })
   } else {
-    quote!(to_v8_slice)
+    gs_quote!(generator_state(deno_core) => { #deno_core::_ops::to_v8_slice::<#array>(#arg_ident) })
   };
 
-  let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
-    #temp = match unsafe { #deno_core::_ops::#to_v8_slice::<#array>(&mut #scope, #arg_ident) } {
+  let make_v8slice = quote!(
+    #temp = match unsafe { #to_v8_slice } {
       Ok(#arg_ident) => #arg_ident,
       Err(#err) => {
         #throw_exception
       }
     };
-  });
+  );
 
   let make_arg = v8slice_to_buffer(
     &generator_state.deno_core,
