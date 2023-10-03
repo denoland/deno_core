@@ -21,6 +21,8 @@ deno_core::extension!(
     op_local_nofast,
     op_global,
     op_global_scope,
+    op_scope,
+    op_isolate_nofast,
     op_make_external,
     op_bigint,
     op_bigint_return,
@@ -93,6 +95,12 @@ pub fn op_global_scope(
   #[global] _s: v8::Global<v8::String>,
 ) {
 }
+
+#[op2]
+pub fn op_scope(_scope: &mut v8::HandleScope) {}
+
+#[op2(nofast)]
+pub fn op_isolate_nofast(_isolate: *mut v8::Isolate) {}
 
 #[op2(fast)]
 pub fn op_make_external() -> *const c_void {
@@ -405,6 +413,22 @@ fn bench_op_bigint_return(b: &mut Bencher) {
   );
 }
 
+/// A function that takes only a scope
+fn bench_op_v8_scope(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_scope", 1, "op_scope();");
+}
+
+/// A function that takes only an isolate
+fn bench_op_v8_isolate_nofast(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_isolate_nofast",
+    1,
+    "op_isolate_nofast();",
+  );
+}
+
 fn bench_op_external(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_external", 1, "op_external(EXTERNAL)");
 }
@@ -471,6 +495,8 @@ benchmark_group!(
   bench_op_v8_global_scope,
   bench_op_bigint,
   bench_op_bigint_return,
+  bench_op_v8_scope,
+  bench_op_v8_isolate_nofast,
   bench_op_external,
   bench_op_external_nofast,
   bench_op_buffer,

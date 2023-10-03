@@ -827,6 +827,8 @@ mod tests {
       op_external_process,
       op_external_make_ptr,
       op_external_process_ptr,
+      op_isolate_queue_microtask,
+      op_isolate_run_microtasks,
 
       op_async_void,
       op_async_number,
@@ -2099,6 +2101,31 @@ mod tests {
       10000,
       "op_external_make_ptr, op_external_process_ptr",
       "assert(op_external_process_ptr(op_external_make_ptr(6), -6) === null)",
+    )?;
+    Ok(())
+  }
+
+  #[op2(core, nofast)]
+  fn op_isolate_run_microtasks(isolate: *mut v8::Isolate) {
+    // SAFETY: testing
+    unsafe { isolate.as_mut().unwrap().perform_microtask_checkpoint() };
+  }
+
+  #[op2(core, nofast)]
+  fn op_isolate_queue_microtask(
+    isolate: *mut v8::Isolate,
+    cb: v8::Local<v8::Function>,
+  ) {
+    // SAFETY: testing
+    unsafe { isolate.as_mut().unwrap().enqueue_microtask(cb) };
+  }
+
+  #[tokio::test]
+  pub async fn test_isolate() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_isolate_queue_microtask,op_isolate_run_microtasks",
+      "op_isolate_queue_microtask(() => {}); op_isolate_run_microtasks();",
     )?;
     Ok(())
   }
