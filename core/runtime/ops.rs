@@ -1808,7 +1808,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_jsbuffer() -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_jsbuffer(
+  ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10000,
       "op_buffer_jsbuffer",
@@ -1863,7 +1864,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any_length() -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any_length(
+  ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10000,
       "op_buffer_any_length",
