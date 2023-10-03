@@ -155,7 +155,7 @@ pub enum Strings {
 
 /// Buffers are complicated and may be shared/owned, shared/unowned, a copy, or detached.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Buffer {
+pub enum BufferType {
   /// Shared/unowned, may be resizable. [`&[u8]`], [`&mut [u8]`], [`&[u32]`], etc...
   Slice(RefType, NumericArg),
   /// Shared/unowned, may be resizable. [`*const u8`], [`*mut u8`], [`*const u32`], etc...
@@ -165,43 +165,44 @@ pub enum Buffer {
   /// Owned, copy. [`Vec<u8>`], [`Vec<u32>`], etc...
   Vec(NumericArg),
   /// Maybe shared or a copy. Stored in `bytes::Bytes`
-  Bytes(BufferMode),
+  Bytes,
   /// Owned, copy. Stored in `bytes::BytesMut`
-  BytesMut(BufferMode),
+  BytesMut,
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::V8Slice`
-  V8Slice(BufferMode, NumericArg),
+  V8Slice(NumericArg),
   /// Shared, not resizable (or resizable and detatched), stored in `serde_v8::JsBuffer`
-  JsBuffer(BufferMode),
+  JsBuffer,
 }
 
-impl Buffer {
+impl BufferType {
   pub const fn valid_modes(
     &self,
     position: Position,
   ) -> &'static [AttributeModifier] {
-    use AttributeModifier::ArrayBuffer as A;
-    use AttributeModifier::Buffer as B;
-    use Buffer::*;
-    use BufferMode::*;
+    use BufferType::*;
+    // For each mode, apply it to TypedArray, ArrayBuffer, and Any.
+    macro_rules! expand {
+      ($($mode:ident),*) => {
+        &[$(
+          AttributeModifier::Buffer(BufferMode::$mode, BufferSource::TypedArray),
+          AttributeModifier::Buffer(BufferMode::$mode, BufferSource::ArrayBuffer),
+          AttributeModifier::Buffer(BufferMode::$mode, BufferSource::Any),
+        )*]
+      };
+    }
     match position {
       Position::Arg => match self {
-        Bytes(..) | BytesMut(..) | Vec(..) | BoxSlice(..) => {
-          &[A(Copy), B(Copy)]
+        Bytes | BytesMut | Vec(..) | BoxSlice(..) => {
+          expand!(Copy)
         }
-        JsBuffer(..) | V8Slice(..) => &[
-          A(Copy),
-          A(Detach),
-          A(Default),
-          B(Copy),
-          B(Detach),
-          B(Default),
-        ],
-        Slice(..) | Ptr(..) => &[A(Default), B(Default)],
+        JsBuffer | V8Slice(..) => expand!(Copy, Detach, Default),
+        Slice(..) | Ptr(..) => expand!(Default),
       },
       Position::RetVal => match self {
-        Bytes(..) | BytesMut(..) | JsBuffer(..) | V8Slice(..) | Vec(..)
-        | BoxSlice(..) => &[A(Default), B(Default)],
-        Slice(..) | Ptr(..) => &([]),
+        Bytes | BytesMut | JsBuffer | V8Slice(..) | Vec(..) | BoxSlice(..) => {
+          expand!(Default)
+        }
+        Slice(..) | Ptr(..) => expand!(Default),
       },
     }
   }
@@ -210,10 +211,10 @@ impl Buffer {
     match self {
       Self::Slice(_, arg) => *arg,
       Self::BoxSlice(arg) => *arg,
-      Self::Bytes(_) | Self::BytesMut(_) | Self::JsBuffer(_) => NumericArg::u8,
+      Self::Bytes | Self::BytesMut | Self::JsBuffer => NumericArg::u8,
       Self::Ptr(_, arg) => *arg,
       Self::Vec(arg) => *arg,
-      Self::V8Slice(_, arg) => *arg,
+      Self::V8Slice(arg) => *arg,
     }
   }
 }
@@ -244,16 +245,14 @@ pub enum Arg {
   Void,
   Special(Special),
   String(Strings),
-  ArrayBuffer(Buffer),
-  Buffer(Buffer),
+  Buffer(BufferType, BufferMode, BufferSource),
   External(External),
   Ref(RefType, Special),
   RcRefCell(Special),
   Option(Special),
   OptionString(Strings),
   OptionNumeric(NumericArg, NumericFlag),
-  OptionArrayBuffer(Buffer),
-  OptionBuffer(Buffer),
+  OptionBuffer(BufferType, BufferMode, BufferSource),
   OptionV8Local(V8Arg),
   OptionV8Global(V8Arg),
   V8Local(V8Arg),
@@ -267,33 +266,38 @@ pub enum Arg {
 }
 
 impl Arg {
-  const fn from_parsed(
+  fn from_parsed(
     parsed: ParsedTypeContainer,
     attr: Attributes,
-  ) -> Result<Self, ()> {
+  ) -> Result<Self, ArgError> {
     use ParsedType::*;
     use ParsedTypeContainer::*;
+
+    let buffer_mode = || match attr.primary {
+      Some(AttributeModifier::Buffer(mode, _)) => Ok(mode),
+      _ => Err(ArgError::MissingAttribute("buffer", format!("{parsed:?}"))),
+    };
+
+    let buffer_source = || match attr.primary {
+      Some(AttributeModifier::Buffer(_, source)) => Ok(source),
+      _ => Err(ArgError::MissingAttribute("buffer", format!("{parsed:?}"))),
+    };
+
     match parsed {
       CBare(TNumeric(numeric)) => Ok(Arg::Numeric(numeric, NumericFlag::None)),
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
       CBare(TString(string)) => Ok(Arg::String(string)),
-      CBare(TBuffer(buffer))
-        if matches!(attr.primary, Some(AttributeModifier::ArrayBuffer(_))) =>
-      {
-        Ok(Arg::ArrayBuffer(buffer))
+      CBare(TBuffer(buffer)) => {
+        Ok(Arg::Buffer(buffer, buffer_mode()?, buffer_source()?))
       }
-      CBare(TBuffer(buffer)) => Ok(Arg::Buffer(buffer)),
       COption(TNumeric(special)) => {
         Ok(Arg::OptionNumeric(special, NumericFlag::None))
       }
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       COption(TString(string)) => Ok(Arg::OptionString(string)),
-      COption(TBuffer(buffer))
-        if matches!(attr.primary, Some(AttributeModifier::ArrayBuffer(_))) =>
-      {
-        Ok(Arg::OptionArrayBuffer(buffer))
+      COption(TBuffer(buffer)) => {
+        Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
       }
-      COption(TBuffer(buffer)) => Ok(Arg::OptionBuffer(buffer)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
       COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
@@ -301,7 +305,7 @@ impl Arg {
       COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
       CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
-      _ => Err(()),
+      _ => unreachable!(),
     }
   }
 
@@ -382,8 +386,7 @@ impl Arg {
       Arg::OptionNumeric(t, flag) => Arg::Numeric(*t, *flag),
       Arg::Option(t) => Arg::Special(*t),
       Arg::OptionString(t) => Arg::String(*t),
-      Arg::OptionArrayBuffer(t) => Arg::ArrayBuffer(*t),
-      Arg::OptionBuffer(t) => Arg::Buffer(*t),
+      Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
       _ => return None,
     })
@@ -423,38 +426,20 @@ impl Arg {
         // No scope required for these
         Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
         Arg::V8Global(_) => ArgSlowRetval::V8Local,
-        Arg::ArrayBuffer(
-          Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
-          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
-          | Buffer::V8Slice(
-            BufferMode::Default,
-            NumericArg::u8 | NumericArg::u32,
-          )
-          | Buffer::BytesMut(BufferMode::Default),
-        ) => ArgSlowRetval::V8Local,
-        Arg::Buffer(
-          Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
-          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
-          | Buffer::V8Slice(
-            BufferMode::Default,
-            NumericArg::u8 | NumericArg::u32,
-          )
-          | Buffer::BytesMut(BufferMode::Default),
-        ) => ArgSlowRetval::V8LocalFalliable,
-        Arg::OptionArrayBuffer(
-          Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
-          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
-          | Buffer::BytesMut(BufferMode::Default),
-        ) => ArgSlowRetval::V8Local,
-        Arg::OptionBuffer(
-          Buffer::JsBuffer(BufferMode::Default)
-          | Buffer::Vec(NumericArg::u8 | NumericArg::u32)
-          | Buffer::BoxSlice(NumericArg::u8 | NumericArg::u32)
-          | Buffer::BytesMut(BufferMode::Default),
-        ) => ArgSlowRetval::V8LocalFalliable,
+        // ArrayBuffer is infallible
+        Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
+        // TypedArray is fallible
+        Arg::Buffer(.., BufferSource::TypedArray) => {
+          ArgSlowRetval::V8LocalFalliable
+        }
+        // ArrayBuffer is infallible
+        Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
+          ArgSlowRetval::V8Local
+        }
+        // TypedArray is fallible
+        Arg::OptionBuffer(.., BufferSource::TypedArray) => {
+          ArgSlowRetval::V8LocalFalliable
+        }
         _ => ArgSlowRetval::None,
       }
     }
@@ -463,7 +448,10 @@ impl Arg {
   /// Does this type have a marker (used for specialization of serialization/deserialization)?
   pub fn marker(&self) -> ArgMarker {
     match self {
-      Arg::ArrayBuffer(_) | Arg::OptionArrayBuffer(_) => ArgMarker::ArrayBuffer,
+      Arg::Buffer(.., BufferSource::ArrayBuffer)
+      | Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
+        ArgMarker::ArrayBuffer
+      }
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
@@ -505,10 +493,11 @@ pub enum ArgMarker {
   ArrayBuffer,
 }
 
+#[derive(Debug)]
 pub enum ParsedType {
   TSpecial(Special),
   TString(Strings),
-  TBuffer(Buffer),
+  TBuffer(BufferType),
   TV8(V8Arg),
   // TODO(mmastrac): We need to carry the mut status through somehow
   TV8Mut(V8Arg),
@@ -540,6 +529,7 @@ impl ParsedType {
   }
 }
 
+#[derive(Debug)]
 pub enum ParsedTypeContainer {
   CBare(ParsedType),
   COption(ParsedType),
@@ -675,6 +665,17 @@ pub enum BufferMode {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BufferSource {
+  /// The buffer expects an exactly-typed TypedArray of the given underlying format.
+  TypedArray,
+  /// The buffer expects a raw ArrayBuffer, which is an unsliced underlying backing store.
+  ArrayBuffer,
+  /// The buffer expects a byte-like slice which may be an ArrayBuffer, a TypedArray, or
+  /// a DataView.
+  Any,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
@@ -686,9 +687,7 @@ pub enum AttributeModifier {
   /// #[state], for automatic OpState extraction.
   State,
   /// #[buffer], for buffers.
-  Buffer(BufferMode),
-  /// #[arraybuffer], for buffers backed directly by v8::ArrayBuffer rather than views.
-  ArrayBuffer(BufferMode),
+  Buffer(BufferMode, BufferSource),
   /// #[global], for [`v8::Global`]s
   Global,
   /// #[bigint], for u64/usize/i64/isize indicating value is a BigInt
@@ -702,8 +701,7 @@ impl AttributeModifier {
     match self {
       AttributeModifier::Bigint => "bigint",
       AttributeModifier::Number => "number",
-      AttributeModifier::ArrayBuffer(_) => "buffer",
-      AttributeModifier::Buffer(_) => "buffer",
+      AttributeModifier::Buffer(..) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
       AttributeModifier::String(_) => "string",
@@ -1087,14 +1085,18 @@ fn parse_attribute(
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
       (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
       (#[state]) => Some(AttributeModifier::State),
-      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default)),
-      (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe)),
-      (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy)),
-      (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach)),
-      (#[arraybuffer]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Default)),
-      (#[arraybuffer(unsafe)]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Unsafe)),
-      (#[arraybuffer(copy)]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Copy)),
-      (#[arraybuffer(detach)]) => Some(AttributeModifier::ArrayBuffer(BufferMode::Detach)),
+      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::TypedArray)),
+      (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::TypedArray)),
+      (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::TypedArray)),
+      (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::TypedArray)),
+      (#[anybuffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::Any)),
+      (#[anybuffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::Any)),
+      (#[anybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::Any)),
+      (#[anybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::Any)),
+      (#[arraybuffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::ArrayBuffer)),
+      (#[arraybuffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::ArrayBuffer)),
+      (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
+      (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
@@ -1137,13 +1139,6 @@ fn parse_type_path(
   use ParsedType::*;
   use ParsedTypeContainer::*;
 
-  let buffer_mode = || match attrs.primary {
-    Some(
-      AttributeModifier::Buffer(mode) | AttributeModifier::ArrayBuffer(mode),
-    ) => Ok(mode),
-    _ => Err(ArgError::MissingAttribute("buffer", stringify_token(tp))),
-  };
-
   let tokens = tp.clone().into_token_stream();
   let res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
     CBare(TNumeric(numeric))
@@ -1164,22 +1159,22 @@ fn parse_type_path(
         Ok(CBare(TString(Strings::CowByte)))
       }
       ( $( std :: vec ::)? Vec < $ty:path > ) => {
-        Ok(CBare(TBuffer(Buffer::Vec(parse_numeric_type(&ty)?))))
+        Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(&ty)?))))
       }
       ( $( std :: boxed ::)? Box < [ $ty:path ] > ) => {
-        Ok(CBare(TBuffer(Buffer::BoxSlice(parse_numeric_type(&ty)?))))
+        Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&ty)?))))
       }
       ( $( serde_v8 :: )? V8Slice < $ty:path > ) => {
-        Ok(CBare(TBuffer(Buffer::V8Slice(buffer_mode()?, parse_numeric_type(&ty)?))))
+        Ok(CBare(TBuffer(BufferType::V8Slice(parse_numeric_type(&ty)?))))
       }
       ( $( serde_v8 :: )? JsBuffer ) => {
-        Ok(CBare(TBuffer(Buffer::JsBuffer(buffer_mode()?))))
+        Ok(CBare(TBuffer(BufferType::JsBuffer)))
       }
       ( $( bytes :: )? Bytes ) => {
-        Ok(CBare(TBuffer(Buffer::Bytes(buffer_mode()?))))
+        Ok(CBare(TBuffer(BufferType::Bytes)))
       }
       ( $( bytes :: )? BytesMut ) => {
-        Ok(CBare(TBuffer(Buffer::BytesMut(buffer_mode()?))))
+        Ok(CBare(TBuffer(BufferType::BytesMut)))
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
@@ -1194,7 +1189,7 @@ fn parse_type_path(
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::String(string) => Ok(COption(TString(string))),
           Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
-          Arg::Buffer(buffer) | Arg::ArrayBuffer(buffer) => Ok(COption(TBuffer(buffer))),
+          Arg::Buffer(buffer, ..) => Ok(COption(TBuffer(buffer))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
@@ -1338,8 +1333,7 @@ pub(crate) fn parse_type(
         return parse_type_state(ty);
       }
       AttributeModifier::String(_)
-      | AttributeModifier::ArrayBuffer(_)
-      | AttributeModifier::Buffer(_)
+      | AttributeModifier::Buffer(..)
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
@@ -1411,8 +1405,7 @@ pub(crate) fn parse_type(
                 Ok(Arg::External(External::Ptr(mut_type)))
               }
               numeric => {
-                let buffer = Buffer::Slice(mut_type, numeric);
-                let res = CBare(TBuffer(buffer));
+                let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
                 res.validate_attributes(position, attrs, &of)?;
                 Arg::from_parsed(res, attrs).map_err(|_| {
                   ArgError::InvalidType(stringify_token(ty), "for slice")
@@ -1448,8 +1441,7 @@ pub(crate) fn parse_type(
         Type::Path(of) => match parse_numeric_type(&of.path)? {
           NumericArg::__VOID__ => Ok(Arg::External(External::Ptr(mut_type))),
           numeric => {
-            let buffer = Buffer::Ptr(mut_type, numeric);
-            let res = CBare(TBuffer(buffer));
+            let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
             res.validate_attributes(position, attrs, &of)?;
             Arg::from_parsed(res, attrs).map_err(|_| {
               ArgError::InvalidType(stringify_token(ty), "for pointer")
@@ -1592,15 +1584,15 @@ mod tests {
   );
   test!(
     fn op_slices(#[buffer] r#in: &[u8], #[buffer] out: &mut [u8]);
-    (Buffer(Slice(Ref, u8)), Buffer(Slice(Mut, u8))) -> Infallible(Void)
+    (Buffer(Slice(Ref, u8), Default, TypedArray), Buffer(Slice(Mut, u8), Default, TypedArray)) -> Infallible(Void)
   );
   test!(
     fn op_pointers(#[buffer] r#in: *const u8, #[buffer] out: *mut u8);
-    (Buffer(Ptr(Ref, u8)), Buffer(Ptr(Mut, u8))) -> Infallible(Void)
+    (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Infallible(Void)
   );
   test!(
     fn op_arraybuffer(#[arraybuffer] r#in: &[u8]);
-    (ArrayBuffer(Slice(Ref, u8))) -> Infallible(Void)
+    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Infallible(Void)
   );
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
@@ -1621,7 +1613,7 @@ mod tests {
   );
   test!(
     fn op_resource(#[smi] rid: ResourceId, #[buffer] buffer: &[u8]);
-    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8))) ->  Infallible(Void)
+    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8), Default, TypedArray)) ->  Infallible(Void)
   );
   test!(
     #[smi] fn op_resource2(#[smi] rid: ResourceId) -> Result<ResourceId, Error>;
@@ -1692,12 +1684,15 @@ mod tests {
     (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
   );
   test!(
-    #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes, #[buffer] d: V8Slice<u8>, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
-    (Buffer(Vec(u8)), Buffer(BoxSlice(u8)), Buffer(Bytes(Copy)), Buffer(V8Slice(Default, u8)), Buffer(JsBuffer(Default)), Buffer(JsBuffer(Detach))) -> Infallible(Buffer(Vec(u8)))
+    #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes,
+      #[buffer] d: V8Slice<u8>, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
+    (Buffer(Vec(u8), Copy, TypedArray), Buffer(BoxSlice(u8), Copy, TypedArray),
+      Buffer(Bytes, Copy, TypedArray), Buffer(V8Slice(u8), Default, TypedArray),
+      Buffer(JsBuffer, Default, TypedArray), Buffer(JsBuffer, Detach, TypedArray)) -> Infallible(Buffer(Vec(u8), Default, TypedArray))
   );
   test!(
     #[buffer] fn op_return_bytesmut() -> bytes::BytesMut;
-    () -> Infallible(Buffer(BytesMut(Default)))
+    () -> Infallible(Buffer(BytesMut, Default, TypedArray))
   );
   test!(
     async fn op_async_void();
