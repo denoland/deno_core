@@ -1,5 +1,3 @@
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
 use super::dispatch_slow::call;
@@ -18,41 +16,15 @@ use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
+use super::V8MappingError;
 use proc_macro2::TokenStream;
 use quote::quote;
-
-fn map_async_return_type(
-  generator_state: &mut GeneratorState,
-  ret_val: &RetVal,
-) -> Result<(TokenStream, TokenStream, TokenStream), V8MappingError> {
-  let return_value = match ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => {
-      return_value_v8_value(generator_state, r)?
-    }
-    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => {
-      return_value_v8_value(generator_state, r)?
-    }
-    RetVal::Infallible(_) | RetVal::Result(_) => return Err("an async return"),
-  };
-  let (mapper, return_value_immediate) = match ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => (
-      quote!(map_async_op_infallible),
-      return_value_infallible(generator_state, r)?,
-    ),
-    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => (
-      quote!(map_async_op_fallible),
-      return_value_result(generator_state, r)?,
-    ),
-    RetVal::Infallible(_) | RetVal::Result(_) => return Err("an async return"),
-  };
-  Ok((return_value, mapper, return_value_immediate))
-}
 
 pub(crate) fn generate_dispatch_async(
   config: &MacroConfig,
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
-) -> Result<TokenStream, V8SignatureMappingError> {
+) -> Result<TokenStream, V8MappingError> {
   let mut output = TokenStream::new();
 
   // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
@@ -64,13 +36,11 @@ pub(crate) fn generate_dispatch_async(
   let mut input_index = 1;
 
   for (index, arg) in signature.args.iter().enumerate() {
-    let arg_mapped = from_arg(generator_state, index, arg)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
     if arg.is_virtual() {
-      deferred.extend(arg_mapped);
+      deferred.extend(from_arg(generator_state, index, arg)?);
     } else {
-      args.extend(extract_arg(generator_state, index, input_index));
-      args.extend(arg_mapped);
+      args.extend(extract_arg(generator_state, index, input_index)?);
+      args.extend(from_arg(generator_state, index, arg)?);
       input_index += 1;
     }
   }
@@ -82,15 +52,33 @@ pub(crate) fn generate_dispatch_async(
   generator_state.needs_scope = true;
   generator_state.needs_retval = true;
 
-  let (return_value, mapper, return_value_immediate) =
-    map_async_return_type(generator_state, &signature.ret_val).map_err(
-      |s| {
-        V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
-      },
-    )?;
+  let return_value = match &signature.ret_val {
+    RetVal::Future(r) | RetVal::ResultFuture(r) => {
+      return_value_v8_value(generator_state, r)?
+    }
+    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => {
+      return_value_v8_value(generator_state, r)?
+    }
+    RetVal::Infallible(r) | RetVal::Result(r) => {
+      return Err(V8MappingError::NoMapping("an async return", r.clone()))
+    }
+  };
+  let (mapper, return_value_immediate) = match &signature.ret_val {
+    RetVal::Future(r) | RetVal::ResultFuture(r) => (
+      quote!(map_async_op_infallible),
+      return_value_infallible(generator_state, r)?,
+    ),
+    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => (
+      quote!(map_async_op_fallible),
+      return_value_result(generator_state, r)?,
+    ),
+    RetVal::Infallible(r) | RetVal::Result(r) => {
+      return Err(V8MappingError::NoMapping("an async return", r.clone()))
+    }
+  };
 
   args.extend(deferred);
-  args.extend(call(generator_state));
+  args.extend(call(generator_state)?);
   output.extend(gs_quote!(generator_state(deno_core, result, opctx) => {
     if #opctx.metrics_enabled() {
       #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
@@ -104,7 +92,7 @@ pub(crate) fn generate_dispatch_async(
     signature.ret_val,
     RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
   ) {
-    let exception = throw_exception(generator_state);
+    let exception = throw_exception(generator_state)?;
     output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
       let #result = match #result {
         Ok(#result) => #result,

@@ -10,9 +10,8 @@ use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
+use super::signature::Buffer;
 use super::signature::BufferMode;
-use super::signature::BufferSource;
-use super::signature::BufferType;
 use super::signature::External;
 use super::signature::NumericArg;
 use super::signature::NumericFlag;
@@ -22,7 +21,6 @@ use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::V8MappingError;
-use super::V8SignatureMappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -33,13 +31,13 @@ pub(crate) fn generate_dispatch_slow(
   config: &MacroConfig,
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
-) -> Result<TokenStream, V8SignatureMappingError> {
+) -> Result<TokenStream, V8MappingError> {
   let mut output = TokenStream::new();
 
   // Fast ops require the slow op to check op_ctx for the last error
   if config.fast && matches!(signature.ret_val, RetVal::Result(_)) {
     generator_state.needs_opctx = true;
-    let throw_exception = throw_exception(generator_state);
+    let throw_exception = throw_exception(generator_state)?;
     // If the fast op returned an error, we must throw it rather than doing work.
     output.extend(quote!{
       // FASTCALL FALLBACK: This is where we pick up the errors for the slow-call error pickup
@@ -61,25 +59,21 @@ pub(crate) fn generate_dispatch_slow(
   let mut input_index = 0;
 
   for (index, arg) in signature.args.iter().enumerate() {
-    let arg_mapped = from_arg(generator_state, index, arg)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
     if arg.is_virtual() {
-      deferred.extend(arg_mapped);
+      deferred.extend(from_arg(generator_state, index, arg)?);
     } else {
-      args.extend(extract_arg(generator_state, index, input_index));
-      args.extend(arg_mapped);
+      args.extend(extract_arg(generator_state, index, input_index)?);
+      args.extend(from_arg(generator_state, index, arg)?);
       input_index += 1;
     }
   }
 
   args.extend(deferred);
-  args.extend(call(generator_state));
+  args.extend(call(generator_state)?);
   output.extend(gs_quote!(generator_state(result) => (let #result = {
     #args
   };)));
-  output.extend(return_value(generator_state, &signature.ret_val).map_err(
-    |s| V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone()),
-  )?);
+  output.extend(return_value(generator_state, &signature.ret_val)?);
 
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
   let with_isolate =
@@ -216,13 +210,13 @@ pub fn extract_arg(
   generator_state: &mut GeneratorState,
   index: usize,
   input_index: usize,
-) -> TokenStream {
+) -> Result<TokenStream, V8MappingError> {
   let GeneratorState { fn_args, .. } = &generator_state;
   let arg_ident = generator_state.args.get(index);
 
-  quote!(
+  Ok(quote!(
     let #arg_ident = #fn_args.get(#input_index as i32);
-  )
+  ))
 }
 
 pub fn from_arg(
@@ -341,33 +335,21 @@ pub fn from_arg(
         };
       })
     }
-    Arg::Buffer(buffer_type, mode, source) => {
+    Arg::Buffer(_) | Arg::ArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let buffer = from_arg_array_or_buffer(
-        generator_state,
-        &arg_ident,
-        *buffer_type,
-        *mode,
-        *source,
-        &temp,
-      )?;
+      let buffer =
+        from_arg_array_or_buffer(generator_state, &arg_ident, arg, &temp)?;
       quote! {
         let mut #temp;
         #buffer
       }
     }
-    Arg::OptionBuffer(buffer_type, mode, source) => {
+    Arg::OptionBuffer(_) | Arg::OptionArrayBuffer(_) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
-      let some = from_arg_array_or_buffer(
-        generator_state,
-        &arg_ident,
-        *buffer_type,
-        *mode,
-        *source,
-        &temp,
-      )?;
+      let some =
+        from_arg_array_or_buffer(generator_state, &arg_ident, arg, &temp)?;
       quote! {
         let mut #temp;
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
@@ -495,7 +477,7 @@ pub fn from_arg(
         };
       }
     }
-    _ => return Err("a slow argument"),
+    _ => return Err(V8MappingError::NoMapping("a slow argument", arg.clone())),
   };
   Ok(res)
 }
@@ -520,50 +502,33 @@ pub fn from_arg_option(
 pub fn from_arg_array_or_buffer(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
-  buffer_type: BufferType,
-  buffer_mode: BufferMode,
-  buffer_source: BufferSource,
+  buffer: &Arg,
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
-  match buffer_source {
-    BufferSource::TypedArray => from_arg_buffer(
-      generator_state,
-      arg_ident,
-      buffer_type,
-      buffer_mode,
-      temp,
-    ),
-    BufferSource::ArrayBuffer => from_arg_arraybuffer(
-      generator_state,
-      arg_ident,
-      buffer_type,
-      buffer_mode,
-      temp,
-    ),
-    BufferSource::Any => from_arg_any_buffer(
-      generator_state,
-      arg_ident,
-      buffer_type,
-      buffer_mode,
-      temp,
-    ),
+  match buffer {
+    Arg::Buffer(buffer) | Arg::OptionBuffer(buffer) => {
+      from_arg_buffer(generator_state, arg_ident, buffer, temp)
+    }
+    Arg::ArrayBuffer(buffer) | Arg::OptionArrayBuffer(buffer) => {
+      from_arg_arraybuffer(generator_state, arg_ident, buffer, temp)
+    }
+    _ => unreachable!(),
   }
 }
 
 pub fn from_arg_buffer(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
-  buffer_type: BufferType,
-  buffer_mode: BufferMode,
+  buffer: &Buffer,
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   let err = format_ident!("{}_err", arg_ident);
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
-  let array = buffer_type.element();
+  let array = buffer.element();
   generator_state.needs_scope = true;
 
-  let to_v8_slice = if matches!(buffer_mode, BufferMode::Detach) {
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
     quote!(to_v8_slice_detachable)
   } else {
     quote!(to_v8_slice)
@@ -578,12 +543,8 @@ pub fn from_arg_buffer(
     };
   });
 
-  let make_arg = v8slice_to_buffer(
-    &generator_state.deno_core,
-    arg_ident,
-    temp,
-    buffer_type,
-  )?;
+  let make_arg =
+    v8slice_to_buffer(&generator_state.deno_core, arg_ident, temp, *buffer)?;
 
   Ok(quote! {
     #make_v8slice
@@ -594,14 +555,13 @@ pub fn from_arg_buffer(
 pub fn from_arg_arraybuffer(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
-  buffer_type: BufferType,
-  buffer_mode: BufferMode,
+  buffer: &Buffer,
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   let err = format_ident!("{}_err", arg_ident);
   let throw_exception = throw_type_error_static_string(generator_state, &err)?;
 
-  let to_v8_slice = if matches!(buffer_mode, BufferMode::Detach) {
+  let to_v8_slice = if matches!(buffer, Buffer::JsBuffer(BufferMode::Detach)) {
     quote!(to_v8_slice_buffer_detachable)
   } else {
     quote!(to_v8_slice_buffer)
@@ -616,12 +576,8 @@ pub fn from_arg_arraybuffer(
     };
   });
 
-  let make_arg = v8slice_to_buffer(
-    &generator_state.deno_core,
-    arg_ident,
-    temp,
-    buffer_type,
-  )?;
+  let make_arg =
+    v8slice_to_buffer(&generator_state.deno_core, arg_ident, temp, *buffer)?;
 
   Ok(quote! {
     #make_v8slice
@@ -629,53 +585,14 @@ pub fn from_arg_arraybuffer(
   })
 }
 
-pub fn from_arg_any_buffer(
+pub fn call(
   generator_state: &mut GeneratorState,
-  arg_ident: &Ident,
-  buffer_type: BufferType,
-  buffer_mode: BufferMode,
-  temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
-  let err = format_ident!("{}_err", arg_ident);
-  let throw_exception = throw_type_error_static_string(generator_state, &err)?;
-
-  let to_v8_slice = if matches!(buffer_mode, BufferMode::Detach) {
-    quote!(to_v8_slice_any_detachable)
-  } else {
-    quote!(to_v8_slice_any)
-  };
-
-  // TODO(mmastrac): upstream change required to avoid scope
-  generator_state.needs_scope = true;
-
-  let make_v8slice = gs_quote!(generator_state(deno_core, scope) => {
-    #temp = match unsafe { #deno_core::_ops::#to_v8_slice(&mut #scope, #arg_ident) } {
-      Ok(#arg_ident) => #arg_ident,
-      Err(#err) => {
-        #throw_exception
-      }
-    };
-  });
-
-  let make_arg = v8slice_to_buffer(
-    &generator_state.deno_core,
-    arg_ident,
-    temp,
-    buffer_type,
-  )?;
-
-  Ok(quote! {
-    #make_v8slice
-    #make_arg
-  })
-}
-
-pub fn call(generator_state: &mut GeneratorState) -> TokenStream {
   let mut tokens = TokenStream::new();
   for arg in &generator_state.args {
     tokens.extend(quote!( #arg , ));
   }
-  quote!(Self::call( #tokens ))
+  Ok(quote!(Self::call( #tokens )))
 }
 
 pub fn return_value(
@@ -748,7 +665,12 @@ pub fn return_value_infallible(
         },
       }))
     }
-    ArgSlowRetval::None => return Err("a slow return value"),
+    ArgSlowRetval::None => {
+      return Err(V8MappingError::NoMapping(
+        "a slow return value",
+        ret_type.clone(),
+      ))
+    }
   };
 
   Ok(res)
@@ -785,7 +707,12 @@ pub fn return_value_v8_value(
     ArgSlowRetval::RetValFallible | ArgSlowRetval::V8LocalFalliable => {
       quote!(#deno_core::_ops::RustToV8Fallible::to_v8_fallible(#result, #scope))
     }
-    ArgSlowRetval::None => return Err("a v8 return value"),
+    ArgSlowRetval::None => {
+      return Err(V8MappingError::NoMapping(
+        "a v8 return value",
+        ret_type.clone(),
+      ))
+    }
   };
   Ok(res)
 }
@@ -795,7 +722,7 @@ pub fn return_value_result(
   ret_type: &Arg,
 ) -> Result<TokenStream, V8MappingError> {
   let infallible = return_value_infallible(generator_state, ret_type)?;
-  let exception = throw_exception(generator_state);
+  let exception = throw_exception(generator_state)?;
 
   let tokens = gs_quote!(generator_state(result) => (
     match #result {
@@ -813,7 +740,7 @@ pub fn return_value_result(
 /// Generates code to throw an exception, adding required additional dependencies as needed.
 pub(crate) fn throw_exception(
   generator_state: &mut GeneratorState,
-) -> TokenStream {
+) -> Result<TokenStream, V8MappingError> {
   let maybe_scope = if generator_state.needs_scope {
     quote!()
   } else {
@@ -832,7 +759,7 @@ pub(crate) fn throw_exception(
     with_fn_args(generator_state)
   };
 
-  gs_quote!(generator_state(deno_core, scope, opctx) => {
+  Ok(gs_quote!(generator_state(deno_core, scope, opctx) => {
     #maybe_scope
     #maybe_args
     #maybe_opctx
@@ -844,7 +771,7 @@ pub(crate) fn throw_exception(
     );
     #scope.throw_exception(exception);
     return;
-  })
+  }))
 }
 
 /// Generates code to throw an exception, adding required additional dependencies as needed.
