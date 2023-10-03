@@ -25,7 +25,6 @@ use self::generator_state::GeneratorState;
 use self::signature::is_attribute_special;
 use self::signature::parse_signature;
 use self::signature::Arg;
-use self::signature::RetVal;
 use self::signature::SignatureError;
 
 pub mod config;
@@ -45,8 +44,8 @@ pub enum Op2Error {
   InvalidAttribute(String),
   #[error("Failed to parse syntax tree")]
   ParseError(#[from] syn::Error),
-  #[error("Failed to map signature to V8")]
-  V8SignatureMappingError(#[from] V8SignatureMappingError),
+  #[error("Failed to map a parsed signature to a V8 call")]
+  V8MappingError(#[from] V8MappingError),
   #[error("Failed to parse signature")]
   SignatureError(#[from] SignatureError),
   #[error("This op cannot use both ({0}) and ({1})")]
@@ -64,14 +63,10 @@ pub enum Op2Error {
 }
 
 #[derive(Debug, Error)]
-pub enum V8SignatureMappingError {
-  #[error("Unable to map return value {1:?} to {0}")]
-  NoRetValMapping(V8MappingError, RetVal),
-  #[error("Unable to map argument {1:?} to {0}")]
-  NoArgMapping(V8MappingError, Arg),
+pub enum V8MappingError {
+  #[error("Unable to map {1:?} to {0}")]
+  NoMapping(&'static str, Arg),
 }
-
-pub type V8MappingError = &'static str;
 
 pub fn op2(
   attr: TokenStream,
