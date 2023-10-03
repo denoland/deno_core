@@ -402,6 +402,13 @@ impl JsRealm {
     }
   }
 
+  /// Clears all loaded modules
+  /// May not clear all associated memory and should not
+  /// be used in production
+  pub fn clear_modules(&mut self) {
+    self.0.module_map().borrow_mut().clear();
+  }
+
   /// Returns the namespace object of a module.
   ///
   /// This is only available after module evaluation has completed.

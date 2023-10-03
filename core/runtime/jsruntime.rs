@@ -1898,6 +1898,13 @@ impl JsRuntime {
     self.main_realm().mod_evaluate(self.v8_isolate(), id)
   }
 
+  /// Clears all loaded modules
+  /// May not free all associated memory, and should not be used
+  /// in production environments
+  pub fn clear_modules(&mut self) {
+    self.main_realm().clear_modules()
+  }
+
   /// Asynchronously load specified module and all of its dependencies.
   ///
   /// The module will be marked as "main", and because of that
