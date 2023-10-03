@@ -582,11 +582,7 @@ where
       let Some(buffer) = buf.get_backing_store() else {
       return Err("buffer missing");
     };
-      (
-        buffer,
-        buf.byte_offset(),
-        buf.byte_length(),
-      )
+      (buffer, buf.byte_offset(), buf.byte_length())
     } else {
       return Err("expected typed ArrayBufferView");
     };
@@ -725,12 +721,7 @@ pub fn to_v8_slice_any(
       return Err("buffer missing");
     };
     let len = buf.byte_length();
-    return Ok(unsafe {
-      serde_v8::V8Slice::<u8>::from_parts(
-        buf,
-        0..len,
-      )
-    });
+    return Ok(unsafe { serde_v8::V8Slice::<u8>::from_parts(buf, 0..len) });
   }
   if let Ok(buf) = to_v8_slice_buffer(input) {
     return Ok(buf);
