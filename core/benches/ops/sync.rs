@@ -22,6 +22,8 @@ deno_core::extension!(
     op_global,
     op_global_scope,
     op_make_external,
+    op_bigint,
+    op_bigint_return,
     op_external,
     op_external_nofast,
     op_buffer,
@@ -96,6 +98,13 @@ pub fn op_global_scope(
 pub fn op_make_external() -> *const c_void {
   std::ptr::null()
 }
+
+#[op2(fast)]
+pub fn op_bigint(#[bigint] _input: u64) {}
+
+#[op2(fast)]
+#[bigint]
+pub fn op_bigint_return() -> u64 { 0 }
 
 #[op2(fast)]
 pub fn op_external(_input: *const c_void) {}
@@ -380,6 +389,14 @@ fn bench_op_v8_global_scope(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_global_scope", 1, "op_global_scope('this is a reasonably long string that we would like to get the length of!');");
 }
 
+fn bench_op_bigint(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_bigint", 1, "op_bigint(0);");
+}
+
+fn bench_op_bigint_return(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_bigint_return", 1, "accum += op_bigint_return();");
+}
+
 fn bench_op_external(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_external", 1, "op_external(EXTERNAL)");
 }
@@ -444,6 +461,8 @@ benchmark_group!(
   bench_op_v8_local_nofast,
   bench_op_v8_global,
   bench_op_v8_global_scope,
+  bench_op_bigint,
+  bench_op_bigint_return,
   bench_op_external,
   bench_op_external_nofast,
   bench_op_buffer,
