@@ -104,7 +104,9 @@ pub fn op_bigint(#[bigint] _input: u64) {}
 
 #[op2(fast)]
 #[bigint]
-pub fn op_bigint_return() -> u64 { 0 }
+pub fn op_bigint_return() -> u64 {
+  0
+}
 
 #[op2(fast)]
 pub fn op_external(_input: *const c_void) {}
@@ -394,7 +396,13 @@ fn bench_op_bigint(b: &mut Bencher) {
 }
 
 fn bench_op_bigint_return(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_bigint_return", 1, "accum += op_bigint_return();");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_bigint_return",
+    1,
+    "accum += op_bigint_return();",
+  );
 }
 
 fn bench_op_external(b: &mut Bencher) {
