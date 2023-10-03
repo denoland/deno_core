@@ -819,6 +819,7 @@ mod tests {
       op_buffer_copy,
       op_buffer_bytesmut,
       op_buffer_any,
+      op_buffer_any_length,
       op_arraybuffer_slice,
       op_external_make,
       op_external_process,
@@ -1857,31 +1858,31 @@ mod tests {
   }
 
   #[op2(core, fast)]
-  pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
+  pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
     buffer.len() as _
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any() -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any_length() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10000,
-      "op_buffer_any",
-      "assert(op_buffer_any(new Uint8Array(10)) == 10);",
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new Uint8Array(10)) == 10);",
     )?;
     run_test2(
       10000,
-      "op_buffer_any",
-      "assert(op_buffer_any(new ArrayBuffer(10)) == 10);",
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new ArrayBuffer(10)) == 10);",
     )?;
     run_test2(
       10000,
-      "op_buffer_any",
-      "assert(op_buffer_any(new Uint32Array(10)) == 40);",
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new Uint32Array(10)) == 40);",
     )?;
     run_test2(
       10000,
-      "op_buffer_any",
-      "assert(op_buffer_any(new DataView(new ArrayBuffer(10))) == 10);",
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
     )?;
     Ok(())
   }
