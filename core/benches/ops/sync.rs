@@ -392,7 +392,7 @@ fn bench_op_v8_global_scope(b: &mut Bencher) {
 }
 
 fn bench_op_bigint(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_bigint", 1, "op_bigint(0);");
+  bench_op(b, BENCH_COUNT, "op_bigint", 1, "op_bigint(0n);");
 }
 
 fn bench_op_bigint_return(b: &mut Bencher) {
