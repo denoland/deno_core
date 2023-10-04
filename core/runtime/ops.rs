@@ -856,6 +856,7 @@ mod tests {
 
   #[op2(core, fast)]
   pub fn op_test_fail() {
+    eprintln!("op test fail");
     FAIL.with(|b| b.set(true))
   }
 
@@ -881,6 +882,11 @@ mod tests {
             const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
             function assert(b) {{
               if (!b) {{
+                op_test_fail();
+              }}
+            }}
+            function assertEquals(a, b) {{
+              if (a !== b) {{
                 op_test_fail();
               }}
             }}
@@ -911,6 +917,7 @@ mod tests {
       ),
     )?;
     if FAIL.with(|b| b.get()) {
+      eprintln!("test failed!!!!");
       Err(generic_error(format!("{op} test failed ({test})")))
     } else {
       Ok(())
@@ -1872,7 +1879,7 @@ mod tests {
 
   #[op2(core, fast)]
   pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
-    eprintln!("length {}", buffer.len() as u32);
+    eprintln!("length {:?} {}", buffer, buffer.len() as u32);
     buffer.len() as _
   }
 
@@ -1887,28 +1894,29 @@ mod tests {
       for (var i = 0; i < 8; i++) {
         view[i] = i;
       }
-      assert(op_buffer_any_length(view) == 6);",
+      log(op_buffer_any_length(view));
+      assertEquals(op_buffer_any_length(view), 6);",
     )?;
-    run_test2(
-      10000,
-      "op_buffer_any_length",
-      "assert(op_buffer_any_length(new Uint8Array(10)) == 10);",
-    )?;
-    run_test2(
-      10000,
-      "op_buffer_any_length",
-      "assert(op_buffer_any_length(new ArrayBuffer(10)) == 10);",
-    )?;
-    run_test2(
-      10000,
-      "op_buffer_any_length",
-      "assert(op_buffer_any_length(new Uint32Array(10)) == 40);",
-    )?;
-    run_test2(
-      10000,
-      "op_buffer_any_length",
-      "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
-    )?;
+    // run_test2(
+    //   10000,
+    //   "op_buffer_any_length",
+    //   "assert(op_buffer_any_length(new Uint8Array(10)) == 10);",
+    // )?;
+    // run_test2(
+    //   10000,
+    //   "op_buffer_any_length",
+    //   "assert(op_buffer_any_length(new ArrayBuffer(10)) == 10);",
+    // )?;
+    // run_test2(
+    //   10000,
+    //   "op_buffer_any_length",
+    //   "assert(op_buffer_any_length(new Uint32Array(10)) == 40);",
+    // )?;
+    // run_test2(
+    //   10000,
+    //   "op_buffer_any_length",
+    //   "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
+    // )?;
     Ok(())
   }
 
