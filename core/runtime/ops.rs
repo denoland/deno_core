@@ -666,7 +666,6 @@ pub unsafe fn to_slice_buffer_any(
 ) -> Result<&mut [u8], &'static str> {
   let (data, len) = {
     if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-      eprintln!("is array buffer view {:#?} {:?} {} {}", buf.data(), std::slice::from_raw_parts(buf.data() as *const u8, buf.byte_length()), buf.byte_length(), buf.byte_offset());
       (NonNull::new(buf.data()), buf.byte_length())
     } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
       (buf.data(), buf.byte_length())
@@ -725,13 +724,14 @@ pub fn to_v8_slice_any(
   input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
   if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+    let byte_offset = buf.byte_offset();
     let Some(buf) = buf.buffer(scope) else {
       return Err("buffer missing");
     };
     return Ok(unsafe {
       serde_v8::V8Slice::<u8>::from_parts(
         buf.get_backing_store(),
-        0..buf.byte_length(),
+        byte_offset..buf.byte_length(),
       )
     });
   }
@@ -882,11 +882,6 @@ mod tests {
             const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
             function assert(b) {{
               if (!b) {{
-                op_test_fail();
-              }}
-            }}
-            function assertEquals(a, b) {{
-              if (a !== b) {{
                 op_test_fail();
               }}
             }}
@@ -1879,7 +1874,6 @@ mod tests {
 
   #[op2(core, fast)]
   pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
-    eprintln!("length {:?} {}", buffer, buffer.len() as u32);
     buffer.len() as _
   }
 
@@ -1894,29 +1888,28 @@ mod tests {
       for (var i = 0; i < 8; i++) {
         view[i] = i;
       }
-      log(op_buffer_any_length(view));
-      assertEquals(op_buffer_any_length(view), 6);",
+      assert(op_buffer_any_length(view) == 6);",
     )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any_length",
-    //   "assert(op_buffer_any_length(new Uint8Array(10)) == 10);",
-    // )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any_length",
-    //   "assert(op_buffer_any_length(new ArrayBuffer(10)) == 10);",
-    // )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any_length",
-    //   "assert(op_buffer_any_length(new Uint32Array(10)) == 40);",
-    // )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any_length",
-    //   "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
-    // )?;
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new Uint8Array(10)) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new ArrayBuffer(10)) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new Uint32Array(10)) == 40);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
+    )?;
     Ok(())
   }
 
