@@ -682,7 +682,6 @@ pub unsafe fn to_slice_buffer_any(
   } else {
     &mut []
   };
-  eprintln!("slice {:?} {}", slice, slice.len());
   Ok(slice)
 }
 
@@ -856,7 +855,6 @@ mod tests {
 
   #[op2(core, fast)]
   pub fn op_test_fail() {
-    eprintln!("op test fail");
     FAIL.with(|b| b.set(true))
   }
 
@@ -912,7 +910,6 @@ mod tests {
       ),
     )?;
     if FAIL.with(|b| b.get()) {
-      eprintln!("test failed!!!!");
       Err(generic_error(format!("{op} test failed ({test})")))
     } else {
       Ok(())
