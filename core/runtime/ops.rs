@@ -1850,6 +1850,16 @@ mod tests {
     run_test2(
       10000,
       "op_buffer_any",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2, 4);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any(view) == 6);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
       "assert(op_buffer_any(new Uint8Array([1,2,3,4])) == 10);",
     )?;
     run_test2(
@@ -1887,6 +1897,16 @@ mod tests {
         view[i] = i;
       }
       assert(op_buffer_any_length(view) == 6);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2, 4);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any_length(view) == 4);",
     )?;
     run_test2(
       10000,
