@@ -723,14 +723,15 @@ pub fn to_v8_slice_any(
   input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
   if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-    let byte_offset = buf.byte_offset();
+    let offset = buf.byte_offset();
+    let len = buf.byte_length();
     let Some(buf) = buf.buffer(scope) else {
       return Err("buffer missing");
     };
     return Ok(unsafe {
       serde_v8::V8Slice::<u8>::from_parts(
         buf.get_backing_store(),
-        byte_offset..buf.byte_length(),
+        offset..offset + len,
       )
     });
   }
@@ -1835,7 +1836,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any2() -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10000,
       "op_buffer_any",
