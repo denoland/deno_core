@@ -666,10 +666,9 @@ pub unsafe fn to_slice_buffer_any(
 ) -> Result<&mut [u8], &'static str> {
   let (data, len) = {
     if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-      eprintln!("is array buffer view {:#?} {} {}", buf.data(), buf.byte_length(), buf.byte_offset());
-      (NonNull::new(buf.data()), buf.byte_length() - buf.byte_offset())
+      eprintln!("is array buffer view {:#?} {:?} {} {}", buf.data(), std::slice::from_raw_parts(buf.data() as *const u8, buf.byte_length()), buf.byte_length(), buf.byte_offset());
+      (NonNull::new(buf.data()), buf.byte_length())
     } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
-      eprintln!("is array buffer");
       (buf.data(), buf.byte_length())
     } else {
       return Err("expected ArrayBuffer or ArrayBufferView");
@@ -684,6 +683,7 @@ pub unsafe fn to_slice_buffer_any(
   } else {
     &mut []
   };
+  eprintln!("slice {:?} {}", slice, slice.len());
   Ok(slice)
 }
 
@@ -1840,39 +1840,55 @@ mod tests {
     run_test2(
       10000,
       "op_buffer_any",
-      "assert(op_buffer_any(new Uint8Array([1,2,3,4], 2)) == 7);",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any(view) == 15);",
     )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any",
-    //   "assert(op_buffer_any(new Uint8Array([1,2,3,4])) == 10);",
-    // )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any",
-    //   "assert(op_buffer_any(new Uint8Array([1,2,3,4]).buffer) == 10);",
-    // )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any",
-    //   "assert(op_buffer_any(new Uint32Array([1,2,3,4,0x01010101])) == 14);",
-    // )?;
-    // run_test2(
-    //   10000,
-    //   "op_buffer_any",
-    //   "assert(op_buffer_any(new DataView(new Uint8Array([1,2,3,4]).buffer)) == 10);",
-    // )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint8Array([1,2,3,4])) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint8Array([1,2,3,4]).buffer) == 10);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new Uint32Array([1,2,3,4,0x01010101])) == 14);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "assert(op_buffer_any(new DataView(new Uint8Array([1,2,3,4]).buffer)) == 10);",
+    )?;
     Ok(())
   }
 
   #[op2(core, fast)]
   pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
+    eprintln!("length {}", buffer.len() as u32);
     buffer.len() as _
   }
 
   #[tokio::test]
   pub async fn test_op_buffer_any_length(
   ) -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any_length(view) == 6);",
+    )?;
     run_test2(
       10000,
       "op_buffer_any_length",
