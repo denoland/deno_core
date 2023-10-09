@@ -73,7 +73,7 @@ impl FeatureChecker {
   #[inline(always)]
   pub fn check_or_exit(&self, feature: &str, api_name: &str) {
     if !self.check(feature) {
-      exit(feature, api_name);
+      (self.exit_cb)(feature, api_name);
     }
   }
 
@@ -86,12 +86,12 @@ impl FeatureChecker {
     if !self.features.contains(feature) {
       if self.legacy_unstable {
         if self.warn_on_legacy_unstable {
-          warn_legacy_flag(feature);
+          (self.warn_cb)(feature);
         }
         return;
       }
 
-      exit(feature, api_name);
+      (self.exit_cb)(feature, api_name);
     }
   }
 
@@ -103,5 +103,50 @@ impl FeatureChecker {
   // TODO(bartlomieju): remove this.
   pub fn warn_on_legacy_unstable(&mut self) {
     self.warn_on_legacy_unstable = true;
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::sync::atomic::AtomicUsize;
+  use std::sync::atomic::Ordering;
+
+  use super::*;
+
+  #[test]
+  fn test_feature_checker() {
+    static EXIT_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static WARN_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    fn exit_cb(_feature: &str, _api_name: &str) {
+      EXIT_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn warn_cb(_feature: &str) {
+      WARN_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+
+    let mut checker = FeatureChecker::default();
+    checker.set_exit_cb(Box::new(exit_cb));
+    checker.set_warn_cb(Box::new(warn_cb));
+    checker.enable_feature("foobar");
+
+    assert!(checker.check("foobar"));
+    assert!(!checker.check("fizzbuzz"));
+
+    checker.check_or_exit("foobar", "foo");
+    assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 0);
+    checker.check_or_exit("fizzbuzz", "foo");
+    assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 1);
+
+    checker.enable_legacy_unstable();
+    checker.check_or_exit_with_legacy_fallback("fizzbuzz", "foo");
+    assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 1);
+    assert_eq!(WARN_COUNT.load(Ordering::Relaxed), 0);
+
+    checker.warn_on_legacy_unstable();
+    checker.check_or_exit_with_legacy_fallback("fizzbuzz", "foo");
+    assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 1);
+    assert_eq!(WARN_COUNT.load(Ordering::Relaxed), 1);
   }
 }
