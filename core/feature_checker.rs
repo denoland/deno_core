@@ -1,29 +1,65 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 
-fn exit(feature: &str, api_name: &str) {
-  eprintln!("Unstable API '{api_name}'. The `--unstable-{feature}` flag must be provided.");
+pub type ExitCb = Box<dyn Fn(&str, &str)>;
+pub type WarnCb = Box<dyn Fn(&str)>;
+
+fn exit(_feature: &str, _api_name: &str) {
   std::process::exit(70);
 }
 
-fn warn_legacy_flag(feature: &str) {
-  eprintln!("The `--unstable` flag is deprecated, use `--unstable-{feature}` instead.");
-}
+fn warn_legacy_flag(_feature: &str) {}
 
-#[derive(Default, Debug)]
 pub struct FeatureChecker {
   features: BTreeSet<&'static str>,
   // TODO(bartlomieju): remove once we migrate away from `--unstable` flag
   // in the CLI.
   legacy_unstable: bool,
   warn_on_legacy_unstable: bool,
+  exit_cb: ExitCb,
+  warn_cb: WarnCb,
+}
+
+impl Default for FeatureChecker {
+  fn default() -> Self {
+    Self {
+      features: Default::default(),
+      legacy_unstable: false,
+      warn_on_legacy_unstable: false,
+      exit_cb: Box::new(exit),
+      warn_cb: Box::new(warn_legacy_flag),
+    }
+  }
+}
+
+impl Debug for FeatureChecker {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("FeatureChecker")
+      .field("features", &self.features)
+      .field("legacy_unstable", &self.legacy_unstable)
+      .field("warn_on_legacy_unstable", &self.warn_on_legacy_unstable)
+      .finish()
+  }
 }
 
 impl FeatureChecker {
   pub fn enable_feature(&mut self, feature: &'static str) {
     let inserted = self.features.insert(feature);
-    assert!(inserted, "Trying to enabled a feature that is already enabled {}", feature);
+    assert!(
+      inserted,
+      "Trying to enabled a feature that is already enabled {}",
+      feature
+    );
+  }
+
+  pub fn set_exit_cb(&mut self, cb: ExitCb) {
+    self.exit_cb = cb;
+  }
+
+  pub fn set_warn_cb(&mut self, cb: WarnCb) {
+    self.warn_cb = cb;
   }
 
   /// Check if a feature is enabled.
@@ -67,17 +103,5 @@ impl FeatureChecker {
   // TODO(bartlomieju): remove this.
   pub fn warn_on_legacy_unstable(&mut self) {
     self.warn_on_legacy_unstable = true;
-  }
-
-  // TODO(bartlomieju): remove this.
-  /// Check if `--unstable` flag has been passed. If not then exit the process
-  /// with exit code 70.
-  pub fn check_legacy_unstable_or_exit(&self, api_name: &str) {
-    if !self.legacy_unstable {
-      eprintln!(
-        "Unstable API '{api_name}'. The --unstable flag must be provided."
-      );
-      std::process::exit(70);
-    }
   }
 }
