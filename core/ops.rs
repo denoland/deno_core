@@ -251,18 +251,18 @@ pub struct OpState {
   pub last_fast_op_error: Option<AnyError>,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
-  pub feature_checker: FeatureChecker,
+  pub feature_checker: Arc<FeatureChecker>,
 }
 
 impl OpState {
-  pub fn new(ops_count: usize) -> OpState {
+  pub fn new(ops_count: usize, maybe_feature_checker: Option<Arc<FeatureChecker>>) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
       last_fast_op_error: None,
       tracker: OpsTracker::new(ops_count),
       waker: Arc::new(AtomicWaker::new()),
-      feature_checker: FeatureChecker::default(),
+      feature_checker: maybe_feature_checker.unwrap_or_default(),
     }
   }
 
