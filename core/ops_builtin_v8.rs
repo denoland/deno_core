@@ -34,6 +34,48 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   context_state.borrow_mut().unrefed_ops.insert(promise_id);
 }
 
+const SPECIFIER: &str = "foobar";
+const SOURCE_CODE: &str = "Deno.core.print('foo\\n')";
+
+#[op2(core)]
+#[global]
+pub fn op_lazy_load_esm(scope: &mut v8::HandleScope) -> Result<v8::Global<v8::Value>, anyhow::Error> {
+  let module_map_rc = JsRealm::module_map_from(scope);
+
+  let mod_ns = futures::executor::block_on(async {
+    // false for side module (not main module)
+    let mod_id = module_map_rc
+      .borrow_mut()
+      .new_es_module(scope, false, SPECIFIER.to_string().into(), SOURCE_CODE.to_string().into(), false)
+      .map_err(|e| match e {
+        crate::modules::ModuleError::Exception(exception) => {
+          let exception = v8::Local::new(scope, exception);
+          crate::error::exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+        }
+        crate::modules::ModuleError::Other(error) => error,
+      })?;
+
+    module_map_rc.borrow_mut().instantiate_module(scope, mod_id).unwrap();
+
+    let module_handle = module_map_rc.borrow().get_handle(mod_id).unwrap();
+    let module_local = v8::Local::new(scope, module_handle);
+
+    let status = module_local.get_status();
+    assert_eq!(status, v8::ModuleStatus::Instantiated);
+
+    let _ = module_local.evaluate(scope);
+
+    let status = module_local.get_status();
+    assert_eq!(status, v8::ModuleStatus::Evaluated);
+
+    let mod_ns = module_local.get_module_namespace();
+
+    Ok::<_, anyhow::Error>(v8::Global::new(scope, mod_ns))
+  });
+
+  mod_ns
+}
+
 #[op2(core)]
 pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
