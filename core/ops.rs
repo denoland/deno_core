@@ -255,7 +255,10 @@ pub struct OpState {
 }
 
 impl OpState {
-  pub fn new(ops_count: usize, maybe_feature_checker: Option<Arc<FeatureChecker>>) -> OpState {
+  pub fn new(
+    ops_count: usize,
+    maybe_feature_checker: Option<Arc<FeatureChecker>>,
+  ) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
