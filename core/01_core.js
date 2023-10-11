@@ -40,6 +40,12 @@
   } = window.__bootstrap.primordials;
   const { ops, asyncOps } = window.Deno.core;
 
+  // Deno specific builtins.
+  const { fromUtf8, toUtf8, isOneByte } = window;
+  delete window.fromUtf8;
+  delete window.toUtf8;
+  delete window.isOneByte;
+
   const build = {
     target: "unknown",
     arch: "unknown",
@@ -853,8 +859,8 @@ for (let i = 0; i < 10; i++) {
       specifier,
     ) => ops.op_eval_context(source, specifier),
     createHostObject: () => ops.op_create_host_object(),
-    encode: (text) => ops.op_encode(text),
-    decode: (buffer) => ops.op_decode(buffer),
+    encode: (text) => new Uint8Array(toUtf8(text)),
+    decode: (buffer, ignoreBOM = false) => fromUtf8(buffer, ignoreBOM),
     serialize: (
       value,
       options,
@@ -878,6 +884,7 @@ for (let i = 0; i < 10; i++) {
     build,
     setBuildInfo,
     currentUserCallSite,
+    isOneByte,
   });
 
   const internals = {};
