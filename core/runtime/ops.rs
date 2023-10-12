@@ -141,6 +141,7 @@ pub fn queue_async_op<'s>(
 pub fn map_async_op_infallible<R: 'static>(
   ctx: &OpCtx,
   lazy: bool,
+  deferred: bool,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
   rv_map: for<'r> fn(
@@ -173,16 +174,21 @@ pub fn map_async_op_infallible<R: 'static>(
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
   let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
 
-  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => {}
+  let pinned = match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+    Poll::Pending => pinned,
     Poll::Ready(res) => {
-      if ctx.metrics_enabled() {
-        dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+      // TODO(mmastrac): optimize this so we don't double-allocate
+      if deferred {
+        ready(res).boxed_local()
+      } else {
+        if ctx.metrics_enabled() {
+          dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+        }
+        ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
+        return Some(res.2);
       }
-      ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-      return Some(res.2);
     }
-  }
+  };
 
   ctx
     .context_state
@@ -203,6 +209,7 @@ pub fn map_async_op_infallible<R: 'static>(
 pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ctx: &OpCtx,
   lazy: bool,
+  deferred: bool,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
   rv_map: for<'r> fn(
@@ -239,20 +246,25 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
   let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
 
-  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => {}
+  let pinned = match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+    Poll::Pending => pinned,
     Poll::Ready(res) => {
-      if ctx.metrics_enabled() {
-        if res.2.is_err() {
-          dispatch_metrics_async(ctx, OpMetricsEvent::Error);
-        } else {
-          dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+      // TODO(mmastrac): optimize this so we don't double-allocate
+      if deferred {
+        ready(res).boxed_local()        
+      } else {
+        if ctx.metrics_enabled() {
+          if res.2.is_err() {
+            dispatch_metrics_async(ctx, OpMetricsEvent::Error);
+          } else {
+            dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+          }
         }
+        ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
+        return Some(res.2);
       }
-      ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-      return Some(res.2);
     }
-  }
+  };
 
   let get_class = ctx.get_error_class_fn;
   ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
@@ -828,7 +840,10 @@ mod tests {
       op_async_sleep,
       op_async_sleep_impl,
       op_async_sleep_error,
+      op_async_deferred_error,
+      op_async_deferred_success,
       op_async_lazy_error,
+      op_async_lazy_success,
       op_async_result_impl,
       op_async_state_rc,
       op_async_buffer,
@@ -2215,16 +2230,55 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async(lazy), core)]
+  #[op2(async(deferred), core, fast)]
+  pub async fn op_async_deferred_success() -> Result<u32, Error> {
+    Ok(42)
+  }
+
+  #[op2(async(deferred), core, fast)]
+  pub async fn op_async_deferred_error() -> Result<(), Error> {
+    bail!("whoops")
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_deferred(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_async_test(
+      1000,
+      "op_async_deferred_success",
+      "assert(await op_async_deferred_success() == 42)",
+    )
+    .await?;
+    run_async_test(
+      1000,
+      "op_async_deferred_error",
+      "try { await op_async_deferred_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async(lazy), core, fast)]
+  pub async fn op_async_lazy_success() -> Result<u32, Error> {
+    Ok(42)
+  }
+
+  #[op2(async(lazy), core, fast)]
   pub async fn op_async_lazy_error() -> Result<(), Error> {
     bail!("whoops")
   }
 
   #[tokio::test]
-  pub async fn test_op_async_lazy_error(
+  pub async fn test_op_async_lazy(
   ) -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
-      5,
+      1000,
+      "op_async_lazy_success",
+      "assert(await op_async_lazy_success() == 42)",
+    )
+    .await?;
+    run_async_test(
+      1000,
       "op_async_lazy_error",
       "try { await op_async_lazy_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )

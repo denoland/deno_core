@@ -46,6 +46,7 @@ impl op_async {
         if let Some(result) = deno_core::_ops::map_async_op_infallible(
             opctx,
             false,
+            false,
             promise_id,
             result,
             |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },

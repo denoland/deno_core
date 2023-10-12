@@ -156,6 +156,7 @@ pub struct OpCtx {
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
+  // pub(crate) last_fast_result: UnsafeCell<Option<Box<dyn std::any::Any>>>,
 }
 
 impl OpCtx {

@@ -29,6 +29,33 @@ use quote::format_ident;
 use quote::quote;
 use syn::Type;
 
+pub(crate) fn generate_dispatch_slow_call(
+  generator_state: &mut GeneratorState,
+  signature: &ParsedSignature,
+  mut input_index: usize,
+) -> Result<TokenStream, V8SignatureMappingError> {
+  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
+  // the scope/opstate in the intermediate stages.
+  let mut args = TokenStream::new();
+  let mut deferred = TokenStream::new();
+
+  for (index, arg) in signature.args.iter().enumerate() {
+    let arg_mapped = from_arg(generator_state, index, arg)
+      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
+    if arg.is_virtual() {
+      deferred.extend(arg_mapped);
+    } else {
+      args.extend(extract_arg(generator_state, index, input_index));
+      args.extend(arg_mapped);
+      input_index += 1;
+    }
+  }
+
+  args.extend(deferred);
+  args.extend(call(generator_state));
+  Ok(args)
+}
+
 pub(crate) fn generate_dispatch_slow(
   config: &MacroConfig,
   generator_state: &mut GeneratorState,
@@ -54,26 +81,8 @@ pub(crate) fn generate_dispatch_slow(
     });
   }
 
-  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
-  // the scope/opstate in the intermediate stages.
-  let mut args = TokenStream::new();
-  let mut deferred = TokenStream::new();
-  let mut input_index = 0;
+  let args = generate_dispatch_slow_call(generator_state, signature, 0)?;
 
-  for (index, arg) in signature.args.iter().enumerate() {
-    let arg_mapped = from_arg(generator_state, index, arg)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
-    if arg.is_virtual() {
-      deferred.extend(arg_mapped);
-    } else {
-      args.extend(extract_arg(generator_state, index, input_index));
-      args.extend(arg_mapped);
-      input_index += 1;
-    }
-  }
-
-  args.extend(deferred);
-  args.extend(call(generator_state));
   output.extend(gs_quote!(generator_state(result) => (let #result = {
     #args
   };)));

@@ -1,0 +1,210 @@
+use bencher::*;
+use deno_core::error::generic_error;
+use deno_core::*;
+use std::ffi::c_void;
+
+deno_core::extension!(
+  testing,
+  ops = [
+    op_void,
+    op_make_external,
+    op_async_void,
+    op_async_void_lazy,
+    op_async_void_lazy_nofast,
+    op_async_void_deferred,
+    op_async_void_deferred_nofast,
+    op_async_yield,
+    op_async_yield_lazy,
+    op_async_yield_lazy_nofast,
+    op_async_yield_deferred,
+    op_async_yield_deferred_nofast,
+  ],
+);
+
+#[op2(fast)]
+pub fn op_void() {
+}
+
+#[op2(fast)]
+pub fn op_make_external() -> *const c_void {
+  std::ptr::null()
+}
+
+#[op2(async)]
+pub async fn op_async_void() {}
+
+#[op2(async)]
+pub async fn op_async_yield() {
+  tokio::task::yield_now().await
+}
+
+#[op2(async(lazy), fast)]
+pub async fn op_async_yield_lazy() {
+  tokio::task::yield_now().await
+}
+
+#[op2(async(lazy), nofast)]
+pub async fn op_async_yield_lazy_nofast() {
+  tokio::task::yield_now().await
+}
+
+#[op2(async(deferred), fast)]
+pub async fn op_async_yield_deferred() {
+  tokio::task::yield_now().await
+}
+
+#[op2(async(deferred), nofast)]
+pub async fn op_async_yield_deferred_nofast() {
+  tokio::task::yield_now().await
+}
+
+#[op2(async(lazy), fast)]
+pub async fn op_async_void_lazy() {}
+
+#[op2(async(lazy), nofast)]
+pub async fn op_async_void_lazy_nofast() {}
+
+#[op2(async(deferred), fast)]
+pub async fn op_async_void_deferred() {}
+
+#[op2(async(deferred), nofast)]
+pub async fn op_async_void_deferred_nofast() {}
+
+fn bench_op(
+  b: &mut Bencher,
+  count: usize,
+  op: &str,
+  arg_count: usize,
+  call: &str,
+) {
+  #[cfg(not(feature = "unsafe_runtime_options"))]
+  unreachable!(
+    "This benchmark must be run with --features=unsafe_runtime_options"
+  );
+
+  let tokio = tokio::runtime::Builder::new_current_thread().build().unwrap();
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![testing::init_ops_and_esm()],
+    // We need to feature gate this here to prevent IDE errors
+    #[cfg(feature = "unsafe_runtime_options")]
+    unsafe_expose_natives_and_gc: true,
+    ..Default::default()
+  });
+  let err_mapper =
+    |err| generic_error(format!("{op} test failed ({call}): {err:?}"));
+
+  let args = (0..arg_count)
+    .map(|n| format!("arg{n}"))
+    .collect::<Vec<_>>()
+    .join(", ");
+
+  // Prime the optimizer
+  runtime
+    .execute_script(
+      "",
+      FastString::Owned(
+        format!(
+          r"
+async function run() {{
+  const LARGE_STRING_1000000 = '*'.repeat(1000000);
+  const LARGE_STRING_1000 = '*'.repeat(1000);
+  const LARGE_STRING_UTF8_1000000 = '\u1000'.repeat(1000000);
+  const LARGE_STRING_UTF8_1000 = '\u1000'.repeat(1000);
+  const BUFFER = new Uint8Array(1024);
+  const ARRAYBUFFER = new ArrayBuffer(1024);
+  const {{ {op}: op }} = Deno.core.ensureFastOps();
+  const {{ op_make_external }} = Deno.core.ensureFastOps();
+  const EXTERNAL = op_make_external();
+  function {op}({args}) {{
+    op({args});
+  }}
+  let accum = 0;
+  let __index__ = 0;
+  %PrepareFunctionForOptimization({op});
+  {call};
+  %OptimizeFunctionOnNextCall({op});
+  {call};
+
+  async function bench() {{
+    let accum = 0;
+    for (let __index__ = 0; __index__ < {count}; __index__++) {{ {call} }}
+    return accum;
+  }}
+  
+  %PrepareFunctionForOptimization(bench);
+  await bench();
+  %OptimizeFunctionOnNextCall(bench);
+  await bench();
+
+  return bench;
+}}
+        "
+        )
+        .into(),
+      ),
+    )
+    .map_err(err_mapper)
+    .unwrap();
+  let guard = tokio.enter();
+  let run = runtime.execute_script("", ascii_str!("run()")).unwrap();
+  let bench = tokio.block_on(runtime.resolve_value(run)).unwrap();
+  let mut scope = runtime.handle_scope();
+  let bench: v8::Local<v8::Function> =
+    v8::Local::new(&mut scope, bench).try_into().unwrap();
+  let bench = v8::Global::new(&mut scope, bench);
+  drop(scope);
+  drop(guard);
+  b.iter(move || {
+    tokio.block_on(async {
+      let guard = tokio.enter();
+      runtime.call_and_await(&bench).await.unwrap();
+      drop(guard);
+    });
+  });
+}
+
+const BENCH_COUNT: usize = 1000;
+const LARGE_BENCH_COUNT: usize = 5;
+
+/// Tests the overhead of execute_script.
+fn baseline(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_async_void", 0, "accum += __index__;");
+}
+
+macro_rules! bench_void {
+  ($bench:ident, $op:ident) => {
+    fn $bench(b: &mut Bencher) {
+      bench_op(b, BENCH_COUNT, stringify!($op), 0, concat!("await ", stringify!($op), "()"));
+    }
+  };
+}
+
+bench_void!(sync_baseline, op_void);
+bench_void!(bench_op_async_yield, op_async_yield);
+bench_void!(bench_op_async_yield_lazy, op_async_yield_lazy);
+bench_void!(bench_op_async_yield_lazy_nofast, op_async_yield_lazy_nofast);
+bench_void!(bench_op_async_yield_deferred, op_async_yield_deferred);
+bench_void!(bench_op_async_yield_deferred_nofast, op_async_yield_deferred_nofast);
+bench_void!(bench_op_async_void, op_async_void);
+bench_void!(bench_op_async_void_lazy, op_async_void_lazy);
+bench_void!(bench_op_async_void_lazy_nofast, op_async_void_lazy_nofast);
+bench_void!(bench_op_async_void_deferred, op_async_void_deferred);
+bench_void!(bench_op_async_void_deferred_nofast, op_async_void_deferred_nofast);
+
+benchmark_group!(
+  benches,
+  baseline,
+  sync_baseline,
+  bench_op_async_yield,
+  bench_op_async_yield_lazy,
+  bench_op_async_yield_lazy_nofast,
+  bench_op_async_yield_deferred,
+  bench_op_async_yield_deferred_nofast,
+  bench_op_async_void,
+  bench_op_async_void_lazy,
+  bench_op_async_void_lazy_nofast,
+  bench_op_async_void_deferred,
+  bench_op_async_void_deferred_nofast,
+);
+
+benchmark_main!(benches);

@@ -9,6 +9,7 @@ deno_core::extension!(
   testing,
   ops = [
     op_void,
+    op_void_nofast,
     op_u32,
     op_option_u32,
     op_string,
@@ -28,6 +29,7 @@ deno_core::extension!(
     op_bigint_return,
     op_external,
     op_external_nofast,
+    op_buffer_old,
     op_buffer,
     op_buffer_jsbuffer,
     op_buffer_nofast,
@@ -41,6 +43,9 @@ deno_core::extension!(
 
 #[op2(fast)]
 pub fn op_void() {}
+
+#[op2(nofast)]
+pub fn op_void_nofast() {}
 
 #[op2(fast)]
 pub fn op_u32() -> u32 {
@@ -122,6 +127,9 @@ pub fn op_external(_input: *const c_void) {}
 
 #[op2(nofast)]
 pub fn op_external_nofast(_input: *const c_void) {}
+
+#[op]
+pub fn op_buffer_old(_buffer: &[u8]) {}
 
 #[op2(fast)]
 pub fn op_buffer(#[buffer] _buffer: &[u8]) {}
@@ -225,6 +233,16 @@ fn baseline(b: &mut Bencher) {
 /// A void function with no return value.
 fn bench_op_void(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_void", 0, "op_void()");
+}
+
+/// A void function with no return value.
+fn bench_op_void_2x(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_void", 0, "op_void(); op_void()");
+}
+
+/// A void function with no return value.
+fn bench_op_void_nofast(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_void_nofast", 0, "op_void_nofast();");
 }
 
 /// A function with a numeric return value.
@@ -447,6 +465,10 @@ fn bench_op_external_nofast(b: &mut Bencher) {
   );
 }
 
+fn bench_op_buffer_old(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_buffer_old", 1, "op_buffer_old(BUFFER)");
+}
+
 fn bench_op_buffer(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_buffer", 1, "op_buffer(BUFFER)");
 }
@@ -485,6 +507,8 @@ benchmark_group!(
   benches,
   baseline,
   bench_op_void,
+  bench_op_void_2x,
+  bench_op_void_nofast,
   bench_op_u32,
   bench_op_option_u32,
   bench_op_string_bytestring,
@@ -513,6 +537,7 @@ benchmark_group!(
   bench_op_v8_isolate_nofast,
   bench_op_external,
   bench_op_external_nofast,
+  bench_op_buffer_old,
   bench_op_buffer,
   bench_op_buffer_jsbuffer,
   bench_op_buffer_nofast,

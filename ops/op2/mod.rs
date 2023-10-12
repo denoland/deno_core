@@ -200,7 +200,7 @@ fn generate_op2(
   }
 
   let (fast_definition, fast_definition_metrics, fast_fn) =
-    match generate_dispatch_fast(&mut generator_state, &signature)? {
+    match generate_dispatch_fast(&config, &mut generator_state, &signature)? {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast && !config.nofast {
           return Err(Op2Error::ShouldBeFast);

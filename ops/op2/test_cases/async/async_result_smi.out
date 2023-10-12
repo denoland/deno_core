@@ -62,6 +62,7 @@ impl op_async {
         if let Some(result) = deno_core::_ops::map_async_op_fallible(
             opctx,
             false,
+            false,
             promise_id,
             result,
             |scope, result| {
