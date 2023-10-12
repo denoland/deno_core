@@ -1,11 +1,21 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 if (!globalThis.Deno) {
+  // Deno specific builtins.
+  const { fromUtf8: encode, toUtf8: decode } = globalThis;
+
+  delete globalThis.fromUtf8;
+  delete globalThis.toUtf8;
+  delete globalThis.isOneByte;
+
   globalThis.Deno = {
     core: {
       ops: {},
       asyncOps: {},
     },
   };
+
+  Deno.core.encode = (text) => new Uint8Array(encode(text));
+  Deno.core.decode = (buffer, ignoreBOM = false) => decode(buffer, ignoreBOM);
 }
 
 Deno.__op__console = function (callConsole, console) {

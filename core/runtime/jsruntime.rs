@@ -336,13 +336,13 @@ fn v8_init(
   v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
 
   let base_flags = concat!(
+    " --expose_deno_builtins",
     " --wasm-test-streaming",
     " --harmony-import-assertions",
     " --harmony-import-attributes",
     " --no-validate-asm",
     " --turbo_fast_api_calls",
     " --harmony-change-array-by-copy",
-    " --expose_deno_builtins",
   );
   let predictable_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";
