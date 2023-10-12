@@ -3,8 +3,8 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-pub type ExitCb = Box<dyn Fn(&str, &str)>;
-pub type WarnCb = Box<dyn Fn(&str)>;
+pub type ExitCb = Box<dyn Fn(&str, &str) + Send + Sync>;
+pub type WarnCb = Box<dyn Fn(&str) + Send + Sync>;
 
 fn exit(_feature: &str, _api_name: &str) {
   std::process::exit(70);
