@@ -28,6 +28,7 @@ use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
 use crate::ExtensionFileSource;
+use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMiddlewareFn;
 use crate::OpResult;
@@ -434,6 +435,10 @@ pub struct RuntimeOptions {
   /// GC control functions (`gc()`)? WARNING: This should not be used for production code as
   /// this may expose the runtime to security vulnerabilities.
   pub unsafe_expose_natives_and_gc: bool,
+
+  /// An optional instance of `FeatureChecker`. If one is not provided, the
+  /// default instance will be created that has no features enabled.
+  pub feature_checker: Option<Arc<FeatureChecker>>,
 }
 
 impl RuntimeOptions {
@@ -1103,7 +1108,7 @@ impl JsRuntime {
 
     let ops = Self::collect_ops(&mut options.extensions);
 
-    let mut op_state = OpState::new(ops.len());
+    let mut op_state = OpState::new(ops.len(), options.feature_checker.take());
 
     // Setup state
     for e in &mut options.extensions {
