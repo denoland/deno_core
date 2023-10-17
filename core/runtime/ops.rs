@@ -721,7 +721,8 @@ pub fn to_v8_slice_any(
       return Err("buffer missing");
     };
     let len = buf.byte_length();
-    return Ok(unsafe { serde_v8::V8Slice::<u8>::from_parts(buf, 0..len) });
+    let offset = buf.byte_offset();
+    return Ok(unsafe { serde_v8::V8Slice::<u8>::from_parts(buf, offset..offset + len) });
   }
   if let Ok(buf) = to_v8_slice_buffer(input) {
     return Ok(buf);
@@ -1188,13 +1189,13 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   #[bigint]
   pub fn op_test_bigint_u64(#[bigint] input: u64) -> u64 {
     input
   }
 
-  #[op2(core)]
+  #[op2(core, fast)]
   #[bigint]
   pub fn op_test_bigint_i64(#[bigint] input: i64) -> i64 {
     input
@@ -1828,6 +1829,26 @@ mod tests {
     run_test2(
       10000,
       "op_buffer_any",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any(view) == 15);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2, 4);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any(view) == 6);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any",
       "assert(op_buffer_any(new Uint8Array([1,2,3,4])) == 10);",
     )?;
     run_test2(
@@ -1856,6 +1877,26 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_buffer_any_length(
   ) -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any_length(view) == 6);",
+    )?;
+    run_test2(
+      10000,
+      "op_buffer_any_length",
+      "const data = new ArrayBuffer(8);
+      const view = new Uint8Array(data, 2, 4);
+      for (var i = 0; i < 8; i++) {
+        view[i] = i;
+      }
+      assert(op_buffer_any_length(view) == 4);",
+    )?;
     run_test2(
       10000,
       "op_buffer_any_length",

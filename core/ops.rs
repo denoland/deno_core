@@ -24,7 +24,6 @@ use std::rc::Weak;
 use std::sync::Arc;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::CTypeInfo;
-use v8::fast_api::Int64Representation;
 use v8::Isolate;
 
 pub type PromiseId = i32;
@@ -194,9 +193,7 @@ impl OpCtx {
           args.as_ptr(),
           fast_fn.args.len(),
           ret.as_ptr(),
-          // TODO(bartlomieju): in the future we might want to change it
-          // to use BigInt representation.
-          Int64Representation::Number,
+          fast_fn.repr,
         )
       };
       fast_fn_c_info = Some(c_fn);
@@ -254,18 +251,21 @@ pub struct OpState {
   pub last_fast_op_error: Option<AnyError>,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
-  pub feature_checker: FeatureChecker,
+  pub feature_checker: Arc<FeatureChecker>,
 }
 
 impl OpState {
-  pub fn new(ops_count: usize) -> OpState {
+  pub fn new(
+    ops_count: usize,
+    maybe_feature_checker: Option<Arc<FeatureChecker>>,
+  ) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
       last_fast_op_error: None,
       tracker: OpsTracker::new(ops_count),
       waker: Arc::new(AtomicWaker::new()),
-      feature_checker: FeatureChecker::default(),
+      feature_checker: maybe_feature_checker.unwrap_or_default(),
     }
   }
 
