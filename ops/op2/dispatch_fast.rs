@@ -445,6 +445,10 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Buffer(buffer, _, BufferSource::TypedArray) => {
       fast_api_typed_array_to_buffer(deno_core, arg_ident, arg_ident, *buffer)?
     }
+    Arg::Special(Special::Isolate) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = #opctx.isolate;)
+    }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
       quote!(let #arg_ident = &::std::cell::RefCell::borrow(&#opctx.state);)
@@ -590,6 +594,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::RcRefCell(Special::JsRuntimeState)
     | Arg::Ref(_, Special::JsRuntimeState)
     | Arg::State(..)
+    | Arg::Special(Special::Isolate)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)

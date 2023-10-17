@@ -47,22 +47,40 @@ pub fn op_set_promise_reject_callback<'a>(
   old.map(|v| v8::Local::new(scope, &*v))
 }
 
-#[op2(core)]
-pub fn op_run_microtasks(scope: &mut v8::HandleScope) {
-  scope.perform_microtask_checkpoint();
+// We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
+// allowed to touch JS heap.
+#[op2(core, nofast)]
+pub fn op_queue_microtask(
+  isolate: *mut v8::Isolate,
+  cb: v8::Local<v8::Function>,
+) {
+  // SAFETY: we know v8 provides us a valid, non-null isolate pointer
+  unsafe {
+    isolate.as_mut().unwrap_unchecked().enqueue_microtask(cb);
+  }
 }
 
-#[op2(core)]
-pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
-  let state_rc = JsRuntime::state_from(scope);
-  let state = state_rc.borrow();
+// We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
+// allowed to touch JS heap.
+#[op2(core, nofast)]
+pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
+  // SAFETY: we know v8 provides us with a valid, non-null isolate
+  unsafe {
+    isolate
+      .as_mut()
+      .unwrap_unchecked()
+      .perform_microtask_checkpoint()
+  };
+}
+
+#[op2(core, fast)]
+pub fn op_has_tick_scheduled(state: &JsRuntimeState) -> bool {
   state.has_tick_scheduled
 }
 
-#[op2(core)]
-pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
-  let state_rc = JsRuntime::state_from(scope);
-  state_rc.borrow_mut().has_tick_scheduled = v;
+#[op2(core, fast)]
+pub fn op_set_has_tick_scheduled(state: &mut JsRuntimeState, v: bool) {
+  state.has_tick_scheduled = v;
 }
 
 #[derive(Serialize)]
@@ -124,14 +142,6 @@ pub fn op_eval_context<'a>(
       ))
     }
   }
-}
-
-#[op2(core)]
-pub fn op_queue_microtask(
-  scope: &mut v8::HandleScope,
-  cb: v8::Local<v8::Function>,
-) {
-  scope.enqueue_microtask(cb);
 }
 
 #[op2(core)]

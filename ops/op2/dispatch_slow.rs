@@ -235,10 +235,12 @@ pub fn from_arg(
     args,
     scope,
     opstate,
+    opctx,
     js_runtime_state,
     needs_scope,
     needs_isolate,
     needs_opstate,
+    needs_opctx,
     needs_js_runtime_state,
     ..
   } = &mut generator_state;
@@ -380,6 +382,10 @@ pub fn from_arg(
     }
     Arg::External(External::Ptr(_)) => {
       from_arg_option(generator_state, &arg_ident, "external")?
+    }
+    Arg::Special(Special::Isolate) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = #opctx.isolate;)
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
