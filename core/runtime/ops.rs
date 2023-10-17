@@ -717,12 +717,14 @@ pub fn to_v8_slice_any(
   input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
   if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+    let offset = buf.byte_offset();
+    let len = buf.byte_length();
     let Some(buf) = buf.get_backing_store() else {
       return Err("buffer missing");
     };
-    let len = buf.byte_length();
-    let offset = buf.byte_offset();
-    return Ok(unsafe { serde_v8::V8Slice::<u8>::from_parts(buf, offset..offset + len) });
+    return Ok(unsafe {
+      serde_v8::V8Slice::<u8>::from_parts(buf, offset..offset + len)
+    });
   }
   if let Ok(buf) = to_v8_slice_buffer(input) {
     return Ok(buf);
