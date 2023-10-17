@@ -29,6 +29,7 @@ deno_core::extension!(
     op_external,
     op_external_nofast,
     op_buffer,
+    op_buffer_jsbuffer,
     op_buffer_nofast,
     op_arraybuffer,
   ],
@@ -124,6 +125,9 @@ pub fn op_external_nofast(_input: *const c_void) {}
 
 #[op2(fast)]
 pub fn op_buffer(#[buffer] _buffer: &[u8]) {}
+
+#[op2(fast)]
+pub fn op_buffer_jsbuffer(#[buffer] _buffer: JsBuffer) {}
 
 #[op2(nofast)]
 pub fn op_buffer_nofast(#[buffer] _buffer: &[u8]) {}
@@ -447,6 +451,16 @@ fn bench_op_buffer(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_buffer", 1, "op_buffer(BUFFER)");
 }
 
+fn bench_op_buffer_jsbuffer(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_buffer_jsbuffer",
+    1,
+    "op_buffer_jsbuffer(BUFFER)",
+  );
+}
+
 fn bench_op_buffer_nofast(b: &mut Bencher) {
   bench_op(
     b,
@@ -500,6 +514,7 @@ benchmark_group!(
   bench_op_external,
   bench_op_external_nofast,
   bench_op_buffer,
+  bench_op_buffer_jsbuffer,
   bench_op_buffer_nofast,
   bench_op_arraybuffer,
 );
