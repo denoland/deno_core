@@ -400,6 +400,22 @@ fn map_v8_fastcall_arg_to_arg(
         #buf
       )
     }
+    Arg::Buffer(
+      buffer @ (BufferType::V8Slice(..) | BufferType::JsBuffer),
+      _,
+      BufferSource::TypedArray,
+    ) => {
+      *needs_fast_api_callback_options = true;
+      let buf = v8slice_to_buffer(deno_core, arg_ident, &arg_temp, *buffer)?;
+      quote!(
+        let Ok(mut #arg_temp) = #deno_core::_ops::to_v8_slice(#arg_ident.into()) else {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
+        };
+        #buf
+      )
+    }
     Arg::Buffer(buffer, _, BufferSource::ArrayBuffer) => {
       *needs_fast_api_callback_options = true;
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
@@ -549,7 +565,7 @@ fn map_arg_to_v8_fastcall_type(
       BufferType::JsBuffer | BufferType::V8Slice(..),
       _,
       BufferSource::TypedArray,
-    ) => return Ok(None),
+    ) => V8FastCallType::V8Value,
     Arg::Buffer(
       BufferType::Slice(.., NumericArg::u8)
       | BufferType::Ptr(.., NumericArg::u8),
