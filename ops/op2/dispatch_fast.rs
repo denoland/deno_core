@@ -587,6 +587,14 @@ fn map_arg_to_v8_fastcall_type(
       _,
       BufferSource::TypedArray,
     ) => V8FastCallType::Uint32Array,
+    Arg::Buffer(
+      BufferType::Slice(.., NumericArg::f64)
+      | BufferType::Ptr(.., NumericArg::f64)
+      | BufferType::Vec(.., NumericArg::f64)
+      | BufferType::BoxSlice(.., NumericArg::f64),
+      _,
+      BufferSource::TypedArray,
+    ) => V8FastCallType::Float64Array,
     Arg::Buffer(_, _, BufferSource::TypedArray) => V8FastCallType::Uint8Array,
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)

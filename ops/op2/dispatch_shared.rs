@@ -87,22 +87,36 @@ pub fn v8slice_to_buffer(
     BufferType::V8Slice(..) => {
       quote!(let #arg_ident = #arg_ident;)
     }
-    BufferType::Slice(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Slice(
+      RefType::Ref,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = #v8slice.as_ref();)
     }
-    BufferType::Slice(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Slice(
+      RefType::Mut,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = #v8slice.as_mut();)
     }
-    BufferType::Ptr(RefType::Ref, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Ptr(
+      RefType::Ref,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = if #v8slice.len() == 0 { std::ptr::null() } else { #v8slice.as_ref().as_ptr() };)
     }
-    BufferType::Ptr(RefType::Mut, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Ptr(
+      RefType::Mut,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = if #v8slice.len() == 0 { std::ptr::null_mut() } else { #v8slice.as_mut().as_mut_ptr() };)
     }
-    BufferType::Vec(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Vec(NumericArg::u8 | NumericArg::u32 | NumericArg::f64) => {
       quote!(let #arg_ident = #v8slice.to_vec();)
     }
-    BufferType::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::BoxSlice(
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = #v8slice.to_boxed_slice();)
     }
     BufferType::Bytes => {
@@ -123,16 +137,21 @@ pub fn byte_slice_to_buffer(
   buffer: BufferType,
 ) -> Result<TokenStream, V8MappingError> {
   let res = match buffer {
-    BufferType::Slice(_, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Slice(
+      _,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = #buf;)
     }
-    BufferType::Ptr(_, NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Ptr(_, NumericArg::u8 | NumericArg::u32 | NumericArg::f64) => {
       quote!(let #arg_ident = if #buf.len() == 0 { ::std::ptr::null_mut() } else { #buf.as_mut_ptr() as _ };)
     }
-    BufferType::Vec(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::Vec(NumericArg::u8 | NumericArg::u32 | NumericArg::f64) => {
       quote!(let #arg_ident = #buf.to_vec();)
     }
-    BufferType::BoxSlice(NumericArg::u8 | NumericArg::u32) => {
+    BufferType::BoxSlice(
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = #buf.to_vec().into_boxed_slice();)
     }
     BufferType::Bytes => {
