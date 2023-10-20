@@ -72,7 +72,7 @@ pub(crate) fn generate_dispatch_async(
   }));
 
   // TODO(mmastrac): we should save this unwrapped result
-  if let Some(_) = signature.ret_val.unwrap_result() {
+  if signature.ret_val.unwrap_result().is_some() {
     let exception = throw_exception(generator_state);
     output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
       let #result = match #result {
