@@ -174,21 +174,22 @@ pub fn map_async_op_infallible<R: 'static>(
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
   let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
 
-  let pinned = match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => pinned,
-    Poll::Ready(res) => {
-      // TODO(mmastrac): optimize this so we don't double-allocate
-      if deferred {
-        ready(res).boxed_local()
-      } else {
-        if ctx.metrics_enabled() {
-          dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+  let pinned =
+    match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      Poll::Pending => pinned,
+      Poll::Ready(res) => {
+        // TODO(mmastrac): optimize this so we don't double-allocate
+        if deferred {
+          ready(res).boxed_local()
+        } else {
+          if ctx.metrics_enabled() {
+            dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+          }
+          ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
+          return Some(res.2);
         }
-        ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-        return Some(res.2);
       }
-    }
-  };
+    };
 
   ctx
     .context_state
@@ -246,25 +247,26 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
   let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
 
-  let pinned = match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => pinned,
-    Poll::Ready(res) => {
-      // TODO(mmastrac): optimize this so we don't double-allocate
-      if deferred {
-        ready(res).boxed_local()        
-      } else {
-        if ctx.metrics_enabled() {
-          if res.2.is_err() {
-            dispatch_metrics_async(ctx, OpMetricsEvent::Error);
-          } else {
-            dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+  let pinned =
+    match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      Poll::Pending => pinned,
+      Poll::Ready(res) => {
+        // TODO(mmastrac): optimize this so we don't double-allocate
+        if deferred {
+          ready(res).boxed_local()
+        } else {
+          if ctx.metrics_enabled() {
+            if res.2.is_err() {
+              dispatch_metrics_async(ctx, OpMetricsEvent::Error);
+            } else {
+              dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+            }
           }
+          ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
+          return Some(res.2);
         }
-        ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-        return Some(res.2);
       }
-    }
-  };
+    };
 
   let get_class = ctx.get_error_class_fn;
   ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
@@ -2241,8 +2243,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_deferred(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_deferred() -> Result<(), Box<dyn std::error::Error>>
+  {
     run_async_test(
       1000,
       "op_async_deferred_success",
@@ -2269,8 +2271,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_lazy(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_lazy() -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       1000,
       "op_async_lazy_success",

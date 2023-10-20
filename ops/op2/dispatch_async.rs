@@ -71,10 +71,8 @@ pub(crate) fn generate_dispatch_async(
     };
   }));
 
-  if matches!(
-    signature.ret_val,
-    RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
-  ) {
+  // TODO(mmastrac): we should save this unwrapped result
+  if let Some(_) = signature.ret_val.unwrap_result() {
     let exception = throw_exception(generator_state);
     output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
       let #result = match #result {
@@ -91,8 +89,8 @@ pub(crate) fn generate_dispatch_async(
   }
 
   if config.async_lazy || config.async_deferred {
-    let lazy =config.async_lazy;
-    let deferred =  config.async_deferred;
+    let lazy = config.async_lazy;
+    let deferred = config.async_deferred;
     output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
       let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
       // Lazy and deferred results will always return None

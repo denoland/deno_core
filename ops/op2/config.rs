@@ -79,10 +79,14 @@ impl MacroConfig {
     if config.fast && config.nofast {
       return Err(Op2Error::InvalidAttributeCombination("fast", "nofast"));
     }
-    if config.fast && (config.r#async && !config.async_lazy && !config.async_deferred) {
+    if config.fast
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
       return Err(Op2Error::InvalidAttributeCombination("fast", "async"));
     }
-    if config.nofast && (config.r#async && !config.async_lazy && !config.async_deferred) {
+    if config.nofast
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
       return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
     }
 

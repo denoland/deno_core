@@ -22,8 +22,7 @@ deno_core::extension!(
 );
 
 #[op2(fast)]
-pub fn op_void() {
-}
+pub fn op_void() {}
 
 #[op2(fast)]
 pub fn op_make_external() -> *const c_void {
@@ -82,7 +81,9 @@ fn bench_op(
     "This benchmark must be run with --features=unsafe_runtime_options"
   );
 
-  let tokio = tokio::runtime::Builder::new_current_thread().build().unwrap();
+  let tokio = tokio::runtime::Builder::new_current_thread()
+    .build()
+    .unwrap();
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![testing::init_ops_and_esm()],
     // We need to feature gate this here to prevent IDE errors
@@ -164,7 +165,6 @@ async function run() {{
 }
 
 const BENCH_COUNT: usize = 1000;
-const LARGE_BENCH_COUNT: usize = 5;
 
 /// Tests the overhead of execute_script.
 fn baseline(b: &mut Bencher) {
@@ -174,7 +174,13 @@ fn baseline(b: &mut Bencher) {
 macro_rules! bench_void {
   ($bench:ident, $op:ident) => {
     fn $bench(b: &mut Bencher) {
-      bench_op(b, BENCH_COUNT, stringify!($op), 0, concat!("await ", stringify!($op), "()"));
+      bench_op(
+        b,
+        BENCH_COUNT,
+        stringify!($op),
+        0,
+        concat!("await ", stringify!($op), "()"),
+      );
     }
   };
 }
@@ -184,12 +190,18 @@ bench_void!(bench_op_async_yield, op_async_yield);
 bench_void!(bench_op_async_yield_lazy, op_async_yield_lazy);
 bench_void!(bench_op_async_yield_lazy_nofast, op_async_yield_lazy_nofast);
 bench_void!(bench_op_async_yield_deferred, op_async_yield_deferred);
-bench_void!(bench_op_async_yield_deferred_nofast, op_async_yield_deferred_nofast);
+bench_void!(
+  bench_op_async_yield_deferred_nofast,
+  op_async_yield_deferred_nofast
+);
 bench_void!(bench_op_async_void, op_async_void);
 bench_void!(bench_op_async_void_lazy, op_async_void_lazy);
 bench_void!(bench_op_async_void_lazy_nofast, op_async_void_lazy_nofast);
 bench_void!(bench_op_async_void_deferred, op_async_void_deferred);
-bench_void!(bench_op_async_void_deferred_nofast, op_async_void_deferred_nofast);
+bench_void!(
+  bench_op_async_void_deferred_nofast,
+  op_async_void_deferred_nofast
+);
 
 benchmark_group!(
   benches,

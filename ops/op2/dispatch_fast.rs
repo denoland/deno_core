@@ -15,7 +15,6 @@ use super::signature::NumericArg;
 use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
-use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::V8MappingError;
@@ -108,10 +107,9 @@ impl FastSignature {
       match arg {
         FastArg::Actual { arg, name_out, .. }
         | FastArg::Virtual { name_out, arg } => call_args.push(
-          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg)
-            .map_err(|s| {
-              V8SignatureMappingError::NoArgMapping(s, arg.clone())
-            })?,
+          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
+            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
+          )?,
         ),
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
@@ -372,7 +370,10 @@ pub(crate) fn generate_dispatch_fast(
   V8SignatureMappingError,
 > {
   // async(lazy) can be fast
-  if signature.ret_val.is_async() && !config.async_lazy && !config.async_deferred {
+  if signature.ret_val.is_async()
+    && !config.async_lazy
+    && !config.async_deferred
+  {
     return Ok(None);
   }
 
@@ -380,12 +381,9 @@ pub(crate) fn generate_dispatch_fast(
     return Ok(None);
   };
 
-  let handle_error = match signature.ret_val {
-    RetVal::Result(_)
-    | RetVal::ResultFuture(_)
-    | RetVal::ResultFutureResult(_) => {
-      generate_fast_result_early_exit(generator_state)
-    }
+  // TODO(mmastrac): we should save this unwrapped result
+  let handle_error = match signature.ret_val.unwrap_result() {
+    Some(_) => generate_fast_result_early_exit(generator_state),
     _ => quote!(),
   };
 
