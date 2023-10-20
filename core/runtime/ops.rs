@@ -808,6 +808,8 @@ mod tests {
       op_buffer_ptr,
       op_buffer_slice_32,
       op_buffer_ptr_32,
+      op_buffer_slice_f64,
+      op_buffer_ptr_f64,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
@@ -1701,12 +1703,45 @@ mod tests {
     }
   }
 
+  #[op2(core, fast)]
+  pub fn op_buffer_slice_f64(
+    #[buffer] input: &[f64],
+    #[number] inlen: usize,
+    #[buffer] output: &mut [f64],
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[op2(core, fast)]
+  pub fn op_buffer_ptr_f64(
+    #[buffer] input: *const f64,
+    #[number] inlen: usize,
+    #[buffer] output: *mut f64,
+    #[number] outlen: usize,
+  ) {
+    if inlen > 0 && outlen > 0 {
+      // SAFETY: for test
+      unsafe { std::ptr::write(output, std::ptr::read(input)) }
+    }
+  }
+
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
     for (op, op_ptr, arr, size) in [
       ("op_buffer_slice", "op_buffer_ptr", "Uint8Array", 1),
       ("op_buffer_slice_32", "op_buffer_ptr_32", "Uint32Array", 4),
+      (
+        "op_buffer_slice_f64",
+        "op_buffer_ptr_f64",
+        "Float64Array",
+        8,
+      ),
     ] {
       // Zero-length buffers
       run_test2(

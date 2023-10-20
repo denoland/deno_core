@@ -46,6 +46,18 @@ impl V8Sliceable for u32 {
   }
 }
 
+impl V8Sliceable for f64 {
+  type V8 = v8::Float64Array;
+  fn new_buf<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    buf: v8::Local<v8::ArrayBuffer>,
+    byte_offset: usize,
+    length: usize,
+  ) -> Option<v8::Local<'s, Self::V8>> {
+    v8::Float64Array::new(scope, buf, byte_offset, length)
+  }
+}
+
 /// A V8Slice encapsulates a slice that's been borrowed from a JavaScript
 /// ArrayBuffer object. JavaScript objects can normally be garbage collected,
 /// but the existence of a V8Slice inhibits this until it is dropped. It
