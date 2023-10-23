@@ -141,6 +141,11 @@ fn baseline(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_async_void", 0, "accum += __index__;");
 }
 
+/// Tests the overhead of execute_script with a promise.
+fn baseline_promise(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_async_void", 0, "await Promise.resolve(null);");
+}
+
 macro_rules! bench_void {
   ($bench:ident, $op:ident) => {
     fn $bench(b: &mut Bencher) {
@@ -155,7 +160,7 @@ macro_rules! bench_void {
   };
 }
 
-bench_void!(sync_baseline, op_void);
+bench_void!(baseline_sync, op_void);
 bench_void!(bench_op_async_yield, op_async_yield);
 bench_void!(bench_op_async_yield_lazy, op_async_yield_lazy);
 bench_void!(bench_op_async_yield_lazy_nofast, op_async_yield_lazy_nofast);
@@ -176,7 +181,8 @@ bench_void!(
 benchmark_group!(
   benches,
   baseline,
-  sync_baseline,
+  baseline_promise,
+  baseline_sync,
   bench_op_async_yield,
   bench_op_async_yield_lazy,
   bench_op_async_yield_lazy_nofast,
