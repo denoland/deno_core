@@ -12,7 +12,6 @@ use crate::OpState;
 use crate::Resource;
 use anyhow::Error;
 use bytes::BytesMut;
-use deno_ops::op;
 use deno_ops::op2;
 use std::cell::RefCell;
 use std::io::stderr;
@@ -118,14 +117,12 @@ pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
-// TODO(bartlomieju): migration to op2 blocked by deferred support
-#[op(deferred)]
+#[op2(async(deferred), core, fast)]
 pub async fn op_error_async_deferred() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
-// TODO(bartlomieju): migration to op2 blocked by deferred support
-#[op(deferred)]
+#[op2(async(deferred), core, fast)]
 pub async fn op_void_async_deferred() {}
 
 /// Remove a resource from the resource table.

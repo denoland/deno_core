@@ -56,3 +56,9 @@ name = "ops_sync"
 path = "benches/ops/sync.rs"
 harness = false
 required-features = ["unsafe_runtime_options"]
+
+[[bench]]
+name = "ops_async"
+path = "benches/ops/async.rs"
+harness = false
+required-features = ["unsafe_runtime_options"]

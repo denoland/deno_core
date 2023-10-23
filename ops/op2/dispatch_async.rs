@@ -1,10 +1,6 @@
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
-use super::dispatch_slow::call;
-use super::dispatch_slow::extract_arg;
-use super::dispatch_slow::from_arg;
+use super::dispatch_slow::generate_dispatch_slow_call;
 use super::dispatch_slow::return_value_infallible;
 use super::dispatch_slow::return_value_result;
 use super::dispatch_slow::return_value_v8_value;
@@ -18,22 +14,16 @@ use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use proc_macro2::TokenStream;
 use quote::quote;
 
-fn map_async_return_type(
+pub(crate) fn map_async_return_type(
   generator_state: &mut GeneratorState,
   ret_val: &RetVal,
 ) -> Result<(TokenStream, TokenStream, TokenStream), V8MappingError> {
-  let return_value = match ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => {
-      return_value_v8_value(generator_state, r)?
-    }
-    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => {
-      return_value_v8_value(generator_state, r)?
-    }
-    RetVal::Infallible(_) | RetVal::Result(_) => return Err("an async return"),
-  };
+  let return_value = return_value_v8_value(generator_state, ret_val.arg())?;
   let (mapper, return_value_immediate) = match ret_val {
     RetVal::Future(r) | RetVal::ResultFuture(r) => (
       quote!(map_async_op_infallible),
@@ -55,25 +45,8 @@ pub(crate) fn generate_dispatch_async(
 ) -> Result<TokenStream, V8SignatureMappingError> {
   let mut output = TokenStream::new();
 
-  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
-  // the scope/opstate in the intermediate stages.
-  let mut args = TokenStream::new();
-  let mut deferred = TokenStream::new();
-
-  // Promise ID is the first arg
-  let mut input_index = 1;
-
-  for (index, arg) in signature.args.iter().enumerate() {
-    let arg_mapped = from_arg(generator_state, index, arg)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
-    if arg.is_virtual() {
-      deferred.extend(arg_mapped);
-    } else {
-      args.extend(extract_arg(generator_state, index, input_index));
-      args.extend(arg_mapped);
-      input_index += 1;
-    }
-  }
+  // input_index = 1 as promise ID is the first arg
+  let args = generate_dispatch_slow_call(generator_state, signature, 1)?;
 
   // Always need context and args
   // TODO(mmastrac): Do we?
@@ -89,8 +62,6 @@ pub(crate) fn generate_dispatch_async(
       },
     )?;
 
-  args.extend(deferred);
-  args.extend(call(generator_state));
   output.extend(gs_quote!(generator_state(deno_core, result, opctx) => {
     if #opctx.metrics_enabled() {
       #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
@@ -100,10 +71,8 @@ pub(crate) fn generate_dispatch_async(
     };
   }));
 
-  if matches!(
-    signature.ret_val,
-    RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
-  ) {
+  // TODO(mmastrac): we should save this unwrapped result
+  if signature.ret_val.unwrap_result().is_some() {
     let exception = throw_exception(generator_state);
     output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
       let #result = match #result {
@@ -119,16 +88,27 @@ pub(crate) fn generate_dispatch_async(
     }));
   }
 
-  let lazy = config.async_lazy;
-  output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
-    let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
-    if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #lazy, #promise_id, #result, |#scope, #result| {
-      #return_value
-    }) {
-      // Eager poll returned a value
-      #return_value_immediate
-    }
-  }));
+  if config.async_lazy || config.async_deferred {
+    let lazy = config.async_lazy;
+    let deferred = config.async_deferred;
+    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
+      let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      // Lazy and deferred results will always return None
+      #deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
+        #return_value
+      });
+    }));
+  } else {
+    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
+      let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      if let Some(#result) = #deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
+        #return_value
+      }) {
+        // Eager poll returned a value
+        #return_value_immediate
+      }
+    }));
+  }
 
   let with_scope = if generator_state.needs_scope {
     with_scope(generator_state)

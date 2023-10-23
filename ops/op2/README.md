@@ -39,6 +39,38 @@ op system.
 fn op_xyz(promise_id: i32, /* ... */) -> Option<X> {}
 ```
 
+### Eager `async` calls: `async`
+
+By default, `async` functions are eagerly polled, which reduces the latency of
+the call dramatically if the async function is ready to return a value
+immediately.
+
+### `async(lazy)`
+
+`async` calls may be marked as `lazy`, which allows the runtime to defer polling
+the op until a later time. The submission of an `async(lazy)` op might be
+faster, but the latency will be higher for ops that would have been ready on the
+first poll.
+
+**NOTE**: You _may_ need to use this to get the maximum performance out of a set
+of async tasks, but it should only be used alongside careful benchmarking. In
+some cases it will allow for higher throughput at the expense of latency.
+
+Lazy `async` calls _may_ be fastcalls, though the resolution will still happen
+on a slow path.
+
+### `async(deferred)`
+
+`async` calls may also be marked as `deferred`, which will allow the runtime to
+poll the op immediately, but any results that are ready are deferred until a
+later run of the event loop.
+
+**NOTE**: This is almost certainly not what you want to use and should only be
+used if you really know what you are doing.
+
+Lazy `async(deferred)` calls _may_ be fastcalls, though the resolution will
+still happen on a slow path.
+
 # Parameters
 
 <!-- START ARGS -->

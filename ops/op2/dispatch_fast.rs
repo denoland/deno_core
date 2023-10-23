@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::config::MacroConfig;
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::fast_api_typed_array_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
@@ -14,17 +15,152 @@ use super::signature::NumericArg;
 use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
-use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
+use crate::op2::dispatch_async::map_async_return_type;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
-use std::iter::zip;
 use syn::Type;
+
+#[derive(Clone)]
+pub(crate) enum FastArg {
+  /// The argument is virtual and only has an output name.
+  Virtual {
+    name_out: Ident,
+    arg: Arg,
+  },
+  Actual {
+    arg_type: V8FastCallType,
+    name_in: Ident,
+    name_out: Ident,
+    arg: Arg,
+  },
+  CallbackOptions,
+  PromiseId,
+}
+
+#[derive(Clone)]
+pub(crate) struct FastSignature {
+  // The parsed arguments
+  pub args: Vec<FastArg>,
+  // The parsed return value
+  pub ret_val: V8FastCallType,
+  has_fast_api_callback_options: bool,
+}
+
+impl FastSignature {
+  /// Collect the output of `quote_type` for all actual arguments, used to populate the fast function
+  /// definition struct.
+  pub(crate) fn input_types(&self) -> Vec<TokenStream> {
+    self
+      .args
+      .iter()
+      .filter_map(|arg| match arg {
+        FastArg::PromiseId => Some(V8FastCallType::I32.quote_type()),
+        FastArg::CallbackOptions => {
+          Some(V8FastCallType::CallbackOptions.quote_type())
+        }
+        FastArg::Actual { arg_type, .. } => Some(arg_type.quote_type()),
+        _ => None,
+      })
+      .collect()
+  }
+
+  pub(crate) fn input_args(
+    &self,
+    generator_state: &GeneratorState,
+  ) -> Vec<(Ident, TokenStream)> {
+    self
+      .args
+      .iter()
+      .filter_map(|arg| match arg {
+        FastArg::CallbackOptions => Some((
+          generator_state.fast_api_callback_options.clone(),
+          V8FastCallType::CallbackOptions
+            .quote_rust_type(&generator_state.deno_core),
+        )),
+        FastArg::PromiseId => Some((
+          generator_state.promise_id.clone(),
+          V8FastCallType::I32.quote_rust_type(&generator_state.deno_core),
+        )),
+        FastArg::Actual {
+          arg_type, name_in, ..
+        } => Some((
+          format_ident!("{name_in}"),
+          arg_type.quote_rust_type(&generator_state.deno_core),
+        )),
+        _ => None,
+      })
+      .collect()
+  }
+
+  pub(crate) fn call_args(
+    &self,
+    generator_state: &mut GeneratorState,
+  ) -> Result<Vec<TokenStream>, V8SignatureMappingError> {
+    let mut call_args = vec![];
+    for arg in &self.args {
+      match arg {
+        FastArg::Actual { arg, name_out, .. }
+        | FastArg::Virtual { name_out, arg } => call_args.push(
+          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
+            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
+          )?,
+        ),
+        FastArg::CallbackOptions | FastArg::PromiseId => {}
+      }
+    }
+    Ok(call_args)
+  }
+
+  pub(crate) fn call_names(&self) -> Vec<Ident> {
+    let mut call_names = vec![];
+    for arg in &self.args {
+      match arg {
+        FastArg::Actual { name_out, .. }
+        | FastArg::Virtual { name_out, .. } => {
+          call_names.push(name_out.clone())
+        }
+        FastArg::CallbackOptions | FastArg::PromiseId => {}
+      }
+    }
+    call_names
+  }
+
+  pub(crate) fn get_fast_function_def(
+    &self,
+    generator_state: &mut GeneratorState,
+    fast_function: &Ident,
+  ) -> TokenStream {
+    let input_types = self.input_types();
+    let output_type = self.ret_val.quote_ctype();
+
+    gs_quote!(generator_state(deno_core) => {
+      use #deno_core::v8::fast_api::Type;
+      use #deno_core::v8::fast_api::CType;
+      #deno_core::v8::fast_api::FastFunction::new_with_bigint(
+        &[ Type::V8Value, #( #input_types ),* ],
+        #output_type,
+        Self::#fast_function as *const ::std::ffi::c_void
+      )
+    })
+  }
+
+  pub(crate) fn ensure_fast_api_callback_options(&mut self) {
+    if !self.has_fast_api_callback_options {
+      self.has_fast_api_callback_options = true;
+      self.args.push(FastArg::CallbackOptions);
+    }
+  }
+
+  fn insert_promise_id(&mut self) {
+    self.args.insert(0, FastArg::PromiseId)
+  }
+}
 
 #[allow(unused)]
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -142,41 +278,39 @@ impl V8FastCallType {
   }
 }
 
-pub fn generate_dispatch_fast(
-  generator_state: &mut GeneratorState,
+// TODO(mmastrac): see note about index_in below
+#[allow(clippy::explicit_counter_loop)]
+pub(crate) fn get_fast_signature(
   signature: &ParsedSignature,
-) -> Result<
-  Option<(TokenStream, TokenStream, TokenStream)>,
-  V8SignatureMappingError,
-> {
-  enum Input<'a> {
-    Concrete(V8FastCallType),
-    Virtual(&'a Arg),
-  }
-
-  // Async not supported for fastcalls yet
-  if signature.ret_val.is_async() {
-    return Ok(None);
-  }
-
-  let mut inputs = vec![];
-  for arg in &signature.args {
-    let Some(fv) = map_arg_to_v8_fastcall_type(arg).map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))? else {
+) -> Result<Option<FastSignature>, V8SignatureMappingError> {
+  let mut args = vec![];
+  let mut index_in = 0;
+  for (index_out, arg) in signature.args.iter().cloned().enumerate() {
+    let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg).map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))? else {
       return Ok(None);
     };
-    if fv == V8FastCallType::Virtual {
-      inputs.push(Input::Virtual(arg));
+    let name_out = format_ident!("arg{index_out}");
+    // TODO(mmastrac): this could be a valid arg, but we need to update has_fast_api_callback_options below
+    assert!(arg_type != V8FastCallType::CallbackOptions);
+    if arg_type == V8FastCallType::Virtual {
+      args.push(FastArg::Virtual { arg, name_out });
     } else {
-      inputs.push(Input::Concrete(fv));
+      args.push(FastArg::Actual {
+        arg,
+        arg_type,
+        name_in: format_ident!("arg{index_in}"),
+        name_out,
+      });
     }
+    // TODO(mmastrac): these fastcall indexes should not use the same index as the outparam
+    index_in += 1;
   }
 
-  let ret_val = match &signature.ret_val {
-    RetVal::Infallible(arg) => arg,
-    RetVal::Result(arg) => arg,
-    _ => todo!(),
+  let ret_val = if signature.ret_val.is_async() {
+    &Arg::Void
+  } else {
+    signature.ret_val.arg()
   };
-
   let output = match map_retval_to_v8_fastcall_type(ret_val).map_err(|s| {
     V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
   })? {
@@ -184,75 +318,108 @@ pub fn generate_dispatch_fast(
     Some(rv) => rv,
   };
 
-  // Collect the names and types for the fastcall and the underlying op call
-  let mut fastcall_names = vec![];
-  let mut fastcall_types = vec![];
-  let mut input_types = vec![];
-  let mut call_names = vec![];
-  let mut call_args = vec![];
-  for (i, (input, arg)) in zip(inputs, &signature.args).enumerate() {
-    let name = format_ident!("arg{i}");
-    if let Input::Concrete(fv) = input {
-      fastcall_names.push(name.clone());
-      fastcall_types.push(fv.quote_rust_type(&generator_state.deno_core));
-      input_types.push(fv.quote_type());
-    }
+  Ok(Some(FastSignature {
+    args,
+    ret_val: output,
+    has_fast_api_callback_options: false,
+  }))
+}
 
-    call_names.push(name.clone());
-    call_args.push(
-      map_v8_fastcall_arg_to_arg(generator_state, &name, arg)
-        .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?,
-    )
+/// Sheds the error in a `Result<T, E>` as an early return, leaving just the `T` and requesting
+/// that v8 re-call the slow function to throw the error.
+pub(crate) fn generate_fast_result_early_exit(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
+  generator_state.needs_fast_api_callback_options = true;
+  generator_state.needs_fast_opctx = true;
+  gs_quote!(generator_state(fast_api_callback_options, opctx, result) => {
+    let #result = match #result {
+      Ok(#result) => #result,
+      Err(err) => {
+        // FASTCALL FALLBACK: This is where we set the errors for the slow-call error pickup path. There
+        // is no code running between this and the other FASTCALL FALLBACK comment, except some V8 code
+        // required to perform the fallback process. This is why the below call is safe.
+
+        // The reason we need to do this is because V8 does not allow exceptions to be thrown from the
+        // fast call. Instead, you are required to set the fallback flag, which indicates to V8 that it
+        // should re-call the slow version of the function. Technically the slow call should perform the
+        // same operation and then throw the same error (because it should be idempotent), but in our
+        // case we stash the error and pick it up on the slow path before doing any work.
+
+        // TODO(mmastrac): We should allow an #[op] flag to re-perform slow calls without the error path when
+        // the method is performance sensitive.
+
+        // SAFETY: We guarantee that OpCtx has no mutable references once ops are live and being called,
+        // allowing us to perform this one little bit of mutable magic.
+        unsafe { #opctx.unsafely_set_last_error_for_ops_only(err); }
+        #fast_api_callback_options.fallback = true;
+
+        // SAFETY: All fast return types have zero as a valid value
+        return unsafe { std::mem::zeroed() };
+      }
+    };
+  })
+}
+
+pub(crate) fn generate_dispatch_fast(
+  config: &MacroConfig,
+  generator_state: &mut GeneratorState,
+  signature: &ParsedSignature,
+) -> Result<
+  Option<(TokenStream, TokenStream, TokenStream)>,
+  V8SignatureMappingError,
+> {
+  // async(lazy) can be fast
+  if signature.ret_val.is_async()
+    && !config.async_lazy
+    && !config.async_deferred
+  {
+    return Ok(None);
   }
 
-  let GeneratorState {
-    result,
-    fast_function,
-    fast_function_metrics,
-    needs_fast_opctx,
-    needs_fast_api_callback_options,
-    needs_fast_js_runtime_state,
-    ..
-  } = generator_state;
-
-  let handle_error = match signature.ret_val {
-    RetVal::Infallible(_) => quote!(),
-    RetVal::Result(_) => {
-      *needs_fast_api_callback_options = true;
-      *needs_fast_opctx = true;
-      gs_quote!(generator_state(fast_api_callback_options, opctx) => {
-        let #result = match #result {
-          Ok(#result) => #result,
-          Err(err) => {
-            // FASTCALL FALLBACK: This is where we set the errors for the slow-call error pickup path. There
-            // is no code running between this and the other FASTCALL FALLBACK comment, except some V8 code
-            // required to perform the fallback process. This is why the below call is safe.
-
-            // The reason we need to do this is because V8 does not allow exceptions to be thrown from the
-            // fast call. Instead, you are required to set the fallback flag, which indicates to V8 that it
-            // should re-call the slow version of the function. Technically the slow call should perform the
-            // same operation and then throw the same error (because it should be idempotent), but in our
-            // case we stash the error and pick it up on the slow path before doing any work.
-
-            // TODO(mmastrac): We should allow an #[op] flag to re-perform slow calls without the error path when
-            // the method is performance sensitive.
-
-            // SAFETY: We guarantee that OpCtx has no mutable references once ops are live and being called,
-            // allowing us to perform this one little bit of mutable magic.
-            unsafe { #opctx.unsafely_set_last_error_for_ops_only(err); }
-            #fast_api_callback_options.fallback = true;
-
-            // SAFETY: All fast return types have zero as a valid value
-            return unsafe { std::mem::zeroed() };
-          }
-        };
-      })
-    }
-    _ => todo!(),
+  let Some(mut fastsig) = get_fast_signature(signature)? else {
+    return Ok(None);
   };
 
-  let with_js_runtime_state = if *needs_fast_js_runtime_state {
-    *needs_fast_opctx = true;
+  // TODO(mmastrac): we should save this unwrapped result
+  let handle_error = match signature.ret_val.unwrap_result() {
+    Some(_) => generate_fast_result_early_exit(generator_state),
+    _ => quote!(),
+  };
+
+  if signature.ret_val.is_async() {
+    fastsig.insert_promise_id();
+  }
+
+  // Note that this triggers needs_* values in generator_state
+  let call_args = fastsig.call_args(generator_state)?;
+
+  let handle_result = if signature.ret_val.is_async() {
+    generator_state.needs_fast_opctx = true;
+    let (return_value, mapper, _) =
+      map_async_return_type(generator_state, &signature.ret_val).map_err(
+        |s| {
+          V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+        },
+      )?;
+
+    let lazy = config.async_lazy;
+    let deferred = config.async_deferred;
+    gs_quote!(generator_state(promise_id, result, opctx, scope, deno_core) => {
+      // Lazy results will always return None
+      #deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
+        #return_value
+      });
+    })
+  } else {
+    gs_quote!(generator_state(result) => {
+      // Result may need a simple cast (eg: SMI u32->i32)
+      #result as _
+    })
+  };
+
+  let with_js_runtime_state = if generator_state.needs_fast_js_runtime_state {
+    generator_state.needs_fast_opctx = true;
     gs_quote!(generator_state(js_runtime_state, opctx) => {
       let #js_runtime_state = std::rc::Weak::upgrade(&#opctx.runtime_state).unwrap();
     })
@@ -260,8 +427,8 @@ pub fn generate_dispatch_fast(
     quote!()
   };
 
-  let with_opctx = if *needs_fast_opctx {
-    *needs_fast_api_callback_options = true;
+  let with_opctx = if generator_state.needs_fast_opctx {
+    generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(deno_core, opctx, fast_api_callback_options) => {
       let #opctx = unsafe {
         &*(#deno_core::v8::Local::<#deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
@@ -272,17 +439,13 @@ pub fn generate_dispatch_fast(
     quote!()
   };
 
-  let mut fastcall_metrics_names = fastcall_names.clone();
-  let mut fastcall_metrics_types = fastcall_types.clone();
-  let mut input_types_metrics = input_types.clone();
+  let mut fastsig_metrics = fastsig.clone();
+  fastsig_metrics.ensure_fast_api_callback_options();
 
-  let with_fast_api_callback_options = if *needs_fast_api_callback_options {
-    input_types.push(V8FastCallType::CallbackOptions.quote_type());
-    fastcall_types.push(
-      V8FastCallType::CallbackOptions
-        .quote_rust_type(&generator_state.deno_core),
-    );
-    fastcall_names.push(generator_state.fast_api_callback_options.clone());
+  let with_fast_api_callback_options = if generator_state
+    .needs_fast_api_callback_options
+  {
+    fastsig.ensure_fast_api_callback_options();
     gs_quote!(generator_state(fast_api_callback_options) => {
       let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
     })
@@ -290,42 +453,26 @@ pub fn generate_dispatch_fast(
     quote!()
   };
 
-  input_types_metrics.push(V8FastCallType::CallbackOptions.quote_type());
-  fastcall_metrics_types.push(
-    V8FastCallType::CallbackOptions.quote_rust_type(&generator_state.deno_core),
-  );
-  fastcall_metrics_names
-    .push(generator_state.fast_api_callback_options.clone());
+  let fast_function = generator_state.fast_function.clone();
+  let fast_definition =
+    fastsig.get_fast_function_def(generator_state, &fast_function);
+  let fast_function = generator_state.fast_function_metrics.clone();
+  let fast_definition_metrics =
+    fastsig_metrics.get_fast_function_def(generator_state, &fast_function);
 
-  let output_type = output.quote_ctype();
+  let output_type = fastsig.ret_val.quote_rust_type(&generator_state.deno_core);
 
-  let fast_definition = gs_quote!(generator_state(deno_core) => {
-    use #deno_core::v8::fast_api::Type;
-    use #deno_core::v8::fast_api::CType;
-    #deno_core::v8::fast_api::FastFunction::new_with_bigint(
-      &[ Type::V8Value, #( #input_types ),* ],
-      #output_type,
-      Self::#fast_function as *const ::std::ffi::c_void
-    )
-  });
-
-  let fast_definition_metrics = gs_quote!(generator_state(deno_core) => {
-    use #deno_core::v8::fast_api::Type;
-    use #deno_core::v8::fast_api::CType;
-    #deno_core::v8::fast_api::FastFunction::new_with_bigint(
-      &[ Type::V8Value, #( #input_types_metrics ),* ],
-      #output_type,
-      Self::#fast_function_metrics as *const ::std::ffi::c_void
-    )
-  });
-
-  // Ensure that we have the same types in the fast function definition as we do in the signature
-  debug_assert!(fastcall_types.len() == input_types.len());
-
-  let output_type = output.quote_rust_type(&generator_state.deno_core);
   // We don't want clippy to trigger warnings on number of arguments of the fastcall
   // function -- these will still trigger on our normal call function, however.
-  let fast_fn = gs_quote!(generator_state(deno_core, fast_api_callback_options) => {
+  let call_names = fastsig.call_names();
+  let (fastcall_metrics_names, fastcall_metrics_types): (Vec<_>, Vec<_>) =
+    fastsig_metrics
+      .input_args(generator_state)
+      .into_iter()
+      .unzip();
+  let (fastcall_names, fastcall_types): (Vec<_>, Vec<_>) =
+    fastsig.input_args(generator_state).into_iter().unzip();
+  let fast_fn = gs_quote!(generator_state(deno_core, result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
     fn #fast_function_metrics(
       this: #deno_core::v8::Local<#deno_core::v8::Object>,
@@ -356,8 +503,7 @@ pub fn generate_dispatch_fast(
         Self::call(#(#call_names),*)
       };
       #handle_error
-      // Result may need a simple cast (eg: SMI u32->i32)
-      #result as _
+      #handle_result
     }
   });
 

@@ -17,6 +17,8 @@ pub(crate) struct MacroConfig {
   pub r#async: bool,
   /// Marks an lazy async function (async must also be true)
   pub async_lazy: bool,
+  /// Marks an deferred async function (async must also be true)
+  pub async_deferred: bool,
 }
 
 impl MacroConfig {
@@ -65,6 +67,9 @@ impl MacroConfig {
       } else if flag == "async(lazy)" {
         config.r#async = true;
         config.async_lazy = true;
+      } else if flag == "async(deferred)" {
+        config.r#async = true;
+        config.async_deferred = true;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }
@@ -74,10 +79,14 @@ impl MacroConfig {
     if config.fast && config.nofast {
       return Err(Op2Error::InvalidAttributeCombination("fast", "nofast"));
     }
-    if config.fast && (config.r#async && !config.async_lazy) {
+    if config.fast
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
       return Err(Op2Error::InvalidAttributeCombination("fast", "async"));
     }
-    if config.nofast && (config.r#async && !config.async_lazy) {
+    if config.nofast
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
       return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
     }
 

@@ -593,15 +593,15 @@ pub async fn test_op_metrics() {
   }
 
   #[op2(async, core)]
-  pub async fn op_async_deferred() {
+  pub async fn op_async_yield() {
     tokio::task::yield_now().await;
-    println!("op_async_deferred!");
+    println!("op_async_yield!");
   }
 
   #[op2(async, core)]
-  pub async fn op_async_deferred_error() -> Result<(), AnyError> {
+  pub async fn op_async_yield_error() -> Result<(), AnyError> {
     tokio::task::yield_now().await;
-    println!("op_async_deferred_error!");
+    println!("op_async_yield_error!");
     bail!("dead");
   }
 
@@ -609,6 +609,16 @@ pub async fn test_op_metrics() {
   pub async fn op_async_error() -> Result<(), AnyError> {
     println!("op_async_error!");
     bail!("dead");
+  }
+
+  #[op2(async(deferred), core, fast)]
+  pub async fn op_async_deferred() {
+    println!("op_async_deferred!");
+  }
+
+  #[op2(async(lazy), core, fast)]
+  pub async fn op_async_lazy() {
+    println!("op_async_lazy!");
   }
 
   #[op2(core, fast)]
@@ -621,8 +631,10 @@ pub async fn test_op_metrics() {
     ops = [
       op_async,
       op_async_error,
+      op_async_yield,
+      op_async_yield_error,
+      op_async_lazy,
       op_async_deferred,
-      op_async_deferred_error,
       op_sync
     ],
   );
@@ -650,13 +662,15 @@ pub async fn test_op_metrics() {
   .execute_script_static(
     "filename.js",
     r#"
-  const { op_sync, op_async, op_async_error, op_async_deferred, op_async_deferred_error } = Deno.core.ensureFastOps();
+  const { op_sync, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy } = Deno.core.ensureFastOps();
     async function go() {
       op_sync();
       await op_async();
       try { await op_async_error() } catch {}
+      await op_async_yield();
+      try { await op_async_yield_error() } catch {}
       await op_async_deferred();
-      try { await op_async_deferred_error() } catch {}
+      await op_async_lazy();
     }
 
     go()
@@ -677,9 +691,13 @@ op_async Dispatched
 op_async Completed
 op_async_error Dispatched
 op_async_error Error
+op_async_yield Dispatched
+op_async_yield CompletedAsync
+op_async_yield_error Dispatched
+op_async_yield_error ErrorAsync
 op_async_deferred Dispatched
 op_async_deferred CompletedAsync
-op_async_deferred_error Dispatched
-op_async_deferred_error ErrorAsync"#
+op_async_lazy Dispatched
+op_async_lazy CompletedAsync"#
   );
 }

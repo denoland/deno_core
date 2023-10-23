@@ -8,6 +8,7 @@ use quote::quote;
 use quote::ToTokens;
 use quote::TokenStreamExt;
 use std::collections::BTreeMap;
+
 use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
 use strum_macros::EnumIter;
@@ -625,6 +626,29 @@ impl RetVal {
       self,
       Future(..) | FutureResult(..) | ResultFuture(..) | ResultFutureResult(..)
     )
+  }
+
+  /// If this function returns a `Result<T, E>` (including if `T` is a `Future`), return `Some(T)`.
+  pub fn unwrap_result(&self) -> Option<RetVal> {
+    use RetVal::*;
+    Some(match self {
+      Result(arg) => Infallible(arg.clone()),
+      ResultFuture(arg) => Future(arg.clone()),
+      ResultFutureResult(arg) => FutureResult(arg.clone()),
+      _ => return None,
+    })
+  }
+
+  pub fn arg(&self) -> &Arg {
+    use RetVal::*;
+    match self {
+      Infallible(arg)
+      | Result(arg)
+      | Future(arg)
+      | FutureResult(arg)
+      | ResultFuture(arg)
+      | ResultFutureResult(arg) => arg,
+    }
   }
 }
 
