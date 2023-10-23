@@ -177,6 +177,11 @@ fn bench_op(
     ("COUNT", &format!("{count}")),
     ("ARGS", &args.to_string()),
     ("OP", op),
+    ("INIT", &if op.contains("bigint") {
+      "0n"
+    } else {
+      "0"
+    }.to_string())
   ] {
     harness = harness.replace(&format!("__{key}__"), value);
   }

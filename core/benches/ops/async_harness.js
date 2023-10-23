@@ -16,7 +16,7 @@ async function run() {
   // TODO(mmastrac): Because of current v8 limitations, these ops are not always fast unless we do this.
   // The reason is not entirely clear.
   function __OP__(__ARGS__) {
-    op(__ARGS__);
+    return op(__ARGS__);
   }
 
   let accum = 0;

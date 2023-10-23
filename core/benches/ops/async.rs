@@ -14,6 +14,7 @@ deno_core::extension!(
     op_async_void_lazy_nofast,
     op_async_void_deferred,
     op_async_void_deferred_nofast,
+    op_async_void_deferred_return,
     op_async_yield,
     op_async_yield_lazy,
     op_async_yield_lazy_nofast,
@@ -63,6 +64,11 @@ pub async fn op_async_void_lazy() {}
 
 #[op2(async(lazy), nofast)]
 pub async fn op_async_void_lazy_nofast() {}
+
+#[op2(async(deferred), fast)]
+pub async fn op_async_void_deferred_return() -> u32 {
+  1
+}
 
 #[op2(async(deferred), fast)]
 pub async fn op_async_void_deferred() {}
@@ -152,6 +158,18 @@ fn baseline_promise(b: &mut Bencher) {
   );
 }
 
+/// Tests the overhead of execute_script, but also returns a value so we can make sure things are
+/// working.
+fn bench_op_async_void_deferred_return(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_async_void_deferred_return",
+    0,
+    "accum += await op_async_void_deferred_return();",
+  );
+}
+
 macro_rules! bench_void {
   ($bench:ident, $op:ident) => {
     fn $bench(b: &mut Bencher) {
@@ -199,6 +217,7 @@ benchmark_group!(
   bench_op_async_void_lazy_nofast,
   bench_op_async_void_deferred,
   bench_op_async_void_deferred_nofast,
+  bench_op_async_void_deferred_return,
 );
 
 benchmark_main!(benches);

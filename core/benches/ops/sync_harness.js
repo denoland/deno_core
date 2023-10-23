@@ -15,10 +15,10 @@ const EXTERNAL = op_make_external();
 // TODO(mmastrac): Because of current v8 limitations, these ops are not always fast unless we do this.
 // The reason is not entirely clear.
 function __OP__(__ARGS__) {
-  op(__ARGS__);
+  return op(__ARGS__);
 }
 
-let accum = 0;
+let accum = __INIT__;
 let __index__ = 0;
 __PERCENT__PrepareFunctionForOptimization(__OP__);
 __CALL__;
@@ -26,7 +26,7 @@ __PERCENT__OptimizeFunctionOnNextCall(__OP__);
 __CALL__;
 
 function bench() {
-  let accum = 0;
+  let accum = __INIT__;
   for (let __index__ = 0; __index__ < __COUNT__; __index__++) __CALL__;
   return accum;
 }
