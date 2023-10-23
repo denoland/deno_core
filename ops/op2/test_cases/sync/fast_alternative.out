@@ -7,7 +7,7 @@ impl deno_core::_ops::Op for op_slow {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_slow),
         false,
-        2usize as u8,
+        3usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
         Some({ op_fast::DECL.fast_fn() }),
@@ -23,6 +23,7 @@ impl op_slow {
         <Self as deno_core::_ops::Op>::DECL
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -30,23 +31,8 @@ impl op_slow {
             &*info
         });
         let result = {
-            let arg0 = args.get(0usize as i32);
-            let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                let msg = deno_core::v8::String::new_from_one_byte(
-                        &mut scope,
-                        "expected u32".as_bytes(),
-                        deno_core::v8::NewStringType::Normal,
-                    )
-                    .unwrap();
-                let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                scope.throw_exception(exc);
-                return;
-            };
-            let arg0 = arg0 as _;
-            let arg1 = args.get(1usize as i32);
+            let arg1 = args.get(0usize as i32);
             let Some(arg1) = deno_core::_ops::to_u32_option(&arg1) else {
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                 let msg = deno_core::v8::String::new_from_one_byte(
                         &mut scope,
                         "expected u32".as_bytes(),
@@ -58,7 +44,21 @@ impl op_slow {
                 return;
             };
             let arg1 = arg1 as _;
-            Self::call(arg0, arg1)
+            let arg2 = args.get(1usize as i32);
+            let Some(arg2) = deno_core::_ops::to_u32_option(&arg2) else {
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        "expected u32".as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
+            };
+            let arg2 = arg2 as _;
+            let arg0 = &mut scope;
+            Self::call(arg0, arg1, arg2)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
@@ -81,7 +81,7 @@ impl op_slow {
         );
     }
     #[inline(always)]
-    fn call(a: u32, b: u32) -> u32 {
+    fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
         a + b
     }
 }
@@ -237,7 +237,7 @@ impl<T: Trait> deno_core::_ops::Op for op_slow_generic<T> {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_slow_generic),
         false,
-        2usize as u8,
+        3usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
         Some({ op_fast_generic::<T>::DECL.fast_fn() }),
@@ -253,6 +253,7 @@ impl<T: Trait> op_slow_generic<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -260,23 +261,8 @@ impl<T: Trait> op_slow_generic<T> {
             &*info
         });
         let result = {
-            let arg0 = args.get(0usize as i32);
-            let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                let msg = deno_core::v8::String::new_from_one_byte(
-                        &mut scope,
-                        "expected u32".as_bytes(),
-                        deno_core::v8::NewStringType::Normal,
-                    )
-                    .unwrap();
-                let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                scope.throw_exception(exc);
-                return;
-            };
-            let arg0 = arg0 as _;
-            let arg1 = args.get(1usize as i32);
+            let arg1 = args.get(0usize as i32);
             let Some(arg1) = deno_core::_ops::to_u32_option(&arg1) else {
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                 let msg = deno_core::v8::String::new_from_one_byte(
                         &mut scope,
                         "expected u32".as_bytes(),
@@ -288,7 +274,21 @@ impl<T: Trait> op_slow_generic<T> {
                 return;
             };
             let arg1 = arg1 as _;
-            Self::call(arg0, arg1)
+            let arg2 = args.get(1usize as i32);
+            let Some(arg2) = deno_core::_ops::to_u32_option(&arg2) else {
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        "expected u32".as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
+            };
+            let arg2 = arg2 as _;
+            let arg0 = &mut scope;
+            Self::call(arg0, arg1, arg2)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
@@ -311,7 +311,7 @@ impl<T: Trait> op_slow_generic<T> {
         );
     }
     #[inline(always)]
-    fn call(a: u32, b: u32) -> u32 {
+    fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
         a + b
     }
 }

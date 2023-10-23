@@ -2,8 +2,9 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
+// Unused scope would normally make this a slow-only op
 #[op2(fast(op_fast))]
-fn op_slow(a: u32, b: u32) -> u32 {
+fn op_slow(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
   a + b
 }
 
@@ -14,8 +15,9 @@ fn op_fast(a: u32, b: u32) -> u32 {
 
 pub trait T {}
 
+// Unused scope would normally make this a slow-only op
 #[op2(fast(op_fast_generic::<T>))]
-fn op_slow_generic<T: Trait>(a: u32, b: u32) -> u32 {
+fn op_slow_generic<T: Trait>(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
   a + b
 }
 
