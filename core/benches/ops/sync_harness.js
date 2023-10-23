@@ -10,9 +10,13 @@ const ARRAYBUFFER = new ArrayBuffer(1024);
 const { __OP__: op } = Deno.core.ensureFastOps();
 const { op_make_external } = Deno.core.ensureFastOps();
 const EXTERNAL = op_make_external();
+
+// TODO(mmastrac): Because of current v8 limitations, these ops are not always fast unless we do this.
+// The reason is not entirely clear.
 function __OP__(__ARGS__) {
   op(__ARGS__);
 }
+
 let accum = 0;
 let __index__ = 0;
 __PERCENT__PrepareFunctionForOptimization(__OP__);
