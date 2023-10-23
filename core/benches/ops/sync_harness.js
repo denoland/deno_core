@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// deno-lint-ignore-file no-unused-vars, prefer-const
 
 // This harness is dynamically generated for each individual bench run.
 const LARGE_STRING_1000000 = "*".repeat(1000000);
