@@ -103,10 +103,10 @@ fn bench_op(
   let mut harness = include_str!("async_harness.js").to_owned();
   for (key, value) in [
     ("PERCENT", "%"),
-    ("CALL", &call.to_string()),
+    ("CALL", call),
     ("COUNT", &format!("{count}")),
     ("ARGS", &args.to_string()),
-    ("OP", &op.to_string()),
+    ("OP", op),
   ] {
     harness = harness.replace(&format!("__{key}__"), value);
   }
@@ -143,7 +143,13 @@ fn baseline(b: &mut Bencher) {
 
 /// Tests the overhead of execute_script with a promise.
 fn baseline_promise(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_async_void", 0, "await Promise.resolve(null);");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_async_void",
+    0,
+    "await Promise.resolve(null);",
+  );
 }
 
 macro_rules! bench_void {
