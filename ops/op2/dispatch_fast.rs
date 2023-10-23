@@ -369,6 +369,18 @@ pub(crate) fn generate_dispatch_fast(
   Option<(TokenStream, TokenStream, TokenStream)>,
   V8SignatureMappingError,
 > {
+  if let Some(alternative) = config.fast_alternatives.get(0) {
+    // TODO(mmastrac): we should validate the alternatives. For now we just assume the caller knows what
+    // they are doing.
+    let alternative =
+      syn::parse_str::<Type>(alternative).expect("Failed to reparse type");
+    return Ok(Some((
+      quote!(#alternative::DECL.fast_fn()),
+      quote!(#alternative::DECL.fast_fn_with_metrics()),
+      quote!(),
+    )));
+  }
+
   // async(lazy) can be fast
   if signature.ret_val.is_async()
     && !config.async_lazy

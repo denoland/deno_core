@@ -71,6 +71,17 @@ used if you really know what you are doing.
 Lazy `async(deferred)` calls _may_ be fastcalls, though the resolution will
 still happen on a slow path.
 
+## fastcalls
+
+`op2` requires fastcall-compatible ops to be annotated with `fast`. If you wish to avoid fastcalls
+for some reason (this is unlikely), you can specify `nofast` instead.
+
+You may also choose an alternate op function to use as the fastcall equivalent to a slow function. In
+this case, you can specify `fast(op_XYZ)`. The other op must be decorated with `#[op2(fast)]`, and does
+not need to be registered. When v8 optimized the slow function to a fastcall, it will switch the implementation
+over if the parameters are compatible. This is useful for a function that takes any buffer type in the slow
+path and wishes to use the very fast typed `u8` buffer for the fast path.
+
 # Parameters
 
 <!-- START ARGS -->

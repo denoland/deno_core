@@ -181,6 +181,22 @@ impl OpDecl {
       ..self
     }
   }
+
+  #[doc(hidden)]
+  pub const fn fast_fn(self) -> FastFunction {
+    let Some(f) = self.fast_fn else {
+      panic!("Not a fast function");
+    };
+    f
+  }
+
+  #[doc(hidden)]
+  pub const fn fast_fn_with_metrics(self) -> FastFunction {
+    let Some(f) = self.fast_fn_with_metrics else {
+      panic!("Not a fast function");
+    };
+    f
+  }
 }
 
 /// Declares a block of Deno `#[op]`s. The first parameter determines the name of the
