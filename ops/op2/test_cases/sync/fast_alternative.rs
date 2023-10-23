@@ -2,6 +2,8 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
+use deno_core::v8;
+
 // Unused scope would normally make this a slow-only op
 #[op2(fast(op_fast))]
 fn op_slow(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
