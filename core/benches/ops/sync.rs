@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use bencher::*;
 use deno_core::error::generic_error;
 use deno_core::*;
+use std::borrow::Cow;
 use std::ffi::c_void;
 
 deno_core::extension!(
@@ -170,46 +170,20 @@ fn bench_op(
     .collect::<Vec<_>>()
     .join(", ");
 
+  let mut harness = include_str!("sync_harness.js").to_owned();
+  for (key, value) in [
+    ("PERCENT", "%"),
+    ("CALL", &format!("{call}")),
+    ("COUNT", &format!("{count}")),
+    ("ARGS", &format!("{args}")),
+    ("OP", &format!("{op}")),
+  ] {
+    harness = harness.replace(&format!("__{key}__"), value);
+  }
+
   // Prime the optimizer
   runtime
-    .execute_script(
-      "",
-      FastString::Owned(
-        format!(
-          r"
-const LARGE_STRING_1000000 = '*'.repeat(1000000);
-const LARGE_STRING_1000 = '*'.repeat(1000);
-const LARGE_STRING_UTF8_1000000 = '\u1000'.repeat(1000000);
-const LARGE_STRING_UTF8_1000 = '\u1000'.repeat(1000);
-const BUFFER = new Uint8Array(1024);
-const ARRAYBUFFER = new ArrayBuffer(1024);
-const {{ {op}: op }} = Deno.core.ensureFastOps();
-const {{ op_make_external }} = Deno.core.ensureFastOps();
-const EXTERNAL = op_make_external();
-function {op}({args}) {{
-  op({args});
-}}
-let accum = 0;
-let __index__ = 0;
-%PrepareFunctionForOptimization({op});
-{call};
-%OptimizeFunctionOnNextCall({op});
-{call};
-
-function bench() {{
-  let accum = 0;
-  for (let __index__ = 0; __index__ < {count}; __index__++) {{ {call} }}
-  return accum;
-}}
-%PrepareFunctionForOptimization(bench);
-bench();
-%OptimizeFunctionOnNextCall(bench);
-bench();
-        "
-        )
-        .into(),
-      ),
-    )
+    .execute_script("", FastString::Owned(harness.into()))
     .map_err(err_mapper)
     .unwrap();
   let bench = runtime.execute_script("", ascii_str!("bench")).unwrap();
