@@ -103,10 +103,10 @@ fn bench_op(
   let mut harness = include_str!("async_harness.js").to_owned();
   for (key, value) in [
     ("PERCENT", "%"),
-    ("CALL", &format!("{call}")),
+    ("CALL", &call.to_string()),
     ("COUNT", &format!("{count}")),
-    ("ARGS", &format!("{args}")),
-    ("OP", &format!("{op}")),
+    ("ARGS", &args.to_string()),
+    ("OP", &op.to_string()),
   ] {
     harness = harness.replace(&format!("__{key}__"), value);
   }
