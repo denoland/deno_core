@@ -7,7 +7,9 @@ pub struct op_string_length {
     _phantom_data: ::std::marker::PhantomData<()>,
 }
 impl deno_core::_ops::Op for op_string_length {
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     const NAME: &'static str = stringify!(op_string_length);
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     const DECL: deno_core::OpDecl = deno_core::_ops::OpDecl::new_internal(
         Self::name(),
         false,
@@ -30,6 +32,7 @@ impl deno_core::_ops::Op for op_string_length {
 }
 #[doc(hidden)]
 impl op_string_length {
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     pub const fn name() -> &'static str {
         stringify!(op_string_length)
     }

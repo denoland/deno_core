@@ -112,6 +112,7 @@ pub struct OpDecl {
 impl OpDecl {
   /// For use by internal op implementation only.
   #[doc(hidden)]
+  #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
   pub const fn new_internal(
     name: &'static str,
     is_async: bool,

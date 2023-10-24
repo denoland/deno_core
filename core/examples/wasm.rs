@@ -1,18 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
-use deno_core::op;
-use deno_core::Extension;
-use deno_core::JsRuntime;
-use deno_core::Op;
-use deno_core::RuntimeOptions;
+#![allow(deprecated)]
+use deno_core::*;
 use std::mem::transmute;
 use std::ptr::NonNull;
-
-// This is a hack to make the `#[op]` macro work with
-// deno_core examples.
-// You can remove this:
-
-use deno_core::*;
 
 struct WasmMemory(NonNull<v8::WasmMemoryObject>);
 

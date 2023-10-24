@@ -1,25 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use deno_core::anyhow::Error;
-use deno_core::op;
-use deno_core::AsyncRefCell;
-use deno_core::AsyncResult;
-use deno_core::JsBuffer;
-use deno_core::JsRuntimeForSnapshot;
-use deno_core::Op;
-use deno_core::OpState;
-use deno_core::Resource;
-use deno_core::ResourceId;
+use deno_core::*;
 use std::cell::RefCell;
 use std::env;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-
-// This is a hack to make the `#[op]` macro work with
-// deno_core examples.
-// You can remove this:
-use deno_core::*;
 
 // Note: a `tokio::net::TcpListener` doesn't need to be wrapped in a cell,
 // because it only supports one op (`accept`) which does not require a mutable
@@ -112,18 +99,19 @@ fn create_js_runtime() -> JsRuntimeForSnapshot {
   })
 }
 
-#[op]
+#[op2(async)]
 async fn op_read_socket(
   state: Rc<RefCell<OpState>>,
-  rid: ResourceId,
-  mut data: JsBuffer,
+  #[smi] rid: ResourceId,
+  #[buffer] mut data: JsBuffer,
 ) -> Result<u32, Error> {
   let resource = state.borrow_mut().resource_table.get::<TcpStream>(rid)?;
   let nread = resource.read(&mut data).await?;
   Ok(nread as u32)
 }
 
-#[op]
+#[op2(fast)]
+#[smi]
 fn op_listen(state: &mut OpState) -> Result<ResourceId, Error> {
   let addr = "127.0.0.1:4570".parse::<SocketAddr>().unwrap();
   let std_listener = std::net::TcpListener::bind(addr)?;
@@ -133,10 +121,11 @@ fn op_listen(state: &mut OpState) -> Result<ResourceId, Error> {
   Ok(rid)
 }
 
-#[op]
+#[op2(async)]
+#[smi]
 async fn op_accept(
   state: Rc<RefCell<OpState>>,
-  rid: ResourceId,
+  #[smi] rid: ResourceId,
 ) -> Result<ResourceId, Error> {
   let listener = state.borrow().resource_table.get::<TcpListener>(rid)?;
   let stream = listener.accept().await?;
@@ -144,11 +133,11 @@ async fn op_accept(
   Ok(rid)
 }
 
-#[op(fast)]
+#[op2(fast)]
 fn op_try_write(
   state: &mut OpState,
-  rid: u32,
-  value: &[u8],
+  #[smi] rid: u32,
+  #[buffer] value: &[u8],
 ) -> Result<bool, Error> {
   let stream = state.resource_table.get::<TcpStream>(rid)?;
   Ok(stream.try_write(value).is_ok())
