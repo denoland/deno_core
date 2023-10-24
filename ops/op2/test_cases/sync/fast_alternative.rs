@@ -15,7 +15,7 @@ fn op_fast(a: u32, b: u32) -> u32 {
   a + b
 }
 
-pub trait T {}
+pub trait Trait {}
 
 // Unused scope would normally make this a slow-only op
 #[op2(fast(op_fast_generic::<T>))]
