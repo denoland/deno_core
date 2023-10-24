@@ -335,7 +335,7 @@ impl WasmMemory {
     rid: ResourceId,
   ) -> Option<&'s mut [u8]> {
     match self.0 {
-      Some(mem) => unsafe { (&*mem).get_storage_if_aligned() },
+      Some(mem) => unsafe { (*mem).get_storage_if_aligned() },
       None => {
         let resource =
           state.resource_table.get::<WasmMemoryResource>(rid).ok()?;
