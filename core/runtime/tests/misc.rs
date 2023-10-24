@@ -11,7 +11,7 @@ use anyhow::Error;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
-use deno_ops::op;
+use deno_ops::op2;
 use futures::future::poll_fn;
 use std::borrow::Cow;
 use std::rc::Rc;
@@ -86,7 +86,7 @@ impl WakeRef for LoggingWaker {
 async fn test_wakers_for_async_ops() {
   static STATE: AtomicI8 = AtomicI8::new(0);
 
-  #[op]
+  #[op2(async)]
   async fn op_async_sleep() -> Result<(), Error> {
     STATE.store(1, Ordering::SeqCst);
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -635,7 +635,7 @@ fn test_is_proxy() {
 
 #[tokio::test]
 async fn test_set_macrotask_callback_set_next_tick_callback() {
-  #[op]
+  #[op2(async)]
   async fn op_async_sleep() -> Result<(), Error> {
     // Future must be Poll::Pending on first call
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -685,13 +685,13 @@ fn test_has_tick_scheduled() {
   static MACROTASK: AtomicUsize = AtomicUsize::new(0);
   static NEXT_TICK: AtomicUsize = AtomicUsize::new(0);
 
-  #[op]
+  #[op2(fast)]
   fn op_macrotask() -> Result<(), AnyError> {
     MACROTASK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
 
-  #[op]
+  #[op2(fast)]
   fn op_next_tick() -> Result<(), AnyError> {
     NEXT_TICK.fetch_add(1, Ordering::Relaxed);
     Ok(())
@@ -798,7 +798,7 @@ async fn test_unhandled_rejection_order() {
 async fn test_set_promise_reject_callback() {
   static PROMISE_REJECT: AtomicUsize = AtomicUsize::new(0);
 
-  #[op]
+  #[op2(fast)]
   fn op_promise_reject() -> Result<(), AnyError> {
     PROMISE_REJECT.fetch_add(1, Ordering::Relaxed);
     Ok(())
@@ -855,7 +855,7 @@ async fn test_set_promise_reject_callback() {
 async fn test_set_promise_reject_callback_top_level_await() {
   static PROMISE_REJECT: AtomicUsize = AtomicUsize::new(0);
 
-  #[op]
+  #[op2(fast)]
   fn op_promise_reject() -> Result<(), AnyError> {
     PROMISE_REJECT.fetch_add(1, Ordering::Relaxed);
     Ok(())
@@ -956,7 +956,7 @@ async fn test_stalled_tla() {
 // Regression test for https://github.com/denoland/deno/issues/20034.
 #[tokio::test]
 async fn test_dynamic_import_module_error_stack() {
-  #[op]
+  #[op2(async)]
   async fn op_async_error() -> Result<(), Error> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     Err(crate::error::type_error("foo"))
@@ -1003,8 +1003,8 @@ async fn test_dynamic_import_module_error_stack() {
   expected = "Top-level await is not allowed in extensions (mod:tla:2:1)"
 )]
 async fn tla_in_esm_extensions_panics() {
-  #[op]
-  async fn op_wait(ms: usize) {
+  #[op2(async)]
+  async fn op_wait(#[number] ms: usize) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
 

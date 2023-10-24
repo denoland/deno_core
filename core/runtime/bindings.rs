@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
 use log::debug;
 use std::fmt::Write;
 use std::option::Option;

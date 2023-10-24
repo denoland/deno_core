@@ -9,7 +9,6 @@ use crate::runtime::tests::Mode;
 use crate::*;
 use anyhow::bail;
 use anyhow::Error;
-use deno_ops::op;
 use log::debug;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -166,12 +165,13 @@ fn test_op_return_serde_v8_error() {
 
 #[test]
 fn test_op_high_arity() {
-  #[op]
+  #[op2(fast)]
+  #[number]
   fn op_add_4(
-    x1: i64,
-    x2: i64,
-    x3: i64,
-    x4: i64,
+    #[number] x1: i64,
+    #[number] x2: i64,
+    #[number] x3: i64,
+    #[number] x4: i64,
   ) -> Result<i64, anyhow::Error> {
     Ok(x1 + x2 + x3 + x4)
   }
@@ -190,7 +190,8 @@ fn test_op_high_arity() {
 
 #[test]
 fn test_op_disabled() {
-  #[op]
+  #[op2(fast)]
+  #[number]
   fn op_foo() -> Result<i64, anyhow::Error> {
     Ok(42)
   }
@@ -288,42 +289,6 @@ fn test_op_detached_buffer() {
     .unwrap();
 }
 
-#[test]
-fn test_op_unstable_disabling() {
-  #[op]
-  fn op_foo() -> Result<i64, anyhow::Error> {
-    Ok(42)
-  }
-
-  #[op(unstable)]
-  fn op_bar() -> Result<i64, anyhow::Error> {
-    Ok(42)
-  }
-
-  deno_core::extension!(
-    test_ext,
-    ops = [op_foo, op_bar],
-    middleware = |op| if op.is_unstable { op.disable() } else { op }
-  );
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
-    ..Default::default()
-  });
-  runtime
-    .execute_script_static(
-      "test.js",
-      r#"
-      if (Deno.core.ops.op_foo() !== 42) {
-        throw new Error("Expected op_foo() === 42");
-      }
-      if (typeof Deno.core.ops.op_bar !== "undefined") {
-        throw new Error("Expected op_bar to be disabled")
-      }
-    "#,
-    )
-    .unwrap();
-}
-
 #[cfg(debug_assertions)]
 #[test]
 #[should_panic(expected = "Found ops with duplicate names:")]
@@ -359,7 +324,8 @@ fn ops_in_js_have_proper_names() {
     Ok(String::from("Test"))
   }
 
-  #[op]
+  #[op2(async)]
+  #[string]
   async fn op_test_async() -> Result<String, Error> {
     Ok(String::from("Test"))
   }

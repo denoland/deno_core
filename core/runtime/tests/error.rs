@@ -4,13 +4,12 @@ use crate::error::custom_error;
 use crate::error::JsError;
 use crate::*;
 use anyhow::Error;
-use deno_ops::op;
 use futures::future::poll_fn;
 use std::task::Poll;
 
 #[tokio::test]
 async fn test_error_builder() {
-  #[op]
+  #[op2(core, fast)]
   fn op_err() -> Result<(), Error> {
     Err(custom_error("DOMExceptionOperationError", "abc"))
   }
@@ -125,12 +124,12 @@ async fn test_error_async_stack() {
 async fn test_error_context() {
   use anyhow::anyhow;
 
-  #[op]
+  #[op2(fast)]
   fn op_err_sync() -> Result<(), Error> {
     Err(anyhow!("original sync error").context("higher-level sync error"))
   }
 
-  #[op]
+  #[op2(async)]
   async fn op_err_async() -> Result<(), Error> {
     Err(anyhow!("original async error").context("higher-level async error"))
   }

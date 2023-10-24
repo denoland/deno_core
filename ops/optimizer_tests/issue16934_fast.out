@@ -7,7 +7,9 @@ pub struct send_stdin {
     _phantom_data: ::std::marker::PhantomData<()>,
 }
 impl deno_core::_ops::Op for send_stdin {
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     const NAME: &'static str = stringify!(send_stdin);
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     const DECL: deno_core::OpDecl = deno_core::_ops::OpDecl::new_internal(
         Self::name(),
         true,
@@ -20,6 +22,7 @@ impl deno_core::_ops::Op for send_stdin {
 }
 #[doc(hidden)]
 impl send_stdin {
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     pub const fn name() -> &'static str {
         stringify!(send_stdin)
     }
