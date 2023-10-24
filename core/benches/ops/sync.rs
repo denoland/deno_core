@@ -92,7 +92,7 @@ pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
 #[op2(nofast)]
 pub fn op_local_nofast(_s: v8::Local<v8::String>) {}
 
-#[op2]
+#[op2(fast)]
 pub fn op_global(#[global] _s: v8::Global<v8::String>) {}
 
 #[op2]

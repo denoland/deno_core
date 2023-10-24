@@ -26,7 +26,7 @@ fn op_v8_1(_s: v8::Local<v8::String>) {}
 #[op2(fast)]
 fn op_v8_2(_s: &v8::String) {}
 
-#[op2]
+#[op2(fast)]
 fn op_v8_3(#[global] _s: v8::Global<v8::String>) {}
 
 pub type Int16 = i16;

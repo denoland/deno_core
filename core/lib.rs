@@ -133,7 +133,7 @@ pub fn v8_version() -> &'static str {
   v8::V8::get_version()
 }
 
-/// An internal module re-exporting functions used by the #[op] (`deno_ops`) macro
+/// An internal module re-exporting functions used by the #[op2] (`deno_ops`) macro
 #[doc(hidden)]
 pub mod _ops {
   pub use super::error::throw_type_error;

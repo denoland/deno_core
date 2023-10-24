@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
-use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
 use super::generator_state::gs_extract;
@@ -460,32 +459,23 @@ pub fn from_arg(
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
       }
     }
-    Arg::V8Local(v8)
+    Arg::V8Global(v8)
+    | Arg::OptionV8Global(v8)
+    | Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(RefType::Ref, v8)
     | Arg::OptionV8Ref(RefType::Ref, v8) => {
+      if matches!(arg, Arg::V8Global(_) | Arg::OptionV8Global(_)) {
+        // Only requires isolate, not a full scope
+        *needs_isolate = true;
+      }
+
       let deno_core = deno_core.clone();
-      let throw_type_error =
-        || throw_type_error(generator_state, format!("expected {v8:?}"));
-      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
-      v8_to_arg(
-        v8,
-        &arg_ident,
-        arg,
-        &deno_core,
-        throw_type_error,
-        extract_intermediate,
-      )?
-    }
-    Arg::V8Global(v8) | Arg::OptionV8Global(v8) => {
-      // Only requires isolate, not a full scope
-      *needs_isolate = true;
-      let deno_core = deno_core.clone();
-      let scope = scope.clone();
+      let scope = quote!(&mut #scope);
       let throw_type_error =
         || throw_type_error(generator_state, format!("expected {v8:?}"));
       let extract_intermediate =
-        v8_intermediate_to_global_arg(&deno_core, &scope, &arg_ident, arg);
+        v8_intermediate_to_arg(&deno_core, &scope, &arg_ident, arg);
       v8_to_arg(
         v8,
         &arg_ident,

@@ -9,7 +9,7 @@ use deno_core::JsRuntime;
 use deno_core::OpState;
 use std::rc::Rc;
 
-#[op2]
+#[op2(fast)]
 fn op_use_state(
   state: &mut OpState,
   #[global] callback: v8::Global<v8::Function>,

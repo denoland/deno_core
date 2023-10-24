@@ -489,7 +489,7 @@ v8::Local<v8::...>
 ```
 
 </td><td>
-
+✅
 </td><td>
 any
 </td><td>
@@ -503,7 +503,7 @@ any
 ```
 
 </td><td>
-
+✅
 </td><td>
 String
 </td><td>
@@ -517,7 +517,7 @@ String
 ```
 
 </td><td>
-
+✅
 </td><td>
 Object
 </td><td>
@@ -531,7 +531,7 @@ Object
 ```
 
 </td><td>
-
+✅
 </td><td>
 Function
 </td><td>
@@ -545,7 +545,7 @@ Function
 ```
 
 </td><td>
-
+✅
 </td><td>
 ...
 </td><td>
