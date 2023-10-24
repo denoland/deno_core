@@ -2,8 +2,8 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::v8;
 use deno_core::WasmMemory;
+use deno_core::OpState;
 use deno_core::ResourceId;
 
 #[op2(fast)]
