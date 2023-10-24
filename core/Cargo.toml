@@ -40,10 +40,6 @@ tokio.workspace = true
 url.workspace = true
 v8.workspace = true
 
-[[example]]
-name = "http_bench_json_ops"
-path = "examples/http_bench_json_ops/main.rs"
-
 # These dependencies are only used for the 'http_bench_*_ops' examples.
 [dev-dependencies]
 cooked-waker.workspace = true
