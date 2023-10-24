@@ -96,7 +96,9 @@ pub struct OpDecl {
   pub name: &'static str,
   pub enabled: bool,
   pub is_async: bool,
+  #[deprecated = "Will be removed with op1"]
   pub is_unstable: bool,
+  #[deprecated = "Will be removed with op1"]
   pub is_v8: bool,
   pub arg_count: u8,
   /// The slow dispatch call. If metrics are disabled, the `v8::Function` is created with this callback.
@@ -122,6 +124,7 @@ impl OpDecl {
     slow_fn: OpFnRef,
     fast_fn: Option<FastFunction>,
   ) -> Self {
+    #[allow(deprecated)]
     Self {
       name,
       enabled: true,
@@ -147,6 +150,7 @@ impl OpDecl {
     fast_fn: Option<FastFunction>,
     fast_fn_with_metrics: Option<FastFunction>,
   ) -> Self {
+    #[allow(deprecated)]
     Self {
       name,
       enabled: true,
