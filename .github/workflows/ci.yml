@@ -55,6 +55,13 @@ jobs:
       - name: Cargo test
         run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
 
+      - name: Run examples
+        # Only regression tests here for now.
+        # Regression test for https://github.com/denoland/deno/pull/19615.
+        run: |-
+          cargo run -p deno_core --example op2
+          cargo run -p deno_core --example op2 --features include_js_files_for_snapshotting
+
       - name: Cargo publish
         if: |
           contains(matrix.os, 'ubuntu') &&
