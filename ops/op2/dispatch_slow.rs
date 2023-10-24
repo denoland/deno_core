@@ -387,6 +387,9 @@ pub fn from_arg(
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)
     }
+    Arg::Special(Special::WasmMemory) => {
+      quote!(let #arg_ident = None;)
+    }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
       quote!(let #arg_ident = &mut #scope;)

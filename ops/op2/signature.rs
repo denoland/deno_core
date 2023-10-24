@@ -144,6 +144,7 @@ pub enum Special {
   JsRuntimeState,
   FastApiCallbackOptions,
   Isolate,
+  WasmMemory,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -320,7 +321,8 @@ impl Arg {
         | Special::OpState
         | Special::JsRuntimeState
         | Special::HandleScope
-        | Special::Isolate,
+        | Special::Isolate
+        | Special::WasmMemory,
       ) => true,
       Self::Ref(
         _,
@@ -526,6 +528,7 @@ impl ParsedType {
         Some(&[AttributeModifier::String(StringMode::OneByte)])
       }
       TString(..) => Some(&[AttributeModifier::String(StringMode::Default)]),
+      TSpecial(Special::WasmMemory) => Some(&[AttributeModifier::WasmMemory]),
       _ => None,
     }
   }
@@ -696,6 +699,8 @@ pub enum AttributeModifier {
   Bigint,
   /// #[number], for u64/usize/i64/isize indicating value is a Number
   Number,
+  /// #[memory]
+  WasmMemory,
 }
 
 impl AttributeModifier {
@@ -709,6 +714,7 @@ impl AttributeModifier {
       AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
+      AttributeModifier::WasmMemory => "memory",
     }
   }
 }
@@ -1100,6 +1106,7 @@ fn parse_attribute(
       (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
+      (#[memory]) => Some(AttributeModifier::WasmMemory),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
@@ -1187,6 +1194,7 @@ fn parse_type_path(
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
+      ( WasmMemory ) => Ok(CBare(TSpecial(Special::WasmMemory))),
       ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
@@ -1360,7 +1368,8 @@ pub(crate) fn parse_type(
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
       | AttributeModifier::Bigint
-      | AttributeModifier::Global => {
+      | AttributeModifier::Global
+      | AttributeModifier::WasmMemory => {
         // We handle this as part of the normal parsing process
       }
       AttributeModifier::Number => match ty {

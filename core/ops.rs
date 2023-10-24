@@ -289,3 +289,11 @@ impl DerefMut for OpState {
     &mut self.gotham_state
   }
 }
+
+pub struct WasmMemory(pub *const v8::fast_api::FastApiTypedArray<u8>);
+
+impl WasmMemory {
+  pub fn get<'s>(self) -> Option<&'s mut [u8]> {
+    unsafe { (&*self.0).get_storage_if_aligned() }
+  }
+}

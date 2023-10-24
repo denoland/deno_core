@@ -101,6 +101,7 @@ pub use crate::ops::OpId;
 pub use crate::ops::OpResult;
 pub use crate::ops::OpState;
 pub use crate::ops::PromiseId;
+pub use crate::ops::WasmMemory;
 pub use crate::ops_builtin::op_close;
 pub use crate::ops_builtin::op_print;
 pub use crate::ops_builtin::op_resources;

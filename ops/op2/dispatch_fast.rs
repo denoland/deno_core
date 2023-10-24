@@ -449,6 +449,12 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)
     }
+    Arg::Special(Special::WasmMemory) => {
+      *needs_fast_api_callback_options = true;
+      quote!(
+        let #arg_ident = #deno_core::WasmMemory(#fast_api_callback_options.wasm_memory as *const #deno_core::v8::fast_api::FastApiTypedArray<u8>);
+      )
+    }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
       quote!(let #arg_ident = &::std::cell::RefCell::borrow(&#opctx.state);)
@@ -603,6 +609,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(_, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
+    | Arg::Special(Special::WasmMemory)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
