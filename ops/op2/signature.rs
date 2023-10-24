@@ -1185,19 +1185,19 @@ fn parse_type_path(
       ( $( std :: str :: )? str ) => {
         Ok(CBare(TString(Strings::RefStr)))
       }
-      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? str > ) => {
+      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? str $(,)? > ) => {
         Ok(CBare(TString(Strings::CowStr)))
       }
-      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? [ u8 ] > ) => {
+      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? [ u8 ] $(,)? > ) => {
         Ok(CBare(TString(Strings::CowByte)))
       }
-      ( $( std :: vec ::)? Vec < $ty:path > ) => {
+      ( $( std :: vec ::)? Vec < $ty:path $(,)? > ) => {
         Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(&ty)?))))
       }
-      ( $( std :: boxed ::)? Box < [ $ty:path ] > ) => {
+      ( $( std :: boxed ::)? Box < [ $ty:path ] $(,)? > ) => {
         Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&ty)?))))
       }
-      ( $( serde_v8 :: )? V8Slice < $ty:path > ) => {
+      ( $( serde_v8 :: )? V8Slice < $ty:path $(,)? > ) => {
         Ok(CBare(TBuffer(BufferType::V8Slice(parse_numeric_type(&ty)?))))
       }
       ( $( serde_v8 :: )? JsBuffer ) => {
@@ -1214,11 +1214,11 @@ fn parse_type_path(
       ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
-      ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
-      ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
+      ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
+      ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
       ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
-      ( $( std :: rc :: )? Rc < RefCell < $ty:ty > > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
-      ( Option < $ty:ty > ) => {
+      ( $( std :: rc :: )? Rc < RefCell < $ty:ty $(,)? > $(,)? > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
+      ( Option < $ty:ty $(,)? > ) => {
         match parse_type(position, attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::String(string) => Ok(COption(TString(string))),
@@ -1296,7 +1296,7 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
     Type::Path(of) => {
       let inner_type = std::panic::catch_unwind(|| {
         rules!(of.into_token_stream() => {
-          (Option< $ty:ty >) => ty,
+          (Option< $ty:ty $(,)? >) => ty,
         })
       })
       .map_err(|_| ArgError::InvalidStateType(stringify_token(ty)))?;
@@ -1364,8 +1364,8 @@ pub(crate) fn parse_type(
           let token = stringify_token(of.path.clone());
           if let Ok(Some(err)) = std::panic::catch_unwind(|| {
             rules!(ty => {
-              ( serde_v8::Value $( < $_lifetime:lifetime >)? ) => Some("use v8::Value"),
-              ( Value $( < $_lifetime:lifetime >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
+              ( serde_v8::Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use v8::Value"),
+              ( Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
               ( $_ty:ty ) => None,
             })
           }) {
@@ -1416,7 +1416,7 @@ pub(crate) fn parse_type(
       AttributeModifier::Smi => match ty {
         Type::Path(of) => {
           let is_option = rules!(of.into_token_stream() => {
-            ( Option < $_ty:ty > ) => true,
+            ( Option < $_ty:ty $(,)? > ) => true,
             ( $_ty:ty ) => false,
           });
           if is_option {
@@ -1696,11 +1696,11 @@ mod tests {
     (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
   );
   test!(
-    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result <f64, AnyError>;
+    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, AnyError>;
     (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
   );
   test!(
-    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result <u64, AnyError>;
+    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, AnyError>;
     (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
   );
   test!(
@@ -1794,6 +1794,18 @@ mod tests {
     fn op_isolate(isolate: *mut v8::Isolate);
     (Special(Isolate)) -> Infallible(Void)
   );
+  test!(
+    #[serde]
+    async fn op_serde_result_with_comma(
+      state: Rc<RefCell<OpState>>,
+      #[smi] rid: ResourceId
+    ) -> Result<
+      ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas,
+      AnyError,
+    >;
+    (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
+  );
+
   // Args
 
   expect_fail!(
