@@ -452,7 +452,7 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Special(Special::WasmMemory) => {
       *needs_fast_api_callback_options = true;
       quote!(
-        let #arg_ident = #deno_core::WasmMemory(#fast_api_callback_options.wasm_memory as *const #deno_core::v8::fast_api::FastApiTypedArray<u8>);
+        let #arg_ident = #deno_core::WasmMemory::new(#fast_api_callback_options.wasm_memory as *const #deno_core::v8::fast_api::FastApiTypedArray<u8>);
       )
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {

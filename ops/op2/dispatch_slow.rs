@@ -388,7 +388,7 @@ pub fn from_arg(
       quote!(let #arg_ident = #opctx.isolate;)
     }
     Arg::Special(Special::WasmMemory) => {
-      quote!(let #arg_ident = None;)
+      quote!(let #arg_ident = #deno_core::WasmMemory::null();)
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;

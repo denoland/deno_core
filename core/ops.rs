@@ -9,6 +9,7 @@ use crate::runtime::JsRuntimeState;
 use crate::FeatureChecker;
 use crate::OpDecl;
 use crate::OpsTracker;
+use crate::ResourceId;
 use anyhow::Error;
 use futures::task::AtomicWaker;
 use futures::Future;
@@ -290,10 +291,68 @@ impl DerefMut for OpState {
   }
 }
 
-pub struct WasmMemory(pub *const v8::fast_api::FastApiTypedArray<u8>);
+use crate::op2;
+use crate::Resource;
+use std::borrow::Cow;
+use std::mem::transmute;
+
+pub struct WasmMemory(Option<*const v8::fast_api::FastApiTypedArray<u8>>);
+
+struct WasmMemoryResource(NonNull<v8::WasmMemoryObject>);
+
+impl Resource for WasmMemoryResource {
+  fn name(&self) -> Cow<'static, str> {
+    "wasmMemory".into()
+  }
+}
+
+#[op2(core)]
+#[smi]
+pub fn op_core_set_wasm_memory(
+  state: &mut OpState,
+  #[global] memory: v8::Global<v8::WasmMemoryObject>,
+) -> ResourceId {
+  state
+    .resource_table
+    .add(WasmMemoryResource(memory.into_raw()))
+}
 
 impl WasmMemory {
-  pub fn get<'s>(self) -> Option<&'s mut [u8]> {
-    unsafe { (&*self.0).get_storage_if_aligned() }
+  #[inline]
+  pub fn new(mem: *const v8::fast_api::FastApiTypedArray<u8>) -> Self {
+    Self(Some(mem))
+  }
+
+  #[inline]
+  pub fn null() -> Self {
+    Self(None)
+  }
+
+  #[inline]
+  pub fn get<'s>(
+    self,
+    state: &mut OpState,
+    rid: ResourceId,
+  ) -> Option<&'s mut [u8]> {
+    match self.0 {
+      Some(mem) => unsafe { (&*mem).get_storage_if_aligned() },
+      None => {
+        let resource =
+          state.resource_table.get::<WasmMemoryResource>(rid).ok()?;
+        // SAFETY: `v8::Local` is always non-null pointer; the `HandleScope` is
+        // already on the stack, but we don't have access to it.
+        let memory_object = unsafe {
+          transmute::<
+            NonNull<v8::WasmMemoryObject>,
+            v8::Local<v8::WasmMemoryObject>,
+          >(resource.0)
+        };
+        let backing_store = memory_object.buffer().get_backing_store();
+        let ptr = backing_store.data().unwrap().as_ptr() as *mut u8;
+        let len = backing_store.byte_length();
+        // SAFETY: `ptr` is a valid pointer to `len` bytes.
+        Some(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
+      }
+    }
   }
 }

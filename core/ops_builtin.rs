@@ -4,6 +4,7 @@ use crate::error::format_file_name;
 use crate::error::type_error;
 use crate::io::BufMutView;
 use crate::io::BufView;
+use crate::ops;
 use crate::ops_builtin_v8;
 use crate::ops_metrics::OpMetrics;
 use crate::resources::ResourceId;
@@ -49,6 +50,7 @@ crate::extension!(
     op_format_file_name,
     op_is_proxy,
     op_str_byte_length,
+    ops::op_core_set_wasm_memory,
     ops_builtin_v8::op_ref_op,
     ops_builtin_v8::op_unref_op,
     ops_builtin_v8::op_set_promise_reject_callback,

@@ -7,14 +7,14 @@ impl deno_core::_ops::Op for op_wasm_memory {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_wasm_memory),
         false,
-        1usize as u8,
+        3usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
         Some({
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::CallbackOptions],
+                &[Type::V8Value, Type::Int32, Type::CallbackOptions],
                 CType::Void,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
@@ -23,7 +23,7 @@ impl deno_core::_ops::Op for op_wasm_memory {
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::CallbackOptions],
+                &[Type::V8Value, Type::Int32, Type::CallbackOptions],
                 CType::Void,
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
@@ -41,6 +41,7 @@ impl op_wasm_memory {
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
+        arg1: i32,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
@@ -54,7 +55,7 @@ impl op_wasm_memory {
             &opctx,
             deno_core::_ops::OpMetricsEvent::Dispatched,
         );
-        let res = Self::v8_fn_ptr_fast(this, fast_api_callback_options);
+        let res = Self::v8_fn_ptr_fast(this, arg1, fast_api_callback_options);
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
             deno_core::_ops::OpMetricsEvent::Completed,
@@ -64,15 +65,24 @@ impl op_wasm_memory {
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
+        arg1: i32,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<
+                deno_core::v8::External,
+            >::cast(unsafe { fast_api_callback_options.data.data })
+                .value() as *const deno_core::_ops::OpCtx)
+        };
         let result = {
-            let arg0 = deno_core::WasmMemory(
+            let arg0 = &mut ::std::cell::RefCell::borrow_mut(&opctx.state);
+            let arg1 = arg1 as _;
+            let arg2 = deno_core::WasmMemory::new(
                 fast_api_callback_options.wasm_memory
                     as *const deno_core::v8::fast_api::FastApiTypedArray<u8>,
             );
-            Self::call(arg0)
+            Self::call(arg0, arg1, arg2)
         };
         result as _
     }
@@ -83,9 +93,29 @@ impl op_wasm_memory {
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        let opstate = &opctx.state;
         let result = {
-            let arg0 = None;
-            Self::call(arg0)
+            let arg1 = args.get(0usize as i32);
+            let Some(arg1) = deno_core::_ops::to_i32_option(&arg1) else {
+                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        "expected i32".as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return;
+            };
+            let arg1 = arg1 as _;
+            let arg0 = &mut ::std::cell::RefCell::borrow_mut(&opstate);
+            let arg2 = deno_core::WasmMemory::null();
+            Self::call(arg0, arg1, arg2)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
@@ -108,7 +138,8 @@ impl op_wasm_memory {
         );
     }
     #[inline(always)]
-    fn call(_mem: WasmMemory) {
+    fn call(state: &mut OpState, rid: ResourceId, mem: WasmMemory) {
+        let _s = mem.get(state, rid).expect("invalid wasm memory");
         unimplemented!()
     }
 }
