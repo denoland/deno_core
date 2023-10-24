@@ -3,5 +3,5 @@
 export declare function op_wasm(handle: u32): void;
 
 export function call(handle: u32): void {
-  op_wasm(handle)
+  op_wasm(handle);
 }
