@@ -1056,4 +1056,3 @@ fn test_v8_deno_builtins() {
   let all_true = v8::Local::<v8::Value>::new(&mut scope, &all_true);
   assert!(all_true.is_true());
 }
-
