@@ -38,7 +38,7 @@
     URIError,
     setQueueMicrotask,
   } = window.__bootstrap.primordials;
-  const { ops, asyncOps } = window.Deno.core;
+  const { ops, asyncOps, toUtf8, fromUtf8, isOneByte } = window.Deno.core;
 
   const build = {
     target: "unknown",
@@ -853,8 +853,8 @@ for (let i = 0; i < 10; i++) {
       specifier,
     ) => ops.op_eval_context(source, specifier),
     createHostObject: () => ops.op_create_host_object(),
-    encode: (text) => ops.op_encode(text),
-    decode: (buffer) => ops.op_decode(buffer),
+    encode: (text) => new Uint8Array(toUtf8(text)),
+    decode: (buffer, ignoreBOM = false) => fromUtf8(buffer, ignoreBOM),
     serialize: (
       value,
       options,
@@ -878,6 +878,7 @@ for (let i = 0; i < 10; i++) {
     build,
     setBuildInfo,
     currentUserCallSite,
+    isOneByte,
   });
 
   const internals = {};
