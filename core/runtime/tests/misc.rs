@@ -1037,3 +1037,22 @@ export const TEST = "foo";
     ..Default::default()
   });
 }
+
+#[test]
+fn test_v8_deno_builtins() {
+  let mut runtime = JsRuntime::new(RuntimeOptions::default());
+  let all_true: v8::Global<v8::Value> = runtime
+    .execute_script_static(
+      "v8_builtins.js",
+      r#"
+    (function () {
+      const str = "Hello World";
+      return Deno.core.isOneByte(str)
+    })()
+  "#,
+    )
+    .unwrap();
+  let mut scope = runtime.handle_scope();
+  let all_true = v8::Local::<v8::Value>::new(&mut scope, &all_true);
+  assert!(all_true.is_true());
+}
