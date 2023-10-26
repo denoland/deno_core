@@ -5,7 +5,7 @@ use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::snapshot::generic_es_snapshot_without_runtime_module_loader;
 use crate::*;
 use anyhow::Error;
-use deno_ops::op;
+use deno_ops::op2;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
 use futures::future::Future;
@@ -161,7 +161,8 @@ fn js_realm_simple() {
 
 #[test]
 fn js_realm_init() {
-  #[op]
+  #[op2]
+  #[string]
   fn op_test() -> Result<String, Error> {
     Ok(String::from("Test"))
   }
@@ -191,7 +192,8 @@ fn js_realm_init_snapshot() {
     Vec::from(snap).into_boxed_slice()
   };
 
-  #[op]
+  #[op2]
+  #[string]
   fn op_test() -> Result<String, Error> {
     Ok(String::from("Test"))
   }
@@ -218,7 +220,8 @@ fn js_realm_sync_ops() {
   // don't test the result of returning structs, because they will be
   // serialized to objects with null prototype.
 
-  #[op]
+  #[op2]
+  #[serde]
   fn op_test(fail: bool) -> Result<ToJsBuffer, Error> {
     if !fail {
       Ok(ToJsBuffer::empty())
@@ -266,7 +269,8 @@ async fn js_realm_async_ops() {
   // don't test the result of returning structs, because they will be
   // serialized to objects with null prototype.
 
-  #[op]
+  #[op2(async)]
+  #[serde]
   async fn op_test(fail: bool) -> Result<ToJsBuffer, Error> {
     if !fail {
       Ok(ToJsBuffer::empty())
@@ -346,7 +350,7 @@ async fn js_realm_gc() {
   }
 
   // Never resolves.
-  #[op]
+  #[op2(async)]
   async fn op_pending() {
     assert_eq!(INVOKE_COUNT.fetch_add(1, Ordering::SeqCst), 0);
     PendingFuture {}.await
@@ -394,7 +398,7 @@ async fn js_realm_gc() {
 #[tokio::test]
 async fn js_realm_ref_unref_ops() {
   // Never resolves.
-  #[op]
+  #[op2(async)]
   async fn op_pending() {
     futures::future::pending().await
   }
@@ -638,7 +642,7 @@ async fn test_realms_concurrent_module_evaluations() {
     ascii_str!(r#"await Deno.core.opAsync("op_wait");"#),
   ));
 
-  #[op]
+  #[op2(async)]
   async fn op_wait(op_state: Rc<RefCell<OpState>>) {
     let (sender, receiver) = oneshot::channel::<()>();
     op_state
@@ -720,7 +724,7 @@ async fn test_realm_concurrent_dynamic_imports() {
     ascii_str!(r#"await Deno.core.opAsync("op_wait");"#),
   ));
 
-  #[op]
+  #[op2(async)]
   async fn op_wait(op_state: Rc<RefCell<OpState>>) {
     let (sender, receiver) = oneshot::channel::<()>();
     op_state
@@ -893,7 +897,7 @@ fn non_snapshot_preserve_snapshotted_modules() {
 /// with non-snapshotted ESM extensions.
 #[tokio::test]
 async fn realm_creation_during_async_op_hang() {
-  #[op]
+  #[op2(async)]
   async fn op_listen(op_state: Rc<RefCell<OpState>>) -> Result<(), Error> {
     let (sender, receiver) = oneshot::channel::<()>();
     op_state.borrow_mut().put(sender);

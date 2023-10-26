@@ -9,7 +9,6 @@ use crate::runtime::tests::Mode;
 use crate::*;
 use anyhow::bail;
 use anyhow::Error;
-use deno_ops::op;
 use log::debug;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -166,12 +165,13 @@ fn test_op_return_serde_v8_error() {
 
 #[test]
 fn test_op_high_arity() {
-  #[op]
+  #[op2(fast)]
+  #[number]
   fn op_add_4(
-    x1: i64,
-    x2: i64,
-    x3: i64,
-    x4: i64,
+    #[number] x1: i64,
+    #[number] x2: i64,
+    #[number] x3: i64,
+    #[number] x4: i64,
   ) -> Result<i64, anyhow::Error> {
     Ok(x1 + x2 + x3 + x4)
   }
@@ -190,7 +190,8 @@ fn test_op_high_arity() {
 
 #[test]
 fn test_op_disabled() {
-  #[op]
+  #[op2(fast)]
+  #[number]
   fn op_foo() -> Result<i64, anyhow::Error> {
     Ok(42)
   }
@@ -288,42 +289,6 @@ fn test_op_detached_buffer() {
     .unwrap();
 }
 
-#[test]
-fn test_op_unstable_disabling() {
-  #[op]
-  fn op_foo() -> Result<i64, anyhow::Error> {
-    Ok(42)
-  }
-
-  #[op(unstable)]
-  fn op_bar() -> Result<i64, anyhow::Error> {
-    Ok(42)
-  }
-
-  deno_core::extension!(
-    test_ext,
-    ops = [op_foo, op_bar],
-    middleware = |op| if op.is_unstable { op.disable() } else { op }
-  );
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
-    ..Default::default()
-  });
-  runtime
-    .execute_script_static(
-      "test.js",
-      r#"
-      if (Deno.core.ops.op_foo() !== 42) {
-        throw new Error("Expected op_foo() === 42");
-      }
-      if (typeof Deno.core.ops.op_bar !== "undefined") {
-        throw new Error("Expected op_bar to be disabled")
-      }
-    "#,
-    )
-    .unwrap();
-}
-
 #[cfg(debug_assertions)]
 #[test]
 #[should_panic(expected = "Found ops with duplicate names:")]
@@ -359,7 +324,8 @@ fn ops_in_js_have_proper_names() {
     Ok(String::from("Test"))
   }
 
-  #[op]
+  #[op2(async)]
+  #[string]
   async fn op_test_async() -> Result<String, Error> {
     Ok(String::from("Test"))
   }
@@ -593,15 +559,15 @@ pub async fn test_op_metrics() {
   }
 
   #[op2(async, core)]
-  pub async fn op_async_deferred() {
+  pub async fn op_async_yield() {
     tokio::task::yield_now().await;
-    println!("op_async_deferred!");
+    println!("op_async_yield!");
   }
 
   #[op2(async, core)]
-  pub async fn op_async_deferred_error() -> Result<(), AnyError> {
+  pub async fn op_async_yield_error() -> Result<(), AnyError> {
     tokio::task::yield_now().await;
-    println!("op_async_deferred_error!");
+    println!("op_async_yield_error!");
     bail!("dead");
   }
 
@@ -609,6 +575,16 @@ pub async fn test_op_metrics() {
   pub async fn op_async_error() -> Result<(), AnyError> {
     println!("op_async_error!");
     bail!("dead");
+  }
+
+  #[op2(async(deferred), core, fast)]
+  pub async fn op_async_deferred() {
+    println!("op_async_deferred!");
+  }
+
+  #[op2(async(lazy), core, fast)]
+  pub async fn op_async_lazy() {
+    println!("op_async_lazy!");
   }
 
   #[op2(core, fast)]
@@ -621,8 +597,10 @@ pub async fn test_op_metrics() {
     ops = [
       op_async,
       op_async_error,
+      op_async_yield,
+      op_async_yield_error,
+      op_async_lazy,
       op_async_deferred,
-      op_async_deferred_error,
       op_sync
     ],
   );
@@ -650,13 +628,15 @@ pub async fn test_op_metrics() {
   .execute_script_static(
     "filename.js",
     r#"
-  const { op_sync, op_async, op_async_error, op_async_deferred, op_async_deferred_error } = Deno.core.ensureFastOps();
+  const { op_sync, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy } = Deno.core.ensureFastOps();
     async function go() {
       op_sync();
       await op_async();
       try { await op_async_error() } catch {}
+      await op_async_yield();
+      try { await op_async_yield_error() } catch {}
       await op_async_deferred();
-      try { await op_async_deferred_error() } catch {}
+      await op_async_lazy();
     }
 
     go()
@@ -677,9 +657,13 @@ op_async Dispatched
 op_async Completed
 op_async_error Dispatched
 op_async_error Error
+op_async_yield Dispatched
+op_async_yield CompletedAsync
+op_async_yield_error Dispatched
+op_async_yield_error ErrorAsync
 op_async_deferred Dispatched
 op_async_deferred CompletedAsync
-op_async_deferred_error Dispatched
-op_async_deferred_error ErrorAsync"#
+op_async_lazy Dispatched
+op_async_lazy CompletedAsync"#
   );
 }

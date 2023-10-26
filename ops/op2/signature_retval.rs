@@ -28,7 +28,7 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
       }
       if let Some(TypeParamBound::Trait(t)) = imp.bounds.first() {
         rules!(t.into_token_stream() => {
-          ($($_package:ident ::)* Future < Output = $ty:ty >) => Ok(UnwrappedReturn::Future(ty)),
+          ($($_package:ident ::)* Future < Output = $ty:ty $(,)? >) => Ok(UnwrappedReturn::Future(ty)),
           ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty), "for impl Future"))),
         })
       } else {
@@ -41,11 +41,11 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
     Type::Path(ty) => {
       rules!(ty.to_token_stream() => {
         // x::y::Result<Value>, like io::Result and other specialty result types
-        ($($_package:ident ::)* Result < $ty:ty >) => {
+        ($($_package:ident ::)* Result < $ty:ty $(,)? >) => {
           Ok(UnwrappedReturn::Result(ty))
         }
         // x::y::Result<Value, Error>
-        ($($_package:ident ::)* Result < $ty:ty, $_error:ty >) => {
+        ($($_package:ident ::)* Result < $ty:ty, $_error:ty $(,)? >) => {
           Ok(UnwrappedReturn::Result(ty))
         }
         // Everything else
@@ -146,6 +146,8 @@ mod tests {
     for (expected, input) in [
       (Infallible(Void), "()"),
       (Result(Void), "Result<()>"),
+      (Result(Void), "Result<(), ()>"),
+      (Result(Void), "Result<(), (),>"),
       (Future(Void), "impl Future<Output = ()>"),
       (FutureResult(Void), "impl Future<Output = Result<()>>"),
       (ResultFuture(Void), "Result<impl Future<Output = ()>>"),

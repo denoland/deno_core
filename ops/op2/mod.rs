@@ -59,6 +59,8 @@ pub enum Op2Error {
   ShouldBeAsync,
   #[error("This op is not async and should not be marked as (async)")]
   ShouldNotBeAsync,
+  #[error("Only one fast alternative is supported in fast(...) at this time")]
+  TooManyFastAlternatives,
   #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
   ImproperlySortedAttribute(String),
 }
@@ -200,9 +202,10 @@ fn generate_op2(
   }
 
   let (fast_definition, fast_definition_metrics, fast_fn) =
-    match generate_dispatch_fast(&mut generator_state, &signature)? {
+    match generate_dispatch_fast(&config, &mut generator_state, &signature)? {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
-        if !config.fast && !config.nofast {
+        if !config.fast && !config.nofast && config.fast_alternatives.is_empty()
+        {
           return Err(Op2Error::ShouldBeFast);
         }
         // nofast requires the function to be valid for fast

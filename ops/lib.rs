@@ -127,6 +127,7 @@ impl Op {
         #[doc=""]
         #[doc=#docline]
         #[doc="you can include in a `deno_core::Extension`."]
+        #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
         pub struct #name #generics {
           _phantom_data: ::std::marker::PhantomData<(#(#params),*)>
         }
@@ -193,7 +194,9 @@ impl Op {
       }
 
       impl #generics #core::_ops::Op for #name #generics #where_clause {
+        #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
         const NAME: &'static str = stringify!(#name);
+        #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
         const DECL: #core::OpDecl = #core::_ops::OpDecl::new_internal(
           Self::name(),
           #is_async,
@@ -207,6 +210,7 @@ impl Op {
 
       #[doc(hidden)]
       impl #generics #name #generics #where_clause {
+        #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
         pub const fn name() -> &'static str {
           stringify!(#name)
         }

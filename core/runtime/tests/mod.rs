@@ -4,7 +4,7 @@ use crate::CrossIsolateStore;
 use crate::JsRuntime;
 use crate::OpState;
 use crate::RuntimeOptions;
-use deno_ops::op;
+use deno_ops::op2;
 use serde_v8::JsBuffer;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,13 +30,13 @@ struct TestState {
   dispatch_count: Arc<AtomicUsize>,
 }
 
-#[op]
+#[allow(clippy::await_holding_refcell_ref)] // False positive.
+#[op2(async)]
 async fn op_test(
   rc_op_state: Rc<RefCell<OpState>>,
   control: u8,
-  buf: Option<JsBuffer>,
+  #[buffer] buf: Option<JsBuffer>,
 ) -> Result<u8, AnyError> {
-  #![allow(clippy::await_holding_refcell_ref)] // False positive.
   let op_state_ = rc_op_state.borrow();
   let test_state = op_state_.borrow::<TestState>();
   test_state.dispatch_count.fetch_add(1, Ordering::Relaxed);

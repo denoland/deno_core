@@ -10,7 +10,9 @@ impl<SP> deno_core::_ops::Op for op_foo<SP>
 where
     SP: SomePermission + 'static,
 {
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     const NAME: &'static str = stringify!(op_foo);
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     const DECL: deno_core::OpDecl = deno_core::_ops::OpDecl::new_internal(
         Self::name(),
         false,
@@ -36,6 +38,7 @@ impl<SP> op_foo<SP>
 where
     SP: SomePermission + 'static,
 {
+    #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
     pub const fn name() -> &'static str {
         stringify!(op_foo)
     }

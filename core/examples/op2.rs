@@ -1,12 +1,6 @@
 use anyhow::Context;
 use deno_core::anyhow::Error;
-use deno_core::extension;
-use deno_core::op2;
-use deno_core::resolve_path;
-use deno_core::v8;
-use deno_core::FsModuleLoader;
-use deno_core::JsRuntime;
-use deno_core::OpState;
+use deno_core::*;
 use std::rc::Rc;
 
 #[op2]
