@@ -3,7 +3,7 @@ use deno_core::anyhow::Error;
 use deno_core::*;
 use std::rc::Rc;
 
-#[op2]
+#[op2(fast)]
 fn op_use_state(
   state: &mut OpState,
   #[global] callback: v8::Global<v8::Function>,

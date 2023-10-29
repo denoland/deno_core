@@ -205,7 +205,7 @@ impl OpDecl {
   }
 }
 
-/// Declares a block of Deno `#[op]`s. The first parameter determines the name of the
+/// Declares a block of Deno `#[op2]`s. The first parameter determines the name of the
 /// op declaration block, and is usually `deno_ops`. This block generates a function that
 /// returns a [`Vec<OpDecl>`].
 ///
@@ -213,7 +213,7 @@ impl OpDecl {
 ///
 /// ```no_compile
 /// # use deno_core::*;
-/// #[op]
+/// #[op2]
 /// fn op_xyz() {}
 ///
 /// deno_core::ops!(deno_ops, [
@@ -225,11 +225,11 @@ impl OpDecl {
 /// ```
 ///
 /// ... or a parameterized form like so that allows passing a number of type parameters
-/// to each `#[op]`:
+/// to each `#[op2]`:
 ///
 /// ```no_compile
 /// # use deno_core::*;
-/// #[op]
+/// #[op2]
 /// fn op_xyz<P>() where P: Clone {}
 ///
 /// deno_core::ops!(deno_ops,
@@ -281,7 +281,7 @@ macro_rules! or {
 /// Most extensions will define a combination of ops and ESM files, like so:
 ///
 /// ```no_compile
-/// #[op]
+/// #[op2]
 /// fn op_xyz() {
 /// }
 ///

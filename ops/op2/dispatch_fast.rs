@@ -685,12 +685,21 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::String(Strings::CowByte) => {
       quote!(let #arg_ident = #deno_core::_ops::to_cow_byte_ptr(unsafe { &mut *#arg_ident });)
     }
-    Arg::V8Local(v8)
+    Arg::V8Global(v8)
+    | Arg::OptionV8Global(v8)
+    | Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(_, v8)
     | Arg::OptionV8Ref(_, v8) => {
+      if matches!(arg, Arg::V8Global(_) | Arg::OptionV8Global(_)) {
+        // Only requires isolate, not a full scope
+        *needs_opctx = true;
+      }
+
       let arg_ident = arg_ident.clone();
       let deno_core = deno_core.clone();
+      let isolate = quote!(unsafe { &mut *#opctx.isolate });
+
       // Note that we only request callback options if we were required to provide a type error
       let throw_type_error = || {
         *needs_fast_api_callback_options = true;
@@ -700,7 +709,8 @@ fn map_v8_fastcall_arg_to_arg(
           return unsafe { std::mem::zeroed() };
         })
       };
-      let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
+      let extract_intermediate =
+        v8_intermediate_to_arg(&deno_core, &isolate, &arg_ident, arg);
       v8_to_arg(
         v8,
         &arg_ident,
@@ -770,7 +780,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::SerdeV8(_)
     | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
-    Arg::V8Global(_) => return Ok(None),
+    Arg::V8Global(_) => V8FastCallType::V8Value,
     // We do support v8 type arguments (including Option<...>)
     Arg::V8Ref(RefType::Ref, _)
     | Arg::V8Local(_)
