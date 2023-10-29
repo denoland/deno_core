@@ -166,7 +166,6 @@ fn generate_op2(
     opstate,
     js_runtime_state,
     fast_api_callback_options,
-    deno_core,
     result,
     retval,
     needs_args,
@@ -231,7 +230,6 @@ fn generate_op2(
     };
 
   let GeneratorState {
-    deno_core,
     slow_function,
     slow_function_metrics,
     ..
@@ -258,9 +256,9 @@ fn generate_op2(
       _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
     }
 
-    impl <#(#generic : #bound),*> #deno_core::_ops::Op for #name <#(#generic),*> {
+    impl <#(#generic : #bound),*> __deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal_op2(
+      const DECL: __deno_core::_ops::OpDecl = __deno_core::_ops::OpDecl::new_internal_op2(
         /*name*/ stringify!(#name),
         /*is_async*/ #is_async,
         /*arg_count*/ #arg_count as u8,
@@ -272,13 +270,14 @@ fn generate_op2(
     }
 
     impl <#(#generic : #bound),*> #name <#(#generic),*> {
+      use #deno_core as __deno_core;
       pub const fn name() -> &'static str {
         stringify!(#name)
       }
 
       #[deprecated(note = "Use the const op::DECL instead")]
-      pub const fn decl() -> #deno_core::_ops::OpDecl {
-        <Self as #deno_core::_ops::Op>::DECL
+      pub const fn decl() -> __deno_core::_ops::OpDecl {
+        <Self as __deno_core::_ops::Op>::DECL
       }
 
       #fast_fn
