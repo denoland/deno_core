@@ -56,7 +56,7 @@ pub struct GeneratorState {
 ///
 /// ```nocompile
 ///  gs_quote!(generator_state(info, scope) =>
-///    (let mut #scope = unsafe { __deno_core::v8::CallbackScope::new(&*#info) };)
+///    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(&*#info) };)
 ///  )
 /// ```
 macro_rules! gs_quote {

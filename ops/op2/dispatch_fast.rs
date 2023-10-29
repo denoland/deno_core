@@ -80,8 +80,7 @@ impl FastSignature {
       .filter_map(|arg| match arg {
         FastArg::CallbackOptions => Some((
           generator_state.fast_api_callback_options.clone(),
-          V8FastCallType::CallbackOptions
-            .quote_rust_type(),
+          V8FastCallType::CallbackOptions.quote_rust_type(),
         )),
         FastArg::PromiseId => Some((
           generator_state.promise_id.clone(),
@@ -89,10 +88,7 @@ impl FastSignature {
         )),
         FastArg::Actual {
           arg_type, name_in, ..
-        } => Some((
-          format_ident!("{name_in}"),
-          arg_type.quote_rust_type(),
-        )),
+        } => Some((format_ident!("{name_in}"), arg_type.quote_rust_type())),
         _ => None,
       })
       .collect()
@@ -138,15 +134,15 @@ impl FastSignature {
     let input_types = self.input_types();
     let output_type = self.ret_val.quote_ctype();
 
-    quote!({
-      use __deno_core::v8::fast_api::Type;
-      use __deno_core::v8::fast_api::CType;
-      __deno_core::v8::fast_api::FastFunction::new_with_bigint(
+    quote!(
+      use deno_core::v8::fast_api::Type;
+      use deno_core::v8::fast_api::CType;
+      deno_core::v8::fast_api::FastFunction::new_with_bigint(
         &[ Type::V8Value, #( #input_types ),* ],
         #output_type,
         Self::#fast_function as *const ::std::ffi::c_void
       )
-    })
+    )
   }
 
   pub(crate) fn ensure_fast_api_callback_options(&mut self) {
@@ -204,25 +200,25 @@ impl V8FastCallType {
       V8FastCallType::F64 => quote!(f64),
       V8FastCallType::Pointer => quote!(*mut ::std::ffi::c_void),
       V8FastCallType::V8Value => {
-        quote!(__deno_core::v8::Local<__deno_core::v8::Value>)
+        quote!(deno_core::v8::Local<deno_core::v8::Value>)
       }
       V8FastCallType::CallbackOptions => {
-        quote!(*mut __deno_core::v8::fast_api::FastApiCallbackOptions)
+        quote!(*mut deno_core::v8::fast_api::FastApiCallbackOptions)
       }
       V8FastCallType::SeqOneByteString => {
-        quote!(*mut __deno_core::v8::fast_api::FastApiOneByteString)
+        quote!(*mut deno_core::v8::fast_api::FastApiOneByteString)
       }
       V8FastCallType::Uint8Array => {
-        quote!(*mut __deno_core::v8::fast_api::FastApiTypedArray<u8>)
+        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<u8>)
       }
       V8FastCallType::Uint32Array => {
-        quote!(*mut __deno_core::v8::fast_api::FastApiTypedArray<u32>)
+        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<u32>)
       }
       V8FastCallType::Float64Array => {
-        quote!(*mut __deno_core::v8::fast_api::FastApiTypedArray<f64>)
+        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<f64>)
       }
       V8FastCallType::AnyArray | V8FastCallType::ArrayBuffer => {
-        quote!(__deno_core::v8::Local<__deno_core::v8::Value>)
+        quote!(deno_core::v8::Local<deno_core::v8::Value>)
       }
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
@@ -418,7 +414,7 @@ pub(crate) fn generate_dispatch_fast(
     let deferred = config.async_deferred;
     gs_quote!(generator_state(promise_id, result, opctx, scope) => {
       // Lazy results will always return None
-      __deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
+      deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
         #return_value
       });
     })
@@ -442,8 +438,8 @@ pub(crate) fn generate_dispatch_fast(
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
       let #opctx = unsafe {
-        &*(__deno_core::v8::Local::<__deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
-            as *const __deno_core::_ops::OpCtx)
+        &*(deno_core::v8::Local::<deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
+            as *const deno_core::_ops::OpCtx)
       };
     })
   } else {
@@ -465,8 +461,7 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let fast_function = generator_state.fast_function.clone();
-  let fast_definition =
-    fastsig.get_fast_function_def(&fast_function);
+  let fast_definition = fastsig.get_fast_function_def(&fast_function);
   let fast_function = generator_state.fast_function_metrics.clone();
   let fast_definition_metrics =
     fastsig_metrics.get_fast_function_def(&fast_function);
@@ -486,24 +481,24 @@ pub(crate) fn generate_dispatch_fast(
   let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
     fn #fast_function_metrics(
-      this: __deno_core::v8::Local<__deno_core::v8::Object>,
+      this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_metrics_names: #fastcall_metrics_types, )*
     ) -> #output_type {
       let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
       let opctx = unsafe {
-          &*(__deno_core::v8::Local::<__deno_core::v8::External>::cast(
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(
             unsafe { #fast_api_callback_options.data.data }
-          ).value() as *const __deno_core::_ops::OpCtx)
+          ).value() as *const deno_core::_ops::OpCtx)
       };
-      __deno_core::_ops::dispatch_metrics_fast(&opctx, __deno_core::_ops::OpMetricsEvent::Dispatched);
+      deno_core::_ops::dispatch_metrics_fast(&opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
       let res = Self::#fast_function( this, #( #fastcall_names, )* );
-      __deno_core::_ops::dispatch_metrics_fast(&opctx, __deno_core::_ops::OpMetricsEvent::Completed);
+      deno_core::_ops::dispatch_metrics_fast(&opctx, deno_core::_ops::OpMetricsEvent::Completed);
       res
     }
 
     #[allow(clippy::too_many_arguments)]
     fn #fast_function(
-      _: __deno_core::v8::Local<__deno_core::v8::Object>,
+      _: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {
       #with_fast_api_callback_options
@@ -548,7 +543,7 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_fast_api_callback_options = true;
       let buf = v8slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
-        let Ok(mut #arg_temp) = __deno_core::_ops::to_v8_slice_buffer(#arg_ident.into()) else {
+        let Ok(mut #arg_temp) = deno_core::_ops::to_v8_slice_buffer(#arg_ident.into()) else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
@@ -564,7 +559,7 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_fast_api_callback_options = true;
       let buf = v8slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
-        let Ok(mut #arg_temp) = __deno_core::_ops::to_v8_slice(#arg_ident.into()) else {
+        let Ok(mut #arg_temp) = deno_core::_ops::to_v8_slice(#arg_ident.into()) else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
@@ -577,7 +572,7 @@ fn map_v8_fastcall_arg_to_arg(
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         // SAFETY: This slice doesn't outlive the function
-        let Ok(mut #arg_temp) = (unsafe { __deno_core::_ops::to_slice_buffer(#arg_ident.into()) }) else {
+        let Ok(mut #arg_temp) = (unsafe { deno_core::_ops::to_slice_buffer(#arg_ident.into()) }) else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
@@ -590,7 +585,7 @@ fn map_v8_fastcall_arg_to_arg(
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         // SAFETY: This slice doesn't outlive the function
-        let Ok(mut #arg_temp) = (unsafe { __deno_core::_ops::to_slice_buffer_any(#arg_ident.into()) }) else {
+        let Ok(mut #arg_temp) = (unsafe { deno_core::_ops::to_slice_buffer_any(#arg_ident.into()) }) else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
@@ -635,7 +630,7 @@ fn map_v8_fastcall_arg_to_arg(
         syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let #arg_ident = ::std::cell::RefCell::borrow(&#opctx.state);
-        let #arg_ident = __deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
+        let #arg_ident = deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
       }
     }
     Arg::State(RefType::Mut, state) => {
@@ -644,7 +639,7 @@ fn map_v8_fastcall_arg_to_arg(
         syn::parse_str::<Type>(state).expect("Failed to reparse state type");
       quote! {
         let mut #arg_ident = ::std::cell::RefCell::borrow_mut(&#opctx.state);
-        let #arg_ident = __deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
+        let #arg_ident = deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
       }
     }
     Arg::OptionState(RefType::Ref, state) => {
@@ -667,21 +662,21 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::String(Strings::RefStr) => {
       quote! {
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; __deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); __deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = &__deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+        let #arg_ident = &deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
     }
     Arg::String(Strings::String) => {
-      quote!(let #arg_ident = __deno_core::_ops::to_string_ptr(unsafe { &mut *#arg_ident });)
+      quote!(let #arg_ident = deno_core::_ops::to_string_ptr(unsafe { &mut *#arg_ident });)
     }
     Arg::String(Strings::CowStr) => {
       quote! {
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; __deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); __deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = __deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
+        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+        let #arg_ident = deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
       }
     }
     Arg::String(Strings::CowByte) => {
-      quote!(let #arg_ident = __deno_core::_ops::to_cow_byte_ptr(unsafe { &mut *#arg_ident });)
+      quote!(let #arg_ident = deno_core::_ops::to_cow_byte_ptr(unsafe { &mut *#arg_ident });)
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
@@ -698,13 +693,7 @@ fn map_v8_fastcall_arg_to_arg(
         })
       };
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
-      v8_to_arg(
-        v8,
-        &arg_ident,
-        arg,
-        throw_type_error,
-        extract_intermediate,
-      )?
+      v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
     _ => quote!(let #arg_ident = #arg_ident as _;),
   };

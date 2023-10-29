@@ -1,6 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate as deno_core;
-
 use crate::error::AnyError;
 use crate::error::JsError;
 use crate::modules::StaticModuleLoader;
@@ -24,6 +22,9 @@ use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
 use url::Url;
+
+// Required for #[op2] inside deno_core
+use crate as deno_core;
 
 #[test]
 fn icu() {

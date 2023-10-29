@@ -345,21 +345,21 @@ impl Arg {
   #[allow(unused)] // unused for now but keeping
   pub fn type_token(&self, deno_core: &TokenStream) -> TokenStream {
     match self {
-      Arg::V8Ref(RefType::Ref, v8) => quote!(&__deno_core::v8::#v8),
-      Arg::V8Ref(RefType::Mut, v8) => quote!(&mut __deno_core::v8::#v8),
-      Arg::V8Local(v8) => quote!(__deno_core::v8::Local<__deno_core::v8::#v8>),
-      Arg::V8Global(v8) => quote!(__deno_core::v8::Global<__deno_core::v8::#v8>),
+      Arg::V8Ref(RefType::Ref, v8) => quote!(&deno_core::v8::#v8),
+      Arg::V8Ref(RefType::Mut, v8) => quote!(&mut deno_core::v8::#v8),
+      Arg::V8Local(v8) => quote!(deno_core::v8::Local<deno_core::v8::#v8>),
+      Arg::V8Global(v8) => quote!(deno_core::v8::Global<deno_core::v8::#v8>),
       Arg::OptionV8Ref(RefType::Ref, v8) => {
-        quote!(::std::option::Option<&__deno_core::v8::#v8>)
+        quote!(::std::option::Option<&deno_core::v8::#v8>)
       }
       Arg::OptionV8Ref(RefType::Mut, v8) => {
-        quote!(::std::option::Option<&mut __deno_core::v8::#v8>)
+        quote!(::std::option::Option<&mut deno_core::v8::#v8>)
       }
       Arg::OptionV8Local(v8) => {
-        quote!(::std::option::Option<__deno_core::v8::Local<__deno_core::v8::#v8>>)
+        quote!(::std::option::Option<deno_core::v8::Local<deno_core::v8::#v8>>)
       }
       Arg::OptionV8Global(v8) => {
-        quote!(::std::option::Option<__deno_core::v8::Global<__deno_core::v8::#v8>>)
+        quote!(::std::option::Option<deno_core::v8::Global<deno_core::v8::#v8>>)
       }
       _ => todo!(),
     }

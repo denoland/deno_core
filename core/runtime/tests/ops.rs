@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate as deno_core;
 use crate::error::AnyError;
 use crate::extensions::Op;
 use crate::extensions::OpDecl;
@@ -17,11 +16,14 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use url::Url;
 
+// Required for #[op2] inside deno_core
+use crate as deno_core;
+
 #[tokio::test]
 async fn test_async_opstate_borrow() {
   struct InnerState(u64);
 
-  #[op2(async, core)]
+  #[op2(async)]
   async fn op_async_borrow(
     op_state: Rc<RefCell<OpState>>,
   ) -> Result<(), Error> {
@@ -59,7 +61,7 @@ async fn test_async_opstate_borrow() {
 
 #[tokio::test]
 async fn test_sync_op_serialize_object_with_numbers_as_keys() {
-  #[op2(core)]
+  #[op2]
   fn op_sync_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
   ) -> Result<(), Error> {
@@ -101,7 +103,7 @@ lines: {
 
 #[tokio::test]
 async fn test_async_op_serialize_object_with_numbers_as_keys() {
-  #[op2(async, core)]
+  #[op2(async)]
   async fn op_async_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
   ) -> Result<(), Error> {
@@ -144,7 +146,7 @@ lines: {
 
 #[test]
 fn test_op_return_serde_v8_error() {
-  #[op2(core)]
+  #[op2]
   #[serde]
   fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, anyhow::Error> {
     Ok([(1, 2), (3, 4)].into_iter().collect()) // Maps can't have non-string keys in serde_v8
@@ -215,12 +217,12 @@ fn test_op_disabled() {
 
 #[test]
 fn test_op_detached_buffer() {
-  #[op2(core)]
+  #[op2]
   fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, anyhow::Error> {
     Ok(b.as_ref().iter().clone().map(|x| *x as u32).sum())
   }
 
-  #[op2(core)]
+  #[op2]
   #[buffer]
   fn op_boomerang(
     #[buffer(detach)] b: JsBuffer,
@@ -296,14 +298,14 @@ fn duplicate_op_names() {
   mod a {
     use super::*;
 
-    #[op2(core)]
+    #[op2]
     #[string]
     pub fn op_test() -> Result<String, Error> {
       Ok(String::from("Test"))
     }
   }
 
-  #[op2(core)]
+  #[op2]
   #[string]
   pub fn op_test() -> Result<String, Error> {
     Ok(String::from("Test"))
@@ -318,7 +320,7 @@ fn duplicate_op_names() {
 
 #[test]
 fn ops_in_js_have_proper_names() {
-  #[op2(core)]
+  #[op2]
   #[string]
   fn op_test_sync() -> Result<String, Error> {
     Ok(String::from("Test"))
@@ -553,41 +555,41 @@ await op_void_async_deferred();
 
 #[tokio::test]
 pub async fn test_op_metrics() {
-  #[op2(async, core)]
+  #[op2(async)]
   pub async fn op_async() {
     println!("op_async!");
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   pub async fn op_async_yield() {
     tokio::task::yield_now().await;
     println!("op_async_yield!");
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   pub async fn op_async_yield_error() -> Result<(), AnyError> {
     tokio::task::yield_now().await;
     println!("op_async_yield_error!");
     bail!("dead");
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   pub async fn op_async_error() -> Result<(), AnyError> {
     println!("op_async_error!");
     bail!("dead");
   }
 
-  #[op2(async(deferred), core, fast)]
+  #[op2(async(deferred), fast)]
   pub async fn op_async_deferred() {
     println!("op_async_deferred!");
   }
 
-  #[op2(async(lazy), core, fast)]
+  #[op2(async(lazy), fast)]
   pub async fn op_async_lazy() {
     println!("op_async_lazy!");
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_sync() {
     println!("op_sync!");
   }
