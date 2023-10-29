@@ -39,13 +39,7 @@ pub(crate) fn generate(
   // TODO(@littledivy): Use `let..else` on 1.65.0
   let output_ty = match &optimizer.fast_result {
     // Assert that the optimizer did not set a return type.
-    //
-    // @littledivy: This *could* potentially be used to optimize resolving
-    // promises but knowing the return type at compile time instead of
-    // serde_v8 serialization.
-    Some(_) if optimizer.is_async => &FastValue::Void,
     Some(ty) => ty,
-    None if optimizer.is_async => &FastValue::Void,
     None => {
       return FastImplItems {
         impl_and_fn: TokenStream::new(),
@@ -125,7 +119,6 @@ pub(crate) fn generate(
   if optimizer.has_fast_callback_option
     || optimizer.has_wasm_memory
     || optimizer.needs_opstate()
-    || optimizer.is_async
     || optimizer.needs_fast_callback_option
   {
     let decl = parse_quote! {
@@ -143,21 +136,9 @@ pub(crate) fn generate(
     input_variants.push(q!({ CallbackOptions }));
   }
 
-  // (recv, p_id, ...)
-  //
-  // Optimizer has already set it in the fast parameter variant list.
-  if optimizer.is_async {
-    if fast_fn_inputs.is_empty() {
-      fast_fn_inputs.push(parse_quote! { __promise_id: i32 });
-    } else {
-      fast_fn_inputs.insert(0, parse_quote! { __promise_id: i32 });
-    }
-  }
-
   let mut output_transforms = q!({});
 
   if optimizer.needs_opstate()
-    || optimizer.is_async
     || optimizer.has_fast_callback_option
     || optimizer.has_wasm_memory
   {
@@ -175,7 +156,7 @@ pub(crate) fn generate(
     pre_transforms.push_tokens(&prelude);
   }
 
-  if optimizer.needs_opstate() || optimizer.is_async {
+  if optimizer.needs_opstate() {
     // Grab the op_state identifier, the first one. ¯\_(ツ)_/¯
     let op_state = match idents.first() {
       Some(ident) if optimizer.has_opstate_in_parameters() => ident.clone(),
@@ -191,26 +172,16 @@ pub(crate) fn generate(
     });
 
     pre_transforms.push_tokens(&ctx);
-    pre_transforms.push_tokens(&match optimizer.is_async {
-      false => q!(
-        Vars {
-          op_state: &op_state
-        },
-        {
-          let op_state = &mut ::std::cell::RefCell::borrow_mut(&__ctx.state);
-        }
-      ),
-      true => q!(
-        Vars {
-          op_state: &op_state
-        },
-        {
-          let op_state = __ctx.state.clone();
-        }
-      ),
-    });
+    pre_transforms.push_tokens(&q!(
+      Vars {
+        op_state: &op_state
+      },
+      {
+        let op_state = &mut ::std::cell::RefCell::borrow_mut(&__ctx.state);
+      }
+    ));
 
-    if optimizer.returns_result && !optimizer.is_async {
+    if optimizer.returns_result {
       // Magic fallback 🪄
       //
       // If Result<T, E> is Ok(T), return T as fast value.
@@ -233,23 +204,6 @@ pub(crate) fn generate(
 
       output_transforms.push_tokens(&result_wrap);
     }
-  }
-
-  if optimizer.is_async {
-    let queue_future = if optimizer.returns_result {
-      q!({
-        let result = _ops::queue_fast_async_op(__ctx, __promise_id, result);
-      })
-    } else {
-      q!({
-        let result =
-          _ops::queue_fast_async_op(__ctx, __promise_id, async move {
-            Ok(result.await)
-          });
-      })
-    };
-
-    output_transforms.push_tokens(&queue_future);
   }
 
   if !optimizer.returns_result {

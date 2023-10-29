@@ -341,8 +341,6 @@ pub(crate) struct Optimizer {
 
   pub(crate) transforms: BTreeMap<usize, Transform>,
   pub(crate) fast_compatible: bool,
-
-  pub(crate) is_async: bool,
 }
 
 impl Debug for Optimizer {
@@ -364,7 +362,7 @@ impl Debug for Optimizer {
     writeln!(f, "fast_result: {:?}", self.fast_result)?;
     writeln!(f, "fast_parameters: {:?}", self.fast_parameters)?;
     writeln!(f, "transforms: {:?}", self.transforms)?;
-    writeln!(f, "is_async: {}", self.is_async)?;
+    writeln!(f, "is_async: false")?;
     writeln!(f, "fast_compatible: {}", self.fast_compatible)?;
     Ok(())
   }
@@ -384,18 +382,11 @@ impl Optimizer {
   }
 
   pub(crate) fn analyze(&mut self, op: &mut Op) -> Result<(), BailoutReason> {
-    // Fast async ops are opt-in as they have a lazy polling behavior.
-    if op.is_async && !op.attrs.must_be_fast {
-      self.fast_compatible = false;
-      return Ok(());
-    }
-
     if op.attrs.is_v8 {
       self.fast_compatible = false;
       return Ok(());
     }
 
-    self.is_async = op.is_async;
     self.fast_compatible = true;
     // Just assume for now. We will validate later.
     self.has_wasm_memory = op.attrs.is_wasm;
@@ -411,28 +402,11 @@ impl Optimizer {
       Signature {
         output: ReturnType::Type(_, ty),
         ..
-      } if !self.is_async => self.analyze_return_type(ty)?,
-
-      // No need to error on the return type for async ops, its OK if
-      // it's not a fast value.
-      Signature {
-        output: ReturnType::Type(_, ty),
-        ..
-      } => {
-        let _ = self.analyze_return_type(ty);
-        // Recover.
-        self.fast_result = None;
-        self.fast_compatible = true;
-      }
+      } => self.analyze_return_type(ty)?,
     };
 
     // The receiver, which we don't actually care about.
     self.fast_parameters.push(FastValue::V8Value);
-
-    if self.is_async {
-      // The promise ID.
-      self.fast_parameters.push(FastValue::I32);
-    }
 
     // Analyze parameters
     for (index, param) in sig.inputs.iter().enumerate() {
@@ -790,9 +764,7 @@ impl Optimizer {
             let segment = single_segment(segments)?;
             match segment {
               // Is `T` a OpState?
-              PathSegment { ident, .. }
-                if ident == "OpState" && !self.is_async =>
-              {
+              PathSegment { ident, .. } if ident == "OpState" => {
                 self.has_ref_opstate = true;
               }
               // Is `T` a str?
