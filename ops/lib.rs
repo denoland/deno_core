@@ -42,10 +42,6 @@ fn add_scope_lifetime(func: &mut ItemFn) {
 struct Op {
   orig: ItemFn,
   item: ItemFn,
-  /// Is this an async op?
-  ///   - `async fn`
-  ///   - returns a Future
-  is_async: bool,
   // optimizer: Optimizer,
   core: TokenStream2,
   attrs: Attributes,
@@ -63,6 +59,9 @@ impl Op {
     orig.sig.ident = Ident::new("call", Span::call_site());
 
     let is_async = item.sig.asyncness.is_some() || is_future(&item.sig.output);
+    if is_async {
+      panic!("op(async) is no longer supported. Use op2(async)");
+    };
     let scope_params = exclude_non_lifetime_params(&item.sig.generics.params);
     orig.sig.generics.params = scope_params;
     orig.sig.generics.where_clause.take();
@@ -76,7 +75,6 @@ impl Op {
     Self {
       orig,
       item,
-      is_async,
       core,
       attrs,
     }
@@ -95,7 +93,6 @@ impl Op {
     let Self {
       core,
       item,
-      is_async,
       orig,
       attrs,
     } = self;
@@ -136,7 +133,7 @@ impl Op {
           const NAME: &'static str = stringify!(#name);
           const DECL: #core::OpDecl = #core::_ops::OpDecl::new_internal(
             Self::name(),
-            #is_async,
+            false,
             #is_unstable,
             #is_v8,
             // TODO(mmastrac)
@@ -169,18 +166,8 @@ impl Op {
 
     let has_fallible_fast_call = active && optimizer.returns_result;
 
-    let (v8_body, arg_count) = if is_async {
-      let deferred: bool = attrs.deferred;
-      codegen_v8_async(
-        &core,
-        &item,
-        attrs,
-        item.sig.asyncness.is_some(),
-        deferred,
-      )
-    } else {
-      codegen_v8_sync(&core, &item, attrs, has_fallible_fast_call)
-    };
+    let (v8_body, arg_count) =
+      codegen_v8_sync(&core, &item, attrs, has_fallible_fast_call);
 
     // Generate wrapper
     quote! {
@@ -199,7 +186,7 @@ impl Op {
         #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
         const DECL: #core::OpDecl = #core::_ops::OpDecl::new_internal(
           Self::name(),
-          #is_async,
+          false,
           #is_unstable,
           #is_v8,
           #arg_count as u8,
@@ -280,113 +267,6 @@ pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
   }
 }
 
-/// Generate the body of a v8 func for an async op
-fn codegen_v8_async(
-  core: &TokenStream2,
-  f: &syn::ItemFn,
-  margs: Attributes,
-  asyncness: bool,
-  deferred: bool,
-) -> (TokenStream2, usize) {
-  let Attributes { is_v8, .. } = margs;
-  let special_args = f
-    .sig
-    .inputs
-    .iter()
-    .map_while(|a| {
-      (if is_v8 { scope_arg(a) } else { None })
-        .or_else(|| rc_refcell_opstate_arg(a))
-    })
-    .collect::<Vec<_>>();
-  let rust_i0 = special_args.len();
-  let args_head = special_args.into_iter().collect::<TokenStream2>();
-
-  let (arg_decls, args_tail, _) = codegen_args(core, f, rust_i0, 1, asyncness);
-
-  let wrapper = match (asyncness, is_result(&f.sig.output)) {
-    (true, true) => {
-      quote! {
-        let fut = #core::_ops::map_async_op1(ctx, Self::call(#args_head #args_tail));
-        let maybe_response = #core::_ops::queue_async_op(
-          ctx,
-          scope,
-          #deferred,
-          promise_id,
-          fut,
-        );
-      }
-    }
-    (true, false) => {
-      quote! {
-        let fut = #core::_ops::map_async_op2(ctx, Self::call(#args_head #args_tail));
-        let maybe_response = #core::_ops::queue_async_op(
-          ctx,
-          scope,
-          #deferred,
-          promise_id,
-          fut,
-        );
-      }
-    }
-    (false, true) => {
-      quote! {
-        let fut = #core::_ops::map_async_op3(ctx, Self::call(#args_head #args_tail));
-        let maybe_response = #core::_ops::queue_async_op(
-          ctx,
-          scope,
-          #deferred,
-          promise_id,
-          fut,
-        );
-      }
-    }
-    (false, false) => {
-      quote! {
-        let fut = #core::_ops::map_async_op4(ctx, Self::call(#args_head #args_tail));
-        let maybe_response = #core::_ops::queue_async_op(
-          ctx,
-          scope,
-          #deferred,
-          promise_id,
-          fut,
-        );
-      }
-    }
-  };
-
-  let token_stream = quote! {
-    use #core::futures::FutureExt;
-    // SAFETY: #core guarantees args.data() is a v8 External pointing to an OpCtx for the isolates lifetime
-    let ctx = unsafe {
-      &*(#core::v8::Local::<#core::v8::External>::cast(args.data()).value()
-      as *const #core::_ops::OpCtx)
-    };
-
-    let promise_id = args.get(0);
-    let promise_id = #core::v8::Local::<#core::v8::Integer>::try_from(promise_id)
-      .map(|l| l.value() as #core::PromiseId)
-      .map_err(#core::anyhow::Error::from);
-    // Fail if promise id invalid (not an int)
-    let promise_id: #core::PromiseId = match promise_id {
-      Ok(promise_id) => promise_id,
-      Err(err) => {
-        #core::_ops::throw_type_error(scope, format!("invalid promise id: {}", err));
-        return;
-      }
-    };
-
-    #arg_decls
-    #wrapper
-
-    if let Some(response) = maybe_response {
-      rv.set(response);
-    }
-  };
-
-  // +1 arg for the promise ID
-  (token_stream, 1 + f.sig.inputs.len() - rust_i0)
-}
-
 fn scope_arg(arg: &FnArg) -> Option<TokenStream2> {
   if is_handle_scope(arg) {
     Some(quote! { scope, })
@@ -401,16 +281,6 @@ fn opstate_arg(arg: &FnArg) -> Option<TokenStream2> {
     arg if is_mut_ref_opstate(arg) => {
       Some(quote! { &mut ::std::cell::RefCell::borrow_mut(&ctx.state), })
     }
-    _ => None,
-  }
-}
-
-fn rc_refcell_opstate_arg(arg: &FnArg) -> Option<TokenStream2> {
-  match arg {
-    arg if is_rc_refcell_opstate(arg) => Some(quote! { ctx.state.clone(), }),
-    arg if is_mut_ref_opstate(arg) => Some(
-      quote! { compile_error!("mutable opstate is not supported in async ops"), },
-    ),
     _ => None,
   }
 }

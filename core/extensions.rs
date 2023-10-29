@@ -124,11 +124,12 @@ impl OpDecl {
     slow_fn: OpFnRef,
     fast_fn: Option<FastFunction>,
   ) -> Self {
+    assert!(!is_async);
     #[allow(deprecated)]
     Self {
       name,
       enabled: true,
-      is_async,
+      is_async: false,
       is_unstable,
       is_v8,
       arg_count,
