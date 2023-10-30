@@ -62,9 +62,9 @@ pub(crate) fn generate_dispatch_async(
       },
     )?;
 
-  output.extend(gs_quote!(generator_state(deno_core, result, opctx) => {
+  output.extend(gs_quote!(generator_state(result, opctx) => {
     if #opctx.metrics_enabled() {
-      #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
+      ::deno_core::_ops::dispatch_metrics_async(&#opctx, ::deno_core::_ops::OpMetricsEvent::Dispatched);
     }
     let #result = {
       #args
@@ -74,12 +74,12 @@ pub(crate) fn generate_dispatch_async(
   // TODO(mmastrac): we should save this unwrapped result
   if signature.ret_val.unwrap_result().is_some() {
     let exception = throw_exception(generator_state);
-    output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
+    output.extend(gs_quote!(generator_state(opctx, result) => {
       let #result = match #result {
         Ok(#result) => #result,
         Err(err) => {
           if #opctx.metrics_enabled() {
-            #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Error);
+            ::deno_core::_ops::dispatch_metrics_async(&#opctx, ::deno_core::_ops::OpMetricsEvent::Error);
           }
           // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
           #exception
@@ -91,17 +91,17 @@ pub(crate) fn generate_dispatch_async(
   if config.async_lazy || config.async_deferred {
     let lazy = config.async_lazy;
     let deferred = config.async_deferred;
-    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
-      let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
+      let #promise_id = ::deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
       // Lazy and deferred results will always return None
-      #deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
+      ::deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
         #return_value
       });
     }));
   } else {
-    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
-      let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
-      if let Some(#result) = #deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
+    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
+      let #promise_id = ::deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      if let Some(#result) = ::deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
         #return_value
       }) {
         // Eager poll returned a value
@@ -141,8 +141,8 @@ pub(crate) fn generate_dispatch_async(
   };
 
   Ok(
-    gs_quote!(generator_state(deno_core, info, slow_function, slow_function_metrics) => {
-      extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+    gs_quote!(generator_state(info, slow_function, slow_function_metrics) => {
+      extern "C" fn #slow_function(#info: *const ::deno_core::v8::FunctionCallbackInfo) {
         #with_scope
         #with_retval
         #with_args
@@ -152,7 +152,7 @@ pub(crate) fn generate_dispatch_async(
         #output
       }
 
-      extern "C" fn #slow_function_metrics(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+      extern "C" fn #slow_function_metrics(#info: *const ::deno_core::v8::FunctionCallbackInfo) {
         Self::#slow_function(#info)
       }
     }),

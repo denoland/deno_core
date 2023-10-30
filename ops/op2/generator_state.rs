@@ -1,11 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::Ident;
-use proc_macro2::TokenStream;
 
 pub struct GeneratorState {
-  /// The path to the `deno_core` crate (either `deno_core` or `crate`, the latter used if the op is `(core)`).
-  pub deno_core: TokenStream,
-
   /// Identifiers for each of the arguments of the original function
   pub args: Vec<Ident>,
   /// The new identifier for the original function's contents.
@@ -59,8 +55,8 @@ pub struct GeneratorState {
 /// before invoking the [`quote!`] macro.
 ///
 /// ```nocompile
-///  gs_quote!(generator_state(deno_core, info, scope) =>
-///    (let mut #scope = unsafe { #deno_core::v8::CallbackScope::new(&*#info) };)
+///  gs_quote!(generator_state(info, scope) =>
+///    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(&*#info) };)
 ///  )
 /// ```
 macro_rules! gs_quote {

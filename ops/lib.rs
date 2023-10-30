@@ -249,6 +249,10 @@ pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[doc = include_str!("op2/README.md")]
 #[proc_macro_attribute]
 pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
+  op2_macro(attr, item)
+}
+
+fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
   match crate::op2::op2(attr.into(), item.into()) {
     Ok(output) => output.into(),
     Err(err) => {

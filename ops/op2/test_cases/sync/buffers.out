@@ -11,9 +11,9 @@ impl deno_core::_ops::Op for op_buffers {
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
         Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+            use ::deno_core::v8::fast_api::Type;
+            use ::deno_core::v8::fast_api::CType;
+            ::deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[
                     Type::V8Value,
                     Type::TypedArray(CType::Uint8),
@@ -26,9 +26,9 @@ impl deno_core::_ops::Op for op_buffers {
             )
         }),
         Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+            use ::deno_core::v8::fast_api::Type;
+            use ::deno_core::v8::fast_api::CType;
+            ::deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[
                     Type::V8Value,
                     Type::TypedArray(CType::Uint8),
@@ -53,56 +53,56 @@ impl op_buffers {
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast_metrics(
-        this: deno_core::v8::Local<deno_core::v8::Object>,
-        arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
-        arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
-        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
-        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
-        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+        this: ::deno_core::v8::Local<::deno_core::v8::Object>,
+        arg0: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg1: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg2: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg3: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        fast_api_callback_options: *mut ::deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let opctx = unsafe {
-            &*(deno_core::v8::Local::<
-                deno_core::v8::External,
+            &*(::deno_core::v8::Local::<
+                ::deno_core::v8::External,
             >::cast(unsafe { fast_api_callback_options.data.data })
-                .value() as *const deno_core::_ops::OpCtx)
+                .value() as *const ::deno_core::_ops::OpCtx)
         };
-        deno_core::_ops::dispatch_metrics_fast(
+        ::deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+            ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         let res = Self::v8_fn_ptr_fast(this, arg0, arg1, arg2, arg3);
-        deno_core::_ops::dispatch_metrics_fast(
+        ::deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
+            ::deno_core::_ops::OpMetricsEvent::Completed,
         );
         res
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
-        arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
-        arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
-        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
-        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        _: ::deno_core::v8::Local<::deno_core::v8::Object>,
+        arg0: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg1: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg2: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
+        arg3: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
         let result = {
             let arg0 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg0,
                 )
             }
                 .expect("Invalid buffer");
             let arg0 = arg0;
             let arg1 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg1,
                 )
             }
                 .expect("Invalid buffer");
             let arg1 = arg1;
             let arg2 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg2,
                 )
             }
@@ -113,7 +113,7 @@ impl op_buffers {
                 arg2.as_mut_ptr() as _
             };
             let arg3 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg3,
                 )
             }
@@ -127,27 +127,29 @@ impl op_buffers {
         };
         result as _
     }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let result = {
             let arg0 = args.get(0usize as i32);
             let mut arg0_temp;
-            arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg0) } {
+            arg0_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u8>(arg0) } {
                 Ok(arg0) => arg0,
                 Err(arg0_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg0_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -155,17 +157,19 @@ impl op_buffers {
             let arg0 = arg0_temp.as_ref();
             let arg1 = args.get(1usize as i32);
             let mut arg1_temp;
-            arg1_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg1) } {
+            arg1_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u8>(arg1) } {
                 Ok(arg1) => arg1,
                 Err(arg1_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg1_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -173,17 +177,19 @@ impl op_buffers {
             let arg1 = arg1_temp.as_mut();
             let arg2 = args.get(2usize as i32);
             let mut arg2_temp;
-            arg2_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg2) } {
+            arg2_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u8>(arg2) } {
                 Ok(arg2) => arg2,
                 Err(arg2_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg2_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -195,17 +201,19 @@ impl op_buffers {
             };
             let arg3 = args.get(3usize as i32);
             let mut arg3_temp;
-            arg3_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg3) } {
+            arg3_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u8>(arg3) } {
                 Ok(arg3) => arg3,
                 Err(arg3_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg3_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -217,24 +225,24 @@ impl op_buffers {
             };
             Self::call(arg0, arg1, arg2, arg3)
         };
-        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
+            &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data())
+                .value() as *const ::deno_core::_ops::OpCtx)
         };
-        deno_core::_ops::dispatch_metrics_slow(
+        ::deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+            ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         Self::v8_fn_ptr(info);
-        deno_core::_ops::dispatch_metrics_slow(
+        ::deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
+            ::deno_core::_ops::OpMetricsEvent::Completed,
         );
     }
     #[inline(always)]
@@ -254,9 +262,9 @@ impl deno_core::_ops::Op for op_buffers_32 {
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
         Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+            use ::deno_core::v8::fast_api::Type;
+            use ::deno_core::v8::fast_api::CType;
+            ::deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[
                     Type::V8Value,
                     Type::TypedArray(CType::Uint32),
@@ -269,9 +277,9 @@ impl deno_core::_ops::Op for op_buffers_32 {
             )
         }),
         Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
+            use ::deno_core::v8::fast_api::Type;
+            use ::deno_core::v8::fast_api::CType;
+            ::deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[
                     Type::V8Value,
                     Type::TypedArray(CType::Uint32),
@@ -296,56 +304,56 @@ impl op_buffers_32 {
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast_metrics(
-        this: deno_core::v8::Local<deno_core::v8::Object>,
-        arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
-        arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
-        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
-        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
-        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+        this: ::deno_core::v8::Local<::deno_core::v8::Object>,
+        arg0: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg1: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg2: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg3: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        fast_api_callback_options: *mut ::deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let opctx = unsafe {
-            &*(deno_core::v8::Local::<
-                deno_core::v8::External,
+            &*(::deno_core::v8::Local::<
+                ::deno_core::v8::External,
             >::cast(unsafe { fast_api_callback_options.data.data })
-                .value() as *const deno_core::_ops::OpCtx)
+                .value() as *const ::deno_core::_ops::OpCtx)
         };
-        deno_core::_ops::dispatch_metrics_fast(
+        ::deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+            ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         let res = Self::v8_fn_ptr_fast(this, arg0, arg1, arg2, arg3);
-        deno_core::_ops::dispatch_metrics_fast(
+        ::deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
+            ::deno_core::_ops::OpMetricsEvent::Completed,
         );
         res
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
-        arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
-        arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
-        arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
-        arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        _: ::deno_core::v8::Local<::deno_core::v8::Object>,
+        arg0: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg1: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg2: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
+        arg3: *mut ::deno_core::v8::fast_api::FastApiTypedArray<u32>,
     ) -> () {
         let result = {
             let arg0 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg0,
                 )
             }
                 .expect("Invalid buffer");
             let arg0 = arg0;
             let arg1 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg1,
                 )
             }
                 .expect("Invalid buffer");
             let arg1 = arg1;
             let arg2 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg2,
                 )
             }
@@ -356,7 +364,7 @@ impl op_buffers_32 {
                 arg2.as_mut_ptr() as _
             };
             let arg3 = unsafe {
-                deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
+                ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
                     arg3,
                 )
             }
@@ -370,27 +378,29 @@ impl op_buffers_32 {
         };
         result as _
     }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let result = {
             let arg0 = args.get(0usize as i32);
             let mut arg0_temp;
-            arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg0) } {
+            arg0_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u32>(arg0) } {
                 Ok(arg0) => arg0,
                 Err(arg0_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg0_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -398,17 +408,19 @@ impl op_buffers_32 {
             let arg0 = arg0_temp.as_ref();
             let arg1 = args.get(1usize as i32);
             let mut arg1_temp;
-            arg1_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg1) } {
+            arg1_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u32>(arg1) } {
                 Ok(arg1) => arg1,
                 Err(arg1_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg1_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -416,17 +428,19 @@ impl op_buffers_32 {
             let arg1 = arg1_temp.as_mut();
             let arg2 = args.get(2usize as i32);
             let mut arg2_temp;
-            arg2_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg2) } {
+            arg2_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u32>(arg2) } {
                 Ok(arg2) => arg2,
                 Err(arg2_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg2_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -438,17 +452,19 @@ impl op_buffers_32 {
             };
             let arg3 = args.get(3usize as i32);
             let mut arg3_temp;
-            arg3_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg3) } {
+            arg3_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u32>(arg3) } {
                 Ok(arg3) => arg3,
                 Err(arg3_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg3_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
@@ -460,24 +476,24 @@ impl op_buffers_32 {
             };
             Self::call(arg0, arg1, arg2, arg3)
         };
-        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
+            &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data())
+                .value() as *const ::deno_core::_ops::OpCtx)
         };
-        deno_core::_ops::dispatch_metrics_slow(
+        ::deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+            ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         Self::v8_fn_ptr(info);
-        deno_core::_ops::dispatch_metrics_slow(
+        ::deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
+            ::deno_core::_ops::OpMetricsEvent::Completed,
         );
     }
     #[inline(always)]
@@ -508,11 +524,11 @@ impl op_buffers_option {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let result = {
@@ -521,19 +537,22 @@ impl op_buffers_option {
             let arg0 = if arg0.is_null_or_undefined() {
                 None
             } else {
-                arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg0) } {
+                arg0_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u8>(arg0) } {
                     Ok(arg0) => arg0,
                     Err(arg0_err) => {
                         let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(&*info)
+                            ::deno_core::v8::CallbackScope::new(&*info)
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
+                        let msg = ::deno_core::v8::String::new_from_one_byte(
                                 &mut scope,
                                 arg0_err.as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
+                                ::deno_core::v8::NewStringType::Normal,
                             )
                             .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                        let exc = ::deno_core::v8::Exception::type_error(
+                            &mut scope,
+                            msg,
+                        );
                         scope.throw_exception(exc);
                         return;
                     }
@@ -546,46 +565,49 @@ impl op_buffers_option {
             let arg1 = if arg1.is_null_or_undefined() {
                 None
             } else {
-                arg1_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg1) } {
+                arg1_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u8>(arg1) } {
                     Ok(arg1) => arg1,
                     Err(arg1_err) => {
                         let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(&*info)
+                            ::deno_core::v8::CallbackScope::new(&*info)
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
+                        let msg = ::deno_core::v8::String::new_from_one_byte(
                                 &mut scope,
                                 arg1_err.as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
+                                ::deno_core::v8::NewStringType::Normal,
                             )
                             .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                        let exc = ::deno_core::v8::Exception::type_error(
+                            &mut scope,
+                            msg,
+                        );
                         scope.throw_exception(exc);
                         return;
                     }
                 };
-                let arg1 = deno_core::serde_v8::JsBuffer::from_parts(arg1_temp);
+                let arg1 = ::deno_core::serde_v8::JsBuffer::from_parts(arg1_temp);
                 Some(arg1)
             };
             Self::call(arg0, arg1)
         };
-        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
     }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
+            &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data())
+                .value() as *const ::deno_core::_ops::OpCtx)
         };
-        deno_core::_ops::dispatch_metrics_slow(
+        ::deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+            ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         Self::v8_fn_ptr(info);
-        deno_core::_ops::dispatch_metrics_slow(
+        ::deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
+            ::deno_core::_ops::OpMetricsEvent::Completed,
         );
     }
     #[inline(always)]

@@ -1,6 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate as deno_core;
-
 use crate::error::AnyError;
 use crate::error::JsError;
 use crate::modules::StaticModuleLoader;
@@ -11,7 +9,6 @@ use anyhow::Error;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
-use deno_ops::op2;
 use futures::future::poll_fn;
 use std::borrow::Cow;
 use std::rc::Rc;

@@ -1,9 +1,10 @@
-use crate::buffer_strategy::AdaptiveBufferStrategy;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::buffer_strategy::AdaptiveBufferStrategy;
 use crate::error::format_file_name;
 use crate::error::type_error;
 use crate::io::BufMutView;
 use crate::io::BufView;
+use crate::op2;
 use crate::ops_builtin_v8;
 use crate::ops_metrics::OpMetrics;
 use crate::resources::ResourceId;
@@ -12,14 +13,13 @@ use crate::OpState;
 use crate::Resource;
 use anyhow::Error;
 use bytes::BytesMut;
-use deno_ops::op2;
 use std::cell::RefCell;
 use std::io::stderr;
 use std::io::stdout;
 use std::io::Write;
 use std::rc::Rc;
 
-crate::extension!(
+deno_core::extension!(
   core,
   ops = [
     op_close,
@@ -86,7 +86,7 @@ crate::extension!(
 
 /// Return map of resources with id as key
 /// and string representation as value.
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_resources(state: &mut OpState) -> Vec<(ResourceId, String)> {
   state
@@ -96,37 +96,37 @@ pub fn op_resources(state: &mut OpState) -> Vec<(ResourceId, String)> {
     .collect()
 }
 
-#[op2(core, fast)]
+#[op2(fast)]
 fn op_add(a: i32, b: i32) -> i32 {
   a + b
 }
 
-#[op2(async, core)]
+#[op2(async)]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
 }
 
-#[op2(core, fast)]
+#[op2(fast)]
 pub fn op_void_sync() {}
 
-#[op2(async, core)]
+#[op2(async)]
 pub async fn op_void_async() {}
 
-#[op2(async, core)]
+#[op2(async)]
 pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
-#[op2(async(deferred), core, fast)]
+#[op2(async(deferred), fast)]
 pub async fn op_error_async_deferred() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
-#[op2(async(deferred), core, fast)]
+#[op2(async(deferred), fast)]
 pub async fn op_void_async_deferred() {}
 
 /// Remove a resource from the resource table.
-#[op2(core, fast)]
+#[op2(fast)]
 pub fn op_close(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -138,14 +138,14 @@ pub fn op_close(
 
 /// Try to remove a resource from the resource table. If there is no resource
 /// with the specified `rid`, this is a no-op.
-#[op2(core, fast)]
+#[op2(fast)]
 pub fn op_try_close(state: Rc<RefCell<OpState>>, #[smi] rid: ResourceId) {
   if let Ok(resource) = state.borrow_mut().resource_table.take_any(rid) {
     resource.close();
   }
 }
 
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
   let aggregate = state.tracker.aggregate();
@@ -154,7 +154,7 @@ pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
 }
 
 /// Builtin utility to print to stdout/stderr
-#[op2(core, fast)]
+#[op2(fast)]
 pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error> {
   if is_err {
     stderr().write_all(msg.as_bytes())?;
@@ -182,7 +182,7 @@ impl Resource for WasmStreamingResource {
 }
 
 /// Feed bytes to WasmStreamingResource.
-#[op2(core, fast)]
+#[op2(fast)]
 pub fn op_wasm_streaming_feed(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -198,7 +198,7 @@ pub fn op_wasm_streaming_feed(
   Ok(())
 }
 
-#[op2(core, fast)]
+#[op2(fast)]
 pub fn op_wasm_streaming_set_url(
   state: &mut OpState,
   #[smi] rid: ResourceId,
@@ -212,7 +212,7 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
-#[op2(async, core)]
+#[op2(async)]
 async fn op_read(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -223,7 +223,7 @@ async fn op_read(
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
-#[op2(async, core)]
+#[op2(async)]
 #[buffer]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
@@ -258,7 +258,7 @@ async fn op_read_all(
   Ok(buf.maybe_unwrap_bytes().unwrap())
 }
 
-#[op2(async, core)]
+#[op2(async)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -270,7 +270,7 @@ async fn op_write(
   Ok(resp.nwritten() as u32)
 }
 
-#[op2(core, fast)]
+#[op2(fast)]
 fn op_read_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -280,7 +280,7 @@ fn op_read_sync(
   resource.read_byob_sync(data).map(|n| n as u32)
 }
 
-#[op2(core, fast)]
+#[op2(fast)]
 fn op_write_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -291,7 +291,7 @@ fn op_write_sync(
   Ok(nwritten as u32)
 }
 
-#[op2(async, core)]
+#[op2(async)]
 async fn op_write_all(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -303,7 +303,7 @@ async fn op_write_all(
   Ok(())
 }
 
-#[op2(async, core)]
+#[op2(async)]
 async fn op_write_type_error(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -314,7 +314,7 @@ async fn op_write_type_error(
   Ok(())
 }
 
-#[op2(async, core)]
+#[op2(async)]
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -323,18 +323,18 @@ async fn op_shutdown(
   resource.shutdown().await
 }
 
-#[op2(core)]
+#[op2]
 #[string]
 fn op_format_file_name(#[string] file_name: &str) -> String {
   format_file_name(file_name)
 }
 
-#[op2(core, fast)]
+#[op2(fast)]
 fn op_is_proxy(value: v8::Local<v8::Value>) -> bool {
   value.is_proxy()
 }
 
-#[op2(core)]
+#[op2]
 fn op_str_byte_length(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,

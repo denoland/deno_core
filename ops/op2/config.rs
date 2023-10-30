@@ -7,8 +7,6 @@ use crate::op2::Op2Error;
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub(crate) struct MacroConfig {
-  /// Use `(core)` for ops that live in `deno_core`.
-  pub core: bool,
   /// Generate a fastcall method (must be fastcall compatible).
   pub fast: bool,
   /// Do not generate a fastcall method (must be fastcall compatible).
@@ -17,9 +15,9 @@ pub(crate) struct MacroConfig {
   pub fast_alternatives: Vec<String>,
   /// Marks an async function (either `async fn` or `fn -> impl Future`)
   pub r#async: bool,
-  /// Marks an lazy async function (async must also be true)
+  /// Marks a lazy async function (async must also be true)
   pub async_lazy: bool,
-  /// Marks an deferred async function (async must also be true)
+  /// Marks a deferred async function (async must also be true)
   pub async_deferred: bool,
 }
 
@@ -58,9 +56,7 @@ impl MacroConfig {
     }
 
     for flag in flags {
-      if flag == "core" {
-        config.core = true;
-      } else if flag == "fast" {
+      if flag == "fast" {
         config.fast = true;
       } else if flag.starts_with("fast(") {
         let tokens =
@@ -207,14 +203,6 @@ mod tests {
       MacroConfig {
         r#async: true,
         async_lazy: true,
-        ..Default::default()
-      },
-    );
-    test_parse(
-      "(async, core)",
-      MacroConfig {
-        r#async: true,
-        core: true,
         ..Default::default()
       },
     );

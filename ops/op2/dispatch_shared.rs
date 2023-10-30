@@ -30,15 +30,14 @@ pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
 
 /// Given an [`Arg`] containing a V8 value, converts this value to its final argument form.
 pub fn v8_intermediate_to_global_arg(
-  deno_core: &TokenStream,
   isolate: &Ident,
   i: &Ident,
   arg: &Arg,
 ) -> TokenStream {
   let arg = match arg {
-    Arg::V8Global(_) => quote!(#deno_core::v8::Global::new(&mut #isolate, #i)),
+    Arg::V8Global(_) => quote!(::deno_core::v8::Global::new(&mut #isolate, #i)),
     Arg::OptionV8Global(_) => {
-      quote!(#deno_core::v8::Global::new(&mut #isolate, #i))
+      quote!(::deno_core::v8::Global::new(&mut #isolate, #i))
     }
     _ => unreachable!("Not a v8 global arg: {arg:?}"),
   };
@@ -51,7 +50,6 @@ pub fn v8_to_arg(
   v8: &V8Arg,
   arg_ident: &Ident,
   arg: &Arg,
-  deno_core: &TokenStream,
   mut throw_type_error: impl FnMut() -> Result<TokenStream, V8MappingError>,
   extract_intermediate: TokenStream,
 ) -> Result<TokenStream, V8MappingError> {
@@ -69,7 +67,7 @@ pub fn v8_to_arg(
     throw_type_error()?
   };
   Ok(quote! {
-    let Ok(mut #arg_ident) = #deno_core::_ops::#try_convert::<#deno_core::v8::#v8>(#arg_ident) else {
+    let Ok(mut #arg_ident) = ::deno_core::_ops::#try_convert::<::deno_core::v8::#v8>(#arg_ident) else {
       #throw_type_error_block
     };
     #extract_intermediate
@@ -78,7 +76,6 @@ pub fn v8_to_arg(
 
 /// Given a `V8Slice` in `v8slice`, turns it into the appropriate buffer type in `arg_ident`.
 pub fn v8slice_to_buffer(
-  deno_core: &TokenStream,
   arg_ident: &Ident,
   v8slice: &Ident,
   buffer: BufferType,
@@ -123,7 +120,7 @@ pub fn v8slice_to_buffer(
       quote!(let #arg_ident = #v8slice.to_vec().into();)
     }
     BufferType::JsBuffer => {
-      quote!(let #arg_ident = #deno_core::serde_v8::JsBuffer::from_parts(#v8slice);)
+      quote!(let #arg_ident = ::deno_core::serde_v8::JsBuffer::from_parts(#v8slice);)
     }
     _ => return Err("a v8slice argument"),
   };
@@ -164,7 +161,6 @@ pub fn byte_slice_to_buffer(
 }
 
 pub fn fast_api_typed_array_to_buffer(
-  deno_core: &TokenStream,
   arg_ident: &Ident,
   input: &Ident,
   buffer: BufferType,
@@ -173,7 +169,7 @@ pub fn fast_api_typed_array_to_buffer(
   Ok(quote! {
     // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
     // fastcall
-    let #input = unsafe { #deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(#input) }.expect("Invalid buffer");
+    let #input = unsafe { ::deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(#input) }.expect("Invalid buffer");
     #convert
   })
 }
