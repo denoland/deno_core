@@ -1,10 +1,10 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate as deno_core;
 use crate::error::custom_error;
 use crate::error::is_instance_of_error;
 use crate::error::range_error;
 use crate::error::type_error;
 use crate::error::JsError;
+use crate::op2;
 use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::script_origin;
@@ -15,7 +15,6 @@ use crate::JsBuffer;
 use crate::JsRealm;
 use crate::JsRuntime;
 use anyhow::Error;
-use deno_ops::op2;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;

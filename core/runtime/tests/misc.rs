@@ -9,7 +9,6 @@ use anyhow::Error;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
-use deno_ops::op2;
 use futures::future::poll_fn;
 use std::borrow::Cow;
 use std::rc::Rc;
@@ -22,9 +21,6 @@ use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
 use url::Url;
-
-// Required for #[op2] inside deno_core
-use crate as deno_core;
 
 #[test]
 fn icu() {

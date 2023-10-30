@@ -16,9 +16,6 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use url::Url;
 
-// Required for #[op2] inside deno_core
-use crate as deno_core;
-
 #[tokio::test]
 async fn test_async_opstate_borrow() {
   struct InnerState(u64);

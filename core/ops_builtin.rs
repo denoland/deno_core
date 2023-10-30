@@ -4,6 +4,7 @@ use crate::error::format_file_name;
 use crate::error::type_error;
 use crate::io::BufMutView;
 use crate::io::BufView;
+use crate::op2;
 use crate::ops_builtin_v8;
 use crate::ops_metrics::OpMetrics;
 use crate::resources::ResourceId;
@@ -12,17 +13,13 @@ use crate::OpState;
 use crate::Resource;
 use anyhow::Error;
 use bytes::BytesMut;
-use deno_ops::op2;
 use std::cell::RefCell;
 use std::io::stderr;
 use std::io::stdout;
 use std::io::Write;
 use std::rc::Rc;
 
-// Required for #[op2] inside deno_core
-use crate as deno_core;
-
-crate::extension!(
+deno_core::extension!(
   core,
   ops = [
     op_close,

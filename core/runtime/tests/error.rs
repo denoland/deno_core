@@ -1,13 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::custom_error;
 use crate::error::JsError;
-use crate::*;
+use crate::op2;
+use crate::JsRuntime;
+use crate::RuntimeOptions;
 use anyhow::Error;
 use futures::future::poll_fn;
 use std::task::Poll;
-
-// Required for #[op2] inside deno_core
-use crate as deno_core;
 
 #[tokio::test]
 async fn test_error_builder() {

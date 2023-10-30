@@ -751,6 +751,7 @@ mod tests {
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
+  use crate::op2;
   use crate::runtime::JsRuntimeState;
   use crate::FastString;
   use crate::JsRuntime;
@@ -759,7 +760,6 @@ mod tests {
   use anyhow::bail;
   use anyhow::Error;
   use bytes::BytesMut;
-  use deno_ops::op2;
   use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
@@ -770,10 +770,7 @@ mod tests {
   use std::rc::Rc;
   use std::time::Duration;
 
-  // Required for #[op2] inside deno_core
-  use crate as deno_core;
-
-  crate::extension!(
+  deno_core::extension!(
     testing,
     ops = [
       op_test_fail,

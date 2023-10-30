@@ -22,73 +22,78 @@ impl op_async_v8_buffer {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        let mut scope = unsafe { ::deno_core::v8::CallbackScope::new(&*info) };
+        let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
+            &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data())
+                .value() as *const ::deno_core::_ops::OpCtx)
         };
         if opctx.metrics_enabled() {
-            deno_core::_ops::dispatch_metrics_async(
+            ::deno_core::_ops::dispatch_metrics_async(
                 &opctx,
-                deno_core::_ops::OpMetricsEvent::Dispatched,
+                ::deno_core::_ops::OpMetricsEvent::Dispatched,
             );
         }
         let result = {
             let arg0 = args.get(1usize as i32);
             let mut arg0_temp;
-            arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg0) } {
+            arg0_temp = match unsafe { ::deno_core::_ops::to_v8_slice::<u8>(arg0) } {
                 Ok(arg0) => arg0,
                 Err(arg0_err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
+                    let mut scope = unsafe {
+                        ::deno_core::v8::CallbackScope::new(&*info)
+                    };
+                    let msg = ::deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             arg0_err.as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
+                            ::deno_core::v8::NewStringType::Normal,
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
             };
-            let arg0 = deno_core::serde_v8::JsBuffer::from_parts(arg0_temp);
+            let arg0 = ::deno_core::serde_v8::JsBuffer::from_parts(arg0_temp);
             Self::call(arg0)
         };
-        let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
+        let promise_id = ::deno_core::_ops::to_i32_option(&args.get(0))
             .unwrap_or_default();
-        if let Some(result) = deno_core::_ops::map_async_op_infallible(
+        if let Some(result) = ::deno_core::_ops::map_async_op_infallible(
             opctx,
             false,
             false,
             promise_id,
             result,
             |scope, result| {
-                deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, scope)
+                ::deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, scope)
             },
         ) {
-            match deno_core::_ops::RustToV8Fallible::to_v8_fallible(result, &mut scope) {
+            match ::deno_core::_ops::RustToV8Fallible::to_v8_fallible(
+                result,
+                &mut scope,
+            ) {
                 Ok(v) => rv.set(v),
                 Err(rv_err) => {
-                    let msg = deno_core::v8::String::new(
+                    let msg = ::deno_core::v8::String::new(
                             &mut scope,
-                            &format!("{}", deno_core::anyhow::Error::from(rv_err)),
+                            &format!("{}", ::deno_core::anyhow::Error::from(rv_err)),
                         )
                         .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
                     return;
                 }
             }
         }
     }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+    extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
         Self::v8_fn_ptr(info)
     }
     #[inline(always)]

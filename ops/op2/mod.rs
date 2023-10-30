@@ -73,7 +73,8 @@ pub enum V8SignatureMappingError {
 
 pub type V8MappingError = &'static str;
 
-pub fn op2(
+/// Generate the op2 macro expansion.
+pub(crate) fn op2(
   attr: TokenStream,
   item: TokenStream,
 ) -> Result<TokenStream, Op2Error> {
