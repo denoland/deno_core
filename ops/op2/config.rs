@@ -7,9 +7,6 @@ use crate::op2::Op2Error;
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub(crate) struct MacroConfig {
-  /// Set out-of-band for ops that live in `deno_core`.
-  #[doc(hidden)]
-  pub core: bool,
   /// Generate a fastcall method (must be fastcall compatible).
   pub fast: bool,
   /// Do not generate a fastcall method (must be fastcall compatible).
