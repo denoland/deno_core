@@ -130,13 +130,10 @@ pub(crate) fn initialize_context<'s>(
   codegen.push_str(include_str!("bindings.js"));
   _ = writeln!(
     codegen,
-    // "Deno.__op__ = function(opFns, callConsole, console, isOneByte, fromUtf8, toUtf8) {{"
     "Deno.__op__ = function(opFns, callConsole, console) {{"
   );
   if init_mode == InitMode::New {
     _ = writeln!(codegen, "Deno.__op__console(callConsole, console);");
-    // _ = writeln!(codegen, "Deno.core = {{ ops: {{}}, asyncOps: {{}}, isOneByte, fromUtf8, toUtf8 }};");
-    _ = writeln!(codegen, "Deno.core = {{ ops: {{}}, asyncOps: {{}} }};");
   }
   for op_ctx in op_ctxs {
     if op_ctx.decl.enabled {
@@ -182,28 +179,17 @@ pub(crate) fn initialize_context<'s>(
 
     // Bind v8 console object to Deno.core.console
     let extra_binding_obj = context.get_extras_binding_object(scope);
-    let console_obj: v8::Local<v8::Object> =
-      get(scope, extra_binding_obj, b"console", "%console");
-    // Disabled because temporarily reverted.
-    // let is_one_byte_fn: v8::Local<v8::Object> =
-    //   get(scope, extra_binding_obj, b"isOneByte", "%isOneByte");
-    // let from_utf8_fn: v8::Local<v8::Object> =
-    //   get(scope, extra_binding_obj, b"fromUtf8", "%fromUtf8");
-    // let to_utf8_fn: v8::Local<v8::Object> =
-    //   get(scope, extra_binding_obj, b"toUtf8", "%toUtf8");
+    let console_obj: v8::Local<v8::Object> = get(
+      scope,
+      extra_binding_obj,
+      b"console",
+      "ExtrasBindingObject.console",
+    );
 
     op_fn.call(
       scope,
       recv.into(),
-      &[
-        op_fns.into(),
-        call_console_fn.into(),
-        console_obj.into(),
-        // Disabled because temporarily reverted.
-        // is_one_byte_fn.into(),
-        // from_utf8_fn.into(),
-        // to_utf8_fn.into(),
-      ],
+      &[op_fns.into(), call_console_fn.into(), console_obj.into()],
     );
   }
 
