@@ -130,11 +130,13 @@ pub(crate) fn initialize_context<'s>(
   codegen.push_str(include_str!("bindings.js"));
   _ = writeln!(
     codegen,
-    "Deno.__op__ = function(opFns, callConsole, console, isOneByte, fromUtf8, toUtf8) {{"
+    // "Deno.__op__ = function(opFns, callConsole, console, isOneByte, fromUtf8, toUtf8) {{"
+    "Deno.__op__ = function(opFns, callConsole, console) {{"
   );
   if init_mode == InitMode::New {
     _ = writeln!(codegen, "Deno.__op__console(callConsole, console);");
-    _ = writeln!(codegen, "Deno.core = {{ ops: {{}}, asyncOps: {{}}, isOneByte, fromUtf8, toUtf8 }};");
+    // _ = writeln!(codegen, "Deno.core = {{ ops: {{}}, asyncOps: {{}}, isOneByte, fromUtf8, toUtf8 }};");
+    _ = writeln!(codegen, "Deno.core = {{ ops: {{}}, asyncOps: {{}} }};");
   }
   for op_ctx in op_ctxs {
     if op_ctx.decl.enabled {
@@ -182,12 +184,13 @@ pub(crate) fn initialize_context<'s>(
     let extra_binding_obj = context.get_extras_binding_object(scope);
     let console_obj: v8::Local<v8::Object> =
       get(scope, extra_binding_obj, b"console", "%console");
-    let is_one_byte_fn: v8::Local<v8::Object> =
-      get(scope, extra_binding_obj, b"isOneByte", "%isOneByte");
-    let from_utf8_fn: v8::Local<v8::Object> =
-      get(scope, extra_binding_obj, b"fromUtf8", "%fromUtf8");
-    let to_utf8_fn: v8::Local<v8::Object> =
-      get(scope, extra_binding_obj, b"toUtf8", "%toUtf8");
+    // Disabled because temporarily reverted.
+    // let is_one_byte_fn: v8::Local<v8::Object> =
+    //   get(scope, extra_binding_obj, b"isOneByte", "%isOneByte");
+    // let from_utf8_fn: v8::Local<v8::Object> =
+    //   get(scope, extra_binding_obj, b"fromUtf8", "%fromUtf8");
+    // let to_utf8_fn: v8::Local<v8::Object> =
+    //   get(scope, extra_binding_obj, b"toUtf8", "%toUtf8");
 
     op_fn.call(
       scope,
@@ -196,9 +199,10 @@ pub(crate) fn initialize_context<'s>(
         op_fns.into(),
         call_console_fn.into(),
         console_obj.into(),
-        is_one_byte_fn.into(),
-        from_utf8_fn.into(),
-        to_utf8_fn.into(),
+        // Disabled because temporarily reverted.
+        // is_one_byte_fn.into(),
+        // from_utf8_fn.into(),
+        // to_utf8_fn.into(),
       ],
     );
   }
