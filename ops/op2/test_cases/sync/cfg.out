@@ -68,12 +68,17 @@ impl op_maybe_windows {
         let result = { Self::call() };
         result as _
     }
-    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+    #[inline(always)]
+    fn slow_function_impl(info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
         let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
         let result = { Self::call() };
-        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+        return 0;
+    }
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(info);
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
         let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
@@ -87,11 +92,18 @@ impl op_maybe_windows {
             &opctx,
             ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
-        Self::v8_fn_ptr(info);
-        ::deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Completed,
-        );
+        let res = Self::slow_function_impl(info);
+        if res == 0 {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Completed,
+            );
+        } else {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Error,
+            );
+        }
     }
     #[inline(always)]
     /// This is a doc comment.
@@ -169,12 +181,17 @@ impl op_maybe_windows {
         let result = { Self::call() };
         result as _
     }
-    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+    #[inline(always)]
+    fn slow_function_impl(info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
         let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
         let result = { Self::call() };
-        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+        return 0;
+    }
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(info);
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
         let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
@@ -188,11 +205,18 @@ impl op_maybe_windows {
             &opctx,
             ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
-        Self::v8_fn_ptr(info);
-        ::deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Completed,
-        );
+        let res = Self::slow_function_impl(info);
+        if res == 0 {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Completed,
+            );
+        } else {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Error,
+            );
+        }
     }
     #[inline(always)]
     /// This is a doc comment.

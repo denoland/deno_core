@@ -6,7 +6,6 @@ use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::op2;
 use crate::ops_builtin_v8;
-use crate::ops_metrics::OpMetrics;
 use crate::resources::ResourceId;
 use crate::JsBuffer;
 use crate::OpState;
@@ -35,7 +34,6 @@ deno_core::extension!(
     op_void_async_deferred,
     op_add,
     op_add_async,
-    // TODO(@AaronO): track IO metrics for builtin streams
     op_read,
     op_read_all,
     op_write,
@@ -44,7 +42,6 @@ deno_core::extension!(
     op_write_all,
     op_write_type_error,
     op_shutdown,
-    op_metrics,
     op_format_file_name,
     op_is_proxy,
     op_str_byte_length,
@@ -143,14 +140,6 @@ pub fn op_try_close(state: Rc<RefCell<OpState>>, #[smi] rid: ResourceId) {
   if let Ok(resource) = state.borrow_mut().resource_table.take_any(rid) {
     resource.close();
   }
-}
-
-#[op2]
-#[serde]
-pub fn op_metrics(state: &mut OpState) -> (OpMetrics, Vec<OpMetrics>) {
-  let aggregate = state.tracker.aggregate();
-  let per_op = state.tracker.per_op().clone();
-  (aggregate, per_op)
 }
 
 /// Builtin utility to print to stdout/stderr

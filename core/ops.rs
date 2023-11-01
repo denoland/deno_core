@@ -3,12 +3,12 @@
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
+use crate::ops_metrics::OpMetricsFn;
 use crate::resources::ResourceTable;
 use crate::runtime::ContextState;
 use crate::runtime::JsRuntimeState;
 use crate::FeatureChecker;
 use crate::OpDecl;
-use crate::OpsTracker;
 use anyhow::Error;
 use futures::task::AtomicWaker;
 use futures::Future;
@@ -113,45 +113,26 @@ impl OpError {
   }
 }
 
-pub fn to_op_result<R: Serialize + 'static>(
-  get_class: GetErrorClassFn,
-  result: Result<R, Error>,
-) -> OpResult {
-  match result {
-    Ok(v) => OpResult::Ok(v.into()),
-    Err(err) => OpResult::Err(OpError::new(get_class, err)),
-  }
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum OpMetricsEvent {
-  /// Entered an op dispatch.
-  Dispatched,
-  /// Left an op synchronously.
-  Completed,
-  /// Left an op asynchronously.
-  CompletedAsync,
-  /// Left an op synchronously with an exception.
-  Error,
-  /// Left an op asynchronously with an exception.
-  ErrorAsync,
-}
-
-pub type OpMetricsFn = Rc<dyn Fn(&OpDecl, OpMetricsEvent)>;
-
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
 // stored in a contiguous array.
 pub struct OpCtx {
+  /// The id for this op. Will be identical across realms.
   pub id: OpId,
-  /// A stashed Isolate that ops can use in callbacks
+
+  /// A stashed Isolate that ops can make use of. This is a raw isolate pointer, and as such, is
+  /// extremely dangerous to use.
   pub isolate: *mut Isolate,
+
+  #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
+  #[doc(hidden)]
   pub get_error_class_fn: GetErrorClassFn,
-  pub decl: Rc<OpDecl>,
-  pub fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
-  pub runtime_state: Weak<RefCell<JsRuntimeState>>,
+
+  pub(crate) decl: Rc<OpDecl>,
+  pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
+  pub(crate) runtime_state: Weak<RefCell<JsRuntimeState>>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
@@ -177,9 +158,9 @@ impl OpCtx {
     // version and require a slightly different set of arguments (for example, it may need the fastcall
     // callback information to get the `OpCtx`).
     let fast_fn = if metrics_fn.is_some() {
-      &decl.fast_fn
-    } else {
       &decl.fast_fn_with_metrics
+    } else {
+      &decl.fast_fn
     };
 
     if let Some(fast_fn) = fast_fn {
@@ -211,6 +192,11 @@ impl OpCtx {
       isolate,
       metrics_fn,
     }
+  }
+
+  #[inline(always)]
+  pub fn decl(&self) -> &OpDecl {
+    &self.decl
   }
 
   pub fn metrics_enabled(&self) -> bool {
@@ -247,21 +233,16 @@ impl OpCtx {
 /// Maintains the resources and ops inside a JS runtime.
 pub struct OpState {
   pub resource_table: ResourceTable,
-  pub tracker: OpsTracker,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
   pub feature_checker: Arc<FeatureChecker>,
 }
 
 impl OpState {
-  pub fn new(
-    ops_count: usize,
-    maybe_feature_checker: Option<Arc<FeatureChecker>>,
-  ) -> OpState {
+  pub fn new(maybe_feature_checker: Option<Arc<FeatureChecker>>) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
-      tracker: OpsTracker::new(ops_count),
       waker: Arc::new(AtomicWaker::new()),
       feature_checker: maybe_feature_checker.unwrap_or_default(),
     }

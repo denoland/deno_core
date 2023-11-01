@@ -8,6 +8,7 @@ use crate::runtime::tests::Mode;
 use crate::*;
 use anyhow::bail;
 use anyhow::Error;
+use futures::Future;
 use log::debug;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -550,72 +551,100 @@ await op_void_async_deferred();
   res.unwrap();
 }
 
+#[op2(async)]
+pub async fn op_async() {
+  println!("op_async!");
+}
+
+#[op2(async)]
+#[allow(unreachable_code)]
+pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, AnyError>
+{
+  bail!("dead");
+  Ok(async {})
+}
+
+#[op2(async)]
+pub async fn op_async_yield() {
+  tokio::task::yield_now().await;
+  println!("op_async_yield!");
+}
+
+#[op2(async)]
+pub async fn op_async_yield_error() -> Result<(), AnyError> {
+  tokio::task::yield_now().await;
+  println!("op_async_yield_error!");
+  bail!("dead");
+}
+
+#[op2(async)]
+pub async fn op_async_error() -> Result<(), AnyError> {
+  println!("op_async_error!");
+  bail!("dead");
+}
+
+#[op2(async(deferred), fast)]
+pub async fn op_async_deferred() {
+  println!("op_async_deferred!");
+}
+
+#[op2(async(lazy), fast)]
+pub async fn op_async_lazy() {
+  println!("op_async_lazy!");
+}
+
+#[op2(fast)]
+pub fn op_sync() {
+  println!("op_sync!");
+}
+
+#[op2(fast)]
+pub fn op_sync_error() -> Result<(), AnyError> {
+  bail!("Always fails");
+}
+
+#[op2(fast)]
+pub fn op_sync_arg_error(_: u32) {
+  panic!("Should never be called")
+}
+
+#[op2(async)]
+pub async fn op_async_arg_error(_: u32) {
+  panic!("Should never be called")
+}
+
+deno_core::extension!(
+  test_ext,
+  ops = [
+    op_async,
+    op_async_error,
+    op_async_yield,
+    op_async_yield_error,
+    op_async_lazy,
+    op_async_deferred,
+    op_async_impl_future_error,
+    op_sync,
+    op_sync_error,
+    op_sync_arg_error,
+    op_async_arg_error,
+  ],
+);
+
 #[tokio::test]
 pub async fn test_op_metrics() {
-  #[op2(async)]
-  pub async fn op_async() {
-    println!("op_async!");
-  }
-
-  #[op2(async)]
-  pub async fn op_async_yield() {
-    tokio::task::yield_now().await;
-    println!("op_async_yield!");
-  }
-
-  #[op2(async)]
-  pub async fn op_async_yield_error() -> Result<(), AnyError> {
-    tokio::task::yield_now().await;
-    println!("op_async_yield_error!");
-    bail!("dead");
-  }
-
-  #[op2(async)]
-  pub async fn op_async_error() -> Result<(), AnyError> {
-    println!("op_async_error!");
-    bail!("dead");
-  }
-
-  #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred() {
-    println!("op_async_deferred!");
-  }
-
-  #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy() {
-    println!("op_async_lazy!");
-  }
-
-  #[op2(fast)]
-  pub fn op_sync() {
-    println!("op_sync!");
-  }
-
-  deno_core::extension!(
-    test_ext,
-    ops = [
-      op_async,
-      op_async_error,
-      op_async_yield,
-      op_async_yield_error,
-      op_async_lazy,
-      op_async_deferred,
-      op_sync
-    ],
-  );
-
   let out = Rc::new(RefCell::new(vec![]));
 
   let out_clone = out.clone();
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
-    op_metrics_fn: Some(Box::new(move |op| {
-      if !op.name.starts_with("op_async") && !op.name.starts_with("op_sync") {
+    op_metrics_factory_fn: Some(Box::new(move |_, _, op| {
+      let name = op.name;
+      if !name.starts_with("op_async") && !name.starts_with("op_sync") {
         return None;
       }
       let out_clone = out_clone.clone();
-      Some(Rc::new(move |op, metrics| {
-        let s = format!("{} {:?}", op.name, metrics);
+      Some(Rc::new(move |_, metrics| {
+        let s = format!("{} {:?}", name, metrics);
         println!("{s}");
         out_clone.borrow_mut().push(s);
       }))
@@ -627,15 +656,19 @@ pub async fn test_op_metrics() {
   .execute_script_static(
     "filename.js",
     r#"
-  const { op_sync, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy } = Deno.core.ensureFastOps();
+    const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ensureFastOps();
     async function go() {
       op_sync();
+      try { op_sync_error(); } catch {}
       await op_async();
       try { await op_async_error() } catch {}
       await op_async_yield();
       try { await op_async_yield_error() } catch {}
       await op_async_deferred();
       await op_async_lazy();
+      try { await op_async_impl_future_error() } catch {}
+      try { op_sync_arg_error() } catch {}
+      try { await op_async_arg_error() } catch {}
     }
 
     go()
@@ -652,6 +685,8 @@ pub async fn test_op_metrics() {
     out,
     r#"op_sync Dispatched
 op_sync Completed
+op_sync_error Dispatched
+op_sync_error Error
 op_async Dispatched
 op_async Completed
 op_async_error Dispatched
@@ -663,6 +698,65 @@ op_async_yield_error ErrorAsync
 op_async_deferred Dispatched
 op_async_deferred CompletedAsync
 op_async_lazy Dispatched
-op_async_lazy CompletedAsync"#
+op_async_lazy CompletedAsync
+op_async_impl_future_error Dispatched
+op_async_impl_future_error Error
+op_sync_arg_error Dispatched
+op_sync_arg_error Error
+op_async_arg_error Dispatched
+op_async_arg_error Error"#
+  );
+}
+
+#[tokio::test]
+pub async fn test_op_metrics_summary_tracker() {
+  let tracker = Rc::new(OpMetricsSummaryTracker::default());
+  // We want to limit the tracker to just the ops we care about
+  let op_enabled = |op: &OpDecl| {
+    op.name.starts_with("op_async") || op.name.starts_with("op_sync")
+  };
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops()],
+    op_metrics_factory_fn: Some(
+      tracker.clone().op_metrics_factory_fn(op_enabled),
+    ),
+    ..Default::default()
+  });
+
+  let promise = runtime
+  .execute_script_static(
+    "filename.js",
+    r#"
+    const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ensureFastOps();
+    async function go() {
+      op_sync();
+      try { op_sync_error(); } catch {}
+      await op_async();
+      try { await op_async_error() } catch {}
+      await op_async_yield();
+      try { await op_async_yield_error() } catch {}
+      await op_async_deferred();
+      await op_async_lazy();
+      try { await op_async_impl_future_error() } catch {}
+      try { op_sync_arg_error() } catch {}
+      try { await op_async_arg_error() } catch {}
+    }
+
+    go()
+    "#,
+  )
+  .unwrap();
+  runtime
+    .resolve_value(promise)
+    .await
+    .expect("Failed to await promise");
+  drop(runtime);
+  assert_eq!(
+    tracker.aggregate(),
+    OpMetricsSummary {
+      ops_completed_async: 8,
+      ops_dispatched_async: 8,
+      ops_dispatched_sync: 3
+    }
   );
 }

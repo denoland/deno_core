@@ -1,9 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ops::*;
 use crate::OpResult;
-use crate::PromiseId;
 use anyhow::Error;
-use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
@@ -11,7 +9,6 @@ use serde::Deserialize;
 use serde_v8::from_v8;
 use serde_v8::V8Sliceable;
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::ffi::c_void;
 use std::future::ready;
 use std::mem::MaybeUninit;
@@ -27,117 +24,6 @@ use v8::WriteOptions;
 pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
 
 #[inline]
-pub fn queue_fast_async_op<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  promise_id: PromiseId,
-  op: impl Future<Output = Result<R, Error>> + 'static,
-) {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  let fut =
-    op.map(|result| crate::_ops::to_op_result(ctx.get_error_class_fn, result));
-  ctx
-    .context_state
-    .borrow_mut()
-    .pending_ops
-    .spawn(OpCall::new(ctx, promise_id, fut));
-}
-
-#[inline]
-pub fn map_async_op1<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: impl Future<Output = Result<R, Error>> + 'static,
-) -> impl Future<Output = OpResult> {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  op.map(|res| crate::_ops::to_op_result(ctx.get_error_class_fn, res))
-}
-
-#[inline]
-pub fn map_async_op2<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: impl Future<Output = R> + 'static,
-) -> impl Future<Output = OpResult> {
-  let state = RefCell::borrow(&ctx.state);
-  state.tracker.track_async(ctx.id);
-
-  op.map(|res| OpResult::Ok(res.into()))
-}
-
-#[inline]
-pub fn map_async_op3<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: Result<impl Future<Output = Result<R, Error>> + 'static, Error>,
-) -> impl Future<Output = OpResult> {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  match op {
-    Err(err) => Either::Left(ready(OpResult::Err(OpError::new(
-      ctx.get_error_class_fn,
-      err,
-    )))),
-    Ok(fut) => Either::Right(
-      fut.map(|res| crate::_ops::to_op_result(ctx.get_error_class_fn, res)),
-    ),
-  }
-}
-
-#[inline]
-pub fn map_async_op4<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: Result<impl Future<Output = R> + 'static, Error>,
-) -> impl Future<Output = OpResult> {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  match op {
-    Err(err) => Either::Left(ready(OpResult::Err(OpError::new(
-      ctx.get_error_class_fn,
-      err,
-    )))),
-    Ok(fut) => Either::Right(fut.map(|r| OpResult::Ok(r.into()))),
-  }
-}
-
-pub fn queue_async_op<'s>(
-  ctx: &OpCtx,
-  scope: &'s mut v8::HandleScope,
-  deferred: bool,
-  promise_id: PromiseId,
-  op: impl Future<Output = OpResult> + 'static,
-) -> Option<v8::Local<'s, v8::Value>> {
-  // An op's realm (as given by `OpCtx::realm_idx`) must match the realm in
-  // which it is invoked. Otherwise, we might have cross-realm object exposure.
-  // deno_core doesn't currently support such exposure, even though embedders
-  // can cause them, so we panic in debug mode (since the check is expensive).
-  // TODO(mmastrac): Restore this
-  // debug_assert_eq!(
-  //   runtime_state.borrow().context(ctx.realm_idx as usize, scope),
-  //   Some(scope.get_current_context())
-  // );
-
-  let id = ctx.id;
-  let metrics = ctx.metrics_enabled();
-
-  // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
-  // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-  let mut pinned = op
-    .map(move |res| PendingOp(promise_id, id, res, metrics))
-    .boxed_local();
-
-  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => {}
-    Poll::Ready(res) => {
-      if deferred {
-        ctx.context_state.borrow_mut().pending_ops.spawn(ready(res));
-        return None;
-      } else {
-        ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-        return Some(res.2.to_v8(scope).unwrap());
-      }
-    }
-  }
-
-  ctx.context_state.borrow_mut().pending_ops.spawn(pinned);
-  None
-}
-
-#[inline]
 pub fn map_async_op_infallible<R: 'static>(
   ctx: &OpCtx,
   lazy: bool,
@@ -150,7 +36,6 @@ pub fn map_async_op_infallible<R: 'static>(
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<R> {
   let id = ctx.id;
-  ctx.state.borrow().tracker.track_async(id);
   let metrics = ctx.metrics_enabled();
 
   if lazy {
@@ -182,10 +67,6 @@ pub fn map_async_op_infallible<R: 'static>(
         if deferred {
           ready(res).boxed_local()
         } else {
-          if ctx.metrics_enabled() {
-            dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
-          }
-          ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
           return Some(res.2);
         }
       }
@@ -219,7 +100,6 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<Result<R, E>> {
   let id = ctx.id;
-  ctx.state.borrow().tracker.track_async(id);
   let metrics = ctx.metrics_enabled();
 
   if lazy {
@@ -255,14 +135,6 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
         if deferred {
           ready(res).boxed_local()
         } else {
-          if ctx.metrics_enabled() {
-            if res.2.is_err() {
-              dispatch_metrics_async(ctx, OpMetricsEvent::Error);
-            } else {
-              dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
-            }
-          }
-          ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
           return Some(res.2);
         }
       }
@@ -286,18 +158,6 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
     },
   ));
   None
-}
-
-pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
-}
-
-pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
-}
-
-pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
 }
 
 macro_rules! try_number_some {
