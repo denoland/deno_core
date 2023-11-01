@@ -1098,8 +1098,9 @@ fn import_meta_snapshot() {
     let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
     #[allow(clippy::let_underscore_future)]
-    let _ = runtime.mod_evaluate(main_id);
+    let eval_fut = runtime.mod_evaluate(main_id);
     futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+    futures::executor::block_on(eval_fut).unwrap().unwrap();
     runtime.snapshot()
   };
 
