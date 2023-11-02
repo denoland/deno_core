@@ -29,7 +29,6 @@ deno_core::extension!(
     op_bigint_return,
     op_external,
     op_external_nofast,
-    op_buffer_old,
     op_buffer,
     op_buffer_jsbuffer,
     op_buffer_nofast,
