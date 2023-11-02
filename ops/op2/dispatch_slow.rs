@@ -21,6 +21,7 @@ use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
+use super::signature::WasmMemorySource;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use proc_macro2::Ident;
@@ -477,6 +478,13 @@ pub fn from_arg(
       let extract_intermediate =
         v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
+    }
+    Arg::WasmMemory(_, WasmMemorySource::Caller) => throw_type_error(
+      generator_state,
+      "WASM caller memory unavailable in slowcalls".into(),
+    )?,
+    Arg::OptionWasmMemory(_, WasmMemorySource::Caller) => {
+      quote!(let #arg_ident = None;)
     }
     Arg::SerdeV8(_class) => {
       *needs_scope = true;

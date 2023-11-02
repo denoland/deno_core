@@ -17,6 +17,7 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::Special;
 use super::signature::Strings;
+use super::signature::WasmMemorySource;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use crate::op2::dispatch_async::map_async_return_type;
@@ -695,6 +696,24 @@ fn map_v8_fastcall_arg_to_arg(
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
+    Arg::WasmMemory(ref_type, WasmMemorySource::Caller) => {
+      *needs_fast_api_callback_options = true;
+      let convert = fast_api_typed_array_to_buffer(
+        arg_ident,
+        arg_ident,
+        BufferType::Slice(*ref_type, NumericArg::u8),
+      )?;
+      quote!(let #arg_ident = #fast_api_callback_options.wasm_memory as _; #convert;)
+    }
+    Arg::OptionWasmMemory(ref_type, WasmMemorySource::Caller) => {
+      *needs_fast_api_callback_options = true;
+      let convert = fast_api_typed_array_to_buffer(
+        arg_ident,
+        arg_ident,
+        BufferType::Slice(*ref_type, NumericArg::u8),
+      )?;
+      quote!(let #arg_ident = #fast_api_callback_options.wasm_memory as _; #convert; let #arg_ident = Some(#arg_ident);)
+    }
     _ => quote!(let #arg_ident = #arg_ident as _;),
   };
   Ok(res)
@@ -746,7 +765,9 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(_, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
-    | Arg::OptionState(..) => V8FastCallType::Virtual,
+    | Arg::OptionState(..)
+    | Arg::WasmMemory(..)
+    | Arg::OptionWasmMemory(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
     | Arg::Option(_)
