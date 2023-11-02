@@ -16,7 +16,6 @@ deno_core::extension!(
     op_string,
     op_string_onebyte,
     op_string_bytestring,
-    op_string_old,
     op_string_option_u32,
     op_local,
     op_local_scope,
@@ -73,11 +72,6 @@ pub fn op_string_bytestring(#[serde] s: ByteString) -> u32 {
   s.len() as _
 }
 
-#[op(fast)]
-pub fn op_string_old(s: &str) -> u32 {
-  s.len() as _
-}
-
 #[op2]
 pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
   Some(s.len() as _)
@@ -128,9 +122,6 @@ pub fn op_external(_input: *const c_void) {}
 
 #[op2(nofast)]
 pub fn op_external_nofast(_input: *const c_void) {}
-
-#[op]
-pub fn op_buffer_old(_buffer: &[u8]) {}
 
 #[op2(fast)]
 pub fn op_buffer(#[buffer] _buffer: &[u8]) {}
@@ -318,55 +309,6 @@ fn bench_op_string_large_utf8_1000000(b: &mut Bencher) {
   );
 }
 
-/// A string function with a numeric return value.
-fn bench_op_string_old(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string_old", 1, "accum += op_string_old('this is a reasonably long string that we would like to get the length of!');");
-}
-
-/// A string function with a numeric return value.
-fn bench_op_string_old_large_1000(b: &mut Bencher) {
-  bench_op(
-    b,
-    BENCH_COUNT,
-    "op_string_old",
-    1,
-    "accum += op_string_old(LARGE_STRING_1000);",
-  );
-}
-
-/// A string function with a numeric return value.
-fn bench_op_string_old_large_1000000(b: &mut Bencher) {
-  bench_op(
-    b,
-    LARGE_BENCH_COUNT,
-    "op_string_old",
-    1,
-    "accum += op_string_old(LARGE_STRING_1000000);",
-  );
-}
-
-/// A string function with a numeric return value.
-fn bench_op_string_old_large_utf8_1000(b: &mut Bencher) {
-  bench_op(
-    b,
-    BENCH_COUNT,
-    "op_string_old",
-    1,
-    "accum += op_string_old(LARGE_STRING_UTF8_1000);",
-  );
-}
-
-/// A string function with a numeric return value.
-fn bench_op_string_old_large_utf8_1000000(b: &mut Bencher) {
-  bench_op(
-    b,
-    LARGE_BENCH_COUNT,
-    "op_string_old",
-    1,
-    "accum += op_string_old(LARGE_STRING_UTF8_1000000);",
-  );
-}
-
 /// A string function with an option numeric return value.
 fn bench_op_string_option_u32(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_string_option_u32", 1, "accum += op_string_option_u32('this is a reasonably long string that we would like to get the length of!');");
@@ -441,10 +383,6 @@ fn bench_op_external_nofast(b: &mut Bencher) {
   );
 }
 
-fn bench_op_buffer_old(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_buffer_old", 1, "op_buffer_old(BUFFER)");
-}
-
 fn bench_op_buffer(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_buffer", 1, "op_buffer(BUFFER)");
 }
@@ -496,11 +434,6 @@ benchmark_group!(
   bench_op_string_onebyte_large_1000000,
   bench_op_string_large_utf8_1000,
   bench_op_string_large_utf8_1000000,
-  bench_op_string_old,
-  bench_op_string_old_large_1000,
-  bench_op_string_old_large_1000000,
-  bench_op_string_old_large_utf8_1000,
-  bench_op_string_old_large_utf8_1000000,
   bench_op_string_option_u32,
   bench_op_v8_local,
   bench_op_v8_local_scope,
@@ -513,7 +446,6 @@ benchmark_group!(
   bench_op_v8_isolate_nofast,
   bench_op_external,
   bench_op_external_nofast,
-  bench_op_buffer_old,
   bench_op_buffer,
   bench_op_buffer_jsbuffer,
   bench_op_buffer_nofast,
