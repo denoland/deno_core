@@ -22,7 +22,8 @@ impl op_buffers {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
-    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+    #[inline(always)]
+    fn slow_function_impl(info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
         let mut scope = unsafe { ::deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
@@ -47,7 +48,7 @@ impl op_buffers {
                         .unwrap();
                     let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
-                    return;
+                    return 1;
                 }
             };
             let arg0 = ::deno_core::serde_v8::JsBuffer::from_parts(arg0_temp);
@@ -63,9 +64,13 @@ impl op_buffers {
                     .unwrap();
                 let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                 scope.throw_exception(exc);
-                return;
+                return 1;
             }
-        }
+        };
+        return 0;
+    }
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(info);
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
         let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
@@ -79,11 +84,18 @@ impl op_buffers {
             &opctx,
             ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
-        Self::v8_fn_ptr(info);
-        ::deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Completed,
-        );
+        let res = Self::slow_function_impl(info);
+        if res == 0 {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Completed,
+            );
+        } else {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Error,
+            );
+        }
     }
     #[inline(always)]
     fn call(buffer: JsBuffer) -> JsBuffer {
@@ -115,7 +127,8 @@ impl op_buffers_option {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
-    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+    #[inline(always)]
+    fn slow_function_impl(info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
         let mut scope = unsafe { ::deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
@@ -146,7 +159,7 @@ impl op_buffers_option {
                             msg,
                         );
                         scope.throw_exception(exc);
-                        return;
+                        return 1;
                     }
                 };
                 let arg0 = ::deno_core::serde_v8::JsBuffer::from_parts(arg0_temp);
@@ -164,9 +177,13 @@ impl op_buffers_option {
                     .unwrap();
                 let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                 scope.throw_exception(exc);
-                return;
+                return 1;
             }
-        }
+        };
+        return 0;
+    }
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(info);
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
         let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
@@ -180,11 +197,18 @@ impl op_buffers_option {
             &opctx,
             ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
-        Self::v8_fn_ptr(info);
-        ::deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Completed,
-        );
+        let res = Self::slow_function_impl(info);
+        if res == 0 {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Completed,
+            );
+        } else {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Error,
+            );
+        }
     }
     #[inline(always)]
     fn call(buffer: Option<JsBuffer>) -> Option<JsBuffer> {
@@ -216,7 +240,8 @@ impl op_arraybuffers {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
-    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+    #[inline(always)]
+    fn slow_function_impl(info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
         let mut scope = unsafe { ::deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
@@ -241,7 +266,7 @@ impl op_arraybuffers {
                         .unwrap();
                     let exc = ::deno_core::v8::Exception::type_error(&mut scope, msg);
                     scope.throw_exception(exc);
-                    return;
+                    return 1;
                 }
             };
             let arg0 = ::deno_core::serde_v8::JsBuffer::from_parts(arg0_temp);
@@ -255,7 +280,11 @@ impl op_arraybuffers {
                 >::from(result),
                 &mut scope,
             ),
-        )
+        );
+        return 0;
+    }
+    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(info);
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
         let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
@@ -269,11 +298,18 @@ impl op_arraybuffers {
             &opctx,
             ::deno_core::_ops::OpMetricsEvent::Dispatched,
         );
-        Self::v8_fn_ptr(info);
-        ::deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Completed,
-        );
+        let res = Self::slow_function_impl(info);
+        if res == 0 {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Completed,
+            );
+        } else {
+            ::deno_core::_ops::dispatch_metrics_slow(
+                &opctx,
+                ::deno_core::_ops::OpMetricsEvent::Error,
+            );
+        }
     }
     #[inline(always)]
     fn call(buffer: JsBuffer) -> JsBuffer {

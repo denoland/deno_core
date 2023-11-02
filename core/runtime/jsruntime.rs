@@ -2,7 +2,6 @@
 
 use super::bindings;
 use super::jsrealm::JsRealmInner;
-use super::ops::dispatch_metrics_async;
 use super::snapshot_util;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -22,6 +21,9 @@ use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
 use crate::ops::*;
+use crate::ops_metrics::dispatch_metrics_async;
+use crate::ops_metrics::OpMetricsEvent;
+use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::source_map::SourceMapCache;
@@ -364,8 +366,6 @@ fn v8_init(
   v8::V8::initialize();
 }
 
-pub type OpMetricsFactoryFn = Box<dyn Fn(&OpDecl) -> Option<OpMetricsFn>>;
-
 #[derive(Default)]
 pub struct RuntimeOptions {
   /// Source map reference for errors.
@@ -384,7 +384,7 @@ pub struct RuntimeOptions {
 
   /// Provide a function that may optionally provide a metrics collector
   /// for a given op.
-  pub op_metrics_fn: Option<OpMetricsFactoryFn>,
+  pub op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
 
   /// JsRuntime extensions, not to be confused with ES modules.
   /// Only ops registered by extensions will be initialized. If you need
@@ -603,14 +603,17 @@ impl JsRuntime {
 
     let weak = Rc::downgrade(&state_rc);
     let context_state = Rc::new(RefCell::new(ContextState::default()));
+    let count = ops.len();
     let mut op_ctxs = ops
       .into_iter()
       .enumerate()
       .map(|(id, decl)| {
-        let metrics_fn =
-          options.op_metrics_fn.as_ref().and_then(|f| (f)(&decl));
+        let metrics_fn = options
+          .op_metrics_factory_fn
+          .as_ref()
+          .and_then(|f| (f)(id as _, count, &decl));
         OpCtx::new(
-          id as u16,
+          id as _,
           std::ptr::null_mut(),
           context_state.clone(),
           Rc::new(decl),
@@ -1109,7 +1112,7 @@ impl JsRuntime {
 
     let ops = Self::collect_ops(&mut options.extensions);
 
-    let mut op_state = OpState::new(ops.len(), options.feature_checker.take());
+    let mut op_state = OpState::new(options.feature_checker.take());
 
     // Setup state
     for e in &mut options.extensions {
@@ -1990,12 +1993,6 @@ impl JsRuntime {
         };
         // TODO(mmastrac): If this task is really errored, things could be pretty bad
         let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
-        state
-          .borrow()
-          .op_state
-          .borrow()
-          .tracker
-          .track_async_completed(op_id);
         context_state.unrefed_ops.remove(&promise_id);
         dispatched_ops |= true;
         args.push(v8::Integer::new(scope, promise_id).into());

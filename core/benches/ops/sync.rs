@@ -11,6 +11,8 @@ deno_core::extension!(
   ops = [
     op_void,
     op_void_nofast,
+    op_void_metrics,
+    op_void_nofast_metrics,
     op_u32,
     op_option_u32,
     op_string,
@@ -45,6 +47,12 @@ pub fn op_void() {}
 
 #[op2(nofast)]
 pub fn op_void_nofast() {}
+
+#[op2(fast)]
+pub fn op_void_metrics() {}
+
+#[op2(nofast)]
+pub fn op_void_nofast_metrics() {}
 
 #[op2(fast)]
 pub fn op_u32() -> u32 {
@@ -151,6 +159,14 @@ fn bench_op(
     // We need to feature gate this here to prevent IDE errors
     #[cfg(feature = "unsafe_runtime_options")]
     unsafe_expose_natives_and_gc: true,
+    // Add metrics just for the metrics ops
+    op_metrics_factory_fn: Some(Box::new(|_, _, op| {
+      if op.name.ends_with("_metrics") {
+        Some(std::rc::Rc::new(|_, _| {}))
+      } else {
+        None
+      }
+    })),
     ..Default::default()
   });
   let err_mapper =
@@ -209,6 +225,22 @@ fn bench_op_void_2x(b: &mut Bencher) {
 /// A void function with no return value.
 fn bench_op_void_nofast(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_void_nofast", 0, "op_void_nofast();");
+}
+
+/// A void function with no return value.
+fn bench_op_void_metrics(b: &mut Bencher) {
+  bench_op(b, BENCH_COUNT, "op_void_metrics", 0, "op_void_metrics()");
+}
+
+/// A void function with no return value.
+fn bench_op_void_nofast_metrics(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_void_nofast_metrics",
+    0,
+    "op_void_nofast_metrics()",
+  );
 }
 
 /// A function with a numeric return value.
@@ -422,6 +454,8 @@ benchmark_group!(
   bench_op_void,
   bench_op_void_2x,
   bench_op_void_nofast,
+  bench_op_void_metrics,
+  bench_op_void_nofast_metrics,
   bench_op_u32,
   bench_op_option_u32,
   bench_op_string_bytestring,

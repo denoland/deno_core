@@ -637,12 +637,21 @@ for (let i = 0; i < 10; i++) {
   }
 
   function metrics() {
-    const { 0: aggregate, 1: perOps } = ops.op_metrics();
-    aggregate.ops = ObjectFromEntries(ArrayPrototypeMap(
-      ops.op_op_names(),
-      (opName, opId) => [opName, perOps[opId]],
-    ));
-    return aggregate;
+    // TODO(mmastrac): we should replace this with a newer API
+    return {
+      opsDispatched: 0,
+      opsDispatchedSync: 0,
+      opsDispatchedAsync: 0,
+      opsDispatchedAsyncUnref: 0,
+      opsCompleted: 0,
+      opsCompletedSync: 0,
+      opsCompletedAsync: 0,
+      opsCompletedAsyncUnref: 0,
+      bytesSentControl: 0,
+      bytesSentData: 0,
+      bytesReceived: 0,
+      ops: {},
+    };
   }
 
   let reportExceptionCallback = undefined;

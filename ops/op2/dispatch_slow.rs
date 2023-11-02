@@ -137,7 +137,8 @@ pub(crate) fn generate_dispatch_slow(
 
   Ok(
     gs_quote!(generator_state(opctx, info, slow_function, slow_function_metrics) => {
-      extern "C" fn #slow_function(#info: *const ::deno_core::v8::FunctionCallbackInfo) {
+      #[inline(always)]
+      fn slow_function_impl(#info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
         #with_scope
         #with_retval
         #with_args
@@ -146,20 +147,30 @@ pub(crate) fn generate_dispatch_slow(
         #with_opstate
         #with_js_runtime_state
 
-        #output
+        #output;
+        return 0;
       }
+
+      extern "C" fn #slow_function(#info: *const ::deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(#info);
+      }
+
       extern "C" fn #slow_function_metrics(#info: *const ::deno_core::v8::FunctionCallbackInfo) {
         let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
           &*info
         });
         let #opctx = unsafe {
-            &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data()).value()
-                as *const ::deno_core::_ops::OpCtx)
+          &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data()).value()
+              as *const ::deno_core::_ops::OpCtx)
         };
 
         ::deno_core::_ops::dispatch_metrics_slow(&#opctx, ::deno_core::_ops::OpMetricsEvent::Dispatched);
-        Self::#slow_function(#info);
-        ::deno_core::_ops::dispatch_metrics_slow(&#opctx, ::deno_core::_ops::OpMetricsEvent::Completed);
+        let res = Self::slow_function_impl(#info);
+        if res == 0 {
+          ::deno_core::_ops::dispatch_metrics_slow(&#opctx, ::deno_core::_ops::OpMetricsEvent::Completed);
+        } else {
+          ::deno_core::_ops::dispatch_metrics_slow(&#opctx, ::deno_core::_ops::OpMetricsEvent::Error);
+        }
       }
     }),
   )
@@ -830,7 +841,7 @@ pub(crate) fn throw_exception(
       &err,
     );
     #scope.throw_exception(exception);
-    return;
+    return 1;
   })
 }
 
@@ -853,7 +864,7 @@ fn throw_type_error(
     let msg = ::deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), ::deno_core::v8::NewStringType::Normal).unwrap();
     let exc = ::deno_core::v8::Exception::type_error(&mut #scope, msg);
     #scope.throw_exception(exc);
-    return;
+    return 1;
   }))
 }
 
@@ -874,7 +885,7 @@ fn throw_type_error_string(
     let msg = ::deno_core::v8::String::new(&mut #scope, &format!("{}", ::deno_core::anyhow::Error::from(#message))).unwrap();
     let exc = ::deno_core::v8::Exception::type_error(&mut #scope, msg);
     #scope.throw_exception(exc);
-    return;
+    return 1;
   }))
 }
 
@@ -894,6 +905,6 @@ fn throw_type_error_static_string(
     let msg = ::deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), ::deno_core::v8::NewStringType::Normal).unwrap();
     let exc = ::deno_core::v8::Exception::type_error(&mut #scope, msg);
     #scope.throw_exception(exc);
-    return;
+    return 1;
   }))
 }
