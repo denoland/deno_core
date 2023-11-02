@@ -908,6 +908,23 @@ fn test_array_by_copy() {
     .is_ok());
 }
 
+#[test]
+fn test_array_from_async() {
+  // Verify that "Array.fromAsync" proposal is enabled (https://github.com/tc39/proposal-array-from-async)
+  let mut runtime = JsRuntime::new(Default::default());
+  assert!(runtime
+    .execute_script_static(
+      "test_array_from_async.js",
+      "(async () => {
+        const b = await Array.fromAsync(new Map([[1, 2], [3, 4]]));
+        if (b[0][0] !== 1 || b[0][1] !== 2 || b[1][0] !== 3 || b[1][1] !== 4) {
+          throw new Error('failed');
+        }
+      })();",
+    )
+    .is_ok());
+}
+
 // Make sure that stalled top-level awaits (that is, top-level awaits that
 // aren't tied to the progress of some op) are correctly reported, even in a
 // realm other than the main one.
