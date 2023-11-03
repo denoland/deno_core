@@ -182,15 +182,25 @@ pub(crate) enum InitMode {
   /// We have no snapshot -- this is a pristine context.
   New,
   /// We are using a snapshot, thus certain initialization steps are skipped.
-  FromSnapshot,
+  FromSnapshot {
+    // Do we need to register need to register new ops.
+    register_ops: bool,
+  },
 }
 
 impl InitMode {
   fn from_options(options: &RuntimeOptions) -> Self {
     match options.startup_snapshot {
       None => Self::New,
-      Some(_) => Self::FromSnapshot,
+      Some(_) => Self::FromSnapshot {
+        register_ops: options.register_ops,
+      },
     }
+  }
+
+  #[inline]
+  pub fn is_from_snapshot(&self) -> bool {
+    matches!(self, Self::FromSnapshot { .. })
   }
 }
 
@@ -400,6 +410,7 @@ pub struct RuntimeOptions {
 
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
+  pub register_ops: bool,
 
   /// Isolate creation parameters.
   pub create_params: Option<v8::CreateParams>,
@@ -679,7 +690,7 @@ impl JsRuntime {
       );
 
       // Get module map data from the snapshot
-      let snapshotted_data = if init_mode == InitMode::FromSnapshot {
+      let snapshotted_data = if init_mode.is_from_snapshot() {
         Some(snapshot_util::get_snapshotted_data(scope, context))
       } else {
         None
@@ -883,7 +894,7 @@ impl JsRuntime {
         .module_loader
         .unwrap_or_else(|| Rc::new(NoopModuleLoader));
       let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
-      if self.init_mode == InitMode::FromSnapshot {
+      if self.init_mode.is_from_snapshot() {
         let snapshotted_data =
           snapshot_util::get_snapshotted_data(scope, context);
         module_map_rc
