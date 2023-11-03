@@ -7,7 +7,7 @@ macro_rules! external {
   ($type:ident, $name:literal) => {
     impl $crate::external::Externalizable for $type {
       fn external_marker() -> usize {
-        // Use the address of a static mut as a way to get around lack of const TypeId. Because it is mutable, the
+        // Use the address of a static mut as a way to get around lack of usize-sized TypeId. Because it is mutable, the
         // compiler cannot collapse multiple definitions into one.
         static mut DEFINITION: $crate::external::ExternalDefinition =
           $crate::external::ExternalDefinition::new($name);
