@@ -18,6 +18,7 @@ pub struct CreateSnapshotOptions {
   pub cargo_manifest_dir: &'static str,
   pub snapshot_path: PathBuf,
   pub startup_snapshot: Option<Snapshot>,
+  pub register_ops: bool,
   pub extensions: Vec<Extension>,
   pub compression_cb: Option<Box<CompressionCb>>,
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
@@ -38,6 +39,7 @@ pub fn create_snapshot(
   let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: create_snapshot_options.startup_snapshot,
     extensions: create_snapshot_options.extensions,
+    register_ops: create_snapshot_options.register_ops,
     ..Default::default()
   });
   println!(

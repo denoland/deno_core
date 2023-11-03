@@ -124,6 +124,16 @@ pub(crate) fn initialize_context<'s>(
   op_ctxs: &[OpCtx],
   init_mode: InitMode,
 ) -> v8::Local<'s, v8::Context> {
+  // Fast path.
+  if matches!(
+    init_mode,
+    InitMode::FromSnapshot {
+      register_ops: false
+    }
+  ) {
+    return context;
+  }
+
   let global = context.global(scope);
 
   let mut codegen = String::with_capacity(op_ctxs.len() * 200);
@@ -171,7 +181,7 @@ pub(crate) fn initialize_context<'s>(
     let op_fn = op_ctx_function(scope, op_ctx);
     op_fns.set_index(scope, op_ctx.id as u32, op_fn.into());
   }
-  if init_mode == InitMode::FromSnapshot {
+  if init_mode.is_from_snapshot() {
     op_fn.call(scope, recv.into(), &[op_fns.into()]);
   } else {
     // Bind functions to Deno.core.*
