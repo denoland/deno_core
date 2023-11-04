@@ -355,6 +355,7 @@ fn v8_init(
     " --turbo_fast_api_calls",
     " --harmony-change-array-by-copy",
     " --harmony-array-from_async",
+    " --harmony-iterator-helpers",
   );
   let predictable_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";

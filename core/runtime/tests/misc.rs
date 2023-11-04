@@ -925,6 +925,30 @@ fn test_array_from_async() {
     .is_ok());
 }
 
+#[test]
+fn test_iterator_helpers() {
+  // Verify that "Iterator helpers" proposal is enabled (https://github.com/tc39/proposal-iterator-helpers)
+  let mut runtime = JsRuntime::new(Default::default());
+  assert!(runtime
+    .execute_script_static(
+      "test_iterator_helpers.js",
+      "function* naturals() {
+        let i = 0;
+        while (true) {
+          yield i;
+          i += 1;
+        }
+      }
+      
+      const a = naturals().take(5).toArray();
+      if (a[0] !== 0 || a[1] !== 1 || a[2] !== 2 || a[3] !== 3 || a[4] !== 4) {
+        throw new Error('failed');
+      }
+      ",
+    )
+    .is_ok());
+}
+
 // Make sure that stalled top-level awaits (that is, top-level awaits that
 // aren't tied to the progress of some op) are correctly reported, even in a
 // realm other than the main one.
