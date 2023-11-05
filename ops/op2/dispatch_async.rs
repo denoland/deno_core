@@ -86,16 +86,16 @@ pub(crate) fn generate_dispatch_async(
     let lazy = config.async_lazy;
     let deferred = config.async_deferred;
     output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
-      let #promise_id = ::deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      let #promise_id = deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
       // Lazy and deferred results will always return None
-      ::deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
+      deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
         #return_value
       });
     }));
   } else {
     output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
-      let #promise_id = ::deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
-      if let Some(#result) = ::deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
+      let #promise_id = deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      if let Some(#result) = deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
         #return_value
       }) {
         // Eager poll returned a value
@@ -139,7 +139,7 @@ pub(crate) fn generate_dispatch_async(
   Ok(
     gs_quote!(generator_state(info, slow_function, slow_function_metrics, opctx) => {
       #[inline(always)]
-      fn slow_function_impl(#info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
+      fn slow_function_impl(#info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
         #with_scope
         #with_retval
         #with_args
@@ -149,24 +149,24 @@ pub(crate) fn generate_dispatch_async(
         #output
       }
 
-      extern "C" fn #slow_function(#info: *const ::deno_core::v8::FunctionCallbackInfo) {
+      extern "C" fn #slow_function(#info: *const deno_core::v8::FunctionCallbackInfo) {
         Self::slow_function_impl(#info);
       }
 
-      extern "C" fn #slow_function_metrics(#info: *const ::deno_core::v8::FunctionCallbackInfo) {
-        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+      extern "C" fn #slow_function_metrics(#info: *const deno_core::v8::FunctionCallbackInfo) {
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
           &*info
         });
         let #opctx = unsafe {
-          &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data()).value()
-            as *const ::deno_core::_ops::OpCtx)
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+            as *const deno_core::_ops::OpCtx)
         };
-        ::deno_core::_ops::dispatch_metrics_async(&#opctx, ::deno_core::_ops::OpMetricsEvent::Dispatched);
+        deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
         let res = Self::slow_function_impl(#info);
         if res == 0 {
-          ::deno_core::_ops::dispatch_metrics_async(&#opctx, ::deno_core::_ops::OpMetricsEvent::Completed);
+          deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Completed);
         } else if res == 1 {
-          ::deno_core::_ops::dispatch_metrics_async(&#opctx, ::deno_core::_ops::OpMetricsEvent::Error);
+          deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Error);
         }
       }
     }),
