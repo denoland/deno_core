@@ -11,18 +11,18 @@ impl deno_core::_ops::Op for op_bool {
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
         Some({
-            use ::deno_core::v8::fast_api::Type;
-            use ::deno_core::v8::fast_api::CType;
-            ::deno_core::v8::fast_api::FastFunction::new_with_bigint(
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value, Type::Bool],
                 CType::Bool,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
         }),
         Some({
-            use ::deno_core::v8::fast_api::Type;
-            use ::deno_core::v8::fast_api::CType;
-            ::deno_core::v8::fast_api::FastFunction::new_with_bigint(
+            use deno_core::v8::fast_api::Type;
+            use deno_core::v8::fast_api::CType;
+            deno_core::v8::fast_api::FastFunction::new_with_bigint(
                 &[Type::V8Value, Type::Bool, Type::CallbackOptions],
                 CType::Bool,
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
@@ -40,31 +40,31 @@ impl op_bool {
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast_metrics(
-        this: ::deno_core::v8::Local<::deno_core::v8::Object>,
+        this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: bool,
-        fast_api_callback_options: *mut ::deno_core::v8::fast_api::FastApiCallbackOptions,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> bool {
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let opctx = unsafe {
-            &*(::deno_core::v8::Local::<
-                ::deno_core::v8::External,
+            &*(deno_core::v8::Local::<
+                deno_core::v8::External,
             >::cast(unsafe { fast_api_callback_options.data.data })
-                .value() as *const ::deno_core::_ops::OpCtx)
+                .value() as *const deno_core::_ops::OpCtx)
         };
-        ::deno_core::_ops::dispatch_metrics_fast(
+        deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Dispatched,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         let res = Self::v8_fn_ptr_fast(this, arg0);
-        ::deno_core::_ops::dispatch_metrics_fast(
+        deno_core::_ops::dispatch_metrics_fast(
             &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Completed,
+            deno_core::_ops::OpMetricsEvent::Completed,
         );
         res
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(
-        _: ::deno_core::v8::Local<::deno_core::v8::Object>,
+        _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: bool,
     ) -> bool {
         let result = {
@@ -74,11 +74,11 @@ impl op_bool {
         result as _
     }
     #[inline(always)]
-    fn slow_function_impl(info: *const ::deno_core::v8::FunctionCallbackInfo) -> usize {
-        let mut rv = ::deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+    fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
-        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let result = {
@@ -86,34 +86,34 @@ impl op_bool {
             let arg0 = arg0.is_true();
             Self::call(arg0)
         };
-        ::deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
         return 0;
     }
-    extern "C" fn v8_fn_ptr(info: *const ::deno_core::v8::FunctionCallbackInfo) {
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
         Self::slow_function_impl(info);
     }
-    extern "C" fn v8_fn_ptr_metrics(info: *const ::deno_core::v8::FunctionCallbackInfo) {
-        let args = ::deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
             &*info
         });
         let opctx = unsafe {
-            &*(::deno_core::v8::Local::<::deno_core::v8::External>::cast(args.data())
-                .value() as *const ::deno_core::_ops::OpCtx)
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
         };
-        ::deno_core::_ops::dispatch_metrics_slow(
+        deno_core::_ops::dispatch_metrics_slow(
             &opctx,
-            ::deno_core::_ops::OpMetricsEvent::Dispatched,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
         );
         let res = Self::slow_function_impl(info);
         if res == 0 {
-            ::deno_core::_ops::dispatch_metrics_slow(
+            deno_core::_ops::dispatch_metrics_slow(
                 &opctx,
-                ::deno_core::_ops::OpMetricsEvent::Completed,
+                deno_core::_ops::OpMetricsEvent::Completed,
             );
         } else {
-            ::deno_core::_ops::dispatch_metrics_slow(
+            deno_core::_ops::dispatch_metrics_slow(
                 &opctx,
-                ::deno_core::_ops::OpMetricsEvent::Error,
+                deno_core::_ops::OpMetricsEvent::Error,
             );
         }
     }
