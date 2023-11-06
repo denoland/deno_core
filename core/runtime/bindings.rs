@@ -128,7 +128,7 @@ pub(crate) fn initialize_context<'s>(
   if matches!(
     init_mode,
     InitMode::FromSnapshot {
-      register_ops: false
+      skip_op_registration: true
     }
   ) {
     return context;
