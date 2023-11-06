@@ -104,7 +104,7 @@ impl<E: Externalizable> ExternalPointer<E> {
   ///
   /// # Safety
   ///
-  /// This method is inherantly unsafe because we cannot know if the underlying memory has been deallocated at some point.
+  /// This method is inherently unsafe because we cannot know if the underlying memory has been deallocated at some point.
   ///
   /// The lifetime of the return value is tied to the pointer itself, however you must take care not to use methods that
   /// mutate the underlying pointer such as `unsafely_take` while this reference is alive.
