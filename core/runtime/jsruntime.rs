@@ -185,7 +185,7 @@ pub(crate) enum InitMode {
   New,
   /// We are using a snapshot, thus certain initialization steps are skipped.
   FromSnapshot {
-    // Do we need to register new ops.
+    // Can we skip the work of op registration?
     skip_op_registration: bool,
   },
 }
