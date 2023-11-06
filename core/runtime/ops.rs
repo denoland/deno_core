@@ -611,6 +611,8 @@ mod tests {
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
+  use crate::external;
+  use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
   use crate::FastString;
@@ -694,6 +696,9 @@ mod tests {
       op_external_process,
       op_external_make_ptr,
       op_external_process_ptr,
+      op_typed_external,
+      op_typed_external_process,
+      op_typed_external_take,
       op_isolate_queue_microtask,
       op_isolate_run_microtasks,
 
@@ -2004,6 +2009,38 @@ mod tests {
       10000,
       "op_external_make_ptr, op_external_process_ptr",
       "assert(op_external_process_ptr(op_external_make_ptr(6), -6) === null)",
+    )?;
+    Ok(())
+  }
+
+  struct ExternalObject(RefCell<u32>);
+
+  external!(ExternalObject, "test external object");
+
+  #[op2(fast)]
+  fn op_typed_external() -> *const std::ffi::c_void {
+    // This operation is safe because we know
+    ExternalPointer::new(ExternalObject(RefCell::new(42))).into_raw()
+  }
+
+  #[op2(fast)]
+  fn op_typed_external_process(ptr: *const std::ffi::c_void) {
+    let ptr = ExternalPointer::<ExternalObject>::from_raw(ptr);
+    *(unsafe { ptr.unsafely_deref() }.0.borrow_mut()) += 1;
+  }
+
+  #[op2(fast)]
+  fn op_typed_external_take(ptr: *const std::ffi::c_void) -> u32 {
+    let ptr = ExternalPointer::<ExternalObject>::from_raw(ptr);
+    *unsafe { ptr.unsafely_take() }.0.borrow()
+  }
+
+  #[tokio::test]
+  pub async fn test_typed_external() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_typed_external, op_typed_external_process, op_typed_external_take",
+      "let external = op_typed_external(); op_typed_external_process(external); assert(op_typed_external_take(external) == 43);",
     )?;
     Ok(())
   }
