@@ -1,3 +1,4 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 
@@ -181,7 +182,8 @@ mod tests {
     assert_eq!(unsafe { external.unsafely_take() }.0, 1);
   }
 
-  // If this test ever fails then our "pseudo type ID" system is not working as expected.
+  // If this test ever fails then our "pseudo type ID" system is not working as expected. Each of these are considered
+  // different "types" of externals and must have different markers.
   #[test]
   pub fn test_external_markers() {
     let m1 = External1::external_marker();
@@ -192,7 +194,9 @@ mod tests {
     assert_ne!(m1, m1b);
   }
 
-  // If this test ever fails then our "pseudo type ID" system is not working as expected.
+  // If this test ever fails then our "pseudo type ID" system is not working as expected. Each of these are considered
+  // different "types" of externals and must have different markers, and we must not be able to deref across these
+  // different external types.
   #[test]
   #[should_panic]
   pub fn test_external_incompatible_same_name() {
