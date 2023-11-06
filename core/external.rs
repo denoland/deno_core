@@ -118,7 +118,7 @@ impl<E: Externalizable> ExternalPointer<E> {
   ///
   /// # Safety
   ///
-  /// This method is inherantly unsafe because we cannot know if
+  /// This method is inherently unsafe because we cannot know if
   /// the underlying memory has been deallocated at some point.
   ///
   /// You must ensure that no other references to this object are alive at the time you call this method.
