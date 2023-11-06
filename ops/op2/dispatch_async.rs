@@ -1,10 +1,6 @@
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
-use super::dispatch_slow::call;
-use super::dispatch_slow::extract_arg;
-use super::dispatch_slow::from_arg;
+use super::dispatch_slow::generate_dispatch_slow_call;
 use super::dispatch_slow::return_value_infallible;
 use super::dispatch_slow::return_value_result;
 use super::dispatch_slow::return_value_v8_value;
@@ -18,22 +14,16 @@ use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use proc_macro2::TokenStream;
 use quote::quote;
 
-fn map_async_return_type(
+pub(crate) fn map_async_return_type(
   generator_state: &mut GeneratorState,
   ret_val: &RetVal,
 ) -> Result<(TokenStream, TokenStream, TokenStream), V8MappingError> {
-  let return_value = match ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => {
-      return_value_v8_value(generator_state, r)?
-    }
-    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => {
-      return_value_v8_value(generator_state, r)?
-    }
-    RetVal::Infallible(_) | RetVal::Result(_) => return Err("an async return"),
-  };
+  let return_value = return_value_v8_value(generator_state, ret_val.arg())?;
   let (mapper, return_value_immediate) = match ret_val {
     RetVal::Future(r) | RetVal::ResultFuture(r) => (
       quote!(map_async_op_infallible),
@@ -55,32 +45,15 @@ pub(crate) fn generate_dispatch_async(
 ) -> Result<TokenStream, V8SignatureMappingError> {
   let mut output = TokenStream::new();
 
-  // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
-  // the scope/opstate in the intermediate stages.
-  let mut args = TokenStream::new();
-  let mut deferred = TokenStream::new();
-
-  // Promise ID is the first arg
-  let mut input_index = 1;
-
-  for (index, arg) in signature.args.iter().enumerate() {
-    let arg_mapped = from_arg(generator_state, index, arg)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
-    if arg.is_virtual() {
-      deferred.extend(arg_mapped);
-    } else {
-      args.extend(extract_arg(generator_state, index, input_index));
-      args.extend(arg_mapped);
-      input_index += 1;
-    }
-  }
+  // input_index = 1 as promise ID is the first arg
+  let args = generate_dispatch_slow_call(generator_state, signature, 1)?;
 
   // Always need context and args
-  // TODO(mmastrac): Do we?
   generator_state.needs_opctx = true;
   generator_state.needs_args = true;
-  generator_state.needs_scope = true;
-  generator_state.needs_retval = true;
+
+  // We don't have an isolate-only fast path for async yet
+  generator_state.needs_scope |= generator_state.needs_isolate;
 
   let (return_value, mapper, return_value_immediate) =
     map_async_return_type(generator_state, &signature.ret_val).map_err(
@@ -89,29 +62,19 @@ pub(crate) fn generate_dispatch_async(
       },
     )?;
 
-  args.extend(deferred);
-  args.extend(call(generator_state));
-  output.extend(gs_quote!(generator_state(deno_core, result, opctx) => {
-    if #opctx.metrics_enabled() {
-      #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Dispatched);
-    }
+  output.extend(gs_quote!(generator_state(result) => {
     let #result = {
       #args
     };
   }));
 
-  if matches!(
-    signature.ret_val,
-    RetVal::ResultFuture(_) | RetVal::ResultFutureResult(_)
-  ) {
+  // TODO(mmastrac): we should save this unwrapped result
+  if signature.ret_val.unwrap_result().is_some() {
     let exception = throw_exception(generator_state);
-    output.extend(gs_quote!(generator_state(deno_core, opctx, result) => {
+    output.extend(gs_quote!(generator_state(result) => {
       let #result = match #result {
         Ok(#result) => #result,
         Err(err) => {
-          if #opctx.metrics_enabled() {
-            #deno_core::_ops::dispatch_metrics_async(&#opctx, #deno_core::_ops::OpMetricsEvent::Error);
-          }
           // Handle eager error -- this will leave only a Future<R> or Future<Result<R>>
           #exception
         }
@@ -119,16 +82,29 @@ pub(crate) fn generate_dispatch_async(
     }));
   }
 
-  let lazy = config.async_lazy;
-  output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope, deno_core) => {
-    let #promise_id = #deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
-    if let Some(#result) = #deno_core::_ops::#mapper(#opctx, #lazy, #promise_id, #result, |#scope, #result| {
-      #return_value
-    }) {
-      // Eager poll returned a value
-      #return_value_immediate
-    }
-  }));
+  if config.async_lazy || config.async_deferred {
+    let lazy = config.async_lazy;
+    let deferred = config.async_deferred;
+    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
+      let #promise_id = deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      // Lazy and deferred results will always return None
+      deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
+        #return_value
+      });
+    }));
+  } else {
+    output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
+      let #promise_id = deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      if let Some(#result) = deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
+        #return_value
+      }) {
+        // Eager poll returned a value
+        #return_value_immediate;
+        return 0;
+      }
+    }));
+  }
+  output.extend(quote!(return 2;));
 
   let with_scope = if generator_state.needs_scope {
     with_scope(generator_state)
@@ -161,8 +137,9 @@ pub(crate) fn generate_dispatch_async(
   };
 
   Ok(
-    gs_quote!(generator_state(deno_core, info, slow_function, slow_function_metrics) => {
-      extern "C" fn #slow_function(#info: *const #deno_core::v8::FunctionCallbackInfo) {
+    gs_quote!(generator_state(info, slow_function, slow_function_metrics, opctx) => {
+      #[inline(always)]
+      fn slow_function_impl(#info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
         #with_scope
         #with_retval
         #with_args
@@ -172,8 +149,25 @@ pub(crate) fn generate_dispatch_async(
         #output
       }
 
-      extern "C" fn #slow_function_metrics(#info: *const #deno_core::v8::FunctionCallbackInfo) {
-        Self::#slow_function(#info)
+      extern "C" fn #slow_function(#info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(#info);
+      }
+
+      extern "C" fn #slow_function_metrics(#info: *const deno_core::v8::FunctionCallbackInfo) {
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+          &*info
+        });
+        let #opctx = unsafe {
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+            as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
+        let res = Self::slow_function_impl(#info);
+        if res == 0 {
+          deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Completed);
+        } else if res == 1 {
+          deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Error);
+        }
       }
     }),
   )

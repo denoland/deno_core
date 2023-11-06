@@ -4,6 +4,7 @@ use crate::error::is_instance_of_error;
 use crate::error::range_error;
 use crate::error::type_error;
 use crate::error::JsError;
+use crate::op2;
 use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::script_origin;
@@ -14,7 +15,6 @@ use crate::JsBuffer;
 use crate::JsRealm;
 use crate::JsRuntime;
 use anyhow::Error;
-use deno_ops::op2;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -22,13 +22,13 @@ use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
-#[op2(core)]
+#[op2]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.borrow_mut().unrefed_ops.remove(&promise_id);
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.borrow_mut().unrefed_ops.insert(promise_id);
@@ -37,7 +37,7 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 const SPECIFIER: &str = "foobar";
 const SOURCE_CODE: &str = "Deno.core.print('foo\\n')";
 
-#[op2(core)]
+#[op2]
 #[global]
 pub fn op_lazy_load_esm(scope: &mut v8::HandleScope) -> Result<v8::Global<v8::Value>, anyhow::Error> {
   let module_map_rc = JsRealm::module_map_from(scope);
@@ -76,7 +76,7 @@ pub fn op_lazy_load_esm(scope: &mut v8::HandleScope) -> Result<v8::Global<v8::Va
   mod_ns
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[global] cb: v8::Global<v8::Function>,
@@ -89,22 +89,40 @@ pub fn op_set_promise_reject_callback<'a>(
   old.map(|v| v8::Local::new(scope, &*v))
 }
 
-#[op2(core)]
-pub fn op_run_microtasks(scope: &mut v8::HandleScope) {
-  scope.perform_microtask_checkpoint();
+// We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
+// allowed to touch JS heap.
+#[op2(nofast)]
+pub fn op_queue_microtask(
+  isolate: *mut v8::Isolate,
+  cb: v8::Local<v8::Function>,
+) {
+  // SAFETY: we know v8 provides us a valid, non-null isolate pointer
+  unsafe {
+    isolate.as_mut().unwrap_unchecked().enqueue_microtask(cb);
+  }
 }
 
-#[op2(core)]
-pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
-  let state_rc = JsRuntime::state_from(scope);
-  let state = state_rc.borrow();
+// We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
+// allowed to touch JS heap.
+#[op2(nofast)]
+pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
+  // SAFETY: we know v8 provides us with a valid, non-null isolate
+  unsafe {
+    isolate
+      .as_mut()
+      .unwrap_unchecked()
+      .perform_microtask_checkpoint()
+  };
+}
+
+#[op2(fast)]
+pub fn op_has_tick_scheduled(state: &JsRuntimeState) -> bool {
   state.has_tick_scheduled
 }
 
-#[op2(core)]
-pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
-  let state_rc = JsRuntime::state_from(scope);
-  state_rc.borrow_mut().has_tick_scheduled = v;
+#[op2(fast)]
+pub fn op_set_has_tick_scheduled(state: &mut JsRuntimeState, v: bool) {
+  state.has_tick_scheduled = v;
 }
 
 #[derive(Serialize)]
@@ -121,7 +139,7 @@ pub struct EvalContextResult<'s>(
   Option<EvalContextError<'s>>,
 );
 
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -168,15 +186,7 @@ pub fn op_eval_context<'a>(
   }
 }
 
-#[op2(core)]
-pub fn op_queue_microtask(
-  scope: &mut v8::HandleScope,
-  cb: v8::Local<v8::Function>,
-) {
-  scope.enqueue_microtask(cb);
-}
-
-#[op2(core)]
+#[op2]
 pub fn op_create_host_object<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Object> {
@@ -185,7 +195,7 @@ pub fn op_create_host_object<'a>(
   template.new_instance(scope).unwrap()
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_encode<'a>(
   scope: &mut v8::HandleScope<'a>,
   text: v8::Local<'a, v8::Value>,
@@ -202,7 +212,7 @@ pub fn op_encode<'a>(
   Ok(u8array)
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_decode<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: &[u8],
@@ -392,7 +402,7 @@ pub struct SerializeDeserializeOptions<'a> {
   for_storage: bool,
 }
 
-#[op2(core)]
+#[op2]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
@@ -480,7 +490,7 @@ pub fn op_serialize(
   }
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_deserialize<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: JsBuffer,
@@ -555,7 +565,7 @@ pub fn op_deserialize<'a>(
 #[derive(Serialize)]
 pub struct PromiseDetails<'s>(u32, Option<serde_v8::Value<'s>>);
 
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_get_promise_details<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -572,7 +582,7 @@ pub fn op_get_promise_details<'a>(
   }
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_set_promise_hooks(
   scope: &mut v8::HandleScope,
   init_hook: v8::Local<v8::Value>,
@@ -623,7 +633,7 @@ pub fn op_set_promise_hooks(
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_get_proxy_details<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -638,7 +648,7 @@ pub fn op_get_proxy_details<'a>(
   Some((target.into(), handler.into()))
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_get_non_index_property_names<'a>(
   scope: &mut v8::HandleScope<'a>,
   obj: v8::Local<'a, v8::Value>,
@@ -679,7 +689,7 @@ pub fn op_get_non_index_property_names<'a>(
   maybe_names.map(|names| names.into())
 }
 
-#[op2(core)]
+#[op2]
 #[string]
 pub fn op_get_constructor_name(
   scope: &mut v8::HandleScope,
@@ -707,7 +717,7 @@ pub struct MemoryUsage {
   // array_buffers: usize,
 }
 
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
   let mut s = v8::HeapStatistics::default();
@@ -720,7 +730,7 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
   }
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
   #[global] cb: v8::Global<v8::Function>,
@@ -764,7 +774,7 @@ pub fn op_set_wasm_streaming_callback(
 }
 
 #[allow(clippy::let_and_return)]
-#[op2(core)]
+#[op2]
 pub fn op_abort_wasm_streaming(
   scope: &mut v8::HandleScope,
   rid: u32,
@@ -794,7 +804,7 @@ pub fn op_abort_wasm_streaming(
   Ok(())
 }
 
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_destructure_error(
   scope: &mut v8::HandleScope,
@@ -806,7 +816,7 @@ pub fn op_destructure_error(
 /// Effectively throw an uncatchable error. This will terminate runtime
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
-#[op2(core)]
+#[op2]
 pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
@@ -825,7 +835,7 @@ pub fn op_dispatch_exception(
   scope.terminate_execution();
 }
 
-#[op2(core)]
+#[op2]
 #[serde]
 pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
   let state_rc = JsRealm::state_from_scope(scope);
@@ -861,7 +871,7 @@ fn write_line_and_col_to_ret_buf(
 // 2: mapped line, column, and file name. new line, column, and file name are in
 //    ret_buf. retrieve file name by calling `op_apply_source_map_filename`
 //    immediately after this op returns.
-#[op2(core, fast)]
+#[op2(fast)]
 #[smi]
 pub fn op_apply_source_map(
   state: &JsRuntimeState,
@@ -908,7 +918,7 @@ pub fn op_apply_source_map(
 
 // Call to retrieve the stashed file name from a previous call to
 // `op_apply_source_map` that returned `2`.
-#[op2(core)]
+#[op2]
 #[string]
 pub fn op_apply_source_map_filename(
   state: &JsRuntimeState,
@@ -921,7 +931,7 @@ pub fn op_apply_source_map_filename(
     .ok_or_else(|| type_error("No stashed file name"))
 }
 
-#[op2(core)]
+#[op2]
 #[string]
 pub fn op_current_user_call_site(
   scope: &mut v8::HandleScope,
@@ -992,7 +1002,7 @@ pub fn op_current_user_call_site(
 /// `JsError::exception_message`. The callback is passed the error value and
 /// should return a string or `null`. If no callback is set or the callback
 /// returns `null`, the built-in default formatting will be used.
-#[op2(core)]
+#[op2]
 pub fn op_set_format_exception_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[global] cb: v8::Global<v8::Function>,
@@ -1006,12 +1016,12 @@ pub fn op_set_format_exception_callback<'a>(
   old.map(|func| func.into())
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::event_loop_pending_state_from_scope(scope).is_pending()
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_store_pending_promise_rejection(
   scope: &mut v8::HandleScope,
   #[global] promise: v8::Global<v8::Promise>,
@@ -1024,7 +1034,7 @@ pub fn op_store_pending_promise_rejection(
     .push_back((promise, reason));
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_remove_pending_promise_rejection(
   scope: &mut v8::HandleScope,
   #[global] promise: v8::Global<v8::Promise>,
@@ -1036,7 +1046,7 @@ pub fn op_remove_pending_promise_rejection(
     .retain(|(key, _)| key != &promise);
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_has_pending_promise_rejection(
   scope: &mut v8::HandleScope,
   #[global] promise: v8::Global<v8::Promise>,
@@ -1049,7 +1059,7 @@ pub fn op_has_pending_promise_rejection(
     .any(|(key, _)| key == &promise)
 }
 
-#[op2(core)]
+#[op2]
 pub fn op_arraybuffer_was_detached(
   _scope: &mut v8::HandleScope,
   input: v8::Local<v8::Value>,

@@ -7,7 +7,7 @@ use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
 use crate::Snapshot;
-use deno_ops::op;
+use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
@@ -21,9 +21,7 @@ use url::Url;
 use super::*;
 
 // deno_ops macros generate code assuming deno_core in scope.
-mod deno_core {
-  pub use crate::*;
-}
+use crate::deno_core;
 
 #[derive(Default)]
 struct MockLoader {
@@ -302,7 +300,7 @@ fn test_mods() {
   let loader = Rc::new(CountingModuleLoader::new(NoopModuleLoader));
   static DISPATCH_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-  #[op]
+  #[op2(fast)]
   fn op_test(control: u8) -> u8 {
     DISPATCH_COUNT.fetch_add(1, Ordering::Relaxed);
     assert_eq!(control, 42);
@@ -1098,8 +1096,9 @@ fn import_meta_snapshot() {
     let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
     #[allow(clippy::let_underscore_future)]
-    let _ = runtime.mod_evaluate(main_id);
+    let eval_fut = runtime.mod_evaluate(main_id);
     futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+    futures::executor::block_on(eval_fut).unwrap().unwrap();
     runtime.snapshot()
   };
 

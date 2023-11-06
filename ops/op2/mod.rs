@@ -4,7 +4,6 @@ use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
 use std::iter::zip;
 use syn::parse2;
 use syn::parse_str;
@@ -13,7 +12,6 @@ use syn::FnArg;
 use syn::ItemFn;
 use syn::Lifetime;
 use syn::LifetimeParam;
-use syn::Path;
 use syn::Type;
 use thiserror::Error;
 
@@ -59,6 +57,8 @@ pub enum Op2Error {
   ShouldBeAsync,
   #[error("This op is not async and should not be marked as (async)")]
   ShouldNotBeAsync,
+  #[error("Only one fast alternative is supported in fast(...) at this time")]
+  TooManyFastAlternatives,
   #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
   ImproperlySortedAttribute(String),
 }
@@ -73,7 +73,8 @@ pub enum V8SignatureMappingError {
 
 pub type V8MappingError = &'static str;
 
-pub fn op2(
+/// Generate the op2 macro expansion.
+pub(crate) fn op2(
   attr: TokenStream,
   item: TokenStream,
 ) -> Result<TokenStream, Op2Error> {
@@ -146,14 +147,6 @@ fn generate_op2(
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
 
-  let deno_core = if config.core {
-    syn::parse_str::<Path>("crate")
-  } else {
-    syn::parse_str::<Path>("deno_core")
-  }
-  .expect("Parsing crate should not fail")
-  .into_token_stream();
-
   let mut generator_state = GeneratorState {
     args,
     fn_args,
@@ -164,7 +157,6 @@ fn generate_op2(
     opstate,
     js_runtime_state,
     fast_api_callback_options,
-    deno_core,
     result,
     retval,
     needs_args,
@@ -200,9 +192,10 @@ fn generate_op2(
   }
 
   let (fast_definition, fast_definition_metrics, fast_fn) =
-    match generate_dispatch_fast(&mut generator_state, &signature)? {
+    match generate_dispatch_fast(&config, &mut generator_state, &signature)? {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
-        if !config.fast && !config.nofast {
+        if !config.fast && !config.nofast && config.fast_alternatives.is_empty()
+        {
           return Err(Op2Error::ShouldBeFast);
         }
         // nofast requires the function to be valid for fast
@@ -228,7 +221,6 @@ fn generate_op2(
     };
 
   let GeneratorState {
-    deno_core,
     slow_function,
     slow_function_metrics,
     ..
@@ -255,9 +247,9 @@ fn generate_op2(
       _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
     }
 
-    impl <#(#generic : #bound),*> #deno_core::_ops::Op for #name <#(#generic),*> {
+    impl <#(#generic : #bound),*> deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: #deno_core::_ops::OpDecl = #deno_core::_ops::OpDecl::new_internal_op2(
+      const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         /*name*/ stringify!(#name),
         /*is_async*/ #is_async,
         /*arg_count*/ #arg_count as u8,
@@ -274,8 +266,8 @@ fn generate_op2(
       }
 
       #[deprecated(note = "Use the const op::DECL instead")]
-      pub const fn decl() -> #deno_core::_ops::OpDecl {
-        <Self as #deno_core::_ops::Op>::DECL
+      pub const fn decl() -> deno_core::_ops::OpDecl {
+        <Self as deno_core::_ops::Op>::DECL
       }
 
       #fast_fn
@@ -292,6 +284,7 @@ fn generate_op2(
 mod tests {
   use super::*;
   use pretty_assertions::assert_eq;
+  use quote::ToTokens;
   use std::path::PathBuf;
   use syn::parse_str;
   use syn::File;

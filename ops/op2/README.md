@@ -39,6 +39,52 @@ op system.
 fn op_xyz(promise_id: i32, /* ... */) -> Option<X> {}
 ```
 
+### Eager `async` calls: `async`
+
+By default, `async` functions are eagerly polled, which reduces the latency of
+the call dramatically if the async function is ready to return a value
+immediately.
+
+### `async(lazy)`
+
+`async` calls may be marked as `lazy`, which allows the runtime to defer polling
+the op until a later time. The submission of an `async(lazy)` op might be
+faster, but the latency will be higher for ops that would have been ready on the
+first poll.
+
+**NOTE**: You _may_ need to use this to get the maximum performance out of a set
+of async tasks, but it should only be used alongside careful benchmarking. In
+some cases it will allow for higher throughput at the expense of latency.
+
+Lazy `async` calls _may_ be fastcalls, though the resolution will still happen
+on a slow path.
+
+### `async(deferred)`
+
+`async` calls may also be marked as `deferred`, which will allow the runtime to
+poll the op immediately, but any results that are ready are deferred until a
+later run of the event loop.
+
+**NOTE**: This is almost certainly not what you want to use and should only be
+used if you really know what you are doing.
+
+Lazy `async(deferred)` calls _may_ be fastcalls, though the resolution will
+still happen on a slow path.
+
+## fastcalls
+
+`op2` requires fastcall-compatible ops to be annotated with `fast`. If you wish
+to avoid fastcalls for some reason (this is unlikely), you can specify `nofast`
+instead.
+
+You may also choose an alternate op function to use as the fastcall equivalent
+to a slow function. In this case, you can specify `fast(op_XYZ)`. The other op
+must be decorated with `#[op2(fast)]`, and does not need to be registered. When
+v8 optimized the slow function to a fastcall, it will switch the implementation
+over if the parameters are compatible. This is useful for a function that takes
+any buffer type in the slow path and wishes to use the very fast typed `u8`
+buffer for the fast path.
+
 # Parameters
 
 <!-- START ARGS -->
@@ -849,9 +895,9 @@ Safe, but forces a copy.
 ```
 
 </td><td>
-
+✅
 </td><td>
-ArrayBuffer, ArrayBufferView (resizable=false)
+ArrayBufferView (resizable=false)
 </td><td>
 ⚠️ JS may modify the contents of slices obtained from buffer.
 </td></tr>
@@ -865,7 +911,7 @@ ArrayBuffer, ArrayBufferView (resizable=false)
 </td><td>
 
 </td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
+ArrayBufferView (resizable=true,false)
 </td><td>
 Safe.
 </td></tr>
@@ -896,6 +942,62 @@ External
 External
 </td><td>
 
+</td></tr>
+<tr>
+<td>
+
+```text
+#[memory(caller)] &[u8]
+```
+
+</td><td>
+✅
+</td><td>
+WASM
+</td><td>
+When called from WASM code, contains a pointer to the WASM module's memory. Throws an exception if called from another context.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[memory(caller)] &mut [u8]
+```
+
+</td><td>
+✅
+</td><td>
+WASM
+</td><td>
+When called from WASM code, contains a pointer to the WASM module's memory. Throws an exception if called from another context.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[memory(caller)] Option<&[u8]>
+```
+
+</td><td>
+✅
+</td><td>
+WASM
+</td><td>
+When called from WASM code, contains a pointer to the WASM module's memory, otherwise `None`.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[memory(caller)] Option<&mut [u8]>
+```
+
+</td><td>
+✅
+</td><td>
+WASM
+</td><td>
+When called from WASM code, contains a pointer to the WASM module's memory, otherwise `None`.
 </td></tr>
 <tr>
 <td>
@@ -1008,6 +1110,20 @@ Rc<RefCell<JsRuntimeState>>
 
 </td><td>
 Only usable in `deno_core`.
+</td></tr>
+<tr>
+<td>
+
+```text
+*mut v8::Isolate
+```
+
+</td><td>
+✅
+</td><td>
+
+</td><td>
+⚠️ Extremely dangerous, may crash if you don't use `nofast` depending on what you do.
 </td></tr>
 </table>
 

@@ -7,28 +7,30 @@ use crate::op2::Op2Error;
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub(crate) struct MacroConfig {
-  /// Use `(core)` for ops that live in `deno_core`.
-  pub core: bool,
   /// Generate a fastcall method (must be fastcall compatible).
   pub fast: bool,
   /// Do not generate a fastcall method (must be fastcall compatible).
   pub nofast: bool,
+  /// Use other ops for the fast alternatives, rather than generating one for this op.
+  pub fast_alternatives: Vec<String>,
   /// Marks an async function (either `async fn` or `fn -> impl Future`)
   pub r#async: bool,
-  /// Marks an lazy async function (async must also be true)
+  /// Marks a lazy async function (async must also be true)
   pub async_lazy: bool,
+  /// Marks a deferred async function (async must also be true)
+  pub async_deferred: bool,
 }
 
 impl MacroConfig {
   fn from_token_trees(
     flags: Vec<TokenTree>,
-    args: Vec<Option<Vec<TokenTree>>>,
+    args: Vec<Option<Vec<impl ToTokens>>>,
   ) -> Result<Self, Op2Error> {
     let flags = flags.into_iter().zip(args.into_iter()).map(|(flag, args)| {
       if let Some(args) = args {
         let args = args
           .into_iter()
-          .map(|arg| arg.to_string())
+          .map(|arg| arg.to_token_stream().to_string())
           .collect::<Vec<_>>()
           .join(",");
         format!("{}({args})", flag.into_token_stream())
@@ -54,10 +56,20 @@ impl MacroConfig {
     }
 
     for flag in flags {
-      if flag == "core" {
-        config.core = true;
-      } else if flag == "fast" {
+      if flag == "fast" {
         config.fast = true;
+      } else if flag.starts_with("fast(") {
+        let tokens =
+          syn::parse_str::<TokenTree>(&flag[4..])?.into_token_stream();
+        config.fast_alternatives = std::panic::catch_unwind(|| {
+          rules!(tokens => {
+            ( ( $( $types:ty ),+ ) ) => {
+              types.into_iter().map(|s| s.into_token_stream().to_string().replace(' ', ""))
+            }
+          })
+        })
+        .map_err(|_| Op2Error::PatternMatchFailed("attribute", flag))?
+        .collect::<Vec<_>>();
       } else if flag == "nofast" {
         config.nofast = true;
       } else if flag == "async" {
@@ -65,6 +77,9 @@ impl MacroConfig {
       } else if flag == "async(lazy)" {
         config.r#async = true;
         config.async_lazy = true;
+      } else if flag == "async(deferred)" {
+        config.r#async = true;
+        config.async_deferred = true;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }
@@ -74,10 +89,20 @@ impl MacroConfig {
     if config.fast && config.nofast {
       return Err(Op2Error::InvalidAttributeCombination("fast", "nofast"));
     }
-    if config.fast && (config.r#async && !config.async_lazy) {
+    if config.fast && !config.fast_alternatives.is_empty() {
+      return Err(Op2Error::InvalidAttributeCombination("fast", "fast(...)"));
+    }
+    if config.fast_alternatives.len() > 1 {
+      return Err(Op2Error::TooManyFastAlternatives);
+    }
+    if config.fast
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
       return Err(Op2Error::InvalidAttributeCombination("fast", "async"));
     }
-    if config.nofast && (config.r#async && !config.async_lazy) {
+    if config.nofast
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
       return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
     }
 
@@ -94,7 +119,7 @@ impl MacroConfig {
         () => {
           Ok(MacroConfig::default())
         }
-        ( $($flags:tt $( ( $( $args:tt ),* ) )? ),+ ) => {
+        ( $($flags:tt $( ( $( $args:ty ),* ) )? ),+ ) => {
           Self::from_token_trees(flags, args)
         }
       })
@@ -109,7 +134,7 @@ impl MacroConfig {
 
     let config = std::panic::catch_unwind(|| {
       rules!(tokens.into_token_stream() => {
-        ( ( $($flags:tt $( ( $( $args:tt ),* ) )? ),+ ) ) => {
+        ( ( $($flags:tt $( ( $( $args:ty ),* ) )? ),+ ) ) => {
           Self::from_token_trees(flags, args)
         }
       })
@@ -182,10 +207,16 @@ mod tests {
       },
     );
     test_parse(
-      "(async, core)",
+      "(fast(op_other1))",
       MacroConfig {
-        r#async: true,
-        core: true,
+        fast_alternatives: vec!["op_other1".to_owned()],
+        ..Default::default()
+      },
+    );
+    test_parse(
+      "(fast(op_generic::<T>))",
+      MacroConfig {
+        fast_alternatives: vec!["op_generic::<T>".to_owned()],
         ..Default::default()
       },
     );
