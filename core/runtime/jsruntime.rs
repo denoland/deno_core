@@ -186,7 +186,7 @@ pub(crate) enum InitMode {
   /// We are using a snapshot, thus certain initialization steps are skipped.
   FromSnapshot {
     // Do we need to register new ops.
-    register_ops: bool,
+    skip_op_registration: bool,
   },
 }
 
@@ -195,7 +195,7 @@ impl InitMode {
     match options.startup_snapshot {
       None => Self::New,
       Some(_) => Self::FromSnapshot {
-        register_ops: options.register_ops,
+        skip_op_registration: options.skip_op_registration,
       },
     }
   }
@@ -412,7 +412,9 @@ pub struct RuntimeOptions {
 
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
-  pub register_ops: bool,
+
+  /// Should op registration be skipped?
+  pub skip_op_registration: bool,
 
   /// Isolate creation parameters.
   pub create_params: Option<v8::CreateParams>,

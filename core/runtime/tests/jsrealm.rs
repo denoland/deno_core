@@ -220,7 +220,7 @@ fn js_realm_init_snapshot() {
   let mut runtime = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(Snapshot::Boxed(snapshot)),
     extensions: vec![test_ext::init_ops()],
-    register_ops: true,
+    skip_op_registration: false,
     ..Default::default()
   });
   let realm = runtime.create_realm(Default::default()).unwrap();
