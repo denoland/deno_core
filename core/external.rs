@@ -6,7 +6,7 @@ use std::mem::ManuallyDrop;
 #[macro_export]
 macro_rules! external {
   ($type:ty, $name:literal) => {
-    impl $crate::external::Externalizable for $type {
+    impl $crate::Externalizable for $type {
       fn external_marker() -> usize {
         // Use the address of a static mut as a way to get around lack of usize-sized TypeId. Because it is mutable, the
         // compiler cannot collapse multiple definitions into one.
