@@ -1,6 +1,6 @@
-use deno_proc_macro_rules::rules;
 use proc_macro2::TokenStream;
 use proc_macro2::TokenTree;
+use proc_macro_rules::rules;
 use quote::ToTokens;
 
 use crate::op2::Op2Error;
