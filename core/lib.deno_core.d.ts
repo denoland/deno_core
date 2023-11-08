@@ -21,6 +21,14 @@ declare namespace Deno {
      * if there are only "unref" promises left. */
     function unrefOp(promiseId: number): void;
 
+    /** Mark following promise as "ref", ie. event loop won't exit
+     * until all "ref" promises are resolved. All async ops are "ref" by default. */
+    function refOpPromise<T>(promise: Promise<T>): void;
+
+    /** Mark following promise as "unref", ie. event loop will exit
+     * if there are only "unref" promises left. */
+    function unrefOpPromise<T>(promise: Promise<T>): void;
+
     /**
      * List of all registered ops, in the form of a map that maps op
      * name to function.

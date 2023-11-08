@@ -632,6 +632,14 @@ for (let i = 0; i < 10; i++) {
     ops.op_unref_op(promiseId);
   }
 
+  function refOpPromise(promise) {
+    refOp(promise[promiseIdSymbol]);
+  }
+
+  function unrefOpPromise(promise) {
+    unrefOp(promise[promiseIdSymbol]);
+  }
+
   function resources() {
     return ObjectFromEntries(ops.op_resources());
   }
@@ -839,6 +847,8 @@ for (let i = 0; i < 10; i++) {
     opCallTraces,
     refOp,
     unrefOp,
+    refOpPromise,
+    unrefOpPromise,
     setReportExceptionCallback,
     setPromiseHooks,
     close,
