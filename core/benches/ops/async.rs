@@ -26,13 +26,18 @@ deno_core::extension!(
 );
 
 #[op2]
-pub fn op_call_promise_resolver<'s>(scope: &'s mut v8::HandleScope, f: &v8::Function) {
+pub fn op_call_promise_resolver<'s>(
+  scope: &'s mut v8::HandleScope,
+  f: &v8::Function,
+) {
   let recv = v8::undefined(scope).try_into().unwrap();
   f.call(scope, recv, &[]);
 }
 
 #[op2]
-pub fn op_resolve_promise<'s>(scope: &'s mut v8::HandleScope) -> v8::Local<'s, v8::Promise> {
+pub fn op_resolve_promise<'s>(
+  scope: &'s mut v8::HandleScope,
+) -> v8::Local<'s, v8::Promise> {
   let resolver = v8::PromiseResolver::new(scope).unwrap();
   let value = v8::undefined(scope).try_into().unwrap();
   resolver.resolve(scope, value).unwrap();
