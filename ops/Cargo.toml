@@ -15,14 +15,9 @@ path = "./lib.rs"
 proc-macro = true
 
 [dependencies]
-lazy-regex.workspace = true
-once_cell.workspace = true
-pmutil.workspace = true
-proc-macro-crate.workspace = true
 proc-macro-rules.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true
-regex.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
 syn.workspace = true
