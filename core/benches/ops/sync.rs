@@ -162,7 +162,7 @@ fn bench_op(
     // Add metrics just for the metrics ops
     op_metrics_factory_fn: Some(Box::new(|_, _, op| {
       if op.name.ends_with("_metrics") {
-        Some(std::rc::Rc::new(|_, _| {}))
+        Some(std::rc::Rc::new(|_, _, _| {}))
       } else {
         None
       }
