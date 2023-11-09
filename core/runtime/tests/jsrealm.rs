@@ -459,8 +459,7 @@ async fn js_realm_ref_unref_ops() {
         runtime.v8_isolate(),
         "",
         r#"
-          let promiseIdSymbol = Symbol.for("Deno.core.internalPromiseId");
-          Deno.core.unrefOp(promise[promiseIdSymbol]);
+          Deno.core.unrefOpPromise(promise);
         "#,
       )
       .unwrap();
@@ -471,8 +470,7 @@ async fn js_realm_ref_unref_ops() {
         runtime.v8_isolate(),
         "",
         r#"
-          let promiseIdSymbol = Symbol.for("Deno.core.internalPromiseId");
-          Deno.core.unrefOp(promise[promiseIdSymbol]);
+          Deno.core.unrefOpPromise(promise);
         "#,
       )
       .unwrap();
