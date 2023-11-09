@@ -71,7 +71,7 @@
   registerErrorClass("TypeError", TypeError);
   registerErrorClass("URIError", URIError);
 
-  let nextPromiseId = 1;
+  let nextPromiseId = 0xffffffff;
   const promiseMap = new SafeMap();
   const RING_SIZE = 4 * 1024;
   const NO_PROMISE = null; // Alias to null is faster than plain nulls
@@ -119,12 +119,18 @@
     const outOfBounds = promiseId < nextPromiseId - RING_SIZE;
     if (outOfBounds) {
       const promise = MapPrototypeGet(promiseMap, promiseId);
+      if (!promise) {
+        throw "Missing promise in map @ " + promiseId;
+      }
       MapPrototypeDelete(promiseMap, promiseId);
       return promise;
     }
     // Otherwise take from ring
     const idx = promiseId % RING_SIZE;
     const promise = promiseRing[idx];
+    if (!promise) {
+      throw "Missing promise in ring @ " + promiseId;
+    }
     promiseRing[idx] = NO_PROMISE;
     return promise;
   }
@@ -292,7 +298,7 @@ for (let i = 0; i < 10; i++) {
   s += `
       case ${i}:
         fn = function async_op_${i}(${args}) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, ${args});
             if (maybeResult !== undefined) {
@@ -327,7 +333,7 @@ for (let i = 0; i < 10; i++) {
     switch (originalOp.length - 1) {
       case 0:
         fn = function async_op_0() {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id);
             if (maybeResult !== undefined) {
@@ -351,7 +357,7 @@ for (let i = 0; i < 10; i++) {
 
       case 1:
         fn = function async_op_1(a) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a);
             if (maybeResult !== undefined) {
@@ -375,7 +381,7 @@ for (let i = 0; i < 10; i++) {
 
       case 2:
         fn = function async_op_2(a, b) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b);
             if (maybeResult !== undefined) {
@@ -399,7 +405,7 @@ for (let i = 0; i < 10; i++) {
 
       case 3:
         fn = function async_op_3(a, b, c) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b, c);
             if (maybeResult !== undefined) {
@@ -423,7 +429,7 @@ for (let i = 0; i < 10; i++) {
 
       case 4:
         fn = function async_op_4(a, b, c, d) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b, c, d);
             if (maybeResult !== undefined) {
@@ -447,7 +453,7 @@ for (let i = 0; i < 10; i++) {
 
       case 5:
         fn = function async_op_5(a, b, c, d, e) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b, c, d, e);
             if (maybeResult !== undefined) {
@@ -471,7 +477,7 @@ for (let i = 0; i < 10; i++) {
 
       case 6:
         fn = function async_op_6(a, b, c, d, e, f) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f);
             if (maybeResult !== undefined) {
@@ -495,7 +501,7 @@ for (let i = 0; i < 10; i++) {
 
       case 7:
         fn = function async_op_7(a, b, c, d, e, f, g) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f, g);
             if (maybeResult !== undefined) {
@@ -519,7 +525,7 @@ for (let i = 0; i < 10; i++) {
 
       case 8:
         fn = function async_op_8(a, b, c, d, e, f, g, h) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f, g, h);
             if (maybeResult !== undefined) {
@@ -543,7 +549,7 @@ for (let i = 0; i < 10; i++) {
 
       case 9:
         fn = function async_op_9(a, b, c, d, e, f, g, h, i) {
-          const id = nextPromiseId++;
+          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f, g, h, i);
             if (maybeResult !== undefined) {
@@ -581,7 +587,7 @@ for (let i = 0; i < 10; i++) {
   }
 
   function opAsync(name, ...args) {
-    const id = nextPromiseId++;
+    const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
     try {
       const maybeResult = asyncOps[name](id, ...new SafeArrayIterator(args));
       if (maybeResult !== undefined) {
