@@ -283,42 +283,6 @@
     return promise;
   }
 
-  /*
-Basic codegen.
-
-TODO(mmastrac): automate this (handlebars?)
-
-let s = "";
-const vars = "abcdefghijklm";
-for (let i = 0; i < 10; i++) {
-  let args = "";
-  for (let j = 0; j < i; j++) {
-    args += `${vars[j]},`;
-  }
-  s += `
-      case ${i}:
-        fn = function async_op_${i}(${args}) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
-          try {
-            const maybeResult = originalOp(id, ${args});
-            if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_${i});
-            }
-          } catch (err) {
-            movePromise(id);
-            ErrorCaptureStackTrace(err, async_op_${i});
-            return PromiseReject(err);
-          }
-          let promise = PromisePrototypeThen(setPromise(id), unwrapOpError(eventLoopTick));
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-  `;
-}
-  */
 
   // This function is called once per async stub
   function asyncStub(opName, args) {
@@ -331,6 +295,8 @@ for (let i = 0; i < 10; i++) {
     let fn;
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {
+      /* BEGIN TEMPLATE setUpAsyncStub */
+      /* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */
       case 0:
         fn = function async_op_0() {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -354,7 +320,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 1:
         fn = function async_op_1(a) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -378,7 +343,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 2:
         fn = function async_op_2(a, b) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -402,7 +366,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 3:
         fn = function async_op_3(a, b, c) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -426,7 +389,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 4:
         fn = function async_op_4(a, b, c, d) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -450,7 +412,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 5:
         fn = function async_op_5(a, b, c, d, e) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -474,7 +435,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 6:
         fn = function async_op_6(a, b, c, d, e, f) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -498,7 +458,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 7:
         fn = function async_op_7(a, b, c, d, e, f, g) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -522,7 +481,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 8:
         fn = function async_op_8(a, b, c, d, e, f, g, h) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -546,7 +504,6 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 9:
         fn = function async_op_9(a, b, c, d, e, f, g, h, i) {
           const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
@@ -570,6 +527,7 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
+      /* END TEMPLATE */
 
       default:
         throw new Error(
@@ -586,18 +544,20 @@ for (let i = 0; i < 10; i++) {
     return (ops[opName] = fn);
   }
 
-  function opAsync(name, ...args) {
+  /* BEGIN TEMPLATE opAsync */
+  /* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */
+  function opAsync(opName, ...args) {
     const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
     try {
-      const maybeResult = asyncOps[name](id, ...new SafeArrayIterator(args));
+      const maybeResult = asyncOps[opName](id, ...new SafeArrayIterator(args));
       if (maybeResult !== undefined) {
         movePromise(id);
         return unwrapOpResultNewPromise(id, maybeResult, opAsync);
       }
     } catch (err) {
       movePromise(id);
-      if (!ReflectHas(asyncOps, name)) {
-        return PromiseReject(new TypeError(`${name} is not a registered op`));
+      if (!ReflectHas(asyncOps, opName)) {
+        return PromiseReject(new TypeError(`${opName} is not a registered op`));
       }
       ErrorCaptureStackTrace(err, opAsync);
       return PromiseReject(err);
@@ -606,10 +566,11 @@ for (let i = 0; i < 10; i++) {
       setPromise(id),
       unwrapOpError(eventLoopTick),
     );
-    promise = handleOpCallTracing(name, id, promise);
+    promise = handleOpCallTracing(opName, id, promise);
     promise[promiseIdSymbol] = id;
     return promise;
   }
+  /* END TEMPLATE */
 
   function handleOpCallTracing(opName, promiseId, p) {
     if (opCallTracingEnabled) {
