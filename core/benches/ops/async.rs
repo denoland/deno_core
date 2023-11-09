@@ -9,6 +9,8 @@ deno_core::extension!(
   ops = [
     op_void,
     op_make_external,
+    op_call_promise_resolver,
+    op_resolve_promise,
     op_async_void,
     op_async_void_lazy,
     op_async_void_lazy_nofast,
@@ -22,6 +24,22 @@ deno_core::extension!(
     op_async_yield_deferred_nofast,
   ],
 );
+
+#[op2]
+pub fn op_call_promise_resolver(scope: &mut v8::HandleScope, f: &v8::Function) {
+  let recv = v8::undefined(scope).try_into().unwrap();
+  f.call(scope, recv, &[]);
+}
+
+#[op2]
+pub fn op_resolve_promise<'s>(
+  scope: &'s mut v8::HandleScope,
+) -> v8::Local<'s, v8::Promise> {
+  let resolver = v8::PromiseResolver::new(scope).unwrap();
+  let value = v8::undefined(scope).try_into().unwrap();
+  resolver.resolve(scope, value).unwrap();
+  resolver.get_promise(scope)
+}
 
 #[op2(fast)]
 pub fn op_void() {}
@@ -158,6 +176,28 @@ fn baseline_promise(b: &mut Bencher) {
   );
 }
 
+/// Tests the overhead of execute_script with a promise.
+fn baseline_op_promise_resolver(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_call_promise_resolver",
+    1,
+    "{ let { promise, resolve } = Promise.withResolvers(); op_call_promise_resolver(resolve); await promise; }",
+  );
+}
+
+/// Tests the overhead of execute_script with a promise.
+fn baseline_op_promise(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_resolve_promise",
+    0,
+    "await op_resolve_promise();",
+  );
+}
+
 /// Tests the overhead of execute_script, but also returns a value so we can make sure things are
 /// working.
 fn bench_op_async_void_deferred_return(b: &mut Bencher) {
@@ -206,6 +246,8 @@ benchmark_group!(
   benches,
   baseline,
   baseline_promise,
+  baseline_op_promise_resolver,
+  baseline_op_promise,
   baseline_sync,
   bench_op_async_yield,
   bench_op_async_yield_lazy,
