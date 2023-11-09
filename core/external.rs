@@ -27,8 +27,6 @@ macro_rules! external {
   };
 }
 
-pub use external;
-
 pub trait Externalizable {
   fn external_marker() -> usize;
   fn external_name() -> &'static str;

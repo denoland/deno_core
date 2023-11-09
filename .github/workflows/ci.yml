@@ -28,6 +28,10 @@ jobs:
       - name: Install Rust
         uses: dsherret/rust-toolchain-file@v1
 
+      - name: Install Rust (nightly)
+        if: contains(matrix.os, 'ubuntu')
+        uses: dtolnay/rust-toolchain@nightly
+
       - name: Install Deno
         uses: denoland/setup-deno@v1
 
@@ -51,6 +55,14 @@ jobs:
         run: |
           cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
           deno lint
+
+      - name: Lint deps
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          cargo install cargo-machete --locked
+          cargo machete
+          cargo install cargo-udeps --locked
+          cargo +nightly udeps
 
       - name: Cargo test
         run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
