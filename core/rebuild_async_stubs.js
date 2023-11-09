@@ -6,24 +6,25 @@ const doNotModify =
 
 // The template function we build opAsync and op_async_N functions from
 function __TEMPLATE__(__ARGS_PARAM__) {
-  const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+  const id = (nextPromiseId + 1) & 0xffffffff;
   try {
     const maybeResult = __OP__(__ARGS__);
     if (maybeResult !== undefined) {
-      movePromise(id);
-      return unwrapOpResultNewPromise(id, maybeResult, __TEMPLATE__);
+      return PromiseResolve(maybeResult);
     }
   } catch (err) {
-    movePromise(id);
     __ERR__;
     ErrorCaptureStackTrace(err, __TEMPLATE__);
     return PromiseReject(err);
   }
+  nextPromiseId = id;
   let promise = PromisePrototypeThen(
     setPromise(id),
     unwrapOpError(eventLoopTick),
   );
-  promise = handleOpCallTracing(opName, id, promise);
+  if (opCallTracingEnabled) {
+    promise = handleOpCallTracing(opName, id, promise);
+  }
   promise[promiseIdSymbol] = id;
   return promise;
 }
