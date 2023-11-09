@@ -37,7 +37,6 @@ pub fn map_async_op_infallible<R: 'static>(
 ) -> Option<R> {
   let id = ctx.id;
   let metrics = ctx.metrics_enabled();
-
   if lazy {
     let mapper = move |r| {
       PendingOp(

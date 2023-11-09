@@ -11,8 +11,6 @@ use crate::FeatureChecker;
 use crate::OpDecl;
 use anyhow::Error;
 use futures::task::AtomicWaker;
-use futures::Future;
-use pin_project::pin_project;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
@@ -29,42 +27,6 @@ use v8::Isolate;
 pub type PromiseId = i32;
 pub type OpId = u16;
 pub struct PendingOp(pub PromiseId, pub OpId, pub OpResult, pub bool);
-
-#[pin_project]
-pub struct OpCall<F: Future<Output = OpResult>> {
-  promise_id: PromiseId,
-  op_id: OpId,
-  /// Future is not necessarily Unpin, so we need to pin_project.
-  #[pin]
-  fut: F,
-}
-
-impl<F: Future<Output = OpResult>> OpCall<F> {
-  /// Wraps a future; the inner future is polled the usual way (lazily).
-  pub fn new(op_ctx: &OpCtx, promise_id: PromiseId, fut: F) -> Self {
-    Self {
-      op_id: op_ctx.id,
-      promise_id,
-      fut,
-    }
-  }
-}
-
-impl<F: Future<Output = OpResult>> Future for OpCall<F> {
-  type Output = PendingOp;
-
-  fn poll(
-    self: std::pin::Pin<&mut Self>,
-    cx: &mut std::task::Context<'_>,
-  ) -> std::task::Poll<Self::Output> {
-    let promise_id = self.promise_id;
-    let op_id = self.op_id;
-    let fut = self.project().fut;
-    fut
-      .poll(cx)
-      .map(move |res| PendingOp(promise_id, op_id, res, false))
-  }
-}
 
 #[allow(clippy::type_complexity)]
 pub enum OpResult {

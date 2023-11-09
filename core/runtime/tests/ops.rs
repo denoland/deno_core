@@ -643,7 +643,7 @@ pub async fn test_op_metrics() {
         return None;
       }
       let out_clone = out_clone.clone();
-      Some(Rc::new(move |_, metrics| {
+      Some(Rc::new(move |_, metrics, _| {
         let s = format!("{} {:?}", name, metrics);
         println!("{s}");
         out_clone.borrow_mut().push(s);
@@ -756,7 +756,8 @@ pub async fn test_op_metrics_summary_tracker() {
     OpMetricsSummary {
       ops_completed_async: 8,
       ops_dispatched_async: 8,
-      ops_dispatched_sync: 3
+      ops_dispatched_sync: 3,
+      ops_dispatched_fast: 0,
     }
   );
 }
