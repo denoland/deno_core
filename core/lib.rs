@@ -192,6 +192,8 @@ macro_rules! located_script_name {
 
 #[cfg(test)]
 mod tests {
+  use std::process::Command;
+
   use super::*;
 
   #[test]
@@ -210,5 +212,19 @@ mod tests {
   #[test]
   fn test_v8_version() {
     assert!(v8_version().len() > 3);
+  }
+
+  // If the deno command is available, we ensure the async stubs are correctly rebuilt.
+  #[test]
+  fn test_rebuild_async_stubs() {
+    // Check for deno first
+    if let Err(e) = Command::new("deno").arg("--version").status() {
+      eprintln!("Ignoring test because we couldn't find deno: {e:?}");
+    }
+    let status = Command::new("deno")
+      .args(&["run", "-A", "rebuild_async_stubs.js", "--check"])
+      .status()
+      .unwrap();
+    assert!(status.success(), "Failed to check async stubs");
   }
 }

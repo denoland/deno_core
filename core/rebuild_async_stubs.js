@@ -83,4 +83,13 @@ const coreOutput = corePristine
   )
   .replace(/[\t ]+TEMPLATE-opAsync/, opAsync.replaceAll(/^/gm, opAsyncIndent));
 
-Deno.writeTextFileSync(coreJsPath, coreOutput);
+if (Deno.args[0] === '--check') {
+  if (coreOutput !== coreJs) {
+    Deno.writeTextFileSync('/tmp/mismatch.txt', coreOutput);
+    throw new Error("Mismatch between pristine and updated source (wrote mismatch to /tmp/mismatch.txt)");
+  } else {
+    console.log("✅ Templated sections would not change");
+  }
+} else {
+  Deno.writeTextFileSync(coreJsPath, coreOutput);
+}
