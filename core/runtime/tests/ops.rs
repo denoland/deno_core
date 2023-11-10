@@ -354,7 +354,7 @@ fn ops_in_js_have_proper_names() {
   runtime.execute_script_static("test", src).unwrap();
 }
 
-/// Dipatch more promises than the ring can hold, but wait for them all the queue up first.
+/// Dipatch more promises than the ring can hold, but wait for them all to queue up first.
 #[tokio::test]
 async fn test_dispatch_many_ops() {
   #[op2(async)]

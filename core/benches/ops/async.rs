@@ -210,8 +210,7 @@ fn bench_op_async_void_deferred_return(b: &mut Bencher) {
   );
 }
 
-/// Tests the overhead of execute_script, but also returns a value so we can make sure things are
-/// working.
+/// Tests the overhead of opAsync.
 fn bench_op_async_void_indirect(b: &mut Bencher) {
   bench_op(
     b,
