@@ -27,7 +27,7 @@ function __TEMPLATE__(__ARGS_PARAM__) {
   return promise;
 }
 
-const coreJsPath = new URL("01_core.js", import.meta.url).pathname;
+const coreJsPath = new URL("01_core.js", import.meta.url);
 const coreJs = Deno.readTextFileSync(coreJsPath);
 
 const corePristine = coreJs.replaceAll(
