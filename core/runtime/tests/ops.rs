@@ -11,6 +11,7 @@ use anyhow::Error;
 use futures::Future;
 use log::debug;
 use pretty_assertions::assert_eq;
+use tokio::sync::Barrier;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -351,6 +352,40 @@ fn ops_in_js_have_proper_names() {
   }
   "#;
   runtime.execute_script_static("test", src).unwrap();
+}
+
+/// Dipatch more promises than the ring can hold, but wait for them all the queue up first.
+#[tokio::test]
+async fn test_dispatch_many_ops() {
+  #[op2(async)]
+  async fn op_wait(state: Rc<RefCell<OpState>>) -> () {
+    let barrier: Rc<Barrier> = state.borrow().borrow::<Rc<Barrier>>().clone();
+    barrier.wait().await;
+  }
+
+  deno_core::extension!(test_ext,
+    ops = [op_wait],
+    options = { count: Barrier },
+    state = |state, options| {
+      state.put(Rc::new(options.count));
+    }
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops(Barrier::new(5000))],
+    ..Default::default()
+  });
+
+  let src = r#"
+  const { op_wait } = Deno.core.ensureFastOps();
+  const promises = [];
+  for (let i = 0; i < 5000; i++) {
+    promises.push(op_wait());
+  }
+  Promise.all(promises);
+  "#;
+  let promise = runtime.execute_script_static("test", src).unwrap();
+  runtime.resolve_value(promise).await.unwrap();
 }
 
 #[tokio::test]

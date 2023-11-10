@@ -6,7 +6,7 @@ const doNotModify =
 
 // The template function we build opAsync and op_async_N functions from
 function __TEMPLATE__(__ARGS_PARAM__) {
-  const id = (nextPromiseId + 1) & 0xffffffff;
+  const id = nextPromiseId;
   try {
     const maybeResult = __OP__(__ARGS__);
     if (maybeResult !== undefined) {
@@ -17,7 +17,7 @@ function __TEMPLATE__(__ARGS_PARAM__) {
     ErrorCaptureStackTrace(err, __TEMPLATE__);
     return PromiseReject(err);
   }
-  nextPromiseId = id;
+  nextPromiseId = (id + 1) & 0xffffffff;
   let promise = PromisePrototypeThen(
     setPromise(id),
     unwrapOpError(eventLoopTick),
