@@ -91,17 +91,6 @@
     return opCallTracingEnabled;
   }
 
-  function movePromise(promiseId) {
-    const idx = promiseId % RING_SIZE;
-    // Move old promise from ring to map
-    const oldPromise = promiseRing[idx];
-    if (oldPromise !== NO_PROMISE) {
-      const oldPromiseId = promiseId - RING_SIZE;
-      MapPrototypeSet(promiseMap, oldPromiseId, oldPromise);
-    }
-    return promiseRing[idx] = NO_PROMISE;
-  }
-
   function setPromise(promiseId) {
     const idx = promiseId % RING_SIZE;
     // Move old promise from ring to map
