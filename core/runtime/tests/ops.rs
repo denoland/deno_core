@@ -358,7 +358,7 @@ fn ops_in_js_have_proper_names() {
 #[tokio::test]
 async fn test_dispatch_many_ops() {
   #[op2(async)]
-  async fn op_wait(state: Rc<RefCell<OpState>>) -> () {
+  async fn op_wait(state: Rc<RefCell<OpState>>) {
     let barrier: Rc<Barrier> = state.borrow().borrow::<Rc<Barrier>>().clone();
     barrier.wait().await;
   }
