@@ -22,9 +22,7 @@ function __TEMPLATE__(__ARGS_PARAM__) {
     setPromise(id),
     unwrapOpError(eventLoopTick),
   );
-  if (opCallTracingEnabled) {
-    promise = handleOpCallTracing(opName, id, promise);
-  }
+  promise = handleOpCallTracing(opName, id, promise);
   promise[promiseIdSymbol] = id;
   return promise;
 }
