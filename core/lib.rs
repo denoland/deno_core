@@ -222,7 +222,7 @@ mod tests {
       eprintln!("Ignoring test because we couldn't find deno: {e:?}");
     }
     let status = Command::new("deno")
-      .args(&["run", "-A", "rebuild_async_stubs.js", "--check"])
+      .args(["run", "-A", "rebuild_async_stubs.js", "--check"])
       .status()
       .unwrap();
     assert!(status.success(), "Failed to check async stubs");
