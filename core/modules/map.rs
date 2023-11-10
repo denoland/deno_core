@@ -821,20 +821,16 @@ impl ModuleMap {
       asserted_module_type,
       module_map_rc.clone(),
     );
-    module_map_rc
-      .borrow_mut()
-      .dynamic_import_map
-      .insert(load.id, resolver_handle);
 
-    let loader = module_map_rc.borrow().loader.clone();
+    let this: &mut ModuleMap = &mut module_map_rc.borrow_mut();
+    this.dynamic_import_map.insert(load.id, resolver_handle);
+
+    let loader = this.loader.clone();
     let resolve_result =
       loader.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
       Ok(module_specifier) => {
-        if module_map_rc
-          .borrow()
-          .is_registered(module_specifier, asserted_module_type)
-        {
+        if this.is_registered(module_specifier, asserted_module_type) {
           async move { (load.id, Ok(load)) }.boxed_local()
         } else {
           async move { (load.id, load.prepare().await.map(|()| load)) }
@@ -843,10 +839,7 @@ impl ModuleMap {
       }
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
-    module_map_rc
-      .borrow_mut()
-      .preparing_dynamic_imports
-      .push(fut);
+    this.preparing_dynamic_imports.push(fut);
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {
