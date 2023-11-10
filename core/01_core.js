@@ -71,7 +71,7 @@
   registerErrorClass("TypeError", TypeError);
   registerErrorClass("URIError", URIError);
 
-  let nextPromiseId = 0xffffffff;
+  let nextPromiseId = 0;
   const promiseMap = new SafeMap();
   const RING_SIZE = 4 * 1024;
   const NO_PROMISE = null; // Alias to null is faster than plain nulls
@@ -89,17 +89,6 @@
 
   function isOpCallTracingEnabled() {
     return opCallTracingEnabled;
-  }
-
-  function movePromise(promiseId) {
-    const idx = promiseId % RING_SIZE;
-    // Move old promise from ring to map
-    const oldPromise = promiseRing[idx];
-    if (oldPromise !== NO_PROMISE) {
-      const oldPromiseId = promiseId - RING_SIZE;
-      MapPrototypeSet(promiseMap, oldPromiseId, oldPromise);
-    }
-    return promiseRing[idx] = NO_PROMISE;
   }
 
   function setPromise(promiseId) {
@@ -262,64 +251,6 @@
     };
   }
 
-  function unwrapOpResultNewPromise(id, res, hideFunction) {
-    // .$err_class_name is a special key that should only exist on errors
-    if (res?.$err_class_name) {
-      const className = res.$err_class_name;
-      const errorBuilder = errorMap[className];
-      const err = errorBuilder ? errorBuilder(res.message) : new Error(
-        `Unregistered error class: "${className}"\n  ${res.message}\n  Classes of errors returned from ops should be registered via Deno.core.registerErrorClass().`,
-      );
-      // Set .code if error was a known OS error, see error_codes.rs
-      if (res.code) {
-        err.code = res.code;
-      }
-      // Strip unwrapOpResult() and errorBuilder() calls from stack trace
-      ErrorCaptureStackTrace(err, hideFunction);
-      return PromiseReject(err);
-    }
-    const promise = PromiseResolve(res);
-    promise[promiseIdSymbol] = id;
-    return promise;
-  }
-
-  /*
-Basic codegen.
-
-TODO(mmastrac): automate this (handlebars?)
-
-let s = "";
-const vars = "abcdefghijklm";
-for (let i = 0; i < 10; i++) {
-  let args = "";
-  for (let j = 0; j < i; j++) {
-    args += `${vars[j]},`;
-  }
-  s += `
-      case ${i}:
-        fn = function async_op_${i}(${args}) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
-          try {
-            const maybeResult = originalOp(id, ${args});
-            if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_${i});
-            }
-          } catch (err) {
-            movePromise(id);
-            ErrorCaptureStackTrace(err, async_op_${i});
-            return PromiseReject(err);
-          }
-          let promise = PromisePrototypeThen(setPromise(id), unwrapOpError(eventLoopTick));
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-  `;
-}
-  */
-
   // This function is called once per async stub
   function asyncStub(opName, args) {
     setUpAsyncStub(opName);
@@ -331,20 +262,21 @@ for (let i = 0; i < 10; i++) {
     let fn;
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {
+      /* BEGIN TEMPLATE setUpAsyncStub */
+      /* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */
       case 0:
         fn = function async_op_0() {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_0);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_0);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -354,21 +286,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 1:
         fn = function async_op_1(a) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_1);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_1);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -378,21 +308,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 2:
         fn = function async_op_2(a, b) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_2);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_2);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -402,21 +330,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 3:
         fn = function async_op_3(a, b, c) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b, c);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_3);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_3);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -426,21 +352,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 4:
         fn = function async_op_4(a, b, c, d) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b, c, d);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_4);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_4);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -450,21 +374,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 5:
         fn = function async_op_5(a, b, c, d, e) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b, c, d, e);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_5);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_5);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -474,21 +396,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 6:
         fn = function async_op_6(a, b, c, d, e, f) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_6);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_6);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -498,21 +418,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 7:
         fn = function async_op_7(a, b, c, d, e, f, g) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f, g);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_7);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_7);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -522,21 +440,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 8:
         fn = function async_op_8(a, b, c, d, e, f, g, h) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f, g, h);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_8);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_8);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -546,21 +462,19 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
-
       case 9:
         fn = function async_op_9(a, b, c, d, e, f, g, h, i) {
-          const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+          const id = nextPromiseId;
           try {
             const maybeResult = originalOp(id, a, b, c, d, e, f, g, h, i);
             if (maybeResult !== undefined) {
-              movePromise(id);
-              return unwrapOpResultNewPromise(id, maybeResult, async_op_9);
+              return PromiseResolve(maybeResult);
             }
           } catch (err) {
-            movePromise(id);
             ErrorCaptureStackTrace(err, async_op_9);
             return PromiseReject(err);
           }
+          nextPromiseId = (id + 1) & 0xffffffff;
           let promise = PromisePrototypeThen(
             setPromise(id),
             unwrapOpError(eventLoopTick),
@@ -570,6 +484,7 @@ for (let i = 0; i < 10; i++) {
           return promise;
         };
         break;
+      /* END TEMPLATE */
 
       default:
         throw new Error(
@@ -586,30 +501,32 @@ for (let i = 0; i < 10; i++) {
     return (ops[opName] = fn);
   }
 
-  function opAsync(name, ...args) {
-    const id = (nextPromiseId = (nextPromiseId + 1) & 0xffffffff);
+  /* BEGIN TEMPLATE opAsync */
+  /* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */
+  function opAsync(opName, ...args) {
+    const id = nextPromiseId;
     try {
-      const maybeResult = asyncOps[name](id, ...new SafeArrayIterator(args));
+      const maybeResult = asyncOps[opName](id, ...new SafeArrayIterator(args));
       if (maybeResult !== undefined) {
-        movePromise(id);
-        return unwrapOpResultNewPromise(id, maybeResult, opAsync);
+        return PromiseResolve(maybeResult);
       }
     } catch (err) {
-      movePromise(id);
-      if (!ReflectHas(asyncOps, name)) {
-        return PromiseReject(new TypeError(`${name} is not a registered op`));
+      if (!ReflectHas(asyncOps, opName)) {
+        return PromiseReject(new TypeError(`${opName} is not a registered op`));
       }
       ErrorCaptureStackTrace(err, opAsync);
       return PromiseReject(err);
     }
+    nextPromiseId = (id + 1) & 0xffffffff;
     let promise = PromisePrototypeThen(
       setPromise(id),
       unwrapOpError(eventLoopTick),
     );
-    promise = handleOpCallTracing(name, id, promise);
+    promise = handleOpCallTracing(opName, id, promise);
     promise[promiseIdSymbol] = id;
     return promise;
   }
+  /* END TEMPLATE */
 
   function handleOpCallTracing(opName, promiseId, p) {
     if (opCallTracingEnabled) {
