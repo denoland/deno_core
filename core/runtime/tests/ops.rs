@@ -11,11 +11,11 @@ use anyhow::Error;
 use futures::Future;
 use log::debug;
 use pretty_assertions::assert_eq;
-use tokio::sync::Barrier;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use tokio::sync::Barrier;
 use url::Url;
 
 #[tokio::test]
