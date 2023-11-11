@@ -1483,7 +1483,6 @@ impl JsRuntime {
     wait_for_inspector: bool,
   ) -> Poll<Result<(), Error>> {
     let has_inspector: bool;
-
     {
       let state = self.inner.state.borrow();
       has_inspector = state.inspector.is_some();
