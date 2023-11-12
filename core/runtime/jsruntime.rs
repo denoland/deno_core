@@ -1651,20 +1651,23 @@ impl JsRuntime {
     // TODO(andreubotella) The event loop will spin as long as there are pending
     // background tasks. We should look into having V8 notify us when a
     // background task is done.
-    if pending_state.has_pending_background_tasks
-      || pending_state.has_tick_scheduled
-      || maybe_scheduling
+    #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
-      let state = self.inner.state.borrow();
-      state.op_state.borrow().waker.wake();
-    } else
-    // If ops were dispatched we may have progress on pending modules that we should re-check
-    if (pending_state.has_pending_module_evaluation
-      || pending_state.has_pending_dyn_module_evaluation)
-      && dispatched_ops
-    {
-      let state = self.inner.state.borrow();
-      state.op_state.borrow().waker.wake();
+      if pending_state.has_pending_background_tasks
+        || pending_state.has_tick_scheduled
+        || maybe_scheduling
+      {
+        let state = self.inner.state.borrow();
+        state.op_state.borrow().waker.wake();
+      } else
+      // If ops were dispatched we may have progress on pending modules that we should re-check
+      if (pending_state.has_pending_module_evaluation
+        || pending_state.has_pending_dyn_module_evaluation)
+        && dispatched_ops
+      {
+        let state = self.inner.state.borrow();
+        state.op_state.borrow().waker.wake();
+      }
     }
 
     if pending_state.has_pending_module_evaluation {
