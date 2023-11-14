@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::JsRuntime;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
@@ -22,6 +21,7 @@ use crate::modules::RecursiveModuleLoad;
 use crate::modules::ResolutionKind;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshottedData;
+use crate::JsRuntime;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;

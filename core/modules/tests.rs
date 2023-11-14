@@ -498,7 +498,10 @@ fn test_json_module() {
 
 #[test]
 fn test_validate_import_attributes() {
-  fn validate_import_attrs(scope: &mut v8::HandleScope, _attrs: &HashMap<String, String>) {
+  fn validate_import_attrs(
+    scope: &mut v8::HandleScope,
+    _attrs: &HashMap<String, String>,
+  ) {
     let msg = v8::String::new(scope, "boom!").unwrap();
     let ex = v8::Exception::type_error(scope, msg);
     scope.throw_exception(ex);
@@ -535,7 +538,8 @@ fn test_validate_import_attributes() {
       unreachable!();
     };
     let exception = v8::Local::new(scope, exc);
-    let err = exception_to_err_result::<()>(scope, exception, false).unwrap_err();
+    let err =
+      exception_to_err_result::<()>(scope, exception, false).unwrap_err();
     assert_eq!(err.to_string(), "Uncaught TypeError: boom!");
   }
 }
