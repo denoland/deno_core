@@ -468,6 +468,21 @@ impl RuntimeOptions {
   }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct PollEventLoopOptions {
+  wait_for_inspector: bool,
+  pump_v8_message_loop: bool,
+}
+
+impl Default for PollEventLoopOptions {
+  fn default() -> Self {
+    Self {
+      wait_for_inspector: true,
+      pump_v8_message_loop: true,
+    }
+  }
+}
+
 #[derive(Default)]
 pub struct CreateRealmOptions {
   /// Implementation of `ModuleLoader` which will be
@@ -1467,6 +1482,20 @@ impl JsRuntime {
     poll_fn(|cx| self.poll_event_loop(cx, wait_for_inspector)).await
   }
 
+  /// Runs event loop to completion
+  ///
+  /// This future resolves when:
+  ///  - there are no more pending dynamic imports
+  ///  - there are no more pending ops
+  ///  - there are no more active inspector sessions (only if
+  ///     `PollEventLoopOptions.wait_for_inspector` is set to true)
+  pub async fn run_event_loop2(
+    &mut self,
+    poll_options: PollEventLoopOptions,
+  ) -> Result<(), Error> {
+    poll_fn(|cx| self.poll_event_loop2(cx, poll_options)).await
+  }
+
   /// Runs a single tick of event loop
   ///
   /// If `wait_for_inspector` is set to true event loop
@@ -1475,6 +1504,32 @@ impl JsRuntime {
     &mut self,
     cx: &mut Context,
     wait_for_inspector: bool,
+  ) -> Poll<Result<(), Error>> {
+    self.poll_event_loop_inner(
+      cx,
+      PollEventLoopOptions {
+        wait_for_inspector,
+        ..Default::default()
+      },
+    )
+  }
+
+  /// Runs a single tick of event loop
+  ///
+  /// If `PollEventLoopOptions.wait_for_inspector` is set to true, the event
+  /// loop will return `Poll::Pending` if there are active inspector sessions.
+  pub fn poll_event_loop2(
+    &mut self,
+    cx: &mut Context,
+    poll_options: PollEventLoopOptions,
+  ) -> Poll<Result<(), Error>> {
+    self.poll_event_loop_inner(cx, poll_options)
+  }
+
+  fn poll_event_loop_inner(
+    &mut self,
+    cx: &mut Context,
+    poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
     let has_inspector: bool;
 
@@ -1489,7 +1544,9 @@ impl JsRuntime {
       let _ = self.inspector().borrow().poll_sessions(Some(cx)).unwrap();
     }
 
-    self.pump_v8_message_loop()?;
+    if poll_options.pump_v8_message_loop {
+      self.pump_v8_message_loop()?;
+    }
 
     // Dynamic module loading - ie. modules loaded using "import()"
     {
@@ -1608,7 +1665,7 @@ impl JsRuntime {
         let has_active_sessions = inspector.borrow().has_active_sessions();
         let has_blocking_sessions = inspector.borrow().has_blocking_sessions();
 
-        if wait_for_inspector && has_active_sessions {
+        if poll_options.wait_for_inspector && has_active_sessions {
           // If there are no blocking sessions (eg. REPL) we can now notify
           // debugger that the program has finished running and we're ready
           // to exit the process once debugger disconnects.
