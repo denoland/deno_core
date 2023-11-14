@@ -51,8 +51,9 @@ pub type ModuleName = FastString;
 
 const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
 
-/// Throws V8 exception if assertions are invalid
-pub(crate) fn validate_import_assertions(
+/// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
+/// all other attributes.
+pub(crate) fn validate_import_attributes(
   scope: &mut v8::HandleScope,
   assertions: &HashMap<String, String>,
 ) {
