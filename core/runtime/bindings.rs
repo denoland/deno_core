@@ -11,7 +11,6 @@ use crate::error::throw_type_error;
 use crate::error::JsStackFrame;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
-use crate::modules::validate_import_attributes;
 use crate::modules::ImportAssertionsKind;
 use crate::modules::ModuleMap;
 use crate::modules::ResolutionKind;
@@ -291,7 +290,12 @@ pub fn host_import_module_dynamically_callback<'s>(
 
   {
     let tc_scope = &mut v8::TryCatch::new(scope);
-    validate_import_attributes(tc_scope, &assertions);
+    {
+      let state_rc = JsRuntime::state_from(tc_scope);
+      let state = state_rc.borrow();
+      (state.validate_import_attributes_cb)(tc_scope, &assertions);
+    }
+
     if tc_scope.has_caught() {
       let e = tc_scope.exception().unwrap();
       resolver.reject(tc_scope, e);

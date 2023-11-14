@@ -49,6 +49,10 @@ pub(crate) type ModuleLoadId = i32;
 pub type ModuleCode = FastString;
 pub type ModuleName = FastString;
 
+/// Callback to validate import attributes. If the validation fails and exception
+/// should be thrown using `scope.throw_exception()`.
+pub type ValidateImportAttributesCb = Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
+
 const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
 
 /// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
