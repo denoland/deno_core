@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ascii_str;
+use crate::error::exception_to_err_result;
 use crate::modules::loaders::CountingModuleLoader;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::resolve_import;
@@ -493,6 +494,50 @@ fn test_json_module() {
   let receiver = runtime.mod_evaluate(mod_b);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
   futures::executor::block_on(receiver).unwrap().unwrap();
+}
+
+#[test]
+fn test_validate_import_attributes() {
+  fn validate_import_attrs(scope: &mut v8::HandleScope, _attrs: &HashMap<String, String>) {
+    let msg = v8::String::new(scope, "boom!").unwrap();
+    let ex = v8::Exception::type_error(scope, msg);
+    scope.throw_exception(ex);
+  }
+
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
+    ..Default::default()
+  });
+
+  let module_map_rc = runtime.module_map().clone();
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let mut module_map = module_map_rc.borrow_mut();
+    let specifier_a = ascii_str!("file:///a.js");
+    let module_err = module_map
+      .new_es_module(
+        scope,
+        true,
+        specifier_a,
+        ascii_str!(
+          r#"
+          import jsonData from './c.json' with {foo: "bar"};
+        "#
+        ),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err = exception_to_err_result::<()>(scope, exception, false).unwrap_err();
+    assert_eq!(err.to_string(), "Uncaught TypeError: boom!");
+  }
 }
 
 #[tokio::test]

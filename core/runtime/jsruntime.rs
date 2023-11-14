@@ -456,6 +456,10 @@ pub struct RuntimeOptions {
   /// An optional instance of `FeatureChecker`. If one is not provided, the
   /// default instance will be created that has no features enabled.
   pub feature_checker: Option<Arc<FeatureChecker>>,
+
+  /// A callback that can be used to validate import attributes received at
+  /// the import site.
+  pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
 }
 
 impl RuntimeOptions {
@@ -603,7 +607,7 @@ impl JsRuntime {
       // SAFETY: we just asserted that layout has non-0 size.
       unsafe { std::alloc::alloc(layout) as *mut _ };
 
-    let validate_import_attributes_cb = Box::new(crate::modules::validate_import_attributes);
+    let validate_import_attributes_cb = options.validate_import_attributes_cb.unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
 
     let state_rc = Rc::new(RefCell::new(JsRuntimeState {
       dyn_module_evaluate_idle_counter: 0,
