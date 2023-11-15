@@ -20,6 +20,7 @@ use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsEvent;
@@ -317,6 +318,7 @@ pub struct JsRuntimeState {
   // flimsy. Try to poll it similarly to `pending_promise_rejections`.
   pub(crate) dispatched_exception: Option<v8::Global<v8::Value>>,
   pub(crate) inspector: Option<Rc<RefCell<JsRuntimeInspector>>>,
+  pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
 }
 
 impl JsRuntimeState {
@@ -454,6 +456,11 @@ pub struct RuntimeOptions {
   /// An optional instance of `FeatureChecker`. If one is not provided, the
   /// default instance will be created that has no features enabled.
   pub feature_checker: Option<Arc<FeatureChecker>>,
+
+  /// A callback that can be used to validate import attributes received at
+  /// the import site. If not callback is provided, a default one is used. The
+  /// default callback only allows `"type"` attribute, with a value of `"json"`.
+  pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
 }
 
 impl RuntimeOptions {
@@ -601,6 +608,10 @@ impl JsRuntime {
       // SAFETY: we just asserted that layout has non-0 size.
       unsafe { std::alloc::alloc(layout) as *mut _ };
 
+    let validate_import_attributes_cb = options
+      .validate_import_attributes_cb
+      .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
+
     let state_rc = Rc::new(RefCell::new(JsRuntimeState {
       dyn_module_evaluate_idle_counter: 0,
       has_tick_scheduled: false,
@@ -613,6 +624,7 @@ impl JsRuntime {
       // Some fields are initialized later after isolate is created
       inspector: None,
       known_realms: Vec::with_capacity(1),
+      validate_import_attributes_cb,
     }));
 
     let weak = Rc::downgrade(&state_rc);

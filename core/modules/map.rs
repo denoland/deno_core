@@ -5,7 +5,6 @@ use crate::error::throw_type_error;
 use crate::fast_string::FastString;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
-use crate::modules::validate_import_assertions;
 use crate::modules::ImportAssertionsKind;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
@@ -22,6 +21,7 @@ use crate::modules::RecursiveModuleLoad;
 use crate::modules::ResolutionKind;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshottedData;
+use crate::JsRuntime;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
@@ -505,7 +505,12 @@ impl ModuleMap {
 
       // FIXME(bartomieju): there are no stack frames if exception
       // is thrown here
-      validate_import_assertions(tc_scope, &assertions);
+      {
+        let state_rc = JsRuntime::state_from(tc_scope);
+        let state = state_rc.borrow();
+        (state.validate_import_attributes_cb)(tc_scope, &assertions);
+      }
+
       if tc_scope.has_caught() {
         let exception = tc_scope.exception().unwrap();
         let exception = v8::Global::new(tc_scope, exception);
