@@ -544,6 +544,77 @@ fn test_validate_import_attributes() {
   }
 }
 
+#[test]
+fn test_validate_import_attributes_default() {
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  let module_map_rc = runtime.module_map().clone();
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let mut module_map = module_map_rc.borrow_mut();
+    let specifier_a = ascii_str!("file:///a.js");
+    let module_err = module_map
+      .new_es_module(
+        scope,
+        true,
+        specifier_a,
+        ascii_str!(
+          r#"
+          import jsonData from './c.json' with {foo: "bar"};
+        "#
+        ),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err =
+      exception_to_err_result::<()>(scope, exception, false).unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "Uncaught TypeError: \"foo\" attribute is not supported."
+    );
+  }
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let mut module_map = module_map_rc.borrow_mut();
+    let specifier_a = ascii_str!("file:///a.js");
+    let module_err = module_map
+      .new_es_module(
+        scope,
+        true,
+        specifier_a,
+        ascii_str!(
+          r#"
+          import jsonData from './c.json' with {type: "bar"};
+        "#
+        ),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err =
+      exception_to_err_result::<()>(scope, exception, false).unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "Uncaught TypeError: \"bar\" is not a valid module type."
+    );
+  }
+}
+
 #[tokio::test]
 async fn dyn_import_err() {
   let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));

@@ -63,16 +63,22 @@ pub(crate) fn validate_import_attributes(
   assertions: &HashMap<String, String>,
 ) {
   for (key, value) in assertions {
-    if key == "type" && !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
-      let message = v8::String::new(
-        scope,
-        &format!("\"{value}\" is not a valid module type."),
-      )
-      .unwrap();
-      let exception = v8::Exception::type_error(scope, message);
-      scope.throw_exception(exception);
-      return;
-    }
+    let msg = if key != "type" {
+      Some(format!("\"{key}\" attribute is not supported."))
+    } else if !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
+      Some(format!("\"{value}\" is not a valid module type."))
+    } else {
+      None
+    };
+
+    let Some(msg) = msg else {
+      continue;
+    };
+
+    let message = v8::String::new(scope, &msg).unwrap();
+    let exception = v8::Exception::type_error(scope, message);
+    scope.throw_exception(exception);
+    return;
   }
 }
 

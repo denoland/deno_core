@@ -458,7 +458,8 @@ pub struct RuntimeOptions {
   pub feature_checker: Option<Arc<FeatureChecker>>,
 
   /// A callback that can be used to validate import attributes received at
-  /// the import site.
+  /// the import site. If not callback is provided, a default one is used. The
+  /// default callback only allows `"type"` attribute, with a value of `"json"`.
   pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
 }
 
