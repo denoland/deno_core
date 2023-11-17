@@ -360,7 +360,8 @@ pub struct SerializeDeserializeOptions<'a> {
   for_storage: bool,
 }
 
-#[op2]
+// May be reentrant in the case of errors.
+#[op2(reentrant)]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
