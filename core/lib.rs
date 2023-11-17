@@ -151,6 +151,7 @@ pub mod _ops {
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
+  #[cfg(debug_assertions)]
   pub use super::ops::reentrancy_check;
   pub use super::ops::OpCtx;
   pub use super::ops::OpResult;
