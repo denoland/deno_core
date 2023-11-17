@@ -151,9 +151,9 @@ pub mod _ops {
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
+  pub use super::ops::reentrancy_check;
   pub use super::ops::OpCtx;
   pub use super::ops::OpResult;
-  pub use super::ops::reentrancy_check;
   pub use super::ops_metrics::dispatch_metrics_async;
   pub use super::ops_metrics::dispatch_metrics_fast;
   pub use super::ops_metrics::dispatch_metrics_slow;
