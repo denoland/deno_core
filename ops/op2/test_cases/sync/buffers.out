@@ -7,6 +7,7 @@ impl deno_core::_ops::Op for op_buffers {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_buffers),
         false,
+        false,
         4usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -86,6 +87,10 @@ impl op_buffers {
         arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
     ) -> () {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let result = {
             let arg0 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
@@ -129,6 +134,10 @@ impl op_buffers {
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -262,6 +271,7 @@ impl deno_core::_ops::Op for op_buffers_32 {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_buffers_32),
         false,
+        false,
         4usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -341,6 +351,10 @@ impl op_buffers_32 {
         arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
         arg3: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
     ) -> () {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let result = {
             let arg0 = unsafe {
                 deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(
@@ -384,6 +398,10 @@ impl op_buffers_32 {
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -517,6 +535,7 @@ impl deno_core::_ops::Op for op_buffers_option {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_buffers_option),
         false,
+        false,
         2usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -534,6 +553,10 @@ impl op_buffers_option {
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });

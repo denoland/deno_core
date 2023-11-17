@@ -62,7 +62,7 @@ pub fn op_queue_microtask(
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
 // allowed to touch JS heap.
-#[op2(nofast)]
+#[op2(nofast, reentrant)]
 pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   // SAFETY: we know v8 provides us with a valid, non-null isolate
   unsafe {
@@ -97,7 +97,7 @@ pub struct EvalContextResult<'s>(
   Option<EvalContextError<'s>>,
 );
 
-#[op2]
+#[op2(reentrant)]
 #[serde]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -731,8 +731,9 @@ pub fn op_set_wasm_streaming_callback(
   Ok(())
 }
 
+// This op is re-entrant as it makes a v8 call.
 #[allow(clippy::let_and_return)]
-#[op2]
+#[op2(reentrant)]
 pub fn op_abort_wasm_streaming(
   scope: &mut v8::HandleScope,
   rid: u32,
@@ -762,7 +763,8 @@ pub fn op_abort_wasm_streaming(
   Ok(())
 }
 
-#[op2]
+// This op calls `op_apply_source_map` re-entrantly.
+#[op2(reentrant)]
 #[serde]
 pub fn op_destructure_error(
   scope: &mut v8::HandleScope,

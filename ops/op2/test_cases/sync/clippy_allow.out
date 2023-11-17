@@ -9,6 +9,7 @@ impl deno_core::_ops::Op for op_extra_annotation {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_extra_annotation),
         false,
+        false,
         0usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -65,11 +66,19 @@ impl op_extra_annotation {
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let result = { Self::call() };
         result as _
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -119,6 +128,7 @@ impl deno_core::_ops::Op for op_clippy_internal {
     const NAME: &'static str = stringify!(op_clippy_internal);
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_clippy_internal),
+        false,
         false,
         0usize as u8,
         Self::v8_fn_ptr as _,
@@ -176,11 +186,19 @@ impl op_clippy_internal {
     }
     #[allow(clippy::too_many_arguments)]
     fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let result = { Self::call() };
         result as _
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });

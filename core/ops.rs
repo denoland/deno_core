@@ -28,6 +28,37 @@ pub type PromiseId = i32;
 pub type OpId = u16;
 pub struct PendingOp(pub PromiseId, pub OpId, pub OpResult, pub bool);
 
+#[cfg(debug_assertions)]
+thread_local! {
+  static CURRENT_OP: std::cell::Cell<Option<&'static OpDecl>> = None.into();
+}
+
+#[cfg(debug_assertions)]
+pub struct ReentrancyGuard {
+  decl: &'static OpDecl,
+}
+
+#[cfg(debug_assertions)]
+impl Drop for ReentrancyGuard {
+  fn drop(&mut self) {
+    CURRENT_OP.with(|f| f.set(None));
+  }
+}
+
+#[cfg(debug_assertions)]
+pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
+  if decl.is_reentrant {
+    return None;
+  }
+
+  let current = CURRENT_OP.with(|f| f.get());
+  if let Some(current) = current {
+    panic!("op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
+  }
+  CURRENT_OP.with(|f| f.set(Some(decl)));
+  Some(ReentrancyGuard { decl })
+}
+
 #[allow(clippy::type_complexity)]
 pub enum OpResult {
   Ok(serde_v8::SerializablePkg),

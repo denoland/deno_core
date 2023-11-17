@@ -96,10 +96,7 @@ pub struct OpDecl {
   pub name: &'static str,
   pub enabled: bool,
   pub is_async: bool,
-  #[deprecated = "Will be removed with op1"]
-  pub is_unstable: bool,
-  #[deprecated = "Will be removed with op1"]
-  pub is_v8: bool,
+  pub is_reentrant: bool,
   pub arg_count: u8,
   /// The slow dispatch call. If metrics are disabled, the `v8::Function` is created with this callback.
   pub(crate) slow_fn: OpFnRef,
@@ -114,37 +111,10 @@ pub struct OpDecl {
 impl OpDecl {
   /// For use by internal op implementation only.
   #[doc(hidden)]
-  #[deprecated = "#[op] is deprecated. Please switch this op to #[op2]."]
-  pub const fn new_internal(
-    name: &'static str,
-    is_async: bool,
-    is_unstable: bool,
-    is_v8: bool,
-    arg_count: u8,
-    slow_fn: OpFnRef,
-    fast_fn: Option<FastFunction>,
-  ) -> Self {
-    assert!(!is_async);
-    #[allow(deprecated)]
-    Self {
-      name,
-      enabled: true,
-      is_async: false,
-      is_unstable,
-      is_v8,
-      arg_count,
-      slow_fn,
-      slow_fn_with_metrics: slow_fn,
-      fast_fn,
-      fast_fn_with_metrics: fast_fn,
-    }
-  }
-
-  /// For use by internal op implementation only.
-  #[doc(hidden)]
   pub const fn new_internal_op2(
     name: &'static str,
     is_async: bool,
+    is_reentrant: bool,
     arg_count: u8,
     slow_fn: OpFnRef,
     slow_fn_with_metrics: OpFnRef,
@@ -156,8 +126,7 @@ impl OpDecl {
       name,
       enabled: true,
       is_async,
-      is_unstable: false,
-      is_v8: false,
+      is_reentrant,
       arg_count,
       slow_fn,
       slow_fn_with_metrics,
