@@ -111,6 +111,7 @@ pub struct OpDecl {
 impl OpDecl {
   /// For use by internal op implementation only.
   #[doc(hidden)]
+  #[allow(clippy::too_many_arguments)]
   pub const fn new_internal_op2(
     name: &'static str,
     is_async: bool,

@@ -35,7 +35,6 @@ thread_local! {
 
 #[cfg(debug_assertions)]
 pub struct ReentrancyGuard {
-  decl: &'static OpDecl,
 }
 
 #[cfg(debug_assertions)]
@@ -45,7 +44,9 @@ impl Drop for ReentrancyGuard {
   }
 }
 
+/// Creates an op re-entrancy check for the given [`OpDecl`].
 #[cfg(debug_assertions)]
+#[doc(hidden)]
 pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
   if decl.is_reentrant {
     return None;
@@ -56,7 +57,7 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
     panic!("op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
   }
   CURRENT_OP.with(|f| f.set(Some(decl)));
-  Some(ReentrancyGuard { decl })
+  Some(ReentrancyGuard { })
 }
 
 #[allow(clippy::type_complexity)]
