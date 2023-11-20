@@ -90,27 +90,35 @@ pub(crate) struct ModuleMap {
 
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
-  // Handling of specifiers and v8 objects
-  pub handles: Vec<v8::Global<v8::Module>>,
-  pub info: Vec<ModuleInfo>,
+  /// Inverted index from module to index in `info`.
+  handles_inverted: HashMap<v8::Global<v8::Module>, usize>,
+  /// The handles we have loaded so far, corresponding with the [`ModuleInfo`] in `info`.
+  handles: Vec<v8::Global<v8::Module>>,
+  /// The modules we have loaded so far.
+  info: Vec<ModuleInfo>,
+  /// [`ModuleName`] to [`SymbolicModule`] for JS/WASM modules.
   by_name_js: HashMap<ModuleName, SymbolicModule>,
+  /// [`ModuleName`] to [`SymbolicModule`] for JSON modules.
   by_name_json: HashMap<ModuleName, SymbolicModule>,
+  /// The next ID used for a load.
   next_load_id: ModuleLoadId,
-
-  // This store is used temporarily, to forward parsed JSON
-  // value from `new_json_module` to `json_module_evaluation_steps`
+  /// If a main module has been loaded, points to it by index.
+  main_module_id: Option<ModuleId>,
+  /// This store is used temporarily, to forward parsed JSON
+  /// value from `new_json_module` to `json_module_evaluation_steps`
   json_value_store: HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
 }
 
 impl ModuleMap {
-  pub fn next_load_id(&self) -> i32 {
-    // TODO(mmastrac): bad borrowing
-    let id = self.data.borrow().next_load_id;
-    self.data.borrow_mut().next_load_id += 1;
-    id
+  pub(crate) fn next_load_id(&self) -> i32 {
+    // TODO(mmastrac): move recursive module loading into here so we can avoid making this pub
+    let mut data = self.data.borrow_mut();
+    let id = data.next_load_id;
+    data.next_load_id += 1;
+    id + 1
   }
 
-  pub fn collect_modules(
+  fn collect_modules(
     &self,
     mut f: impl FnMut(usize, AssertedModuleType, &ModuleName, &SymbolicModule),
   ) {
@@ -136,10 +144,10 @@ impl ModuleMap {
     let mut not_evaluated = vec![];
     let data = self.data.borrow();
 
-    for (i, handle) in data.handles.iter().enumerate() {
+    for (handle, i) in data.handles_inverted.iter() {
       let module = v8::Local::new(scope, handle);
       if !matches!(module.get_status(), v8::ModuleStatus::Evaluated) {
-        not_evaluated.push(data.info[i].name.as_str().to_string());
+        not_evaluated.push(data.info[*i].name.as_str().to_string());
       }
     }
 
@@ -162,18 +170,20 @@ impl ModuleMap {
     let next_load_id = v8::Integer::new(scope, data.next_load_id);
     array.set_index(scope, 0, next_load_id.into());
 
+    if let Some(main_module_id) = data.main_module_id {
+      let main_module_id = v8::Integer::new(scope, main_module_id as i32);
+      array.set_index(scope, 1, main_module_id.into());
+    }
+
     let info_arr = v8::Array::new(scope, data.info.len() as i32);
     for (i, info) in data.info.iter().enumerate() {
-      let module_info_arr = v8::Array::new(scope, 5);
+      let module_info_arr = v8::Array::new(scope, 4);
 
       let id = v8::Integer::new(scope, info.id as i32);
       module_info_arr.set_index(scope, 0, id.into());
 
-      let main = v8::Boolean::new(scope, info.main);
-      module_info_arr.set_index(scope, 1, main.into());
-
       let name = info.name.v8(scope);
-      module_info_arr.set_index(scope, 2, name.into());
+      module_info_arr.set_index(scope, 1, name.into());
 
       let array_len = 2 * info.requests.len() as i32;
       let requests_arr = v8::Array::new(scope, array_len);
@@ -194,14 +204,14 @@ impl ModuleMap {
           asserted_module_type.into(),
         );
       }
-      module_info_arr.set_index(scope, 3, requests_arr.into());
+      module_info_arr.set_index(scope, 2, requests_arr.into());
 
       let module_type = v8::Integer::new(scope, info.module_type as i32);
-      module_info_arr.set_index(scope, 4, module_type.into());
+      module_info_arr.set_index(scope, 3, module_type.into());
 
       info_arr.set_index(scope, i as u32, module_info_arr.into());
     }
-    array.set_index(scope, 1, info_arr.into());
+    array.set_index(scope, 2, info_arr.into());
 
     let length = self.data.borrow().by_name_js.len()
       + self.data.borrow().by_name_json.len();
@@ -234,7 +244,7 @@ impl ModuleMap {
 
       by_name_array.set_index(scope, i as u32, arr.into());
     });
-    array.set_index(scope, 2, by_name_array.into());
+    array.set_index(scope, 3, by_name_array.into());
 
     let array_global = v8::Global::new(scope, array);
 
@@ -262,7 +272,17 @@ impl ModuleMap {
     }
 
     {
-      let info_val = local_data.get_index(scope, 1).unwrap();
+      let main_module_id = local_data.get_index(scope, 1).unwrap();
+      if !main_module_id.is_undefined() {
+        let integer = main_module_id
+          .to_integer(scope)
+          .map(|v| v.int32_value(scope).unwrap() as usize);
+        self.data.borrow_mut().main_module_id = integer;
+      }
+    }
+
+    {
+      let info_val = local_data.get_index(scope, 2).unwrap();
 
       let info_arr: v8::Local<v8::Array> = info_val.try_into().unwrap();
       let len = info_arr.length() as usize;
@@ -282,20 +302,14 @@ impl ModuleMap {
           .unwrap()
           .value() as ModuleId;
 
-        let main = module_info_arr
-          .get_index(scope, 1)
-          .unwrap()
-          .to_boolean(scope)
-          .is_true();
-
         let name = module_info_arr
-          .get_index(scope, 2)
+          .get_index(scope, 1)
           .unwrap()
           .to_rust_string_lossy(scope)
           .into();
 
         let requests_arr: v8::Local<v8::Array> = module_info_arr
-          .get_index(scope, 3)
+          .get_index(scope, 2)
           .unwrap()
           .try_into()
           .unwrap();
@@ -324,7 +338,7 @@ impl ModuleMap {
         }
 
         let module_type_no = module_info_arr
-          .get_index(scope, 4)
+          .get_index(scope, 3)
           .unwrap()
           .to_integer(scope)
           .unwrap()
@@ -335,6 +349,7 @@ impl ModuleMap {
           _ => unreachable!(),
         };
 
+        let main = self.data.borrow().main_module_id == Some(id);
         let module_info = ModuleInfo {
           id,
           main,
@@ -353,7 +368,7 @@ impl ModuleMap {
 
     {
       let by_name_arr: v8::Local<v8::Array> =
-        local_data.get_index(scope, 2).unwrap().try_into().unwrap();
+        local_data.get_index(scope, 3).unwrap().try_into().unwrap();
       let len = by_name_arr.length() as usize;
 
       for i in 0..len {
@@ -403,7 +418,7 @@ impl ModuleMap {
   }
 
   pub(crate) fn new(loader: Rc<dyn ModuleLoader>) -> ModuleMap {
-    let new = Self {
+    Self {
       loader: loader.into(),
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
@@ -411,9 +426,7 @@ impl ModuleMap {
       pending_dynamic_imports: Default::default(),
       pending_dyn_mod_evaluate: Default::default(),
       data: Default::default(),
-    };
-    new.data.borrow_mut().next_load_id = 1;
-    new
+    }
   }
 
   /// Get module id, following all aliases in case of module specifier
@@ -574,12 +587,12 @@ impl ModuleMap {
 
     if main {
       let data = self.data.borrow();
-      let maybe_main_module = data.info.iter().find(|module| module.main);
-      if let Some(main_module) = maybe_main_module {
+      if let Some(main_module) = data.main_module_id {
+        let main_name = self.get_name_by_id(main_module).unwrap();
         return Err(ModuleError::Other(generic_error(
           format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
           name.as_ref(),
-          main_module.name,
+          main_name,
         ))));
       }
     }
@@ -725,7 +738,11 @@ impl ModuleMap {
     let mut data = self.data.borrow_mut();
     let id = data.handles.len();
     let (name1, name2) = name.into_cheap_copy();
+    data.handles_inverted.insert(handle.clone(), id);
     data.handles.push(handle);
+    if main {
+      data.main_module_id = Some(id);
+    }
     data.info.push(ModuleInfo {
       id,
       main,
@@ -820,31 +837,19 @@ impl ModuleMap {
     &self,
     global: &v8::Global<v8::Module>,
   ) -> Option<String> {
-    // TODO(mmastrac): This is O(n)
-    let data = self.data.borrow();
-    if let Some(id) = data.handles.iter().position(|module| module == global) {
-      self
-        .data
-        .borrow()
-        .info
-        .get(id)
-        .map(|info| info.name.as_str().to_owned())
+    if let Some(id) = self.data.borrow().handles_inverted.get(global) {
+      self.get_name_by_id(*id)
     } else {
       None
     }
   }
 
-  pub(crate) fn get_main_by_module(
-    &self,
-    global: &v8::Global<v8::Module>,
-  ) -> Option<bool> {
-    // TODO(mmastrac): This is O(n)
+  pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
     let data = self.data.borrow();
-    if let Some(id) = data.handles.iter().position(|module| module == global) {
-      self.data.borrow().info.get(id).map(|info| info.main)
-    } else {
-      None
-    }
+    data
+      .main_module_id
+      .map(|id| data.handles_inverted.get(global) == Some(&id))
+      .unwrap_or_default()
   }
 
   pub(crate) fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
@@ -1332,7 +1337,7 @@ impl ModuleMap {
     let data = self.data.borrow();
     assert_eq!(data.handles.len(), modules.len());
     assert_eq!(data.info.len(), modules.len());
-    assert_eq!(data.next_load_id, (modules.len() + 1) as ModuleLoadId);
+    assert_eq!(data.next_load_id as usize, modules.len());
     drop(data);
 
     assert_eq!(

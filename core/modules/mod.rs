@@ -708,7 +708,6 @@ pub(crate) struct ModuleRequest {
 pub(crate) struct ModuleInfo {
   #[allow(unused)]
   pub id: ModuleId,
-  // Used in "bindings.rs" for "import.meta.main" property value.
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,
