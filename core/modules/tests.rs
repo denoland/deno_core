@@ -331,11 +331,10 @@ fn test_mods() {
 
   assert_eq!(DISPATCH_COUNT.load(Ordering::Relaxed), 0);
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b) = {
     let scope = &mut runtime.handle_scope();
-    let module_map = module_map_rc;
     let specifier_a = ascii_str!("file:///a.js");
     let mod_a = module_map
       .new_es_module(
@@ -411,11 +410,10 @@ fn test_json_module() {
     )
     .unwrap();
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b, mod_c) = {
     let scope = &mut runtime.handle_scope();
-    let module_map = module_map_rc;
     let specifier_a = ascii_str!("file:///a.js");
     let specifier_b = ascii_str!("file:///b.js");
     let mod_a = module_map
@@ -514,11 +512,10 @@ fn test_validate_import_attributes() {
     ..Default::default()
   });
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   {
     let scope = &mut runtime.handle_scope();
-    let module_map = module_map_rc;
     let specifier_a = ascii_str!("file:///a.js");
     let module_err = module_map
       .new_es_module(

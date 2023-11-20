@@ -343,8 +343,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let module_map_rc = JsRealm::module_map_from(scope);
-  let module_map = module_map_rc;
+  let module_map = JsRealm::module_map_from(scope);
 
   let module_global = v8::Global::new(scope, module);
   let name = module_map

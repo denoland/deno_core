@@ -119,7 +119,6 @@ impl ModuleMap {
       AssertedModuleType::JavaScriptOrWasm,
       AssertedModuleType::Json,
     ] {
-      // TODO(mmastrac): get rid of cloning here
       self.by_name(module_type, |map| {
         for (name, module) in map.iter() {
           f(i, module_type, name, module);

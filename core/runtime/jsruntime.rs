@@ -751,17 +751,17 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
-    let module_map_rc = Rc::new(ModuleMap::new(loader));
+    let module_map = Rc::new(ModuleMap::new(loader));
     if let Some(snapshotted_data) = snapshotted_data {
-      module_map_rc.update_with_snapshotted_data(scope, snapshotted_data);
+      module_map.update_with_snapshotted_data(scope, snapshotted_data);
     }
-    context.set_slot(scope, module_map_rc.clone());
+    context.set_slot(scope, module_map.clone());
 
     {
       let main_realm = JsRealmInner::new(
         context_state,
         main_context,
-        module_map_rc.clone(),
+        module_map.clone(),
         state_rc.clone(),
         true,
       );
@@ -805,7 +805,7 @@ impl JsRuntime {
     if let Some(preserve_snapshotted_modules) =
       options.preserve_snapshotted_modules
     {
-      module_map_rc.clear_module_map(preserve_snapshotted_modules);
+      module_map.clear_module_map(preserve_snapshotted_modules);
     }
 
     js_runtime
@@ -911,18 +911,18 @@ impl JsRuntime {
       let loader = options
         .module_loader
         .unwrap_or_else(|| Rc::new(NoopModuleLoader));
-      let module_map_rc = Rc::new(ModuleMap::new(loader));
+      let module_map = Rc::new(ModuleMap::new(loader));
       if self.init_mode.is_from_snapshot() {
         let snapshotted_data =
           snapshot_util::get_snapshotted_data(scope, context);
-        module_map_rc.update_with_snapshotted_data(scope, snapshotted_data);
+        module_map.update_with_snapshotted_data(scope, snapshotted_data);
       }
-      context.set_slot(scope, module_map_rc.clone());
+      context.set_slot(scope, module_map.clone());
 
       let realm = JsRealmInner::new(
         context_state,
         v8::Global::new(scope, context),
-        module_map_rc,
+        module_map,
         self.inner.state.clone(),
         false,
       );
@@ -964,14 +964,14 @@ impl JsRuntime {
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
 
-    let module_map_rc = realm.0.module_map();
+    let module_map = realm.0.module_map();
 
     // Take extensions temporarily so we can avoid have a mutable reference to self
     let extensions = std::mem::take(&mut self.extensions);
 
-    let loader = module_map_rc.loader.borrow().clone();
+    let loader = module_map.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    *module_map_rc.loader.borrow_mut() = ext_loader;
+    *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
 
@@ -1015,7 +1015,7 @@ impl JsRuntime {
 
       for specifier in esm_entrypoints {
         let mod_id = {
-          module_map_rc
+          module_map
             .get_id(specifier, AssertedModuleType::JavaScriptOrWasm)
             .unwrap_or_else(|| {
               panic!("{} not present in the module map", specifier)
@@ -1036,7 +1036,6 @@ impl JsRuntime {
             // Find the TLA location to display it on the panic.
             let location = {
               let scope = &mut realm.handle_scope(self.v8_isolate());
-              let module_map = module_map_rc;
               let messages = module_map.find_stalled_top_level_await(scope);
               assert!(!messages.is_empty());
               let msg = v8::Local::new(scope, &messages[0]);
@@ -1056,7 +1055,6 @@ impl JsRuntime {
       #[cfg(debug_assertions)]
       {
         let mut scope = realm.handle_scope(self.v8_isolate());
-        let module_map = module_map_rc;
         module_map.assert_all_modules_evaluated(&mut scope);
       }
 
@@ -1064,8 +1062,8 @@ impl JsRuntime {
     })?;
 
     self.extensions = extensions;
-    let module_map_rc = realm.0.module_map();
-    *module_map_rc.loader.borrow_mut() = loader;
+    let module_map = realm.0.module_map();
+    *module_map.loader.borrow_mut() = loader;
 
     Ok(())
   }
@@ -1808,8 +1806,7 @@ impl JsRuntimeForSnapshot {
     // Serialize the module map and store its data in the snapshot.
     {
       let snapshotted_data = {
-        let module_map_rc = realm.0.module_map();
-        let module_map = module_map_rc;
+        let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
         )
