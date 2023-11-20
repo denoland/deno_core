@@ -22,8 +22,6 @@ use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
 use std::option::Option;
 use std::rc::Rc;
-use std::task::Context;
-use std::task::Poll;
 use v8::HandleScope;
 use v8::Local;
 
@@ -558,35 +556,6 @@ impl JsRealm {
   pub(crate) fn increment_modules_idle(&self) {
     let count = &self.0.module_map.dyn_module_evaluate_idle_counter;
     count.set(count.get() + 1)
-  }
-
-  pub(in crate::runtime) fn prepare_dyn_imports(
-    &self,
-    isolate: &mut v8::Isolate,
-    cx: &mut Context,
-  ) -> Poll<Result<(), Error>> {
-    // TODO(mmastrac): create this scope one level up
-    let mut scope = self.handle_scope(isolate);
-    self.0.module_map().poll_prepare_dyn_imports(&mut scope, cx)
-  }
-
-  pub(in crate::runtime) fn poll_dyn_imports(
-    &self,
-    isolate: &mut v8::Isolate,
-    cx: &mut Context,
-  ) -> Poll<Result<(), Error>> {
-    // TODO(mmastrac): create this scope one level up
-    let mut scope = self.handle_scope(isolate);
-    self.0.module_map().poll_dyn_imports(&mut scope, cx)
-  }
-
-  pub(in crate::runtime) fn evaluate_dyn_imports(
-    &self,
-    isolate: &mut v8::Isolate,
-  ) -> bool {
-    // TODO(mmastrac): create this scope one level up
-    let mut scope = self.handle_scope(isolate);
-    self.0.module_map().evaluate_dyn_imports(&mut scope)
   }
 
   /// "deno_core" runs V8 with Top Level Await enabled. It means that each

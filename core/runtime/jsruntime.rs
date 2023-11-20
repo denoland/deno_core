@@ -1521,20 +1521,23 @@ impl JsRuntime {
         let mut has_evaluated = false;
 
         // Fast main realm poll
-        let main_realm = self.inner.main_realm.as_ref().unwrap();
-        loop {
-          let poll_imports =
-            main_realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-          assert!(poll_imports.is_ready());
+        {
+          let main_realm = self.inner.main_realm.as_ref().unwrap();
+          let mut scope = main_realm.handle_scope(&mut self.inner.v8_isolate);
+          let modules = main_realm.0.module_map();
+          loop {
+            let poll_imports =
+              modules.poll_prepare_dyn_imports(&mut scope, cx)?;
+            assert!(poll_imports.is_ready());
 
-          let poll_imports =
-            main_realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-          assert!(poll_imports.is_ready());
+            let poll_imports = modules.poll_dyn_imports(&mut scope, cx)?;
+            assert!(poll_imports.is_ready());
 
-          if main_realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
-            has_evaluated = true;
-          } else {
-            break;
+            if modules.evaluate_dyn_imports(&mut scope) {
+              has_evaluated = true;
+            } else {
+              break;
+            }
           }
         }
 
@@ -1545,19 +1548,20 @@ impl JsRuntime {
           drop(state);
           for inner_realm in realms {
             let realm = JsRealm::new(inner_realm);
+            let mut scope = realm.handle_scope(&mut self.inner.v8_isolate);
+            let modules = realm.0.module_map();
 
             // Try and resolve as many dynamic imports in each realm as possible
             // before moving to the next.
             loop {
               let poll_imports =
-                realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+                modules.poll_prepare_dyn_imports(&mut scope, cx)?;
               assert!(poll_imports.is_ready());
 
-              let poll_imports =
-                realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              let poll_imports = modules.poll_dyn_imports(&mut scope, cx)?;
               assert!(poll_imports.is_ready());
 
-              if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
+              if modules.evaluate_dyn_imports(&mut scope) {
                 has_evaluated = true;
               } else {
                 break;
