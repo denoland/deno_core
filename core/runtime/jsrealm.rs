@@ -6,7 +6,6 @@ use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
-use crate::modules::ModuleLoadId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::ops::PendingOp;
@@ -47,13 +46,6 @@ impl Hasher for IdentityHasher {
   }
 }
 
-struct DynImportModEvaluate {
-  load_id: ModuleLoadId,
-  module_id: ModuleId,
-  promise: v8::Global<v8::Promise>,
-  module: v8::Global<v8::Module>,
-}
-
 pub(crate) struct ModEvaluate {
   promise: Option<v8::Global<v8::Promise>>,
   pub(crate) has_evaluated: bool,
@@ -70,7 +62,6 @@ pub(crate) struct ContextState {
   pub(crate) js_wasm_streaming_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) pending_promise_rejections:
     VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>,
-  pending_dyn_mod_evaluate: Vec<DynImportModEvaluate>,
   pub(crate) pending_mod_evaluate: Option<ModEvaluate>,
   pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
   pub(crate) pending_ops: JoinSet<PendingOp>,
@@ -133,7 +124,7 @@ pub struct JsRealm(pub(crate) JsRealmInner);
 pub(crate) struct JsRealmInner {
   context_state: Rc<RefCell<ContextState>>,
   context: Rc<v8::Global<v8::Context>>,
-  module_map: Rc<RefCell<ModuleMap>>,
+  module_map: Rc<ModuleMap>,
   runtime_state: Rc<RefCell<JsRuntimeState>>,
   is_main_realm: bool,
 }
@@ -142,7 +133,7 @@ impl JsRealmInner {
   pub(crate) fn new(
     context_state: Rc<RefCell<ContextState>>,
     context: v8::Global<v8::Context>,
-    module_map: Rc<RefCell<ModuleMap>>,
+    module_map: Rc<ModuleMap>,
     runtime_state: Rc<RefCell<JsRuntimeState>>,
     is_main_realm: bool,
   ) -> Self {
@@ -155,26 +146,27 @@ impl JsRealmInner {
     }
   }
 
+  #[inline(always)]
   pub fn num_pending_ops(&self) -> usize {
     self.context_state.borrow().pending_ops.len()
   }
 
+  #[inline(always)]
   pub fn num_unrefed_ops(&self) -> usize {
     self.context_state.borrow().unrefed_ops.len()
   }
 
+  #[inline(always)]
   pub fn has_pending_dyn_imports(&self) -> bool {
-    self.module_map.borrow().has_pending_dynamic_imports()
+    self.module_map.has_pending_dynamic_imports()
   }
 
+  #[inline(always)]
   pub fn has_pending_dyn_module_evaluation(&self) -> bool {
-    !self
-      .context_state
-      .borrow()
-      .pending_dyn_mod_evaluate
-      .is_empty()
+    self.module_map.has_pending_dyn_module_evaluation()
   }
 
+  #[inline(always)]
   pub fn has_pending_module_evaluation(&self) -> bool {
     self.context_state.borrow().pending_mod_evaluate.is_some()
   }
@@ -190,7 +182,7 @@ impl JsRealmInner {
   }
 
   #[inline(always)]
-  pub(crate) fn module_map(&self) -> Rc<RefCell<ModuleMap>> {
+  pub(crate) fn module_map(&self) -> Rc<ModuleMap> {
     self.module_map.clone()
   }
 
@@ -271,10 +263,10 @@ impl JsRealm {
   #[inline(always)]
   pub(crate) fn module_map_from(
     scope: &mut v8::HandleScope,
-  ) -> Rc<RefCell<ModuleMap>> {
+  ) -> Rc<ModuleMap> {
     let context = scope.get_current_context();
     context
-      .get_slot::<Rc<RefCell<ModuleMap>>>(scope)
+      .get_slot::<Rc<ModuleMap>>(scope)
       .unwrap()
       .clone()
   }
@@ -401,13 +393,6 @@ impl JsRealm {
     }
   }
 
-  /// Clears all loaded modules
-  /// May not clear all associated memory and should not
-  /// be used in production
-  pub fn clear_modules(&mut self) {
-    self.0.module_map().borrow_mut().clear();
-  }
-
   /// Returns the namespace object of a module.
   ///
   /// This is only available after module evaluation has completed.
@@ -420,7 +405,6 @@ impl JsRealm {
     self
       .0
       .module_map()
-      .borrow()
       .get_module_namespace(&mut self.handle_scope(isolate), module_id)
   }
 
@@ -432,87 +416,7 @@ impl JsRealm {
     self
       .0
       .module_map()
-      .borrow_mut()
       .instantiate_module(&mut self.handle_scope(isolate), id)
-  }
-
-  fn dynamic_import_module_evaluate(
-    &self,
-    isolate: &mut v8::Isolate,
-    load_id: ModuleLoadId,
-    id: ModuleId,
-  ) -> Result<(), Error> {
-    let module_handle = self
-      .0
-      .module_map()
-      .borrow()
-      .get_handle(id)
-      .expect("ModuleInfo not found");
-
-    let status = {
-      let scope = &mut self.handle_scope(isolate);
-      let module = module_handle.open(scope);
-      module.get_status()
-    };
-
-    match status {
-      v8::ModuleStatus::Instantiated | v8::ModuleStatus::Evaluated => {}
-      _ => return Ok(()),
-    }
-
-    // IMPORTANT: Top-level-await is enabled, which means that return value
-    // of module evaluation is a promise.
-    //
-    // This promise is internal, and not the same one that gets returned to
-    // the user. We add an empty `.catch()` handler so that it does not result
-    // in an exception if it rejects. That will instead happen for the other
-    // promise if not handled by the user.
-    //
-    // For more details see:
-    // https://github.com/denoland/deno/issues/4908
-    // https://v8.dev/features/top-level-await#module-execution-order
-    let scope = &mut self.handle_scope(isolate);
-    let tc_scope = &mut v8::TryCatch::new(scope);
-    let module = v8::Local::new(tc_scope, &module_handle);
-    let maybe_value = module.evaluate(tc_scope);
-
-    // Update status after evaluating.
-    let status = module.get_status();
-
-    if let Some(value) = maybe_value {
-      assert!(
-        status == v8::ModuleStatus::Evaluated
-          || status == v8::ModuleStatus::Errored
-      );
-      let promise = v8::Local::<v8::Promise>::try_from(value)
-        .expect("Expected to get promise as module evaluation result");
-      let empty_fn = bindings::create_empty_fn(tc_scope).unwrap();
-      promise.catch(tc_scope, empty_fn);
-      let promise_global = v8::Global::new(tc_scope, promise);
-      let module_global = v8::Global::new(tc_scope, module);
-
-      let dyn_import_mod_evaluate = DynImportModEvaluate {
-        load_id,
-        module_id: id,
-        promise: promise_global,
-        module: module_global,
-      };
-
-      self
-        .0
-        .context_state
-        .borrow_mut()
-        .pending_dyn_mod_evaluate
-        .push(dyn_import_mod_evaluate);
-    } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Err(
-        generic_error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.")
-      );
-    } else {
-      assert!(status == v8::ModuleStatus::Errored);
-    }
-
-    Ok(())
   }
 
   // TODO(bartlomieju): make it return `ModuleEvaluationFuture`?
@@ -537,7 +441,6 @@ impl JsRealm {
     let tc_scope = &mut v8::TryCatch::new(scope);
 
     let module = module_map_rc
-      .borrow()
       .get_handle(id)
       .map(|handle| v8::Local::new(tc_scope, handle))
       .expect("ModuleInfo not found");
@@ -552,11 +455,8 @@ impl JsRealm {
         "Module not instantiated"
       },
       module_map_rc
-        .borrow()
-        .get_info_by_id(id)
-        .unwrap()
-        .name
-        .as_str(),
+        .get_name_by_id(id)
+        .unwrap(),
       id,
     );
 
@@ -665,7 +565,10 @@ impl JsRealm {
   ) -> Poll<Result<(), Error>> {
     // TODO(mmastrac): create this scope one level up
     let mut scope = self.handle_scope(isolate);
-    self.0.module_map().borrow().poll_prepare_dyn_imports(&mut scope, cx)
+    self
+      .0
+      .module_map()
+      .poll_prepare_dyn_imports(&mut scope, cx)
   }
 
   pub(in crate::runtime) fn poll_dyn_imports(
@@ -675,7 +578,22 @@ impl JsRealm {
   ) -> Poll<Result<(), Error>> {
     // TODO(mmastrac): create this scope one level up
     let mut scope = self.handle_scope(isolate);
-    self.0.module_map().borrow().poll_dyn_imports(&mut scope, cx)
+    self
+      .0
+      .module_map()
+      .poll_dyn_imports(&mut scope, cx)
+  }
+
+  pub(in crate::runtime) fn evaluate_dyn_imports(
+    &self,
+    isolate: &mut v8::Isolate,
+  ) -> bool {
+    // TODO(mmastrac): create this scope one level up
+    let mut scope = self.handle_scope(isolate);
+    self
+      .0
+      .module_map()
+      .evaluate_dyn_imports(&mut scope)
   }
 
   /// "deno_core" runs V8 with Top Level Await enabled. It means that each
@@ -744,63 +662,6 @@ impl JsRealm {
     }
   }
 
-  // Returns true if some dynamic import was resolved.
-  pub(in crate::runtime) fn evaluate_dyn_imports(
-    &self,
-    isolate: &mut v8::Isolate,
-  ) -> bool {
-    let pending = std::mem::take(
-      &mut self.0.context_state.borrow_mut().pending_dyn_mod_evaluate,
-    );
-    if pending.is_empty() {
-      return false;
-    }
-    let mut resolved_any = false;
-    let mut still_pending = vec![];
-    for pending_dyn_evaluate in pending {
-      let maybe_result = {
-        let mut scope = self.handle_scope(isolate);
-
-        let module_id = pending_dyn_evaluate.module_id;
-        let promise = pending_dyn_evaluate.promise.open(&mut scope);
-        let _module = pending_dyn_evaluate.module.open(&mut scope);
-        let promise_state = promise.state();
-
-        let result = match promise_state {
-          v8::PromiseState::Pending => {
-            still_pending.push(pending_dyn_evaluate);
-            None
-          }
-          v8::PromiseState::Fulfilled => {
-            Some(Ok((pending_dyn_evaluate.load_id, module_id)))
-          }
-          v8::PromiseState::Rejected => {
-            let exception = promise.result(&mut scope);
-            let exception = v8::Global::new(&mut scope, exception);
-            Some(Err((pending_dyn_evaluate.load_id, exception)))
-          }
-        };
-        result.map(move |r| (r, scope))
-      };
-
-      if let Some((result, mut scope)) = maybe_result {
-        resolved_any = true;
-        match result {
-          Ok((dyn_import_id, module_id)) => {
-            self.0.module_map().borrow().dynamic_import_resolve(&mut scope, dyn_import_id, module_id);
-            let state_rc = self.0.runtime_state.clone();
-            state_rc.borrow_mut().dyn_module_evaluate_idle_counter = 0;
-          }
-          Err((dyn_import_id, exception)) => {
-            self.0.module_map().borrow().dynamic_import_reject(&mut scope, dyn_import_id, exception);
-          }
-        }
-      }
-    }
-    self.0.context_state.borrow_mut().pending_dyn_mod_evaluate = still_pending;
-    resolved_any
-  }
-
   /// Asynchronously load specified module and all of its dependencies.
   ///
   /// The module will be marked as "main", and because of that
@@ -820,7 +681,6 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       // true for main module
       module_map_rc
-        .borrow_mut()
         .new_es_module(scope, true, specifier, code, false)
         .map_err(|e| match e {
           ModuleError::Exception(exception) => {
@@ -876,7 +736,6 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       // false for side module (not main module)
       module_map_rc
-        .borrow_mut()
         .new_es_module(scope, false, specifier, code, false)
         .map_err(|e| match e {
           ModuleError::Exception(exception) => {

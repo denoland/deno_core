@@ -344,20 +344,21 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
   let module_map_rc = JsRealm::module_map_from(scope);
-  let module_map = module_map_rc.borrow();
+  let module_map = module_map_rc;
 
   let module_global = v8::Global::new(scope, module);
-  let info = module_map
-    .get_info(&module_global)
+  let name = module_map
+    .get_name_by_module(&module_global)
     .expect("Module not found");
 
   let url_key = v8::String::new_external_onebyte_static(scope, b"url").unwrap();
-  let url_val = info.name.v8(scope);
+  let url_val = v8::String::new(scope, &name).unwrap();
   meta.create_data_property(scope, url_key.into(), url_val.into());
 
   let main_key =
     v8::String::new_external_onebyte_static(scope, b"main").unwrap();
-  let main_val = v8::Boolean::new(scope, info.main);
+  let main = module_map.get_main_by_module(&module_global).expect("Module not found");
+  let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
   let builder =
@@ -387,7 +388,7 @@ fn import_meta_resolve(
     url_prop.to_rust_string_lossy(scope)
   };
   let module_map_rc = JsRealm::module_map_from(scope);
-  let loader = module_map_rc.borrow().loader.clone();
+  let loader = module_map_rc.loader.clone();
   let specifier_str = specifier.to_rust_string_lossy(scope);
 
   if specifier_str.starts_with("npm:") {
@@ -395,7 +396,7 @@ fn import_meta_resolve(
     return;
   }
 
-  match loader.resolve(&specifier_str, &referrer, ResolutionKind::DynamicImport)
+  match loader.borrow().resolve(&specifier_str, &referrer, ResolutionKind::DynamicImport)
   {
     Ok(resolved) => {
       let resolved_val = serde_v8::to_v8(scope, resolved.as_str()).unwrap();

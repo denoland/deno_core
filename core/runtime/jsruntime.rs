@@ -305,9 +305,6 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 pub struct JsRuntimeState {
   known_realms: Vec<JsRealmInner>,
   pub(crate) has_tick_scheduled: bool,
-  /// A counter used to delay our dynamic import deadlock detection by one spin
-  /// of the event loop.
-  pub(crate) dyn_module_evaluate_idle_counter: u32,
   pub(crate) source_map_getter: Option<Rc<Box<dyn SourceMapGetter>>>,
   pub(crate) source_map_cache: Rc<RefCell<SourceMapCache>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
@@ -618,7 +615,6 @@ impl JsRuntime {
       .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
 
     let state_rc = Rc::new(RefCell::new(JsRuntimeState {
-      dyn_module_evaluate_idle_counter: 0,
       has_tick_scheduled: false,
       source_map_getter: options.source_map_getter.map(Rc::new),
       source_map_cache: Default::default(),
@@ -755,10 +751,9 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
-    let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
+    let module_map_rc = Rc::new(ModuleMap::new(loader));
     if let Some(snapshotted_data) = snapshotted_data {
-      let mut module_map = module_map_rc.borrow_mut();
-      module_map.update_with_snapshotted_data(scope, snapshotted_data);
+      module_map_rc.update_with_snapshotted_data(scope, snapshotted_data);
     }
     context.set_slot(scope, module_map_rc.clone());
 
@@ -811,7 +806,6 @@ impl JsRuntime {
       options.preserve_snapshotted_modules
     {
       module_map_rc
-        .borrow_mut()
         .clear_module_map(preserve_snapshotted_modules);
     }
 
@@ -820,7 +814,7 @@ impl JsRuntime {
 
   #[cfg(test)]
   #[inline]
-  pub(crate) fn module_map(&mut self) -> Rc<RefCell<ModuleMap>> {
+  pub(crate) fn module_map(&mut self) -> Rc<ModuleMap> {
     self.main_realm().0.module_map()
   }
 
@@ -918,12 +912,11 @@ impl JsRuntime {
       let loader = options
         .module_loader
         .unwrap_or_else(|| Rc::new(NoopModuleLoader));
-      let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
+      let module_map_rc = Rc::new(ModuleMap::new(loader));
       if self.init_mode.is_from_snapshot() {
         let snapshotted_data =
           snapshot_util::get_snapshotted_data(scope, context);
         module_map_rc
-          .borrow_mut()
           .update_with_snapshotted_data(scope, snapshotted_data);
       }
       context.set_slot(scope, module_map_rc.clone());
@@ -953,7 +946,6 @@ impl JsRuntime {
       realm
         .0
         .module_map()
-        .borrow_mut()
         .clear_module_map(preserve_snapshotted_modules);
     }
 
@@ -979,9 +971,9 @@ impl JsRuntime {
     // Take extensions temporarily so we can avoid have a mutable reference to self
     let extensions = std::mem::take(&mut self.extensions);
 
-    let loader = module_map_rc.borrow().loader.clone();
+    let loader = module_map_rc.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    module_map_rc.borrow_mut().loader = ext_loader;
+    *module_map_rc.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
 
@@ -1026,7 +1018,6 @@ impl JsRuntime {
       for specifier in esm_entrypoints {
         let mod_id = {
           module_map_rc
-            .borrow()
             .get_id(specifier, AssertedModuleType::JavaScriptOrWasm)
             .unwrap_or_else(|| {
               panic!("{} not present in the module map", specifier)
@@ -1047,7 +1038,7 @@ impl JsRuntime {
             // Find the TLA location to display it on the panic.
             let location = {
               let scope = &mut realm.handle_scope(self.v8_isolate());
-              let module_map = module_map_rc.borrow();
+              let module_map = module_map_rc;
               let messages = module_map.find_stalled_top_level_await(scope);
               assert!(!messages.is_empty());
               let msg = v8::Local::new(scope, &messages[0]);
@@ -1067,7 +1058,7 @@ impl JsRuntime {
       #[cfg(debug_assertions)]
       {
         let mut scope = realm.handle_scope(self.v8_isolate());
-        let module_map = module_map_rc.borrow();
+        let module_map = module_map_rc;
         module_map.assert_all_modules_evaluated(&mut scope);
       }
 
@@ -1075,7 +1066,8 @@ impl JsRuntime {
     })?;
 
     self.extensions = extensions;
-    module_map_rc.borrow_mut().loader = loader;
+    let module_map_rc = realm.0.module_map();
+    *module_map_rc.loader.borrow_mut() = loader;
 
     Ok(())
   }
@@ -1712,7 +1704,8 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
-      } else if self.inner.state.borrow().dyn_module_evaluate_idle_counter >= 1
+      } else if false
+      //self.inner.state.borrow().dyn_module_evaluate_idle_counter >= 1
       {
         let known_realms = &self.inner.state.borrow().known_realms;
         return Poll::Ready(Err(
@@ -1726,7 +1719,7 @@ impl JsRuntime {
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.
-        state.dyn_module_evaluate_idle_counter += 1;
+        // state.dyn_module_evaluate_idle_counter += 1;
         state.op_state.borrow().waker.wake();
       }
     }
@@ -1742,7 +1735,7 @@ fn find_and_report_stalled_level_await_in_any_realm(
   for inner_realm in known_realms {
     let scope = &mut inner_realm.handle_scope(v8_isolate);
     let module_map = inner_realm.module_map();
-    let messages = module_map.borrow().find_stalled_top_level_await(scope);
+    let messages =  module_map.find_stalled_top_level_await(scope);
 
     if !messages.is_empty() {
       // We are gonna print only a single message to provide a nice formatting
@@ -1815,7 +1808,7 @@ impl JsRuntimeForSnapshot {
     {
       let snapshotted_data = {
         let module_map_rc = realm.0.module_map();
-        let module_map = module_map_rc.borrow();
+        let module_map = module_map_rc;
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
         )
@@ -1968,13 +1961,6 @@ impl JsRuntime {
     id: ModuleId,
   ) -> oneshot::Receiver<Result<(), Error>> {
     self.main_realm().mod_evaluate(self.v8_isolate(), id)
-  }
-
-  /// Clears all loaded modules
-  /// May not free all associated memory, and should not be used
-  /// in production environments
-  pub fn clear_modules(&mut self) {
-    self.main_realm().clear_modules()
   }
 
   /// Asynchronously load specified module and all of its dependencies.
