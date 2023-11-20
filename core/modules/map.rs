@@ -80,7 +80,7 @@ pub(crate) struct ModuleMap {
     RefCell<FuturesUnordered<Pin<Box<PrepareLoadFuture>>>>,
   pending_dynamic_imports:
     RefCell<FuturesUnordered<StreamFuture<RecursiveModuleLoad>>>,
-  pending_dyn_mod_evaluate: RefCell<Vec<DynImportModEvaluate>>,
+  pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
   data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
@@ -118,7 +118,8 @@ impl ModuleMap {
     id + 1
   }
 
-  fn collect_modules(
+  /// Walk the currently registered modules (JS, WASM and JSON) along with their index and names.
+  fn walk_modules(
     &self,
     mut f: impl FnMut(usize, AssertedModuleType, &ModuleName, &SymbolicModule),
   ) {
@@ -216,7 +217,7 @@ impl ModuleMap {
     let length = self.data.borrow().by_name_js.len()
       + self.data.borrow().by_name_json.len();
     let by_name_array = v8::Array::new(scope, length.try_into().unwrap());
-    self.collect_modules(|i, module_type, name, module| {
+    self.walk_modules(|i, module_type, name, module| {
       let arr = v8::Array::new(scope, 3);
 
       let specifier = name.v8(scope);
@@ -424,7 +425,7 @@ impl ModuleMap {
       dynamic_import_map: Default::default(),
       preparing_dynamic_imports: Default::default(),
       pending_dynamic_imports: Default::default(),
-      pending_dyn_mod_evaluate: Default::default(),
+      pending_dyn_mod_evaluations: Default::default(),
       data: Default::default(),
     }
   }
@@ -938,7 +939,7 @@ impl ModuleMap {
   }
 
   pub(crate) fn has_pending_dyn_module_evaluation(&self) -> bool {
-    !self.pending_dyn_mod_evaluate.borrow().is_empty()
+    !self.pending_dyn_mod_evaluations.borrow().is_empty()
   }
 
   fn dynamic_import_module_evaluate(
@@ -998,7 +999,7 @@ impl ModuleMap {
       };
 
       self
-        .pending_dyn_mod_evaluate
+        .pending_dyn_mod_evaluations
         .borrow_mut()
         .push(dyn_import_mod_evaluate);
     } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
@@ -1018,7 +1019,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
   ) -> bool {
     let pending =
-      std::mem::take(self.pending_dyn_mod_evaluate.borrow_mut().deref_mut());
+      std::mem::take(self.pending_dyn_mod_evaluations.borrow_mut().deref_mut());
     if pending.is_empty() {
       return false;
     }
@@ -1059,7 +1060,7 @@ impl ModuleMap {
         }
       }
     }
-    *self.pending_dyn_mod_evaluate.borrow_mut() = still_pending;
+    *self.pending_dyn_mod_evaluations.borrow_mut() = still_pending;
     resolved_any
   }
 
