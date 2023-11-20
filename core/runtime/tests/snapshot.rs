@@ -3,10 +3,10 @@ use crate::extensions::Op;
 use crate::modules::AssertedModuleType;
 use crate::modules::LoggingModuleLoader;
 use crate::modules::ModuleInfo;
-
+use crate::modules::ModuleLoadId;
 use crate::modules::ModuleType;
-
 use crate::*;
+use crate::modules::SymbolicModule;
 use anyhow::Error;
 use std::borrow::Cow;
 use std::rc::Rc;
@@ -168,32 +168,32 @@ fn es_snapshot() {
     }
   }
 
-  fn assert_module_map(_runtime: &mut JsRuntime, _modules: &Vec<ModuleInfo>) {
-    // let module_map_rc = runtime.module_map();
-    // let module_map = module_map_rc.borrow();
-    // assert_eq!(module_map.handles.len(), modules.len());
-    // assert_eq!(module_map.info.len(), modules.len());
-    // assert_eq!(
-    //   module_map.by_name(AssertedModuleType::Json).len()
-    //     + module_map
-    //       .by_name(AssertedModuleType::JavaScriptOrWasm)
-    //       .len(),
-    //   modules.len()
-    // );
+  fn assert_module_map(runtime: &mut JsRuntime, modules: &Vec<ModuleInfo>) {
+    let module_map = runtime.module_map();
 
-    // assert_eq!(module_map.next_load_id, (modules.len() + 1) as ModuleLoadId);
+    let data = module_map.data.borrow();
+    assert_eq!(data.handles.len(), modules.len());
+    assert_eq!(data.info.len(), modules.len());
+    assert_eq!(data.next_load_id, (modules.len() + 1) as ModuleLoadId);
+    drop(data);
 
-    // for info in modules {
-    //   assert!(module_map.handles.get(info.id).is_some());
-    //   assert_eq!(module_map.info.get(info.id).unwrap(), info);
-    //   assert_eq!(
-    //     module_map
-    //       .by_name(AssertedModuleType::JavaScriptOrWasm)
-    //       .get(&info.name)
-    //       .unwrap(),
-    //     &SymbolicModule::Mod(info.id)
-    //   );
-    // }
+    assert_eq!(
+      module_map.by_name(AssertedModuleType::Json, |map| map.len())
+        + module_map
+          .by_name(AssertedModuleType::JavaScriptOrWasm, |map| map.len()),
+      modules.len()
+    );
+
+    for info in modules {
+      let data = module_map.data.borrow();
+      assert!(data.handles.get(info.id).is_some());
+      assert_eq!(data.info.get(info.id).unwrap(), info);
+      drop(data);
+      assert!(
+        module_map
+          .by_name(AssertedModuleType::JavaScriptOrWasm, |map| map.get(&info.name).unwrap() == &SymbolicModule::Mod(info.id))
+      );
+    }
   }
 
   #[op2]
