@@ -484,8 +484,8 @@ impl RuntimeOptions {
 
 #[derive(Copy, Clone, Debug)]
 pub struct PollEventLoopOptions {
-  wait_for_inspector: bool,
-  pump_v8_message_loop: bool,
+  pub wait_for_inspector: bool,
+  pub pump_v8_message_loop: bool,
 }
 
 impl Default for PollEventLoopOptions {
