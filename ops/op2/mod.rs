@@ -184,6 +184,7 @@ fn generate_op2(
     generate_dispatch_slow(&config, &mut generator_state, &signature)?
   };
   let is_async = signature.ret_val.is_async();
+  let is_reentrant = config.reentrant;
 
   match (is_async, config.r#async) {
     (true, false) => return Err(Op2Error::ShouldBeAsync),
@@ -252,6 +253,7 @@ fn generate_op2(
       const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         /*name*/ stringify!(#name),
         /*is_async*/ #is_async,
+        /*is_reentrant*/ #is_reentrant,
         /*arg_count*/ #arg_count as u8,
         /*slow_fn*/ Self::#slow_function as _,
         /*slow_fn_metrics*/ Self::#slow_function_metrics as _,

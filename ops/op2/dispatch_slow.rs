@@ -139,6 +139,9 @@ pub(crate) fn generate_dispatch_slow(
     gs_quote!(generator_state(opctx, info, slow_function, slow_function_metrics) => {
       #[inline(always)]
       fn slow_function_impl(#info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);
+
         #with_scope
         #with_retval
         #with_args

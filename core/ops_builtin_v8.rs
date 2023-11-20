@@ -14,6 +14,7 @@ use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRealm;
 use crate::JsRuntime;
+use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -62,7 +63,7 @@ pub fn op_queue_microtask(
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
 // allowed to touch JS heap.
-#[op2(nofast)]
+#[op2(nofast, reentrant)]
 pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   // SAFETY: we know v8 provides us with a valid, non-null isolate
   unsafe {
@@ -97,7 +98,7 @@ pub struct EvalContextResult<'s>(
   Option<EvalContextError<'s>>,
 );
 
-#[op2]
+#[op2(reentrant)]
 #[serde]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -360,7 +361,8 @@ pub struct SerializeDeserializeOptions<'a> {
   for_storage: bool,
 }
 
-#[op2]
+// May be reentrant in the case of errors.
+#[op2(reentrant)]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
@@ -731,30 +733,25 @@ pub fn op_set_wasm_streaming_callback(
   Ok(())
 }
 
+// This op is re-entrant as it makes a v8 call. It also cannot be fast because
+// we require a JS execution scope.
 #[allow(clippy::let_and_return)]
-#[op2]
+#[op2(nofast, reentrant)]
 pub fn op_abort_wasm_streaming(
-  scope: &mut v8::HandleScope,
+  state: Rc<RefCell<OpState>>,
   rid: u32,
   error: v8::Local<v8::Value>,
 ) -> Result<(), Error> {
-  let wasm_streaming = {
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow();
-    let wsr = state
-      .op_state
-      .borrow_mut()
-      .resource_table
-      .take::<WasmStreamingResource>(rid)?;
-    wsr
-  };
+  // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
+  let wasm_streaming = state
+    .borrow_mut()
+    .resource_table
+    .take::<WasmStreamingResource>(rid)?;
 
   // At this point there are no clones of Rc<WasmStreamingResource> on the
   // resource table, and no one should own a reference because we're never
   // cloning them. So we can be sure `wasm_streaming` is the only reference.
   if let Ok(wsr) = std::rc::Rc::try_unwrap(wasm_streaming) {
-    // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
-    // see https://github.com/denoland/deno/issues/13917
     wsr.0.into_inner().abort(Some(error));
   } else {
     panic!("Couldn't consume WasmStreamingResource.");
@@ -762,7 +759,8 @@ pub fn op_abort_wasm_streaming(
   Ok(())
 }
 
-#[op2]
+// This op calls `op_apply_source_map` re-entrantly.
+#[op2(reentrant)]
 #[serde]
 pub fn op_destructure_error(
   scope: &mut v8::HandleScope,

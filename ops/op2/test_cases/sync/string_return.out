@@ -7,6 +7,7 @@ impl deno_core::_ops::Op for op_string_return {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_string_return),
         false,
+        false,
         0usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -24,6 +25,10 @@ impl op_string_return {
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
@@ -87,6 +92,7 @@ impl deno_core::_ops::Op for op_string_return_ref {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_string_return_ref),
         false,
+        false,
         0usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -104,6 +110,10 @@ impl op_string_return_ref {
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
@@ -167,6 +177,7 @@ impl deno_core::_ops::Op for op_string_return_cow {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_string_return_cow),
         false,
+        false,
         0usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -184,6 +195,10 @@ impl op_string_return_cow {
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info

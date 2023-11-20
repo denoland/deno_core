@@ -339,7 +339,6 @@ async fn wasm_streaming_op_invocation_in_import() {
                              WebAssembly.instantiateStreaming(bytes, {
                                env: {
                                  get data() {
-                                   Deno.core.ops.op_resources();
                                    return new WebAssembly.Global({ value: "i64", mutable: false }, 42n);
                                  }
                                }
