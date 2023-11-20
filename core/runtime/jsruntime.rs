@@ -805,8 +805,7 @@ impl JsRuntime {
     if let Some(preserve_snapshotted_modules) =
       options.preserve_snapshotted_modules
     {
-      module_map_rc
-        .clear_module_map(preserve_snapshotted_modules);
+      module_map_rc.clear_module_map(preserve_snapshotted_modules);
     }
 
     js_runtime
@@ -916,8 +915,7 @@ impl JsRuntime {
       if self.init_mode.is_from_snapshot() {
         let snapshotted_data =
           snapshot_util::get_snapshotted_data(scope, context);
-        module_map_rc
-          .update_with_snapshotted_data(scope, snapshotted_data);
+        module_map_rc.update_with_snapshotted_data(scope, snapshotted_data);
       }
       context.set_slot(scope, module_map_rc.clone());
 
@@ -1704,9 +1702,7 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
-      } else if false
-      //self.inner.state.borrow().dyn_module_evaluate_idle_counter >= 1
-      {
+      } else if self.inner.main_realm.as_ref().unwrap().modules_idle() {
         let known_realms = &self.inner.state.borrow().known_realms;
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
@@ -1719,7 +1715,12 @@ impl JsRuntime {
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.
-        // state.dyn_module_evaluate_idle_counter += 1;
+        self
+          .inner
+          .main_realm
+          .as_ref()
+          .unwrap()
+          .increment_modules_idle();
         state.op_state.borrow().waker.wake();
       }
     }
@@ -1735,7 +1736,7 @@ fn find_and_report_stalled_level_await_in_any_realm(
   for inner_realm in known_realms {
     let scope = &mut inner_realm.handle_scope(v8_isolate);
     let module_map = inner_realm.module_map();
-    let messages =  module_map.find_stalled_top_level_await(scope);
+    let messages = module_map.find_stalled_top_level_await(scope);
 
     if !messages.is_empty() {
       // We are gonna print only a single message to provide a nice formatting

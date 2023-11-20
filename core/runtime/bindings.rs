@@ -357,7 +357,9 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 
   let main_key =
     v8::String::new_external_onebyte_static(scope, b"main").unwrap();
-  let main = module_map.get_main_by_module(&module_global).expect("Module not found");
+  let main = module_map
+    .get_main_by_module(&module_global)
+    .expect("Module not found");
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
@@ -396,8 +398,11 @@ fn import_meta_resolve(
     return;
   }
 
-  match loader.borrow().resolve(&specifier_str, &referrer, ResolutionKind::DynamicImport)
-  {
+  match loader.borrow().resolve(
+    &specifier_str,
+    &referrer,
+    ResolutionKind::DynamicImport,
+  ) {
     Ok(resolved) => {
       let resolved_val = serde_v8::to_v8(scope, resolved.as_str()).unwrap();
       rv.set(resolved_val);

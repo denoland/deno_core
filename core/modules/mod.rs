@@ -376,16 +376,13 @@ impl RecursiveModuleLoad {
     // FIXME(bartlomieju): this seems fishy
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
     if let Ok(root_specifier) = load.resolve_root() {
-      if let Some(module_id) = module_map_rc
-        .get_id(root_specifier, asserted_module_type)
+      if let Some(module_id) =
+        module_map_rc.get_id(root_specifier, asserted_module_type)
       {
         load.root_module_id = Some(module_id);
         load.root_asserted_module_type = Some(asserted_module_type);
-        load.root_module_type = Some(
-          module_map_rc
-            .get_module_type_by_id(module_id)
-            .unwrap()
-        );
+        load.root_module_type =
+          Some(module_map_rc.get_module_type_by_id(module_id).unwrap());
       }
     }
     load
@@ -493,15 +490,13 @@ impl RecursiveModuleLoad {
         id
       }
       None => match module_source.module_type {
-        ModuleType::JavaScript => {
-          self.module_map_rc.new_es_module(
-            scope,
-            self.is_currently_loading_main_module(),
-            module_url_found,
-            module_source.code,
-            self.is_dynamic_import(),
-          )?
-        }
+        ModuleType::JavaScript => self.module_map_rc.new_es_module(
+          scope,
+          self.is_currently_loading_main_module(),
+          module_url_found,
+          module_source.code,
+          self.is_dynamic_import(),
+        )?,
         ModuleType::Json => self.module_map_rc.new_json_module(
           scope,
           module_url_found,

@@ -85,7 +85,7 @@ pub(crate) struct ModuleMap {
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
-  dyn_module_evaluate_idle_counter: Cell<u32>,
+  pub(crate) dyn_module_evaluate_idle_counter: Cell<u32>,
 }
 
 #[derive(Default)]
@@ -197,7 +197,8 @@ impl ModuleMap {
     }
     array.set_index(scope, 1, info_arr.into());
 
-    let length = self.data.borrow().by_name_js.len() + self.data.borrow().by_name_json.len();
+    let length = self.data.borrow().by_name_js.len()
+      + self.data.borrow().by_name_json.len();
     let by_name_array = v8::Array::new(scope, length.try_into().unwrap());
     self.collect_modules(|i, module_type, name, module| {
       let arr = v8::Array::new(scope, 3);
@@ -748,7 +749,8 @@ impl ModuleMap {
     asserted_module_type: AssertedModuleType,
   ) -> bool {
     if let Some(id) = self.get_id(specifier.as_ref(), asserted_module_type) {
-      return asserted_module_type == self.data.borrow().info.get(id).unwrap().module_type.into();
+      return asserted_module_type
+        == self.data.borrow().info.get(id).unwrap().module_type.into();
     }
 
     false
@@ -808,17 +810,28 @@ impl ModuleMap {
     self.data.borrow().handles.get(id).cloned()
   }
 
-  pub(crate) fn get_name_by_module(&self, global: &v8::Global<v8::Module>) -> Option<String> {
+  pub(crate) fn get_name_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<String> {
     // TODO(mmastrac): This is O(n)
     let data = self.data.borrow();
     if let Some(id) = data.handles.iter().position(|module| module == global) {
-      self.data.borrow().info.get(id).map(|info| info.name.as_str().to_owned())
+      self
+        .data
+        .borrow()
+        .info
+        .get(id)
+        .map(|info| info.name.as_str().to_owned())
     } else {
       None
     }
   }
 
-  pub(crate) fn get_main_by_module(&self, global: &v8::Global<v8::Module>) -> Option<bool> {
+  pub(crate) fn get_main_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<bool> {
     // TODO(mmastrac): This is O(n)
     let data = self.data.borrow();
     if let Some(id) = data.handles.iter().position(|module| module == global) {
@@ -830,10 +843,18 @@ impl ModuleMap {
 
   pub(crate) fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
     // TODO(mmastrac): Don't clone
-    self.data.borrow().info.get(id).map(|info| info.name.as_str().to_owned())
+    self
+      .data
+      .borrow()
+      .info
+      .get(id)
+      .map(|info| info.name.as_str().to_owned())
   }
 
-  pub(crate) fn get_module_type_by_id(&self, id: ModuleId) -> Option<ModuleType> {
+  pub(crate) fn get_module_type_by_id(
+    &self,
+    id: ModuleId,
+  ) -> Option<ModuleType> {
     self.data.borrow().info.get(id).map(|info| info.module_type)
   }
 
@@ -878,8 +899,11 @@ impl ModuleMap {
       .insert(load.id, resolver_handle);
 
     let loader = module_map_rc.loader.clone();
-    let resolve_result =
-      loader.borrow().resolve(specifier, referrer, ResolutionKind::DynamicImport);
+    let resolve_result = loader.borrow().resolve(
+      specifier,
+      referrer,
+      ResolutionKind::DynamicImport,
+    );
     let fut = match resolve_result {
       Ok(module_specifier) => {
         if module_map_rc.is_registered(module_specifier, asserted_module_type) {
@@ -891,7 +915,10 @@ impl ModuleMap {
       }
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
-    module_map_rc.preparing_dynamic_imports.borrow_mut().push(fut);
+    module_map_rc
+      .preparing_dynamic_imports
+      .borrow_mut()
+      .push(fut);
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {

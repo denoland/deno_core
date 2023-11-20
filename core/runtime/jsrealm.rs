@@ -261,14 +261,9 @@ impl JsRealm {
   }
 
   #[inline(always)]
-  pub(crate) fn module_map_from(
-    scope: &mut v8::HandleScope,
-  ) -> Rc<ModuleMap> {
+  pub(crate) fn module_map_from(scope: &mut v8::HandleScope) -> Rc<ModuleMap> {
     let context = scope.get_current_context();
-    context
-      .get_slot::<Rc<ModuleMap>>(scope)
-      .unwrap()
-      .clone()
+    context.get_slot::<Rc<ModuleMap>>(scope).unwrap().clone()
   }
 
   #[inline(always)]
@@ -454,9 +449,7 @@ impl JsRealm {
       } else {
         "Module not instantiated"
       },
-      module_map_rc
-        .get_name_by_id(id)
-        .unwrap(),
+      module_map_rc.get_name_by_id(id).unwrap(),
       id,
     );
 
@@ -558,6 +551,15 @@ impl JsRealm {
     receiver
   }
 
+  pub(crate) fn modules_idle(&self) -> bool {
+    self.0.module_map.dyn_module_evaluate_idle_counter.get() > 1
+  }
+
+  pub(crate) fn increment_modules_idle(&self) {
+    let count = &self.0.module_map.dyn_module_evaluate_idle_counter;
+    count.set(count.get() + 1)
+  }
+
   pub(in crate::runtime) fn prepare_dyn_imports(
     &self,
     isolate: &mut v8::Isolate,
@@ -565,10 +567,7 @@ impl JsRealm {
   ) -> Poll<Result<(), Error>> {
     // TODO(mmastrac): create this scope one level up
     let mut scope = self.handle_scope(isolate);
-    self
-      .0
-      .module_map()
-      .poll_prepare_dyn_imports(&mut scope, cx)
+    self.0.module_map().poll_prepare_dyn_imports(&mut scope, cx)
   }
 
   pub(in crate::runtime) fn poll_dyn_imports(
@@ -578,10 +577,7 @@ impl JsRealm {
   ) -> Poll<Result<(), Error>> {
     // TODO(mmastrac): create this scope one level up
     let mut scope = self.handle_scope(isolate);
-    self
-      .0
-      .module_map()
-      .poll_dyn_imports(&mut scope, cx)
+    self.0.module_map().poll_dyn_imports(&mut scope, cx)
   }
 
   pub(in crate::runtime) fn evaluate_dyn_imports(
@@ -590,10 +586,7 @@ impl JsRealm {
   ) -> bool {
     // TODO(mmastrac): create this scope one level up
     let mut scope = self.handle_scope(isolate);
-    self
-      .0
-      .module_map()
-      .evaluate_dyn_imports(&mut scope)
+    self.0.module_map().evaluate_dyn_imports(&mut scope)
   }
 
   /// "deno_core" runs V8 with Top Level Await enabled. It means that each
