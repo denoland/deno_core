@@ -72,7 +72,7 @@ struct DynImportModEvaluate {
 pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
   // TODO(mmastrac): we should not be swapping this loader out
-  pub loader: RefCell<Rc<dyn ModuleLoader>>,
+  pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
 
   dynamic_import_map:
     RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
@@ -81,7 +81,7 @@ pub(crate) struct ModuleMap {
   pending_dynamic_imports:
     RefCell<FuturesUnordered<StreamFuture<RecursiveModuleLoad>>>,
   pending_dyn_mod_evaluate: RefCell<Vec<DynImportModEvaluate>>,
-  pub(crate) data: RefCell<ModuleMapData>,
+  data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -93,9 +93,9 @@ pub(crate) struct ModuleMapData {
   // Handling of specifiers and v8 objects
   pub handles: Vec<v8::Global<v8::Module>>,
   pub info: Vec<ModuleInfo>,
-  pub(crate) by_name_js: HashMap<ModuleName, SymbolicModule>,
-  pub(crate) by_name_json: HashMap<ModuleName, SymbolicModule>,
-  pub(crate) next_load_id: ModuleLoadId,
+  by_name_js: HashMap<ModuleName, SymbolicModule>,
+  by_name_json: HashMap<ModuleName, SymbolicModule>,
+  next_load_id: ModuleLoadId,
 
   // This store is used temporarily, to forward parsed JSON
   // value from `new_json_module` to `json_module_evaluation_steps`
@@ -103,6 +103,13 @@ pub(crate) struct ModuleMapData {
 }
 
 impl ModuleMap {
+  pub fn next_load_id(&self) -> i32 {
+    // TODO(mmastrac): bad borrowing
+    let id = self.data.borrow().next_load_id;
+    self.data.borrow_mut().next_load_id += 1;
+    id
+  }
+
   pub fn collect_modules(
     &self,
     mut f: impl FnMut(usize, AssertedModuleType, &ModuleName, &SymbolicModule),
@@ -1318,6 +1325,33 @@ impl ModuleMap {
     }
 
     vec![]
+  }
+
+  // TODO(mmastrac): this is better than giving the entire crate access to the internals.
+  #[cfg(test)]
+  pub fn assert_module_map(&self, modules: &Vec<ModuleInfo>) {
+    let data = self.data.borrow();
+    assert_eq!(data.handles.len(), modules.len());
+    assert_eq!(data.info.len(), modules.len());
+    assert_eq!(data.next_load_id, (modules.len() + 1) as ModuleLoadId);
+    drop(data);
+
+    assert_eq!(
+      self.by_name(AssertedModuleType::Json, |map| map.len())
+        + self.by_name(AssertedModuleType::JavaScriptOrWasm, |map| map.len()),
+      modules.len()
+    );
+
+    for info in modules {
+      let data = self.data.borrow();
+      assert!(data.handles.get(info.id).is_some());
+      assert_eq!(data.info.get(info.id).unwrap(), info);
+      drop(data);
+      assert!(self.by_name(AssertedModuleType::JavaScriptOrWasm, |map| map
+        .get(&info.name)
+        .unwrap()
+        == &SymbolicModule::Mod(info.id)));
+    }
   }
 }
 

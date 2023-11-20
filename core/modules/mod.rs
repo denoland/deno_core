@@ -41,8 +41,6 @@ pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
-#[cfg(test)]
-pub(crate) use map::SymbolicModule;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
@@ -349,12 +347,7 @@ impl RecursiveModuleLoad {
   }
 
   fn new(init: LoadInit, module_map_rc: Rc<ModuleMap>) -> Self {
-    let id = {
-      // TODO(mmastrac): bad borrowing
-      let id = module_map_rc.data.borrow().next_load_id;
-      module_map_rc.data.borrow_mut().next_load_id += 1;
-      id
-    };
+    let id = module_map_rc.next_load_id();
     let loader = module_map_rc.loader.borrow().clone();
     let asserted_module_type = match init {
       LoadInit::DynamicImport(_, _, module_type) => module_type,
