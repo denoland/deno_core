@@ -2,6 +2,7 @@
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
+use crate::error::to_v8_type_error;
 use crate::fast_string::FastString;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
@@ -23,6 +24,7 @@ use crate::runtime::JsRealm;
 use crate::runtime::SnapshottedData;
 use crate::JsRuntime;
 use anyhow::Error;
+use futures::StreamExt;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
@@ -30,6 +32,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::task::Context;
+use std::task::Poll;
 
 use super::AssertedModuleType;
 
@@ -66,12 +70,12 @@ pub(crate) struct ModuleMap {
 
   // Handling of futures for loading module sources
   pub loader: Rc<dyn ModuleLoader>,
-  pub(crate) dynamic_import_map:
-    HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>,
-  pub(crate) preparing_dynamic_imports:
-    FuturesUnordered<Pin<Box<PrepareLoadFuture>>>,
-  pub(crate) pending_dynamic_imports:
-    FuturesUnordered<StreamFuture<RecursiveModuleLoad>>,
+  dynamic_import_map:
+    RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
+  preparing_dynamic_imports:
+    RefCell<FuturesUnordered<Pin<Box<PrepareLoadFuture>>>>,
+  pending_dynamic_imports:
+    RefCell<FuturesUnordered<StreamFuture<RecursiveModuleLoad>>>,
 
   // This store is used temporarily, to forward parsed JSON
   // value from `new_json_module` to `json_module_evaluation_steps`
@@ -380,9 +384,9 @@ impl ModuleMap {
       by_name_json: HashMap::new(),
       next_load_id: 1,
       loader,
-      dynamic_import_map: HashMap::new(),
-      preparing_dynamic_imports: FuturesUnordered::new(),
-      pending_dynamic_imports: FuturesUnordered::new(),
+      dynamic_import_map: HashMap::new().into(),
+      preparing_dynamic_imports: FuturesUnordered::new().into(),
+      pending_dynamic_imports: FuturesUnordered::new().into(),
       json_value_store: HashMap::new(),
     }
   }
@@ -827,8 +831,8 @@ impl ModuleMap {
       module_map_rc.clone(),
     );
 
-    let this: &mut ModuleMap = &mut module_map_rc.borrow_mut();
-    this.dynamic_import_map.insert(load.id, resolver_handle);
+    let this: &ModuleMap = &module_map_rc.borrow();
+    this.dynamic_import_map.borrow_mut().insert(load.id, resolver_handle);
 
     let loader = this.loader.clone();
     let resolve_result =
@@ -844,12 +848,186 @@ impl ModuleMap {
       }
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
-    this.preparing_dynamic_imports.push(fut);
+    this.preparing_dynamic_imports.borrow_mut().push(fut);
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {
-    !(self.preparing_dynamic_imports.is_empty()
-      && self.pending_dynamic_imports.is_empty())
+    !(self.preparing_dynamic_imports.borrow().is_empty()
+      && self.pending_dynamic_imports.borrow().is_empty())
+  }
+
+
+  pub(crate) fn dynamic_import_reject(
+    &self,
+    scope: &mut v8::HandleScope,
+    id: ModuleLoadId,
+    exception: v8::Global<v8::Value>,
+  ) {
+    let resolver_handle = self.dynamic_import_map.borrow_mut()
+      .remove(&id)
+      .expect("Invalid dynamic import id");
+    let resolver = resolver_handle.open(scope);
+
+    let exception = v8::Local::new(scope, exception);
+    resolver.reject(scope, exception).unwrap();
+    scope.perform_microtask_checkpoint();
+  }
+
+  pub(crate) fn dynamic_import_resolve(
+    &self,
+    scope: &mut v8::HandleScope,
+    id: ModuleLoadId,
+    mod_id: ModuleId,
+  ) {
+    let resolver_handle = self.dynamic_import_map.borrow_mut()
+      .remove(&id)
+      .expect("Invalid dynamic import id");
+    let resolver = resolver_handle.open(scope);
+
+    let module = 
+      self.get_handle(mod_id)
+        .map(|handle| v8::Local::new(scope, handle))
+        .expect("Dyn import module info not found")
+    ;
+    // Resolution success
+    assert_eq!(module.get_status(), v8::ModuleStatus::Evaluated);
+
+    // IMPORTANT: No borrows to `ModuleMap` can be held at this point because
+    // resolving the promise might initiate another `import()` which will
+    // in turn call `bindings::host_import_module_dynamically_callback` which
+    // will reach into `ModuleMap` from within the isolate.
+    let module_namespace = module.get_module_namespace();
+    resolver.resolve(scope, module_namespace).unwrap();
+    scope.perform_microtask_checkpoint();
+  }
+
+  pub(crate) fn poll_prepare_dyn_imports(
+    &self,
+    scope: &mut v8::HandleScope,
+    cx: &mut Context,
+  ) -> Poll<Result<(), Error>> {
+    if self
+      .preparing_dynamic_imports.borrow()
+      .is_empty()
+    {
+      return Poll::Ready(Ok(()));
+    }
+
+    loop {
+      let poll_result = self.preparing_dynamic_imports.borrow_mut()
+        .poll_next_unpin(cx);
+
+      if let Poll::Ready(Some(prepare_poll)) = poll_result {
+        let dyn_import_id = prepare_poll.0;
+        let prepare_result = prepare_poll.1;
+
+        match prepare_result {
+          Ok(load) => {
+            self
+              .0
+              .module_map()
+              .borrow_mut()
+              .pending_dynamic_imports
+              .push(load.into_future());
+          }
+          Err(err) => {
+            let exception =
+              to_v8_type_error(scope, err);
+            self.dynamic_import_reject(scope, dyn_import_id, exception);
+          }
+        }
+        // Continue polling for more prepared dynamic imports.
+        continue;
+      }
+
+      // There are no active dynamic import loads, or none are ready.
+      return Poll::Ready(Ok(()));
+    }
+  }
+
+  pub(crate) fn poll_dyn_imports(
+    &self,
+    scope: &mut v8::HandleScope,
+    cx: &mut Context,
+  ) -> Poll<Result<(), Error>> {
+    if self
+      .pending_dynamic_imports.borrow()
+      .is_empty()
+    {
+      return Poll::Ready(Ok(()));
+    }
+
+    loop {
+      let poll_result = self.pending_dynamic_imports.borrow_mut()
+        .poll_next_unpin(cx);
+
+      if let Poll::Ready(Some(load_stream_poll)) = poll_result {
+        let maybe_result = load_stream_poll.0;
+        let mut load = load_stream_poll.1;
+        let dyn_import_id = load.id;
+
+        if let Some(load_stream_result) = maybe_result {
+          match load_stream_result {
+            Ok((request, info)) => {
+              // A module (not necessarily the one dynamically imported) has been
+              // fetched. Create and register it, and if successful, poll for the
+              // next recursive-load event related to this dynamic import.
+              let register_result = load.register_and_recurse(
+                scope,
+                &request,
+                info,
+              );
+
+              match register_result {
+                Ok(()) => {
+                  // Keep importing until it's fully drained
+                  self
+                    .pending_dynamic_imports.borrow_mut()
+                    .push(load.into_future());
+                }
+                Err(err) => {
+                  let exception = match err {
+                    ModuleError::Exception(e) => e,
+                    ModuleError::Other(e) => {
+                      to_v8_type_error(scope, e)
+                    }
+                  };
+                  self.dynamic_import_reject(scope, dyn_import_id, exception)
+                }
+              }
+            }
+            Err(err) => {
+              // A non-javascript error occurred; this could be due to a an invalid
+              // module specifier, or a problem with the source map, or a failure
+              // to fetch the module source code.
+              let exception =
+                to_v8_type_error(scope, err);
+              self.dynamic_import_reject(scope, dyn_import_id, exception);
+            }
+          }
+        } else {
+          // The top-level module from a dynamic import has been instantiated.
+          // Load is done.
+          let module_id =
+            load.root_module_id.expect("Root module should be loaded");
+          let result = self.instantiate_module(scope, module_id);
+          if let Err(exception) = result {
+            self.dynamic_import_reject(scope, dyn_import_id, exception);
+          }
+          self.dynamic_import_module_evaluate(
+            scope,
+            dyn_import_id,
+            module_id,
+          )?;
+        }
+
+        // Continue polling for more ready dynamic imports.
+        continue;
+      }
+
+      // There are no active dynamic import loads, or none are ready.
+      return Poll::Ready(Ok(()));
+    }
   }
 
   /// Returns the namespace object of a module.

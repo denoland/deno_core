@@ -2,7 +2,6 @@
 use super::bindings;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
-use crate::error::to_v8_type_error;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
@@ -659,117 +658,14 @@ impl JsRealm {
     receiver
   }
 
-  fn dynamic_import_reject(
-    &self,
-    isolate: &mut v8::Isolate,
-    id: ModuleLoadId,
-    exception: v8::Global<v8::Value>,
-  ) {
-    let module_map_rc = self.0.module_map();
-    let scope = &mut self.handle_scope(isolate);
-
-    let resolver_handle = module_map_rc
-      .borrow_mut()
-      .dynamic_import_map
-      .remove(&id)
-      .expect("Invalid dynamic import id");
-    let resolver = resolver_handle.open(scope);
-
-    // IMPORTANT: No borrows to `ModuleMap` can be held at this point because
-    // rejecting the promise might initiate another `import()` which will
-    // in turn call `bindings::host_import_module_dynamically_callback` which
-    // will reach into `ModuleMap` from within the isolate.
-    let exception = v8::Local::new(scope, exception);
-    resolver.reject(scope, exception).unwrap();
-    scope.perform_microtask_checkpoint();
-  }
-
-  fn dynamic_import_resolve(
-    &self,
-    isolate: &mut v8::Isolate,
-    id: ModuleLoadId,
-    mod_id: ModuleId,
-  ) {
-    let state_rc = self.0.runtime_state.clone();
-    let module_map_rc = self.0.module_map();
-    let scope = &mut self.handle_scope(isolate);
-
-    let resolver_handle = module_map_rc
-      .borrow_mut()
-      .dynamic_import_map
-      .remove(&id)
-      .expect("Invalid dynamic import id");
-    let resolver = resolver_handle.open(scope);
-
-    let module = {
-      module_map_rc
-        .borrow()
-        .get_handle(mod_id)
-        .map(|handle| v8::Local::new(scope, handle))
-        .expect("Dyn import module info not found")
-    };
-    // Resolution success
-    assert_eq!(module.get_status(), v8::ModuleStatus::Evaluated);
-
-    // IMPORTANT: No borrows to `ModuleMap` can be held at this point because
-    // resolving the promise might initiate another `import()` which will
-    // in turn call `bindings::host_import_module_dynamically_callback` which
-    // will reach into `ModuleMap` from within the isolate.
-    let module_namespace = module.get_module_namespace();
-    resolver.resolve(scope, module_namespace).unwrap();
-    state_rc.borrow_mut().dyn_module_evaluate_idle_counter = 0;
-    scope.perform_microtask_checkpoint();
-  }
-
   pub(in crate::runtime) fn prepare_dyn_imports(
     &self,
     isolate: &mut v8::Isolate,
     cx: &mut Context,
   ) -> Poll<Result<(), Error>> {
-    if self
-      .0
-      .module_map()
-      .borrow()
-      .preparing_dynamic_imports
-      .is_empty()
-    {
-      return Poll::Ready(Ok(()));
-    }
-
-    loop {
-      let poll_result = self
-        .0
-        .module_map()
-        .borrow_mut()
-        .preparing_dynamic_imports
-        .poll_next_unpin(cx);
-
-      if let Poll::Ready(Some(prepare_poll)) = poll_result {
-        let dyn_import_id = prepare_poll.0;
-        let prepare_result = prepare_poll.1;
-
-        match prepare_result {
-          Ok(load) => {
-            self
-              .0
-              .module_map()
-              .borrow_mut()
-              .pending_dynamic_imports
-              .push(load.into_future());
-          }
-          Err(err) => {
-            let exception =
-              to_v8_type_error(&mut self.handle_scope(isolate), err);
-            self.dynamic_import_reject(isolate, dyn_import_id, exception);
-          }
-        }
-        // Continue polling for more prepared dynamic imports.
-        continue;
-      }
-
-      // There are no active dynamic import loads, or none are ready.
-      return Poll::Ready(Ok(()));
-    }
+    // TODO(mmastrac): create this scope one level up
+    let mut scope = self.handle_scope(isolate);
+    self.0.module_map().borrow().poll_prepare_dyn_imports(&mut scope, cx)
   }
 
   pub(in crate::runtime) fn poll_dyn_imports(
@@ -777,94 +673,9 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     cx: &mut Context,
   ) -> Poll<Result<(), Error>> {
-    if self
-      .0
-      .module_map()
-      .borrow()
-      .pending_dynamic_imports
-      .is_empty()
-    {
-      return Poll::Ready(Ok(()));
-    }
-
-    loop {
-      let poll_result = self
-        .0
-        .module_map()
-        .borrow_mut()
-        .pending_dynamic_imports
-        .poll_next_unpin(cx);
-
-      if let Poll::Ready(Some(load_stream_poll)) = poll_result {
-        let maybe_result = load_stream_poll.0;
-        let mut load = load_stream_poll.1;
-        let dyn_import_id = load.id;
-
-        if let Some(load_stream_result) = maybe_result {
-          match load_stream_result {
-            Ok((request, info)) => {
-              // A module (not necessarily the one dynamically imported) has been
-              // fetched. Create and register it, and if successful, poll for the
-              // next recursive-load event related to this dynamic import.
-              let register_result = load.register_and_recurse(
-                &mut self.handle_scope(isolate),
-                &request,
-                info,
-              );
-
-              match register_result {
-                Ok(()) => {
-                  // Keep importing until it's fully drained
-                  self
-                    .0
-                    .module_map()
-                    .borrow_mut()
-                    .pending_dynamic_imports
-                    .push(load.into_future());
-                }
-                Err(err) => {
-                  let exception = match err {
-                    ModuleError::Exception(e) => e,
-                    ModuleError::Other(e) => {
-                      to_v8_type_error(&mut self.handle_scope(isolate), e)
-                    }
-                  };
-                  self.dynamic_import_reject(isolate, dyn_import_id, exception)
-                }
-              }
-            }
-            Err(err) => {
-              // A non-javascript error occurred; this could be due to a an invalid
-              // module specifier, or a problem with the source map, or a failure
-              // to fetch the module source code.
-              let exception =
-                to_v8_type_error(&mut self.handle_scope(isolate), err);
-              self.dynamic_import_reject(isolate, dyn_import_id, exception);
-            }
-          }
-        } else {
-          // The top-level module from a dynamic import has been instantiated.
-          // Load is done.
-          let module_id =
-            load.root_module_id.expect("Root module should be loaded");
-          let result = self.instantiate_module(isolate, module_id);
-          if let Err(exception) = result {
-            self.dynamic_import_reject(isolate, dyn_import_id, exception);
-          }
-          self.dynamic_import_module_evaluate(
-            isolate,
-            dyn_import_id,
-            module_id,
-          )?;
-        }
-
-        // Continue polling for more ready dynamic imports.
-        continue;
-      }
-
-      // There are no active dynamic import loads, or none are ready.
-      return Poll::Ready(Ok(()));
-    }
+    // TODO(mmastrac): create this scope one level up
+    let mut scope = self.handle_scope(isolate);
+    self.0.module_map().borrow().poll_dyn_imports(&mut scope, cx)
   }
 
   /// "deno_core" runs V8 with Top Level Await enabled. It means that each
@@ -948,14 +759,14 @@ impl JsRealm {
     let mut still_pending = vec![];
     for pending_dyn_evaluate in pending {
       let maybe_result = {
-        let scope = &mut self.handle_scope(isolate);
+        let mut scope = self.handle_scope(isolate);
 
         let module_id = pending_dyn_evaluate.module_id;
-        let promise = pending_dyn_evaluate.promise.open(scope);
-        let _module = pending_dyn_evaluate.module.open(scope);
+        let promise = pending_dyn_evaluate.promise.open(&mut scope);
+        let _module = pending_dyn_evaluate.module.open(&mut scope);
         let promise_state = promise.state();
 
-        match promise_state {
+        let result = match promise_state {
           v8::PromiseState::Pending => {
             still_pending.push(pending_dyn_evaluate);
             None
@@ -964,21 +775,24 @@ impl JsRealm {
             Some(Ok((pending_dyn_evaluate.load_id, module_id)))
           }
           v8::PromiseState::Rejected => {
-            let exception = promise.result(scope);
-            let exception = v8::Global::new(scope, exception);
+            let exception = promise.result(&mut scope);
+            let exception = v8::Global::new(&mut scope, exception);
             Some(Err((pending_dyn_evaluate.load_id, exception)))
           }
-        }
+        };
+        result.map(move |r| (r, scope))
       };
 
-      if let Some(result) = maybe_result {
+      if let Some((result, mut scope)) = maybe_result {
         resolved_any = true;
         match result {
           Ok((dyn_import_id, module_id)) => {
-            self.dynamic_import_resolve(isolate, dyn_import_id, module_id);
+            self.0.module_map().borrow().dynamic_import_resolve(&mut scope, dyn_import_id, module_id);
+            let state_rc = self.0.runtime_state.clone();
+            state_rc.borrow_mut().dyn_module_evaluate_idle_counter = 0;
           }
           Err((dyn_import_id, exception)) => {
-            self.dynamic_import_reject(isolate, dyn_import_id, exception);
+            self.0.module_map().borrow().dynamic_import_reject(&mut scope, dyn_import_id, exception);
           }
         }
       }
