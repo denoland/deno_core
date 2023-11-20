@@ -13,12 +13,14 @@ pub(crate) struct MacroConfig {
   pub nofast: bool,
   /// Use other ops for the fast alternatives, rather than generating one for this op.
   pub fast_alternatives: Vec<String>,
-  /// Marks an async function (either `async fn` or `fn -> impl Future`)
+  /// Marks an async function (either `async fn` or `fn -> impl Future`).
   pub r#async: bool,
-  /// Marks a lazy async function (async must also be true)
+  /// Marks a lazy async function (async must also be true).
   pub async_lazy: bool,
-  /// Marks a deferred async function (async must also be true)
+  /// Marks a deferred async function (async must also be true).
   pub async_deferred: bool,
+  /// Marks an op as re-entrant (can safely call other ops).
+  pub reentrant: bool,
 }
 
 impl MacroConfig {
@@ -80,6 +82,8 @@ impl MacroConfig {
       } else if flag == "async(deferred)" {
         config.r#async = true;
         config.async_deferred = true;
+      } else if flag == "reentrant" {
+        config.reentrant = true;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }

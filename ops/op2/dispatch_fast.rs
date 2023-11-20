@@ -502,6 +502,9 @@ pub(crate) fn generate_dispatch_fast(
       _: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {
+      #[cfg(debug_assertions)]
+      let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);
+
       #with_fast_api_callback_options
       #with_opctx
       #with_js_runtime_state
