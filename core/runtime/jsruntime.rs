@@ -1711,7 +1711,7 @@ impl JsRuntime {
           ),
         ));
       } else {
-        let mut state = self.inner.state.borrow_mut();
+        let state = self.inner.state.borrow_mut();
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.

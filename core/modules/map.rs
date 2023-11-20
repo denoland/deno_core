@@ -397,7 +397,7 @@ impl ModuleMap {
   }
 
   pub(crate) fn new(loader: Rc<dyn ModuleLoader>) -> ModuleMap {
-    let mut new = Self {
+    let new = Self {
       loader: loader.into(),
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
@@ -759,7 +759,7 @@ impl ModuleMap {
   pub(crate) fn by_name<T>(
     &self,
     asserted_module_type: AssertedModuleType,
-    mut f: impl FnOnce(&HashMap<ModuleName, SymbolicModule>) -> T,
+    f: impl FnOnce(&HashMap<ModuleName, SymbolicModule>) -> T,
   ) -> T {
     match asserted_module_type {
       AssertedModuleType::Json => f(&self.data.borrow().by_name_json),
@@ -770,7 +770,7 @@ impl ModuleMap {
   pub(crate) fn by_name_mut<T>(
     &self,
     asserted_module_type: AssertedModuleType,
-    mut f: impl FnOnce(&mut HashMap<ModuleName, SymbolicModule>) -> T,
+    f: impl FnOnce(&mut HashMap<ModuleName, SymbolicModule>) -> T,
   ) -> T {
     match asserted_module_type {
       AssertedModuleType::Json => f(&mut self.data.borrow_mut().by_name_json),

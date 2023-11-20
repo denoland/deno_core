@@ -335,7 +335,7 @@ fn test_mods() {
 
   let (mod_a, mod_b) = {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc;
+    let module_map = module_map_rc;
     let specifier_a = ascii_str!("file:///a.js");
     let mod_a = module_map
       .new_es_module(
@@ -415,7 +415,7 @@ fn test_json_module() {
 
   let (mod_a, mod_b, mod_c) = {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc;
+    let module_map = module_map_rc;
     let specifier_a = ascii_str!("file:///a.js");
     let specifier_b = ascii_str!("file:///b.js");
     let mod_a = module_map
@@ -518,7 +518,7 @@ fn test_validate_import_attributes() {
 
   {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc;
+    let module_map = module_map_rc;
     let specifier_a = ascii_str!("file:///a.js");
     let module_err = module_map
       .new_es_module(
