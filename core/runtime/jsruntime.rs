@@ -20,6 +20,7 @@ use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsEvent;
@@ -236,6 +237,8 @@ pub struct JsRuntime {
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
+  /// Have we created additional realms? If so, we have to poison the fast path.
+  additional_realms: bool,
 }
 
 /// The runtime type used for snapshot creation.
@@ -317,6 +320,7 @@ pub struct JsRuntimeState {
   // flimsy. Try to poll it similarly to `pending_promise_rejections`.
   pub(crate) dispatched_exception: Option<v8::Global<v8::Value>>,
   pub(crate) inspector: Option<Rc<RefCell<JsRuntimeInspector>>>,
+  pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
 }
 
 impl JsRuntimeState {
@@ -341,11 +345,14 @@ fn v8_init(
   predictable: bool,
   expose_natives: bool,
 ) {
-  // Include 10MB ICU data file.
-  #[repr(C, align(16))]
-  struct IcuData([u8; 10631872]);
-  static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
-  v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
+  #[cfg(feature = "include_icu_data")]
+  {
+    // Include 10MB ICU data file.
+    #[repr(C, align(16))]
+    struct IcuData([u8; 10631872]);
+    static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
+    v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
+  }
 
   let base_flags = concat!(
     " --wasm-test-streaming",
@@ -454,6 +461,11 @@ pub struct RuntimeOptions {
   /// An optional instance of `FeatureChecker`. If one is not provided, the
   /// default instance will be created that has no features enabled.
   pub feature_checker: Option<Arc<FeatureChecker>>,
+
+  /// A callback that can be used to validate import attributes received at
+  /// the import site. If not callback is provided, a default one is used. The
+  /// default callback only allows `"type"` attribute, with a value of `"json"`.
+  pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
 }
 
 impl RuntimeOptions {
@@ -616,6 +628,10 @@ impl JsRuntime {
       // SAFETY: we just asserted that layout has non-0 size.
       unsafe { std::alloc::alloc(layout) as *mut _ };
 
+    let validate_import_attributes_cb = options
+      .validate_import_attributes_cb
+      .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
+
     let state_rc = Rc::new(RefCell::new(JsRuntimeState {
       dyn_module_evaluate_idle_counter: 0,
       has_tick_scheduled: false,
@@ -628,6 +644,7 @@ impl JsRuntime {
       // Some fields are initialized later after isolate is created
       inspector: None,
       known_realms: Vec::with_capacity(1),
+      validate_import_attributes_cb,
     }));
 
     let weak = Rc::downgrade(&state_rc);
@@ -796,6 +813,7 @@ impl JsRuntime {
       extensions: options.extensions,
       preserve_snapshotted_modules: options.preserve_snapshotted_modules,
       is_main_runtime: options.is_main,
+      additional_realms: false,
     };
 
     let realm = js_runtime.main_realm();
@@ -932,7 +950,10 @@ impl JsRuntime {
         self.inner.state.clone(),
         false,
       );
+
       let mut state = self.inner.state.borrow_mut();
+      // Poison the fast path for realms
+      self.additional_realms = true;
       state.known_realms.push(realm.clone());
       JsRealm::new(realm)
     };
@@ -1532,7 +1553,6 @@ impl JsRuntime {
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
     let has_inspector: bool;
-
     {
       let state = self.inner.state.borrow();
       has_inspector = state.inspector.is_some();
@@ -1569,30 +1589,28 @@ impl JsRuntime {
       loop {
         let mut has_evaluated = false;
 
-        let state = self.inner.state.borrow();
-        if state.known_realms.len() == 1 {
-          drop(state);
-          // Try and resolve as many dynamic imports in each realm as possible
-          // before moving to the next.
-          let realm = self.inner.main_realm.as_ref().unwrap();
-          loop {
-            let poll_imports =
-              realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-            assert!(poll_imports.is_ready());
+        // Fast main realm poll
+        let main_realm = self.inner.main_realm.as_ref().unwrap();
+        loop {
+          let poll_imports =
+            main_realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+          assert!(poll_imports.is_ready());
 
-            let poll_imports =
-              realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-            assert!(poll_imports.is_ready());
+          let poll_imports =
+            main_realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+          assert!(poll_imports.is_ready());
 
-            if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
-              has_evaluated = true;
-            } else {
-              break;
-            }
+          if main_realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
+            has_evaluated = true;
+          } else {
+            break;
           }
-        } else {
-          // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
-          let realms = state.known_realms.clone();
+        }
+
+        if self.additional_realms {
+          // TODO(bartlomieju|mmastrac): Remove cloning/to_vec in the runtime loop
+          let state = self.inner.state.borrow();
+          let realms = state.known_realms[1..].to_vec();
           drop(state);
           for inner_realm in realms {
             let realm = JsRealm::new(inner_realm);
@@ -1616,6 +1634,7 @@ impl JsRuntime {
             }
           }
         }
+
         if !has_evaluated {
           break;
         }
@@ -1642,14 +1661,16 @@ impl JsRuntime {
 
     // Top level module
     {
-      let state = self.inner.state.borrow();
-      if state.known_realms.len() == 1 {
-        drop(state);
-        let realm = self.inner.main_realm.as_ref().unwrap();
-        realm.evaluate_pending_module(&mut self.inner.v8_isolate);
-      } else {
+      self
+        .inner
+        .main_realm
+        .as_ref()
+        .unwrap()
+        .evaluate_pending_module(&mut self.inner.v8_isolate);
+      if self.additional_realms {
         // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
-        let realms = state.known_realms.clone();
+        let state = self.inner.state.borrow();
+        let realms = state.known_realms[1..].to_vec();
         drop(state);
         for inner_realm in realms {
           let realm = JsRealm::new(inner_realm);
@@ -1658,7 +1679,19 @@ impl JsRuntime {
       }
     }
 
-    let pending_state = self.event_loop_pending_state();
+    // Get the pending state from the main realm, or all realms
+    let pending_state = if self.additional_realms {
+      let mut scope = v8::HandleScope::new(self.inner.v8_isolate.as_mut());
+      EventLoopPendingState::new(&mut scope, &mut self.inner.state.borrow_mut())
+    } else {
+      let mut scope = v8::HandleScope::new(self.inner.v8_isolate.as_mut());
+      EventLoopPendingState::new_from_main_realm(
+        &mut scope,
+        &mut self.inner.state.borrow_mut(),
+        &self.inner.main_realm.as_ref().unwrap().0,
+      )
+    };
+
     if !pending_state.is_pending() && !maybe_scheduling {
       if has_inspector {
         let inspector = self.inspector();
@@ -1683,8 +1716,6 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
-    let state = self.inner.state.borrow();
-
     // Check if more async ops have been dispatched
     // during this turn of event loop.
     // If there are any pending background tasks, we also wake the runtime to
@@ -1692,22 +1723,24 @@ impl JsRuntime {
     // TODO(andreubotella) The event loop will spin as long as there are pending
     // background tasks. We should look into having V8 notify us when a
     // background task is done.
-    if pending_state.has_pending_background_tasks
-      || pending_state.has_tick_scheduled
-      || maybe_scheduling
+    #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
-      state.op_state.borrow().waker.wake();
+      if pending_state.has_pending_background_tasks
+        || pending_state.has_tick_scheduled
+        || maybe_scheduling
+      {
+        let state = self.inner.state.borrow();
+        state.op_state.borrow().waker.wake();
+      } else
+      // If ops were dispatched we may have progress on pending modules that we should re-check
+      if (pending_state.has_pending_module_evaluation
+        || pending_state.has_pending_dyn_module_evaluation)
+        && dispatched_ops
+      {
+        let state = self.inner.state.borrow();
+        state.op_state.borrow().waker.wake();
+      }
     }
-
-    // If ops were dispatched we may have progress on pending modules that we should re-check
-    if (pending_state.has_pending_module_evaluation
-      || pending_state.has_pending_dyn_module_evaluation)
-      && dispatched_ops
-    {
-      state.op_state.borrow().waker.wake();
-    }
-
-    drop(state);
 
     if pending_state.has_pending_module_evaluation {
       if pending_state.has_pending_refed_ops
@@ -1756,11 +1789,6 @@ impl JsRuntime {
     }
 
     Poll::Pending
-  }
-
-  fn event_loop_pending_state(&mut self) -> EventLoopPendingState {
-    let mut scope = v8::HandleScope::new(self.inner.v8_isolate.as_mut());
-    EventLoopPendingState::new(&mut scope, &mut self.inner.state.borrow_mut())
   }
 }
 
@@ -1879,6 +1907,27 @@ pub(crate) struct EventLoopPendingState {
   has_tick_scheduled: bool,
 }
 impl EventLoopPendingState {
+  pub fn new_from_main_realm(
+    scope: &mut v8::HandleScope<()>,
+    state: &mut JsRuntimeState,
+    realm: &JsRealmInner,
+  ) -> Self {
+    let num_unrefed_ops = realm.num_unrefed_ops();
+    let num_pending_ops = realm.num_pending_ops();
+    let has_pending_dyn_imports = realm.has_pending_dyn_imports();
+    let has_pending_dyn_module_evaluation =
+      realm.has_pending_dyn_module_evaluation();
+    let has_pending_module_evaluation = realm.has_pending_module_evaluation();
+    EventLoopPendingState {
+      has_pending_refed_ops: num_pending_ops > num_unrefed_ops,
+      has_pending_dyn_imports,
+      has_pending_dyn_module_evaluation,
+      has_pending_module_evaluation,
+      has_pending_background_tasks: scope.has_pending_background_tasks(),
+      has_tick_scheduled: state.has_tick_scheduled,
+    }
+  }
+
   pub fn new(
     scope: &mut v8::HandleScope<()>,
     state: &mut JsRuntimeState,
@@ -2036,82 +2085,102 @@ impl JsRuntime {
     // Handle responses for each realm.
     let state = self.inner.state.clone();
     let isolate = &mut self.inner.v8_isolate;
-    let realm_count = state.borrow().known_realms.len();
+
+    let mut dispatched_ops = Self::do_js_event_loop_tick_realm(
+      cx,
+      isolate,
+      &state,
+      &self.inner.main_realm.as_ref().unwrap().0,
+    )?;
+    if self.additional_realms {
+      let realm_count = state.borrow().known_realms.len();
+      for realm_idx in 1..realm_count {
+        let realm = state.borrow().known_realms.get(realm_idx).unwrap().clone();
+        dispatched_ops |=
+          Self::do_js_event_loop_tick_realm(cx, isolate, &state, &realm)?;
+      }
+    }
+
+    Ok(dispatched_ops)
+  }
+
+  fn do_js_event_loop_tick_realm(
+    cx: &mut Context,
+    isolate: &mut ManuallyDrop<v8::OwnedIsolate>,
+    state: &Rc<RefCell<JsRuntimeState>>,
+    realm: &JsRealmInner,
+  ) -> Result<bool, Error> {
+    let context_state = realm.state();
+    let mut context_state = context_state.borrow_mut();
+    let scope = &mut realm.handle_scope(isolate);
     let mut dispatched_ops = false;
 
-    for realm_idx in 0..realm_count {
-      let realm = state.borrow().known_realms.get(realm_idx).unwrap().clone();
-      let context_state = realm.state();
-      let mut context_state = context_state.borrow_mut();
-      let scope = &mut realm.handle_scope(isolate);
+    // We return async responses to JS in unbounded batches (may change),
+    // each batch is a flat vector of tuples:
+    // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
+    // promise_id is a simple integer, op_result is an ops::OpResult
+    // which contains a value OR an error, encoded as a tuple.
+    // This batch is received in JS via the special `arguments` variable
+    // and then each tuple is used to resolve or reject promises
+    //
+    // This can handle 15 promises futures in a single batch without heap
+    // allocations.
+    let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
+      SmallVec::with_capacity(32);
 
-      // We return async responses to JS in unbounded batches (may change),
-      // each batch is a flat vector of tuples:
-      // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
-      // promise_id is a simple integer, op_result is an ops::OpResult
-      // which contains a value OR an error, encoded as a tuple.
-      // This batch is received in JS via the special `arguments` variable
-      // and then each tuple is used to resolve or reject promises
-      //
-      // This can handle 15 promises futures in a single batch without heap
-      // allocations.
-      let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
-        SmallVec::with_capacity(32);
-
-      loop {
-        let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx) else {
-          break;
-        };
-        // TODO(mmastrac): If this task is really errored, things could be pretty bad
-        let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
-        context_state.unrefed_ops.remove(&promise_id);
-        dispatched_ops |= true;
-        args.push(v8::Integer::new(scope, promise_id).into());
-        let was_error = matches!(resp, OpResult::Err(_));
-        let res = resp.to_v8(scope);
-        if metrics_event {
-          if res.is_ok() && !was_error {
-            dispatch_metrics_async(
-              &context_state.op_ctxs[op_id as usize],
-              OpMetricsEvent::CompletedAsync,
-            );
-          } else {
-            dispatch_metrics_async(
-              &context_state.op_ctxs[op_id as usize],
-              OpMetricsEvent::ErrorAsync,
-            );
-          }
+    loop {
+      let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx) else {
+        break;
+      };
+      // TODO(mmastrac): If this task is really errored, things could be pretty bad
+      let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
+      context_state.unrefed_ops.remove(&promise_id);
+      dispatched_ops |= true;
+      args.push(v8::Integer::new(scope, promise_id).into());
+      let was_error = matches!(resp, OpResult::Err(_));
+      let res = resp.to_v8(scope);
+      if metrics_event {
+        if res.is_ok() && !was_error {
+          dispatch_metrics_async(
+            &context_state.op_ctxs[op_id as usize],
+            OpMetricsEvent::CompletedAsync,
+          );
+        } else {
+          dispatch_metrics_async(
+            &context_state.op_ctxs[op_id as usize],
+            OpMetricsEvent::ErrorAsync,
+          );
         }
-        args.push(match res {
-          Ok(v) => v,
-          Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
-            .to_v8(scope)
-            .unwrap(),
-        });
       }
+      args.push(match res {
+        Ok(v) => v,
+        Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
+          .to_v8(scope)
+          .unwrap(),
+      });
+    }
 
-      let has_tick_scheduled = self.inner.state.borrow().has_tick_scheduled;
-      dispatched_ops |= has_tick_scheduled;
-      let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
-      args.push(has_tick_scheduled.into());
+    let has_tick_scheduled = state.borrow().has_tick_scheduled;
+    dispatched_ops |= has_tick_scheduled;
+    let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
+    args.push(has_tick_scheduled.into());
 
-      let js_event_loop_tick_cb_handle =
-        context_state.js_event_loop_tick_cb.clone().unwrap();
-      let tc_scope = &mut v8::TryCatch::new(scope);
-      let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
-      let this = v8::undefined(tc_scope).into();
-      drop(context_state);
-      js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());
+    let js_event_loop_tick_cb_handle =
+      context_state.js_event_loop_tick_cb.clone().unwrap();
+    let tc_scope = &mut v8::TryCatch::new(scope);
+    let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
+    let this = v8::undefined(tc_scope).into();
+    drop(context_state);
+    js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());
 
-      if let Some(exception) = tc_scope.exception() {
-        // TODO(@andreubotella): Returning here can cause async ops in other
-        // realms to never resolve.
-        return exception_to_err_result(tc_scope, exception, false);
-      }
+    if let Some(exception) = tc_scope.exception() {
+      // TODO(@andreubotella): Returning here can cause async ops in other
+      // realms to never resolve.
+      return exception_to_err_result(tc_scope, exception, false);
+    }
 
-      if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-        return Ok(false);
-      }
+    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+      return Ok(false);
     }
 
     Ok(dispatched_ops)

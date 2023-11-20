@@ -49,24 +49,36 @@ pub(crate) type ModuleLoadId = i32;
 pub type ModuleCode = FastString;
 pub type ModuleName = FastString;
 
+/// Callback to validate import attributes. If the validation fails and exception
+/// should be thrown using `scope.throw_exception()`.
+pub type ValidateImportAttributesCb =
+  Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
+
 const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
 
-/// Throws V8 exception if assertions are invalid
-pub(crate) fn validate_import_assertions(
+/// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
+/// all other attributes.
+pub(crate) fn validate_import_attributes(
   scope: &mut v8::HandleScope,
   assertions: &HashMap<String, String>,
 ) {
   for (key, value) in assertions {
-    if key == "type" && !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
-      let message = v8::String::new(
-        scope,
-        &format!("\"{value}\" is not a valid module type."),
-      )
-      .unwrap();
-      let exception = v8::Exception::type_error(scope, message);
-      scope.throw_exception(exception);
-      return;
-    }
+    let msg = if key != "type" {
+      Some(format!("\"{key}\" attribute is not supported."))
+    } else if !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
+      Some(format!("\"{value}\" is not a valid module type."))
+    } else {
+      None
+    };
+
+    let Some(msg) = msg else {
+      continue;
+    };
+
+    let message = v8::String::new(scope, &msg).unwrap();
+    let exception = v8::Exception::type_error(scope, message);
+    scope.throw_exception(exception);
+    return;
   }
 }
 

@@ -97,6 +97,7 @@ pub use crate::modules::ModuleType;
 pub use crate::modules::NoopModuleLoader;
 pub use crate::modules::ResolutionKind;
 pub use crate::modules::StaticModuleLoader;
+pub use crate::modules::ValidateImportAttributesCb;
 pub use crate::normalize_path::normalize_path;
 pub use crate::ops::OpError;
 pub use crate::ops::OpId;

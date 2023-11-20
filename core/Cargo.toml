@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.230.0"
+version = "0.231.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,7 +14,8 @@ description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and T
 path = "lib.rs"
 
 [features]
-default = ["v8_use_custom_libcxx"]
+default = ["include_icu_data", "v8_use_custom_libcxx"]
+include_icu_data = []
 v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []

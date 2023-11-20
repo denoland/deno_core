@@ -5,7 +5,6 @@ use crate::error::throw_type_error;
 use crate::fast_string::FastString;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
-use crate::modules::validate_import_assertions;
 use crate::modules::ImportAssertionsKind;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
@@ -22,6 +21,7 @@ use crate::modules::RecursiveModuleLoad;
 use crate::modules::ResolutionKind;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshottedData;
+use crate::JsRuntime;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
@@ -505,7 +505,12 @@ impl ModuleMap {
 
       // FIXME(bartomieju): there are no stack frames if exception
       // is thrown here
-      validate_import_assertions(tc_scope, &assertions);
+      {
+        let state_rc = JsRuntime::state_from(tc_scope);
+        let state = state_rc.borrow();
+        (state.validate_import_attributes_cb)(tc_scope, &assertions);
+      }
+
       if tc_scope.has_caught() {
         let exception = tc_scope.exception().unwrap();
         let exception = v8::Global::new(tc_scope, exception);
@@ -821,20 +826,16 @@ impl ModuleMap {
       asserted_module_type,
       module_map_rc.clone(),
     );
-    module_map_rc
-      .borrow_mut()
-      .dynamic_import_map
-      .insert(load.id, resolver_handle);
 
-    let loader = module_map_rc.borrow().loader.clone();
+    let this: &mut ModuleMap = &mut module_map_rc.borrow_mut();
+    this.dynamic_import_map.insert(load.id, resolver_handle);
+
+    let loader = this.loader.clone();
     let resolve_result =
       loader.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
       Ok(module_specifier) => {
-        if module_map_rc
-          .borrow()
-          .is_registered(module_specifier, asserted_module_type)
-        {
+        if this.is_registered(module_specifier, asserted_module_type) {
           async move { (load.id, Ok(load)) }.boxed_local()
         } else {
           async move { (load.id, load.prepare().await.map(|()| load)) }
@@ -843,10 +844,7 @@ impl ModuleMap {
       }
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
-    module_map_rc
-      .borrow_mut()
-      .preparing_dynamic_imports
-      .push(fut);
+    this.preparing_dynamic_imports.push(fut);
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {
