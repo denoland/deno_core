@@ -40,6 +40,7 @@ use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
+use futures::Future;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
 use smallvec::SmallVec;
@@ -51,6 +52,7 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::option::Option;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -1515,6 +1517,27 @@ impl JsRuntime {
     poll_options: PollEventLoopOptions,
   ) -> Result<(), Error> {
     poll_fn(|cx| self.poll_event_loop2(cx, poll_options)).await
+  }
+
+  /// A utility function that run provided future concurrently with the event loop.
+  /// 
+  /// Useful for interacting with local inspector session.
+  pub async fn with_event_loop<'fut, T>(
+    &mut self,
+    mut fut: Pin<Box<dyn Future<Output = T> + 'fut>>,
+    poll_options: PollEventLoopOptions,
+  ) -> T {
+    loop {
+      tokio::select! {
+        biased;
+
+        result = &mut fut => {
+          return result;
+        },
+
+        _ = self.run_event_loop2(poll_options) => {}
+      }
+    }
   }
 
   /// Runs a single tick of event loop
