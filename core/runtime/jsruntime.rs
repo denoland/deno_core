@@ -40,9 +40,9 @@ use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
-use futures::Future;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
+use futures::Future;
 use smallvec::SmallVec;
 use std::any::Any;
 use std::cell::RefCell;
@@ -1520,7 +1520,7 @@ impl JsRuntime {
   }
 
   /// A utility function that run provided future concurrently with the event loop.
-  /// 
+  ///
   /// Useful for interacting with local inspector session.
   pub async fn with_event_loop<'fut, T>(
     &mut self,
