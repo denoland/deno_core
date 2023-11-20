@@ -41,8 +41,6 @@ pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
-#[cfg(test)]
-pub(crate) use map::SymbolicModule;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
@@ -307,7 +305,7 @@ pub(crate) struct RecursiveModuleLoad {
   root_asserted_module_type: Option<AssertedModuleType>,
   root_module_type: Option<ModuleType>,
   state: LoadState,
-  module_map_rc: Rc<RefCell<ModuleMap>>,
+  module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
   visited: HashSet<ModuleRequest>,
   visited_as_alias: Rc<RefCell<HashSet<String>>>,
@@ -321,12 +319,12 @@ impl RecursiveModuleLoad {
   ///
   /// The module corresponding for the given `specifier` will be marked as
   // "the main module" (`import.meta.main` will return `true` for this module).
-  fn main(specifier: &str, module_map_rc: Rc<RefCell<ModuleMap>>) -> Self {
+  fn main(specifier: &str, module_map_rc: Rc<ModuleMap>) -> Self {
     Self::new(LoadInit::Main(specifier.to_string()), module_map_rc)
   }
 
   /// Starts a new asynchronous load of the module graph for given specifier.
-  fn side(specifier: &str, module_map_rc: Rc<RefCell<ModuleMap>>) -> Self {
+  fn side(specifier: &str, module_map_rc: Rc<ModuleMap>) -> Self {
     Self::new(LoadInit::Side(specifier.to_string()), module_map_rc)
   }
 
@@ -336,7 +334,7 @@ impl RecursiveModuleLoad {
     specifier: &str,
     referrer: &str,
     asserted_module_type: AssertedModuleType,
-    module_map_rc: Rc<RefCell<ModuleMap>>,
+    module_map_rc: Rc<ModuleMap>,
   ) -> Self {
     Self::new(
       LoadInit::DynamicImport(
@@ -348,14 +346,9 @@ impl RecursiveModuleLoad {
     )
   }
 
-  fn new(init: LoadInit, module_map_rc: Rc<RefCell<ModuleMap>>) -> Self {
-    let id = {
-      let mut module_map = module_map_rc.borrow_mut();
-      let id = module_map.next_load_id;
-      module_map.next_load_id += 1;
-      id
-    };
-    let loader = module_map_rc.borrow().loader.clone();
+  fn new(init: LoadInit, module_map_rc: Rc<ModuleMap>) -> Self {
+    let id = module_map_rc.next_load_id();
+    let loader = module_map_rc.loader.borrow().clone();
     let asserted_module_type = match init {
       LoadInit::DynamicImport(_, _, module_type) => module_type,
       _ => AssertedModuleType::JavaScriptOrWasm,
@@ -376,19 +369,13 @@ impl RecursiveModuleLoad {
     // FIXME(bartlomieju): this seems fishy
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
     if let Ok(root_specifier) = load.resolve_root() {
-      if let Some(module_id) = module_map_rc
-        .borrow()
-        .get_id(root_specifier, asserted_module_type)
+      if let Some(module_id) =
+        module_map_rc.get_id(root_specifier, asserted_module_type)
       {
         load.root_module_id = Some(module_id);
         load.root_asserted_module_type = Some(asserted_module_type);
-        load.root_module_type = Some(
-          module_map_rc
-            .borrow()
-            .get_info_by_id(module_id)
-            .unwrap()
-            .module_type,
-        );
+        load.root_module_type =
+          Some(module_map_rc.get_module_type_by_id(module_id).unwrap());
       }
     }
     load
@@ -474,7 +461,7 @@ impl RecursiveModuleLoad {
     let module_url_found = if let Some(module_url_found) = module_url_found {
       let (module_url_found1, module_url_found2) =
         module_url_found.into_cheap_copy();
-      self.module_map_rc.borrow_mut().alias(
+      self.module_map_rc.alias(
         module_url_specified,
         expected_asserted_module_type,
         module_url_found1,
@@ -486,7 +473,6 @@ impl RecursiveModuleLoad {
 
     let maybe_module_id = self
       .module_map_rc
-      .borrow()
       .get_id(&module_url_found, expected_asserted_module_type);
     let module_id = match maybe_module_id {
       Some(id) => {
@@ -497,16 +483,14 @@ impl RecursiveModuleLoad {
         id
       }
       None => match module_source.module_type {
-        ModuleType::JavaScript => {
-          self.module_map_rc.borrow_mut().new_es_module(
-            scope,
-            self.is_currently_loading_main_module(),
-            module_url_found,
-            module_source.code,
-            self.is_dynamic_import(),
-          )?
-        }
-        ModuleType::Json => self.module_map_rc.borrow_mut().new_json_module(
+        ModuleType::JavaScript => self.module_map_rc.new_es_module(
+          scope,
+          self.is_currently_loading_main_module(),
+          module_url_found,
+          module_source.code,
+          self.is_dynamic_import(),
+        )?,
+        ModuleType::Json => self.module_map_rc.new_json_module(
           scope,
           module_url_found,
           module_source.code,
@@ -530,7 +514,6 @@ impl RecursiveModuleLoad {
       let referrer = ModuleSpecifier::parse(&module_request.specifier).unwrap();
       let imports = self
         .module_map_rc
-        .borrow()
         .get_requested_modules(module_id)
         .unwrap()
         .clone();
@@ -541,7 +524,7 @@ impl RecursiveModuleLoad {
             .borrow()
             .contains(&module_request.specifier)
         {
-          if let Some(module_id) = self.module_map_rc.borrow().get_id(
+          if let Some(module_id) = self.module_map_rc.get_id(
             module_request.specifier.as_str(),
             module_request.asserted_module_type,
           ) {
@@ -725,7 +708,6 @@ pub(crate) struct ModuleRequest {
 pub(crate) struct ModuleInfo {
   #[allow(unused)]
   pub id: ModuleId,
-  // Used in "bindings.rs" for "import.meta.main" property value.
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,

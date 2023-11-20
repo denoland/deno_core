@@ -187,7 +187,7 @@ pub(crate) fn get_snapshotted_data(
 
   let next_module_id = {
     let info_data: v8::Local<v8::Array> =
-      val.get_index(&mut scope, 1).unwrap().try_into().unwrap();
+      val.get_index(&mut scope, 2).unwrap().try_into().unwrap();
     info_data.length()
   };
 

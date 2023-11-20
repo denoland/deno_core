@@ -305,9 +305,6 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 pub struct JsRuntimeState {
   known_realms: Vec<JsRealmInner>,
   pub(crate) has_tick_scheduled: bool,
-  /// A counter used to delay our dynamic import deadlock detection by one spin
-  /// of the event loop.
-  pub(crate) dyn_module_evaluate_idle_counter: u32,
   pub(crate) source_map_getter: Option<Rc<Box<dyn SourceMapGetter>>>,
   pub(crate) source_map_cache: Rc<RefCell<SourceMapCache>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
@@ -618,7 +615,6 @@ impl JsRuntime {
       .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
 
     let state_rc = Rc::new(RefCell::new(JsRuntimeState {
-      dyn_module_evaluate_idle_counter: 0,
       has_tick_scheduled: false,
       source_map_getter: options.source_map_getter.map(Rc::new),
       source_map_cache: Default::default(),
@@ -755,18 +751,17 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
-    let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
+    let module_map = Rc::new(ModuleMap::new(loader));
     if let Some(snapshotted_data) = snapshotted_data {
-      let mut module_map = module_map_rc.borrow_mut();
       module_map.update_with_snapshotted_data(scope, snapshotted_data);
     }
-    context.set_slot(scope, module_map_rc.clone());
+    context.set_slot(scope, module_map.clone());
 
     {
       let main_realm = JsRealmInner::new(
         context_state,
         main_context,
-        module_map_rc.clone(),
+        module_map.clone(),
         state_rc.clone(),
         true,
       );
@@ -810,9 +805,7 @@ impl JsRuntime {
     if let Some(preserve_snapshotted_modules) =
       options.preserve_snapshotted_modules
     {
-      module_map_rc
-        .borrow_mut()
-        .clear_module_map(preserve_snapshotted_modules);
+      module_map.clear_module_map(preserve_snapshotted_modules);
     }
 
     js_runtime
@@ -820,7 +813,7 @@ impl JsRuntime {
 
   #[cfg(test)]
   #[inline]
-  pub(crate) fn module_map(&mut self) -> Rc<RefCell<ModuleMap>> {
+  pub(crate) fn module_map(&mut self) -> Rc<ModuleMap> {
     self.main_realm().0.module_map()
   }
 
@@ -918,20 +911,18 @@ impl JsRuntime {
       let loader = options
         .module_loader
         .unwrap_or_else(|| Rc::new(NoopModuleLoader));
-      let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
+      let module_map = Rc::new(ModuleMap::new(loader));
       if self.init_mode.is_from_snapshot() {
         let snapshotted_data =
           snapshot_util::get_snapshotted_data(scope, context);
-        module_map_rc
-          .borrow_mut()
-          .update_with_snapshotted_data(scope, snapshotted_data);
+        module_map.update_with_snapshotted_data(scope, snapshotted_data);
       }
-      context.set_slot(scope, module_map_rc.clone());
+      context.set_slot(scope, module_map.clone());
 
       let realm = JsRealmInner::new(
         context_state,
         v8::Global::new(scope, context),
-        module_map_rc,
+        module_map,
         self.inner.state.clone(),
         false,
       );
@@ -953,7 +944,6 @@ impl JsRuntime {
       realm
         .0
         .module_map()
-        .borrow_mut()
         .clear_module_map(preserve_snapshotted_modules);
     }
 
@@ -974,14 +964,14 @@ impl JsRuntime {
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
 
-    let module_map_rc = realm.0.module_map();
+    let module_map = realm.0.module_map();
 
     // Take extensions temporarily so we can avoid have a mutable reference to self
     let extensions = std::mem::take(&mut self.extensions);
 
-    let loader = module_map_rc.borrow().loader.clone();
+    let loader = module_map.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    module_map_rc.borrow_mut().loader = ext_loader;
+    *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
 
@@ -1025,8 +1015,7 @@ impl JsRuntime {
 
       for specifier in esm_entrypoints {
         let mod_id = {
-          module_map_rc
-            .borrow()
+          module_map
             .get_id(specifier, AssertedModuleType::JavaScriptOrWasm)
             .unwrap_or_else(|| {
               panic!("{} not present in the module map", specifier)
@@ -1047,7 +1036,6 @@ impl JsRuntime {
             // Find the TLA location to display it on the panic.
             let location = {
               let scope = &mut realm.handle_scope(self.v8_isolate());
-              let module_map = module_map_rc.borrow();
               let messages = module_map.find_stalled_top_level_await(scope);
               assert!(!messages.is_empty());
               let msg = v8::Local::new(scope, &messages[0]);
@@ -1067,7 +1055,6 @@ impl JsRuntime {
       #[cfg(debug_assertions)]
       {
         let mut scope = realm.handle_scope(self.v8_isolate());
-        let module_map = module_map_rc.borrow();
         module_map.assert_all_modules_evaluated(&mut scope);
       }
 
@@ -1075,7 +1062,8 @@ impl JsRuntime {
     })?;
 
     self.extensions = extensions;
-    module_map_rc.borrow_mut().loader = loader;
+    let module_map = realm.0.module_map();
+    *module_map.loader.borrow_mut() = loader;
 
     Ok(())
   }
@@ -1533,20 +1521,23 @@ impl JsRuntime {
         let mut has_evaluated = false;
 
         // Fast main realm poll
-        let main_realm = self.inner.main_realm.as_ref().unwrap();
-        loop {
-          let poll_imports =
-            main_realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-          assert!(poll_imports.is_ready());
+        {
+          let main_realm = self.inner.main_realm.as_ref().unwrap();
+          let mut scope = main_realm.handle_scope(&mut self.inner.v8_isolate);
+          let modules = main_realm.0.module_map();
+          loop {
+            let poll_imports =
+              modules.poll_prepare_dyn_imports(&mut scope, cx)?;
+            assert!(poll_imports.is_ready());
 
-          let poll_imports =
-            main_realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-          assert!(poll_imports.is_ready());
+            let poll_imports = modules.poll_dyn_imports(&mut scope, cx)?;
+            assert!(poll_imports.is_ready());
 
-          if main_realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
-            has_evaluated = true;
-          } else {
-            break;
+            if modules.evaluate_dyn_imports(&mut scope) {
+              has_evaluated = true;
+            } else {
+              break;
+            }
           }
         }
 
@@ -1557,19 +1548,20 @@ impl JsRuntime {
           drop(state);
           for inner_realm in realms {
             let realm = JsRealm::new(inner_realm);
+            let mut scope = realm.handle_scope(&mut self.inner.v8_isolate);
+            let modules = realm.0.module_map();
 
             // Try and resolve as many dynamic imports in each realm as possible
             // before moving to the next.
             loop {
               let poll_imports =
-                realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+                modules.poll_prepare_dyn_imports(&mut scope, cx)?;
               assert!(poll_imports.is_ready());
 
-              let poll_imports =
-                realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
+              let poll_imports = modules.poll_dyn_imports(&mut scope, cx)?;
               assert!(poll_imports.is_ready());
 
-              if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
+              if modules.evaluate_dyn_imports(&mut scope) {
                 has_evaluated = true;
               } else {
                 break;
@@ -1712,8 +1704,7 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
-      } else if self.inner.state.borrow().dyn_module_evaluate_idle_counter >= 1
-      {
+      } else if self.inner.main_realm.as_ref().unwrap().modules_idle() {
         let known_realms = &self.inner.state.borrow().known_realms;
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
@@ -1722,11 +1713,16 @@ impl JsRuntime {
           ),
         ));
       } else {
-        let mut state = self.inner.state.borrow_mut();
+        let state = self.inner.state.borrow_mut();
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.
-        state.dyn_module_evaluate_idle_counter += 1;
+        self
+          .inner
+          .main_realm
+          .as_ref()
+          .unwrap()
+          .increment_modules_idle();
         state.op_state.borrow().waker.wake();
       }
     }
@@ -1742,7 +1738,7 @@ fn find_and_report_stalled_level_await_in_any_realm(
   for inner_realm in known_realms {
     let scope = &mut inner_realm.handle_scope(v8_isolate);
     let module_map = inner_realm.module_map();
-    let messages = module_map.borrow().find_stalled_top_level_await(scope);
+    let messages = module_map.find_stalled_top_level_await(scope);
 
     if !messages.is_empty() {
       // We are gonna print only a single message to provide a nice formatting
@@ -1814,8 +1810,7 @@ impl JsRuntimeForSnapshot {
     // Serialize the module map and store its data in the snapshot.
     {
       let snapshotted_data = {
-        let module_map_rc = realm.0.module_map();
-        let module_map = module_map_rc.borrow();
+        let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
         )
@@ -1968,13 +1963,6 @@ impl JsRuntime {
     id: ModuleId,
   ) -> oneshot::Receiver<Result<(), Error>> {
     self.main_realm().mod_evaluate(self.v8_isolate(), id)
-  }
-
-  /// Clears all loaded modules
-  /// May not free all associated memory, and should not be used
-  /// in production environments
-  pub fn clear_modules(&mut self) {
-    self.main_realm().clear_modules()
   }
 
   /// Asynchronously load specified module and all of its dependencies.

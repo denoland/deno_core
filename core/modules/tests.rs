@@ -251,7 +251,7 @@ fn test_recursive_load() {
   );
 
   let module_map_rc = runtime.module_map();
-  let modules = module_map_rc.borrow();
+  let modules = module_map_rc;
 
   assert_eq!(
     modules.get_id("file:///a.js", AssertedModuleType::JavaScriptOrWasm),
@@ -268,7 +268,7 @@ fn test_recursive_load() {
     .unwrap();
   assert_eq!(
     modules.get_requested_modules(a_id),
-    Some(&vec![
+    Some(vec![
       ModuleRequest {
         specifier: "file:///b.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
@@ -281,19 +281,19 @@ fn test_recursive_load() {
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///c.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     },])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///d.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     },])
   );
-  assert_eq!(modules.get_requested_modules(d_id), Some(&vec![]));
+  assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
 }
 
 #[test]
@@ -331,11 +331,10 @@ fn test_mods() {
 
   assert_eq!(DISPATCH_COUNT.load(Ordering::Relaxed), 0);
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b) = {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
     let mod_a = module_map
       .new_es_module(
@@ -358,7 +357,7 @@ fn test_mods() {
     let imports = module_map.get_requested_modules(mod_a);
     assert_eq!(
       imports,
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///b.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
       },])
@@ -411,11 +410,10 @@ fn test_json_module() {
     )
     .unwrap();
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b, mod_c) = {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
     let specifier_b = ascii_str!("file:///b.js");
     let mod_a = module_map
@@ -437,7 +435,7 @@ fn test_json_module() {
     let imports = module_map.get_requested_modules(mod_a);
     assert_eq!(
       imports,
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///c.json".to_string(),
         asserted_module_type: AssertedModuleType::Json,
       },])
@@ -462,7 +460,7 @@ fn test_json_module() {
     let imports = module_map.get_requested_modules(mod_b);
     assert_eq!(
       imports,
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///c.json".to_string(),
         asserted_module_type: AssertedModuleType::Json,
       },])
@@ -514,11 +512,10 @@ fn test_validate_import_attributes() {
     ..Default::default()
   });
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
     let module_err = module_map
       .new_es_module(
@@ -556,9 +553,8 @@ fn test_validate_import_attributes_default() {
 
   {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
-    let module_err = module_map
+    let module_err = module_map_rc
       .new_es_module(
         scope,
         true,
@@ -586,9 +582,8 @@ fn test_validate_import_attributes_default() {
 
   {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
-    let module_err = module_map
+    let module_err = module_map_rc
       .new_es_module(
         scope,
         true,
@@ -689,32 +684,6 @@ async fn dyn_import_ok() {
     Poll::Ready(())
   })
   .await;
-}
-
-#[tokio::test]
-async fn clear_modules_works() {
-  fn count_modules(runtime: &mut JsRuntime) -> usize {
-    runtime
-      .main_realm()
-      .0
-      .module_map()
-      .borrow_mut()
-      .handles
-      .len()
-  }
-
-  let mut runtime = JsRuntime::new(Default::default());
-  futures::executor::block_on(runtime.load_main_module(
-    &Url::parse("file:///a.js").unwrap(),
-    Some(ascii_str!("")),
-  ))
-  .unwrap();
-
-  let result = futures::executor::block_on(runtime.run_event_loop(false));
-  assert!(result.is_ok());
-
-  runtime.clear_modules();
-  assert_eq!(0, count_modules(&mut runtime));
 }
 
 #[tokio::test]
@@ -822,7 +791,7 @@ fn test_circular_load() {
     );
 
     let module_map_rc = runtime.module_map();
-    let modules = module_map_rc.borrow();
+    let modules = module_map_rc;
 
     assert_eq!(
       modules
@@ -835,7 +804,7 @@ fn test_circular_load() {
 
     assert_eq!(
       modules.get_requested_modules(circular1_id),
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///circular2.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
       }])
@@ -843,7 +812,7 @@ fn test_circular_load() {
 
     assert_eq!(
       modules.get_requested_modules(circular2_id),
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///circular3.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
       }])
@@ -857,7 +826,7 @@ fn test_circular_load() {
       .unwrap();
     assert_eq!(
       modules.get_requested_modules(circular3_id),
-      Some(&vec![
+      Some(vec![
         ModuleRequest {
           specifier: "file:///circular1.js".to_string(),
           asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
@@ -902,7 +871,7 @@ fn test_redirect_load() {
     );
 
     let module_map_rc = runtime.module_map();
-    let modules = module_map_rc.borrow();
+    let modules = module_map_rc;
 
     assert_eq!(
       modules
@@ -1053,7 +1022,7 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
   );
 
   let module_map_rc = runtime.module_map();
-  let modules = module_map_rc.borrow();
+  let modules = module_map_rc;
 
   assert_eq!(
     modules.get_id(
@@ -1074,7 +1043,7 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
 
   assert_eq!(
     modules.get_requested_modules(main_id),
-    Some(&vec![
+    Some(vec![
       ModuleRequest {
         specifier: "file:///b.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
@@ -1087,19 +1056,19 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///c.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     }])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///d.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     }])
   );
-  assert_eq!(modules.get_requested_modules(d_id), Some(&vec![]));
+  assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
 }
 
 #[test]

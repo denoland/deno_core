@@ -3,9 +3,7 @@ use crate::extensions::Op;
 use crate::modules::AssertedModuleType;
 use crate::modules::LoggingModuleLoader;
 use crate::modules::ModuleInfo;
-use crate::modules::ModuleLoadId;
 use crate::modules::ModuleType;
-use crate::modules::SymbolicModule;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
@@ -168,34 +166,6 @@ fn es_snapshot() {
     }
   }
 
-  fn assert_module_map(runtime: &mut JsRuntime, modules: &Vec<ModuleInfo>) {
-    let module_map_rc = runtime.module_map();
-    let module_map = module_map_rc.borrow();
-    assert_eq!(module_map.handles.len(), modules.len());
-    assert_eq!(module_map.info.len(), modules.len());
-    assert_eq!(
-      module_map.by_name(AssertedModuleType::Json).len()
-        + module_map
-          .by_name(AssertedModuleType::JavaScriptOrWasm)
-          .len(),
-      modules.len()
-    );
-
-    assert_eq!(module_map.next_load_id, (modules.len() + 1) as ModuleLoadId);
-
-    for info in modules {
-      assert!(module_map.handles.get(info.id).is_some());
-      assert_eq!(module_map.info.get(info.id).unwrap(), info);
-      assert_eq!(
-        module_map
-          .by_name(AssertedModuleType::JavaScriptOrWasm)
-          .get(&info.name)
-          .unwrap(),
-        &SymbolicModule::Mod(info.id)
-      );
-    }
-  }
-
   #[op2]
   #[string]
   fn op_test() -> Result<String, Error> {
@@ -234,7 +204,7 @@ fn es_snapshot() {
 
   modules.extend((1..200).map(|i| create_module(&mut runtime, i, false)));
 
-  assert_module_map(&mut runtime, &modules);
+  runtime.module_map().assert_module_map(&modules);
 
   let snapshot = runtime.snapshot();
 
@@ -248,12 +218,12 @@ fn es_snapshot() {
     ..Default::default()
   });
 
-  assert_module_map(&mut runtime2, &modules);
+  runtime2.module_map().assert_module_map(&modules);
 
   modules.extend((200..400).map(|i| create_module(&mut runtime2, i, false)));
   modules.push(create_module(&mut runtime2, 400, true));
 
-  assert_module_map(&mut runtime2, &modules);
+  runtime2.module_map().assert_module_map(&modules);
 
   let snapshot2 = runtime2.snapshot();
 
@@ -267,7 +237,7 @@ fn es_snapshot() {
     ..Default::default()
   });
 
-  assert_module_map(&mut runtime3, &modules);
+  runtime3.module_map().assert_module_map(&modules);
 
   let source_code = r#"(async () => {
     const mod = await import("file:///400.js");
