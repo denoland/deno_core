@@ -41,6 +41,8 @@ pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
+#[cfg(test)]
+pub(crate) use map::SymbolicModule;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
