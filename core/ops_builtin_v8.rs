@@ -1,4 +1,3 @@
-use crate::OpState;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::custom_error;
 use crate::error::is_instance_of_error;
@@ -15,6 +14,7 @@ use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRealm;
 use crate::JsRuntime;
+use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
