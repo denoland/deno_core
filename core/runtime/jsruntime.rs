@@ -817,7 +817,7 @@ impl JsRuntime {
   }
 
   #[inline]
-  pub fn main_realm(&mut self) -> JsRealm {
+  pub(crate) fn main_realm(&mut self) -> JsRealm {
     self.inner.main_realm.as_ref().unwrap().clone()
   }
 
@@ -897,8 +897,14 @@ impl JsRuntime {
               panic!("{} not present in the module map", specifier)
             })
         };
-        let mut receiver = realm.mod_evaluate(self.v8_isolate(), mod_id);
-        realm.evaluate_pending_module(self.v8_isolate());
+
+        let mut receiver = {
+          let mut isolate = self.v8_isolate();
+          let scope = &mut realm.handle_scope(&mut isolate);
+          let receiver = realm.mod_evaluate(scope, mod_id);
+          realm.evaluate_pending_module(scope);
+          receiver
+        };
 
         // After evaluate_pending_module, if the module isn't fully evaluated
         // and the resolver solved, it means the module or one of its imports
@@ -1597,11 +1603,10 @@ impl JsRuntime {
       {
         // pass, will be polled again
       } else {
-        let known_realms = &[self.inner.main_realm.as_ref().unwrap().0.clone()];
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             &mut scope,
-            known_realms,
+            &self.inner.main_realm.as_ref().unwrap().0,
           ),
         ));
       }
@@ -1615,11 +1620,10 @@ impl JsRuntime {
       {
         // pass, will be polled again
       } else if self.inner.main_realm.as_ref().unwrap().modules_idle() {
-        let known_realms = &[self.inner.main_realm.as_ref().unwrap().0.clone()];
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             &mut scope,
-            known_realms,
+            &self.inner.main_realm.as_ref().unwrap().0,
           ),
         ));
       } else {
@@ -1642,23 +1646,20 @@ impl JsRuntime {
 }
 
 fn find_and_report_stalled_level_await_in_any_realm(
-  v8_isolate: &mut v8::Isolate,
-  known_realms: &[JsRealmInner],
+  scope: &mut v8::HandleScope,
+  inner_realm: &JsRealmInner,
 ) -> Error {
-  for inner_realm in known_realms {
-    let scope = &mut inner_realm.handle_scope(v8_isolate);
-    let module_map = inner_realm.module_map();
-    let messages = module_map.find_stalled_top_level_await(scope);
+  let module_map = inner_realm.module_map();
+  let messages = module_map.find_stalled_top_level_await(scope);
 
-    if !messages.is_empty() {
-      // We are gonna print only a single message to provide a nice formatting
-      // with source line of offending promise shown. Once user fixed it, then
-      // they will get another error message for the next promise (but this
-      // situation is gonna be very rare, if ever happening).
-      let msg = v8::Local::new(scope, &messages[0]);
-      let js_error = JsError::from_v8_message(scope, msg);
-      return js_error.into();
-    }
+  if !messages.is_empty() {
+    // We are gonna print only a single message to provide a nice formatting
+    // with source line of offending promise shown. Once user fixed it, then
+    // they will get another error message for the next promise (but this
+    // situation is gonna be very rare, if ever happening).
+    let msg = v8::Local::new(scope, &messages[0]);
+    let js_error = JsError::from_v8_message(scope, msg);
+    return js_error.into();
   }
 
   unreachable!("Expected at least one stalled top-level await");
@@ -1833,7 +1834,10 @@ impl JsRuntime {
     &mut self,
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
-    self.main_realm().instantiate_module(self.v8_isolate(), id)
+    let mut isolate = &mut self.inner.v8_isolate;
+    let realm = self.inner.main_realm.as_ref().unwrap();
+    let scope = &mut realm.handle_scope(&mut isolate);
+    realm.instantiate_module(scope, id)
   }
 
   // TODO(bartlomieju): make it return `ModuleEvaluationFuture`?
@@ -1851,7 +1855,10 @@ impl JsRuntime {
     &mut self,
     id: ModuleId,
   ) -> oneshot::Receiver<Result<(), Error>> {
-    self.main_realm().mod_evaluate(self.v8_isolate(), id)
+    let mut isolate = &mut self.inner.v8_isolate;
+    let realm = self.inner.main_realm.as_ref().unwrap();
+    let scope = &mut realm.handle_scope(&mut isolate);
+    realm.mod_evaluate(scope, id)
   }
 
   /// Asynchronously load specified module and all of its dependencies.

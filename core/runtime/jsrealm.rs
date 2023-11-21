@@ -99,7 +99,7 @@ pub(crate) struct ContextState {
 /// garbage collected.
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct JsRealm(pub(crate) JsRealmInner);
+pub(crate) struct JsRealm(pub(crate) JsRealmInner);
 
 #[derive(Clone)]
 pub(crate) struct JsRealmInner {
@@ -355,13 +355,10 @@ impl JsRealm {
 
   pub(crate) fn instantiate_module(
     &self,
-    isolate: &mut v8::Isolate,
+    scope: &mut v8::HandleScope,
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
-    self
-      .0
-      .module_map()
-      .instantiate_module(&mut self.handle_scope(isolate), id)
+    self.0.module_map().instantiate_module(scope, id)
   }
 
   // TODO(bartlomieju): make it return `ModuleEvaluationFuture`?
@@ -377,12 +374,11 @@ impl JsRealm {
   /// This function panics if module has not been instantiated.
   pub fn mod_evaluate(
     &self,
-    isolate: &mut v8::Isolate,
+    scope: &mut v8::HandleScope,
     id: ModuleId,
   ) -> oneshot::Receiver<Result<(), Error>> {
     let state_rc = self.0.state();
     let module_map_rc = self.0.module_map();
-    let scope = &mut self.handle_scope(isolate);
     let tc_scope = &mut v8::TryCatch::new(scope);
 
     let module = module_map_rc
@@ -525,7 +521,7 @@ impl JsRealm {
   /// then another turn of event loop must be performed.
   pub(in crate::runtime) fn evaluate_pending_module(
     &self,
-    isolate: &mut v8::Isolate,
+    scope: &mut v8::HandleScope,
   ) {
     let maybe_module_evaluation = self
       .0
@@ -539,7 +535,6 @@ impl JsRealm {
 
     let mut module_evaluation = maybe_module_evaluation.unwrap();
     let state_rc = self.0.state();
-    let scope = &mut self.handle_scope(isolate);
 
     let promise_global = module_evaluation.promise.clone().unwrap();
     let promise = promise_global.open(scope);
@@ -583,7 +578,7 @@ impl JsRealm {
   ///
   /// User must call [`JsRealm::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_main_module(
+  pub(crate) async fn load_main_module(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -623,8 +618,8 @@ impl JsRealm {
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
-    self.instantiate_module(isolate, root_id).map_err(|e| {
-      let scope = &mut self.handle_scope(isolate);
+    let scope = &mut self.handle_scope(isolate);
+    self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
       exception_to_err_result::<()>(scope, exception, false).unwrap_err()
     })?;
@@ -638,7 +633,7 @@ impl JsRealm {
   ///
   /// User must call [`JsRealm::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_side_module(
+  pub(crate) async fn load_side_module(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -678,8 +673,8 @@ impl JsRealm {
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
-    self.instantiate_module(isolate, root_id).map_err(|e| {
-      let scope = &mut self.handle_scope(isolate);
+    let scope = &mut self.handle_scope(isolate);
+    self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
       exception_to_err_result::<()>(scope, exception, false).unwrap_err()
     })?;
