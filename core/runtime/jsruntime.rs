@@ -1555,7 +1555,9 @@ impl JsRuntime {
           // to exit the process once debugger disconnects.
           if !has_blocking_sessions {
             let context = self.main_context();
-            inspector.borrow_mut().context_destroyed(&mut scope, context);
+            inspector
+              .borrow_mut()
+              .context_destroyed(&mut scope, context);
             println!("Program finished. Waiting for inspector to disconnect to exit the process...");
           }
 
