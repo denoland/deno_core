@@ -22,6 +22,7 @@ pub(crate) use jsruntime::InitMode;
 pub use jsruntime::JsRuntime;
 pub use jsruntime::JsRuntimeForSnapshot;
 pub use jsruntime::JsRuntimeState;
+pub use jsruntime::PollEventLoopOptions;
 pub use jsruntime::RuntimeOptions;
 pub use jsruntime::SharedArrayBufferStore;
 pub use jsruntime::Snapshot;

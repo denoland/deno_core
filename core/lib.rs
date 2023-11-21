@@ -130,6 +130,7 @@ pub use crate::runtime::CrossIsolateStore;
 pub use crate::runtime::JsRealm;
 pub use crate::runtime::JsRuntime;
 pub use crate::runtime::JsRuntimeForSnapshot;
+pub use crate::runtime::PollEventLoopOptions;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
 pub use crate::runtime::Snapshot;

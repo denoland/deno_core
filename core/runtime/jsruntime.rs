@@ -42,6 +42,7 @@ use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
+use futures::Future;
 use smallvec::SmallVec;
 use std::any::Any;
 use std::cell::RefCell;
@@ -51,6 +52,7 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::option::Option;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -474,6 +476,21 @@ impl RuntimeOptions {
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
   fn unsafe_expose_natives_and_gc(&self) -> bool {
     false
+  }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PollEventLoopOptions {
+  pub wait_for_inspector: bool,
+  pub pump_v8_message_loop: bool,
+}
+
+impl Default for PollEventLoopOptions {
+  fn default() -> Self {
+    Self {
+      wait_for_inspector: true,
+      pump_v8_message_loop: true,
+    }
   }
 }
 
@@ -1476,6 +1493,41 @@ impl JsRuntime {
     poll_fn(|cx| self.poll_event_loop(cx, wait_for_inspector)).await
   }
 
+  /// Runs event loop to completion
+  ///
+  /// This future resolves when:
+  ///  - there are no more pending dynamic imports
+  ///  - there are no more pending ops
+  ///  - there are no more active inspector sessions (only if
+  ///     `PollEventLoopOptions.wait_for_inspector` is set to true)
+  pub async fn run_event_loop2(
+    &mut self,
+    poll_options: PollEventLoopOptions,
+  ) -> Result<(), Error> {
+    poll_fn(|cx| self.poll_event_loop2(cx, poll_options)).await
+  }
+
+  /// A utility function that run provided future concurrently with the event loop.
+  ///
+  /// Useful for interacting with local inspector session.
+  pub async fn with_event_loop<'fut, T>(
+    &mut self,
+    mut fut: Pin<Box<dyn Future<Output = T> + 'fut>>,
+    poll_options: PollEventLoopOptions,
+  ) -> T {
+    loop {
+      tokio::select! {
+        biased;
+
+        result = &mut fut => {
+          return result;
+        },
+
+        _ = self.run_event_loop2(poll_options) => {}
+      }
+    }
+  }
+
   /// Runs a single tick of event loop
   ///
   /// If `wait_for_inspector` is set to true event loop
@@ -1484,6 +1536,32 @@ impl JsRuntime {
     &mut self,
     cx: &mut Context,
     wait_for_inspector: bool,
+  ) -> Poll<Result<(), Error>> {
+    self.poll_event_loop_inner(
+      cx,
+      PollEventLoopOptions {
+        wait_for_inspector,
+        ..Default::default()
+      },
+    )
+  }
+
+  /// Runs a single tick of event loop
+  ///
+  /// If `PollEventLoopOptions.wait_for_inspector` is set to true, the event
+  /// loop will return `Poll::Pending` if there are active inspector sessions.
+  pub fn poll_event_loop2(
+    &mut self,
+    cx: &mut Context,
+    poll_options: PollEventLoopOptions,
+  ) -> Poll<Result<(), Error>> {
+    self.poll_event_loop_inner(cx, poll_options)
+  }
+
+  fn poll_event_loop_inner(
+    &mut self,
+    cx: &mut Context,
+    poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
     let has_inspector: bool;
     {
@@ -1497,7 +1575,9 @@ impl JsRuntime {
       let _ = self.inspector().borrow().poll_sessions(Some(cx)).unwrap();
     }
 
-    self.pump_v8_message_loop()?;
+    if poll_options.pump_v8_message_loop {
+      self.pump_v8_message_loop()?;
+    }
 
     // Dynamic module loading - ie. modules loaded using "import()"
     {
@@ -1633,7 +1713,7 @@ impl JsRuntime {
         let has_active_sessions = inspector.borrow().has_active_sessions();
         let has_blocking_sessions = inspector.borrow().has_blocking_sessions();
 
-        if wait_for_inspector && has_active_sessions {
+        if poll_options.wait_for_inspector && has_active_sessions {
           // If there are no blocking sessions (eg. REPL) we can now notify
           // debugger that the program has finished running and we're ready
           // to exit the process once debugger disconnects.
