@@ -812,6 +812,11 @@ impl JsRuntime {
   }
 
   #[inline]
+  fn v8_isolate_ptr(&mut self) -> *mut v8::Isolate {
+    &mut **self.inner.v8_isolate as _
+  }
+
+  #[inline]
   pub fn inspector(&mut self) -> Rc<RefCell<JsRuntimeInspector>> {
     self.inner.state.borrow().inspector()
   }
@@ -829,6 +834,20 @@ impl JsRuntime {
   #[inline]
   pub fn handle_scope(&mut self) -> v8::HandleScope {
     self.main_realm().handle_scope(self.v8_isolate())
+  }
+
+  #[inline(always)]
+  /// Create a scope on the stack with the given context
+  fn with_runtime_scope<'s, T>(
+    isolate: *mut v8::Isolate,
+    context: &v8::Global<v8::Context>,
+    f: impl FnOnce(&mut v8::HandleScope<'s>) -> T,
+  ) -> T {
+    let mut isolate_scope =
+      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
+    let context = v8::Local::new(&mut isolate_scope, context);
+    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
+    f(&mut scope)
   }
 
   /// Initializes JS of provided Extensions in the given realm.
@@ -1280,45 +1299,60 @@ impl JsRuntime {
 
   pub fn poll_value(
     &mut self,
-    global: &v8::Global<v8::Value>,
     cx: &mut Context,
+    global: &v8::Global<v8::Value>,
   ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
-    // Check if the value is not a promise or already settled before polling the
-    // event loop.
-    let promise_global = {
-      let scope = &mut self.handle_scope();
-      let local = v8::Local::<v8::Value>::new(scope, global);
-      if let Ok(promise) = v8::Local::<v8::Promise>::try_from(local) {
-        match promise.state() {
-          v8::PromiseState::Pending => v8::Global::new(scope, promise),
-          v8::PromiseState::Fulfilled => {
-            let value = promise.result(scope);
-            let value_handle = v8::Global::new(scope, value);
-            return Poll::Ready(Ok(value_handle));
-          }
-          v8::PromiseState::Rejected => {
-            let exception = promise.result(scope);
-            let promise_global = v8::Global::new(scope, promise);
-            JsRealm::state_from_scope(scope)
-              .borrow_mut()
-              .pending_promise_rejections
-              .retain(|(key, _)| key != &promise_global);
-            return Poll::Ready(exception_to_err_result(
-              scope, exception, false,
-            ));
-          }
-        }
-      } else {
-        return Poll::Ready(Ok(global.clone()));
-      }
+    Self::with_runtime_scope(
+      self.v8_isolate_ptr(),
+      self.main_realm().context(),
+      |scope| self.poll_value_inner(cx, scope, global),
+    )
+  }
+
+  fn poll_value_inner(
+    &mut self,
+    cx: &mut Context,
+    scope: &mut v8::HandleScope,
+    global: &v8::Global<v8::Value>,
+  ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
+    let promise = v8::Local::new(scope, global);
+
+    // TODO(mmastrac): this would be better if we just type-tested at the top level
+    let Ok(promise) = v8::Local::<v8::Promise>::try_from(promise) else {
+      return Poll::Ready(Ok(global.clone()));
     };
 
+    // Check if the value is not a promise or already settled before polling the
+    // event loop.
+    match promise.state() {
+      v8::PromiseState::Pending => {}
+      v8::PromiseState::Fulfilled => {
+        let value = promise.result(scope);
+        let value_handle = v8::Global::new(scope, value);
+        return Poll::Ready(Ok(value_handle));
+      }
+      v8::PromiseState::Rejected => {
+        let exception = promise.result(scope);
+        let promise_global = v8::Global::new(scope, promise);
+        JsRealm::state_from_scope(scope)
+          .borrow_mut()
+          .pending_promise_rejections
+          .retain(|(key, _)| key != &promise_global);
+        return Poll::Ready(exception_to_err_result(scope, exception, false));
+      }
+    }
+
     // Poll the event loop.
-    let event_loop_result = self.poll_event_loop(cx, false)?;
+    let event_loop_result = self.poll_event_loop_inner(
+      cx,
+      scope,
+      PollEventLoopOptions {
+        wait_for_inspector: false,
+        pump_v8_message_loop: true,
+      },
+    )?;
 
     // Check the promise state again.
-    let scope = &mut self.handle_scope();
-    let promise = v8::Local::new(scope, promise_global);
     match promise.state() {
       v8::PromiseState::Pending => match event_loop_result {
         Poll::Ready(_) => {
@@ -1347,7 +1381,7 @@ impl JsRuntime {
     &mut self,
     global: v8::Global<v8::Value>,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    poll_fn(|cx| self.poll_value(&global, cx)).await
+    poll_fn(|cx| self.poll_value(cx, &global)).await
   }
 
   /// Runs event loop to completion
@@ -1407,21 +1441,18 @@ impl JsRuntime {
     cx: &mut Context,
     wait_for_inspector: bool,
   ) -> Poll<Result<(), Error>> {
-    // TODO(mmastrac): We want a scope that will still allow us to call methods on self. The need to do this
-    // probably indicates that this code needs to be refactored further.
-    let isolate = &mut **self.inner.v8_isolate as *mut v8::Isolate;
-    let mut isolate_scope =
-      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
-    let context =
-      v8::Local::new(&mut isolate_scope, self.main_realm().context());
-    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
-
-    self.poll_event_loop_inner(
-      cx,
-      &mut scope,
-      PollEventLoopOptions {
-        wait_for_inspector,
-        ..Default::default()
+    Self::with_runtime_scope(
+      self.v8_isolate_ptr(),
+      self.main_realm().context(),
+      |scope| {
+        self.poll_event_loop_inner(
+          cx,
+          scope,
+          PollEventLoopOptions {
+            wait_for_inspector,
+            ..Default::default()
+          },
+        )
       },
     )
   }
@@ -1435,16 +1466,11 @@ impl JsRuntime {
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    // TODO(mmastrac): We want a scope that will still allow us to call methods on self. The need to do this
-    // probably indicates that this code needs to be refactored further.
-    let isolate = &mut **self.inner.v8_isolate as *mut v8::Isolate;
-    let mut isolate_scope =
-      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
-    let context =
-      v8::Local::new(&mut isolate_scope, self.main_realm().context());
-    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
-
-    self.poll_event_loop_inner(cx, &mut scope, poll_options)
+    Self::with_runtime_scope(
+      self.v8_isolate_ptr(),
+      self.main_realm().context(),
+      move |scope| self.poll_event_loop_inner(cx, scope, poll_options),
+    )
   }
 
   fn poll_event_loop_inner(

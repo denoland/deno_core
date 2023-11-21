@@ -147,7 +147,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "Promise.resolve(1 + 2)")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     {
       let scope = &mut runtime.handle_scope();
       assert!(
@@ -161,7 +161,7 @@ async fn test_poll_value() {
         "Promise.resolve(new Promise(resolve => resolve(2 + 2)))",
       )
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     {
       let scope = &mut runtime.handle_scope();
       assert!(
@@ -172,7 +172,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "Promise.reject(new Error('fail'))")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     assert!(
       matches!(v, Poll::Ready(Err(e)) if e.downcast_ref::<JsError>().unwrap().exception_message == "Uncaught Error: fail")
     );
@@ -180,7 +180,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "new Promise(resolve => {})")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     matches!(v, Poll::Ready(Err(e)) if e.to_string() == "Promise resolution is still pending but the event loop has already resolved.");
     Poll::Ready(())
   }).await;
