@@ -899,8 +899,8 @@ impl JsRuntime {
         };
 
         let mut receiver = {
-          let mut isolate = self.v8_isolate();
-          let scope = &mut realm.handle_scope(&mut isolate);
+          let isolate = self.v8_isolate();
+          let scope = &mut realm.handle_scope(isolate);
           let receiver = realm.mod_evaluate(scope, mod_id);
           realm.evaluate_pending_module(scope);
           receiver
@@ -1182,9 +1182,10 @@ impl JsRuntime {
       v8::Global::new(scope, promise.unwrap())
     };
     let result = self.resolve_value(promise).await;
-    let scope = &mut self.handle_scope();
-    // TODO(mmastrac)
-    // self.check_promise_rejections(scope)?;
+    let isolate = &mut self.inner.v8_isolate;
+    let realm = self.inner.main_realm.as_ref().unwrap();
+    let scope = &mut realm.handle_scope(isolate);
+    realm.0.check_promise_rejections(scope)?;
     result
   }
 
@@ -1406,8 +1407,18 @@ impl JsRuntime {
     cx: &mut Context,
     wait_for_inspector: bool,
   ) -> Poll<Result<(), Error>> {
+    // TODO(mmastrac): We want a scope that will still allow us to call methods on self. The need to do this
+    // probably indicates that this code needs to be refactored further.
+    let isolate = &mut **self.inner.v8_isolate as *mut v8::Isolate;
+    let mut isolate_scope =
+      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
+    let context =
+      v8::Local::new(&mut isolate_scope, self.main_realm().context());
+    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
+
     self.poll_event_loop_inner(
       cx,
+      &mut scope,
       PollEventLoopOptions {
         wait_for_inspector,
         ..Default::default()
@@ -1424,14 +1435,6 @@ impl JsRuntime {
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    self.poll_event_loop_inner(cx, poll_options)
-  }
-
-  fn poll_event_loop_inner(
-    &mut self,
-    cx: &mut Context,
-    poll_options: PollEventLoopOptions,
-  ) -> Poll<Result<(), Error>> {
     // TODO(mmastrac): We want a scope that will still allow us to call methods on self. The need to do this
     // probably indicates that this code needs to be refactored further.
     let isolate = &mut **self.inner.v8_isolate as *mut v8::Isolate;
@@ -1441,6 +1444,15 @@ impl JsRuntime {
       v8::Local::new(&mut isolate_scope, self.main_realm().context());
     let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
 
+    self.poll_event_loop_inner(cx, &mut scope, poll_options)
+  }
+
+  fn poll_event_loop_inner(
+    &mut self,
+    cx: &mut Context,
+    scope: &mut v8::HandleScope,
+    poll_options: PollEventLoopOptions,
+  ) -> Poll<Result<(), Error>> {
     let has_inspector: bool;
     {
       let state = self.inner.state.borrow();
@@ -1454,7 +1466,7 @@ impl JsRuntime {
     }
 
     if poll_options.pump_v8_message_loop {
-      self.pump_v8_message_loop(&mut scope)?;
+      self.pump_v8_message_loop(scope)?;
     }
 
     // Dynamic module loading - ie. modules loaded using "import()"
@@ -1483,14 +1495,13 @@ impl JsRuntime {
           let main_realm = self.inner.main_realm.as_ref().unwrap();
           let modules = main_realm.0.module_map();
           loop {
-            let poll_imports =
-              modules.poll_prepare_dyn_imports(&mut scope, cx)?;
+            let poll_imports = modules.poll_prepare_dyn_imports(scope, cx)?;
             assert!(poll_imports.is_ready());
 
-            let poll_imports = modules.poll_dyn_imports(&mut scope, cx)?;
+            let poll_imports = modules.poll_dyn_imports(scope, cx)?;
             assert!(poll_imports.is_ready());
 
-            if modules.evaluate_dyn_imports(&mut scope) {
+            if modules.evaluate_dyn_imports(scope) {
               has_evaluated = true;
             } else {
               break;
@@ -1508,8 +1519,8 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let dispatched_ops = self.do_js_event_loop_tick(cx, &mut scope)?;
-    self.check_promise_rejections(&mut scope)?;
+    let dispatched_ops = self.do_js_event_loop_tick(cx, scope)?;
+    self.check_promise_rejections(scope)?;
 
     // Event loop middlewares
     let mut maybe_scheduling = false;
@@ -1529,14 +1540,14 @@ impl JsRuntime {
         .main_realm
         .as_ref()
         .unwrap()
-        .evaluate_pending_module(&mut scope);
+        .evaluate_pending_module(scope);
     }
 
     // Get the pending state from the main realm, or all realms
     let pending_state = {
       let inner = &self.inner.main_realm.as_ref().unwrap().0;
       EventLoopPendingState::new(
-        &mut scope,
+        scope,
         &self.inner.state.borrow(),
         &inner.state().borrow(),
         &inner.module_map(),
@@ -1555,9 +1566,7 @@ impl JsRuntime {
           // to exit the process once debugger disconnects.
           if !has_blocking_sessions {
             let context = self.main_context();
-            inspector
-              .borrow_mut()
-              .context_destroyed(&mut scope, context);
+            inspector.borrow_mut().context_destroyed(scope, context);
             println!("Program finished. Waiting for inspector to disconnect to exit the process...");
           }
 
@@ -1606,7 +1615,7 @@ impl JsRuntime {
       } else {
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
-            &mut scope,
+            scope,
             &self.inner.main_realm.as_ref().unwrap().0,
           ),
         ));
@@ -1623,7 +1632,7 @@ impl JsRuntime {
       } else if self.inner.main_realm.as_ref().unwrap().modules_idle() {
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
-            &mut scope,
+            scope,
             &self.inner.main_realm.as_ref().unwrap().0,
           ),
         ));
@@ -1856,9 +1865,9 @@ impl JsRuntime {
     &mut self,
     id: ModuleId,
   ) -> oneshot::Receiver<Result<(), Error>> {
-    let mut isolate = &mut self.inner.v8_isolate;
+    let isolate = &mut self.inner.v8_isolate;
     let realm = self.inner.main_realm.as_ref().unwrap();
-    let scope = &mut realm.handle_scope(&mut isolate);
+    let scope = &mut realm.handle_scope(isolate);
     realm.mod_evaluate(scope, id)
   }
 

@@ -98,7 +98,7 @@ async fn js_realm_ref_unref_ops() {
       .execute_script_static(
         runtime.v8_isolate(),
         "",
-        r#"var promise = Deno.core.opAsync("op_pending")"#,
+        r#"var promise =Deno.core.opAsync("op_pending")"#,
       )
       .unwrap();
     assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));

@@ -240,15 +240,6 @@ impl JsRealm {
     self.0.context()
   }
 
-  /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].
-  pub fn global_object<'s>(
-    &self,
-    isolate: &'s mut v8::Isolate,
-  ) -> v8::Local<'s, v8::Object> {
-    let scope = &mut self.0.handle_scope(isolate);
-    self.0.context.open(scope).global(scope)
-  }
-
   fn string_from_code<'a>(
     scope: &mut HandleScope<'a>,
     code: &ModuleCode,
@@ -278,6 +269,7 @@ impl JsRealm {
   /// The same `name` value can be used for multiple executions.
   ///
   /// `Error` can usually be downcast to `JsError`.
+  #[cfg(test)]
   pub fn execute_script_static(
     &self,
     isolate: &mut v8::Isolate,
