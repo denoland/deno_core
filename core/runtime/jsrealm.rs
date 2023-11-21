@@ -22,6 +22,7 @@ use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
 use std::option::Option;
 use std::rc::Rc;
+use v8::Handle;
 use v8::HandleScope;
 use v8::Local;
 
@@ -238,6 +239,10 @@ impl JsRealm {
   #[inline(always)]
   pub fn context(&self) -> &v8::Global<v8::Context> {
     self.0.context()
+  }
+
+  pub(crate) fn context_ptr(&self) -> *mut v8::Context {
+    unsafe { self.0.context.get_unchecked() as *const _ as _ }
   }
 
   fn string_from_code<'a>(

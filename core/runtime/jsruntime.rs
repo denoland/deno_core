@@ -115,7 +115,7 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
-  main_realm: Option<JsRealm>,
+  main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<RefCell<JsRuntimeState>>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
 }
@@ -145,7 +145,9 @@ impl InnerIsolateState {
     // the runtime.
     _ = unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
 
-    self.main_realm.take().unwrap().0.destroy();
+    unsafe {
+      ManuallyDrop::take(&mut self.main_realm).0.destroy();
+    }
 
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
   }
@@ -314,8 +316,6 @@ pub struct JsRuntimeState {
   pub(crate) inspector: Option<Rc<RefCell<JsRuntimeInspector>>>,
   pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
 }
-
-impl JsRuntimeState {}
 
 fn v8_init(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
@@ -769,7 +769,7 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
-        main_realm: Some(main_realm),
+        main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
       },
@@ -780,9 +780,8 @@ impl JsRuntime {
       is_main_runtime: options.is_main,
     };
 
-    let realm = js_runtime.main_realm();
     // TODO(mmastrac): We should thread errors back out of the runtime
-    js_runtime.init_extension_js(&realm).unwrap();
+    js_runtime.init_extension_js().unwrap();
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
@@ -798,12 +797,16 @@ impl JsRuntime {
   #[cfg(test)]
   #[inline]
   pub(crate) fn module_map(&mut self) -> Rc<ModuleMap> {
-    self.main_realm().0.module_map()
+    self.inner.main_realm.0.module_map()
   }
 
   #[inline]
   pub fn main_context(&self) -> v8::Global<v8::Context> {
-    self.inner.main_realm.as_ref().unwrap().0.context().clone()
+    self.inner.main_realm.0.context().clone()
+  }
+
+  pub(crate) fn main_realm(&self) -> JsRealm {
+    JsRealm::clone(&self.inner.main_realm)
   }
 
   #[inline]
@@ -821,11 +824,6 @@ impl JsRuntime {
     self.inner.state.borrow().inspector()
   }
 
-  #[inline]
-  pub(crate) fn main_realm(&mut self) -> JsRealm {
-    self.inner.main_realm.as_ref().unwrap().clone()
-  }
-
   /// Returns the extensions that this runtime is using (including internal ones).
   pub fn extensions(&self) -> &Vec<Extension> {
     &self.extensions
@@ -833,32 +831,36 @@ impl JsRuntime {
 
   #[inline]
   pub fn handle_scope(&mut self) -> v8::HandleScope {
-    self.main_realm().handle_scope(self.v8_isolate())
+    let isolate = &mut self.inner.v8_isolate;
+    self.inner.main_realm.handle_scope(isolate)
   }
 
   #[inline(always)]
   /// Create a scope on the stack with the given context
   fn with_runtime_scope<'s, T>(
     isolate: *mut v8::Isolate,
-    context: &v8::Global<v8::Context>,
+    context: *mut v8::Context,
     f: impl FnOnce(&mut v8::HandleScope<'s>) -> T,
   ) -> T {
+    // SAFETY: We know this isolate is valid and non-null at this time
     let mut isolate_scope =
       v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
-    let context = v8::Local::new(&mut isolate_scope, context);
+    // SAFETY: We know the context is valid and non-null at this time, and that a Local and pointer share the
+    // same representation
+    let context = unsafe { std::mem::transmute(context) };
     let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
     f(&mut scope)
   }
 
   /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(&mut self, realm: &JsRealm) -> Result<(), Error> {
+  fn init_extension_js(&mut self) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
     //  b. Load all extension "module" JS files (but do not execute them yet)
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
-
+    let realm = JsRealm::clone(&self.inner.main_realm);
     let module_map = realm.0.module_map();
 
     // Take extensions temporarily so we can avoid have a mutable reference to self
@@ -880,7 +882,7 @@ impl JsRuntime {
           )?;
         }
       }
-      self.init_cbs(realm);
+      self.init_cbs(&realm);
 
       for extension in &extensions {
         let maybe_esm_entry_point = extension.get_esm_entry_point();
@@ -1126,7 +1128,7 @@ impl JsRuntime {
 
   /// Returns the runtime's op names, ordered by OpId.
   pub fn op_names(&self) -> Vec<&'static str> {
-    let main_realm = self.inner.main_realm.as_ref().unwrap().clone();
+    let main_realm = self.inner.main_realm.clone();
     let state_rc = main_realm.0.state();
     let state = state_rc.borrow();
     state.op_ctxs.iter().map(|o| o.decl.name).collect()
@@ -1151,9 +1153,11 @@ impl JsRuntime {
     name: &'static str,
     source_code: ModuleCode,
   ) -> Result<v8::Global<v8::Value>, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .execute_script(self.v8_isolate(), name, source_code)
+      .inner
+      .main_realm
+      .execute_script(isolate, name, source_code)
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
@@ -1175,8 +1179,9 @@ impl JsRuntime {
     name: &'static str,
     source_code: &'static str,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    self.main_realm().execute_script(
-      self.v8_isolate(),
+    let isolate = &mut self.inner.v8_isolate;
+    self.inner.main_realm.execute_script(
+      isolate,
       name,
       ModuleCode::from_static(source_code),
     )
@@ -1202,7 +1207,7 @@ impl JsRuntime {
     };
     let result = self.resolve_value(promise).await;
     let isolate = &mut self.inner.v8_isolate;
-    let realm = self.inner.main_realm.as_ref().unwrap();
+    let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
     realm.0.check_promise_rejections(scope)?;
     result
@@ -1216,9 +1221,11 @@ impl JsRuntime {
     &mut self,
     module_id: ModuleId,
   ) -> Result<v8::Global<v8::Object>, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .get_module_namespace(self.v8_isolate(), module_id)
+      .inner
+      .main_realm
+      .get_module_namespace(isolate, module_id)
   }
 
   /// Registers a callback on the isolate when the memory limits are approached.
@@ -1304,7 +1311,7 @@ impl JsRuntime {
   ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
     Self::with_runtime_scope(
       self.v8_isolate_ptr(),
-      self.main_realm().context(),
+      self.inner.main_realm.context_ptr(),
       |scope| self.poll_value_inner(cx, scope, global),
     )
   }
@@ -1443,7 +1450,7 @@ impl JsRuntime {
   ) -> Poll<Result<(), Error>> {
     Self::with_runtime_scope(
       self.v8_isolate_ptr(),
-      self.main_realm().context(),
+      self.inner.main_realm.context_ptr(),
       |scope| {
         self.poll_event_loop_inner(
           cx,
@@ -1466,9 +1473,10 @@ impl JsRuntime {
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
+    let isolate = self.v8_isolate_ptr();
     Self::with_runtime_scope(
-      self.v8_isolate_ptr(),
-      self.main_realm().context(),
+      isolate,
+      self.inner.main_realm.context_ptr(),
       move |scope| self.poll_event_loop_inner(cx, scope, poll_options),
     )
   }
@@ -1518,7 +1526,7 @@ impl JsRuntime {
 
         // Fast main realm poll
         {
-          let main_realm = self.inner.main_realm.as_ref().unwrap();
+          let main_realm = &self.inner.main_realm;
           let modules = main_realm.0.module_map();
           loop {
             let poll_imports = modules.poll_prepare_dyn_imports(scope, cx)?;
@@ -1561,17 +1569,12 @@ impl JsRuntime {
 
     // Top level module
     {
-      self
-        .inner
-        .main_realm
-        .as_ref()
-        .unwrap()
-        .evaluate_pending_module(scope);
+      self.inner.main_realm.evaluate_pending_module(scope);
     }
 
     // Get the pending state from the main realm, or all realms
     let pending_state = {
-      let inner = &self.inner.main_realm.as_ref().unwrap().0;
+      let inner = &self.inner.main_realm.0;
       EventLoopPendingState::new(
         scope,
         &self.inner.state.borrow(),
@@ -1642,7 +1645,7 @@ impl JsRuntime {
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             scope,
-            &self.inner.main_realm.as_ref().unwrap().0,
+            &self.inner.main_realm.0,
           ),
         ));
       }
@@ -1655,11 +1658,11 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
-      } else if self.inner.main_realm.as_ref().unwrap().modules_idle() {
+      } else if self.inner.main_realm.modules_idle() {
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             scope,
-            &self.inner.main_realm.as_ref().unwrap().0,
+            &self.inner.main_realm.0,
           ),
         ));
       } else {
@@ -1667,12 +1670,7 @@ impl JsRuntime {
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.
-        self
-          .inner
-          .main_realm
-          .as_ref()
-          .unwrap()
-          .increment_modules_idle();
+        self.inner.main_realm.increment_modules_idle();
         state.op_state.borrow().waker.wake();
       }
     }
@@ -1745,7 +1743,7 @@ impl JsRuntimeForSnapshot {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
 
-    let realm = self.main_realm();
+    let realm = JsRealm::clone(&self.inner.main_realm);
 
     // Set the context to be snapshot's default context
     {
@@ -1871,7 +1869,7 @@ impl JsRuntime {
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
     let isolate = &mut self.inner.v8_isolate;
-    let realm = self.inner.main_realm.as_ref().unwrap();
+    let realm = JsRealm::clone(&self.inner.main_realm);
     let scope = &mut realm.handle_scope(isolate);
     realm.instantiate_module(scope, id)
   }
@@ -1892,7 +1890,7 @@ impl JsRuntime {
     id: ModuleId,
   ) -> oneshot::Receiver<Result<(), Error>> {
     let isolate = &mut self.inner.v8_isolate;
-    let realm = self.inner.main_realm.as_ref().unwrap();
+    let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
     realm.mod_evaluate(scope, id)
   }
@@ -1909,9 +1907,11 @@ impl JsRuntime {
     specifier: &ModuleSpecifier,
     code: Option<ModuleCode>,
   ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .load_main_module(self.v8_isolate(), specifier, code)
+      .inner
+      .main_realm
+      .load_main_module(isolate, specifier, code)
       .await
   }
 
@@ -1927,9 +1927,11 @@ impl JsRuntime {
     specifier: &ModuleSpecifier,
     code: Option<ModuleCode>,
   ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .load_side_module(self.v8_isolate(), specifier, code)
+      .inner
+      .main_realm
+      .load_side_module(isolate, specifier, code)
       .await
   }
 
@@ -1937,13 +1939,7 @@ impl JsRuntime {
     &self,
     scope: &mut v8::HandleScope,
   ) -> Result<(), Error> {
-    self
-      .inner
-      .main_realm
-      .as_ref()
-      .unwrap()
-      .0
-      .check_promise_rejections(scope)
+    self.inner.main_realm.0.check_promise_rejections(scope)
   }
 
   // Polls pending ops and then runs `Deno.core.eventLoopTick` callback.
@@ -1959,7 +1955,7 @@ impl JsRuntime {
       cx,
       scope,
       &state,
-      &self.inner.main_realm.as_ref().unwrap().0,
+      &self.inner.main_realm.0,
     )?;
 
     Ok(dispatched_ops)
