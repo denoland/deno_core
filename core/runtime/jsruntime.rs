@@ -1870,9 +1870,9 @@ impl JsRuntime {
     &mut self,
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
-    let mut isolate = &mut self.inner.v8_isolate;
+    let isolate = &mut self.inner.v8_isolate;
     let realm = self.inner.main_realm.as_ref().unwrap();
-    let scope = &mut realm.handle_scope(&mut isolate);
+    let scope = &mut realm.handle_scope(isolate);
     realm.instantiate_module(scope, id)
   }
 

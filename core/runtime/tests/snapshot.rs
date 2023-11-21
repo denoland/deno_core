@@ -276,15 +276,12 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     runtime.snapshot()
   };
 
-  let mut runtime;
-  let realm;
-
-  runtime = JsRuntime::new(RuntimeOptions {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
     startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
     ..Default::default()
   });
-  realm = runtime.main_realm();
+  let realm = runtime.main_realm();
 
   // Make sure the module was evaluated.
   {
