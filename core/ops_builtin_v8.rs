@@ -974,7 +974,7 @@ pub fn op_set_format_exception_callback<'a>(
 
 #[op2]
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
-  JsRuntime::event_loop_pending_state_from_scope(scope).is_pending()
+  JsRuntime::has_more_work(scope)
 }
 
 #[op2]

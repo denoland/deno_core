@@ -957,23 +957,16 @@ async fn test_stalled_tla() {
     Url::parse("file:///test.js").unwrap(),
     ascii_str!("await new Promise(() => {});"),
   );
-  let mut runtime = JsRuntime::new(Default::default());
-  let realm = runtime
-    .create_realm(CreateRealmOptions {
-      module_loader: Some(Rc::new(loader)),
-    })
-    .unwrap();
-
-  let module_id = realm
-    .load_main_module(
-      runtime.v8_isolate(),
-      &crate::resolve_url("file:///test.js").unwrap(),
-      None,
-    )
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+  let module_id = runtime
+    .load_main_module(&crate::resolve_url("file:///test.js").unwrap(), None)
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
-  let _ = realm.mod_evaluate(runtime.v8_isolate(), module_id);
+  let _ = runtime.mod_evaluate(module_id);
 
   let error = runtime.run_event_loop(false).await.unwrap_err();
   let js_error = error.downcast::<JsError>().unwrap();

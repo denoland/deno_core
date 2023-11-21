@@ -92,23 +92,6 @@ pub(crate) struct ContextState {
 /// In other words, the [`v8::Isolate`] parameter for all the related [`JsRealm`] methods
 /// must be extracted from the pre-existing [`JsRuntime`].
 ///
-/// Example usage with the [`JsRealm::execute_script`] method:
-/// ```
-/// use deno_core::JsRuntime;
-/// use deno_core::RuntimeOptions;
-/// use deno_core::CreateRealmOptions;
-///
-/// let mut runtime = JsRuntime::new(RuntimeOptions::default());
-/// let new_realm = runtime
-///         .create_realm(CreateRealmOptions::default())
-///         .expect("Handle the error properly");
-/// let source_code = "var a = 0; a + 1";
-/// let result = new_realm
-///         .execute_script_static(runtime.v8_isolate(), "<anon>", source_code)
-///         .expect("Handle the error properly");
-/// # drop(result);
-/// ```
-///
 /// # Lifetime of the realm
 ///
 /// As long as the corresponding isolate is alive, a [`JsRealm`] instance will
@@ -124,7 +107,6 @@ pub(crate) struct JsRealmInner {
   context: Rc<v8::Global<v8::Context>>,
   module_map: Rc<ModuleMap>,
   runtime_state: Rc<RefCell<JsRuntimeState>>,
-  is_main_realm: bool,
 }
 
 impl JsRealmInner {
@@ -133,40 +115,13 @@ impl JsRealmInner {
     context: v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
     runtime_state: Rc<RefCell<JsRuntimeState>>,
-    is_main_realm: bool,
   ) -> Self {
     Self {
       context_state,
       context: context.into(),
       module_map,
       runtime_state,
-      is_main_realm,
     }
-  }
-
-  #[inline(always)]
-  pub fn num_pending_ops(&self) -> usize {
-    self.context_state.borrow().pending_ops.len()
-  }
-
-  #[inline(always)]
-  pub fn num_unrefed_ops(&self) -> usize {
-    self.context_state.borrow().unrefed_ops.len()
-  }
-
-  #[inline(always)]
-  pub fn has_pending_dyn_imports(&self) -> bool {
-    self.module_map.has_pending_dynamic_imports()
-  }
-
-  #[inline(always)]
-  pub fn has_pending_dyn_module_evaluation(&self) -> bool {
-    self.module_map.has_pending_dyn_module_evaluation()
-  }
-
-  #[inline(always)]
-  pub fn has_pending_module_evaluation(&self) -> bool {
-    self.context_state.borrow().pending_mod_evaluate.is_some()
   }
 
   #[inline(always)]
@@ -195,13 +150,12 @@ impl JsRealmInner {
 
   pub(crate) fn check_promise_rejections(
     &self,
-    isolate: &mut v8::Isolate,
+    scope: &mut v8::HandleScope,
   ) -> Result<(), Error> {
     let Some((_, handle)) = self.context_state.borrow_mut().pending_promise_rejections.pop_front() else {
       return Ok(());
     };
 
-    let scope = &mut self.handle_scope(isolate);
     let exception = v8::Local::new(scope, handle);
     let state_rc = JsRuntime::state_from(scope);
     let state = state_rc.borrow();
@@ -213,10 +167,6 @@ impl JsRealmInner {
       }
     }
     exception_to_err_result(scope, exception, true)
-  }
-
-  pub(crate) fn is_same(&self, other: &Rc<v8::Global<v8::Context>>) -> bool {
-    Rc::ptr_eq(&self.context, other)
   }
 
   pub fn destroy(self) {
@@ -264,14 +214,16 @@ impl JsRealm {
     context.get_slot::<Rc<ModuleMap>>(scope).unwrap().clone()
   }
 
+  #[cfg(test)]
   #[inline(always)]
   pub fn num_pending_ops(&self) -> usize {
-    self.0.num_pending_ops()
+    self.0.context_state.borrow().pending_ops.len()
   }
 
+  #[cfg(test)]
   #[inline(always)]
   pub fn num_unrefed_ops(&self) -> usize {
-    self.0.num_unrefed_ops()
+    self.0.context_state.borrow().unrefed_ops.len()
   }
 
   /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].
@@ -732,27 +684,5 @@ impl JsRealm {
       exception_to_err_result::<()>(scope, exception, false).unwrap_err()
     })?;
     Ok(root_id)
-  }
-}
-
-impl Drop for JsRealm {
-  fn drop(&mut self) {
-    // Don't do anything special with the main realm
-    if self.0.is_main_realm {
-      return;
-    }
-
-    // There's us and there's the runtime
-    if Rc::strong_count(&self.0.context) == 2 {
-      self
-        .0
-        .runtime_state
-        .borrow_mut()
-        .remove_realm(&self.0.context);
-      assert_eq!(Rc::strong_count(&self.0.context), 1);
-      self.0.clone().destroy();
-      assert_eq!(Rc::strong_count(&self.0.context_state), 1);
-      assert_eq!(Rc::strong_count(&self.0.module_map), 1);
-    }
   }
 }

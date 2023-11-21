@@ -253,9 +253,8 @@ fn es_snapshot() {
   }
 }
 
-pub(crate) fn generic_es_snapshot_without_runtime_module_loader(
-  test_realms: bool,
-) {
+#[test]
+pub(crate) fn es_snapshot_without_runtime_module_loader() {
   let startup_data = {
     let extension = Extension {
       name: "module_snapshot",
@@ -279,25 +278,13 @@ pub(crate) fn generic_es_snapshot_without_runtime_module_loader(
 
   let mut runtime;
   let realm;
-  if test_realms {
-    runtime = JsRuntime::new(RuntimeOptions {
-      module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
-      startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
-      ..Default::default()
-    });
-    realm = runtime
-      .create_realm(CreateRealmOptions {
-        module_loader: None,
-      })
-      .unwrap();
-  } else {
-    runtime = JsRuntime::new(RuntimeOptions {
-      module_loader: None,
-      startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
-      ..Default::default()
-    });
-    realm = runtime.main_realm();
-  }
+
+  runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: None,
+    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    ..Default::default()
+  });
+  realm = runtime.main_realm();
 
   // Make sure the module was evaluated.
   {
@@ -339,15 +326,7 @@ pub(crate) fn generic_es_snapshot_without_runtime_module_loader(
   );
 }
 
-#[test]
-fn es_snapshot_without_runtime_module_loader() {
-  generic_es_snapshot_without_runtime_module_loader(false)
-}
-
-pub(crate) fn generic_preserve_snapshotted_modules_test(
-  test_snapshot: bool,
-  test_realms: bool,
-) {
+pub(crate) fn generic_preserve_snapshotted_modules_test(test_snapshot: bool) {
   let extension = Extension {
     name: "module_snapshot",
     esm_files: Cow::Borrowed(&[
@@ -392,15 +371,7 @@ pub(crate) fn generic_preserve_snapshotted_modules_test(
     })
   };
 
-  let realm = if test_realms {
-    runtime
-      .create_realm(CreateRealmOptions {
-        module_loader: Some(loader.clone()),
-      })
-      .unwrap()
-  } else {
-    runtime.main_realm()
-  };
+  let realm = runtime.main_realm();
 
   // We can't import "test:not-preserved"
   {
@@ -452,12 +423,12 @@ pub(crate) fn generic_preserve_snapshotted_modules_test(
 
 #[test]
 fn preserve_snapshotted_modules() {
-  generic_preserve_snapshotted_modules_test(true, false)
+  generic_preserve_snapshotted_modules_test(true)
 }
 
 /// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
 /// a snapshot.
 #[test]
 fn non_snapshot_preserve_snapshotted_modules() {
-  generic_preserve_snapshotted_modules_test(false, false)
+  generic_preserve_snapshotted_modules_test(false)
 }
