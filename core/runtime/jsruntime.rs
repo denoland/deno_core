@@ -805,6 +805,7 @@ impl JsRuntime {
     self.inner.main_realm.0.context().clone()
   }
 
+  #[cfg(test)]
   pub(crate) fn main_realm(&self) -> JsRealm {
     JsRealm::clone(&self.inner.main_realm)
   }
