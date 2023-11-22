@@ -602,8 +602,8 @@ impl Stream for RecursiveModuleLoad {
           let asserted_module_type =
             inner.root_asserted_module_type.clone().unwrap();
 
-          // TODO(mmastrac|bartlomieju): We don't support module loads of other types outside of this map
-          // code right now.
+          // TODO(mmastrac|bartlomieju): we don't handle non-JS/JSON cases here, but we
+          // can likely do so after we revisit this module code.
           let module_type = match &asserted_module_type {
             AssertedModuleType::JavaScriptOrWasm => ModuleType::JavaScript,
             AssertedModuleType::Json => ModuleType::Json,
