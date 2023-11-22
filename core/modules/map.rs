@@ -823,14 +823,9 @@ impl ModuleMap {
     specifier: impl AsRef<str>,
     asserted_module_type: impl AsRef<AssertedModuleType>,
   ) -> bool {
-    if let Some(id) =
-      self.get_id(specifier.as_ref(), asserted_module_type.as_ref())
-    {
-      return asserted_module_type.as_ref()
-        == &self.data.borrow().info.get(id).unwrap().module_type;
-    }
-
-    false
+    self
+      .get_id(specifier.as_ref(), asserted_module_type.as_ref())
+      .is_some()
   }
 
   pub(crate) fn alias(
