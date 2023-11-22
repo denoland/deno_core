@@ -1365,9 +1365,7 @@ impl ModuleMap {
       assert!(data.handles.get(info.id).is_some());
       assert_eq!(data.info.get(info.id).unwrap(), info);
       assert_eq!(
-        data
-          .by_name
-          .get(&AssertedModuleType::JavaScriptOrWasm, &info.name),
+        data.by_name.get(&info.module_type, &info.name),
         Some(&SymbolicModule::Mod(info.id))
       );
     }
