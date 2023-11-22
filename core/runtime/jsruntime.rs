@@ -1783,12 +1783,12 @@ impl JsRuntimeForSnapshot {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct EventLoopPendingState {
-  pub(crate) has_pending_refed_ops: bool,
-  pub(crate) has_pending_dyn_imports: bool,
-  pub(crate) has_pending_dyn_module_evaluation: bool,
-  pub(crate) has_pending_module_evaluation: bool,
-  pub(crate) has_pending_background_tasks: bool,
-  pub(crate) has_tick_scheduled: bool,
+  has_pending_refed_ops: bool,
+  has_pending_dyn_imports: bool,
+  has_pending_dyn_module_evaluation: bool,
+  has_pending_module_evaluation: bool,
+  has_pending_background_tasks: bool,
+  has_tick_scheduled: bool,
 }
 
 impl EventLoopPendingState {
