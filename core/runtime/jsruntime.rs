@@ -83,6 +83,7 @@ pub(crate) struct IsolateAllocations {
 pub(crate) struct ManuallyDropRc<T>(ManuallyDrop<Rc<T>>);
 
 impl<T> ManuallyDropRc<T> {
+  #[allow(unused)]
   pub fn clone(&self) -> Rc<T> {
     self.0.deref().clone()
   }
@@ -1504,6 +1505,9 @@ impl JsRuntime {
       self.pump_v8_message_loop(scope)?;
     }
 
+    let realm = &self.inner.main_realm;
+    let modules = &realm.0.module_map;
+
     // Dynamic module loading - ie. modules loaded using "import()"
     {
       // Run in a loop so that dynamic imports that only depend on another
@@ -1527,8 +1531,6 @@ impl JsRuntime {
 
         // Fast main realm poll
         {
-          let main_realm = &self.inner.main_realm;
-          let modules = main_realm.0.module_map();
           loop {
             let poll_imports = modules.poll_prepare_dyn_imports(scope, cx)?;
             assert!(poll_imports.is_ready());
@@ -1554,8 +1556,13 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let dispatched_ops = self.do_js_event_loop_tick(cx, scope)?;
-    self.check_promise_rejections(scope)?;
+    let dispatched_ops = Self::do_js_event_loop_tick_realm(
+      cx,
+      scope,
+      &self.inner.state,
+      &realm.0.context_state,
+    )?;
+    realm.0.check_promise_rejections(scope)?;
 
     // Event loop middlewares
     let mut maybe_scheduling = false;
@@ -1569,18 +1576,15 @@ impl JsRuntime {
     }
 
     // Top level module
-    {
-      self.inner.main_realm.evaluate_pending_module(scope);
-    }
+    realm.evaluate_pending_module(scope);
 
     // Get the pending state from the main realm, or all realms
     let pending_state = {
-      let inner = &self.inner.main_realm.0;
       EventLoopPendingState::new(
         scope,
         &self.inner.state.borrow(),
-        &inner.state().borrow(),
-        &inner.module_map(),
+        &realm.0.context_state.borrow(),
+        modules,
       )
     };
 
@@ -1646,7 +1650,7 @@ impl JsRuntime {
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             scope,
-            &self.inner.main_realm.0,
+            &realm.0,
           ),
         ));
       }
@@ -1659,11 +1663,11 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
-      } else if self.inner.main_realm.modules_idle() {
+      } else if realm.modules_idle() {
         return Poll::Ready(Err(
           find_and_report_stalled_level_await_in_any_realm(
             scope,
-            &self.inner.main_realm.0,
+            &realm.0,
           ),
         ));
       } else {
@@ -1671,7 +1675,7 @@ impl JsRuntime {
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.
-        self.inner.main_realm.increment_modules_idle();
+        realm.increment_modules_idle();
         state.op_state.borrow().waker.wake();
       }
     }
@@ -1936,39 +1940,13 @@ impl JsRuntime {
       .await
   }
 
-  fn check_promise_rejections(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> Result<(), Error> {
-    self.inner.main_realm.0.check_promise_rejections(scope)
-  }
-
-  // Polls pending ops and then runs `Deno.core.eventLoopTick` callback.
-  fn do_js_event_loop_tick(
-    &mut self,
-    cx: &mut Context,
-    scope: &mut v8::HandleScope,
-  ) -> Result<bool, Error> {
-    // Handle responses for each realm.
-    let state = self.inner.state.clone();
-
-    let dispatched_ops = Self::do_js_event_loop_tick_realm(
-      cx,
-      scope,
-      &state,
-      &self.inner.main_realm.0,
-    )?;
-
-    Ok(dispatched_ops)
-  }
-
   fn do_js_event_loop_tick_realm(
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-    state: &Rc<RefCell<JsRuntimeState>>,
-    realm: &JsRealmInner,
+    state: &RefCell<JsRuntimeState>,
+    context_state: &RefCell<ContextState>,
   ) -> Result<bool, Error> {
-    let context_state = realm.state();
+    let state = state.borrow();
     let mut context_state = context_state.borrow_mut();
     let mut dispatched_ops = false;
 
@@ -2017,7 +1995,7 @@ impl JsRuntime {
       });
     }
 
-    let has_tick_scheduled = state.borrow().has_tick_scheduled;
+    let has_tick_scheduled = state.has_tick_scheduled;
     dispatched_ops |= has_tick_scheduled;
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
     args.push(has_tick_scheduled.into());
@@ -2027,7 +2005,10 @@ impl JsRuntime {
     let tc_scope = &mut v8::TryCatch::new(scope);
     let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
     let this = v8::undefined(tc_scope).into();
+
+    drop(state);
     drop(context_state);
+
     js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());
 
     if let Some(exception) = tc_scope.exception() {

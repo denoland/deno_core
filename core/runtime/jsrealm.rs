@@ -104,9 +104,9 @@ pub(crate) struct JsRealm(pub(crate) JsRealmInner);
 
 #[derive(Clone)]
 pub(crate) struct JsRealmInner {
-  context_state: Rc<RefCell<ContextState>>,
+  pub(crate) context_state: Rc<RefCell<ContextState>>,
   context: Rc<v8::Global<v8::Context>>,
-  module_map: Rc<ModuleMap>,
+  pub(crate) module_map: Rc<ModuleMap>,
   runtime_state: Rc<RefCell<JsRuntimeState>>,
 }
 
