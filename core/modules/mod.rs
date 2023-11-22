@@ -495,6 +495,26 @@ impl RecursiveModuleLoad {
       },
     };
 
+    self.register_and_recurse_inner(module_id, module_request);
+
+    // Update `self.state` however applicable.
+    if self.state == LoadState::LoadingRoot {
+      self.root_module_id = Some(module_id);
+      self.root_asserted_module_type = Some(module_source.module_type.into());
+      self.state = LoadState::LoadingImports;
+    }
+    if self.pending.is_empty() {
+      self.state = LoadState::Done;
+    }
+
+    Ok(())
+  }
+
+  fn register_and_recurse_inner(
+    &mut self,
+    module_id: usize,
+    module_request: &ModuleRequest,
+  ) {
     // Recurse the module's imports. There are two cases for each import:
     // 1. If the module is not in the module map, start a new load for it in
     //    `self.pending`. The result of that load should eventually be passed to
@@ -560,18 +580,6 @@ impl RecursiveModuleLoad {
         }
       }
     }
-
-    // Update `self.state` however applicable.
-    if self.state == LoadState::LoadingRoot {
-      self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(module_source.module_type.into());
-      self.state = LoadState::LoadingImports;
-    }
-    if self.pending.is_empty() {
-      self.state = LoadState::Done;
-    }
-
-    Ok(())
   }
 }
 
@@ -591,52 +599,31 @@ impl Stream for RecursiveModuleLoad {
           Ok(url) => url,
           Err(error) => return Poll::Ready(Some(Err(error))),
         };
-        let load_fut = if let Some(_module_id) = inner.root_module_id {
-          // FIXME(bartlomieju): this is very bad
-          // The root module is already in the module map.
-          // TODO(nayeemrmn): In this case we would ideally skip to
-          // `LoadState::LoadingImports` and synchronously recurse the imports
-          // like the bottom of `RecursiveModuleLoad::register_and_recurse()`.
-          // But the module map cannot be borrowed here. Instead fake a load
-          // event so it gets passed to that function and recursed eventually.
-          let asserted_module_type =
-            inner.root_asserted_module_type.clone().unwrap();
-
-          // TODO(mmastrac|bartlomieju): we don't handle non-JS/JSON cases here, but we
-          // can likely do so after we revisit this module code.
-          let module_type = match &asserted_module_type {
-            AssertedModuleType::JavaScriptOrWasm => ModuleType::JavaScript,
-            AssertedModuleType::Json => ModuleType::Json,
-            _ => unimplemented!("TODO: non-JS/JSON/WASM module types"),
-          };
-
-          let module_request = ModuleRequest {
-            specifier: module_specifier.to_string(),
-            asserted_module_type,
-          };
-
-          // The code will be discarded, since this module is already in the
-          // module map.
-          let module_source = ModuleSource::new(
-            module_type,
-            Default::default(),
-            &module_specifier,
-          );
-          futures::future::ok(Some((module_request, module_source))).boxed()
+        let asserted_module_type = match &inner.init {
+          LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
+          _ => AssertedModuleType::JavaScriptOrWasm,
+        };
+        let module_request = ModuleRequest {
+          specifier: module_specifier.to_string(),
+          asserted_module_type,
+        };
+        let load_fut = if let Some(module_id) = inner.root_module_id {
+          // If the inner future is already in the map, we might be done (assuming there are no pending
+          // loads).
+          inner.register_and_recurse_inner(module_id, &module_request);
+          if inner.pending.is_empty() {
+            inner.state = LoadState::Done;
+          } else {
+            inner.state = LoadState::LoadingImports;
+          }
+          // Internally re-poll using the new state to avoid spinning the event loop again.
+          return Self::poll_next(Pin::new(inner), cx);
         } else {
           let maybe_referrer = match inner.init {
             LoadInit::DynamicImport(_, ref referrer, _) => {
               resolve_url(referrer).ok()
             }
             _ => None,
-          };
-          let asserted_module_type = match &inner.init {
-            LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
-            _ => AssertedModuleType::JavaScriptOrWasm,
-          };
-          let module_request = ModuleRequest {
-            specifier: module_specifier.to_string(),
-            asserted_module_type,
           };
           let loader = inner.loader.clone();
           let is_dynamic_import = inner.is_dynamic_import();
