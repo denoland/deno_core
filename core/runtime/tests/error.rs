@@ -179,7 +179,7 @@ if (errMessage !== "higher-level async error: original async error") {
       )
       .unwrap();
 
-    match runtime.poll_value(&promise, cx) {
+    match runtime.poll_value(cx, &promise) {
       Poll::Ready(Ok(_)) => {}
       Poll::Ready(Err(err)) => panic!("{err:?}"),
       _ => panic!(),

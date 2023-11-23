@@ -147,7 +147,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "Promise.resolve(1 + 2)")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     {
       let scope = &mut runtime.handle_scope();
       assert!(
@@ -161,7 +161,7 @@ async fn test_poll_value() {
         "Promise.resolve(new Promise(resolve => resolve(2 + 2)))",
       )
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     {
       let scope = &mut runtime.handle_scope();
       assert!(
@@ -172,7 +172,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "Promise.reject(new Error('fail'))")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     assert!(
       matches!(v, Poll::Ready(Err(e)) if e.downcast_ref::<JsError>().unwrap().exception_message == "Uncaught Error: fail")
     );
@@ -180,7 +180,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "new Promise(resolve => {})")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     matches!(v, Poll::Ready(Err(e)) if e.to_string() == "Promise resolution is still pending but the event loop has already resolved.");
     Poll::Ready(())
   }).await;
@@ -957,23 +957,16 @@ async fn test_stalled_tla() {
     Url::parse("file:///test.js").unwrap(),
     ascii_str!("await new Promise(() => {});"),
   );
-  let mut runtime = JsRuntime::new(Default::default());
-  let realm = runtime
-    .create_realm(CreateRealmOptions {
-      module_loader: Some(Rc::new(loader)),
-    })
-    .unwrap();
-
-  let module_id = realm
-    .load_main_module(
-      runtime.v8_isolate(),
-      &crate::resolve_url("file:///test.js").unwrap(),
-      None,
-    )
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+  let module_id = runtime
+    .load_main_module(&crate::resolve_url("file:///test.js").unwrap(), None)
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
-  let _ = realm.mod_evaluate(runtime.v8_isolate(), module_id);
+  let _ = runtime.mod_evaluate(module_id);
 
   let error = runtime.run_event_loop(false).await.unwrap_err();
   let js_error = error.downcast::<JsError>().unwrap();

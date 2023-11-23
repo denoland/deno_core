@@ -16,7 +16,7 @@ use crate::modules::ModuleMap;
 use crate::modules::ResolutionKind;
 use crate::ops::OpCtx;
 use crate::runtime::InitMode;
-use crate::JsRealm;
+use crate::runtime::JsRealm;
 use crate::JsRuntime;
 
 pub(crate) fn external_references(
