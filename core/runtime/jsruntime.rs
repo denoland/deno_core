@@ -316,6 +316,7 @@ pub struct JsRuntimeState {
   dispatched_exception: Cell<Option<v8::Global<v8::Value>>>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
+  has_inspector: Cell<bool>,
 }
 
 fn v8_init(
@@ -612,6 +613,7 @@ impl JsRuntime {
       dispatched_exception: None.into(),
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
+      has_inspector: false.into(),
       validate_import_attributes_cb,
     });
 
@@ -1306,6 +1308,8 @@ impl JsRuntime {
       return;
     }
 
+    self.inner.state.has_inspector.set(true);
+
     let context = self.main_context();
     let scope = &mut v8::HandleScope::with_context(
       self.inner.v8_isolate.as_mut(),
@@ -1503,7 +1507,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    let has_inspector = self.inner.state.inspector.borrow().is_some();
+    let has_inspector = self.inner.state.has_inspector.get();
     self
       .inner
       .state
@@ -1869,6 +1873,10 @@ impl JsRuntimeState {
     &self,
     mut f: impl FnMut(&JsRuntimeInspector) -> T,
   ) -> Option<T> {
+    // Fast path
+    if !self.has_inspector.get() {
+      return None;
+    }
     self
       .inspector
       .borrow()
