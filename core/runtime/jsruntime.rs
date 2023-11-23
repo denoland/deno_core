@@ -1208,14 +1208,18 @@ impl JsRuntime {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let promise = {
       let scope = &mut self.handle_scope();
-      let mut local_args: SmallVec<[v8::Local<v8::Value>; 32]> =
-        SmallVec::with_capacity(args.len());
-      for v in args {
-        local_args.push(v8::Local::new(scope, v));
-      }
       let cb = function.open(scope);
       let this = v8::undefined(scope).into();
-      let promise = cb.call(scope, this, &local_args);
+      let promise = if args.is_empty() {
+        cb.call(scope, this, &[])
+      } else {
+        let mut local_args: SmallVec<[v8::Local<v8::Value>; 32]> =
+          SmallVec::with_capacity(args.len());
+        for v in args {
+          local_args.push(v8::Local::new(scope, v));
+        }
+        cb.call(scope, this, &local_args)
+      };
       if promise.is_none() || scope.is_execution_terminating() {
         let undefined = v8::undefined(scope).into();
         return exception_to_err_result(scope, undefined, false);
