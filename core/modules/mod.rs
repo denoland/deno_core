@@ -59,7 +59,8 @@ pub(crate) fn default_import_meta_resolve_cb(
 pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
 
-const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json", "text", "url", "buffer"];
+const SUPPORTED_TYPE_ASSERTIONS: &[&str] =
+  &["json", "text", "url", "buffer", "css-module"];
 
 /// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
 /// all other attributes.
@@ -138,9 +139,11 @@ pub(crate) fn get_asserted_module_type_from_assertions(
       if ty == "json" {
         AssertedModuleType::Json
       } else if ty == "text" {
-        AssertedModuleType::Text 
-      } else if ty == "url" { 
-        AssertedModuleType::Url 
+        AssertedModuleType::Text
+      } else if ty == "url" {
+        AssertedModuleType::Url
+      } else if ty == "css-module" {
+        AssertedModuleType::CssModule
       } else {
         AssertedModuleType::JavaScriptOrWasm
       }
@@ -162,6 +165,7 @@ pub enum ModuleType {
   Text,
   Url,
   Buffer,
+  CssModule,
 }
 
 impl std::fmt::Display for ModuleType {
@@ -172,6 +176,7 @@ impl std::fmt::Display for ModuleType {
       Self::Text => write!(f, "Text"),
       Self::Url => write!(f, "Url"),
       Self::Buffer => write!(f, "Buffer"),
+      Self::CssModule => write!(f, "CssModule"),
     }
   }
 }
@@ -296,10 +301,11 @@ pub(crate) enum AssertedModuleType {
   JavaScriptOrWasm,
   /// JSON.
   Json,
-  
+
   Text,
   Url,
   // Buffer,
+  CssModule,
 
   // IMPORTANT: If you add any additional enum values here, you must update `to_v8`` below!
   /// Non-well-known module type.
@@ -317,6 +323,7 @@ impl AssertedModuleType {
       AssertedModuleType::Text => v8::Integer::new(scope, 2).into(),
       AssertedModuleType::Url => v8::Integer::new(scope, 3).into(),
       // AssertedModuleType::Buffer => v8::Integer::new(scope, 4).into(),
+      AssertedModuleType::CssModule => v8::Integer::new(scope, 5).into(),
       AssertedModuleType::Other(ty) => {
         v8::String::new(scope, ty).unwrap().into()
       }
@@ -333,6 +340,7 @@ impl AssertedModuleType {
         1 => AssertedModuleType::Json,
         2 => AssertedModuleType::Text,
         3 => AssertedModuleType::Url,
+        5 => AssertedModuleType::CssModule,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
@@ -356,6 +364,7 @@ impl PartialEq<ModuleType> for AssertedModuleType {
       ModuleType::Json => self == &AssertedModuleType::Json,
       ModuleType::Text => self == &AssertedModuleType::Text,
       ModuleType::Url => self == &AssertedModuleType::Url,
+      ModuleType::CssModule => self == &AssertedModuleType::CssModule,
       ModuleType::Buffer => todo!(),
     }
   }
@@ -368,6 +377,7 @@ impl From<ModuleType> for AssertedModuleType {
       ModuleType::Json => AssertedModuleType::Json,
       ModuleType::Text => AssertedModuleType::Text,
       ModuleType::Url => AssertedModuleType::Url,
+      ModuleType::CssModule => AssertedModuleType::CssModule,
       ModuleType::Buffer => todo!(),
     }
   }
@@ -380,6 +390,7 @@ impl std::fmt::Display for AssertedModuleType {
       Self::Json => write!(f, "JSON"),
       Self::Text => write!(f, "text"),
       Self::Url => write!(f, "url"),
+      Self::CssModule => write!(f, "css-module"),
       Self::Other(ty) => write!(f, "Other({ty})"),
     }
   }

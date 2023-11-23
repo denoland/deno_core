@@ -130,6 +130,7 @@ pub(crate) struct ModuleMapData {
     HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
   pub(crate) text_value_store: HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
   pub(crate) url_value_store: HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
+  pub(crate) css_value_store: HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
 }
 
 impl ModuleMapData {

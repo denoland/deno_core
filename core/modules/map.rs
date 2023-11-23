@@ -307,6 +307,11 @@ impl ModuleMap {
           module_url_found,
           code
         )?,
+        ModuleType::CssModule => self.new_css_module_module(
+          scope,
+          module_url_found,
+          code,
+        )?,
         ModuleType::Buffer => unimplemented!(),
       },
     };
@@ -440,6 +445,68 @@ impl ModuleMap {
 
     let id =
       self.data.borrow_mut().create_module_info(name, ModuleType::Url, handle, false, vec![]);
+
+    Ok(id)
+  }
+
+  pub(crate) fn new_css_module_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: ModuleName,
+    source: ModuleCode,
+  ) -> Result<ModuleId, ModuleError> {
+    let name_str = name.v8(scope);
+
+    let class_map = {
+      use lightningcss::stylesheet::{ParserOptions, StyleSheet};
+
+      let stylesheet = StyleSheet::parse(
+        source.as_str(),
+        ParserOptions {
+          filename: name.as_str().to_string(),
+          css_modules: Some(Default::default()),
+          ..Default::default()
+        },
+      )
+      .unwrap();
+
+      let to_css_result = stylesheet.to_css(Default::default()).unwrap();
+      to_css_result
+        .exports
+        .unwrap()
+        .into_iter()
+        .map(|(key, value)| (key, value.name))
+        .collect::<HashMap<String, String>>()
+    };
+
+    
+    let class_map_obj = serde_v8::to_v8(scope, class_map).unwrap();
+
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let export_names = [v8::String::new(tc_scope, "default").unwrap()];
+    let module = v8::Module::create_synthetic_module(
+      tc_scope,
+      name_str,
+      &export_names,
+      css_module_evaluation_steps,
+    );
+
+    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
+    let value_handle = v8::Global::<v8::Value>::new(tc_scope, class_map_obj);
+    self
+      .data
+      .borrow_mut()
+      .css_value_store
+      .insert(handle.clone(), value_handle);
+
+    let id = self.data.borrow_mut().create_module_info(
+      name,
+      ModuleType::CssModule,
+      handle,
+      false,
+      vec![],
+    );
 
     Ok(id)
   }
@@ -1449,6 +1516,42 @@ fn text_module_evaluation_steps<'a>(
     .data
     .borrow_mut()
     .text_value_store
+    .remove(&handle)
+    .unwrap();
+  let value_local = v8::Local::new(tc_scope, value_handle);
+
+  let name = v8::String::new(tc_scope, "default").unwrap();
+  // This should never fail
+  assert!(
+    module.set_synthetic_module_export(tc_scope, name, value_local)
+      == Some(true)
+  );
+  assert!(!tc_scope.has_caught());
+
+  // Since TLA is active we need to return a promise.
+  let resolver = v8::PromiseResolver::new(tc_scope).unwrap();
+  let undefined = v8::undefined(tc_scope);
+  resolver.resolve(tc_scope, undefined.into());
+  Some(resolver.get_promise(tc_scope).into())
+}
+
+// Clippy thinks the return value doesn't need to be an Option, it's unaware
+// of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
+#[allow(clippy::unnecessary_wraps)]
+fn css_module_evaluation_steps<'a>(
+  context: v8::Local<'a, v8::Context>,
+  module: v8::Local<v8::Module>,
+) -> Option<v8::Local<'a, v8::Value>> {
+  // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
+  let scope = &mut unsafe { v8::CallbackScope::new(context) };
+  let tc_scope = &mut v8::TryCatch::new(scope);
+  let module_map = JsRealm::module_map_from(tc_scope);
+
+  let handle = v8::Global::<v8::Module>::new(tc_scope, module);
+  let value_handle = module_map
+    .data
+    .borrow_mut()
+    .css_value_store
     .remove(&handle)
     .unwrap();
   let value_local = v8::Local::new(tc_scope, value_handle);

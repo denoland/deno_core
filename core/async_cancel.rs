@@ -761,7 +761,7 @@ mod tests {
           [Err(Canceled), Err(Canceled), Ok("C"), Err(Canceled)]
         ),
         1 => assert_eq!(results, [Err(Canceled), Err(Canceled)]),
-        2 => assert_eq!(results, []),
+        2 => assert_eq!(results.len(), 0),
         3 => assert_eq!(results, [Ok("G")]),
         4 => assert_eq!(results, [Err(Canceled), Err(Canceled)]),
         5 => assert_eq!(results, [Ok("J"), Ok("K")]),

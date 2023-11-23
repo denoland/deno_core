@@ -231,6 +231,8 @@ impl ModuleLoader for FsModuleLoader {
           ModuleType::Json
         } else if ext == "txt" {
           ModuleType::Text
+        } else if ext == "css" {
+          ModuleType::CssModule
         } else {
           ModuleType::JavaScript
         }
