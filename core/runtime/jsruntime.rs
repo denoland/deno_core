@@ -1648,10 +1648,7 @@ impl JsRuntime {
         // pass, will be polled again
       } else {
         return Poll::Ready(Err(
-          find_and_report_stalled_level_await_in_any_realm(
-            scope,
-            &realm.0,
-          ),
+          find_and_report_stalled_level_await_in_any_realm(scope, &realm.0),
         ));
       }
     }
@@ -1665,10 +1662,7 @@ impl JsRuntime {
         // pass, will be polled again
       } else if realm.modules_idle() {
         return Poll::Ready(Err(
-          find_and_report_stalled_level_await_in_any_realm(
-            scope,
-            &realm.0,
-          ),
+          find_and_report_stalled_level_await_in_any_realm(scope, &realm.0),
         ));
       } else {
         let state = self.inner.state.borrow_mut();
