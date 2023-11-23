@@ -8,7 +8,6 @@ use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::Stream;
 use futures::stream::TryStreamExt;
-use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -24,6 +23,7 @@ use std::task::Poll;
 
 mod loaders;
 mod map;
+mod module_map_data;
 
 #[cfg(test)]
 mod tests;
@@ -442,65 +442,27 @@ impl RecursiveModuleLoad {
     module_request: &ModuleRequest,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let expected_asserted_module_type = module_source.module_type.into();
-    let module_url_found = module_source.module_url_found;
-    let module_url_specified = module_source.module_url_specified;
-
-    if module_request.asserted_module_type != expected_asserted_module_type {
+    let asserted_module_type = module_request.asserted_module_type.clone();
+    if asserted_module_type != module_source.module_type {
       return Err(ModuleError::Other(generic_error(format!(
         "Expected a \"{}\" module but loaded a \"{}\" module.",
-        module_request.asserted_module_type, module_source.module_type,
+        asserted_module_type, module_source.module_type,
       ))));
     }
 
-    // Register the module in the module map unless it's already there. If the
-    // specified URL and the "true" URL are different, register the alias.
-    let module_url_found = if let Some(module_url_found) = module_url_found {
-      let (module_url_found1, module_url_found2) =
-        module_url_found.into_cheap_copy();
-      self.module_map_rc.alias(
-        module_url_specified,
-        &expected_asserted_module_type,
-        module_url_found1,
-      );
-      module_url_found2
-    } else {
-      module_url_specified
-    };
-
-    let maybe_module_id = self
-      .module_map_rc
-      .get_id(&module_url_found, &expected_asserted_module_type);
-    let module_id = match maybe_module_id {
-      Some(id) => {
-        debug!(
-          "Already-registered module fetched again: {:?}",
-          module_url_found
-        );
-        id
-      }
-      None => match module_source.module_type {
-        ModuleType::JavaScript => self.module_map_rc.new_es_module(
-          scope,
-          self.is_currently_loading_main_module(),
-          module_url_found,
-          module_source.code,
-          self.is_dynamic_import(),
-        )?,
-        ModuleType::Json => self.module_map_rc.new_json_module(
-          scope,
-          module_url_found,
-          module_source.code,
-        )?,
-      },
-    };
+    let module_id = self.module_map_rc.new_module(
+      scope,
+      self.is_currently_loading_main_module(),
+      self.is_dynamic_import(),
+      module_source,
+    )?;
 
     self.register_and_recurse_inner(module_id, module_request);
 
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
       self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(module_source.module_type.into());
+      self.root_asserted_module_type = Some(asserted_module_type);
       self.state = LoadState::LoadingImports;
     }
     if self.pending.is_empty() {

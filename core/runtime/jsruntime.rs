@@ -744,10 +744,16 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
-    let module_map = Rc::new(ModuleMap::new(loader));
-    if let Some(snapshotted_data) = snapshotted_data {
-      module_map.update_with_snapshotted_data(scope, snapshotted_data);
-    }
+    let module_map = if let Some(snapshotted_data) = snapshotted_data {
+      Rc::new(ModuleMap::new_from_snapshotted_data(
+        loader,
+        scope,
+        snapshotted_data,
+      ))
+    } else {
+      Rc::new(ModuleMap::new(loader))
+    };
+
     context.set_slot(scope, module_map.clone());
 
     let main_realm = {
