@@ -42,6 +42,7 @@ use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
+use futures::task::AtomicWaker;
 use futures::Future;
 use smallvec::SmallVec;
 use std::any::Any;
@@ -311,6 +312,7 @@ pub struct JsRuntimeState {
   /// It will be retrieved by `exception_to_err_result` and used as an error
   /// instead of any other exceptions.
   pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
+  waker: Arc<AtomicWaker>,
   // TODO(nayeemrmn): This is polled in `exception_to_err_result()` which is
   // flimsy. Try to poll it similarly to `pending_promise_rejections`.
   dispatched_exception: Cell<Option<v8::Global<v8::Value>>>,
@@ -563,7 +565,6 @@ impl JsRuntime {
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
-    let op_state = Rc::new(RefCell::new(op_state));
 
     // Collect event-loop middleware, global template middleware, global object
     // middleware, and additional ExternalReferences from extensions.
@@ -604,6 +605,8 @@ impl JsRuntime {
       .validate_import_attributes_cb
       .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
 
+    let waker = op_state.waker.clone();
+    let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
       source_map_getter: options.source_map_getter.map(Rc::new),
       source_map_cache: Default::default(),
@@ -615,6 +618,7 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       validate_import_attributes_cb,
+      waker,
     });
 
     let weak = Rc::downgrade(&state_rc);
@@ -1508,13 +1512,7 @@ impl JsRuntime {
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
     let has_inspector = self.inner.state.has_inspector.get();
-    self
-      .inner
-      .state
-      .op_state
-      .borrow()
-      .waker
-      .register(cx.waker());
+    self.inner.state.waker.register(cx.waker());
 
     if has_inspector {
       // We poll the inspector first.
@@ -1639,14 +1637,14 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
         || maybe_scheduling
       {
-        self.inner.state.op_state.borrow().waker.wake();
+        self.inner.state.waker.wake();
       } else
       // If ops were dispatched we may have progress on pending modules that we should re-check
       if (pending_state.has_pending_module_evaluation
         || pending_state.has_pending_dyn_module_evaluation)
         && dispatched_ops
       {
-        self.inner.state.op_state.borrow().waker.wake();
+        self.inner.state.waker.wake();
       }
     }
 
@@ -1682,7 +1680,7 @@ impl JsRuntime {
         // evaluation may complete during this, in which case the counter will
         // reset.
         realm.increment_modules_idle();
-        self.inner.state.op_state.borrow().waker.wake();
+        self.inner.state.waker.wake();
       }
     }
 
@@ -1865,7 +1863,7 @@ impl JsRuntimeState {
   /// after initiating new dynamic import load.
   pub fn notify_new_dynamic_import(&self) {
     // Notify event loop to poll again soon.
-    self.op_state.borrow().waker.wake();
+    self.waker.wake();
   }
 
   /// Performs an action with the inspector, if we have one
