@@ -1213,7 +1213,7 @@ impl JsRuntime {
       let promise = if args.is_empty() {
         cb.call(scope, this, &[])
       } else {
-        let mut local_args: SmallVec<[v8::Local<v8::Value>; 32]> =
+        let mut local_args: SmallVec<[v8::Local<v8::Value>; 8]> =
           SmallVec::with_capacity(args.len());
         for v in args {
           local_args.push(v8::Local::new(scope, v));
