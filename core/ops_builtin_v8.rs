@@ -74,14 +74,18 @@ pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   };
 }
 
-#[op2(fast)]
-pub fn op_has_tick_scheduled(state: &JsRuntimeState) -> bool {
-  state.has_tick_scheduled
+#[op2]
+pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
+  JsRealm::state_from_scope(scope)
+    .borrow()
+    .has_next_tick_scheduled
 }
 
-#[op2(fast)]
-pub fn op_set_has_tick_scheduled(state: &mut JsRuntimeState, v: bool) {
-  state.has_tick_scheduled = v;
+#[op2]
+pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
+  JsRealm::state_from_scope(scope)
+    .borrow_mut()
+    .has_next_tick_scheduled = v;
 }
 
 #[derive(Serialize)]

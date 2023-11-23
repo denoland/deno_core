@@ -68,6 +68,7 @@ pub(crate) struct ContextState {
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
+  pub(crate) has_next_tick_scheduled: bool,
 }
 
 /// A representation of a JavaScript realm tied to a [`JsRuntime`], that allows

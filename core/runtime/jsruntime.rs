@@ -302,7 +302,6 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) has_tick_scheduled: bool,
   pub(crate) source_map_getter: Option<Rc<Box<dyn SourceMapGetter>>>,
   pub(crate) source_map_cache: Rc<RefCell<SourceMapCache>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
@@ -607,7 +606,6 @@ impl JsRuntime {
       .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
 
     let state_rc = Rc::new(RefCell::new(JsRuntimeState {
-      has_tick_scheduled: false,
       source_map_getter: options.source_map_getter.map(Rc::new),
       source_map_cache: Default::default(),
       shared_array_buffer_store: options.shared_array_buffer_store,
@@ -1576,12 +1574,8 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let dispatched_ops = Self::do_js_event_loop_tick_realm(
-      cx,
-      scope,
-      &self.inner.state,
-      &realm.0.context_state,
-    )?;
+    let dispatched_ops =
+      Self::do_js_event_loop_tick_realm(cx, scope, &realm.0.context_state)?;
     realm.0.check_promise_rejections(scope)?;
 
     // Event loop middlewares
@@ -1602,7 +1596,6 @@ impl JsRuntime {
     let pending_state = {
       EventLoopPendingState::new(
         scope,
-        &self.inner.state.borrow(),
         &realm.0.context_state.borrow(),
         modules,
       )
@@ -1813,7 +1806,6 @@ impl EventLoopPendingState {
   /// Collect event loop state from all the sub-states.
   pub fn new(
     scope: &mut v8::HandleScope<()>,
-    runtime_state: &JsRuntimeState,
     state: &ContextState,
     modules: &ModuleMap,
   ) -> Self {
@@ -1829,7 +1821,7 @@ impl EventLoopPendingState {
       has_pending_dyn_module_evaluation,
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
-      has_tick_scheduled: runtime_state.has_tick_scheduled,
+      has_tick_scheduled: state.has_next_tick_scheduled,
     }
   }
 
@@ -1838,9 +1830,7 @@ impl EventLoopPendingState {
     let module_map = JsRealm::module_map_from(scope);
     let context_state = JsRealm::state_from_scope(scope);
     let context_state = context_state.borrow();
-    let runtime_state = JsRuntime::state_from(scope);
-    let runtime_state = runtime_state.borrow();
-    Self::new(scope, &runtime_state, &context_state, &module_map)
+    Self::new(scope, &context_state, &module_map)
   }
 
   pub fn is_pending(&self) -> bool {
@@ -1957,10 +1947,8 @@ impl JsRuntime {
   fn do_js_event_loop_tick_realm(
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-    state: &RefCell<JsRuntimeState>,
     context_state: &RefCell<ContextState>,
   ) -> Result<bool, Error> {
-    let state = state.borrow();
     let mut context_state = context_state.borrow_mut();
     let mut dispatched_ops = false;
 
@@ -2009,7 +1997,7 @@ impl JsRuntime {
       });
     }
 
-    let has_tick_scheduled = state.has_tick_scheduled;
+    let has_tick_scheduled = context_state.has_next_tick_scheduled;
     dispatched_ops |= has_tick_scheduled;
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
     args.push(has_tick_scheduled.into());
@@ -2020,7 +2008,6 @@ impl JsRuntime {
     let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
     let this = v8::undefined(tc_scope).into();
 
-    drop(state);
     drop(context_state);
 
     js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());

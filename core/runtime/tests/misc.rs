@@ -735,7 +735,12 @@ fn test_has_tick_scheduled() {
   assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
 
-  runtime.inner.state.borrow_mut().has_tick_scheduled = false;
+  runtime
+    .main_realm()
+    .0
+    .state()
+    .borrow_mut()
+    .has_next_tick_scheduled = false;
   assert!(matches!(
     runtime.poll_event_loop(cx, false),
     Poll::Ready(Ok(()))
