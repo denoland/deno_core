@@ -838,7 +838,7 @@ impl JsRuntime {
 
   #[inline(always)]
   /// Create a scope on the stack with the given context
-  fn with_runtime_scope<'s, T>(
+  fn with_context_scope<'s, T>(
     isolate: *mut v8::Isolate,
     context: *mut v8::Context,
     f: impl FnOnce(&mut v8::HandleScope<'s>) -> T,
@@ -1310,7 +1310,7 @@ impl JsRuntime {
     cx: &mut Context,
     global: &v8::Global<v8::Value>,
   ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
-    Self::with_runtime_scope(
+    Self::with_context_scope(
       self.v8_isolate_ptr(),
       self.inner.main_realm.context_ptr(),
       |scope| self.poll_value_inner(cx, scope, global),
@@ -1449,7 +1449,7 @@ impl JsRuntime {
     cx: &mut Context,
     wait_for_inspector: bool,
   ) -> Poll<Result<(), Error>> {
-    Self::with_runtime_scope(
+    Self::with_context_scope(
       self.v8_isolate_ptr(),
       self.inner.main_realm.context_ptr(),
       |scope| {
@@ -1475,7 +1475,7 @@ impl JsRuntime {
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
     let isolate = self.v8_isolate_ptr();
-    Self::with_runtime_scope(
+    Self::with_context_scope(
       isolate,
       self.inner.main_realm.context_ptr(),
       move |scope| self.poll_event_loop_inner(cx, scope, poll_options),
