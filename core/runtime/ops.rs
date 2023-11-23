@@ -1465,7 +1465,6 @@ mod tests {
   #[tokio::test]
   pub async fn test_jsruntimestate() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(10000, "op_jsruntimestate", "op_jsruntimestate()")?;
-    run_test2(10000, "op_jsruntimestate_mut", "op_jsruntimestate_mut()")?;
     Ok(())
   }
 

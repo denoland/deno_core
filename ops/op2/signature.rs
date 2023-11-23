@@ -1838,7 +1838,7 @@ mod tests {
   );
   test!(
     fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
-    (RcRefCell(JsRuntimeState)) -> Infallible(Void)
+    (Rc(JsRuntimeState)) -> Infallible(Void)
   );
   test!(
     fn op_isolate(isolate: *mut v8::Isolate);

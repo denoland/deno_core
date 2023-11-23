@@ -760,8 +760,8 @@ fn map_arg_to_v8_fastcall_type(
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)
     | Arg::Ref(_, Special::OpState)
-    | Arg::RcRefCell(Special::JsRuntimeState)
-    | Arg::Ref(_, Special::JsRuntimeState)
+    | Arg::Rc(Special::JsRuntimeState)
+    | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
     | Arg::OptionState(..)

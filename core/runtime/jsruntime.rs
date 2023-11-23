@@ -1869,11 +1869,11 @@ impl JsRuntimeState {
     &self,
     mut f: impl FnMut(&JsRuntimeInspector) -> T,
   ) -> Option<T> {
-    if let Some(inspector) = self.inspector.borrow().as_ref() {
-      Some(f(&inspector.borrow()))
-    } else {
-      None
-    }
+    self
+      .inspector
+      .borrow()
+      .as_ref()
+      .map(|inspector| f(&inspector.borrow()))
   }
 
   pub(crate) fn has_dispatched_exception(&self) -> bool {
@@ -1900,17 +1900,15 @@ impl JsRuntimeState {
     scope: &mut v8::HandleScope<'s>,
   ) -> Option<v8::Local<'s, v8::Value>> {
     // SAFETY: we limit access to this cell to this method only
-    if let Some(global) = unsafe {
+    unsafe {
       self
         .dispatched_exception
         .as_ptr()
         .as_ref()
         .unwrap_unchecked()
-    } {
-      Some(v8::Local::new(scope, global))
-    } else {
-      None
     }
+    .as_ref()
+    .map(|global| v8::Local::new(scope, global))
   }
 }
 
