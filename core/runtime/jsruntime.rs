@@ -42,9 +42,11 @@ use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::channel::oneshot;
 use futures::future::poll_fn;
+use futures::task::AtomicWaker;
 use futures::Future;
 use smallvec::SmallVec;
 use std::any::Any;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -117,7 +119,7 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
   main_realm: ManuallyDrop<JsRealm>,
-  pub(crate) state: ManuallyDropRc<RefCell<JsRuntimeState>>,
+  pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
 }
 
@@ -126,9 +128,8 @@ impl InnerIsolateState {
   /// after we've torn down the contexts. If the inspector is not correctly torn down, random crashes
   /// happen in tests (and possibly for users using the inspector).
   pub fn prepare_for_cleanup(&mut self) {
-    let mut state = self.state.borrow_mut();
-    let inspector = state.inspector.take();
-    state.op_state.borrow_mut().clear();
+    let inspector = self.state.inspector.take();
+    self.state.op_state.borrow_mut().clear();
     if let Some(inspector) = inspector {
       assert_eq!(
         Rc::strong_count(&inspector),
@@ -144,7 +145,7 @@ impl InnerIsolateState {
     let state_ptr = self.v8_isolate.get_data(STATE_DATA_OFFSET);
     // SAFETY: We are sure that it's a valid pointer for whole lifetime of
     // the runtime.
-    _ = unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
+    _ = unsafe { Rc::from_raw(state_ptr as *const JsRuntimeState) };
 
     unsafe {
       ManuallyDrop::take(&mut self.main_realm).0.destroy();
@@ -310,11 +311,14 @@ pub struct JsRuntimeState {
   /// The error that was passed to an `op_dispatch_exception` call.
   /// It will be retrieved by `exception_to_err_result` and used as an error
   /// instead of any other exceptions.
+  pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
+  waker: Arc<AtomicWaker>,
   // TODO(nayeemrmn): This is polled in `exception_to_err_result()` which is
   // flimsy. Try to poll it similarly to `pending_promise_rejections`.
-  pub(crate) dispatched_exception: Option<v8::Global<v8::Value>>,
-  pub(crate) inspector: Option<Rc<RefCell<JsRuntimeInspector>>>,
-  pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
+  dispatched_exception: Cell<Option<v8::Global<v8::Value>>>,
+  /// Accessed through [`JsRuntimeState::with_inspector`].
+  inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
+  has_inspector: Cell<bool>,
 }
 
 fn v8_init(
@@ -517,14 +521,12 @@ impl JsRuntime {
     JsRuntime::new_inner(options, false)
   }
 
-  pub(crate) fn state_from(
-    isolate: &v8::Isolate,
-  ) -> Rc<RefCell<JsRuntimeState>> {
+  pub(crate) fn state_from(isolate: &v8::Isolate) -> Rc<JsRuntimeState> {
     let state_ptr = isolate.get_data(STATE_DATA_OFFSET);
     let state_rc =
       // SAFETY: We are sure that it's a valid pointer for whole lifetime of
       // the runtime.
-      unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
+      unsafe { Rc::from_raw(state_ptr as *const JsRuntimeState) };
     let state = state_rc.clone();
     std::mem::forget(state_rc);
     state
@@ -533,7 +535,6 @@ impl JsRuntime {
   /// Returns the `OpState` associated with the passed `Isolate`.
   pub fn op_state_from(isolate: &v8::Isolate) -> Rc<RefCell<OpState>> {
     let state = Self::state_from(isolate);
-    let state = state.borrow();
     state.op_state.clone()
   }
 
@@ -564,7 +565,6 @@ impl JsRuntime {
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
-    let op_state = Rc::new(RefCell::new(op_state));
 
     // Collect event-loop middleware, global template middleware, global object
     // middleware, and additional ExternalReferences from extensions.
@@ -605,17 +605,21 @@ impl JsRuntime {
       .validate_import_attributes_cb
       .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
 
-    let state_rc = Rc::new(RefCell::new(JsRuntimeState {
+    let waker = op_state.waker.clone();
+    let op_state = Rc::new(RefCell::new(op_state));
+    let state_rc = Rc::new(JsRuntimeState {
       source_map_getter: options.source_map_getter.map(Rc::new),
       source_map_cache: Default::default(),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       op_state: op_state.clone(),
-      dispatched_exception: None,
+      dispatched_exception: None.into(),
       // Some fields are initialized later after isolate is created
-      inspector: None,
+      inspector: None.into(),
+      has_inspector: false.into(),
       validate_import_attributes_cb,
-    }));
+      waker,
+    });
 
     let weak = Rc::downgrade(&state_rc);
     let context_state = Rc::new(RefCell::new(ContextState::default()));
@@ -753,8 +757,8 @@ impl JsRuntime {
         module_map.clone(),
         state_rc.clone(),
       );
-      let mut state = state_rc.borrow_mut();
-      state.inspector = inspector;
+      state_rc.has_inspector.set(inspector.is_some());
+      *state_rc.inspector.borrow_mut() = inspector;
       main_realm
     };
     let main_realm = JsRealm::new(main_realm);
@@ -821,7 +825,7 @@ impl JsRuntime {
 
   #[inline]
   pub fn inspector(&mut self) -> Rc<RefCell<JsRuntimeInspector>> {
-    self.inner.state.borrow().inspector()
+    self.inner.state.inspector()
   }
 
   /// Returns the extensions that this runtime is using (including internal ones).
@@ -1122,8 +1126,7 @@ impl JsRuntime {
   /// Returns the runtime's op state, which can be used to maintain ops
   /// and access resources between op calls.
   pub fn op_state(&mut self) -> Rc<RefCell<OpState>> {
-    let state = self.inner.state.borrow();
-    state.op_state.clone()
+    self.inner.state.op_state.clone()
   }
 
   /// Returns the runtime's op names, ordered by OpId.
@@ -1305,7 +1308,8 @@ impl JsRuntime {
   }
 
   pub fn maybe_init_inspector(&mut self) {
-    if self.inner.state.borrow().inspector.is_some() {
+    let inspector = &mut self.inner.state.inspector.borrow_mut();
+    if inspector.is_some() {
       return;
     }
 
@@ -1316,8 +1320,8 @@ impl JsRuntime {
     );
     let context = v8::Local::new(scope, context);
 
-    let mut state = self.inner.state.borrow_mut();
-    state.inspector = Some(JsRuntimeInspector::new(
+    self.inner.state.has_inspector.set(true);
+    **inspector = Some(JsRuntimeInspector::new(
       scope,
       context,
       self.is_main_runtime,
@@ -1507,12 +1511,8 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    let has_inspector: bool;
-    {
-      let state = self.inner.state.borrow();
-      has_inspector = state.inspector.is_some();
-      state.op_state.borrow().waker.register(cx.waker());
-    }
+    let has_inspector = self.inner.state.has_inspector.get();
+    self.inner.state.waker.register(cx.waker());
 
     if has_inspector {
       // We poll the inspector first.
@@ -1581,7 +1581,7 @@ impl JsRuntime {
     // Event loop middlewares
     let mut maybe_scheduling = false;
     {
-      let op_state = self.inner.state.borrow().op_state.clone();
+      let op_state = self.inner.state.op_state.clone();
       for f in &self.event_loop_middlewares {
         if f(op_state.clone(), cx) {
           maybe_scheduling = true;
@@ -1637,16 +1637,14 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
         || maybe_scheduling
       {
-        let state = self.inner.state.borrow();
-        state.op_state.borrow().waker.wake();
+        self.inner.state.waker.wake();
       } else
       // If ops were dispatched we may have progress on pending modules that we should re-check
       if (pending_state.has_pending_module_evaluation
         || pending_state.has_pending_dyn_module_evaluation)
         && dispatched_ops
       {
-        let state = self.inner.state.borrow();
-        state.op_state.borrow().waker.wake();
+        self.inner.state.waker.wake();
       }
     }
 
@@ -1678,12 +1676,11 @@ impl JsRuntime {
           find_and_report_stalled_level_await_in_any_realm(scope, &realm.0),
         ));
       } else {
-        let state = self.inner.state.borrow_mut();
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.
         realm.increment_modules_idle();
-        state.op_state.borrow().waker.wake();
+        self.inner.state.waker.wake();
       }
     }
 
@@ -1859,14 +1856,65 @@ where
 
 impl JsRuntimeState {
   pub(crate) fn inspector(&self) -> Rc<RefCell<JsRuntimeInspector>> {
-    self.inspector.as_ref().unwrap().clone()
+    self.inspector.borrow().as_ref().unwrap().clone()
   }
 
   /// Called by `bindings::host_import_module_dynamically_callback`
   /// after initiating new dynamic import load.
-  pub fn notify_new_dynamic_import(&mut self) {
+  pub fn notify_new_dynamic_import(&self) {
     // Notify event loop to poll again soon.
-    self.op_state.borrow().waker.wake();
+    self.waker.wake();
+  }
+
+  /// Performs an action with the inspector, if we have one
+  pub(crate) fn with_inspector<T>(
+    &self,
+    mut f: impl FnMut(&JsRuntimeInspector) -> T,
+  ) -> Option<T> {
+    // Fast path
+    if !self.has_inspector.get() {
+      return None;
+    }
+    self
+      .inspector
+      .borrow()
+      .as_ref()
+      .map(|inspector| f(&inspector.borrow()))
+  }
+
+  pub(crate) fn has_dispatched_exception(&self) -> bool {
+    // SAFETY: we limit access to this cell to this method only
+    unsafe {
+      self
+        .dispatched_exception
+        .as_ptr()
+        .as_ref()
+        .unwrap_unchecked()
+        .is_some()
+    }
+  }
+
+  pub(crate) fn set_dispatched_exception(
+    &self,
+    exception: v8::Global<v8::Value>,
+  ) {
+    self.dispatched_exception.set(Some(exception))
+  }
+
+  pub(crate) fn get_dispatched_exception_as_local<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> Option<v8::Local<'s, v8::Value>> {
+    // SAFETY: we limit access to this cell to this method only
+    unsafe {
+      self
+        .dispatched_exception
+        .as_ptr()
+        .as_ref()
+        .unwrap_unchecked()
+    }
+    .as_ref()
+    .map(|global| v8::Local::new(scope, global))
   }
 }
 

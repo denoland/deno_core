@@ -238,8 +238,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
     if self.for_storage {
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
       let backing_store = shared_array_buffer.get_backing_store();
       let id = shared_array_buffer_store.insert(backing_store);
@@ -259,8 +258,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
       self.throw_data_clone_error(scope, message);
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(compiled_wasm_module_store) = &state.compiled_wasm_module_store
     {
       let compiled_wasm_module = module.get_compiled_module();
@@ -301,8 +299,7 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
     if self.for_storage {
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
       let backing_store = shared_array_buffer_store.take(transfer_id)?;
       let shared_array_buffer =
@@ -321,8 +318,7 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
     if self.for_storage {
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(compiled_wasm_module_store) = &state.compiled_wasm_module_store
     {
       let compiled_module = compiled_wasm_module_store.take(clone_id)?;
@@ -407,8 +403,7 @@ pub fn op_serialize(
   value_serializer.write_header();
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     for index in 0..transferred_array_buffers.length() {
       let i = v8::Number::new(scope, index as f64).into();
       let buf = transferred_array_buffers.get(scope, i).unwrap();
@@ -491,8 +486,7 @@ pub fn op_deserialize<'a>(
   }
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
       for i in 0..transferred_array_buffers.length() {
         let i = v8::Number::new(scope, i as f64).into();
@@ -718,9 +712,8 @@ pub fn op_set_wasm_streaming_callback(
         .as_ref()
         .unwrap()
         .clone();
-      let state_rc = JsRuntime::state_from(scope);
-      let streaming_rid = state_rc
-        .borrow()
+      let state = JsRuntime::state_from(scope);
+      let streaming_rid = state
         .op_state
         .borrow_mut()
         .resource_table
@@ -781,17 +774,16 @@ pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
 ) {
-  let state_rc = JsRuntime::state_from(scope);
-  let mut state = state_rc.borrow_mut();
-  if let Some(inspector) = &state.inspector {
-    let inspector = inspector.borrow();
+  let state = JsRuntime::state_from(scope);
+  if let Some(true) = state.with_inspector(|inspector| {
     inspector.exception_thrown(scope, exception, false);
+    inspector.is_dispatching_message()
+  }) {
     // This indicates that the op is being called from a REPL. Skip termination.
-    if inspector.is_dispatching_message() {
-      return;
-    }
+    return;
   }
-  state.dispatched_exception = Some(v8::Global::new(scope, exception));
+
+  state.set_dispatched_exception(v8::Global::new(scope, exception));
   scope.terminate_execution();
 }
 
@@ -895,7 +887,7 @@ pub fn op_apply_source_map_filename(
 #[string]
 pub fn op_current_user_call_site(
   scope: &mut v8::HandleScope,
-  js_runtime_state: &mut JsRuntimeState,
+  js_runtime_state: &JsRuntimeState,
   #[buffer] ret_buf: &mut [u8],
 ) -> String {
   let stack_trace = v8::StackTrace::current_stack_trace(scope, 10).unwrap();
