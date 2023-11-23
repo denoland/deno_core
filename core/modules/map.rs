@@ -78,9 +78,12 @@ pub(crate) struct ModuleMap {
     RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
   preparing_dynamic_imports:
     RefCell<FuturesUnordered<Pin<Box<PrepareLoadFuture>>>>,
+  preparing_dynamic_imports_pending: Cell<bool>,
   pending_dynamic_imports:
     RefCell<FuturesUnordered<StreamFuture<RecursiveModuleLoad>>>,
+  pending_dynamic_imports_pending: Cell<bool>,
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
+  pending_dyn_mod_evaluations_pending: Cell<bool>,
   data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
@@ -474,8 +477,11 @@ impl ModuleMap {
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
       preparing_dynamic_imports: Default::default(),
+      preparing_dynamic_imports_pending: Default::default(),
       pending_dynamic_imports: Default::default(),
+      pending_dynamic_imports_pending: Default::default(),
       pending_dyn_mod_evaluations: Default::default(),
+      pending_dyn_mod_evaluations_pending: Default::default(),
       data: Default::default(),
     }
   }
@@ -949,15 +955,16 @@ impl ModuleMap {
       .preparing_dynamic_imports
       .borrow_mut()
       .push(fut);
+    module_map_rc.preparing_dynamic_imports_pending.set(true);
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {
-    !(self.preparing_dynamic_imports.borrow().is_empty()
-      && self.pending_dynamic_imports.borrow().is_empty())
+    self.preparing_dynamic_imports_pending.get()
+      || self.pending_dynamic_imports_pending.get()
   }
 
   pub(crate) fn has_pending_dyn_module_evaluation(&self) -> bool {
-    !self.pending_dyn_mod_evaluations.borrow().is_empty()
+    self.pending_dyn_mod_evaluations_pending.get()
   }
 
   fn dynamic_import_module_evaluate(
@@ -1020,6 +1027,7 @@ impl ModuleMap {
         .pending_dyn_mod_evaluations
         .borrow_mut()
         .push(dyn_import_mod_evaluate);
+      self.pending_dyn_mod_evaluations_pending.set(true);
     } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
       return Err(
         generic_error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.")
@@ -1032,15 +1040,13 @@ impl ModuleMap {
   }
 
   // Returns true if some dynamic import was resolved.
-  pub(crate) fn evaluate_dyn_imports(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> bool {
-    let pending =
-      std::mem::take(self.pending_dyn_mod_evaluations.borrow_mut().deref_mut());
-    if pending.is_empty() {
+  fn evaluate_dyn_imports(&self, scope: &mut v8::HandleScope) -> bool {
+    if !self.pending_dyn_mod_evaluations_pending.get() {
       return false;
     }
+
+    let pending =
+      std::mem::take(self.pending_dyn_mod_evaluations.borrow_mut().deref_mut());
     let mut resolved_any = false;
     let mut still_pending = vec![];
     for pending_dyn_evaluate in pending {
@@ -1078,6 +1084,9 @@ impl ModuleMap {
         }
       }
     }
+    self
+      .pending_dyn_mod_evaluations_pending
+      .set(!still_pending.is_empty());
     *self.pending_dyn_mod_evaluations.borrow_mut() = still_pending;
     resolved_any
   }
@@ -1130,12 +1139,57 @@ impl ModuleMap {
     scope.perform_microtask_checkpoint();
   }
 
-  pub(crate) fn poll_prepare_dyn_imports(
+  /// Poll for progress in the module loading logic. Note that this takes a waker but
+  /// doesn't act like a normal polling method.
+  pub(crate) fn poll_progress(
     &self,
-    scope: &mut v8::HandleScope,
     cx: &mut Context,
+    scope: &mut v8::HandleScope,
+  ) -> Result<(), Error> {
+    let mut has_evaluated = true;
+
+    // Run in a loop so that dynamic imports that only depend on another
+    // dynamic import can be resolved in this event loop iteration.
+    //
+    // For example, a dynamically imported module like the following can be
+    // immediately resolved after `dependency.ts` is fully evaluated, but it
+    // wouldn't if not for this loop.
+    //
+    //    await delay(1000);
+    //    await import("./dependency.ts");
+    //    console.log("test")
+    //
+    // These dynamic import dependencies can be cross-realm:
+    //
+    //    await delay(1000);
+    //    await new ShadowRealm().importValue("./dependency.js", "default");
+    //
+    while has_evaluated {
+      has_evaluated = false;
+      loop {
+        let poll_imports = self.poll_prepare_dyn_imports(cx, scope)?;
+        assert!(poll_imports.is_ready());
+
+        let poll_imports = self.poll_dyn_imports(cx, scope)?;
+        assert!(poll_imports.is_ready());
+
+        if self.evaluate_dyn_imports(scope) {
+          has_evaluated = true;
+        } else {
+          break;
+        }
+      }
+    }
+
+    Ok(())
+  }
+
+  fn poll_prepare_dyn_imports(
+    &self,
+    cx: &mut Context,
+    scope: &mut v8::HandleScope,
   ) -> Poll<Result<(), Error>> {
-    if self.preparing_dynamic_imports.borrow().is_empty() {
+    if !self.preparing_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
 
@@ -1155,6 +1209,7 @@ impl ModuleMap {
               .pending_dynamic_imports
               .borrow_mut()
               .push(load.into_future());
+            self.pending_dynamic_imports_pending.set(true);
           }
           Err(err) => {
             let exception = to_v8_type_error(scope, err);
@@ -1166,16 +1221,19 @@ impl ModuleMap {
       }
 
       // There are no active dynamic import loads, or none are ready.
+      self
+        .preparing_dynamic_imports_pending
+        .set(!self.preparing_dynamic_imports.borrow().is_empty());
       return Poll::Ready(Ok(()));
     }
   }
 
-  pub(crate) fn poll_dyn_imports(
+  fn poll_dyn_imports(
     &self,
-    scope: &mut v8::HandleScope,
     cx: &mut Context,
+    scope: &mut v8::HandleScope,
   ) -> Poll<Result<(), Error>> {
-    if self.pending_dynamic_imports.borrow().is_empty() {
+    if !self.pending_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
 
@@ -1206,6 +1264,7 @@ impl ModuleMap {
                     .pending_dynamic_imports
                     .borrow_mut()
                     .push(load.into_future());
+                  self.pending_dynamic_imports_pending.set(true);
                 }
                 Err(err) => {
                   let exception = match err {
@@ -1245,6 +1304,9 @@ impl ModuleMap {
       }
 
       // There are no active dynamic import loads, or none are ready.
+      self
+        .pending_dynamic_imports_pending
+        .set(!self.pending_dynamic_imports.borrow().is_empty());
       return Poll::Ready(Ok(()));
     }
   }
