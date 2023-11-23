@@ -42,10 +42,11 @@ use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
-use futures::channel::oneshot;
 use futures::future::poll_fn;
+use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
+use futures::FutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
 use std::cell::Cell;
@@ -945,19 +946,19 @@ impl JsRuntime {
           let isolate = self.v8_isolate();
           let scope = &mut realm.handle_scope(isolate);
           let receiver = realm.mod_evaluate(scope, mod_id);
-          realm.evaluate_pending_module(scope);
+          module_map.evaluate_pending_module(scope);
           receiver
         };
 
         // After evaluate_pending_module, if the module isn't fully evaluated
         // and the resolver solved, it means the module or one of its imports
         // uses TLA.
-        match receiver.try_recv()? {
-          Some(result) => {
+        match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+          Poll::Ready(result) => {
             result
               .with_context(|| format!("Couldn't execute '{specifier}'"))?;
           }
-          None => {
+          Poll::Pending => {
             // Find the TLA location to display it on the panic.
             let location = {
               let scope = &mut realm.handle_scope(self.v8_isolate());
@@ -1566,7 +1567,7 @@ impl JsRuntime {
     }
 
     // Top level module
-    realm.evaluate_pending_module(scope);
+    modules.evaluate_pending_module(scope);
 
     // Get the pending state from the main realm, or all realms
     let pending_state = {
@@ -1787,7 +1788,8 @@ impl EventLoopPendingState {
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
-    let has_pending_module_evaluation = state.pending_mod_evaluate.is_some();
+    let has_pending_module_evaluation =
+      modules.pending_mod_evaluate.borrow().is_some();
     EventLoopPendingState {
       has_pending_refed_ops: num_pending_ops > num_unrefed_ops,
       has_pending_dyn_imports,
@@ -1907,7 +1909,6 @@ impl JsRuntime {
     realm.instantiate_module(scope, id)
   }
 
-  // TODO(bartlomieju): make it return `ModuleEvaluationFuture`?
   /// Evaluates an already instantiated ES module.
   ///
   /// Returns a receiver handle that resolves when module promise resolves.
@@ -1921,7 +1922,7 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> oneshot::Receiver<Result<(), Error>> {
+  ) -> impl Future<Output = Result<(), Error>> {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);

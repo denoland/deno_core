@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use crate::error::exception_to_err_result;
-use crate::error::generic_error;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
@@ -13,8 +12,8 @@ use crate::runtime::JsRuntimeState;
 use crate::JsRuntime;
 use anyhow::Error;
 use deno_unsync::JoinSet;
-use futures::channel::oneshot;
 use futures::stream::StreamExt;
+use futures::Future;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -45,13 +44,6 @@ impl Hasher for IdentityHasher {
   }
 }
 
-pub(crate) struct ModEvaluate {
-  promise: Option<v8::Global<v8::Promise>>,
-  pub(crate) has_evaluated: bool,
-  pub(crate) handled_promise_rejections: Vec<v8::Global<v8::Promise>>,
-  sender: oneshot::Sender<Result<(), Error>>,
-}
-
 #[derive(Default)]
 pub(crate) struct ContextState {
   pub(crate) js_event_loop_tick_cb: Option<Rc<v8::Global<v8::Function>>>,
@@ -61,7 +53,6 @@ pub(crate) struct ContextState {
   pub(crate) js_wasm_streaming_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) pending_promise_rejections:
     VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>,
-  pub(crate) pending_mod_evaluate: Option<ModEvaluate>,
   pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
   pub(crate) pending_ops: JoinSet<PendingOp>,
   // We don't explicitly re-read this prop but need the slice to live alongside
@@ -362,7 +353,6 @@ impl JsRealm {
     self.0.module_map().instantiate_module(scope, id)
   }
 
-  // TODO(bartlomieju): make it return `ModuleEvaluationFuture`?
   /// Evaluates an already instantiated ES module.
   ///
   /// Returns a receiver handle that resolves when module promise resolves.
@@ -377,121 +367,13 @@ impl JsRealm {
     &self,
     scope: &mut v8::HandleScope,
     id: ModuleId,
-  ) -> oneshot::Receiver<Result<(), Error>> {
-    let state_rc = self.0.state();
-    let module_map_rc = self.0.module_map();
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let module = module_map_rc
-      .get_handle(id)
-      .map(|handle| v8::Local::new(tc_scope, handle))
-      .expect("ModuleInfo not found");
-    let mut status = module.get_status();
-    assert_eq!(
-      status,
-      v8::ModuleStatus::Instantiated,
-      "{} {} ({})",
-      if status == v8::ModuleStatus::Evaluated {
-        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
-      } else {
-        "Module not instantiated"
-      },
-      module_map_rc.get_name_by_id(id).unwrap(),
+  ) -> impl Future<Output = Result<(), Error>> + Unpin {
+    self.0.module_map.mod_evaluate(
+      scope,
+      self.0.context_state.clone(),
+      self.0.runtime_state.clone(),
       id,
-    );
-
-    let (sender, receiver) = oneshot::channel();
-
-    // IMPORTANT: Top-level-await is enabled, which means that return value
-    // of module evaluation is a promise.
-    //
-    // Because that promise is created internally by V8, when error occurs during
-    // module evaluation the promise is rejected, and since the promise has no rejection
-    // handler it will result in call to `bindings::promise_reject_callback` adding
-    // the promise to pending promise rejection table - meaning JsRuntime will return
-    // error on next poll().
-    //
-    // This situation is not desirable as we want to manually return error at the
-    // end of this function to handle it further. It means we need to manually
-    // remove this promise from pending promise rejection table.
-    //
-    // For more details see:
-    // https://github.com/denoland/deno/issues/4908
-    // https://v8.dev/features/top-level-await#module-execution-order
-    {
-      let mut state = state_rc.borrow_mut();
-      assert!(
-        state.pending_mod_evaluate.is_none(),
-        "There is already pending top level module evaluation"
-      );
-      state.pending_mod_evaluate = Some(ModEvaluate {
-        promise: None,
-        has_evaluated: false,
-        handled_promise_rejections: vec![],
-        sender,
-      });
-    }
-
-    let maybe_value = module.evaluate(tc_scope);
-    {
-      let mut state = state_rc.borrow_mut();
-      let pending_mod_evaluate = state.pending_mod_evaluate.as_mut().unwrap();
-      pending_mod_evaluate.has_evaluated = true;
-    }
-
-    // Update status after evaluating.
-    status = module.get_status();
-
-    let has_dispatched_exception =
-      self.0.runtime_state.has_dispatched_exception();
-    if has_dispatched_exception {
-      // This will be overridden in `exception_to_err_result()`.
-      let exception = v8::undefined(tc_scope).into();
-      let pending_mod_evaluate = {
-        let mut state = state_rc.borrow_mut();
-        state.pending_mod_evaluate.take().unwrap()
-      };
-      pending_mod_evaluate
-        .sender
-        .send(exception_to_err_result(tc_scope, exception, false))
-        .expect("Failed to send module evaluation error.");
-    } else if let Some(value) = maybe_value {
-      assert!(
-        status == v8::ModuleStatus::Evaluated
-          || status == v8::ModuleStatus::Errored
-      );
-      let promise = v8::Local::<v8::Promise>::try_from(value)
-        .expect("Expected to get promise as module evaluation result");
-      let promise_global = v8::Global::new(tc_scope, promise);
-      let mut state = state_rc.borrow_mut();
-      {
-        let pending_mod_evaluate = state.pending_mod_evaluate.as_ref().unwrap();
-        let pending_rejection_was_already_handled = pending_mod_evaluate
-          .handled_promise_rejections
-          .contains(&promise_global);
-        if !pending_rejection_was_already_handled {
-          state
-            .pending_promise_rejections
-            .retain(|(key, _)| key != &promise_global);
-        }
-      }
-      let promise_global = v8::Global::new(tc_scope, promise);
-      state.pending_mod_evaluate.as_mut().unwrap().promise =
-        Some(promise_global);
-      tc_scope.perform_microtask_checkpoint();
-    } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      let pending_mod_evaluate = {
-        let mut state = state_rc.borrow_mut();
-        state.pending_mod_evaluate.take().unwrap()
-      };
-      pending_mod_evaluate.sender.send(Err(
-        generic_error("Cannot evaluate module, because JavaScript execution has been terminated.")
-      )).expect("Failed to send module evaluation error.");
-    } else {
-      assert!(status == v8::ModuleStatus::Errored);
-    }
-
-    receiver
+    )
   }
 
   pub(crate) fn modules_idle(&self) -> bool {
@@ -501,71 +383,6 @@ impl JsRealm {
   pub(crate) fn increment_modules_idle(&self) {
     let count = &self.0.module_map.dyn_module_evaluate_idle_counter;
     count.set(count.get() + 1)
-  }
-
-  /// "deno_core" runs V8 with Top Level Await enabled. It means that each
-  /// module evaluation returns a promise from V8.
-  /// Feature docs: https://v8.dev/features/top-level-await
-  ///
-  /// This promise resolves after all dependent modules have also
-  /// resolved. Each dependent module may perform calls to "import()" and APIs
-  /// using async ops will add futures to the runtime's event loop.
-  /// It means that the promise returned from module evaluation will
-  /// resolve only after all futures in the event loop are done.
-  ///
-  /// Thus during turn of event loop we need to check if V8 has
-  /// resolved or rejected the promise. If the promise is still pending
-  /// then another turn of event loop must be performed.
-  pub(in crate::runtime) fn evaluate_pending_module(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) {
-    let maybe_module_evaluation = self
-      .0
-      .context_state
-      .borrow_mut()
-      .pending_mod_evaluate
-      .take();
-    if maybe_module_evaluation.is_none() {
-      return;
-    }
-
-    let mut module_evaluation = maybe_module_evaluation.unwrap();
-    let state_rc = self.0.state();
-
-    let promise_global = module_evaluation.promise.clone().unwrap();
-    let promise = promise_global.open(scope);
-    let promise_state = promise.state();
-    match promise_state {
-      v8::PromiseState::Pending => {
-        // NOTE: `poll_event_loop` will decide if
-        // runtime would be woken soon
-        state_rc.borrow_mut().pending_mod_evaluate = Some(module_evaluation);
-      }
-      v8::PromiseState::Fulfilled => {
-        scope.perform_microtask_checkpoint();
-        // Receiver end might have been already dropped, ignore the result
-        let _ = module_evaluation.sender.send(Ok(()));
-        module_evaluation.handled_promise_rejections.clear();
-      }
-      v8::PromiseState::Rejected => {
-        let exception = promise.result(scope);
-        scope.perform_microtask_checkpoint();
-
-        // Receiver end might have been already dropped, ignore the result
-        if module_evaluation
-          .handled_promise_rejections
-          .contains(&promise_global)
-        {
-          let _ = module_evaluation.sender.send(Ok(()));
-          module_evaluation.handled_promise_rejections.clear();
-        } else {
-          let _ = module_evaluation
-            .sender
-            .send(exception_to_err_result(scope, exception, false));
-        }
-      }
-    }
   }
 
   /// Asynchronously load specified module and all of its dependencies.

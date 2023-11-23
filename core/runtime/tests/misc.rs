@@ -771,9 +771,8 @@ fn terminate_during_module_eval() {
   runtime.v8_isolate().terminate_execution();
 
   let mod_result =
-    futures::executor::block_on(runtime.mod_evaluate(module_id)).unwrap();
+    futures::executor::block_on(runtime.mod_evaluate(module_id)).unwrap_err();
   assert!(mod_result
-    .unwrap_err()
     .to_string()
     .contains("JavaScript execution has been terminated"));
 }
@@ -857,7 +856,8 @@ async fn test_set_promise_reject_callback_top_level_await() {
   static PROMISE_REJECT: AtomicUsize = AtomicUsize::new(0);
 
   #[op2(fast)]
-  fn op_promise_reject() -> Result<(), AnyError> {
+  fn op_promise_reject(promise_type: u32) -> Result<(), AnyError> {
+    eprintln!("{promise_type}");
     PROMISE_REJECT.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
@@ -869,7 +869,7 @@ async fn test_set_promise_reject_callback_top_level_await() {
     ascii_str!(
       r#"
   Deno.core.ops.op_set_promise_reject_callback((type, promise, reason) => {
-    Deno.core.ops.op_promise_reject();
+    Deno.core.ops.op_promise_reject(type);
   });
   throw new Error('top level throw');
   "#
@@ -888,7 +888,11 @@ async fn test_set_promise_reject_callback_top_level_await() {
     .unwrap();
   let receiver = runtime.mod_evaluate(id);
   runtime.run_event_loop(false).await.unwrap();
-  receiver.await.unwrap().unwrap_err();
+  let err = receiver.await.unwrap_err();
+  assert_eq!(
+    err.to_string(),
+    "Error: top level throw\n    at file:///main.js:5:9"
+  );
 
   assert_eq!(1, PROMISE_REJECT.load(Ordering::Relaxed));
 }

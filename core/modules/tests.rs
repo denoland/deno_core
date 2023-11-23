@@ -503,13 +503,13 @@ fn test_json_module() {
 
   let receiver = runtime.mod_evaluate(mod_a);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-  futures::executor::block_on(receiver).unwrap().unwrap();
+  futures::executor::block_on(receiver).unwrap();
 
   runtime.instantiate_module(mod_b).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_b);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-  futures::executor::block_on(receiver).unwrap().unwrap();
+  futures::executor::block_on(receiver).unwrap();
 }
 
 #[test]
@@ -1205,7 +1205,7 @@ fn import_meta_snapshot() {
     #[allow(clippy::let_underscore_future)]
     let eval_fut = runtime.mod_evaluate(main_id);
     futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-    futures::executor::block_on(eval_fut).unwrap().unwrap();
+    futures::executor::block_on(eval_fut).unwrap();
     runtime.snapshot()
   };
 
