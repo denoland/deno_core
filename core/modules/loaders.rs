@@ -229,6 +229,8 @@ impl ModuleLoader for FsModuleLoader {
         let ext = extension.to_string_lossy().to_lowercase();
         if ext == "json" {
           ModuleType::Json
+        } else if ext == "txt" {
+          ModuleType::Text
         } else {
           ModuleType::JavaScript
         }
