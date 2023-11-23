@@ -212,9 +212,8 @@ impl JsStackFrame {
     let l = message.get_line_number(scope)? as u32;
     // V8's column numbers are 0-based, we want 1-based.
     let c = message.get_start_column() as u32 + 1;
-    let state_rc = JsRuntime::state_from(scope);
+    let state = JsRuntime::state_from(scope);
     let (getter, cache) = {
-      let state = state_rc.borrow();
       (
         state.source_map_getter.clone(),
         state.source_map_cache.clone(),
@@ -308,9 +307,8 @@ impl JsError {
       frames = vec![stack_frame];
     }
     {
-      let state_rc = JsRuntime::state_from(scope);
+      let state = JsRuntime::state_from(scope);
       let (getter, cache) = {
-        let state = state_rc.borrow();
         (
           state.source_map_getter.clone(),
           state.source_map_cache.clone(),
@@ -440,9 +438,8 @@ impl JsError {
         }
       }
       {
-        let state_rc = JsRuntime::state_from(scope);
+        let state = JsRuntime::state_from(scope);
         let (getter, cache) = {
-          let state = state_rc.borrow();
           (
             state.source_map_getter.clone(),
             state.source_map_cache.clone(),
@@ -698,7 +695,7 @@ pub(crate) fn exception_to_err_result<T>(
   exception: v8::Local<v8::Value>,
   in_promise: bool,
 ) -> Result<T, Error> {
-  let state_rc = JsRuntime::state_from(scope);
+  let state = JsRuntime::state_from(scope);
 
   let was_terminating_execution = scope.is_execution_terminating();
   // Disable running microtasks for a moment. When upgrading to V8 v11.4
@@ -715,10 +712,12 @@ pub(crate) fn exception_to_err_result<T>(
     // If termination is the result of a `op_dispatch_exception` call, we want
     // to use the exception that was passed to it rather than the exception that
     // was passed to this function.
-    let state = state_rc.borrow();
-    exception = if let Some(exception) = &state.dispatched_exception {
-      v8::Local::new(scope, exception)
-    } else if was_terminating_execution && exception.is_null_or_undefined() {
+    if let Some(dispatched_exception) =
+      state.get_dispatched_exception_as_local(scope)
+    {
+      exception = dispatched_exception;
+    }
+    if was_terminating_execution && exception.is_null_or_undefined() {
       let message = v8::String::new(scope, "execution terminated").unwrap();
       v8::Exception::error(scope, message)
     } else {

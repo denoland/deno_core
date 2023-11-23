@@ -1101,7 +1101,7 @@ Only usable in `deno_core`.
 <td>
 
 ```text
-Rc<RefCell<JsRuntimeState>>
+Rc<JsRuntimeState>
 ```
 
 </td><td>

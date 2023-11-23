@@ -605,8 +605,7 @@ impl ModuleMap {
       // FIXME(bartomieju): there are no stack frames if exception
       // is thrown here
       {
-        let state_rc = JsRuntime::state_from(tc_scope);
-        let state = state_rc.borrow();
+        let state = JsRuntime::state_from(tc_scope);
         (state.validate_import_attributes_cb)(tc_scope, &assertions);
       }
 

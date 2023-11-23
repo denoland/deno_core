@@ -618,13 +618,9 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
-      quote!(let #arg_ident = &::std::cell::RefCell::borrow(&#js_runtime_state);)
+      quote!(let #arg_ident = &#js_runtime_state;)
     }
-    Arg::Ref(RefType::Mut, Special::JsRuntimeState) => {
-      *needs_js_runtime_state = true;
-      quote!(let #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#js_runtime_state);)
-    }
-    Arg::RcRefCell(Special::JsRuntimeState) => {
+    Arg::Rc(Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = #js_runtime_state.clone();)
     }

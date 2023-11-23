@@ -260,6 +260,7 @@ pub enum Arg {
   Buffer(BufferType, BufferMode, BufferSource),
   External(External),
   Ref(RefType, Special),
+  Rc(Special),
   RcRefCell(Special),
   Option(Special),
   OptionString(Strings),
@@ -326,6 +327,7 @@ impl Arg {
           Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
         }
       }
+      CRc(TSpecial(special)) => Ok(Arg::Rc(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
       COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
@@ -564,6 +566,7 @@ impl ParsedType {
 pub enum ParsedTypeContainer {
   CBare(ParsedType),
   COption(ParsedType),
+  CRc(ParsedType),
   CRcRefCell(ParsedType),
   COptionV8Local(ParsedType),
   COptionV8Global(ParsedType),
@@ -582,7 +585,9 @@ impl ParsedTypeContainer {
     match self {
       CV8Local(_) | COptionV8Local(_) => None,
       CV8Global(_) | COptionV8Global(_) => Some(&[AttributeModifier::Global]),
-      CBare(t) | COption(t) | CRcRefCell(t) => t.required_attributes(position),
+      CBare(t) | COption(t) | CRcRefCell(t) | CRc(t) => {
+        t.required_attributes(position)
+      }
     }
   }
 
@@ -1260,6 +1265,7 @@ fn parse_type_path(
       ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
       ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
       ( $( std :: rc :: )? Rc < RefCell < $ty:ty $(,)? > $(,)? > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
+      ( $( std :: rc :: )? Rc < $ty:ty $(,)? > ) => Ok(CRc(TSpecial(parse_type_special(position, attrs, &ty)?))),
       ( Option < $ty:ty $(,)? > ) => {
         match parse_type(position, attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
@@ -1831,7 +1837,7 @@ mod tests {
     (Ref(Mut, JsRuntimeState)) -> Infallible(Void)
   );
   test!(
-    fn op_js_runtime_state_rc(state: Rc<RefCell<JsRuntimeState>>);
+    fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
     (RcRefCell(JsRuntimeState)) -> Infallible(Void)
   );
   test!(
