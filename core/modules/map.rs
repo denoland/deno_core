@@ -88,6 +88,95 @@ pub(crate) struct ModuleMap {
   pub(crate) dyn_module_evaluate_idle_counter: Cell<u32>,
 }
 
+/// Map of [`ModuleName`] and [`AssertedModuleType`] to a data field.
+struct ModuleNameTypeMap<T> {
+  submaps: Vec<HashMap<ModuleName, T>>,
+  map_index: HashMap<AssertedModuleType, usize>,
+  len: usize,
+}
+
+impl<T> Default for ModuleNameTypeMap<T> {
+  fn default() -> Self {
+    Self {
+      submaps: Default::default(),
+      map_index: Default::default(),
+      len: 0,
+    }
+  }
+}
+
+impl<T> ModuleNameTypeMap<T> {
+  pub fn len(&self) -> usize {
+    self.len
+  }
+
+  fn map_index(&self, ty: &AssertedModuleType) -> Option<usize> {
+    self.map_index.get(ty).copied()
+  }
+
+  pub fn get<Q>(&self, ty: &AssertedModuleType, name: &Q) -> Option<&T>
+  where
+    ModuleName: std::borrow::Borrow<Q>,
+    Q: std::cmp::Eq + std::hash::Hash + ?Sized,
+  {
+    let Some(index) = self.map_index(ty) else {
+      return None;
+    };
+    let Some(map) = self.submaps.get(index) else {
+      return None;
+    };
+    map.get(name)
+  }
+
+  pub fn clear(&mut self) {
+    self.len = 0;
+    self.map_index.clear();
+    self.submaps.clear();
+  }
+
+  pub fn insert(
+    &mut self,
+    module_type: &AssertedModuleType,
+    name: FastString,
+    module: T,
+  ) {
+    let index = match self.map_index(module_type) {
+      Some(index) => index,
+      None => {
+        let index = self.submaps.len();
+        self.map_index.insert(module_type.clone(), index);
+        self.submaps.push(Default::default());
+        index
+      }
+    };
+
+    if self
+      .submaps
+      .get_mut(index)
+      .unwrap()
+      .insert(name, module)
+      .is_none()
+    {
+      self.len += 1;
+    }
+  }
+
+  /// Rather than providing an iterator, we provide a walk method. This is mainly because Rust
+  /// doesn't have generators.
+  pub fn walk(
+    &self,
+    mut f: impl FnMut(usize, &AssertedModuleType, &ModuleName, &T),
+  ) {
+    let mut i = 0;
+    for (ty, value) in self.map_index.iter() {
+      for (key, value) in self.submaps.get(*value).unwrap() {
+        f(i, ty, key, value);
+        i += 1;
+      }
+    }
+  }
+}
+
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
@@ -96,10 +185,8 @@ pub(crate) struct ModuleMapData {
   handles: Vec<v8::Global<v8::Module>>,
   /// The modules we have loaded so far.
   info: Vec<ModuleInfo>,
-  /// [`ModuleName`] to [`SymbolicModule`] for JS/WASM modules.
-  by_name_js: HashMap<ModuleName, SymbolicModule>,
-  /// [`ModuleName`] to [`SymbolicModule`] for JSON modules.
-  by_name_json: HashMap<ModuleName, SymbolicModule>,
+  /// [`ModuleName`] to [`SymbolicModule`] for modules.
+  by_name: ModuleNameTypeMap<SymbolicModule>,
   /// The next ID used for a load.
   next_load_id: ModuleLoadId,
   /// If a main module has been loaded, points to it by index.
@@ -116,25 +203,6 @@ impl ModuleMap {
     let id = data.next_load_id;
     data.next_load_id += 1;
     id + 1
-  }
-
-  /// Walk the currently registered modules (JS, WASM and JSON) along with their index and names.
-  fn walk_modules(
-    &self,
-    mut f: impl FnMut(usize, AssertedModuleType, &ModuleName, &SymbolicModule),
-  ) {
-    let mut i = 0;
-    for module_type in [
-      AssertedModuleType::JavaScriptOrWasm,
-      AssertedModuleType::Json,
-    ] {
-      self.by_name(module_type, |map| {
-        for (name, module) in map.iter() {
-          f(i, module_type, name, module);
-          i += 1;
-        }
-      });
-    }
   }
 
   #[cfg(debug_assertions)]
@@ -196,55 +264,51 @@ impl ModuleMap {
         )
         .unwrap();
         requests_arr.set_index(scope, 2 * i as u32, specifier.into());
-
-        let asserted_module_type =
-          v8::Integer::new(scope, request.asserted_module_type as i32);
-        requests_arr.set_index(
-          scope,
-          (2 * i) as u32 + 1,
-          asserted_module_type.into(),
-        );
+        let value = request.asserted_module_type.to_v8(scope);
+        requests_arr.set_index(scope, (2 * i) as u32 + 1, value);
       }
       module_info_arr.set_index(scope, 2, requests_arr.into());
 
-      let module_type = v8::Integer::new(scope, info.module_type as i32);
-      module_info_arr.set_index(scope, 3, module_type.into());
+      let module_type = info.module_type.to_v8(scope);
+      module_info_arr.set_index(scope, 3, module_type);
 
       info_arr.set_index(scope, i as u32, module_info_arr.into());
     }
     array.set_index(scope, 2, info_arr.into());
 
-    let length = self.data.borrow().by_name_js.len()
-      + self.data.borrow().by_name_json.len();
+    let length = self.data.borrow().by_name.len();
     let by_name_array = v8::Array::new(scope, length.try_into().unwrap());
-    self.walk_modules(|i, module_type, name, module| {
-      let arr = v8::Array::new(scope, 3);
+    self
+      .data
+      .borrow()
+      .by_name
+      .walk(|i, module_type, name, module| {
+        let arr = v8::Array::new(scope, 3);
 
-      let specifier = name.v8(scope);
-      arr.set_index(scope, 0, specifier.into());
+        let specifier = name.v8(scope);
+        arr.set_index(scope, 0, specifier.into());
+        let value = module_type.to_v8(scope);
+        arr.set_index(scope, 1, value);
 
-      let asserted_module_type = v8::Integer::new(scope, module_type as i32);
-      arr.set_index(scope, 1, asserted_module_type.into());
+        let symbolic_module: v8::Local<v8::Value> = match module {
+          SymbolicModule::Alias(alias) => {
+            let alias = v8::String::new_from_one_byte(
+              scope,
+              alias.as_bytes(),
+              v8::NewStringType::Normal,
+            )
+            .unwrap();
+            alias.into()
+          }
+          SymbolicModule::Mod(id) => {
+            let id = v8::Integer::new(scope, *id as i32);
+            id.into()
+          }
+        };
+        arr.set_index(scope, 2, symbolic_module);
 
-      let symbolic_module: v8::Local<v8::Value> = match module {
-        SymbolicModule::Alias(alias) => {
-          let alias = v8::String::new_from_one_byte(
-            scope,
-            alias.as_bytes(),
-            v8::NewStringType::Normal,
-          )
-          .unwrap();
-          alias.into()
-        }
-        SymbolicModule::Mod(id) => {
-          let id = v8::Integer::new(scope, *id as i32);
-          id.into()
-        }
-      };
-      arr.set_index(scope, 2, symbolic_module);
-
-      by_name_array.set_index(scope, i as u32, arr.into());
-    });
+        by_name_array.set_index(scope, i as u32, arr.into());
+      });
     array.set_index(scope, 3, by_name_array.into());
 
     let array_global = v8::Global::new(scope, array);
@@ -321,34 +385,19 @@ impl ModuleMap {
             .get_index(scope, (2 * i) as u32)
             .unwrap()
             .to_rust_string_lossy(scope);
-          let asserted_module_type_no = requests_arr
-            .get_index(scope, (2 * i + 1) as u32)
-            .unwrap()
-            .to_integer(scope)
-            .unwrap()
-            .value();
-          let asserted_module_type = match asserted_module_type_no {
-            0 => AssertedModuleType::JavaScriptOrWasm,
-            1 => AssertedModuleType::Json,
-            _ => unreachable!(),
-          };
+          let value =
+            requests_arr.get_index(scope, (2 * i + 1) as u32).unwrap();
+          let asserted_module_type =
+            AssertedModuleType::try_from_v8(scope, value).unwrap();
           requests.push(ModuleRequest {
             specifier,
             asserted_module_type,
           });
         }
 
-        let module_type_no = module_info_arr
-          .get_index(scope, 3)
-          .unwrap()
-          .to_integer(scope)
-          .unwrap()
-          .value();
-        let module_type = match module_type_no {
-          0 => ModuleType::JavaScript,
-          1 => ModuleType::Json,
-          _ => unreachable!(),
-        };
+        let value = module_info_arr.get_index(scope, 3).unwrap();
+        let module_type =
+          AssertedModuleType::try_from_v8(scope, value).unwrap();
 
         let main = self.data.borrow().main_module_id == Some(id);
         let module_info = ModuleInfo {
@@ -364,8 +413,7 @@ impl ModuleMap {
       self.data.borrow_mut().info = info;
     }
 
-    self.data.borrow_mut().by_name_js.clear();
-    self.data.borrow_mut().by_name_json.clear();
+    self.data.borrow_mut().by_name.clear();
 
     {
       let by_name_arr: v8::Local<v8::Array> =
@@ -409,9 +457,11 @@ impl ModuleMap {
           )
         };
 
-        self.by_name_mut(asserted_module_type, move |map| {
-          map.insert(specifier.into(), val)
-        });
+        self.data.borrow_mut().by_name.insert(
+          &asserted_module_type,
+          specifier.into(),
+          val,
+        );
       }
     }
 
@@ -435,25 +485,26 @@ impl ModuleMap {
   pub(crate) fn get_id(
     &self,
     name: impl AsRef<str>,
-    asserted_module_type: AssertedModuleType,
+    asserted_module_type: impl AsRef<AssertedModuleType>,
   ) -> Option<ModuleId> {
-    self.by_name(asserted_module_type, |map| {
-      let first_symbolic_module = map.get(name.as_ref())?;
-      let mut mod_name = match first_symbolic_module {
-        SymbolicModule::Mod(mod_id) => return Some(*mod_id),
-        SymbolicModule::Alias(target) => target,
-      };
-      loop {
-        let symbolic_module = map.get(mod_name.as_ref())?;
-        match symbolic_module {
-          SymbolicModule::Alias(target) => {
-            debug_assert!(mod_name != target);
-            mod_name = target;
-          }
-          SymbolicModule::Mod(mod_id) => return Some(*mod_id),
+    let map = &self.data.borrow().by_name;
+    let first_symbolic_module =
+      map.get(asserted_module_type.as_ref(), name.as_ref())?;
+    let mut mod_name = match first_symbolic_module {
+      SymbolicModule::Mod(mod_id) => return Some(*mod_id),
+      SymbolicModule::Alias(target) => target,
+    };
+    loop {
+      let symbolic_module =
+        map.get(asserted_module_type.as_ref(), mod_name.as_ref())?;
+      match symbolic_module {
+        SymbolicModule::Alias(target) => {
+          debug_assert!(mod_name != target);
+          mod_name = target;
         }
+        SymbolicModule::Mod(mod_id) => return Some(*mod_id),
       }
-    })
+    }
   }
 
   pub(crate) fn new_json_module(
@@ -738,22 +789,22 @@ impl ModuleMap {
   ) -> ModuleId {
     let mut data = self.data.borrow_mut();
     let id = data.handles.len();
+    let module_type = module_type.into();
     let (name1, name2) = name.into_cheap_copy();
     data.handles_inverted.insert(handle.clone(), id);
     data.handles.push(handle);
     if main {
       data.main_module_id = Some(id);
     }
+    data
+      .by_name
+      .insert(&module_type, name1, SymbolicModule::Mod(id));
     data.info.push(ModuleInfo {
       id,
       main,
       name: name2,
       requests,
       module_type,
-    });
-    drop(data);
-    self.by_name_mut(module_type.into(), |map| {
-      map.insert(name1, SymbolicModule::Mod(id))
     });
 
     id
@@ -770,50 +821,25 @@ impl ModuleMap {
   fn is_registered(
     &self,
     specifier: impl AsRef<str>,
-    asserted_module_type: AssertedModuleType,
+    asserted_module_type: impl AsRef<AssertedModuleType>,
   ) -> bool {
-    if let Some(id) = self.get_id(specifier.as_ref(), asserted_module_type) {
-      return asserted_module_type
-        == self.data.borrow().info.get(id).unwrap().module_type.into();
-    }
-
-    false
-  }
-
-  pub(crate) fn by_name<T>(
-    &self,
-    asserted_module_type: AssertedModuleType,
-    f: impl FnOnce(&HashMap<ModuleName, SymbolicModule>) -> T,
-  ) -> T {
-    match asserted_module_type {
-      AssertedModuleType::Json => f(&self.data.borrow().by_name_json),
-      AssertedModuleType::JavaScriptOrWasm => f(&self.data.borrow().by_name_js),
-    }
-  }
-
-  pub(crate) fn by_name_mut<T>(
-    &self,
-    asserted_module_type: AssertedModuleType,
-    f: impl FnOnce(&mut HashMap<ModuleName, SymbolicModule>) -> T,
-  ) -> T {
-    match asserted_module_type {
-      AssertedModuleType::Json => f(&mut self.data.borrow_mut().by_name_json),
-      AssertedModuleType::JavaScriptOrWasm => {
-        f(&mut self.data.borrow_mut().by_name_js)
-      }
-    }
+    self
+      .get_id(specifier.as_ref(), asserted_module_type.as_ref())
+      .is_some()
   }
 
   pub(crate) fn alias(
     &self,
     name: FastString,
-    asserted_module_type: AssertedModuleType,
+    asserted_module_type: &AssertedModuleType,
     target: FastString,
   ) {
     debug_assert_ne!(name, target);
-    self.by_name_mut(asserted_module_type, |map| {
-      map.insert(name, SymbolicModule::Alias(target))
-    });
+    self.data.borrow_mut().by_name.insert(
+      asserted_module_type,
+      name,
+      SymbolicModule::Alias(target),
+    );
   }
 
   #[cfg(test)]
@@ -822,9 +848,9 @@ impl ModuleMap {
     name: &str,
     asserted_module_type: AssertedModuleType,
   ) -> bool {
-    self.by_name(asserted_module_type, |map| {
-      matches!(map.get(name), Some(SymbolicModule::Alias(_)))
-    })
+    let map = &self.data.borrow().by_name;
+    let entry = map.get(&asserted_module_type, name);
+    matches!(entry, Some(SymbolicModule::Alias(_)))
   }
 
   pub(crate) fn get_handle(
@@ -863,13 +889,6 @@ impl ModuleMap {
       .map(|info| info.name.as_str().to_owned())
   }
 
-  pub(crate) fn get_module_type_by_id(
-    &self,
-    id: ModuleId,
-  ) -> Option<ModuleType> {
-    self.data.borrow().info.get(id).map(|info| info.module_type)
-  }
-
   pub(crate) async fn load_main(
     module_map_rc: Rc<ModuleMap>,
     specifier: impl AsRef<str>,
@@ -901,7 +920,7 @@ impl ModuleMap {
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,
       referrer,
-      asserted_module_type,
+      asserted_module_type.clone(),
       module_map_rc.clone(),
     );
 
@@ -1339,23 +1358,16 @@ impl ModuleMap {
     assert_eq!(data.handles.len(), modules.len());
     assert_eq!(data.info.len(), modules.len());
     assert_eq!(data.next_load_id as usize, modules.len());
-    drop(data);
-
-    assert_eq!(
-      self.by_name(AssertedModuleType::Json, |map| map.len())
-        + self.by_name(AssertedModuleType::JavaScriptOrWasm, |map| map.len()),
-      modules.len()
-    );
+    assert_eq!(data.by_name.len(), modules.len());
 
     for info in modules {
       let data = self.data.borrow();
       assert!(data.handles.get(info.id).is_some());
       assert_eq!(data.info.get(info.id).unwrap(), info);
-      drop(data);
-      assert!(self.by_name(AssertedModuleType::JavaScriptOrWasm, |map| map
-        .get(&info.name)
-        .unwrap()
-        == &SymbolicModule::Mod(info.id)));
+      assert_eq!(
+        data.by_name.get(&info.module_type, &info.name),
+        Some(&SymbolicModule::Mod(info.id))
+      );
     }
   }
 }

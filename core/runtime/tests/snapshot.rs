@@ -3,7 +3,6 @@ use crate::extensions::Op;
 use crate::modules::AssertedModuleType;
 use crate::modules::LoggingModuleLoader;
 use crate::modules::ModuleInfo;
-use crate::modules::ModuleType;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
@@ -162,7 +161,7 @@ fn es_snapshot() {
         specifier: format!("file:///{prev}.js"),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
       }],
-      module_type: ModuleType::JavaScript,
+      module_type: AssertedModuleType::JavaScriptOrWasm,
     }
   }
 
@@ -199,7 +198,7 @@ fn es_snapshot() {
     main: false,
     name: specifier.into(),
     requests: vec![],
-    module_type: ModuleType::JavaScript,
+    module_type: AssertedModuleType::JavaScriptOrWasm,
   });
 
   modules.extend((1..200).map(|i| create_module(&mut runtime, i, false)));

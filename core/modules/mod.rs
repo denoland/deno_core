@@ -11,6 +11,7 @@ use futures::stream::TryStreamExt;
 use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -303,7 +304,6 @@ pub(crate) struct RecursiveModuleLoad {
   pub root_module_id: Option<ModuleId>,
   init: LoadInit,
   root_asserted_module_type: Option<AssertedModuleType>,
-  root_module_type: Option<ModuleType>,
   state: LoadState,
   module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
@@ -349,15 +349,14 @@ impl RecursiveModuleLoad {
   fn new(init: LoadInit, module_map_rc: Rc<ModuleMap>) -> Self {
     let id = module_map_rc.next_load_id();
     let loader = module_map_rc.loader.borrow().clone();
-    let asserted_module_type = match init {
-      LoadInit::DynamicImport(_, _, module_type) => module_type,
+    let asserted_module_type = match &init {
+      LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
       _ => AssertedModuleType::JavaScriptOrWasm,
     };
     let mut load = Self {
       id,
       root_module_id: None,
       root_asserted_module_type: None,
-      root_module_type: None,
       init,
       state: LoadState::Init,
       module_map_rc: module_map_rc.clone(),
@@ -370,12 +369,10 @@ impl RecursiveModuleLoad {
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
     if let Ok(root_specifier) = load.resolve_root() {
       if let Some(module_id) =
-        module_map_rc.get_id(root_specifier, asserted_module_type)
+        module_map_rc.get_id(root_specifier, &asserted_module_type)
       {
         load.root_module_id = Some(module_id);
         load.root_asserted_module_type = Some(asserted_module_type);
-        load.root_module_type =
-          Some(module_map_rc.get_module_type_by_id(module_id).unwrap());
       }
     }
     load
@@ -463,7 +460,7 @@ impl RecursiveModuleLoad {
         module_url_found.into_cheap_copy();
       self.module_map_rc.alias(
         module_url_specified,
-        expected_asserted_module_type,
+        &expected_asserted_module_type,
         module_url_found1,
       );
       module_url_found2
@@ -473,7 +470,7 @@ impl RecursiveModuleLoad {
 
     let maybe_module_id = self
       .module_map_rc
-      .get_id(&module_url_found, expected_asserted_module_type);
+      .get_id(&module_url_found, &expected_asserted_module_type);
     let module_id = match maybe_module_id {
       Some(id) => {
         debug!(
@@ -498,6 +495,26 @@ impl RecursiveModuleLoad {
       },
     };
 
+    self.register_and_recurse_inner(module_id, module_request);
+
+    // Update `self.state` however applicable.
+    if self.state == LoadState::LoadingRoot {
+      self.root_module_id = Some(module_id);
+      self.root_asserted_module_type = Some(module_source.module_type.into());
+      self.state = LoadState::LoadingImports;
+    }
+    if self.pending.is_empty() {
+      self.state = LoadState::Done;
+    }
+
+    Ok(())
+  }
+
+  fn register_and_recurse_inner(
+    &mut self,
+    module_id: usize,
+    module_request: &ModuleRequest,
+  ) {
     // Recurse the module's imports. There are two cases for each import:
     // 1. If the module is not in the module map, start a new load for it in
     //    `self.pending`. The result of that load should eventually be passed to
@@ -526,7 +543,7 @@ impl RecursiveModuleLoad {
         {
           if let Some(module_id) = self.module_map_rc.get_id(
             module_request.specifier.as_str(),
-            module_request.asserted_module_type,
+            &module_request.asserted_module_type,
           ) {
             already_registered.push_back((module_id, module_request.clone()));
           } else {
@@ -563,18 +580,6 @@ impl RecursiveModuleLoad {
         }
       }
     }
-
-    // Update `self.state` however applicable.
-    if self.state == LoadState::LoadingRoot {
-      self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(module_source.module_type.into());
-      self.state = LoadState::LoadingImports;
-    }
-    if self.pending.is_empty() {
-      self.state = LoadState::Done;
-    }
-
-    Ok(())
   }
 }
 
@@ -594,42 +599,31 @@ impl Stream for RecursiveModuleLoad {
           Ok(url) => url,
           Err(error) => return Poll::Ready(Some(Err(error))),
         };
-        let load_fut = if let Some(_module_id) = inner.root_module_id {
-          // FIXME(bartlomieju): this is very bad
-          // The root module is already in the module map.
-          // TODO(nayeemrmn): In this case we would ideally skip to
-          // `LoadState::LoadingImports` and synchronously recurse the imports
-          // like the bottom of `RecursiveModuleLoad::register_and_recurse()`.
-          // But the module map cannot be borrowed here. Instead fake a load
-          // event so it gets passed to that function and recursed eventually.
-          let asserted_module_type = inner.root_asserted_module_type.unwrap();
-          let module_type = inner.root_module_type.unwrap();
-          let module_request = ModuleRequest {
-            specifier: module_specifier.to_string(),
-            asserted_module_type,
-          };
-          // The code will be discarded, since this module is already in the
-          // module map.
-          let module_source = ModuleSource::new(
-            module_type,
-            Default::default(),
-            &module_specifier,
-          );
-          futures::future::ok(Some((module_request, module_source))).boxed()
+        let asserted_module_type = match &inner.init {
+          LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
+          _ => AssertedModuleType::JavaScriptOrWasm,
+        };
+        let module_request = ModuleRequest {
+          specifier: module_specifier.to_string(),
+          asserted_module_type,
+        };
+        let load_fut = if let Some(module_id) = inner.root_module_id {
+          // If the inner future is already in the map, we might be done (assuming there are no pending
+          // loads).
+          inner.register_and_recurse_inner(module_id, &module_request);
+          if inner.pending.is_empty() {
+            inner.state = LoadState::Done;
+          } else {
+            inner.state = LoadState::LoadingImports;
+          }
+          // Internally re-poll using the new state to avoid spinning the event loop again.
+          return Self::poll_next(Pin::new(inner), cx);
         } else {
           let maybe_referrer = match inner.init {
             LoadInit::DynamicImport(_, ref referrer, _) => {
               resolve_url(referrer).ok()
             }
             _ => None,
-          };
-          let asserted_module_type = match inner.init {
-            LoadInit::DynamicImport(_, _, module_type) => module_type,
-            _ => AssertedModuleType::JavaScriptOrWasm,
-          };
-          let module_request = ModuleRequest {
-            specifier: module_specifier.to_string(),
-            asserted_module_type,
           };
           let loader = inner.loader.clone();
           let is_dynamic_import = inner.is_dynamic_import();
@@ -669,11 +663,64 @@ impl Stream for RecursiveModuleLoad {
   }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[repr(u32)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
 pub(crate) enum AssertedModuleType {
+  /// JavaScript or WASM.
   JavaScriptOrWasm,
+  /// JSON.
   Json,
+
+  // IMPORTANT: If you add any additional enum values here, you must update `to_v8`` below!
+  /// Non-well-known module type.
+  Other(Cow<'static, str>),
+}
+
+impl AssertedModuleType {
+  pub fn to_v8<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> v8::Local<'s, v8::Value> {
+    match self {
+      AssertedModuleType::JavaScriptOrWasm => v8::Integer::new(scope, 0).into(),
+      AssertedModuleType::Json => v8::Integer::new(scope, 1).into(),
+      AssertedModuleType::Other(ty) => {
+        v8::String::new(scope, ty).unwrap().into()
+      }
+    }
+  }
+
+  pub fn try_from_v8(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+  ) -> Option<Self> {
+    Some(if let Some(int) = value.to_integer(scope) {
+      match int.int32_value(scope).unwrap_or_default() {
+        0 => AssertedModuleType::JavaScriptOrWasm,
+        1 => AssertedModuleType::Json,
+        _ => return None,
+      }
+    } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
+      AssertedModuleType::Other(Cow::Owned(str.to_rust_string_lossy(scope)))
+    } else {
+      return None;
+    })
+  }
+}
+
+impl AsRef<AssertedModuleType> for AssertedModuleType {
+  fn as_ref(&self) -> &AssertedModuleType {
+    self
+  }
+}
+
+impl PartialEq<ModuleType> for AssertedModuleType {
+  fn eq(&self, other: &ModuleType) -> bool {
+    match other {
+      ModuleType::JavaScript => self == &AssertedModuleType::JavaScriptOrWasm,
+      ModuleType::Json => self == &AssertedModuleType::Json,
+    }
+  }
 }
 
 impl From<ModuleType> for AssertedModuleType {
@@ -690,6 +737,7 @@ impl std::fmt::Display for AssertedModuleType {
     match self {
       Self::JavaScriptOrWasm => write!(f, "JavaScriptOrWasm"),
       Self::Json => write!(f, "JSON"),
+      Self::Other(ty) => write!(f, "Other({ty})"),
     }
   }
 }
@@ -711,7 +759,7 @@ pub(crate) struct ModuleInfo {
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,
-  pub module_type: ModuleType,
+  pub module_type: AssertedModuleType,
 }
 
 #[derive(Debug)]
