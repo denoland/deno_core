@@ -1526,49 +1526,7 @@ impl JsRuntime {
     let realm = &self.inner.main_realm;
     let modules = &realm.0.module_map;
 
-    // Dynamic module loading - ie. modules loaded using "import()"
-    {
-      // Run in a loop so that dynamic imports that only depend on another
-      // dynamic import can be resolved in this event loop iteration.
-      //
-      // For example, a dynamically imported module like the following can be
-      // immediately resolved after `dependency.ts` is fully evaluated, but it
-      // wouldn't if not for this loop.
-      //
-      //    await delay(1000);
-      //    await import("./dependency.ts");
-      //    console.log("test")
-      //
-      // These dynamic import dependencies can be cross-realm:
-      //
-      //    await delay(1000);
-      //    await new ShadowRealm().importValue("./dependency.js", "default");
-      //
-      loop {
-        let mut has_evaluated = false;
-
-        // Fast main realm poll
-        {
-          loop {
-            let poll_imports = modules.poll_prepare_dyn_imports(scope, cx)?;
-            assert!(poll_imports.is_ready());
-
-            let poll_imports = modules.poll_dyn_imports(scope, cx)?;
-            assert!(poll_imports.is_ready());
-
-            if modules.evaluate_dyn_imports(scope) {
-              has_evaluated = true;
-            } else {
-              break;
-            }
-          }
-        }
-
-        if !has_evaluated {
-          break;
-        }
-      }
-    }
+    modules.poll_progress(cx, scope)?;
 
     // Resolve async ops, run all next tick callbacks and macrotasks callbacks
     // and only then check for any promise exceptions (`unhandledrejection`
