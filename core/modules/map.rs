@@ -5,6 +5,7 @@ use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
+use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::modules::ImportAssertionsKind;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
@@ -15,8 +16,6 @@ use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::NoopModuleLoader;
-use crate::modules::PrepareLoadFuture;
-use crate::modules::RecursiveModuleLoad;
 use crate::modules::ResolutionKind;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshottedData;
@@ -26,6 +25,7 @@ use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
+use futures::Future;
 use futures::StreamExt;
 use log::debug;
 use std::cell::Cell;
@@ -36,6 +36,9 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
+
+type PrepareLoadFuture =
+  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 
 use super::module_map_data::ModuleMapData;
 use super::AssertedModuleType;
