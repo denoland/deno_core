@@ -753,6 +753,7 @@ impl JsRuntime {
         module_map.clone(),
         state_rc.clone(),
       );
+      state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
       main_realm
     };
@@ -1308,8 +1309,6 @@ impl JsRuntime {
       return;
     }
 
-    self.inner.state.has_inspector.set(true);
-
     let context = self.main_context();
     let scope = &mut v8::HandleScope::with_context(
       self.inner.v8_isolate.as_mut(),
@@ -1317,6 +1316,7 @@ impl JsRuntime {
     );
     let context = v8::Local::new(scope, context);
 
+    self.inner.state.has_inspector.set(true);
     **inspector = Some(JsRuntimeInspector::new(
       scope,
       context,
