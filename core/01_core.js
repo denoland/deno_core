@@ -807,11 +807,6 @@
     getProxyDetails: (proxy) => ops.op_get_proxy_details(proxy),
     isProxy: (value) => ops.op_is_proxy(value),
     memoryUsage: () => ops.op_memory_usage(),
-    setWasmStreamingCallback: (fn) => ops.op_set_wasm_streaming_callback(fn),
-    abortWasmStreaming: (
-      rid,
-      error,
-    ) => ops.op_abort_wasm_streaming(rid, error),
     destructureError: (error) => ops.op_destructure_error(error),
     opNames: () => ops.op_op_names(),
     eventLoopHasMoreWork: () => ops.op_event_loop_has_more_work(),

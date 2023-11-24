@@ -9,7 +9,6 @@ use crate::ops_builtin_v8;
 use crate::resources::ResourceId;
 use crate::JsBuffer;
 use crate::OpState;
-use crate::Resource;
 use anyhow::Error;
 use bytes::BytesMut;
 use std::cell::RefCell;
@@ -25,8 +24,6 @@ deno_core::extension!(
     op_try_close,
     op_print,
     op_resources,
-    op_wasm_streaming_feed,
-    op_wasm_streaming_set_url,
     op_void_sync,
     op_error_async,
     op_error_async_deferred,
@@ -64,8 +61,6 @@ deno_core::extension!(
     ops_builtin_v8::op_get_non_index_property_names,
     ops_builtin_v8::op_get_constructor_name,
     ops_builtin_v8::op_memory_usage,
-    ops_builtin_v8::op_set_wasm_streaming_callback,
-    ops_builtin_v8::op_abort_wasm_streaming,
     ops_builtin_v8::op_destructure_error,
     ops_builtin_v8::op_dispatch_exception,
     ops_builtin_v8::op_op_names,
@@ -152,52 +147,6 @@ pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error> {
     stdout().write_all(msg.as_bytes())?;
     stdout().flush().unwrap();
   }
-  Ok(())
-}
-
-pub struct WasmStreamingResource(pub(crate) RefCell<v8::WasmStreaming>);
-
-impl Resource for WasmStreamingResource {
-  fn close(self: Rc<Self>) {
-    // At this point there are no clones of Rc<WasmStreamingResource> on the
-    // resource table, and no one should own a reference outside of the stack.
-    // Therefore, we can be sure `self` is the only reference.
-    if let Ok(wsr) = Rc::try_unwrap(self) {
-      wsr.0.into_inner().finish();
-    } else {
-      panic!("Couldn't consume WasmStreamingResource.");
-    }
-  }
-}
-
-/// Feed bytes to WasmStreamingResource.
-#[op2(fast)]
-pub fn op_wasm_streaming_feed(
-  state: Rc<RefCell<OpState>>,
-  #[smi] rid: ResourceId,
-  #[buffer] bytes: &[u8],
-) -> Result<(), Error> {
-  let wasm_streaming = state
-    .borrow_mut()
-    .resource_table
-    .get::<WasmStreamingResource>(rid)?;
-
-  wasm_streaming.0.borrow_mut().on_bytes_received(bytes);
-
-  Ok(())
-}
-
-#[op2(fast)]
-pub fn op_wasm_streaming_set_url(
-  state: &mut OpState,
-  #[smi] rid: ResourceId,
-  #[string] url: &str,
-) -> Result<(), Error> {
-  let wasm_streaming =
-    state.resource_table.get::<WasmStreamingResource>(rid)?;
-
-  wasm_streaming.0.borrow_mut().set_url(url);
-
   Ok(())
 }
 

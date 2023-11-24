@@ -5,7 +5,6 @@ use crate::error::range_error;
 use crate::error::type_error;
 use crate::error::JsError;
 use crate::op2;
-use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::script_origin;
 use crate::runtime::JsRealm;
@@ -14,11 +13,9 @@ use crate::source_map::apply_source_map;
 use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRuntime;
-use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
-use std::cell::RefCell;
 use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
@@ -694,73 +691,25 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
   }
 }
 
-#[op2]
-pub fn op_set_wasm_streaming_callback(
+pub fn set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
-  #[global] cb: v8::Global<v8::Function>,
-) -> Result<(), Error> {
+  cb: crate::WasmStreamingFn,
+) {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let mut context_state = context_state_rc.borrow_mut();
   // The callback to pass to the v8 API has to be a unit type, so it can't
-  // borrow or move any local variables. Therefore, we're storing the JS
+  // borrow or move any local variables. Therefore, we're storing the
   // callback in a JsRuntimeState slot.
-  if context_state.js_wasm_streaming_cb.is_some() {
-    return Err(type_error("op_set_wasm_streaming_callback already called"));
-  }
-  context_state.js_wasm_streaming_cb = Some(Rc::new(cb));
+  context_state.wasm_streaming_cb = Some(Rc::new(cb));
 
   scope.set_wasm_streaming_callback(|scope, arg, wasm_streaming| {
-    let (cb_handle, streaming_rid) = {
-      let context_state_rc = JsRealm::state_from_scope(scope);
-      let cb_handle = context_state_rc
-        .borrow()
-        .js_wasm_streaming_cb
-        .as_ref()
-        .unwrap()
-        .clone();
-      let state_rc = JsRuntime::state_from(scope);
-      let streaming_rid = state_rc
-        .borrow()
-        .op_state
-        .borrow_mut()
-        .resource_table
-        .add(WasmStreamingResource(RefCell::new(wasm_streaming)));
-      (cb_handle, streaming_rid)
-    };
+    let context_state_rc = JsRealm::state_from_scope(scope);
+    let ctx = context_state_rc.borrow();
+    let cb = ctx.wasm_streaming_cb.as_ref().unwrap();
+    let state_rc = JsRuntime::state_from(scope).borrow().op_state.clone();
 
-    let undefined = v8::undefined(scope);
-    let rid = serde_v8::to_v8(scope, streaming_rid).unwrap();
-    cb_handle
-      .open(scope)
-      .call(scope, undefined.into(), &[arg, rid]);
+    cb(state_rc, scope, arg, wasm_streaming);
   });
-  Ok(())
-}
-
-// This op is re-entrant as it makes a v8 call. It also cannot be fast because
-// we require a JS execution scope.
-#[allow(clippy::let_and_return)]
-#[op2(nofast, reentrant)]
-pub fn op_abort_wasm_streaming(
-  state: Rc<RefCell<OpState>>,
-  rid: u32,
-  error: v8::Local<v8::Value>,
-) -> Result<(), Error> {
-  // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
-  let wasm_streaming = state
-    .borrow_mut()
-    .resource_table
-    .take::<WasmStreamingResource>(rid)?;
-
-  // At this point there are no clones of Rc<WasmStreamingResource> on the
-  // resource table, and no one should own a reference because we're never
-  // cloning them. So we can be sure `wasm_streaming` is the only reference.
-  if let Ok(wsr) = std::rc::Rc::try_unwrap(wasm_streaming) {
-    wsr.0.into_inner().abort(Some(error));
-  } else {
-    panic!("Couldn't consume WasmStreamingResource.");
-  }
-  Ok(())
 }
 
 // This op calls `op_apply_source_map` re-entrantly.
