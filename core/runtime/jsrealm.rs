@@ -115,7 +115,7 @@ pub(crate) struct JsRealmInner {
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   context: Rc<v8::Global<v8::Context>>,
   pub(crate) module_map: Rc<ModuleMap>,
-  runtime_state: Rc<RefCell<JsRuntimeState>>,
+  runtime_state: Rc<JsRuntimeState>,
 }
 
 impl JsRealmInner {
@@ -123,7 +123,7 @@ impl JsRealmInner {
     context_state: Rc<RefCell<ContextState>>,
     context: v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
-    runtime_state: Rc<RefCell<JsRuntimeState>>,
+    runtime_state: Rc<JsRuntimeState>,
   ) -> Self {
     Self {
       context_state,
@@ -166,14 +166,12 @@ impl JsRealmInner {
     };
 
     let exception = v8::Local::new(scope, handle);
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow();
-    if let Some(inspector) = &state.inspector {
-      let inspector = inspector.borrow();
+    let state = JsRuntime::state_from(scope);
+    if let Some(true) = state.with_inspector(|inspector| {
       inspector.exception_thrown(scope, exception, true);
-      if inspector.has_blocking_sessions() {
-        return Ok(());
-      }
+      inspector.has_blocking_sessions()
+    }) {
+      return Ok(());
     }
     exception_to_err_result(scope, exception, true)
   }
@@ -445,12 +443,8 @@ impl JsRealm {
     // Update status after evaluating.
     status = module.get_status();
 
-    let has_dispatched_exception = self
-      .0
-      .runtime_state
-      .borrow_mut()
-      .dispatched_exception
-      .is_some();
+    let has_dispatched_exception =
+      self.0.runtime_state.has_dispatched_exception();
     if has_dispatched_exception {
       // This will be overridden in `exception_to_err_result()`.
       let exception = v8::undefined(tc_scope).into();

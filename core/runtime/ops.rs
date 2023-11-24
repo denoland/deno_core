@@ -672,7 +672,6 @@ mod tests {
       op_test_v8_global,
       op_test_serde_v8,
       op_jsruntimestate,
-      op_jsruntimestate_mut,
       op_state_rc,
       op_state_ref,
       op_state_mut,
@@ -1463,13 +1462,9 @@ mod tests {
   #[op2(fast)]
   pub fn op_jsruntimestate(_state: &JsRuntimeState) {}
 
-  #[op2(fast)]
-  pub fn op_jsruntimestate_mut(_state: &mut JsRuntimeState) {}
-
   #[tokio::test]
   pub async fn test_jsruntimestate() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(10000, "op_jsruntimestate", "op_jsruntimestate()")?;
-    run_test2(10000, "op_jsruntimestate_mut", "op_jsruntimestate_mut()")?;
     Ok(())
   }
 

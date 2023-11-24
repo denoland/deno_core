@@ -291,8 +291,7 @@ pub fn host_import_module_dynamically_callback<'s>(
   {
     let tc_scope = &mut v8::TryCatch::new(scope);
     {
-      let state_rc = JsRuntime::state_from(tc_scope);
-      let state = state_rc.borrow();
+      let state = JsRuntime::state_from(tc_scope);
       (state.validate_import_attributes_cb)(tc_scope, &assertions);
     }
 
@@ -306,7 +305,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 
   let resolver_handle = v8::Global::new(scope, resolver);
   {
-    let state_rc = JsRuntime::state_from(scope);
+    let state = JsRuntime::state_from(scope);
     let module_map_rc = JsRealm::module_map_from(scope);
 
     debug!(
@@ -320,7 +319,7 @@ pub fn host_import_module_dynamically_callback<'s>(
       asserted_module_type,
       resolver_handle,
     );
-    state_rc.borrow_mut().notify_new_dynamic_import();
+    state.notify_new_dynamic_import();
   }
   // Map errors from module resolution (not JS errors from module execution) to
   // ones rethrown from this scope, so they include the call stack of the

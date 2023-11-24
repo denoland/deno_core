@@ -3,31 +3,31 @@ use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
-use crate::fast_string::FastString;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
+use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::modules::ImportAssertionsKind;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
-use crate::modules::ModuleInfo;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::NoopModuleLoader;
-use crate::modules::PrepareLoadFuture;
-use crate::modules::RecursiveModuleLoad;
 use crate::modules::ResolutionKind;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshottedData;
 use crate::JsRuntime;
+use crate::ModuleSource;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
+use futures::Future;
 use futures::StreamExt;
+use log::debug;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -37,6 +37,10 @@ use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 
+type PrepareLoadFuture =
+  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
+
+use super::module_map_data::ModuleMapData;
 use super::AssertedModuleType;
 
 pub const BOM_CHAR: &[u8] = &[0xef, 0xbb, 0xbf];
@@ -48,17 +52,6 @@ fn strip_bom(source_code: &[u8]) -> &[u8] {
   } else {
     source_code
   }
-}
-
-/// A symbolic module entity.
-#[derive(Debug, PartialEq)]
-pub(crate) enum SymbolicModule {
-  /// This module is an alias to another module.
-  /// This is useful such that multiple names could point to
-  /// the same underlying module (particularly due to redirects).
-  Alias(ModuleName),
-  /// This module associates with a V8 module by id.
-  Mod(ModuleId),
 }
 
 struct DynImportModEvaluate {
@@ -78,122 +71,17 @@ pub(crate) struct ModuleMap {
     RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
   preparing_dynamic_imports:
     RefCell<FuturesUnordered<Pin<Box<PrepareLoadFuture>>>>,
+  preparing_dynamic_imports_pending: Cell<bool>,
   pending_dynamic_imports:
     RefCell<FuturesUnordered<StreamFuture<RecursiveModuleLoad>>>,
+  pending_dynamic_imports_pending: Cell<bool>,
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
+  pending_dyn_mod_evaluations_pending: Cell<bool>,
   data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
   pub(crate) dyn_module_evaluate_idle_counter: Cell<u32>,
-}
-
-/// Map of [`ModuleName`] and [`AssertedModuleType`] to a data field.
-struct ModuleNameTypeMap<T> {
-  submaps: Vec<HashMap<ModuleName, T>>,
-  map_index: HashMap<AssertedModuleType, usize>,
-  len: usize,
-}
-
-impl<T> Default for ModuleNameTypeMap<T> {
-  fn default() -> Self {
-    Self {
-      submaps: Default::default(),
-      map_index: Default::default(),
-      len: 0,
-    }
-  }
-}
-
-impl<T> ModuleNameTypeMap<T> {
-  pub fn len(&self) -> usize {
-    self.len
-  }
-
-  fn map_index(&self, ty: &AssertedModuleType) -> Option<usize> {
-    self.map_index.get(ty).copied()
-  }
-
-  pub fn get<Q>(&self, ty: &AssertedModuleType, name: &Q) -> Option<&T>
-  where
-    ModuleName: std::borrow::Borrow<Q>,
-    Q: std::cmp::Eq + std::hash::Hash + ?Sized,
-  {
-    let Some(index) = self.map_index(ty) else {
-      return None;
-    };
-    let Some(map) = self.submaps.get(index) else {
-      return None;
-    };
-    map.get(name)
-  }
-
-  pub fn clear(&mut self) {
-    self.len = 0;
-    self.map_index.clear();
-    self.submaps.clear();
-  }
-
-  pub fn insert(
-    &mut self,
-    module_type: &AssertedModuleType,
-    name: FastString,
-    module: T,
-  ) {
-    let index = match self.map_index(module_type) {
-      Some(index) => index,
-      None => {
-        let index = self.submaps.len();
-        self.map_index.insert(module_type.clone(), index);
-        self.submaps.push(Default::default());
-        index
-      }
-    };
-
-    if self
-      .submaps
-      .get_mut(index)
-      .unwrap()
-      .insert(name, module)
-      .is_none()
-    {
-      self.len += 1;
-    }
-  }
-
-  /// Rather than providing an iterator, we provide a walk method. This is mainly because Rust
-  /// doesn't have generators.
-  pub fn walk(
-    &self,
-    mut f: impl FnMut(usize, &AssertedModuleType, &ModuleName, &T),
-  ) {
-    let mut i = 0;
-    for (ty, value) in self.map_index.iter() {
-      for (key, value) in self.submaps.get(*value).unwrap() {
-        f(i, ty, key, value);
-        i += 1;
-      }
-    }
-  }
-}
-
-#[derive(Default)]
-pub(crate) struct ModuleMapData {
-  /// Inverted index from module to index in `info`.
-  handles_inverted: HashMap<v8::Global<v8::Module>, usize>,
-  /// The handles we have loaded so far, corresponding with the [`ModuleInfo`] in `info`.
-  handles: Vec<v8::Global<v8::Module>>,
-  /// The modules we have loaded so far.
-  info: Vec<ModuleInfo>,
-  /// [`ModuleName`] to [`SymbolicModule`] for modules.
-  by_name: ModuleNameTypeMap<SymbolicModule>,
-  /// The next ID used for a load.
-  next_load_id: ModuleLoadId,
-  /// If a main module has been loaded, points to it by index.
-  main_module_id: Option<ModuleId>,
-  /// This store is used temporarily, to forward parsed JSON
-  /// value from `new_json_module` to `json_module_evaluation_steps`
-  json_value_store: HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
 }
 
 impl ModuleMap {
@@ -229,255 +117,42 @@ impl ModuleMap {
     }
   }
 
-  pub fn serialize_for_snapshotting(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> SnapshottedData {
-    let array = v8::Array::new(scope, 3);
-    let data = self.data.borrow();
-
-    let next_load_id = v8::Integer::new(scope, data.next_load_id);
-    array.set_index(scope, 0, next_load_id.into());
-
-    if let Some(main_module_id) = data.main_module_id {
-      let main_module_id = v8::Integer::new(scope, main_module_id as i32);
-      array.set_index(scope, 1, main_module_id.into());
-    }
-
-    let info_arr = v8::Array::new(scope, data.info.len() as i32);
-    for (i, info) in data.info.iter().enumerate() {
-      let module_info_arr = v8::Array::new(scope, 4);
-
-      let id = v8::Integer::new(scope, info.id as i32);
-      module_info_arr.set_index(scope, 0, id.into());
-
-      let name = info.name.v8(scope);
-      module_info_arr.set_index(scope, 1, name.into());
-
-      let array_len = 2 * info.requests.len() as i32;
-      let requests_arr = v8::Array::new(scope, array_len);
-      for (i, request) in info.requests.iter().enumerate() {
-        let specifier = v8::String::new_from_one_byte(
-          scope,
-          request.specifier.as_bytes(),
-          v8::NewStringType::Normal,
-        )
-        .unwrap();
-        requests_arr.set_index(scope, 2 * i as u32, specifier.into());
-        let value = request.asserted_module_type.to_v8(scope);
-        requests_arr.set_index(scope, (2 * i) as u32 + 1, value);
-      }
-      module_info_arr.set_index(scope, 2, requests_arr.into());
-
-      let module_type = info.module_type.to_v8(scope);
-      module_info_arr.set_index(scope, 3, module_type);
-
-      info_arr.set_index(scope, i as u32, module_info_arr.into());
-    }
-    array.set_index(scope, 2, info_arr.into());
-
-    let length = self.data.borrow().by_name.len();
-    let by_name_array = v8::Array::new(scope, length.try_into().unwrap());
-    self
-      .data
-      .borrow()
-      .by_name
-      .walk(|i, module_type, name, module| {
-        let arr = v8::Array::new(scope, 3);
-
-        let specifier = name.v8(scope);
-        arr.set_index(scope, 0, specifier.into());
-        let value = module_type.to_v8(scope);
-        arr.set_index(scope, 1, value);
-
-        let symbolic_module: v8::Local<v8::Value> = match module {
-          SymbolicModule::Alias(alias) => {
-            let alias = v8::String::new_from_one_byte(
-              scope,
-              alias.as_bytes(),
-              v8::NewStringType::Normal,
-            )
-            .unwrap();
-            alias.into()
-          }
-          SymbolicModule::Mod(id) => {
-            let id = v8::Integer::new(scope, *id as i32);
-            id.into()
-          }
-        };
-        arr.set_index(scope, 2, symbolic_module);
-
-        by_name_array.set_index(scope, i as u32, arr.into());
-      });
-    array.set_index(scope, 3, by_name_array.into());
-
-    let array_global = v8::Global::new(scope, array);
-
-    let handles = data.handles.clone();
-    SnapshottedData {
-      module_map_data: array_global,
-      module_handles: handles,
-    }
-  }
-
-  pub fn update_with_snapshotted_data(
-    &self,
-    scope: &mut v8::HandleScope,
-    snapshotted_data: SnapshottedData,
-  ) {
-    let local_data: v8::Local<v8::Array> =
-      v8::Local::new(scope, snapshotted_data.module_map_data);
-
-    {
-      let next_load_id = local_data.get_index(scope, 0).unwrap();
-      assert!(next_load_id.is_int32());
-      let integer = next_load_id.to_integer(scope).unwrap();
-      let val = integer.int32_value(scope).unwrap();
-      self.data.borrow_mut().next_load_id = val;
-    }
-
-    {
-      let main_module_id = local_data.get_index(scope, 1).unwrap();
-      if !main_module_id.is_undefined() {
-        let integer = main_module_id
-          .to_integer(scope)
-          .map(|v| v.int32_value(scope).unwrap() as usize);
-        self.data.borrow_mut().main_module_id = integer;
-      }
-    }
-
-    {
-      let info_val = local_data.get_index(scope, 2).unwrap();
-
-      let info_arr: v8::Local<v8::Array> = info_val.try_into().unwrap();
-      let len = info_arr.length() as usize;
-      // Over allocate so executing a few scripts doesn't have to resize this vec.
-      let mut info = Vec::with_capacity(len + 16);
-
-      for i in 0..len {
-        let module_info_arr: v8::Local<v8::Array> = info_arr
-          .get_index(scope, i as u32)
-          .unwrap()
-          .try_into()
-          .unwrap();
-        let id = module_info_arr
-          .get_index(scope, 0)
-          .unwrap()
-          .to_integer(scope)
-          .unwrap()
-          .value() as ModuleId;
-
-        let name = module_info_arr
-          .get_index(scope, 1)
-          .unwrap()
-          .to_rust_string_lossy(scope)
-          .into();
-
-        let requests_arr: v8::Local<v8::Array> = module_info_arr
-          .get_index(scope, 2)
-          .unwrap()
-          .try_into()
-          .unwrap();
-        let len = (requests_arr.length() as usize) / 2;
-        let mut requests = Vec::with_capacity(len);
-        for i in 0..len {
-          let specifier = requests_arr
-            .get_index(scope, (2 * i) as u32)
-            .unwrap()
-            .to_rust_string_lossy(scope);
-          let value =
-            requests_arr.get_index(scope, (2 * i + 1) as u32).unwrap();
-          let asserted_module_type =
-            AssertedModuleType::try_from_v8(scope, value).unwrap();
-          requests.push(ModuleRequest {
-            specifier,
-            asserted_module_type,
-          });
-        }
-
-        let value = module_info_arr.get_index(scope, 3).unwrap();
-        let module_type =
-          AssertedModuleType::try_from_v8(scope, value).unwrap();
-
-        let main = self.data.borrow().main_module_id == Some(id);
-        let module_info = ModuleInfo {
-          id,
-          main,
-          name,
-          requests,
-          module_type,
-        };
-        info.push(module_info);
-      }
-
-      self.data.borrow_mut().info = info;
-    }
-
-    self.data.borrow_mut().by_name.clear();
-
-    {
-      let by_name_arr: v8::Local<v8::Array> =
-        local_data.get_index(scope, 3).unwrap().try_into().unwrap();
-      let len = by_name_arr.length() as usize;
-
-      for i in 0..len {
-        let arr: v8::Local<v8::Array> = by_name_arr
-          .get_index(scope, i as u32)
-          .unwrap()
-          .try_into()
-          .unwrap();
-
-        let specifier =
-          arr.get_index(scope, 0).unwrap().to_rust_string_lossy(scope);
-        let asserted_module_type = match arr
-          .get_index(scope, 1)
-          .unwrap()
-          .to_integer(scope)
-          .unwrap()
-          .value()
-        {
-          0 => AssertedModuleType::JavaScriptOrWasm,
-          1 => AssertedModuleType::Json,
-          _ => unreachable!(),
-        };
-
-        let symbolic_module_val = arr.get_index(scope, 2).unwrap();
-        let val = if symbolic_module_val.is_number() {
-          SymbolicModule::Mod(
-            symbolic_module_val
-              .to_integer(scope)
-              .unwrap()
-              .value()
-              .try_into()
-              .unwrap(),
-          )
-        } else {
-          SymbolicModule::Alias(
-            symbolic_module_val.to_rust_string_lossy(scope).into(),
-          )
-        };
-
-        self.data.borrow_mut().by_name.insert(
-          &asserted_module_type,
-          specifier.into(),
-          val,
-        );
-      }
-    }
-
-    self.data.borrow_mut().handles = snapshotted_data.module_handles;
-  }
-
-  pub(crate) fn new(loader: Rc<dyn ModuleLoader>) -> ModuleMap {
+  pub(crate) fn new(loader: Rc<dyn ModuleLoader>) -> Self {
     Self {
       loader: loader.into(),
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
       preparing_dynamic_imports: Default::default(),
+      preparing_dynamic_imports_pending: Default::default(),
       pending_dynamic_imports: Default::default(),
+      pending_dynamic_imports_pending: Default::default(),
       pending_dyn_mod_evaluations: Default::default(),
+      pending_dyn_mod_evaluations_pending: Default::default(),
       data: Default::default(),
     }
+  }
+
+  pub(crate) fn new_from_snapshotted_data(
+    loader: Rc<dyn ModuleLoader>,
+    scope: &mut v8::HandleScope,
+    data: SnapshottedData,
+  ) -> Self {
+    let new = Self::new(loader);
+    new
+      .data
+      .borrow_mut()
+      .update_with_snapshotted_data(scope, data);
+    new
+  }
+
+  fn get_handle_by_name(
+    &self,
+    name: impl AsRef<str>,
+  ) -> Option<v8::Global<v8::Module>> {
+    let id = self
+      .get_id(name.as_ref(), AssertedModuleType::JavaScriptOrWasm)
+      .or_else(|| self.get_id(name.as_ref(), AssertedModuleType::Json))?;
+    self.get_handle(id)
   }
 
   /// Get module id, following all aliases in case of module specifier
@@ -487,24 +162,101 @@ impl ModuleMap {
     name: impl AsRef<str>,
     asserted_module_type: impl AsRef<AssertedModuleType>,
   ) -> Option<ModuleId> {
-    let map = &self.data.borrow().by_name;
-    let first_symbolic_module =
-      map.get(asserted_module_type.as_ref(), name.as_ref())?;
-    let mut mod_name = match first_symbolic_module {
-      SymbolicModule::Mod(mod_id) => return Some(*mod_id),
-      SymbolicModule::Alias(target) => target,
+    self.data.borrow().get_id(name, asserted_module_type)
+  }
+
+  pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
+    self.data.borrow().is_main_module(global)
+  }
+
+  pub(crate) fn get_name_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<String> {
+    self.data.borrow().get_name_by_module(global)
+  }
+
+  pub(crate) fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
+    self.data.borrow().get_name_by_id(id)
+  }
+
+  pub(crate) fn get_handle(
+    &self,
+    id: ModuleId,
+  ) -> Option<v8::Global<v8::Module>> {
+    self.data.borrow().get_handle(id)
+  }
+
+  pub(crate) fn serialize_for_snapshotting(
+    &self,
+    scope: &mut v8::HandleScope,
+  ) -> SnapshottedData {
+    self.data.borrow().serialize_for_snapshotting(scope)
+  }
+
+  #[cfg(test)]
+  pub fn is_alias(
+    &self,
+    name: &str,
+    asserted_module_type: impl AsRef<AssertedModuleType>,
+  ) -> bool {
+    self.data.borrow().is_alias(name, asserted_module_type)
+  }
+
+  #[cfg(test)]
+  pub fn assert_module_map(&self, modules: &Vec<super::ModuleInfo>) {
+    self.data.borrow().assert_module_map(modules);
+  }
+
+  pub(crate) fn new_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    main: bool,
+    dynamic: bool,
+    module_source: ModuleSource,
+  ) -> Result<ModuleId, ModuleError> {
+    let ModuleSource {
+      code,
+      module_type,
+      module_url_found,
+      module_url_specified,
+    } = module_source;
+
+    // Register the module in the module map unless it's already there. If the
+    // specified URL and the "true" URL are different, register the alias.
+    let module_url_found = if let Some(module_url_found) = module_url_found {
+      let (module_url_found1, module_url_found2) =
+        module_url_found.into_cheap_copy();
+      self.data.borrow_mut().alias(
+        module_url_specified,
+        &module_type.into(),
+        module_url_found1,
+      );
+      module_url_found2
+    } else {
+      module_url_specified
     };
-    loop {
-      let symbolic_module =
-        map.get(asserted_module_type.as_ref(), mod_name.as_ref())?;
-      match symbolic_module {
-        SymbolicModule::Alias(target) => {
-          debug_assert!(mod_name != target);
-          mod_name = target;
-        }
-        SymbolicModule::Mod(mod_id) => return Some(*mod_id),
+
+    let asserted_module_type = AssertedModuleType::from(module_type);
+    let maybe_module_id = self.get_id(&module_url_found, asserted_module_type);
+    let module_id = match maybe_module_id {
+      Some(id) => {
+        debug!(
+          "Already-registered module fetched again: {:?}",
+          module_url_found
+        );
+        id
       }
-    }
+      None => match module_type {
+        ModuleType::JavaScript => {
+          self.new_es_module(scope, main, module_url_found, code, dynamic)?
+        }
+        ModuleType::Json => {
+          self.new_json_module(scope, module_url_found, code)?
+        }
+      },
+    };
+    Ok(module_id)
   }
 
   pub(crate) fn new_json_module(
@@ -549,8 +301,13 @@ impl ModuleMap {
       .json_value_store
       .insert(handle.clone(), value_handle);
 
-    let id =
-      self.create_module_info(name, ModuleType::Json, handle, false, vec![]);
+    let id = self.data.borrow_mut().create_module_info(
+      name,
+      ModuleType::Json,
+      handle,
+      false,
+      vec![],
+    );
 
     Ok(id)
   }
@@ -605,8 +362,7 @@ impl ModuleMap {
       // FIXME(bartomieju): there are no stack frames if exception
       // is thrown here
       {
-        let state_rc = JsRuntime::state_from(tc_scope);
-        let state = state_rc.borrow();
+        let state = JsRuntime::state_from(tc_scope);
         (state.validate_import_attributes_cb)(tc_scope, &assertions);
       }
 
@@ -640,7 +396,7 @@ impl ModuleMap {
     if main {
       let data = self.data.borrow();
       if let Some(main_module) = data.main_module_id {
-        let main_name = self.get_name_by_id(main_module).unwrap();
+        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
         return Err(ModuleError::Other(generic_error(
           format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
           name.as_ref(),
@@ -650,7 +406,7 @@ impl ModuleMap {
     }
 
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let id = self.create_module_info(
+    let id = self.data.borrow_mut().create_module_info(
       name,
       ModuleType::JavaScript,
       handle,
@@ -707,6 +463,8 @@ impl ModuleMap {
     let referrer_global = v8::Global::new(scope, referrer);
 
     let referrer_name = module_map
+      .data
+      .borrow()
       .get_name_by_module(&referrer_global)
       .expect("ModuleInfo not found");
 
@@ -760,54 +518,19 @@ impl ModuleMap {
     None
   }
 
-  pub(crate) fn get_handle_by_name(
-    &self,
-    name: impl AsRef<str>,
-  ) -> Option<v8::Global<v8::Module>> {
-    let id = self
-      .get_id(name.as_ref(), AssertedModuleType::JavaScriptOrWasm)
-      .or_else(|| self.get_id(name.as_ref(), AssertedModuleType::Json))?;
-    self.get_handle(id)
-  }
-
   pub(crate) fn inject_handle(
     &self,
     name: ModuleName,
     module_type: ModuleType,
     handle: v8::Global<v8::Module>,
   ) {
-    self.create_module_info(name, module_type, handle, false, vec![]);
-  }
-
-  fn create_module_info(
-    &self,
-    name: FastString,
-    module_type: ModuleType,
-    handle: v8::Global<v8::Module>,
-    main: bool,
-    requests: Vec<ModuleRequest>,
-  ) -> ModuleId {
-    let mut data = self.data.borrow_mut();
-    let id = data.handles.len();
-    let module_type = module_type.into();
-    let (name1, name2) = name.into_cheap_copy();
-    data.handles_inverted.insert(handle.clone(), id);
-    data.handles.push(handle);
-    if main {
-      data.main_module_id = Some(id);
-    }
-    data
-      .by_name
-      .insert(&module_type, name1, SymbolicModule::Mod(id));
-    data.info.push(ModuleInfo {
-      id,
-      main,
-      name: name2,
-      requests,
+    self.data.borrow_mut().create_module_info(
+      name,
       module_type,
-    });
-
-    id
+      handle,
+      false,
+      vec![],
+    );
   }
 
   pub(crate) fn get_requested_modules(
@@ -816,77 +539,6 @@ impl ModuleMap {
   ) -> Option<Vec<ModuleRequest>> {
     // TODO(mmastrac): Remove cloning. We were originally cloning this at the call sites but that's no excuse.
     self.data.borrow().info.get(id).map(|i| i.requests.clone())
-  }
-
-  fn is_registered(
-    &self,
-    specifier: impl AsRef<str>,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
-  ) -> bool {
-    self
-      .get_id(specifier.as_ref(), asserted_module_type.as_ref())
-      .is_some()
-  }
-
-  pub(crate) fn alias(
-    &self,
-    name: FastString,
-    asserted_module_type: &AssertedModuleType,
-    target: FastString,
-  ) {
-    debug_assert_ne!(name, target);
-    self.data.borrow_mut().by_name.insert(
-      asserted_module_type,
-      name,
-      SymbolicModule::Alias(target),
-    );
-  }
-
-  #[cfg(test)]
-  pub(crate) fn is_alias(
-    &self,
-    name: &str,
-    asserted_module_type: AssertedModuleType,
-  ) -> bool {
-    let map = &self.data.borrow().by_name;
-    let entry = map.get(&asserted_module_type, name);
-    matches!(entry, Some(SymbolicModule::Alias(_)))
-  }
-
-  pub(crate) fn get_handle(
-    &self,
-    id: ModuleId,
-  ) -> Option<v8::Global<v8::Module>> {
-    self.data.borrow().handles.get(id).cloned()
-  }
-
-  pub(crate) fn get_name_by_module(
-    &self,
-    global: &v8::Global<v8::Module>,
-  ) -> Option<String> {
-    if let Some(id) = self.data.borrow().handles_inverted.get(global) {
-      self.get_name_by_id(*id)
-    } else {
-      None
-    }
-  }
-
-  pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
-    let data = self.data.borrow();
-    data
-      .main_module_id
-      .map(|id| data.handles_inverted.get(global) == Some(&id))
-      .unwrap_or_default()
-  }
-
-  pub(crate) fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
-    // TODO(mmastrac): Don't clone
-    self
-      .data
-      .borrow()
-      .info
-      .get(id)
-      .map(|info| info.name.as_str().to_owned())
   }
 
   pub(crate) async fn load_main(
@@ -911,7 +563,7 @@ impl ModuleMap {
 
   // Initiate loading of a module graph imported using `import()`.
   pub(crate) fn load_dynamic_import(
-    module_map_rc: Rc<ModuleMap>,
+    self: Rc<Self>,
     specifier: &str,
     referrer: &str,
     asserted_module_type: AssertedModuleType,
@@ -921,15 +573,15 @@ impl ModuleMap {
       specifier,
       referrer,
       asserted_module_type.clone(),
-      module_map_rc.clone(),
+      self.clone(),
     );
 
-    module_map_rc
+    self
       .dynamic_import_map
       .borrow_mut()
       .insert(load.id, resolver_handle);
 
-    let loader = module_map_rc.loader.clone();
+    let loader = self.loader.clone();
     let resolve_result = loader.borrow().resolve(
       specifier,
       referrer,
@@ -937,7 +589,11 @@ impl ModuleMap {
     );
     let fut = match resolve_result {
       Ok(module_specifier) => {
-        if module_map_rc.is_registered(module_specifier, asserted_module_type) {
+        if self
+          .data
+          .borrow()
+          .is_registered(module_specifier, asserted_module_type)
+        {
           async move { (load.id, Ok(load)) }.boxed_local()
         } else {
           async move { (load.id, load.prepare().await.map(|()| load)) }
@@ -946,19 +602,17 @@ impl ModuleMap {
       }
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
-    module_map_rc
-      .preparing_dynamic_imports
-      .borrow_mut()
-      .push(fut);
+    self.preparing_dynamic_imports.borrow_mut().push(fut);
+    self.preparing_dynamic_imports_pending.set(true);
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {
-    !(self.preparing_dynamic_imports.borrow().is_empty()
-      && self.pending_dynamic_imports.borrow().is_empty())
+    self.preparing_dynamic_imports_pending.get()
+      || self.pending_dynamic_imports_pending.get()
   }
 
   pub(crate) fn has_pending_dyn_module_evaluation(&self) -> bool {
-    !self.pending_dyn_mod_evaluations.borrow().is_empty()
+    self.pending_dyn_mod_evaluations_pending.get()
   }
 
   fn dynamic_import_module_evaluate(
@@ -1021,6 +675,7 @@ impl ModuleMap {
         .pending_dyn_mod_evaluations
         .borrow_mut()
         .push(dyn_import_mod_evaluate);
+      self.pending_dyn_mod_evaluations_pending.set(true);
     } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
       return Err(
         generic_error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.")
@@ -1033,15 +688,13 @@ impl ModuleMap {
   }
 
   // Returns true if some dynamic import was resolved.
-  pub(crate) fn evaluate_dyn_imports(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> bool {
-    let pending =
-      std::mem::take(self.pending_dyn_mod_evaluations.borrow_mut().deref_mut());
-    if pending.is_empty() {
+  fn evaluate_dyn_imports(&self, scope: &mut v8::HandleScope) -> bool {
+    if !self.pending_dyn_mod_evaluations_pending.get() {
       return false;
     }
+
+    let pending =
+      std::mem::take(self.pending_dyn_mod_evaluations.borrow_mut().deref_mut());
     let mut resolved_any = false;
     let mut still_pending = vec![];
     for pending_dyn_evaluate in pending {
@@ -1079,6 +732,9 @@ impl ModuleMap {
         }
       }
     }
+    self
+      .pending_dyn_mod_evaluations_pending
+      .set(!still_pending.is_empty());
     *self.pending_dyn_mod_evaluations.borrow_mut() = still_pending;
     resolved_any
   }
@@ -1115,6 +771,8 @@ impl ModuleMap {
     let resolver = resolver_handle.open(scope);
 
     let module = self
+      .data
+      .borrow()
       .get_handle(mod_id)
       .map(|handle| v8::Local::new(scope, handle))
       .expect("Dyn import module info not found");
@@ -1131,12 +789,57 @@ impl ModuleMap {
     scope.perform_microtask_checkpoint();
   }
 
-  pub(crate) fn poll_prepare_dyn_imports(
+  /// Poll for progress in the module loading logic. Note that this takes a waker but
+  /// doesn't act like a normal polling method.
+  pub(crate) fn poll_progress(
     &self,
-    scope: &mut v8::HandleScope,
     cx: &mut Context,
+    scope: &mut v8::HandleScope,
+  ) -> Result<(), Error> {
+    let mut has_evaluated = true;
+
+    // Run in a loop so that dynamic imports that only depend on another
+    // dynamic import can be resolved in this event loop iteration.
+    //
+    // For example, a dynamically imported module like the following can be
+    // immediately resolved after `dependency.ts` is fully evaluated, but it
+    // wouldn't if not for this loop.
+    //
+    //    await delay(1000);
+    //    await import("./dependency.ts");
+    //    console.log("test")
+    //
+    // These dynamic import dependencies can be cross-realm:
+    //
+    //    await delay(1000);
+    //    await new ShadowRealm().importValue("./dependency.js", "default");
+    //
+    while has_evaluated {
+      has_evaluated = false;
+      loop {
+        let poll_imports = self.poll_prepare_dyn_imports(cx, scope)?;
+        assert!(poll_imports.is_ready());
+
+        let poll_imports = self.poll_dyn_imports(cx, scope)?;
+        assert!(poll_imports.is_ready());
+
+        if self.evaluate_dyn_imports(scope) {
+          has_evaluated = true;
+        } else {
+          break;
+        }
+      }
+    }
+
+    Ok(())
+  }
+
+  fn poll_prepare_dyn_imports(
+    &self,
+    cx: &mut Context,
+    scope: &mut v8::HandleScope,
   ) -> Poll<Result<(), Error>> {
-    if self.preparing_dynamic_imports.borrow().is_empty() {
+    if !self.preparing_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
 
@@ -1156,6 +859,7 @@ impl ModuleMap {
               .pending_dynamic_imports
               .borrow_mut()
               .push(load.into_future());
+            self.pending_dynamic_imports_pending.set(true);
           }
           Err(err) => {
             let exception = to_v8_type_error(scope, err);
@@ -1167,16 +871,19 @@ impl ModuleMap {
       }
 
       // There are no active dynamic import loads, or none are ready.
+      self
+        .preparing_dynamic_imports_pending
+        .set(!self.preparing_dynamic_imports.borrow().is_empty());
       return Poll::Ready(Ok(()));
     }
   }
 
-  pub(crate) fn poll_dyn_imports(
+  fn poll_dyn_imports(
     &self,
-    scope: &mut v8::HandleScope,
     cx: &mut Context,
+    scope: &mut v8::HandleScope,
   ) -> Poll<Result<(), Error>> {
-    if self.pending_dynamic_imports.borrow().is_empty() {
+    if !self.pending_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
 
@@ -1207,6 +914,7 @@ impl ModuleMap {
                     .pending_dynamic_imports
                     .borrow_mut()
                     .push(load.into_future());
+                  self.pending_dynamic_imports_pending.set(true);
                 }
                 Err(err) => {
                   let exception = match err {
@@ -1246,6 +954,9 @@ impl ModuleMap {
       }
 
       // There are no active dynamic import loads, or none are ready.
+      self
+        .pending_dynamic_imports_pending
+        .set(!self.pending_dynamic_imports.borrow().is_empty());
       return Poll::Ready(Ok(()));
     }
   }
@@ -1259,8 +970,11 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     module_id: ModuleId,
   ) -> Result<v8::Global<v8::Object>, Error> {
-    let module_handle =
-      self.get_handle(module_id).expect("ModuleInfo not found");
+    let module_handle = self
+      .data
+      .borrow()
+      .get_handle(module_id)
+      .expect("ModuleInfo not found");
 
     let module = module_handle.open(scope);
 
@@ -1349,26 +1063,6 @@ impl ModuleMap {
     }
 
     vec![]
-  }
-
-  // TODO(mmastrac): this is better than giving the entire crate access to the internals.
-  #[cfg(test)]
-  pub fn assert_module_map(&self, modules: &Vec<ModuleInfo>) {
-    let data = self.data.borrow();
-    assert_eq!(data.handles.len(), modules.len());
-    assert_eq!(data.info.len(), modules.len());
-    assert_eq!(data.next_load_id as usize, modules.len());
-    assert_eq!(data.by_name.len(), modules.len());
-
-    for info in modules {
-      let data = self.data.borrow();
-      assert!(data.handles.get(info.id).is_some());
-      assert_eq!(data.info.get(info.id).unwrap(), info);
-      assert_eq!(
-        data.by_name.get(&info.module_type, &info.name),
-        Some(&SymbolicModule::Mod(info.id))
-      );
-    }
   }
 }
 

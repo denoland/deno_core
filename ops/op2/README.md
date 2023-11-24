@@ -1087,21 +1087,7 @@ Only usable in `deno_core`.
 <td>
 
 ```text
-&mut JsRuntimeState
-```
-
-</td><td>
-✅
-</td><td>
-
-</td><td>
-Only usable in `deno_core`.
-</td></tr>
-<tr>
-<td>
-
-```text
-Rc<RefCell<JsRuntimeState>>
+Rc<JsRuntimeState>
 ```
 
 </td><td>
