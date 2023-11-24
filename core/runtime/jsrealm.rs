@@ -10,6 +10,7 @@ use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::ops::PendingOp;
 use crate::runtime::JsRuntimeState;
+use crate::tasks::V8TaskSpawnerFactory;
 use crate::JsRuntime;
 use anyhow::Error;
 use deno_unsync::JoinSet;
@@ -22,6 +23,7 @@ use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
 use std::option::Option;
 use std::rc::Rc;
+use std::sync::Arc;
 use v8::Handle;
 use v8::HandleScope;
 use v8::Local;
@@ -54,6 +56,7 @@ pub(crate) struct ModEvaluate {
 
 #[derive(Default)]
 pub(crate) struct ContextState {
+  pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) js_event_loop_tick_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) js_build_custom_error_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) js_promise_reject_cb: Option<Rc<v8::Global<v8::Function>>>,

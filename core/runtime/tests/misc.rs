@@ -1072,3 +1072,75 @@ export const TEST = "foo";
     ..Default::default()
   });
 }
+
+#[tokio::test]
+async fn task_spawner() {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    ..Default::default()
+  });
+
+  let value = Rc::new(AtomicUsize::new(0));
+  let value_clone = value.clone();
+  runtime
+    .execute_script("main", ascii_str!("function f() { return 42; }"))
+    .unwrap();
+  runtime
+    .op_state()
+    .borrow()
+    .borrow::<V8TaskSpawner>()
+    .spawn(move |scope| {
+      let ctx = scope.get_current_context();
+      let global = ctx.global(scope);
+      let key = v8::String::new_external_onebyte_static(scope, b"f")
+        .unwrap()
+        .into();
+      let f: v8::Local<'_, v8::Function> =
+        global.get(scope, key).unwrap().try_into().unwrap();
+      let recv = v8::undefined(scope).into();
+      let res: v8::Local<v8::Integer> =
+        f.call(scope, recv, &[]).unwrap().try_into().unwrap();
+      value_clone.store(res.int32_value(scope).unwrap() as _, Ordering::SeqCst);
+    });
+  poll_fn(|cx| runtime.poll_event_loop(cx, false))
+    .await
+    .unwrap();
+  assert_eq!(value.load(Ordering::SeqCst), 42);
+}
+
+#[tokio::test]
+async fn task_spawner_cross_thread() {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    ..Default::default()
+  });
+
+  let value = Arc::new(AtomicUsize::new(0));
+  let value_clone = value.clone();
+  runtime
+    .execute_script("main", ascii_str!("function f() { return 42; }"))
+    .unwrap();
+  let spawner = runtime
+    .op_state()
+    .borrow()
+    .borrow::<V8CrossThreadTaskSpawner>()
+    .clone();
+
+  std::thread::spawn(move || {
+    spawner.spawn(move |scope| {
+      let ctx = scope.get_current_context();
+      let global = ctx.global(scope);
+      let key = v8::String::new_external_onebyte_static(scope, b"f")
+        .unwrap()
+        .into();
+      let f: v8::Local<'_, v8::Function> =
+        global.get(scope, key).unwrap().try_into().unwrap();
+      let recv = v8::undefined(scope).into();
+      let res: v8::Local<v8::Integer> =
+        f.call(scope, recv, &[]).unwrap().try_into().unwrap();
+      value_clone.store(res.int32_value(scope).unwrap() as _, Ordering::SeqCst);
+    });
+  });
+  poll_fn(|cx| runtime.poll_event_loop(cx, false))
+    .await
+    .unwrap();
+  assert_eq!(value.load(Ordering::SeqCst), 42);
+}
