@@ -39,7 +39,6 @@ tokio.workspace = true
 url.workspace = true
 v8.workspace = true
 
-# These dependencies are only used for the 'http_bench_*_ops' examples.
 [dev-dependencies]
 cooked-waker.workspace = true
 deno_ast.workspace = true

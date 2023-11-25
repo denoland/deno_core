@@ -282,7 +282,9 @@ pub(crate) fn get_fast_signature(
   let mut args = vec![];
   let mut index_in = 0;
   for (index_out, arg) in signature.args.iter().cloned().enumerate() {
-    let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg).map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))? else {
+    let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg)
+      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?
+    else {
       return Ok(None);
     };
     let name_out = format_ident!("arg{index_out}");

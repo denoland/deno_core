@@ -28,7 +28,7 @@ impl MacroConfig {
     flags: Vec<TokenTree>,
     args: Vec<Option<Vec<impl ToTokens>>>,
   ) -> Result<Self, Op2Error> {
-    let flags = flags.into_iter().zip(args.into_iter()).map(|(flag, args)| {
+    let flags = flags.into_iter().zip(args).map(|(flag, args)| {
       if let Some(args) = args {
         let args = args
           .into_iter()

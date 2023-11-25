@@ -154,7 +154,12 @@ impl JsRealmInner {
     &self,
     scope: &mut v8::HandleScope,
   ) -> Result<(), Error> {
-    let Some((_, handle)) = self.context_state.borrow_mut().pending_promise_rejections.pop_front() else {
+    let Some((_, handle)) = self
+      .context_state
+      .borrow_mut()
+      .pending_promise_rejections
+      .pop_front()
+    else {
       return Ok(());
     };
 
