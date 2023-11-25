@@ -1978,7 +1978,8 @@ impl JsRuntime {
       SmallVec::with_capacity(32);
 
     loop {
-      let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx) else {
+      let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx)
+      else {
         break;
       };
       // TODO(mmastrac): If this task is really errored, things could be pretty bad
