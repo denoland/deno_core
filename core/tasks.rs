@@ -50,7 +50,7 @@ impl V8TaskSpawnerFactory {
     Poll::Ready(tasks)
   }
 
-  fn spawn(&self, task: Box<dyn FnOnce(&mut v8::HandleScope) + Send>) {
+  fn spawn(&self, task: SendTask) {
     self.tasks.lock().unwrap().push(task);
     // TODO(mmastrac): can we use a looser ordering here?
     self
@@ -94,5 +94,23 @@ impl V8CrossThreadTaskSpawner {
     F: FnOnce(&mut v8::HandleScope) + Send + 'static,
   {
     self.tasks.spawn(Box::new(f))
+  }
+
+  pub fn spawn_blocking<'a, F, T>(&self, f: F) -> T
+  where
+    F: FnOnce(&mut v8::HandleScope) -> T + Send + 'a,
+    T: Send + 'a,
+  {
+    let (tx, rx) = std::sync::mpsc::sync_channel(0);
+    let task: Box<dyn FnOnce(&mut v8::HandleScope<'_>) + Send> =
+      Box::new(|scope| {
+        let r = f(scope);
+        _ = tx.send(r);
+      });
+    // SAFETY: We can safely transmute to the 'static lifetime because we guarantee this method will either
+    // complete fully, deadlock or panic.
+    let task: SendTask = unsafe { std::mem::transmute(task) };
+    self.tasks.spawn(task);
+    rx.recv().unwrap()
   }
 }
