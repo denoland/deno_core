@@ -1159,7 +1159,7 @@ async fn task_spawner_cross_thread_blocking() {
     .clone();
 
   std::thread::spawn(move || {
-    let res = spawner.spawn_blocking(move |scope| call_i32_function(scope));
+    let res = spawner.spawn_blocking(call_i32_function);
     value_clone.store(res as _, Ordering::SeqCst);
   });
 

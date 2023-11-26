@@ -10,15 +10,21 @@ use std::task::Poll;
 type UnsendTask = Box<dyn FnOnce(&mut v8::HandleScope) + 'static>;
 type SendTask = Box<dyn FnOnce(&mut v8::HandleScope) + Send + 'static>;
 
+static_assertions::assert_not_impl_any!(V8TaskSpawnerFactory: Send);
 static_assertions::assert_not_impl_any!(V8TaskSpawner: Send);
 static_assertions::assert_impl_all!(V8CrossThreadTaskSpawner: Send);
 
 #[derive(Default)]
 pub(crate) struct V8TaskSpawnerFactory {
   // TODO(mmastrac): ideally we wouldn't box if we could use arena allocation and a max submission size
+  // TODO(mmastrac): we may want to split the Send and !Send tasks
   tasks: Mutex<Vec<SendTask>>,
   has_tasks: AtomicBool,
   waker: AtomicWaker,
+  /// This cannot be Send because it may contain `!Send` tasks submitted by a [`V8TaskSpawner`]. It is
+  /// only safe to send this object to another thread if you plan on submitting [`Send`] tasks to it,
+  /// which is what [`V8CrossThreadTaskSpawner`] does.
+  _unsend_marker: PhantomData<*const ()>,
 }
 
 impl V8TaskSpawnerFactory {
@@ -104,6 +110,10 @@ impl V8TaskSpawner {
 pub struct V8CrossThreadTaskSpawner {
   tasks: Arc<V8TaskSpawnerFactory>,
 }
+
+// SAFETY: the underlying V8TaskSpawnerFactory is not Send, but we always submit Send tasks
+// to it from this spawner.
+unsafe impl Send for V8CrossThreadTaskSpawner {}
 
 impl V8CrossThreadTaskSpawner {
   /// Spawn a task that runs within the [`crate::JsRuntime`] event loop, potentially from a different
