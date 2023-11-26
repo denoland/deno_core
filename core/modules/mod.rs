@@ -1,12 +1,14 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
+use anyhow::bail;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
+use std::rc::Rc;
 
 mod loaders;
 mod map;
@@ -35,6 +37,29 @@ pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
 pub type ModuleCode = FastString;
 pub type ModuleName = FastString;
+
+/// Callback to customize value of `import.meta.resolve("./foo.ts")`.
+pub type ImportMetaResolveCallback = Box<
+  dyn Fn(
+    // TODO(bartlomieju): this is not great, we should use `&dyn ModuleLoader`,
+    // but because we store it in `RefCell<Rc<dyn ModuleLoader>>` this is problematic.
+    &Rc<dyn ModuleLoader>,
+    String,
+    String,
+  ) -> Result<ModuleSpecifier, Error>,
+>;
+
+pub(crate) fn default_import_meta_resolve_cb(
+  loader: &Rc<dyn ModuleLoader>,
+  specifier: String,
+  referrer: String,
+) -> Result<ModuleSpecifier, Error> {
+  if specifier.starts_with("npm:") {
+    bail!("\"npm:\" specifiers are currently not supported in import.meta.resolve()");
+  }
+
+  loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
+}
 
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.

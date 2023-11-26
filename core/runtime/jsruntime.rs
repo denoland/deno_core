@@ -14,8 +14,10 @@ use crate::extensions::OpDecl;
 use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::default_import_meta_resolve_cb;
 use crate::modules::AssertedModuleType;
 use crate::modules::ExtModuleLoader;
+use crate::modules::ImportMetaResolveCallback;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
@@ -444,9 +446,15 @@ pub struct RuntimeOptions {
   pub feature_checker: Option<Arc<FeatureChecker>>,
 
   /// A callback that can be used to validate import attributes received at
-  /// the import site. If not callback is provided, a default one is used. The
+  /// the import site. If no callback is provided, a default one is used. The
   /// default callback only allows `"type"` attribute, with a value of `"json"`.
   pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
+
+  /// A callback that can be used to customize behavior of
+  /// `import.meta.resolve()` API. If no callback is provided, a default one
+  /// is used. The default callback returns value of
+  /// `RuntimeOptions::module_loader::resolve()` call.
+  pub import_meta_resolve_callback: Option<ImportMetaResolveCallback>,
 }
 
 impl RuntimeOptions {
@@ -743,15 +751,19 @@ impl JsRuntime {
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+    let import_meta_resolve_cb = options
+      .import_meta_resolve_callback
+      .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
 
     let module_map = if let Some(snapshotted_data) = snapshotted_data {
       Rc::new(ModuleMap::new_from_snapshotted_data(
         loader,
+        import_meta_resolve_cb,
         scope,
         snapshotted_data,
       ))
     } else {
-      Rc::new(ModuleMap::new(loader))
+      Rc::new(ModuleMap::new(loader, import_meta_resolve_cb))
     };
 
     context.set_slot(scope, module_map.clone());

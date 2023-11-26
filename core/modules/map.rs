@@ -40,8 +40,10 @@ use std::task::Poll;
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 
+use super::default_import_meta_resolve_cb;
 use super::module_map_data::ModuleMapData;
 use super::AssertedModuleType;
+use super::ImportMetaResolveCallback;
 
 pub const BOM_CHAR: &[u8] = &[0xef, 0xbb, 0xbf];
 
@@ -66,6 +68,7 @@ pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
   // TODO(mmastrac): we should not be swapping this loader out
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
+  pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
   dynamic_import_map:
     RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
@@ -117,9 +120,13 @@ impl ModuleMap {
     }
   }
 
-  pub(crate) fn new(loader: Rc<dyn ModuleLoader>) -> Self {
+  pub(crate) fn new(
+    loader: Rc<dyn ModuleLoader>,
+    import_meta_resolve_cb: ImportMetaResolveCallback,
+  ) -> Self {
     Self {
       loader: loader.into(),
+      import_meta_resolve_cb,
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
       preparing_dynamic_imports: Default::default(),
@@ -134,10 +141,11 @@ impl ModuleMap {
 
   pub(crate) fn new_from_snapshotted_data(
     loader: Rc<dyn ModuleLoader>,
+    import_meta_resolve_cb: ImportMetaResolveCallback,
     scope: &mut v8::HandleScope,
     data: SnapshottedData,
   ) -> Self {
-    let new = Self::new(loader);
+    let new = Self::new(loader, import_meta_resolve_cb);
     new
       .data
       .borrow_mut()
@@ -1068,7 +1076,10 @@ impl ModuleMap {
 
 impl Default for ModuleMap {
   fn default() -> Self {
-    Self::new(Rc::new(NoopModuleLoader))
+    Self::new(
+      Rc::new(NoopModuleLoader),
+      Box::new(default_import_meta_resolve_cb),
+    )
   }
 }
 
