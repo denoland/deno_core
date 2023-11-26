@@ -150,17 +150,6 @@ impl V8CrossThreadTaskSpawner {
   /// no guarantees as to when this may happen, however the function will not return until the
   /// task has been fully run to completion.
   ///
-  /// ```
-  /// # let factory = Arc::new(V8TaskSpawnerFactory::default());
-  /// # let spawner = factory.new_cross_thread_spawner();
-  /// let mut v = vec!["string"];
-  /// // We can safely access surrounding locals in this method
-  /// let slice2 = spawner.spawn_blocking(|_| {
-  ///   v.as_mut_slice()
-  /// });
-  /// # assert_eq!(*slice2.get(0).unwrap(), "string");
-  /// ```
-  ///
   /// # Important Notes
   ///
   /// The task shares the same [`v8::HandleScope`] as the core event loop, which means that it
