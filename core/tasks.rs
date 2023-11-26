@@ -18,8 +18,11 @@ static_assertions::assert_impl_all!(V8CrossThreadTaskSpawner: Send);
 pub(crate) struct V8TaskSpawnerFactory {
   // TODO(mmastrac): ideally we wouldn't box if we could use arena allocation and a max submission size
   // TODO(mmastrac): we may want to split the Send and !Send tasks
+  /// The set of tasks, non-empty if `has_tasks` is set.
   tasks: Mutex<Vec<SendTask>>,
+  /// A flag we can poll without any locks.
   has_tasks: AtomicBool,
+  /// The polled waker, woken on task submission.
   waker: AtomicWaker,
   /// This cannot be Send because it may contain `!Send` tasks submitted by a [`V8TaskSpawner`]. It is
   /// only safe to send this object to another thread if you plan on submitting [`Send`] tasks to it,
@@ -43,7 +46,10 @@ impl V8TaskSpawnerFactory {
     self.has_tasks.load(std::sync::atomic::Ordering::SeqCst)
   }
 
+  /// Poll this set of tasks, returning a non-empty set of tasks if there have
+  /// been any queued, or registering the waker if not.
   pub fn poll_inner(&self, cx: &mut Context) -> Poll<Vec<UnsendTask>> {
+    // Check the flag first -- if it's false we definitely have no tasks
     if !self
       .has_tasks
       .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -51,8 +57,17 @@ impl V8TaskSpawnerFactory {
       self.waker.register(cx.waker());
       return Poll::Pending;
     }
+
     let tasks = std::mem::take(self.tasks.lock().unwrap().deref_mut());
-    // SAFETY: we are removing !Send bounds as we return the tasks here
+    if tasks.is_empty() {
+      // Unlikely race lost -- the task submission to the queue and flag are not atomic, so it's
+      // possible we ended up with an extra poll here.
+      self.waker.register(cx.waker());
+      return Poll::Pending;
+    }
+
+    // SAFETY: we are removing the Send trait as we return the tasks here to prevent
+    // these tasks from accidentally leaking to another thread.
     let tasks = unsafe { std::mem::transmute(tasks) };
     Poll::Ready(tasks)
   }
@@ -77,9 +92,9 @@ pub struct V8TaskSpawner {
 
 impl V8TaskSpawner {
   /// Spawn a task that runs within the [`crate::JsRuntime`] event loop from the same thread
-  /// that the runtime is running on. This function is re-entrant safe and may be called from
-  /// ops, from outside of a [`v8::HandleScope`], or even from within another, previously-spawned
-  /// task.
+  /// that the runtime is running on. This function is re-entrant-safe and may be called from
+  /// ops, from outside of a [`v8::HandleScope`] in a plain `async`` task, or even from within
+  /// another, previously-spawned task.
   ///
   /// The task is handed off to be run the next time the event loop is polled, and there are
   /// no guarantees as to when this may happen.
@@ -90,7 +105,7 @@ impl V8TaskSpawner {
   /// must maintain the scope in a valid state to avoid corrupting or destroying the runtime.
   ///
   /// For example, if the code called by this task can raise an exception, the task must ensure
-  /// that calls that code within a new [`v8::TryCatch`] to avoid the exception leaking to the
+  /// that it calls that code within a new [`v8::TryCatch`] to avoid the exception leaking to the
   /// event loop's [`v8::HandleScope`].
   pub fn spawn<F>(&self, f: F)
   where
@@ -116,8 +131,8 @@ pub struct V8CrossThreadTaskSpawner {
 unsafe impl Send for V8CrossThreadTaskSpawner {}
 
 impl V8CrossThreadTaskSpawner {
-  /// Spawn a task that runs within the [`crate::JsRuntime`] event loop, potentially from a different
-  /// thread than the runtime is running on.
+  /// Spawn a task that runs within the [`crate::JsRuntime`] event loop, potentially (but not
+  /// required to be) from a different thread than the runtime is running on.
   ///
   /// The task is handed off to be run the next time the event loop is polled, and there are
   /// no guarantees as to when this may happen.
@@ -128,7 +143,7 @@ impl V8CrossThreadTaskSpawner {
   /// must maintain the scope in a valid state to avoid corrupting or destroying the runtime.
   ///
   /// For example, if the code called by this task can raise an exception, the task must ensure
-  /// that calls that code within a new [`v8::TryCatch`] to avoid the exception leaking to the
+  /// that it calls that code within a new [`v8::TryCatch`] to avoid the exception leaking to the
   /// event loop's [`v8::HandleScope`].
   pub fn spawn<F>(&self, f: F)
   where
@@ -156,7 +171,7 @@ impl V8CrossThreadTaskSpawner {
   /// must maintain the scope in a valid state to avoid corrupting or destroying the runtime.
   ///
   /// For example, if the code called by this task can raise an exception, the task must ensure
-  /// that calls that code within a new [`v8::TryCatch`] to avoid the exception leaking to the
+  /// that it calls that code within a new [`v8::TryCatch`] to avoid the exception leaking to the
   /// event loop's [`v8::HandleScope`].
   pub fn spawn_blocking<'a, F, T>(&self, f: F) -> T
   where
