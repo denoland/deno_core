@@ -267,51 +267,36 @@ impl ModuleMap {
     Ok(module_id)
   }
 
-  pub(crate) fn new_json_module(
+  /// Creates a "synthetic module", that contains only a single, "default" export,
+  /// that returns the provided value.
+  pub fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
     name: ModuleName,
-    source: ModuleCode,
+    module_type: ModuleType,
+    value: v8::Local<v8::Value>,
   ) -> Result<ModuleId, ModuleError> {
     let name_str = name.v8(scope);
-    let source_str = v8::String::new_from_utf8(
-      scope,
-      strip_bom(source.as_bytes()),
-      v8::NewStringType::Normal,
-    )
-    .unwrap();
 
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let parsed_json = match v8::json::parse(tc_scope, source_str) {
-      Some(parsed_json) => parsed_json,
-      None => {
-        assert!(tc_scope.has_caught());
-        let exception = tc_scope.exception().unwrap();
-        let exception = v8::Global::new(tc_scope, exception);
-        return Err(ModuleError::Exception(exception));
-      }
-    };
-
-    let export_names = [v8::String::new(tc_scope, "default").unwrap()];
+    let export_names = [v8::String::new(scope, "default").unwrap()];
     let module = v8::Module::create_synthetic_module(
-      tc_scope,
+      scope,
       name_str,
       &export_names,
-      json_module_evaluation_steps,
+      synthetic_module_evaluation_steps,
     );
 
-    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let value_handle = v8::Global::<v8::Value>::new(tc_scope, parsed_json);
+    let handle = v8::Global::<v8::Module>::new(scope, module);
+    let value_handle = v8::Global::<v8::Value>::new(scope, value);
     self
       .data
       .borrow_mut()
-      .json_value_store
+      .synthetic_module_value_store
       .insert(handle.clone(), value_handle);
 
     let id = self.data.borrow_mut().create_module_info(
       name,
-      ModuleType::Json,
+      module_type,
       handle,
       false,
       vec![],
@@ -423,6 +408,32 @@ impl ModuleMap {
     );
 
     Ok(id)
+  }
+
+  fn new_json_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: ModuleName,
+    code: ModuleCode,
+  ) -> Result<ModuleId, ModuleError> {
+    let source_str = v8::String::new_from_utf8(
+      scope,
+      strip_bom(code.as_bytes()),
+      v8::NewStringType::Normal,
+    )
+    .unwrap();
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let parsed_json = match v8::json::parse(tc_scope, source_str) {
+      Some(parsed_json) => parsed_json,
+      None => {
+        assert!(tc_scope.has_caught());
+        let exception = tc_scope.exception().unwrap();
+        let exception = v8::Global::new(tc_scope, exception);
+        return Err(ModuleError::Exception(exception));
+      }
+    };
+    self.new_synthetic_module(tc_scope, name, ModuleType::Json, parsed_json)
   }
 
   pub(crate) fn instantiate_module(
@@ -1086,7 +1097,7 @@ impl Default for ModuleMap {
 // Clippy thinks the return value doesn't need to be an Option, it's unaware
 // of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
 #[allow(clippy::unnecessary_wraps)]
-fn json_module_evaluation_steps<'a>(
+fn synthetic_module_evaluation_steps<'a>(
   context: v8::Local<'a, v8::Context>,
   module: v8::Local<v8::Module>,
 ) -> Option<v8::Local<'a, v8::Value>> {
@@ -1099,7 +1110,7 @@ fn json_module_evaluation_steps<'a>(
   let value_handle = module_map
     .data
     .borrow_mut()
-    .json_value_store
+    .synthetic_module_value_store
     .remove(&handle)
     .unwrap();
   let value_local = v8::Local::new(tc_scope, value_handle);
