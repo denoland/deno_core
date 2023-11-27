@@ -48,8 +48,6 @@ type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 
 use super::default_import_meta_resolve_cb;
-use super::module_map_data::ModuleMapData;
-use super::AssertedModuleType;
 use super::ImportMetaResolveCallback;
 
 pub(crate) struct ModEvaluate {
