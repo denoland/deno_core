@@ -355,7 +355,7 @@ impl JsRealm {
 
   /// Evaluates an already instantiated ES module.
   ///
-  /// Returns a receiver handle that resolves when module promise resolves.
+  /// Returns a future that resolves when module promise resolves.
   /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
   /// module evaluation future.
   ///
