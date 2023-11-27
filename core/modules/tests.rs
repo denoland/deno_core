@@ -483,20 +483,12 @@ fn test_json_module() {
         asserted_module_type: AssertedModuleType::Json,
       },])
     );
-    let json_source = ascii_str!("{\"a\": \"b\", \"c\": {\"d\": 10}}");
-    let json_source_v8_str = v8::String::new_from_utf8(
-      scope,
-      json_source.as_bytes(),
-      v8::NewStringType::Normal,
-    )
-    .unwrap();
-    let json_value = { v8::json::parse(scope, json_source_v8_str).unwrap() };
+
     let mod_c = module_map
-      .new_synthetic_module(
+      .new_json_module(
         scope,
         ascii_str!("file:///c.json"),
-        ModuleType::Json,
-        json_value,
+        ascii_str!("{\"a\": \"b\", \"c\": {\"d\": 10}}"),
       )
       .unwrap();
     let imports = module_map.get_requested_modules(mod_c).unwrap();

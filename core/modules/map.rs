@@ -439,7 +439,7 @@ impl ModuleMap {
     Ok(id)
   }
 
-  fn new_json_module(
+  pub(crate) fn new_json_module(
     &self,
     scope: &mut v8::HandleScope,
     name: ModuleName,
