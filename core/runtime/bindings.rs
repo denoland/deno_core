@@ -504,15 +504,8 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
       };
 
     if has_unhandled_rejection_handler {
-      let state_rc = JsRealm::state_from_scope(tc_scope);
-      let mut state = state_rc.borrow_mut();
-      if let Some(pending_mod_evaluate) = state.pending_mod_evaluate.as_mut() {
-        if !pending_mod_evaluate.has_evaluated {
-          pending_mod_evaluate
-            .handled_promise_rejections
-            .push(promise_global);
-        }
-      }
+      let modules = JsRealm::module_map_from(tc_scope);
+      modules.notify_promise_rejection(promise_global);
     }
   } else {
     let promise = message.get_promise();
