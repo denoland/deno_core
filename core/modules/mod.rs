@@ -39,11 +39,7 @@ pub type ModuleName = FastString;
 
 /// Callback to customize value of `import.meta.resolve("./foo.ts")`.
 pub type ImportMetaResolveCallback = Box<
-  dyn Fn(
-    &dyn ModuleLoader,
-    String,
-    String,
-  ) -> Result<ModuleSpecifier, Error>,
+  dyn Fn(&dyn ModuleLoader, String, String) -> Result<ModuleSpecifier, Error>,
 >;
 
 pub(crate) fn default_import_meta_resolve_cb(
