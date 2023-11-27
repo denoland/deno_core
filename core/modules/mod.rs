@@ -8,7 +8,6 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
-use std::rc::Rc;
 
 mod loaders;
 mod map;
@@ -41,16 +40,14 @@ pub type ModuleName = FastString;
 /// Callback to customize value of `import.meta.resolve("./foo.ts")`.
 pub type ImportMetaResolveCallback = Box<
   dyn Fn(
-    // TODO(bartlomieju): this is not great, we should use `&dyn ModuleLoader`,
-    // but because we store it in `RefCell<Rc<dyn ModuleLoader>>` this is problematic.
-    &Rc<dyn ModuleLoader>,
+    &dyn ModuleLoader,
     String,
     String,
   ) -> Result<ModuleSpecifier, Error>,
 >;
 
 pub(crate) fn default_import_meta_resolve_cb(
-  loader: &Rc<dyn ModuleLoader>,
+  loader: &dyn ModuleLoader,
   specifier: String,
   referrer: String,
 ) -> Result<ModuleSpecifier, Error> {
