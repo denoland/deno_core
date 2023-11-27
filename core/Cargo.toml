@@ -27,7 +27,6 @@ deno_ops.workspace = true
 deno_unsync.workspace = true
 futures.workspace = true
 libc.workspace = true
-lightningcss = { version = "1.0.0-alpha.51", features = ["serde"] }
 log.workspace = true
 parking_lot.workspace = true
 pin-project.workspace = true
