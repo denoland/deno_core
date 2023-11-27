@@ -391,7 +391,7 @@ fn import_meta_resolve(
   let import_meta_resolve_result = {
     let loader = loader.borrow();
     let loader = loader.as_ref();
-    (module_map_rc.import_meta_resolve_cb)(&*loader, specifier_str, referrer)
+    (module_map_rc.import_meta_resolve_cb)(loader, specifier_str, referrer)
   };
 
   match import_meta_resolve_result {

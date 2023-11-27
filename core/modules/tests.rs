@@ -1332,7 +1332,7 @@ async fn no_duplicate_loads() {
 #[test]
 fn import_meta_resolve_cb() {
   fn import_meta_resolve_cb(
-    _loader: &Rc<dyn ModuleLoader>,
+    _loader: &dyn ModuleLoader,
     specifier: String,
     _referrer: String,
   ) -> Result<ModuleSpecifier, Error> {
