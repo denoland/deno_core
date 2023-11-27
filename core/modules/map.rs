@@ -289,16 +289,88 @@ impl ModuleMap {
           self.new_es_module(scope, main, module_url_found, code, dynamic)?
         }
         ModuleType::Json => {
-          self.new_json_module(scope, module_url_found, code)?
+          let source_str = v8::String::new_from_utf8(
+            scope,
+            strip_bom(code.as_bytes()),
+            v8::NewStringType::Normal,
+          )
+          .unwrap();
+          let tc_scope = &mut v8::TryCatch::new(scope);
+
+          let parsed_json = match v8::json::parse(tc_scope, source_str) {
+            Some(parsed_json) => parsed_json,
+            None => {
+              assert!(tc_scope.has_caught());
+              let exception = tc_scope.exception().unwrap();
+              let exception = v8::Global::new(tc_scope, exception);
+              return Err(ModuleError::Exception(exception));
+            }
+          };
+          self.new_synthetic_module(
+            tc_scope,
+            module_url_found,
+            ModuleType::Json,
+            parsed_json,
+          )?
         }
         ModuleType::Text => {
-          self.new_text_module(scope, module_url_found, code)?
+          let text_str = v8::String::new_from_utf8(
+            scope,
+            code.as_bytes(),
+            v8::NewStringType::Normal,
+          )
+          .unwrap();
+          self.new_synthetic_module(
+            scope,
+            module_url_found,
+            ModuleType::Text,
+            text_str.into(),
+          )?
         }
         ModuleType::Url => {
-          self.new_url_module(scope, module_url_found, code)?
+          let url_str = v8::String::new_from_utf8(
+            scope,
+            module_url_found.as_bytes(),
+            v8::NewStringType::Normal,
+          )
+          .unwrap();
+          self.new_synthetic_module(
+            scope,
+            module_url_found,
+            ModuleType::Url,
+            url_str.into(),
+          )?
         }
         ModuleType::CssModule => {
-          self.new_css_module_module(scope, module_url_found, code)?
+          let class_map = {
+            use lightningcss::stylesheet::{ParserOptions, StyleSheet};
+
+            let stylesheet = StyleSheet::parse(
+              code.as_str(),
+              ParserOptions {
+                filename: module_url_found.as_str().to_string(),
+                css_modules: Some(Default::default()),
+                ..Default::default()
+              },
+            )
+            .unwrap();
+
+            let to_css_result = stylesheet.to_css(Default::default()).unwrap();
+            to_css_result
+              .exports
+              .unwrap()
+              .into_iter()
+              .map(|(key, value)| (key, value.name))
+              .collect::<HashMap<String, String>>()
+          };
+
+          let class_map_obj = serde_v8::to_v8(scope, class_map).unwrap();
+          self.new_synthetic_module(
+            scope,
+            module_url_found,
+            ModuleType::CssModule,
+            class_map_obj,
+          )?
         }
         ModuleType::Buffer => unimplemented!(),
       },
@@ -306,73 +378,16 @@ impl ModuleMap {
     Ok(module_id)
   }
 
-  pub(crate) fn new_json_module(
+  /// Creates a "synthetic module", that contains only a single, "default" export,
+  /// that returns the provided value.
+  pub(crate) fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
     name: ModuleName,
-    source: ModuleCode,
+    module_type: ModuleType,
+    value: v8::Local<v8::Value>,
   ) -> Result<ModuleId, ModuleError> {
     let name_str = name.v8(scope);
-    let source_str = v8::String::new_from_utf8(
-      scope,
-      strip_bom(source.as_bytes()),
-      v8::NewStringType::Normal,
-    )
-    .unwrap();
-
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let parsed_json = match v8::json::parse(tc_scope, source_str) {
-      Some(parsed_json) => parsed_json,
-      None => {
-        assert!(tc_scope.has_caught());
-        let exception = tc_scope.exception().unwrap();
-        let exception = v8::Global::new(tc_scope, exception);
-        return Err(ModuleError::Exception(exception));
-      }
-    };
-
-    let export_names = [v8::String::new(tc_scope, "default").unwrap()];
-    let module = v8::Module::create_synthetic_module(
-      tc_scope,
-      name_str,
-      &export_names,
-      synthetic_module_evaluation_steps,
-    );
-
-    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let value_handle = v8::Global::<v8::Value>::new(tc_scope, parsed_json);
-    self
-      .data
-      .borrow_mut()
-      .synthetic_module_value_store
-      .insert(handle.clone(), value_handle);
-
-    let id = self.data.borrow_mut().create_module_info(
-      name,
-      ModuleType::Json,
-      handle,
-      false,
-      vec![],
-    );
-
-    Ok(id)
-  }
-
-  pub(crate) fn new_text_module(
-    &self,
-    scope: &mut v8::HandleScope,
-    name: ModuleName,
-    source: ModuleCode,
-  ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
-    let text_str = v8::String::new_from_utf8(
-      scope,
-      source.as_bytes(),
-      v8::NewStringType::Normal,
-    )
-    .unwrap();
-
     let tc_scope = &mut v8::TryCatch::new(scope);
 
     let export_names = [v8::String::new(tc_scope, "default").unwrap()];
@@ -384,8 +399,7 @@ impl ModuleMap {
     );
 
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let text_str_value: v8::Local<v8::Value> = text_str.into();
-    let value_handle = v8::Global::<v8::Value>::new(tc_scope, text_str_value);
+    let value_handle = v8::Global::<v8::Value>::new(tc_scope, value);
     self
       .data
       .borrow_mut()
@@ -394,112 +408,7 @@ impl ModuleMap {
 
     let id = self.data.borrow_mut().create_module_info(
       name,
-      ModuleType::Text,
-      handle,
-      false,
-      vec![],
-    );
-
-    Ok(id)
-  }
-
-  pub(crate) fn new_url_module(
-    &self,
-    scope: &mut v8::HandleScope,
-    name: ModuleName,
-    _source: ModuleCode,
-  ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
-    let url_str = v8::String::new_from_utf8(
-      scope,
-      name.as_bytes(),
-      v8::NewStringType::Normal,
-    )
-    .unwrap();
-
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let export_names = [v8::String::new(tc_scope, "default").unwrap()];
-    let module = v8::Module::create_synthetic_module(
-      tc_scope,
-      name_str,
-      &export_names,
-      synthetic_module_evaluation_steps,
-    );
-
-    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let url_str_value: v8::Local<v8::Value> = url_str.into();
-    let value_handle = v8::Global::<v8::Value>::new(tc_scope, url_str_value);
-    self
-      .data
-      .borrow_mut()
-      .synthetic_module_value_store
-      .insert(handle.clone(), value_handle);
-
-    let id = self.data.borrow_mut().create_module_info(
-      name,
-      ModuleType::Url,
-      handle,
-      false,
-      vec![],
-    );
-
-    Ok(id)
-  }
-
-  pub(crate) fn new_css_module_module(
-    &self,
-    scope: &mut v8::HandleScope,
-    name: ModuleName,
-    source: ModuleCode,
-  ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
-
-    let class_map = {
-      use lightningcss::stylesheet::{ParserOptions, StyleSheet};
-
-      let stylesheet = StyleSheet::parse(
-        source.as_str(),
-        ParserOptions {
-          filename: name.as_str().to_string(),
-          css_modules: Some(Default::default()),
-          ..Default::default()
-        },
-      )
-      .unwrap();
-
-      let to_css_result = stylesheet.to_css(Default::default()).unwrap();
-      to_css_result
-        .exports
-        .unwrap()
-        .into_iter()
-        .map(|(key, value)| (key, value.name))
-        .collect::<HashMap<String, String>>()
-    };
-
-    let class_map_obj = serde_v8::to_v8(scope, class_map).unwrap();
-
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let export_names = [v8::String::new(tc_scope, "default").unwrap()];
-    let module = v8::Module::create_synthetic_module(
-      tc_scope,
-      name_str,
-      &export_names,
-      synthetic_module_evaluation_steps,
-    );
-
-    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let value_handle = v8::Global::<v8::Value>::new(tc_scope, class_map_obj);
-    self
-      .data
-      .borrow_mut()
-      .synthetic_module_value_store
-      .insert(handle.clone(), value_handle);
-
-    let id = self.data.borrow_mut().create_module_info(
-      name,
-      ModuleType::CssModule,
+      module_type,
       handle,
       false,
       vec![],
