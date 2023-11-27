@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
+use super::exception_state::ExceptionState;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
@@ -8,16 +9,12 @@ use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::ops::PendingOp;
-use crate::runtime::JsRuntimeState;
 use crate::tasks::V8TaskSpawnerFactory;
-use crate::JsRuntime;
 use anyhow::Error;
 use deno_unsync::JoinSet;
 use futures::stream::StreamExt;
-use futures::Future;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
 use std::option::Option;
@@ -50,18 +47,14 @@ impl Hasher for IdentityHasher {
 pub(crate) struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) js_event_loop_tick_cb: Option<Rc<v8::Global<v8::Function>>>,
-  pub(crate) js_build_custom_error_cb: Option<Rc<v8::Global<v8::Function>>>,
-  pub(crate) js_promise_reject_cb: Option<Rc<v8::Global<v8::Function>>>,
-  pub(crate) js_format_exception_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) js_wasm_streaming_cb: Option<Rc<v8::Global<v8::Function>>>,
-  pub(crate) pending_promise_rejections:
-    VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>,
   pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
   pub(crate) pending_ops: JoinSet<PendingOp>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
+  pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: bool,
 }
 
@@ -102,7 +95,6 @@ pub(crate) struct JsRealmInner {
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   context: Rc<v8::Global<v8::Context>>,
   pub(crate) module_map: Rc<ModuleMap>,
-  runtime_state: Rc<JsRuntimeState>,
 }
 
 impl JsRealmInner {
@@ -110,13 +102,11 @@ impl JsRealmInner {
     context_state: Rc<RefCell<ContextState>>,
     context: v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
-    runtime_state: Rc<JsRuntimeState>,
   ) -> Self {
     Self {
       context_state,
       context: context.into(),
       module_map,
-      runtime_state,
     }
   }
 
@@ -144,30 +134,6 @@ impl JsRealmInner {
     v8::HandleScope::with_context(isolate, &*self.context)
   }
 
-  pub(crate) fn check_promise_rejections(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> Result<(), Error> {
-    let Some((_, handle)) = self
-      .context_state
-      .borrow_mut()
-      .pending_promise_rejections
-      .pop_front()
-    else {
-      return Ok(());
-    };
-
-    let exception = v8::Local::new(scope, handle);
-    let state = JsRuntime::state_from(scope);
-    if let Some(true) = state.with_inspector(|inspector| {
-      inspector.exception_thrown(scope, exception, true);
-      inspector.has_blocking_sessions()
-    }) {
-      return Ok(());
-    }
-    exception_to_err_result(scope, exception, true)
-  }
-
   pub fn destroy(self) {
     let state = self.state();
     let raw_ptr = self.state().borrow().isolate.unwrap();
@@ -175,10 +141,8 @@ impl JsRealmInner {
     let isolate = unsafe { raw_ptr.as_mut().unwrap() };
     let mut realm_state = state.borrow_mut();
     // These globals will prevent snapshots from completing, take them
+    realm_state.exception_state.destroy();
     std::mem::take(&mut realm_state.js_event_loop_tick_cb);
-    std::mem::take(&mut realm_state.js_build_custom_error_cb);
-    std::mem::take(&mut realm_state.js_promise_reject_cb);
-    std::mem::take(&mut realm_state.js_format_exception_cb);
     std::mem::take(&mut realm_state.js_wasm_streaming_cb);
     // The OpCtx slice may contain a circular reference
     std::mem::take(&mut realm_state.op_ctxs);
@@ -211,6 +175,18 @@ impl JsRealm {
   pub(crate) fn module_map_from(scope: &mut v8::HandleScope) -> Rc<ModuleMap> {
     let context = scope.get_current_context();
     context.get_slot::<Rc<ModuleMap>>(scope).unwrap().clone()
+  }
+
+  #[inline(always)]
+  pub(crate) fn exception_state_from_scope(
+    scope: &mut v8::HandleScope,
+  ) -> Rc<ExceptionState> {
+    let context = scope.get_current_context();
+    context
+      .get_slot::<Rc<ModuleMap>>(scope)
+      .unwrap()
+      .exception_state
+      .clone()
   }
 
   #[cfg(test)]
@@ -316,7 +292,7 @@ impl JsRealm {
       Some(script) => script,
       None => {
         let exception = tc_scope.exception().unwrap();
-        return exception_to_err_result(tc_scope, exception, false);
+        return exception_to_err_result(tc_scope, exception, false, false);
       }
     };
 
@@ -328,7 +304,7 @@ impl JsRealm {
       None => {
         assert!(tc_scope.has_caught());
         let exception = tc_scope.exception().unwrap();
-        exception_to_err_result(tc_scope, exception, false)
+        exception_to_err_result(tc_scope, exception, false, false)
       }
     }
   }
@@ -356,29 +332,6 @@ impl JsRealm {
     self.0.module_map().instantiate_module(scope, id)
   }
 
-  /// Evaluates an already instantiated ES module.
-  ///
-  /// Returns a future that resolves when module promise resolves.
-  /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
-  /// module evaluation future.
-  ///
-  /// `Error` can usually be downcast to `JsError` and should be awaited and
-  /// checked after [`JsRuntime::run_event_loop`] completion.
-  ///
-  /// This function panics if module has not been instantiated.
-  pub fn mod_evaluate(
-    &self,
-    scope: &mut v8::HandleScope,
-    id: ModuleId,
-  ) -> impl Future<Output = Result<(), Error>> + Unpin {
-    self.0.module_map.mod_evaluate(
-      scope,
-      self.0.context_state.clone(),
-      self.0.runtime_state.clone(),
-      id,
-    )
-  }
-
   pub(crate) fn modules_idle(&self) -> bool {
     self.0.module_map.dyn_module_evaluate_idle_counter.get() > 1
   }
@@ -393,7 +346,7 @@ impl JsRealm {
   /// The module will be marked as "main", and because of that
   /// "import.meta.main" will return true when checked inside that module.
   ///
-  /// User must call [`JsRealm::mod_evaluate`] with returned `ModuleId`
+  /// User must call [`ModuleMap::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
   pub(crate) async fn load_main_module(
     &self,
@@ -411,7 +364,8 @@ impl JsRealm {
         .map_err(|e| match e {
           ModuleError::Exception(exception) => {
             let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+            exception_to_err_result::<()>(scope, exception, false, false)
+              .unwrap_err()
           }
           ModuleError::Other(error) => error,
         })?;
@@ -427,7 +381,8 @@ impl JsRealm {
         |e| match e {
           ModuleError::Exception(exception) => {
             let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+            exception_to_err_result::<()>(scope, exception, false, false)
+              .unwrap_err()
           }
           ModuleError::Other(error) => error,
         },
@@ -438,7 +393,7 @@ impl JsRealm {
     let scope = &mut self.handle_scope(isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+      exception_to_err_result::<()>(scope, exception, false, false).unwrap_err()
     })?;
     Ok(root_id)
   }
@@ -448,7 +403,7 @@ impl JsRealm {
   /// This method is meant to be used when loading some utility code that
   /// might be later imported by the main module (ie. an entry point module).
   ///
-  /// User must call [`JsRealm::mod_evaluate`] with returned `ModuleId`
+  /// User must call [`ModuleMap::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
   pub(crate) async fn load_side_module(
     &self,
@@ -466,7 +421,8 @@ impl JsRealm {
         .map_err(|e| match e {
           ModuleError::Exception(exception) => {
             let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+            exception_to_err_result::<()>(scope, exception, false, false)
+              .unwrap_err()
           }
           ModuleError::Other(error) => error,
         })?;
@@ -482,7 +438,8 @@ impl JsRealm {
         |e| match e {
           ModuleError::Exception(exception) => {
             let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+            exception_to_err_result::<()>(scope, exception, false, false)
+              .unwrap_err()
           }
           ModuleError::Other(error) => error,
         },
@@ -493,7 +450,7 @@ impl JsRealm {
     let scope = &mut self.handle_scope(isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+      exception_to_err_result::<()>(scope, exception, false, false).unwrap_err()
     })?;
     Ok(root_id)
   }

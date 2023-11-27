@@ -466,69 +466,16 @@ fn catch_dynamic_import_promise_error(
 }
 
 pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
-  use v8::PromiseRejectEvent::*;
-
   // SAFETY: `CallbackScope` can be safely constructed from `&PromiseRejectMessage`
   let scope = &mut unsafe { v8::CallbackScope::new(&message) };
 
-  let context_state_rc = JsRealm::state_from_scope(scope);
-  let mut context_state = context_state_rc.borrow_mut();
-
-  if let Some(js_promise_reject_cb) = context_state.js_promise_reject_cb.clone()
-  {
-    drop(context_state);
-
-    let tc_scope = &mut v8::TryCatch::new(scope);
-    let undefined: v8::Local<v8::Value> = v8::undefined(tc_scope).into();
-    let type_ = v8::Integer::new(tc_scope, message.get_event() as i32);
-    let promise = message.get_promise();
-
-    let reason = match message.get_event() {
-      PromiseRejectWithNoHandler
-      | PromiseRejectAfterResolved
-      | PromiseResolveAfterResolved => message.get_value().unwrap_or(undefined),
-      PromiseHandlerAddedAfterReject => undefined,
-    };
-
-    let promise_global = v8::Global::new(tc_scope, promise);
-    let args = &[type_.into(), promise.into(), reason];
-    let maybe_has_unhandled_rejection_handler = js_promise_reject_cb
-      .open(tc_scope)
-      .call(tc_scope, undefined, args);
-
-    let has_unhandled_rejection_handler =
-      if let Some(value) = maybe_has_unhandled_rejection_handler {
-        value.is_true()
-      } else {
-        false
-      };
-
-    if has_unhandled_rejection_handler {
-      let modules = JsRealm::module_map_from(tc_scope);
-      modules.notify_promise_rejection(promise_global);
-    }
-  } else {
-    let promise = message.get_promise();
-    let promise_global = v8::Global::new(scope, promise);
-    match message.get_event() {
-      PromiseRejectWithNoHandler => {
-        let error = message.get_value().unwrap();
-        let error_global = v8::Global::new(scope, error);
-        context_state
-          .pending_promise_rejections
-          .push_back((promise_global, error_global));
-      }
-      PromiseHandlerAddedAfterReject => {
-        context_state
-          .pending_promise_rejections
-          .retain(|(key, _)| key != &promise_global);
-      }
-      PromiseRejectAfterResolved => {}
-      PromiseResolveAfterResolved => {
-        // Should not warn. See #1272
-      }
-    }
-  }
+  let exception_state = JsRealm::exception_state_from_scope(scope);
+  exception_state.call_promise_reject_callback(
+    scope,
+    message.get_promise(),
+    message.get_event(),
+    message.get_value(),
+  );
 }
 
 /// This binding should be used if there's a custom console implementation
@@ -579,4 +526,68 @@ fn call_console(
 
   inspector_console_method.call(scope, receiver.into(), &call_args);
   deno_console_method.call(scope, receiver.into(), &call_args);
+}
+
+/// Wrap a promise with `then` handlers allowing us to watch the resolution progress from a Rust closure.
+/// This has a side-effect of preventing unhandled rejection handlers from triggering. If that is
+/// desired, the final handler may choose to rethrow the exception.
+pub(crate) fn watch_promise<'s, F>(
+  scope: &mut v8::HandleScope<'s>,
+  promise: v8::Local<'s, v8::Promise>,
+  f: F,
+) -> Option<v8::Local<'s, v8::Promise>>
+where
+  F: FnOnce(
+    &mut v8::HandleScope,
+    v8::ReturnValue,
+    Result<v8::Local<v8::Value>, v8::Local<v8::Value>>,
+  ),
+{
+  let external =
+    v8::External::new(scope, Box::into_raw(Box::new(Some(f))) as _);
+
+  fn get_handler<F>(external: v8::Local<v8::External>) -> F {
+    unsafe { Box::<Option<F>>::from_raw(external.value() as _) }
+      .take()
+      .unwrap()
+  }
+
+  let on_fulfilled = v8::Function::builder(
+    |scope: &mut v8::HandleScope,
+     args: v8::FunctionCallbackArguments,
+     rv: v8::ReturnValue| {
+      let data = v8::Local::<v8::External>::try_from(args.data()).unwrap();
+      let f = get_handler::<F>(data);
+      f(scope, rv, Ok(args.get(0)));
+    },
+  )
+  .data(external.into())
+  .build(scope);
+
+  let on_rejected = v8::Function::builder(
+    |scope: &mut v8::HandleScope,
+     args: v8::FunctionCallbackArguments,
+     rv: v8::ReturnValue| {
+      let data = v8::Local::<v8::External>::try_from(args.data()).unwrap();
+      let f = get_handler::<F>(data);
+      f(scope, rv, Err(args.get(0)));
+    },
+  )
+  .data(external.into())
+  .build(scope);
+
+  // function builders will return None if the runtime is shutting down
+  let (Some(on_fulfilled), Some(on_rejected)) = (on_fulfilled, on_rejected)
+  else {
+    _ = get_handler::<F>(external);
+    return None;
+  };
+
+  // then2 will return None if the runtime is shutting down
+  let Some(promise) = promise.then2(scope, on_fulfilled, on_rejected) else {
+    _ = get_handler::<F>(external);
+    return None;
+  };
+
+  Some(promise)
 }

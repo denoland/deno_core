@@ -71,6 +71,8 @@
   registerErrorClass("TypeError", TypeError);
   registerErrorClass("URIError", URIError);
 
+  let unhandledPromiseRejectionHandler = () => false;
+
   let nextPromiseId = 0;
   const promiseMap = new SafeMap();
   const RING_SIZE = 4 * 1024;
@@ -163,7 +165,7 @@
   // responses of async ops.
   function eventLoopTick() {
     // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 1; i += 2) {
+    for (let i = 0; i < arguments.length - 2; i += 2) {
       const promiseId = arguments[i];
       const res = arguments[i + 1];
       const promise = getPromise(promiseId);
@@ -177,6 +179,7 @@
     } else {
       ops.op_run_microtasks();
     }
+
     // Finally drain macrotask queue.
     for (let i = 0; i < macrotaskCallbacks.length; i++) {
       const cb = macrotaskCallbacks[i];
@@ -194,6 +197,21 @@
         // calling it then.
         if (res === true) {
           break;
+        }
+      }
+    }
+
+    // If we have any rejections for this tick, attempt to process them
+    const rejections = arguments[arguments.length - 2];
+    if (rejections) {
+      for (let i = 0; i < rejections.length; i += 2) {
+        const handled = unhandledPromiseRejectionHandler(
+          rejections[i],
+          rejections[i + 1],
+        );
+        if (!handled) {
+          const err = rejections[i + 1];
+          ops.op_dispatch_exception(err, true);
         }
       }
     }
@@ -817,8 +835,19 @@
     destructureError: (error) => ops.op_destructure_error(error),
     opNames: () => ops.op_op_names(),
     eventLoopHasMoreWork: () => ops.op_event_loop_has_more_work(),
-    setPromiseRejectCallback: (fn) => ops.op_set_promise_reject_callback(fn),
     byteLength: (str) => ops.op_str_byte_length(str),
+    setUnhandledPromiseRejectionHandler: (handler) =>
+      unhandledPromiseRejectionHandler = handler,
+    reportUnhandledException: (e) => {
+      ops.op_dispatch_exception(e, false);
+      // If the final instruction of a function terminates the runtime, we cannot detect it.
+      ops.op_void_sync();
+    },
+    reportUnhandledPromiseRejection: (e) => {
+      ops.op_dispatch_exception(e, true);
+      // If the final instruction of a function terminates the runtime, we cannot detect it.
+      ops.op_void_sync();
+    },
     build,
     setBuildInfo,
     currentUserCallSite,

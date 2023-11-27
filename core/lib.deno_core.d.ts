@@ -140,18 +140,30 @@ declare namespace Deno {
     ): void;
 
     /**
-     * Set a callback that will be called when a promise without a .catch
-     * handler is rejected. Returns the old handler or undefined.
+     * Sets the unhandled promise rejection handler. The handler returns 'true' if the
+     * rejection has been handled. If the handler returns 'false', the promise is considered
+     * unhandled, and the runtime then raises an uncatchable error and halts.
      */
-    function setPromiseRejectCallback(
+    function setUnhandledPromiseRejectionHandler(
       cb: PromiseRejectCallback,
-    ): undefined | PromiseRejectCallback;
+    ): PromiseRejectCallback;
 
     export type PromiseRejectCallback = (
-      type: number,
       promise: Promise<unknown>,
       reason: any,
-    ) => void;
+    ) => boolean;
+
+    /**
+     * Report an exception that was not handled by any runtime handler, and escaped to the
+     * top level. This terminates the runtime.
+     */
+    function reportUnhandledException(e: Error): void;
+
+    /**
+     * Report an unhandled promise rejection that was not handled by any runtime handler, and
+     * escaped to the top level. This terminates the runtime.
+     */
+    function reportUnhandledPromiseRejection(e: Error): void;
 
     /**
      * Set a callback that will be called when an exception isn't caught

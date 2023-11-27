@@ -220,26 +220,22 @@ async fn test_poll_value() {
   Err("Uncaught Error: fail")
 )]
 #[case("call", "() => new Promise(resolve => {})", Ok(None))]
-// TODO(mmastrac): This is a bug -- will be fixed
 #[case(
   "call",
   "() => { throw new Error('fail'); }",
-  Err("Uncaught undefined")
+  Err("Uncaught Error: fail")
 )]
-// TODO(mmastrac): This is a bug -- will be fixed
 #[case(
   "call",
   "() => { Promise.reject(new Error('fail')); return 1; }",
-  Err("Uncaught (in promise) Error: fail")
+  Ok(Some(1))
 )]
-// TODO(mmastrac): This is a bug -- will be fixed
 #[case(
   "call",
   "() => { Deno.core.reportUnhandledException(new Error('fail')); }",
-  Err("Uncaught undefined")
+  Err("Uncaught Error: fail")
 )]
-// TODO(mmastrac): This is a bug -- will be fixed
-#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }", Err("Uncaught undefined"))]
+#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }", Err("Uncaught Error: fail"))]
 #[tokio::test]
 async fn test_resolve_value(
   #[case] runner: &'static str,
@@ -833,9 +829,7 @@ fn terminate_during_module_eval() {
 
   let mod_result =
     futures::executor::block_on(runtime.mod_evaluate(module_id)).unwrap_err();
-  assert!(mod_result
-    .to_string()
-    .contains("JavaScript execution has been terminated"));
+  assert!(mod_result.to_string().contains("terminated"));
 }
 
 #[tokio::test]
@@ -855,107 +849,124 @@ async fn test_unhandled_rejection_order() {
   assert_eq!(err.to_string(), "Uncaught (in promise) 0");
 }
 
-#[tokio::test]
-async fn test_set_promise_reject_callback() {
-  static PROMISE_REJECT: AtomicUsize = AtomicUsize::new(0);
-
+async fn test_promise_rejection_handler_generic(
+  module: bool,
+  case: &'static str,
+  error: Option<&'static str>,
+) {
   #[op2(fast)]
-  fn op_promise_reject() -> Result<(), AnyError> {
-    PROMISE_REJECT.fetch_add(1, Ordering::Relaxed);
-    Ok(())
+  fn op_breakpoint() {}
+
+  deno_core::extension!(test_ext, ops = [op_breakpoint]);
+
+  // We don't test throw_ cases in non-module mode since those don't reject
+  if !module && case.starts_with("throw_") {
+    return;
   }
 
-  deno_core::extension!(test_ext, ops = [op_promise_reject]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
 
-  runtime
-    .execute_script_static(
-      "promise_reject_callback.js",
-      r#"
-      // Note: |promise| is not the promise created below, it's a child.
-      Deno.core.ops.op_set_promise_reject_callback((type, promise, reason) => {
-        if (type !== /* PromiseRejectWithNoHandler */ 0) {
-          throw Error("unexpected type: " + type);
+  let script = r#"
+    let test = "__CASE__";
+    function throwError() {
+      throw new Error("boom");
+    }
+    if (test != "no_handler") {
+      Deno.core.setUnhandledPromiseRejectionHandler((promise, rejection) => {
+        if (test.startsWith("exception_")) {
+          try {
+            throwError();
+          } catch (e) {
+            Deno.core.reportUnhandledException(e);
+          }
         }
-        if (reason.message !== "reject") {
-          throw Error("unexpected reason: " + reason);
-        }
-        Deno.core.ops.op_store_pending_promise_rejection(promise);
-        Deno.core.ops.op_promise_reject();
+        return test.endsWith("_true");
       });
-      new Promise((_, reject) => reject(Error("reject")));
-      "#,
-    )
-    .unwrap();
-  runtime.run_event_loop(false).await.unwrap_err();
-
-  assert_eq!(1, PROMISE_REJECT.load(Ordering::Relaxed));
-
-  runtime
-    .execute_script_static(
-      "promise_reject_callback.js",
-      r#"
-      {
-        const prev = Deno.core.ops.op_set_promise_reject_callback((...args) => {
-          prev(...args);
-        });
+    }
+    if (test != "no_reject") {
+      if (test.startsWith("async_op_eager_")) {
+        Deno.core.opAsync("op_void_async").then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
+      } else if (test.startsWith("async_op_deferred_")) {
+        Deno.core.opAsync("op_void_async_deferred").then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
+      } else if (test.startsWith("throw_")) {
+        Deno.core.ops.op_breakpoint();
+        throw new Error("fail");
+      } else {
+        Deno.core.ops.op_breakpoint();
+        Promise.reject(new Error("fail"));
       }
-      new Promise((_, reject) => reject(Error("reject")));
-      "#,
-    )
-    .unwrap();
-  runtime.run_event_loop(false).await.unwrap_err();
+    }
+  "#
+  .replace("__CASE__", case);
 
-  assert_eq!(2, PROMISE_REJECT.load(Ordering::Relaxed));
+  let future = if module {
+    let id = runtime
+      .load_main_module(
+        &Url::parse("file:///test.js").unwrap(),
+        Some(script.into()),
+      )
+      .await
+      .unwrap();
+    Some(runtime.mod_evaluate(id))
+  } else {
+    runtime.execute_script("", script.into()).unwrap();
+    None
+  };
+
+  let res = runtime.run_event_loop(false).await;
+  if let Some(error) = error {
+    let err = res.expect_err("Expected a failure");
+    let Ok(js_error) = err.downcast::<JsError>() else {
+      panic!("Expected a JsError");
+    };
+    assert_eq!(js_error.exception_message, error);
+  } else {
+    assert!(res.is_ok());
+  }
+
+  // Module evaluation will be successful in all cases except the one that throws at
+  // the top level.
+  if let Some(f) = future {
+    f.await.expect("expected module resolution to succeed");
+  }
 }
 
+#[rstest]
+// Don't throw anything -- success
+#[case::no_reject("no_reject", None)]
+// Reject with no handler
+#[case::no_handler("no_handler", Some("Uncaught (in promise) Error: fail"))]
+// Exception thrown in unhandled rejection handler
+#[case::exception_true("exception_true", Some("Uncaught Error: boom"))]
+#[case::exception_false("exception_false", Some("Uncaught Error: boom"))]
+// Standard promise rejection
+#[case::return_true("return_true", None)]
+#[case::return_false("return_false", Some("Uncaught (in promise) Error: fail"))]
+// Top-level await throw
+#[case::throw_true("throw_true", None)]
+#[case::throw_false("throw_false", Some("Uncaught (in promise) Error: fail"))]
+// Eager async op, throw from "then"
+#[case::async_op_eager_true("async_op_eager_true", None)]
+#[case::async_op_eager_false(
+  "async_op_eager_false",
+  Some("Uncaught (in promise) Error: fail")
+)]
+// Deferred async op, throw from "then"
+#[case::async_op_deferred_true("async_op_deferred_true", None)]
+#[case::async_op_deferred_false(
+  "async_op_deferred_false",
+  Some("Uncaught (in promise) Error: fail")
+)]
 #[tokio::test]
-async fn test_set_promise_reject_callback_top_level_await() {
-  static PROMISE_REJECT: AtomicUsize = AtomicUsize::new(0);
-
-  #[op2(fast)]
-  fn op_promise_reject(promise_type: u32) -> Result<(), AnyError> {
-    eprintln!("{promise_type}");
-    PROMISE_REJECT.fetch_add(1, Ordering::Relaxed);
-    Ok(())
-  }
-
-  deno_core::extension!(test_ext, ops = [op_promise_reject]);
-
-  let loader = StaticModuleLoader::with(
-    Url::parse("file:///main.js").unwrap(),
-    ascii_str!(
-      r#"
-  Deno.core.ops.op_set_promise_reject_callback((type, promise, reason) => {
-    Deno.core.ops.op_promise_reject(type);
-  });
-  throw new Error('top level throw');
-  "#
-    ),
-  );
-
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
-    module_loader: Some(Rc::new(loader)),
-    ..Default::default()
-  });
-
-  let id = runtime
-    .load_main_module(&crate::resolve_url("file:///main.js").unwrap(), None)
-    .await
-    .unwrap();
-  let receiver = runtime.mod_evaluate(id);
-  runtime.run_event_loop(false).await.unwrap();
-  let err = receiver.await.unwrap_err();
-  assert_eq!(
-    err.to_string(),
-    "Error: top level throw\n    at file:///main.js:5:9"
-  );
-
-  assert_eq!(1, PROMISE_REJECT.load(Ordering::Relaxed));
+async fn test_promise_rejection_handler(
+  #[case] case: &'static str,
+  #[case] error: Option<&'static str>,
+  #[values(true, false)] module: bool,
+) {
+  test_promise_rejection_handler_generic(module, case, error).await
 }
 
 #[test]
