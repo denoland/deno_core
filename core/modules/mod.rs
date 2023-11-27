@@ -163,7 +163,6 @@ pub enum ModuleType {
   Text,
   Url,
   Buffer,
-  CssModule,
 }
 
 impl std::fmt::Display for ModuleType {
@@ -174,7 +173,6 @@ impl std::fmt::Display for ModuleType {
       Self::Text => write!(f, "Text"),
       Self::Url => write!(f, "Url"),
       Self::Buffer => write!(f, "Buffer"),
-      Self::CssModule => write!(f, "CssModule"),
     }
   }
 }
@@ -303,7 +301,6 @@ pub(crate) enum AssertedModuleType {
   Text,
   Url,
   // Buffer,
-  CssModule,
 
   // IMPORTANT: If you add any additional enum values here, you must update `to_v8`` below!
   /// Non-well-known module type.
@@ -384,7 +381,6 @@ impl std::fmt::Display for AssertedModuleType {
       Self::Json => write!(f, "JSON"),
       Self::Text => write!(f, "text"),
       Self::Url => write!(f, "url"),
-      Self::CssModule => write!(f, "css-module"),
       Self::Other(ty) => write!(f, "Other({ty})"),
     }
   }
