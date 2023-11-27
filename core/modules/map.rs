@@ -285,33 +285,21 @@ impl ModuleMap {
         id
       }
       None => match module_type {
-        ModuleType::JavaScript => self.new_es_module(
-          scope,
-          main,
-          module_url_found,
-          code,
-          dynamic,
-        )?,
-        ModuleType::Json => self.new_json_module(
-          scope,
-          module_url_found,
-          code,
-        )?,
-        ModuleType::Text => self.new_text_module(
-          scope,
-          module_url_found,
-          code
-        )?,
-        ModuleType::Url => self.new_url_module(
-          scope,
-          module_url_found,
-          code
-        )?,
-        ModuleType::CssModule => self.new_css_module_module(
-          scope,
-          module_url_found,
-          code,
-        )?,
+        ModuleType::JavaScript => {
+          self.new_es_module(scope, main, module_url_found, code, dynamic)?
+        }
+        ModuleType::Json => {
+          self.new_json_module(scope, module_url_found, code)?
+        }
+        ModuleType::Text => {
+          self.new_text_module(scope, module_url_found, code)?
+        }
+        ModuleType::Url => {
+          self.new_url_module(scope, module_url_found, code)?
+        }
+        ModuleType::CssModule => {
+          self.new_css_module_module(scope, module_url_found, code)?
+        }
         ModuleType::Buffer => unimplemented!(),
       },
     };
@@ -404,8 +392,13 @@ impl ModuleMap {
       .text_value_store
       .insert(handle.clone(), value_handle);
 
-    let id =
-      self.data.borrow_mut().create_module_info(name, ModuleType::Text, handle, false, vec![]);
+    let id = self.data.borrow_mut().create_module_info(
+      name,
+      ModuleType::Text,
+      handle,
+      false,
+      vec![],
+    );
 
     Ok(id)
   }
@@ -443,8 +436,13 @@ impl ModuleMap {
       .url_value_store
       .insert(handle.clone(), value_handle);
 
-    let id =
-      self.data.borrow_mut().create_module_info(name, ModuleType::Url, handle, false, vec![]);
+    let id = self.data.borrow_mut().create_module_info(
+      name,
+      ModuleType::Url,
+      handle,
+      false,
+      vec![],
+    );
 
     Ok(id)
   }
@@ -479,7 +477,6 @@ impl ModuleMap {
         .collect::<HashMap<String, String>>()
     };
 
-    
     let class_map_obj = serde_v8::to_v8(scope, class_map).unwrap();
 
     let tc_scope = &mut v8::TryCatch::new(scope);
