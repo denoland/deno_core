@@ -337,7 +337,7 @@ impl ModuleMap {
       tc_scope,
       name_str,
       &export_names,
-      json_module_evaluation_steps,
+      synthetic_module_evaluation_steps,
     );
 
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
@@ -345,7 +345,7 @@ impl ModuleMap {
     self
       .data
       .borrow_mut()
-      .json_value_store
+      .synthetic_module_value_store
       .insert(handle.clone(), value_handle);
 
     let id = self.data.borrow_mut().create_module_info(
@@ -380,7 +380,7 @@ impl ModuleMap {
       tc_scope,
       name_str,
       &export_names,
-      text_module_evaluation_steps,
+      synthetic_module_evaluation_steps,
     );
 
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
@@ -389,7 +389,7 @@ impl ModuleMap {
     self
       .data
       .borrow_mut()
-      .text_value_store
+      .synthetic_module_value_store
       .insert(handle.clone(), value_handle);
 
     let id = self.data.borrow_mut().create_module_info(
@@ -424,7 +424,7 @@ impl ModuleMap {
       tc_scope,
       name_str,
       &export_names,
-      url_module_evaluation_steps,
+      synthetic_module_evaluation_steps,
     );
 
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
@@ -433,7 +433,7 @@ impl ModuleMap {
     self
       .data
       .borrow_mut()
-      .url_value_store
+      .synthetic_module_value_store
       .insert(handle.clone(), value_handle);
 
     let id = self.data.borrow_mut().create_module_info(
@@ -486,7 +486,7 @@ impl ModuleMap {
       tc_scope,
       name_str,
       &export_names,
-      css_module_evaluation_steps,
+      synthetic_module_evaluation_steps,
     );
 
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
@@ -494,7 +494,7 @@ impl ModuleMap {
     self
       .data
       .borrow_mut()
-      .css_value_store
+      .synthetic_module_value_store
       .insert(handle.clone(), value_handle);
 
     let id = self.data.borrow_mut().create_module_info(
@@ -1463,7 +1463,7 @@ impl Default for ModuleMap {
 // Clippy thinks the return value doesn't need to be an Option, it's unaware
 // of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
 #[allow(clippy::unnecessary_wraps)]
-fn json_module_evaluation_steps<'a>(
+fn synthetic_module_evaluation_steps<'a>(
   context: v8::Local<'a, v8::Context>,
   module: v8::Local<v8::Module>,
 ) -> Option<v8::Local<'a, v8::Value>> {
@@ -1476,115 +1476,7 @@ fn json_module_evaluation_steps<'a>(
   let value_handle = module_map
     .data
     .borrow_mut()
-    .json_value_store
-    .remove(&handle)
-    .unwrap();
-  let value_local = v8::Local::new(tc_scope, value_handle);
-
-  let name = v8::String::new(tc_scope, "default").unwrap();
-  // This should never fail
-  assert!(
-    module.set_synthetic_module_export(tc_scope, name, value_local)
-      == Some(true)
-  );
-  assert!(!tc_scope.has_caught());
-
-  // Since TLA is active we need to return a promise.
-  let resolver = v8::PromiseResolver::new(tc_scope).unwrap();
-  let undefined = v8::undefined(tc_scope);
-  resolver.resolve(tc_scope, undefined.into());
-  Some(resolver.get_promise(tc_scope).into())
-}
-
-// Clippy thinks the return value doesn't need to be an Option, it's unaware
-// of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
-#[allow(clippy::unnecessary_wraps)]
-fn text_module_evaluation_steps<'a>(
-  context: v8::Local<'a, v8::Context>,
-  module: v8::Local<v8::Module>,
-) -> Option<v8::Local<'a, v8::Value>> {
-  // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let tc_scope = &mut v8::TryCatch::new(scope);
-  let module_map = JsRealm::module_map_from(tc_scope);
-
-  let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-  let value_handle = module_map
-    .data
-    .borrow_mut()
-    .text_value_store
-    .remove(&handle)
-    .unwrap();
-  let value_local = v8::Local::new(tc_scope, value_handle);
-
-  let name = v8::String::new(tc_scope, "default").unwrap();
-  // This should never fail
-  assert!(
-    module.set_synthetic_module_export(tc_scope, name, value_local)
-      == Some(true)
-  );
-  assert!(!tc_scope.has_caught());
-
-  // Since TLA is active we need to return a promise.
-  let resolver = v8::PromiseResolver::new(tc_scope).unwrap();
-  let undefined = v8::undefined(tc_scope);
-  resolver.resolve(tc_scope, undefined.into());
-  Some(resolver.get_promise(tc_scope).into())
-}
-
-// Clippy thinks the return value doesn't need to be an Option, it's unaware
-// of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
-#[allow(clippy::unnecessary_wraps)]
-fn css_module_evaluation_steps<'a>(
-  context: v8::Local<'a, v8::Context>,
-  module: v8::Local<v8::Module>,
-) -> Option<v8::Local<'a, v8::Value>> {
-  // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let tc_scope = &mut v8::TryCatch::new(scope);
-  let module_map = JsRealm::module_map_from(tc_scope);
-
-  let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-  let value_handle = module_map
-    .data
-    .borrow_mut()
-    .css_value_store
-    .remove(&handle)
-    .unwrap();
-  let value_local = v8::Local::new(tc_scope, value_handle);
-
-  let name = v8::String::new(tc_scope, "default").unwrap();
-  // This should never fail
-  assert!(
-    module.set_synthetic_module_export(tc_scope, name, value_local)
-      == Some(true)
-  );
-  assert!(!tc_scope.has_caught());
-
-  // Since TLA is active we need to return a promise.
-  let resolver = v8::PromiseResolver::new(tc_scope).unwrap();
-  let undefined = v8::undefined(tc_scope);
-  resolver.resolve(tc_scope, undefined.into());
-  Some(resolver.get_promise(tc_scope).into())
-}
-
-// Clippy thinks the return value doesn't need to be an Option, it's unaware
-// of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
-#[allow(clippy::unnecessary_wraps)]
-fn url_module_evaluation_steps<'a>(
-  context: v8::Local<'a, v8::Context>,
-  module: v8::Local<v8::Module>,
-) -> Option<v8::Local<'a, v8::Value>> {
-  // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let tc_scope = &mut v8::TryCatch::new(scope);
-  let module_map = JsRealm::module_map_from(tc_scope);
-
-  let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-  let value_handle = module_map
-    .data
-    .borrow_mut()
-    .url_value_store
+    .synthetic_module_value_store
     .remove(&handle)
     .unwrap();
   let value_local = v8::Local::new(tc_scope, value_handle);
