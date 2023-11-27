@@ -341,37 +341,6 @@ impl ModuleMap {
             url_str.into(),
           )?
         }
-        ModuleType::CssModule => {
-          let class_map = {
-            use lightningcss::stylesheet::{ParserOptions, StyleSheet};
-
-            let stylesheet = StyleSheet::parse(
-              code.as_str(),
-              ParserOptions {
-                filename: module_url_found.as_str().to_string(),
-                css_modules: Some(Default::default()),
-                ..Default::default()
-              },
-            )
-            .unwrap();
-
-            let to_css_result = stylesheet.to_css(Default::default()).unwrap();
-            to_css_result
-              .exports
-              .unwrap()
-              .into_iter()
-              .map(|(key, value)| (key, value.name))
-              .collect::<HashMap<String, String>>()
-          };
-
-          let class_map_obj = serde_v8::to_v8(scope, class_map).unwrap();
-          self.new_synthetic_module(
-            scope,
-            module_url_found,
-            ModuleType::CssModule,
-            class_map_obj,
-          )?
-        }
         ModuleType::Buffer => unimplemented!(),
       },
     };

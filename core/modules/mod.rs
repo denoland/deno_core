@@ -142,8 +142,6 @@ pub(crate) fn get_asserted_module_type_from_assertions(
         AssertedModuleType::Text
       } else if ty == "url" {
         AssertedModuleType::Url
-      } else if ty == "css-module" {
-        AssertedModuleType::CssModule
       } else {
         AssertedModuleType::JavaScriptOrWasm
       }
@@ -323,7 +321,6 @@ impl AssertedModuleType {
       AssertedModuleType::Text => v8::Integer::new(scope, 2).into(),
       AssertedModuleType::Url => v8::Integer::new(scope, 3).into(),
       // AssertedModuleType::Buffer => v8::Integer::new(scope, 4).into(),
-      AssertedModuleType::CssModule => v8::Integer::new(scope, 5).into(),
       AssertedModuleType::Other(ty) => {
         v8::String::new(scope, ty).unwrap().into()
       }
@@ -340,7 +337,6 @@ impl AssertedModuleType {
         1 => AssertedModuleType::Json,
         2 => AssertedModuleType::Text,
         3 => AssertedModuleType::Url,
-        5 => AssertedModuleType::CssModule,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
@@ -364,7 +360,6 @@ impl PartialEq<ModuleType> for AssertedModuleType {
       ModuleType::Json => self == &AssertedModuleType::Json,
       ModuleType::Text => self == &AssertedModuleType::Text,
       ModuleType::Url => self == &AssertedModuleType::Url,
-      ModuleType::CssModule => self == &AssertedModuleType::CssModule,
       ModuleType::Buffer => todo!(),
     }
   }
@@ -377,7 +372,6 @@ impl From<ModuleType> for AssertedModuleType {
       ModuleType::Json => AssertedModuleType::Json,
       ModuleType::Text => AssertedModuleType::Text,
       ModuleType::Url => AssertedModuleType::Url,
-      ModuleType::CssModule => AssertedModuleType::CssModule,
       ModuleType::Buffer => todo!(),
     }
   }
