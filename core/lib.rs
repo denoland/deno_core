@@ -196,7 +196,7 @@ macro_rules! located_script_name {
   };
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
   use std::process::{Command, Stdio};
 

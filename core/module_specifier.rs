@@ -162,7 +162,7 @@ fn specifier_has_uri_scheme(specifier: &str) -> bool {
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
   use super::*;
   use crate::serde_json::from_value;

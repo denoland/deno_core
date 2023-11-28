@@ -14,7 +14,7 @@ mod map;
 mod module_map_data;
 mod recursive_load;
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests;
 
 #[cfg(test)]
