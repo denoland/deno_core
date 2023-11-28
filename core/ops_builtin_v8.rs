@@ -34,28 +34,39 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   context_state.borrow_mut().unrefed_ops.insert(promise_id);
 }
 
-const SPECIFIER: &str = "foobar";
-const SOURCE_CODE: &str = "Deno.core.print('foo\\n')";
-
 #[op2(core)]
 #[global]
-pub fn op_lazy_load_esm(scope: &mut v8::HandleScope) -> Result<v8::Global<v8::Value>, anyhow::Error> {
+pub fn op_lazy_load_esm(
+  scope: &mut v8::HandleScope,
+  #[string] module_name: String,
+) -> Result<v8::Global<v8::Value>, Error> {
   let module_map_rc = JsRealm::module_map_from(scope);
 
   let mod_ns = futures::executor::block_on(async {
+    let specifier = crate::ModuleSpecifier::parse(&module_name)?;
+    let source = module_map_rc
+      .borrow()
+      .loader
+      .load(&specifier, None, false)
+      .await?;
+
     // false for side module (not main module)
     let mod_id = module_map_rc
       .borrow_mut()
-      .new_es_module(scope, false, SPECIFIER.to_string().into(), SOURCE_CODE.to_string().into(), false)
+      .new_es_module(scope, false, specifier.into(), source.code, false)
       .map_err(|e| match e {
         crate::modules::ModuleError::Exception(exception) => {
           let exception = v8::Local::new(scope, exception);
-          crate::error::exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+          crate::error::exception_to_err_result::<()>(scope, exception, false)
+            .unwrap_err()
         }
         crate::modules::ModuleError::Other(error) => error,
       })?;
 
-    module_map_rc.borrow_mut().instantiate_module(scope, mod_id).unwrap();
+    module_map_rc
+      .borrow_mut()
+      .instantiate_module(scope, mod_id)
+      .unwrap();
 
     let module_handle = module_map_rc.borrow().get_handle(mod_id).unwrap();
     let module_local = v8::Local::new(scope, module_handle);
@@ -63,14 +74,15 @@ pub fn op_lazy_load_esm(scope: &mut v8::HandleScope) -> Result<v8::Global<v8::Va
     let status = module_local.get_status();
     assert_eq!(status, v8::ModuleStatus::Instantiated);
 
-    let _ = module_local.evaluate(scope);
+    let value = module_local.evaluate(scope);
+    dbg!(value.unwrap().type_repr());
 
     let status = module_local.get_status();
     assert_eq!(status, v8::ModuleStatus::Evaluated);
 
     let mod_ns = module_local.get_module_namespace();
 
-    Ok::<_, anyhow::Error>(v8::Global::new(scope, mod_ns))
+    Ok::<_, Error>(v8::Global::new(scope, mod_ns))
   });
 
   mod_ns
