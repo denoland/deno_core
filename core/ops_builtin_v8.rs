@@ -39,20 +39,18 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 #[global]
 pub fn op_lazy_load_esm(
   scope: &mut v8::HandleScope,
-) -> Result<v8::Global<v8::Value>, anyhow::Error> {
+  #[string] module_name: String,
+) -> Result<v8::Global<v8::Value>, Error> {
   let module_map_rc = JsRealm::module_map_from(scope);
 
   let mod_ns = futures::executor::block_on(async {
+    let specifier = crate::ModuleSpecifier::parse(&module_name)?;
+    let loader = module_map_rc.loader.borrow();
+    let source = loader.load(&specifier, None, false).await?;
+
     // false for side module (not main module)
     let mod_id = module_map_rc
-      .borrow_mut()
-      .new_es_module(
-        scope,
-        false,
-        SPECIFIER.to_string().into(),
-        SOURCE_CODE.to_string().into(),
-        false,
-      )
+      .new_es_module(scope, false, specifier.into(), source.code, false)
       .map_err(|e| match e {
         crate::modules::ModuleError::Exception(exception) => {
           let exception = v8::Local::new(scope, exception);
@@ -62,30 +60,9 @@ pub fn op_lazy_load_esm(
         crate::modules::ModuleError::Other(error) => error,
       })?;
 
-    module_map_rc
-      .borrow_mut()
-      .instantiate_module(scope, mod_id)
-      .unwrap();
-pub fn op_lazy_load_esm(
-  scope: &mut v8::HandleScope,
-  #[string] module_name: String,
-) -> Result<v8::Global<v8::Value>, Error> {
-    let specifier = crate::ModuleSpecifier::parse(&module_name)?;
-    let source = module_map_rc
-      .borrow()
-      .loader
-      .load(&specifier, None, false)
-      .await?;
+    module_map_rc.instantiate_module(scope, mod_id).unwrap();
 
-      .new_es_module(scope, false, specifier.into(), source.code, false)
-          crate::error::exception_to_err_result::<()>(scope, exception, false)
-            .unwrap_err()
-    module_map_rc
-      .borrow_mut()
-      .instantiate_module(scope, mod_id)
-      .unwrap();
-
-    let module_handle = module_map_rc.borrow().get_handle(mod_id).unwrap();
+    let module_handle = module_map_rc.get_handle(mod_id).unwrap();
     let module_local = v8::Local::new(scope, module_handle);
 
     let status = module_local.get_status();
