@@ -68,7 +68,9 @@ jobs:
         run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
 
       - name: Cargo test (miri)
-        run: cargo +nightly miri test -p deno_core
+        run: |
+          rustup component add miri
+          cargo +nightly miri test -p deno_core
 
       - name: Run examples
         # Only regression tests here for now.
