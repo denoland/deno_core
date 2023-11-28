@@ -58,10 +58,12 @@ impl V8TaskSpawnerFactory {
       return Poll::Pending;
     }
 
-    let tasks = std::mem::take(self.tasks.lock().unwrap().deref_mut());
+    let mut lock = self.tasks.lock().unwrap();
+    let tasks = std::mem::take(lock.deref_mut());
     if tasks.is_empty() {
       // Unlikely race lost -- the task submission to the queue and flag are not atomic, so it's
-      // possible we ended up with an extra poll here.
+      // possible we ended up with an extra poll here. This only shows up under Miri, but as it is
+      // possible we do need to handle it.
       self.waker.register(cx.waker());
       return Poll::Pending;
     }
@@ -189,5 +191,84 @@ impl V8CrossThreadTaskSpawner {
     let task: SendTask = unsafe { std::mem::transmute(task) };
     self.tasks.spawn(task);
     rx.recv().unwrap()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::future::poll_fn;
+
+  use tokio::task::LocalSet;
+
+  use super::*;
+  #[test]
+  fn test_spawner_serial() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(1)
+      .build()
+      .unwrap();
+    runtime.block_on(async {
+      let factory = Arc::new(V8TaskSpawnerFactory::default());
+      let cross_thread_spawner = factory.clone().new_cross_thread_spawner();
+      let local_set = LocalSet::new();
+
+      const COUNT: usize = 100;
+
+      let task = runtime.spawn(async move {
+        for _ in 0..COUNT {
+          cross_thread_spawner.spawn(|_| {});
+        }
+      });
+
+      local_set.spawn_local(async move {
+        let mut count = 0;
+        loop {
+          count += poll_fn(|cx| factory.poll_inner(cx)).await.len();
+          if count >= COUNT {
+            break;
+          }
+        }
+      });
+
+      local_set.await;
+      _ = task.await;
+    });
+  }
+
+  #[test]
+  fn test_spawner_parallel() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(1)
+      .build()
+      .unwrap();
+    runtime.block_on(async {
+      let factory = Arc::new(V8TaskSpawnerFactory::default());
+      let cross_thread_spawner = factory.clone().new_cross_thread_spawner();
+      let local_set = LocalSet::new();
+
+      const COUNT: usize = 100;
+      let mut tasks = vec![];
+      for _ in 0..COUNT {
+        let cross_thread_spawner = cross_thread_spawner.clone();
+        tasks.push(runtime.spawn(async move {
+          cross_thread_spawner.spawn(|_| {});
+        }));
+      }
+
+      local_set.spawn_local(async move {
+        let mut count = 0;
+        loop {
+          count += poll_fn(|cx| factory.poll_inner(cx)).await.len();
+          if count >= COUNT {
+            break;
+          }
+        }
+      });
+
+      local_set.await;
+      for task in tasks.drain(..) {
+        _ = task.await;
+      }
+    });
   }
 }
