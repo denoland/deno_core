@@ -67,6 +67,9 @@ jobs:
       - name: Cargo test
         run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
 
+      - name: Cargo test (miri)
+        run: cargo +nightly miri test -p deno_core
+
       - name: Run examples
         # Only regression tests here for now.
         # Regression test for https://github.com/denoland/deno/pull/19615.
