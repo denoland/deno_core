@@ -11,13 +11,11 @@ use crate::error::throw_type_error;
 use crate::error::JsStackFrame;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
-use crate::modules::validate_import_assertions;
 use crate::modules::ImportAssertionsKind;
 use crate::modules::ModuleMap;
-use crate::modules::ResolutionKind;
 use crate::ops::OpCtx;
 use crate::runtime::InitMode;
-use crate::JsRealm;
+use crate::runtime::JsRealm;
 use crate::JsRuntime;
 
 pub(crate) fn external_references(
@@ -128,7 +126,7 @@ pub(crate) fn initialize_context<'s>(
   if matches!(
     init_mode,
     InitMode::FromSnapshot {
-      register_ops: false
+      skip_op_registration: true
     }
   ) {
     return context;
@@ -291,7 +289,11 @@ pub fn host_import_module_dynamically_callback<'s>(
 
   {
     let tc_scope = &mut v8::TryCatch::new(scope);
-    validate_import_assertions(tc_scope, &assertions);
+    {
+      let state = JsRuntime::state_from(tc_scope);
+      (state.validate_import_attributes_cb)(tc_scope, &assertions);
+    }
+
     if tc_scope.has_caught() {
       let e = tc_scope.exception().unwrap();
       resolver.reject(tc_scope, e);
@@ -302,7 +304,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 
   let resolver_handle = v8::Global::new(scope, resolver);
   {
-    let state_rc = JsRuntime::state_from(scope);
+    let state = JsRuntime::state_from(scope);
     let module_map_rc = JsRealm::module_map_from(scope);
 
     debug!(
@@ -316,7 +318,7 @@ pub fn host_import_module_dynamically_callback<'s>(
       asserted_module_type,
       resolver_handle,
     );
-    state_rc.borrow_mut().notify_new_dynamic_import();
+    state.notify_new_dynamic_import();
   }
   // Map errors from module resolution (not JS errors from module execution) to
   // ones rethrown from this scope, so they include the call stack of the
@@ -339,21 +341,21 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let module_map_rc = JsRealm::module_map_from(scope);
-  let module_map = module_map_rc.borrow();
+  let module_map = JsRealm::module_map_from(scope);
 
   let module_global = v8::Global::new(scope, module);
-  let info = module_map
-    .get_info(&module_global)
+  let name = module_map
+    .get_name_by_module(&module_global)
     .expect("Module not found");
 
   let url_key = v8::String::new_external_onebyte_static(scope, b"url").unwrap();
-  let url_val = info.name.v8(scope);
+  let url_val = v8::String::new(scope, &name).unwrap();
   meta.create_data_property(scope, url_key.into(), url_val.into());
 
   let main_key =
     v8::String::new_external_onebyte_static(scope, b"main").unwrap();
-  let main_val = v8::Boolean::new(scope, info.main);
+  let main = module_map.is_main_module(&module_global);
+  let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
   let builder =
@@ -383,16 +385,16 @@ fn import_meta_resolve(
     url_prop.to_rust_string_lossy(scope)
   };
   let module_map_rc = JsRealm::module_map_from(scope);
-  let loader = module_map_rc.borrow().loader.clone();
+  let loader = module_map_rc.loader.clone();
   let specifier_str = specifier.to_rust_string_lossy(scope);
 
-  if specifier_str.starts_with("npm:") {
-    throw_type_error(scope, "\"npm:\" specifiers are currently not supported in import.meta.resolve()");
-    return;
-  }
+  let import_meta_resolve_result = {
+    let loader = loader.borrow();
+    let loader = loader.as_ref();
+    (module_map_rc.import_meta_resolve_cb)(loader, specifier_str, referrer)
+  };
 
-  match loader.resolve(&specifier_str, &referrer, ResolutionKind::DynamicImport)
-  {
+  match import_meta_resolve_result {
     Ok(resolved) => {
       let resolved_val = serde_v8::to_v8(scope, resolved.as_str()).unwrap();
       rv.set(resolved_val);
@@ -502,15 +504,8 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
       };
 
     if has_unhandled_rejection_handler {
-      let state_rc = JsRealm::state_from_scope(tc_scope);
-      let mut state = state_rc.borrow_mut();
-      if let Some(pending_mod_evaluate) = state.pending_mod_evaluate.as_mut() {
-        if !pending_mod_evaluate.has_evaluated {
-          pending_mod_evaluate
-            .handled_promise_rejections
-            .push(promise_global);
-        }
-      }
+      let modules = JsRealm::module_map_from(tc_scope);
+      modules.notify_promise_rejection(promise_global);
     }
   } else {
     let promise = message.get_promise();

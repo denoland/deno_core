@@ -1,24 +1,43 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ascii_str;
+use crate::error::exception_to_err_result;
 use crate::modules::loaders::CountingModuleLoader;
 use crate::modules::loaders::ModuleLoadEventCounts;
+use crate::modules::loaders::*;
+use crate::modules::AssertedModuleType;
+use crate::modules::ModuleError;
+use crate::modules::ModuleRequest;
 use crate::resolve_import;
+use crate::resolve_url;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
+use crate::FastString;
+use crate::ModuleCode;
+use crate::ModuleSource;
+use crate::ModuleSourceFuture;
+use crate::ModuleSpecifier;
+use crate::ModuleType;
+use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use crate::Snapshot;
+use anyhow::bail;
+use anyhow::Error;
 use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
+use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 use url::Url;
-
-use super::*;
 
 // deno_ops macros generate code assuming deno_core in scope.
 use crate::deno_core;
@@ -250,7 +269,7 @@ fn test_recursive_load() {
   );
 
   let module_map_rc = runtime.module_map();
-  let modules = module_map_rc.borrow();
+  let modules = module_map_rc;
 
   assert_eq!(
     modules.get_id("file:///a.js", AssertedModuleType::JavaScriptOrWasm),
@@ -267,7 +286,7 @@ fn test_recursive_load() {
     .unwrap();
   assert_eq!(
     modules.get_requested_modules(a_id),
-    Some(&vec![
+    Some(vec![
       ModuleRequest {
         specifier: "file:///b.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
@@ -280,19 +299,19 @@ fn test_recursive_load() {
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///c.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     },])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///d.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     },])
   );
-  assert_eq!(modules.get_requested_modules(d_id), Some(&vec![]));
+  assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
 }
 
 #[test]
@@ -330,11 +349,10 @@ fn test_mods() {
 
   assert_eq!(DISPATCH_COUNT.load(Ordering::Relaxed), 0);
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b) = {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
     let mod_a = module_map
       .new_es_module(
@@ -357,7 +375,7 @@ fn test_mods() {
     let imports = module_map.get_requested_modules(mod_a);
     assert_eq!(
       imports,
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///b.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
       },])
@@ -410,11 +428,10 @@ fn test_json_module() {
     )
     .unwrap();
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b, mod_c) = {
     let scope = &mut runtime.handle_scope();
-    let mut module_map = module_map_rc.borrow_mut();
     let specifier_a = ascii_str!("file:///a.js");
     let specifier_b = ascii_str!("file:///b.js");
     let mod_a = module_map
@@ -436,7 +453,7 @@ fn test_json_module() {
     let imports = module_map.get_requested_modules(mod_a);
     assert_eq!(
       imports,
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///c.json".to_string(),
         asserted_module_type: AssertedModuleType::Json,
       },])
@@ -461,7 +478,7 @@ fn test_json_module() {
     let imports = module_map.get_requested_modules(mod_b);
     assert_eq!(
       imports,
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///c.json".to_string(),
         asserted_module_type: AssertedModuleType::Json,
       },])
@@ -486,13 +503,129 @@ fn test_json_module() {
 
   let receiver = runtime.mod_evaluate(mod_a);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-  futures::executor::block_on(receiver).unwrap().unwrap();
+  futures::executor::block_on(receiver).unwrap();
 
   runtime.instantiate_module(mod_b).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_b);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-  futures::executor::block_on(receiver).unwrap().unwrap();
+  futures::executor::block_on(receiver).unwrap();
+}
+
+#[test]
+fn test_validate_import_attributes() {
+  fn validate_import_attrs(
+    scope: &mut v8::HandleScope,
+    _attrs: &HashMap<String, String>,
+  ) {
+    let msg = v8::String::new(scope, "boom!").unwrap();
+    let ex = v8::Exception::type_error(scope, msg);
+    scope.throw_exception(ex);
+  }
+
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
+    ..Default::default()
+  });
+
+  let module_map = runtime.module_map().clone();
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.js");
+    let module_err = module_map
+      .new_es_module(
+        scope,
+        true,
+        specifier_a,
+        ascii_str!(
+          r#"
+          import jsonData from './c.json' with {foo: "bar"};
+        "#
+        ),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err =
+      exception_to_err_result::<()>(scope, exception, false).unwrap_err();
+    assert_eq!(err.to_string(), "Uncaught TypeError: boom!");
+  }
+}
+
+#[test]
+fn test_validate_import_attributes_default() {
+  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  let module_map_rc = runtime.module_map().clone();
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.js");
+    let module_err = module_map_rc
+      .new_es_module(
+        scope,
+        true,
+        specifier_a,
+        ascii_str!(
+          r#"
+          import jsonData from './c.json' with {foo: "bar"};
+        "#
+        ),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err =
+      exception_to_err_result::<()>(scope, exception, false).unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "Uncaught TypeError: \"foo\" attribute is not supported."
+    );
+  }
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.js");
+    let module_err = module_map_rc
+      .new_es_module(
+        scope,
+        true,
+        specifier_a,
+        ascii_str!(
+          r#"
+          import jsonData from './c.json' with {type: "bar"};
+        "#
+        ),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err =
+      exception_to_err_result::<()>(scope, exception, false).unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "Uncaught TypeError: \"bar\" is not a valid module type."
+    );
+  }
 }
 
 #[tokio::test]
@@ -569,32 +702,6 @@ async fn dyn_import_ok() {
     Poll::Ready(())
   })
   .await;
-}
-
-#[tokio::test]
-async fn clear_modules_works() {
-  fn count_modules(runtime: &mut JsRuntime) -> usize {
-    runtime
-      .main_realm()
-      .0
-      .module_map()
-      .borrow_mut()
-      .handles
-      .len()
-  }
-
-  let mut runtime = JsRuntime::new(Default::default());
-  futures::executor::block_on(runtime.load_main_module(
-    &Url::parse("file:///a.js").unwrap(),
-    Some(ascii_str!("")),
-  ))
-  .unwrap();
-
-  let result = futures::executor::block_on(runtime.run_event_loop(false));
-  assert!(result.is_ok());
-
-  runtime.clear_modules();
-  assert_eq!(0, count_modules(&mut runtime));
 }
 
 #[tokio::test]
@@ -702,7 +809,7 @@ fn test_circular_load() {
     );
 
     let module_map_rc = runtime.module_map();
-    let modules = module_map_rc.borrow();
+    let modules = module_map_rc;
 
     assert_eq!(
       modules
@@ -715,7 +822,7 @@ fn test_circular_load() {
 
     assert_eq!(
       modules.get_requested_modules(circular1_id),
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///circular2.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
       }])
@@ -723,7 +830,7 @@ fn test_circular_load() {
 
     assert_eq!(
       modules.get_requested_modules(circular2_id),
-      Some(&vec![ModuleRequest {
+      Some(vec![ModuleRequest {
         specifier: "file:///circular3.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
       }])
@@ -737,7 +844,7 @@ fn test_circular_load() {
       .unwrap();
     assert_eq!(
       modules.get_requested_modules(circular3_id),
-      Some(&vec![
+      Some(vec![
         ModuleRequest {
           specifier: "file:///circular1.js".to_string(),
           asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
@@ -782,7 +889,7 @@ fn test_redirect_load() {
     );
 
     let module_map_rc = runtime.module_map();
-    let modules = module_map_rc.borrow();
+    let modules = module_map_rc;
 
     assert_eq!(
       modules
@@ -933,7 +1040,7 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
   );
 
   let module_map_rc = runtime.module_map();
-  let modules = module_map_rc.borrow();
+  let modules = module_map_rc;
 
   assert_eq!(
     modules.get_id(
@@ -954,7 +1061,7 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
 
   assert_eq!(
     modules.get_requested_modules(main_id),
-    Some(&vec![
+    Some(vec![
       ModuleRequest {
         specifier: "file:///b.js".to_string(),
         asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
@@ -967,19 +1074,19 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///c.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     }])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
-    Some(&vec![ModuleRequest {
+    Some(vec![ModuleRequest {
       specifier: "file:///d.js".to_string(),
       asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
     }])
   );
-  assert_eq!(modules.get_requested_modules(d_id), Some(&vec![]));
+  assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
 }
 
 #[test]
@@ -1098,7 +1205,7 @@ fn import_meta_snapshot() {
     #[allow(clippy::let_underscore_future)]
     let eval_fut = runtime.mod_evaluate(main_id);
     futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-    futures::executor::block_on(eval_fut).unwrap().unwrap();
+    futures::executor::block_on(eval_fut).unwrap();
     runtime.snapshot()
   };
 
@@ -1220,4 +1327,48 @@ async fn no_duplicate_loads() {
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(a_id);
   runtime.run_event_loop(false).await.unwrap();
+}
+
+#[test]
+fn import_meta_resolve_cb() {
+  fn import_meta_resolve_cb(
+    _loader: &dyn ModuleLoader,
+    specifier: String,
+    _referrer: String,
+  ) -> Result<ModuleSpecifier, Error> {
+    if specifier == "foo" {
+      return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
+    }
+
+    if specifier == "./mod.js" {
+      return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
+    }
+
+    bail!("unexpected")
+  }
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    import_meta_resolve_callback: Some(Box::new(import_meta_resolve_cb)),
+    ..Default::default()
+  });
+
+  let spec = ModuleSpecifier::parse("file:///test.js").unwrap();
+  let source = r#"
+  if (import.meta.resolve("foo") !== "foo") throw new Error();
+  if (import.meta.resolve("./mod.js") !== "file:///mod.js") throw new Error();
+  let caught = false;
+  try {
+    import.meta.resolve("boom!");
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw new Error();
+  }
+  if (!caught) throw new Error();
+  "#
+  .to_string();
+  let a_id_fut = runtime.load_main_module(&spec, Some(source.into()));
+  let a_id = futures::executor::block_on(a_id_fut).unwrap();
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(a_id);
+  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
 }

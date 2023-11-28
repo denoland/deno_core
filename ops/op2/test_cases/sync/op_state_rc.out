@@ -7,6 +7,7 @@ impl deno_core::_ops::Op for op_state_rc {
     const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
         stringify!(op_state_rc),
         false,
+        false,
         1usize as u8,
         Self::v8_fn_ptr as _,
         Self::v8_fn_ptr_metrics as _,
@@ -66,6 +67,10 @@ impl op_state_rc {
         _: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let opctx = unsafe {
             &*(deno_core::v8::Local::<
@@ -81,6 +86,10 @@ impl op_state_rc {
     }
     #[inline(always)]
     fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+        #[cfg(debug_assertions)]
+        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+            &<Self as deno_core::_ops::Op>::DECL,
+        );
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });

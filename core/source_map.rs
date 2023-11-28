@@ -91,7 +91,7 @@ pub fn apply_source_map<G: SourceMapGetter + ?Sized>(
     return SourceMapApplication::Unchanged;
   };
 
-  let Some(token) = source_map.lookup_token(line_number , column_number) else {
+  let Some(token) = source_map.lookup_token(line_number, column_number) else {
     return SourceMapApplication::Unchanged;
   };
 

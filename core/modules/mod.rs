@@ -1,28 +1,18 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::error::generic_error;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
-use crate::resolve_url;
+use anyhow::bail;
 use anyhow::Error;
-use futures::future::FutureExt;
-use futures::stream::FuturesUnordered;
-use futures::stream::Stream;
-use futures::stream::TryStreamExt;
-use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
-use std::cell::RefCell;
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::future::Future;
-use std::pin::Pin;
-use std::rc::Rc;
-use std::task::Context;
-use std::task::Poll;
 
 mod loaders;
 mod map;
+mod module_map_data;
+mod recursive_load;
 
 #[cfg(test)]
 mod tests;
@@ -41,32 +31,59 @@ pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
-#[cfg(test)]
-pub(crate) use map::SymbolicModule;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
 pub type ModuleCode = FastString;
 pub type ModuleName = FastString;
 
+/// Callback to customize value of `import.meta.resolve("./foo.ts")`.
+pub type ImportMetaResolveCallback = Box<
+  dyn Fn(&dyn ModuleLoader, String, String) -> Result<ModuleSpecifier, Error>,
+>;
+
+pub(crate) fn default_import_meta_resolve_cb(
+  loader: &dyn ModuleLoader,
+  specifier: String,
+  referrer: String,
+) -> Result<ModuleSpecifier, Error> {
+  if specifier.starts_with("npm:") {
+    bail!("\"npm:\" specifiers are currently not supported in import.meta.resolve()");
+  }
+
+  loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
+}
+
+/// Callback to validate import attributes. If the validation fails and exception
+/// should be thrown using `scope.throw_exception()`.
+pub type ValidateImportAttributesCb =
+  Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
+
 const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
 
-/// Throws V8 exception if assertions are invalid
-pub(crate) fn validate_import_assertions(
+/// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
+/// all other attributes.
+pub(crate) fn validate_import_attributes(
   scope: &mut v8::HandleScope,
   assertions: &HashMap<String, String>,
 ) {
   for (key, value) in assertions {
-    if key == "type" && !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
-      let message = v8::String::new(
-        scope,
-        &format!("\"{value}\" is not a valid module type."),
-      )
-      .unwrap();
-      let exception = v8::Exception::type_error(scope, message);
-      scope.throw_exception(exception);
-      return;
-    }
+    let msg = if key != "type" {
+      Some(format!("\"{key}\" attribute is not supported."))
+    } else if !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
+      Some(format!("\"{value}\" is not a valid module type."))
+    } else {
+      None
+    };
+
+    let Some(msg) = msg else {
+      continue;
+    };
+
+    let message = v8::String::new(scope, &msg).unwrap();
+    let exception = v8::Exception::type_error(scope, message);
+    scope.throw_exception(exception);
+    return;
   }
 }
 
@@ -245,12 +262,7 @@ impl ModuleSource {
   }
 }
 
-pub(crate) type PrepareLoadFuture =
-  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 pub type ModuleSourceFuture = dyn Future<Output = Result<ModuleSource, Error>>;
-
-type ModuleLoadFuture =
-  dyn Future<Output = Result<Option<(ModuleRequest, ModuleSource)>, Error>>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResolutionKind {
@@ -267,418 +279,64 @@ pub enum ResolutionKind {
   DynamicImport,
 }
 
-/// Describes the entrypoint of a recursive module load.
-#[derive(Debug)]
-enum LoadInit {
-  /// Main module specifier.
-  Main(String),
-  /// Module specifier for side module.
-  Side(String),
-  /// Dynamic import specifier with referrer and expected
-  /// module type (which is determined by import assertion).
-  DynamicImport(String, String, AssertedModuleType),
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum LoadState {
-  Init,
-  LoadingRoot,
-  LoadingImports,
-  Done,
-}
-
-/// This future is used to implement parallel async module loading.
-pub(crate) struct RecursiveModuleLoad {
-  pub id: ModuleLoadId,
-  pub root_module_id: Option<ModuleId>,
-  init: LoadInit,
-  root_asserted_module_type: Option<AssertedModuleType>,
-  root_module_type: Option<ModuleType>,
-  state: LoadState,
-  module_map_rc: Rc<RefCell<ModuleMap>>,
-  pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
-  visited: HashSet<ModuleRequest>,
-  visited_as_alias: Rc<RefCell<HashSet<String>>>,
-  // The loader is copied from `module_map_rc`, but its reference is cloned
-  // ahead of time to avoid already-borrowed errors.
-  loader: Rc<dyn ModuleLoader>,
-}
-
-impl RecursiveModuleLoad {
-  /// Starts a new asynchronous load of the module graph for given specifier.
-  ///
-  /// The module corresponding for the given `specifier` will be marked as
-  // "the main module" (`import.meta.main` will return `true` for this module).
-  fn main(specifier: &str, module_map_rc: Rc<RefCell<ModuleMap>>) -> Self {
-    Self::new(LoadInit::Main(specifier.to_string()), module_map_rc)
-  }
-
-  /// Starts a new asynchronous load of the module graph for given specifier.
-  fn side(specifier: &str, module_map_rc: Rc<RefCell<ModuleMap>>) -> Self {
-    Self::new(LoadInit::Side(specifier.to_string()), module_map_rc)
-  }
-
-  /// Starts a new asynchronous load of the module graph for given specifier
-  /// that was imported using `import()`.
-  fn dynamic_import(
-    specifier: &str,
-    referrer: &str,
-    asserted_module_type: AssertedModuleType,
-    module_map_rc: Rc<RefCell<ModuleMap>>,
-  ) -> Self {
-    Self::new(
-      LoadInit::DynamicImport(
-        specifier.to_string(),
-        referrer.to_string(),
-        asserted_module_type,
-      ),
-      module_map_rc,
-    )
-  }
-
-  fn new(init: LoadInit, module_map_rc: Rc<RefCell<ModuleMap>>) -> Self {
-    let id = {
-      let mut module_map = module_map_rc.borrow_mut();
-      let id = module_map.next_load_id;
-      module_map.next_load_id += 1;
-      id
-    };
-    let loader = module_map_rc.borrow().loader.clone();
-    let asserted_module_type = match init {
-      LoadInit::DynamicImport(_, _, module_type) => module_type,
-      _ => AssertedModuleType::JavaScriptOrWasm,
-    };
-    let mut load = Self {
-      id,
-      root_module_id: None,
-      root_asserted_module_type: None,
-      root_module_type: None,
-      init,
-      state: LoadState::Init,
-      module_map_rc: module_map_rc.clone(),
-      loader,
-      pending: FuturesUnordered::new(),
-      visited: HashSet::new(),
-      visited_as_alias: Default::default(),
-    };
-    // FIXME(bartlomieju): this seems fishy
-    // Ignore the error here, let it be hit in `Stream::poll_next()`.
-    if let Ok(root_specifier) = load.resolve_root() {
-      if let Some(module_id) = module_map_rc
-        .borrow()
-        .get_id(root_specifier, asserted_module_type)
-      {
-        load.root_module_id = Some(module_id);
-        load.root_asserted_module_type = Some(asserted_module_type);
-        load.root_module_type = Some(
-          module_map_rc
-            .borrow()
-            .get_info_by_id(module_id)
-            .unwrap()
-            .module_type,
-        );
-      }
-    }
-    load
-  }
-
-  fn resolve_root(&self) -> Result<ModuleSpecifier, Error> {
-    match self.init {
-      LoadInit::Main(ref specifier) => {
-        self
-          .loader
-          .resolve(specifier, ".", ResolutionKind::MainModule)
-      }
-      LoadInit::Side(ref specifier) => {
-        self.loader.resolve(specifier, ".", ResolutionKind::Import)
-      }
-      LoadInit::DynamicImport(ref specifier, ref referrer, _) => self
-        .loader
-        .resolve(specifier, referrer, ResolutionKind::DynamicImport),
-    }
-  }
-
-  async fn prepare(&self) -> Result<(), Error> {
-    let (module_specifier, maybe_referrer) = match self.init {
-      LoadInit::Main(ref specifier) => {
-        let spec =
-          self
-            .loader
-            .resolve(specifier, ".", ResolutionKind::MainModule)?;
-        (spec, None)
-      }
-      LoadInit::Side(ref specifier) => {
-        let spec =
-          self
-            .loader
-            .resolve(specifier, ".", ResolutionKind::Import)?;
-        (spec, None)
-      }
-      LoadInit::DynamicImport(ref specifier, ref referrer, _) => {
-        let spec = self.loader.resolve(
-          specifier,
-          referrer,
-          ResolutionKind::DynamicImport,
-        )?;
-        (spec, Some(referrer.to_string()))
-      }
-    };
-
-    self
-      .loader
-      .prepare_load(&module_specifier, maybe_referrer, self.is_dynamic_import())
-      .await
-  }
-
-  fn is_currently_loading_main_module(&self) -> bool {
-    !self.is_dynamic_import()
-      && matches!(self.init, LoadInit::Main(..))
-      && self.state == LoadState::LoadingRoot
-  }
-
-  fn is_dynamic_import(&self) -> bool {
-    matches!(self.init, LoadInit::DynamicImport(..))
-  }
-
-  pub(crate) fn register_and_recurse(
-    &mut self,
-    scope: &mut v8::HandleScope,
-    module_request: &ModuleRequest,
-    module_source: ModuleSource,
-  ) -> Result<(), ModuleError> {
-    let expected_asserted_module_type = module_source.module_type.into();
-    let module_url_found = module_source.module_url_found;
-    let module_url_specified = module_source.module_url_specified;
-
-    if module_request.asserted_module_type != expected_asserted_module_type {
-      return Err(ModuleError::Other(generic_error(format!(
-        "Expected a \"{}\" module but loaded a \"{}\" module.",
-        module_request.asserted_module_type, module_source.module_type,
-      ))));
-    }
-
-    // Register the module in the module map unless it's already there. If the
-    // specified URL and the "true" URL are different, register the alias.
-    let module_url_found = if let Some(module_url_found) = module_url_found {
-      let (module_url_found1, module_url_found2) =
-        module_url_found.into_cheap_copy();
-      self.module_map_rc.borrow_mut().alias(
-        module_url_specified,
-        expected_asserted_module_type,
-        module_url_found1,
-      );
-      module_url_found2
-    } else {
-      module_url_specified
-    };
-
-    let maybe_module_id = self
-      .module_map_rc
-      .borrow()
-      .get_id(&module_url_found, expected_asserted_module_type);
-    let module_id = match maybe_module_id {
-      Some(id) => {
-        debug!(
-          "Already-registered module fetched again: {:?}",
-          module_url_found
-        );
-        id
-      }
-      None => match module_source.module_type {
-        ModuleType::JavaScript => {
-          self.module_map_rc.borrow_mut().new_es_module(
-            scope,
-            self.is_currently_loading_main_module(),
-            module_url_found,
-            module_source.code,
-            self.is_dynamic_import(),
-          )?
-        }
-        ModuleType::Json => self.module_map_rc.borrow_mut().new_json_module(
-          scope,
-          module_url_found,
-          module_source.code,
-        )?,
-      },
-    };
-
-    // Recurse the module's imports. There are two cases for each import:
-    // 1. If the module is not in the module map, start a new load for it in
-    //    `self.pending`. The result of that load should eventually be passed to
-    //    this function for recursion.
-    // 2. If the module is already in the module map, queue it up to be
-    //    recursed synchronously here.
-    // This robustly ensures that the whole graph is in the module map before
-    // `LoadState::Done` is set.
-    let mut already_registered = VecDeque::new();
-    already_registered.push_back((module_id, module_request.clone()));
-    self.visited.insert(module_request.clone());
-    while let Some((module_id, module_request)) = already_registered.pop_front()
-    {
-      let referrer = ModuleSpecifier::parse(&module_request.specifier).unwrap();
-      let imports = self
-        .module_map_rc
-        .borrow()
-        .get_requested_modules(module_id)
-        .unwrap()
-        .clone();
-      for module_request in imports {
-        if !self.visited.contains(&module_request)
-          && !self
-            .visited_as_alias
-            .borrow()
-            .contains(&module_request.specifier)
-        {
-          if let Some(module_id) = self.module_map_rc.borrow().get_id(
-            module_request.specifier.as_str(),
-            module_request.asserted_module_type,
-          ) {
-            already_registered.push_back((module_id, module_request.clone()));
-          } else {
-            let request = module_request.clone();
-            let specifier =
-              ModuleSpecifier::parse(&module_request.specifier).unwrap();
-            let visited_as_alias = self.visited_as_alias.clone();
-            let referrer = referrer.clone();
-            let loader = self.loader.clone();
-            let is_dynamic_import = self.is_dynamic_import();
-            let fut = async move {
-              // `visited_as_alias` unlike `visited` is checked as late as
-              // possible because it can only be populated after completed
-              // loads, meaning a duplicate load future may have already been
-              // dispatched before we know it's a duplicate.
-              if visited_as_alias.borrow().contains(specifier.as_str()) {
-                return Ok(None);
-              }
-              let load_result = loader
-                .load(&specifier, Some(&referrer), is_dynamic_import)
-                .await;
-              if let Ok(source) = &load_result {
-                if let Some(found_specifier) = &source.module_url_found {
-                  visited_as_alias
-                    .borrow_mut()
-                    .insert(found_specifier.as_str().to_string());
-                }
-              }
-              load_result.map(|s| Some((request, s)))
-            };
-            self.pending.push(fut.boxed_local());
-          }
-          self.visited.insert(module_request);
-        }
-      }
-    }
-
-    // Update `self.state` however applicable.
-    if self.state == LoadState::LoadingRoot {
-      self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(module_source.module_type.into());
-      self.state = LoadState::LoadingImports;
-    }
-    if self.pending.is_empty() {
-      self.state = LoadState::Done;
-    }
-
-    Ok(())
-  }
-}
-
-impl Stream for RecursiveModuleLoad {
-  type Item = Result<(ModuleRequest, ModuleSource), Error>;
-
-  fn poll_next(
-    self: Pin<&mut Self>,
-    cx: &mut Context,
-  ) -> Poll<Option<Self::Item>> {
-    let inner = self.get_mut();
-    // IMPORTANT: Do not borrow `inner.module_map_rc` here. It may not be
-    // available.
-    match inner.state {
-      LoadState::Init => {
-        let module_specifier = match inner.resolve_root() {
-          Ok(url) => url,
-          Err(error) => return Poll::Ready(Some(Err(error))),
-        };
-        let load_fut = if let Some(_module_id) = inner.root_module_id {
-          // FIXME(bartlomieju): this is very bad
-          // The root module is already in the module map.
-          // TODO(nayeemrmn): In this case we would ideally skip to
-          // `LoadState::LoadingImports` and synchronously recurse the imports
-          // like the bottom of `RecursiveModuleLoad::register_and_recurse()`.
-          // But the module map cannot be borrowed here. Instead fake a load
-          // event so it gets passed to that function and recursed eventually.
-          let asserted_module_type = inner.root_asserted_module_type.unwrap();
-          let module_type = inner.root_module_type.unwrap();
-          let module_request = ModuleRequest {
-            specifier: module_specifier.to_string(),
-            asserted_module_type,
-          };
-          // The code will be discarded, since this module is already in the
-          // module map.
-          let module_source = ModuleSource::new(
-            module_type,
-            Default::default(),
-            &module_specifier,
-          );
-          futures::future::ok(Some((module_request, module_source))).boxed()
-        } else {
-          let maybe_referrer = match inner.init {
-            LoadInit::DynamicImport(_, ref referrer, _) => {
-              resolve_url(referrer).ok()
-            }
-            _ => None,
-          };
-          let asserted_module_type = match inner.init {
-            LoadInit::DynamicImport(_, _, module_type) => module_type,
-            _ => AssertedModuleType::JavaScriptOrWasm,
-          };
-          let module_request = ModuleRequest {
-            specifier: module_specifier.to_string(),
-            asserted_module_type,
-          };
-          let loader = inner.loader.clone();
-          let is_dynamic_import = inner.is_dynamic_import();
-          async move {
-            let result = loader
-              .load(
-                &module_specifier,
-                maybe_referrer.as_ref(),
-                is_dynamic_import,
-              )
-              .await;
-            result.map(|s| Some((module_request, s)))
-          }
-          .boxed_local()
-        };
-        inner.pending.push(load_fut);
-        inner.state = LoadState::LoadingRoot;
-        inner.try_poll_next_unpin(cx)
-      }
-      LoadState::LoadingRoot | LoadState::LoadingImports => {
-        match inner.pending.try_poll_next_unpin(cx)? {
-          Poll::Ready(None) => unreachable!(),
-          Poll::Ready(Some(None)) => {
-            if inner.pending.is_empty() {
-              inner.state = LoadState::Done;
-              Poll::Ready(None)
-            } else {
-              Poll::Pending
-            }
-          }
-          Poll::Ready(Some(Some(info))) => Poll::Ready(Some(Ok(info))),
-          Poll::Pending => Poll::Pending,
-        }
-      }
-      LoadState::Done => Poll::Ready(None),
-    }
-  }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[repr(u32)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
 pub(crate) enum AssertedModuleType {
+  /// JavaScript or WASM.
   JavaScriptOrWasm,
+  /// JSON.
   Json,
+
+  // IMPORTANT: If you add any additional enum values here, you must update `to_v8`` below!
+  /// Non-well-known module type.
+  Other(Cow<'static, str>),
+}
+
+impl AssertedModuleType {
+  pub fn to_v8<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> v8::Local<'s, v8::Value> {
+    match self {
+      AssertedModuleType::JavaScriptOrWasm => v8::Integer::new(scope, 0).into(),
+      AssertedModuleType::Json => v8::Integer::new(scope, 1).into(),
+      AssertedModuleType::Other(ty) => {
+        v8::String::new(scope, ty).unwrap().into()
+      }
+    }
+  }
+
+  pub fn try_from_v8(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+  ) -> Option<Self> {
+    Some(if let Some(int) = value.to_integer(scope) {
+      match int.int32_value(scope).unwrap_or_default() {
+        0 => AssertedModuleType::JavaScriptOrWasm,
+        1 => AssertedModuleType::Json,
+        _ => return None,
+      }
+    } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
+      AssertedModuleType::Other(Cow::Owned(str.to_rust_string_lossy(scope)))
+    } else {
+      return None;
+    })
+  }
+}
+
+impl AsRef<AssertedModuleType> for AssertedModuleType {
+  fn as_ref(&self) -> &AssertedModuleType {
+    self
+  }
+}
+
+impl PartialEq<ModuleType> for AssertedModuleType {
+  fn eq(&self, other: &ModuleType) -> bool {
+    match other {
+      ModuleType::JavaScript => self == &AssertedModuleType::JavaScriptOrWasm,
+      ModuleType::Json => self == &AssertedModuleType::Json,
+    }
+  }
 }
 
 impl From<ModuleType> for AssertedModuleType {
@@ -695,6 +353,7 @@ impl std::fmt::Display for AssertedModuleType {
     match self {
       Self::JavaScriptOrWasm => write!(f, "JavaScriptOrWasm"),
       Self::Json => write!(f, "JSON"),
+      Self::Other(ty) => write!(f, "Other({ty})"),
     }
   }
 }
@@ -713,11 +372,10 @@ pub(crate) struct ModuleRequest {
 pub(crate) struct ModuleInfo {
   #[allow(unused)]
   pub id: ModuleId,
-  // Used in "bindings.rs" for "import.meta.main" property value.
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,
-  pub module_type: ModuleType,
+  pub module_type: AssertedModuleType,
 }
 
 #[derive(Debug)]

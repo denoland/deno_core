@@ -97,8 +97,8 @@ pub use crate::modules::ModuleType;
 pub use crate::modules::NoopModuleLoader;
 pub use crate::modules::ResolutionKind;
 pub use crate::modules::StaticModuleLoader;
+pub use crate::modules::ValidateImportAttributesCb;
 pub use crate::normalize_path::normalize_path;
-pub use crate::ops::OpCall;
 pub use crate::ops::OpError;
 pub use crate::ops::OpId;
 pub use crate::ops::OpResult;
@@ -109,6 +109,11 @@ pub use crate::ops_builtin::op_print;
 pub use crate::ops_builtin::op_resources;
 pub use crate::ops_builtin::op_void_async;
 pub use crate::ops_builtin::op_void_sync;
+pub use crate::ops_metrics::merge_op_metrics;
+pub use crate::ops_metrics::OpMetricsEvent;
+pub use crate::ops_metrics::OpMetricsFactoryFn;
+pub use crate::ops_metrics::OpMetricsFn;
+pub use crate::ops_metrics::OpMetricsSource;
 pub use crate::ops_metrics::OpMetricsSummary;
 pub use crate::ops_metrics::OpMetricsSummaryTracker;
 pub use crate::path::strip_unc_prefix;
@@ -122,9 +127,9 @@ pub use crate::resources::ResourceTable;
 pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
-pub use crate::runtime::JsRealm;
 pub use crate::runtime::JsRuntime;
 pub use crate::runtime::JsRuntimeForSnapshot;
+pub use crate::runtime::PollEventLoopOptions;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
 pub use crate::runtime::Snapshot;
@@ -146,6 +151,8 @@ pub mod _ops {
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
+  #[cfg(debug_assertions)]
+  pub use super::ops::reentrancy_check;
   pub use super::ops::OpCtx;
   pub use super::ops::OpResult;
   pub use super::ops_metrics::dispatch_metrics_async;
@@ -188,6 +195,8 @@ macro_rules! located_script_name {
 
 #[cfg(test)]
 mod tests {
+  use std::process::{Command, Stdio};
+
   use super::*;
 
   #[test]
@@ -206,5 +215,26 @@ mod tests {
   #[test]
   fn test_v8_version() {
     assert!(v8_version().len() > 3);
+  }
+
+  // If the deno command is available, we ensure the async stubs are correctly rebuilt.
+  #[test]
+  fn test_rebuild_async_stubs() {
+    // Check for deno first
+    if let Err(e) = Command::new("deno")
+      .arg("--version")
+      .stderr(Stdio::null())
+      .stdout(Stdio::null())
+      .status()
+    {
+      eprintln!("Ignoring test because we couldn't find deno: {e:?}");
+    }
+    let status = Command::new("deno")
+      .args(["run", "-A", "rebuild_async_stubs.js", "--check"])
+      .stderr(Stdio::null())
+      .stdout(Stdio::null())
+      .status()
+      .unwrap();
+    assert!(status.success(), "Async stubs were not updated, or 'rebuild_async_stubs.js' failed for some other reason");
   }
 }

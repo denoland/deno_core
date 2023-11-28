@@ -11,8 +11,6 @@ use crate::FeatureChecker;
 use crate::OpDecl;
 use anyhow::Error;
 use futures::task::AtomicWaker;
-use futures::Future;
-use pin_project::pin_project;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
@@ -30,40 +28,35 @@ pub type PromiseId = i32;
 pub type OpId = u16;
 pub struct PendingOp(pub PromiseId, pub OpId, pub OpResult, pub bool);
 
-#[pin_project]
-pub struct OpCall<F: Future<Output = OpResult>> {
-  promise_id: PromiseId,
-  op_id: OpId,
-  /// Future is not necessarily Unpin, so we need to pin_project.
-  #[pin]
-  fut: F,
+#[cfg(debug_assertions)]
+thread_local! {
+  static CURRENT_OP: std::cell::Cell<Option<&'static OpDecl>> = None.into();
 }
 
-impl<F: Future<Output = OpResult>> OpCall<F> {
-  /// Wraps a future; the inner future is polled the usual way (lazily).
-  pub fn new(op_ctx: &OpCtx, promise_id: PromiseId, fut: F) -> Self {
-    Self {
-      op_id: op_ctx.id,
-      promise_id,
-      fut,
-    }
+#[cfg(debug_assertions)]
+pub struct ReentrancyGuard {}
+
+#[cfg(debug_assertions)]
+impl Drop for ReentrancyGuard {
+  fn drop(&mut self) {
+    CURRENT_OP.with(|f| f.set(None));
   }
 }
 
-impl<F: Future<Output = OpResult>> Future for OpCall<F> {
-  type Output = PendingOp;
-
-  fn poll(
-    self: std::pin::Pin<&mut Self>,
-    cx: &mut std::task::Context<'_>,
-  ) -> std::task::Poll<Self::Output> {
-    let promise_id = self.promise_id;
-    let op_id = self.op_id;
-    let fut = self.project().fut;
-    fut
-      .poll(cx)
-      .map(move |res| PendingOp(promise_id, op_id, res, false))
+/// Creates an op re-entrancy check for the given [`OpDecl`].
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
+  if decl.is_reentrant {
+    return None;
   }
+
+  let current = CURRENT_OP.with(|f| f.get());
+  if let Some(current) = current {
+    panic!("op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
+  }
+  CURRENT_OP.with(|f| f.set(Some(decl)));
+  Some(ReentrancyGuard {})
 }
 
 #[allow(clippy::type_complexity)]
@@ -132,7 +125,7 @@ pub struct OpCtx {
 
   pub(crate) decl: Rc<OpDecl>,
   pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
-  pub(crate) runtime_state: Weak<RefCell<JsRuntimeState>>,
+  pub(crate) runtime_state: Weak<JsRuntimeState>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
@@ -147,7 +140,7 @@ impl OpCtx {
     context_state: Rc<RefCell<ContextState>>,
     decl: Rc<OpDecl>,
     state: Rc<RefCell<OpState>>,
-    runtime_state: Weak<RefCell<JsRuntimeState>>,
+    runtime_state: Weak<JsRuntimeState>,
     get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {

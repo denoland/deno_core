@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use tokio::sync::Barrier;
 use url::Url;
 
 #[tokio::test]
@@ -353,6 +354,40 @@ fn ops_in_js_have_proper_names() {
   runtime.execute_script_static("test", src).unwrap();
 }
 
+/// Dipatch more promises than the ring can hold, but wait for them all to queue up first.
+#[tokio::test]
+async fn test_dispatch_many_ops() {
+  #[op2(async)]
+  async fn op_wait(state: Rc<RefCell<OpState>>) {
+    let barrier: Rc<Barrier> = state.borrow().borrow::<Rc<Barrier>>().clone();
+    barrier.wait().await;
+  }
+
+  deno_core::extension!(test_ext,
+    ops = [op_wait],
+    options = { count: Barrier },
+    state = |state, options| {
+      state.put(Rc::new(options.count));
+    }
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops(Barrier::new(5000))],
+    ..Default::default()
+  });
+
+  let src = r#"
+  const { op_wait } = Deno.core.ensureFastOps();
+  const promises = [];
+  for (let i = 0; i < 5000; i++) {
+    promises.push(op_wait());
+  }
+  Promise.all(promises);
+  "#;
+  let promise = runtime.execute_script_static("test", src).unwrap();
+  runtime.resolve_value(promise).await.unwrap();
+}
+
 #[tokio::test]
 async fn test_ref_unref_ops() {
   let (mut runtime, _dispatch_count) = setup(Mode::AsyncDeferred);
@@ -420,23 +455,6 @@ fn test_dispatch() {
     )
     .unwrap();
   assert_eq!(dispatch_count.load(Ordering::Relaxed), 2);
-}
-
-#[test]
-fn test_op_async_promise_id() {
-  let (mut runtime, _dispatch_count) = setup(Mode::Async);
-  runtime
-    .execute_script_static(
-      "filename.js",
-      r#"
-
-      const p = Deno.core.opAsync("op_test", 42);
-      if (p[Symbol.for("Deno.core.internalPromiseId")] == undefined) {
-        throw new Error("missing id on returned promise");
-      }
-      "#,
-    )
-    .unwrap();
 }
 
 #[test]
@@ -532,23 +550,23 @@ await op_void_async_deferred();
     .unwrap();
   let mut rx = runtime.mod_evaluate(id);
 
-  let res = tokio::select! {
+  tokio::select! {
     // Not using biased mode leads to non-determinism for relatively simple
     // programs.
     biased;
 
     maybe_result = &mut rx => {
       debug!("received module evaluate {:#?}", maybe_result);
-      maybe_result.expect("Module evaluation result not provided.")
+      maybe_result
     }
 
     event_loop_result = runtime.run_event_loop(false) => {
       event_loop_result.unwrap();
-      let maybe_result = rx.await;
-      maybe_result.expect("Module evaluation result not provided.")
+
+      rx.await
     }
-  };
-  res.unwrap();
+  }
+  .expect("Failed to get module result");
 }
 
 #[op2(async)]
@@ -643,7 +661,7 @@ pub async fn test_op_metrics() {
         return None;
       }
       let out_clone = out_clone.clone();
-      Some(Rc::new(move |_, metrics| {
+      Some(Rc::new(move |_, metrics, _| {
         let s = format!("{} {:?}", name, metrics);
         println!("{s}");
         out_clone.borrow_mut().push(s);
@@ -756,7 +774,8 @@ pub async fn test_op_metrics_summary_tracker() {
     OpMetricsSummary {
       ops_completed_async: 8,
       ops_dispatched_async: 8,
-      ops_dispatched_sync: 3
+      ops_dispatched_sync: 3,
+      ops_dispatched_fast: 0,
     }
   );
 }

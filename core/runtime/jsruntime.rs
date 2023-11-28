@@ -14,12 +14,15 @@ use crate::extensions::OpDecl;
 use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::default_import_meta_resolve_cb;
 use crate::modules::AssertedModuleType;
 use crate::modules::ExtModuleLoader;
+use crate::modules::ImportMetaResolveCallback;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsEvent;
@@ -39,10 +42,14 @@ use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
-use futures::channel::oneshot;
 use futures::future::poll_fn;
+use futures::task::noop_waker_ref;
+use futures::task::AtomicWaker;
+use futures::Future;
+use futures::FutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -50,6 +57,7 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::option::Option;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -80,6 +88,7 @@ pub(crate) struct IsolateAllocations {
 pub(crate) struct ManuallyDropRc<T>(ManuallyDrop<Rc<T>>);
 
 impl<T> ManuallyDropRc<T> {
+  #[allow(unused)]
   pub fn clone(&self) -> Rc<T> {
     self.0.deref().clone()
   }
@@ -112,8 +121,8 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
-  main_realm: Option<JsRealm>,
-  pub(crate) state: ManuallyDropRc<RefCell<JsRuntimeState>>,
+  main_realm: ManuallyDrop<JsRealm>,
+  pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
 }
 
@@ -122,9 +131,8 @@ impl InnerIsolateState {
   /// after we've torn down the contexts. If the inspector is not correctly torn down, random crashes
   /// happen in tests (and possibly for users using the inspector).
   pub fn prepare_for_cleanup(&mut self) {
-    let mut state = self.state.borrow_mut();
-    let inspector = state.inspector.take();
-    state.op_state.borrow_mut().clear();
+    let inspector = self.state.inspector.take();
+    self.state.op_state.borrow_mut().clear();
     if let Some(inspector) = inspector {
       assert_eq!(
         Rc::strong_count(&inspector),
@@ -140,10 +148,11 @@ impl InnerIsolateState {
     let state_ptr = self.v8_isolate.get_data(STATE_DATA_OFFSET);
     // SAFETY: We are sure that it's a valid pointer for whole lifetime of
     // the runtime.
-    _ = unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
+    _ = unsafe { Rc::from_raw(state_ptr as *const JsRuntimeState) };
 
-    self.main_realm.take();
-    self.state.borrow_mut().destroy_all_realms();
+    unsafe {
+      ManuallyDrop::take(&mut self.main_realm).0.destroy();
+    }
 
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
   }
@@ -185,8 +194,8 @@ pub(crate) enum InitMode {
   New,
   /// We are using a snapshot, thus certain initialization steps are skipped.
   FromSnapshot {
-    // Do we need to register new ops.
-    register_ops: bool,
+    // Can we skip the work of op registration?
+    skip_op_registration: bool,
   },
 }
 
@@ -195,7 +204,7 @@ impl InitMode {
     match options.startup_snapshot {
       None => Self::New,
       Some(_) => Self::FromSnapshot {
-        register_ops: options.register_ops,
+        skip_op_registration: options.skip_op_registration,
       },
     }
   }
@@ -229,10 +238,7 @@ pub struct JsRuntime {
   pub(crate) inner: InnerIsolateState,
   pub(crate) allocations: IsolateAllocations,
   extensions: Vec<Extension>,
-  preserve_snapshotted_modules: Option<&'static [&'static str]>,
   event_loop_middlewares: Vec<EventLoopMiddlewareFn>,
-  global_template_middlewares: Vec<GlobalTemplateMiddlewareFn>,
-  global_object_middlewares: Vec<GlobalObjectMiddlewareFn>,
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
@@ -300,11 +306,6 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  known_realms: Vec<JsRealmInner>,
-  pub(crate) has_tick_scheduled: bool,
-  /// A counter used to delay our dynamic import deadlock detection by one spin
-  /// of the event loop.
-  pub(crate) dyn_module_evaluate_idle_counter: u32,
   pub(crate) source_map_getter: Option<Rc<Box<dyn SourceMapGetter>>>,
   pub(crate) source_map_cache: Rc<RefCell<SourceMapCache>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
@@ -313,27 +314,14 @@ pub struct JsRuntimeState {
   /// The error that was passed to an `op_dispatch_exception` call.
   /// It will be retrieved by `exception_to_err_result` and used as an error
   /// instead of any other exceptions.
+  pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
+  waker: Arc<AtomicWaker>,
   // TODO(nayeemrmn): This is polled in `exception_to_err_result()` which is
   // flimsy. Try to poll it similarly to `pending_promise_rejections`.
-  pub(crate) dispatched_exception: Option<v8::Global<v8::Value>>,
-  pub(crate) inspector: Option<Rc<RefCell<JsRuntimeInspector>>>,
-}
-
-impl JsRuntimeState {
-  pub(crate) fn destroy_all_realms(&mut self) {
-    for realm in self.known_realms.drain(..) {
-      realm.destroy()
-    }
-  }
-
-  pub(crate) fn remove_realm(
-    &mut self,
-    realm_context: &Rc<v8::Global<v8::Context>>,
-  ) {
-    self
-      .known_realms
-      .retain(|realm| !realm.is_same(realm_context));
-  }
+  dispatched_exception: Cell<Option<v8::Global<v8::Value>>>,
+  /// Accessed through [`JsRuntimeState::with_inspector`].
+  inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
+  has_inspector: Cell<bool>,
 }
 
 fn v8_init(
@@ -341,11 +329,14 @@ fn v8_init(
   predictable: bool,
   expose_natives: bool,
 ) {
-  // Include 10MB ICU data file.
-  #[repr(C, align(16))]
-  struct IcuData([u8; 10631872]);
-  static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
-  v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
+  #[cfg(feature = "include_icu_data")]
+  {
+    // Include 10MB ICU data file.
+    #[repr(C, align(16))]
+    struct IcuData([u8; 10631872]);
+    static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
+    v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
+  }
 
   let base_flags = concat!(
     " --wasm-test-streaming",
@@ -412,7 +403,9 @@ pub struct RuntimeOptions {
 
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
-  pub register_ops: bool,
+
+  /// Should op registration be skipped?
+  pub skip_op_registration: bool,
 
   /// Isolate creation parameters.
   pub create_params: Option<v8::CreateParams>,
@@ -452,6 +445,17 @@ pub struct RuntimeOptions {
   /// An optional instance of `FeatureChecker`. If one is not provided, the
   /// default instance will be created that has no features enabled.
   pub feature_checker: Option<Arc<FeatureChecker>>,
+
+  /// A callback that can be used to validate import attributes received at
+  /// the import site. If no callback is provided, a default one is used. The
+  /// default callback only allows `"type"` attribute, with a value of `"json"`.
+  pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
+
+  /// A callback that can be used to customize behavior of
+  /// `import.meta.resolve()` API. If no callback is provided, a default one
+  /// is used. The default callback returns value of
+  /// `RuntimeOptions::module_loader::resolve()` call.
+  pub import_meta_resolve_callback: Option<ImportMetaResolveCallback>,
 }
 
 impl RuntimeOptions {
@@ -463,6 +467,21 @@ impl RuntimeOptions {
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
   fn unsafe_expose_natives_and_gc(&self) -> bool {
     false
+  }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PollEventLoopOptions {
+  pub wait_for_inspector: bool,
+  pub pump_v8_message_loop: bool,
+}
+
+impl Default for PollEventLoopOptions {
+  fn default() -> Self {
+    Self {
+      wait_for_inspector: true,
+      pump_v8_message_loop: true,
+    }
   }
 }
 
@@ -511,14 +530,12 @@ impl JsRuntime {
     JsRuntime::new_inner(options, false)
   }
 
-  pub(crate) fn state_from(
-    isolate: &v8::Isolate,
-  ) -> Rc<RefCell<JsRuntimeState>> {
+  pub(crate) fn state_from(isolate: &v8::Isolate) -> Rc<JsRuntimeState> {
     let state_ptr = isolate.get_data(STATE_DATA_OFFSET);
     let state_rc =
       // SAFETY: We are sure that it's a valid pointer for whole lifetime of
       // the runtime.
-      unsafe { Rc::from_raw(state_ptr as *const RefCell<JsRuntimeState>) };
+      unsafe { Rc::from_raw(state_ptr as *const JsRuntimeState) };
     let state = state_rc.clone();
     std::mem::forget(state_rc);
     state
@@ -527,16 +544,11 @@ impl JsRuntime {
   /// Returns the `OpState` associated with the passed `Isolate`.
   pub fn op_state_from(isolate: &v8::Isolate) -> Rc<RefCell<OpState>> {
     let state = Self::state_from(isolate);
-    let state = state.borrow();
     state.op_state.clone()
   }
 
-  pub(crate) fn event_loop_pending_state_from_scope(
-    scope: &mut v8::HandleScope,
-  ) -> EventLoopPendingState {
-    let state = JsRuntime::state_from(scope);
-    let state = EventLoopPendingState::new(scope, &mut state.borrow_mut());
-    state
+  pub(crate) fn has_more_work(scope: &mut v8::HandleScope) -> bool {
+    EventLoopPendingState::new_from_scope(scope).is_pending()
   }
 
   fn init_v8(
@@ -562,7 +574,6 @@ impl JsRuntime {
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
-    let op_state = Rc::new(RefCell::new(op_state));
 
     // Collect event-loop middleware, global template middleware, global object
     // middleware, and additional ExternalReferences from extensions.
@@ -599,19 +610,25 @@ impl JsRuntime {
       // SAFETY: we just asserted that layout has non-0 size.
       unsafe { std::alloc::alloc(layout) as *mut _ };
 
-    let state_rc = Rc::new(RefCell::new(JsRuntimeState {
-      dyn_module_evaluate_idle_counter: 0,
-      has_tick_scheduled: false,
+    let validate_import_attributes_cb = options
+      .validate_import_attributes_cb
+      .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
+
+    let waker = op_state.waker.clone();
+    let op_state = Rc::new(RefCell::new(op_state));
+    let state_rc = Rc::new(JsRuntimeState {
       source_map_getter: options.source_map_getter.map(Rc::new),
       source_map_cache: Default::default(),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       op_state: op_state.clone(),
-      dispatched_exception: None,
+      dispatched_exception: None.into(),
       // Some fields are initialized later after isolate is created
-      inspector: None,
-      known_realms: Vec::with_capacity(1),
-    }));
+      inspector: None.into(),
+      has_inspector: false.into(),
+      validate_import_attributes_cb,
+      waker,
+    });
 
     let weak = Rc::downgrade(&state_rc);
     let context_state = Rc::new(RefCell::new(ContextState::default()));
@@ -735,28 +752,35 @@ impl JsRuntime {
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+    let import_meta_resolve_cb = options
+      .import_meta_resolve_callback
+      .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
 
-    let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
-    if let Some(snapshotted_data) = snapshotted_data {
-      let mut module_map = module_map_rc.borrow_mut();
-      module_map.update_with_snapshotted_data(scope, snapshotted_data);
-    }
-    context.set_slot(scope, module_map_rc.clone());
+    let module_map = if let Some(snapshotted_data) = snapshotted_data {
+      Rc::new(ModuleMap::new_from_snapshotted_data(
+        loader,
+        import_meta_resolve_cb,
+        scope,
+        snapshotted_data,
+      ))
+    } else {
+      Rc::new(ModuleMap::new(loader, import_meta_resolve_cb))
+    };
 
-    {
+    context.set_slot(scope, module_map.clone());
+
+    let main_realm = {
       let main_realm = JsRealmInner::new(
         context_state,
         main_context,
-        module_map_rc.clone(),
+        module_map.clone(),
         state_rc.clone(),
-        true,
       );
-      let mut state = state_rc.borrow_mut();
-      state.inspector = inspector;
-      state.known_realms.push(main_realm);
-    }
-    let main_realm =
-      JsRealm::new(state_rc.borrow().known_realms.get(0).unwrap().clone());
+      state_rc.has_inspector.set(inspector.is_some());
+      *state_rc.inspector.borrow_mut() = inspector;
+      main_realm
+    };
+    let main_realm = JsRealm::new(main_realm);
     scope.set_data(
       STATE_DATA_OFFSET,
       Rc::into_raw(state_rc.clone()) as *mut c_void,
@@ -767,32 +791,26 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
-        main_realm: Some(main_realm),
+        main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
       },
       init_mode,
       allocations: IsolateAllocations::default(),
       event_loop_middlewares,
-      global_template_middlewares,
-      global_object_middlewares,
       extensions: options.extensions,
-      preserve_snapshotted_modules: options.preserve_snapshotted_modules,
       is_main_runtime: options.is_main,
     };
 
-    let realm = js_runtime.main_realm();
     // TODO(mmastrac): We should thread errors back out of the runtime
-    js_runtime.init_extension_js(&realm).unwrap();
+    js_runtime.init_extension_js().unwrap();
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
     if let Some(preserve_snapshotted_modules) =
       options.preserve_snapshotted_modules
     {
-      module_map_rc
-        .borrow_mut()
-        .clear_module_map(preserve_snapshotted_modules);
+      module_map.clear_module_map(preserve_snapshotted_modules);
     }
 
     js_runtime
@@ -800,21 +818,18 @@ impl JsRuntime {
 
   #[cfg(test)]
   #[inline]
-  pub(crate) fn module_map(&mut self) -> Rc<RefCell<ModuleMap>> {
-    self.main_realm().0.module_map()
+  pub(crate) fn module_map(&mut self) -> Rc<ModuleMap> {
+    self.inner.main_realm.0.module_map()
   }
 
   #[inline]
   pub fn main_context(&self) -> v8::Global<v8::Context> {
-    self
-      .inner
-      .state
-      .borrow()
-      .known_realms
-      .get(0)
-      .unwrap()
-      .context()
-      .clone()
+    self.inner.main_realm.0.context().clone()
+  }
+
+  #[cfg(test)]
+  pub(crate) fn main_realm(&self) -> JsRealm {
+    JsRealm::clone(&self.inner.main_realm)
   }
 
   #[inline]
@@ -823,13 +838,13 @@ impl JsRuntime {
   }
 
   #[inline]
-  pub fn inspector(&mut self) -> Rc<RefCell<JsRuntimeInspector>> {
-    self.inner.state.borrow().inspector()
+  fn v8_isolate_ptr(&mut self) -> *mut v8::Isolate {
+    &mut **self.inner.v8_isolate as _
   }
 
   #[inline]
-  pub fn main_realm(&mut self) -> JsRealm {
-    self.inner.main_realm.as_ref().unwrap().clone()
+  pub fn inspector(&mut self) -> Rc<RefCell<JsRuntimeInspector>> {
+    self.inner.state.inspector()
   }
 
   /// Returns the extensions that this runtime is using (including internal ones).
@@ -837,128 +852,46 @@ impl JsRuntime {
     &self.extensions
   }
 
-  /// Creates a new realm (V8 context) in this JS execution context,
-  /// pre-initialized with all of the extensions that were passed in
-  /// [`RuntimeOptions::extensions`] when the [`JsRuntime`] was
-  /// constructed.
-  pub fn create_realm(
-    &mut self,
-    options: CreateRealmOptions,
-  ) -> Result<JsRealm, Error> {
-    let realm = {
-      let context_state = Rc::new(RefCell::new(ContextState::default()));
-      let op_ctxs: Box<[OpCtx]> = self
-        .main_realm()
-        .0
-        .state()
-        .borrow()
-        .op_ctxs
-        .iter()
-        .map(|op_ctx| {
-          OpCtx::new(
-            op_ctx.id,
-            op_ctx.isolate,
-            context_state.clone(),
-            op_ctx.decl.clone(),
-            op_ctx.state.clone(),
-            op_ctx.runtime_state.clone(),
-            op_ctx.get_error_class_fn,
-            op_ctx.metrics_fn.clone(),
-          )
-        })
-        .collect();
-      context_state.borrow_mut().op_ctxs = op_ctxs;
-      context_state.borrow_mut().isolate = Some(self.v8_isolate() as _);
-
-      let raw_ptr = self.v8_isolate() as *mut v8::OwnedIsolate;
-      // SAFETY: Having the scope tied to self's lifetime makes it impossible to
-      // reference JsRuntimeState::op_ctxs while the scope is alive. Here we
-      // turn it into an unbound lifetime, which is sound because 1. it only
-      // lives until the end of this block, and 2. the HandleScope only has
-      // access to the isolate, and nothing else we're accessing from self does.
-      let isolate = unsafe { raw_ptr.as_mut() }.unwrap();
-      let scope = &mut v8::HandleScope::new(isolate);
-
-      let context = create_context(
-        scope,
-        &self.global_template_middlewares,
-        &self.global_object_middlewares,
-      );
-
-      let scope = &mut v8::ContextScope::new(scope, context);
-
-      let context = bindings::initialize_context(
-        scope,
-        context,
-        &context_state.borrow().op_ctxs,
-        self.init_mode,
-      );
-      context.set_slot(scope, context_state.clone());
-
-      let loader = options
-        .module_loader
-        .unwrap_or_else(|| Rc::new(NoopModuleLoader));
-      let module_map_rc = Rc::new(RefCell::new(ModuleMap::new(loader)));
-      if self.init_mode.is_from_snapshot() {
-        let snapshotted_data =
-          snapshot_util::get_snapshotted_data(scope, context);
-        module_map_rc
-          .borrow_mut()
-          .update_with_snapshotted_data(scope, snapshotted_data);
-      }
-      context.set_slot(scope, module_map_rc.clone());
-
-      let realm = JsRealmInner::new(
-        context_state,
-        v8::Global::new(scope, context),
-        module_map_rc,
-        self.inner.state.clone(),
-        false,
-      );
-      let mut state = self.inner.state.borrow_mut();
-      state.known_realms.push(realm.clone());
-      JsRealm::new(realm)
-    };
-
-    self.init_extension_js(&realm)?;
-
-    // If the embedder has requested to clear the module map resulting from
-    // extensions, possibly with exceptions.
-    if let Some(preserve_snapshotted_modules) =
-      self.preserve_snapshotted_modules
-    {
-      realm
-        .0
-        .module_map()
-        .borrow_mut()
-        .clear_module_map(preserve_snapshotted_modules);
-    }
-
-    Ok(realm)
-  }
-
   #[inline]
   pub fn handle_scope(&mut self) -> v8::HandleScope {
-    self.main_realm().handle_scope(self.v8_isolate())
+    let isolate = &mut self.inner.v8_isolate;
+    self.inner.main_realm.handle_scope(isolate)
+  }
+
+  #[inline(always)]
+  /// Create a scope on the stack with the given context
+  fn with_context_scope<'s, T>(
+    isolate: *mut v8::Isolate,
+    context: *mut v8::Context,
+    f: impl FnOnce(&mut v8::HandleScope<'s>) -> T,
+  ) -> T {
+    // SAFETY: We know this isolate is valid and non-null at this time
+    let mut isolate_scope =
+      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
+    // SAFETY: We know the context is valid and non-null at this time, and that a Local and pointer share the
+    // same representation
+    let context = unsafe { std::mem::transmute(context) };
+    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
+    f(&mut scope)
   }
 
   /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(&mut self, realm: &JsRealm) -> Result<(), Error> {
+  fn init_extension_js(&mut self) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
     //  b. Load all extension "module" JS files (but do not execute them yet)
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
-
-    let module_map_rc = realm.0.module_map();
+    let realm = JsRealm::clone(&self.inner.main_realm);
+    let module_map = realm.0.module_map();
 
     // Take extensions temporarily so we can avoid have a mutable reference to self
     let extensions = std::mem::take(&mut self.extensions);
 
-    let loader = module_map_rc.borrow().loader.clone();
+    let loader = module_map.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    module_map_rc.borrow_mut().loader = ext_loader;
+    *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
 
@@ -972,7 +905,7 @@ impl JsRuntime {
           )?;
         }
       }
-      self.init_cbs(realm);
+      self.init_cbs(&realm);
 
       for extension in &extensions {
         let maybe_esm_entry_point = extension.get_esm_entry_point();
@@ -1002,29 +935,33 @@ impl JsRuntime {
 
       for specifier in esm_entrypoints {
         let mod_id = {
-          module_map_rc
-            .borrow()
+          module_map
             .get_id(specifier, AssertedModuleType::JavaScriptOrWasm)
             .unwrap_or_else(|| {
               panic!("{} not present in the module map", specifier)
             })
         };
-        let mut receiver = realm.mod_evaluate(self.v8_isolate(), mod_id);
-        realm.evaluate_pending_module(self.v8_isolate());
+
+        let mut receiver = {
+          let isolate = self.v8_isolate();
+          let scope = &mut realm.handle_scope(isolate);
+          let receiver = realm.mod_evaluate(scope, mod_id);
+          module_map.evaluate_pending_module(scope);
+          receiver
+        };
 
         // After evaluate_pending_module, if the module isn't fully evaluated
         // and the resolver solved, it means the module or one of its imports
         // uses TLA.
-        match receiver.try_recv()? {
-          Some(result) => {
+        match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+          Poll::Ready(result) => {
             result
               .with_context(|| format!("Couldn't execute '{specifier}'"))?;
           }
-          None => {
+          Poll::Pending => {
             // Find the TLA location to display it on the panic.
             let location = {
               let scope = &mut realm.handle_scope(self.v8_isolate());
-              let module_map = module_map_rc.borrow();
               let messages = module_map.find_stalled_top_level_await(scope);
               assert!(!messages.is_empty());
               let msg = v8::Local::new(scope, &messages[0]);
@@ -1044,7 +981,6 @@ impl JsRuntime {
       #[cfg(debug_assertions)]
       {
         let mut scope = realm.handle_scope(self.v8_isolate());
-        let module_map = module_map_rc.borrow();
         module_map.assert_all_modules_evaluated(&mut scope);
       }
 
@@ -1052,7 +988,8 @@ impl JsRuntime {
     })?;
 
     self.extensions = extensions;
-    module_map_rc.borrow_mut().loader = loader;
+    let module_map = realm.0.module_map();
+    *module_map.loader.borrow_mut() = loader;
 
     Ok(())
   }
@@ -1208,13 +1145,12 @@ impl JsRuntime {
   /// Returns the runtime's op state, which can be used to maintain ops
   /// and access resources between op calls.
   pub fn op_state(&mut self) -> Rc<RefCell<OpState>> {
-    let state = self.inner.state.borrow();
-    state.op_state.clone()
+    self.inner.state.op_state.clone()
   }
 
   /// Returns the runtime's op names, ordered by OpId.
   pub fn op_names(&self) -> Vec<&'static str> {
-    let main_realm = self.inner.main_realm.as_ref().unwrap().clone();
+    let main_realm = self.inner.main_realm.clone();
     let state_rc = main_realm.0.state();
     let state = state_rc.borrow();
     state.op_ctxs.iter().map(|o| o.decl.name).collect()
@@ -1239,9 +1175,11 @@ impl JsRuntime {
     name: &'static str,
     source_code: ModuleCode,
   ) -> Result<v8::Global<v8::Value>, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .execute_script(self.v8_isolate(), name, source_code)
+      .inner
+      .main_realm
+      .execute_script(isolate, name, source_code)
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
@@ -1263,8 +1201,9 @@ impl JsRuntime {
     name: &'static str,
     source_code: &'static str,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    self.main_realm().execute_script(
-      self.v8_isolate(),
+    let isolate = &mut self.inner.v8_isolate;
+    self.inner.main_realm.execute_script(
+      isolate,
       name,
       ModuleCode::from_static(source_code),
     )
@@ -1277,11 +1216,31 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
   ) -> Result<v8::Global<v8::Value>, Error> {
+    self.call_with_args_and_await(function, &[]).await
+  }
+
+  /// Call a function with args. If it returns a promise, run the event loop until that
+  /// promise is settled. If the promise rejects or there is an uncaught error
+  /// in the event loop, return `Err(error)`. Or return `Ok(<await returned>)`.
+  pub async fn call_with_args_and_await(
+    &mut self,
+    function: &v8::Global<v8::Function>,
+    args: &[v8::Global<v8::Value>],
+  ) -> Result<v8::Global<v8::Value>, Error> {
     let promise = {
       let scope = &mut self.handle_scope();
       let cb = function.open(scope);
       let this = v8::undefined(scope).into();
-      let promise = cb.call(scope, this, &[]);
+      let promise = if args.is_empty() {
+        cb.call(scope, this, &[])
+      } else {
+        let mut local_args: SmallVec<[v8::Local<v8::Value>; 8]> =
+          SmallVec::with_capacity(args.len());
+        for v in args {
+          local_args.push(v8::Local::new(scope, v));
+        }
+        cb.call(scope, this, &local_args)
+      };
       if promise.is_none() || scope.is_execution_terminating() {
         let undefined = v8::undefined(scope).into();
         return exception_to_err_result(scope, undefined, false);
@@ -1289,7 +1248,10 @@ impl JsRuntime {
       v8::Global::new(scope, promise.unwrap())
     };
     let result = self.resolve_value(promise).await;
-    self.check_promise_rejections()?;
+    let isolate = &mut self.inner.v8_isolate;
+    let realm = &self.inner.main_realm;
+    let scope = &mut realm.handle_scope(isolate);
+    realm.0.check_promise_rejections(scope)?;
     result
   }
 
@@ -1301,9 +1263,11 @@ impl JsRuntime {
     &mut self,
     module_id: ModuleId,
   ) -> Result<v8::Global<v8::Object>, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .get_module_namespace(self.v8_isolate(), module_id)
+      .inner
+      .main_realm
+      .get_module_namespace(isolate, module_id)
   }
 
   /// Registers a callback on the isolate when the memory limits are approached.
@@ -1342,8 +1306,10 @@ impl JsRuntime {
     }
   }
 
-  fn pump_v8_message_loop(&mut self) -> Result<(), Error> {
-    let scope = &mut self.handle_scope();
+  fn pump_v8_message_loop(
+    &mut self,
+    scope: &mut v8::HandleScope,
+  ) -> Result<(), Error> {
     while v8::Platform::pump_message_loop(
       &v8::V8::get_current_platform(),
       scope,
@@ -1361,7 +1327,8 @@ impl JsRuntime {
   }
 
   pub fn maybe_init_inspector(&mut self) {
-    if self.inner.state.borrow().inspector.is_some() {
+    let inspector = &mut self.inner.state.inspector.borrow_mut();
+    if inspector.is_some() {
       return;
     }
 
@@ -1372,8 +1339,8 @@ impl JsRuntime {
     );
     let context = v8::Local::new(scope, context);
 
-    let mut state = self.inner.state.borrow_mut();
-    state.inspector = Some(JsRuntimeInspector::new(
+    self.inner.state.has_inspector.set(true);
+    **inspector = Some(JsRuntimeInspector::new(
       scope,
       context,
       self.is_main_runtime,
@@ -1382,45 +1349,60 @@ impl JsRuntime {
 
   pub fn poll_value(
     &mut self,
-    global: &v8::Global<v8::Value>,
     cx: &mut Context,
+    global: &v8::Global<v8::Value>,
   ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
-    // Check if the value is not a promise or already settled before polling the
-    // event loop.
-    let promise_global = {
-      let scope = &mut self.handle_scope();
-      let local = v8::Local::<v8::Value>::new(scope, global);
-      if let Ok(promise) = v8::Local::<v8::Promise>::try_from(local) {
-        match promise.state() {
-          v8::PromiseState::Pending => v8::Global::new(scope, promise),
-          v8::PromiseState::Fulfilled => {
-            let value = promise.result(scope);
-            let value_handle = v8::Global::new(scope, value);
-            return Poll::Ready(Ok(value_handle));
-          }
-          v8::PromiseState::Rejected => {
-            let exception = promise.result(scope);
-            let promise_global = v8::Global::new(scope, promise);
-            JsRealm::state_from_scope(scope)
-              .borrow_mut()
-              .pending_promise_rejections
-              .retain(|(key, _)| key != &promise_global);
-            return Poll::Ready(exception_to_err_result(
-              scope, exception, false,
-            ));
-          }
-        }
-      } else {
-        return Poll::Ready(Ok(global.clone()));
-      }
+    Self::with_context_scope(
+      self.v8_isolate_ptr(),
+      self.inner.main_realm.context_ptr(),
+      |scope| self.poll_value_inner(cx, scope, global),
+    )
+  }
+
+  fn poll_value_inner(
+    &mut self,
+    cx: &mut Context,
+    scope: &mut v8::HandleScope,
+    global: &v8::Global<v8::Value>,
+  ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
+    let promise = v8::Local::new(scope, global);
+
+    // TODO(mmastrac): this would be better if we just type-tested at the top level
+    let Ok(promise) = v8::Local::<v8::Promise>::try_from(promise) else {
+      return Poll::Ready(Ok(global.clone()));
     };
 
+    // Check if the value is not a promise or already settled before polling the
+    // event loop.
+    match promise.state() {
+      v8::PromiseState::Pending => {}
+      v8::PromiseState::Fulfilled => {
+        let value = promise.result(scope);
+        let value_handle = v8::Global::new(scope, value);
+        return Poll::Ready(Ok(value_handle));
+      }
+      v8::PromiseState::Rejected => {
+        let exception = promise.result(scope);
+        let promise_global = v8::Global::new(scope, promise);
+        JsRealm::state_from_scope(scope)
+          .borrow_mut()
+          .pending_promise_rejections
+          .retain(|(key, _)| key != &promise_global);
+        return Poll::Ready(exception_to_err_result(scope, exception, false));
+      }
+    }
+
     // Poll the event loop.
-    let event_loop_result = self.poll_event_loop(cx, false)?;
+    let event_loop_result = self.poll_event_loop_inner(
+      cx,
+      scope,
+      PollEventLoopOptions {
+        wait_for_inspector: false,
+        pump_v8_message_loop: true,
+      },
+    )?;
 
     // Check the promise state again.
-    let scope = &mut self.handle_scope();
-    let promise = v8::Local::new(scope, promise_global);
     match promise.state() {
       v8::PromiseState::Pending => match event_loop_result {
         Poll::Ready(_) => {
@@ -1449,7 +1431,7 @@ impl JsRuntime {
     &mut self,
     global: v8::Global<v8::Value>,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    poll_fn(|cx| self.poll_value(&global, cx)).await
+    poll_fn(|cx| self.poll_value(cx, &global)).await
   }
 
   /// Runs event loop to completion
@@ -1465,6 +1447,41 @@ impl JsRuntime {
     poll_fn(|cx| self.poll_event_loop(cx, wait_for_inspector)).await
   }
 
+  /// Runs event loop to completion
+  ///
+  /// This future resolves when:
+  ///  - there are no more pending dynamic imports
+  ///  - there are no more pending ops
+  ///  - there are no more active inspector sessions (only if
+  ///     `PollEventLoopOptions.wait_for_inspector` is set to true)
+  pub async fn run_event_loop2(
+    &mut self,
+    poll_options: PollEventLoopOptions,
+  ) -> Result<(), Error> {
+    poll_fn(|cx| self.poll_event_loop2(cx, poll_options)).await
+  }
+
+  /// A utility function that run provided future concurrently with the event loop.
+  ///
+  /// Useful for interacting with local inspector session.
+  pub async fn with_event_loop<'fut, T>(
+    &mut self,
+    mut fut: Pin<Box<dyn Future<Output = T> + 'fut>>,
+    poll_options: PollEventLoopOptions,
+  ) -> T {
+    loop {
+      tokio::select! {
+        biased;
+
+        result = &mut fut => {
+          return result;
+        },
+
+        _ = self.run_event_loop2(poll_options) => {}
+      }
+    }
+  }
+
   /// Runs a single tick of event loop
   ///
   /// If `wait_for_inspector` is set to true event loop
@@ -1474,106 +1491,74 @@ impl JsRuntime {
     cx: &mut Context,
     wait_for_inspector: bool,
   ) -> Poll<Result<(), Error>> {
-    let has_inspector: bool;
+    Self::with_context_scope(
+      self.v8_isolate_ptr(),
+      self.inner.main_realm.context_ptr(),
+      |scope| {
+        self.poll_event_loop_inner(
+          cx,
+          scope,
+          PollEventLoopOptions {
+            wait_for_inspector,
+            ..Default::default()
+          },
+        )
+      },
+    )
+  }
 
-    {
-      let state = self.inner.state.borrow();
-      has_inspector = state.inspector.is_some();
-      state.op_state.borrow().waker.register(cx.waker());
-    }
+  /// Runs a single tick of event loop
+  ///
+  /// If `PollEventLoopOptions.wait_for_inspector` is set to true, the event
+  /// loop will return `Poll::Pending` if there are active inspector sessions.
+  pub fn poll_event_loop2(
+    &mut self,
+    cx: &mut Context,
+    poll_options: PollEventLoopOptions,
+  ) -> Poll<Result<(), Error>> {
+    let isolate = self.v8_isolate_ptr();
+    Self::with_context_scope(
+      isolate,
+      self.inner.main_realm.context_ptr(),
+      move |scope| self.poll_event_loop_inner(cx, scope, poll_options),
+    )
+  }
+
+  fn poll_event_loop_inner(
+    &mut self,
+    cx: &mut Context,
+    scope: &mut v8::HandleScope,
+    poll_options: PollEventLoopOptions,
+  ) -> Poll<Result<(), Error>> {
+    let has_inspector = self.inner.state.has_inspector.get();
+    self.inner.state.waker.register(cx.waker());
 
     if has_inspector {
       // We poll the inspector first.
       let _ = self.inspector().borrow().poll_sessions(Some(cx)).unwrap();
     }
 
-    self.pump_v8_message_loop()?;
-
-    // Dynamic module loading - ie. modules loaded using "import()"
-    {
-      // Run in a loop so that dynamic imports that only depend on another
-      // dynamic import can be resolved in this event loop iteration.
-      //
-      // For example, a dynamically imported module like the following can be
-      // immediately resolved after `dependency.ts` is fully evaluated, but it
-      // wouldn't if not for this loop.
-      //
-      //    await delay(1000);
-      //    await import("./dependency.ts");
-      //    console.log("test")
-      //
-      // These dynamic import dependencies can be cross-realm:
-      //
-      //    await delay(1000);
-      //    await new ShadowRealm().importValue("./dependency.js", "default");
-      //
-      loop {
-        let mut has_evaluated = false;
-
-        let state = self.inner.state.borrow();
-        if state.known_realms.len() == 1 {
-          drop(state);
-          // Try and resolve as many dynamic imports in each realm as possible
-          // before moving to the next.
-          let realm = self.inner.main_realm.as_ref().unwrap();
-          loop {
-            let poll_imports =
-              realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-            assert!(poll_imports.is_ready());
-
-            let poll_imports =
-              realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-            assert!(poll_imports.is_ready());
-
-            if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
-              has_evaluated = true;
-            } else {
-              break;
-            }
-          }
-        } else {
-          // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
-          let realms = state.known_realms.clone();
-          drop(state);
-          for inner_realm in realms {
-            let realm = JsRealm::new(inner_realm);
-
-            // Try and resolve as many dynamic imports in each realm as possible
-            // before moving to the next.
-            loop {
-              let poll_imports =
-                realm.prepare_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-              assert!(poll_imports.is_ready());
-
-              let poll_imports =
-                realm.poll_dyn_imports(&mut self.inner.v8_isolate, cx)?;
-              assert!(poll_imports.is_ready());
-
-              if realm.evaluate_dyn_imports(&mut self.inner.v8_isolate) {
-                has_evaluated = true;
-              } else {
-                break;
-              }
-            }
-          }
-        }
-        if !has_evaluated {
-          break;
-        }
-      }
+    if poll_options.pump_v8_message_loop {
+      self.pump_v8_message_loop(scope)?;
     }
+
+    let realm = &self.inner.main_realm;
+    let modules = &realm.0.module_map;
+
+    modules.poll_progress(cx, scope)?;
 
     // Resolve async ops, run all next tick callbacks and macrotasks callbacks
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let dispatched_ops = self.do_js_event_loop_tick(cx)?;
-    self.check_promise_rejections()?;
+    let dispatched_ops =
+      Self::do_js_event_loop_tick_realm(cx, scope, &realm.0.context_state)?;
+    realm.0.check_promise_rejections(scope)?;
 
     // Event loop middlewares
     let mut maybe_scheduling = false;
     {
-      let op_state = self.inner.state.borrow().op_state.clone();
+      let op_state = self.inner.state.op_state.clone();
       for f in &self.event_loop_middlewares {
         if f(op_state.clone(), cx) {
           maybe_scheduling = true;
@@ -1582,37 +1567,29 @@ impl JsRuntime {
     }
 
     // Top level module
-    {
-      let state = self.inner.state.borrow();
-      if state.known_realms.len() == 1 {
-        drop(state);
-        let realm = self.inner.main_realm.as_ref().unwrap();
-        realm.evaluate_pending_module(&mut self.inner.v8_isolate);
-      } else {
-        // TODO(bartlomieju|mmastrac): Remove cloning in the runtime loop
-        let realms = state.known_realms.clone();
-        drop(state);
-        for inner_realm in realms {
-          let realm = JsRealm::new(inner_realm);
-          realm.evaluate_pending_module(&mut self.inner.v8_isolate);
-        }
-      }
-    }
+    modules.evaluate_pending_module(scope);
 
-    let pending_state = self.event_loop_pending_state();
+    // Get the pending state from the main realm, or all realms
+    let pending_state = {
+      EventLoopPendingState::new(
+        scope,
+        &realm.0.context_state.borrow(),
+        modules,
+      )
+    };
+
     if !pending_state.is_pending() && !maybe_scheduling {
       if has_inspector {
         let inspector = self.inspector();
         let has_active_sessions = inspector.borrow().has_active_sessions();
         let has_blocking_sessions = inspector.borrow().has_blocking_sessions();
 
-        if wait_for_inspector && has_active_sessions {
+        if poll_options.wait_for_inspector && has_active_sessions {
           // If there are no blocking sessions (eg. REPL) we can now notify
           // debugger that the program has finished running and we're ready
           // to exit the process once debugger disconnects.
           if !has_blocking_sessions {
             let context = self.main_context();
-            let scope = &mut self.handle_scope();
             inspector.borrow_mut().context_destroyed(scope, context);
             println!("Program finished. Waiting for inspector to disconnect to exit the process...");
           }
@@ -1624,8 +1601,6 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
-    let state = self.inner.state.borrow();
-
     // Check if more async ops have been dispatched
     // during this turn of event loop.
     // If there are any pending background tasks, we also wake the runtime to
@@ -1633,22 +1608,22 @@ impl JsRuntime {
     // TODO(andreubotella) The event loop will spin as long as there are pending
     // background tasks. We should look into having V8 notify us when a
     // background task is done.
-    if pending_state.has_pending_background_tasks
-      || pending_state.has_tick_scheduled
-      || maybe_scheduling
+    #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
-      state.op_state.borrow().waker.wake();
+      if pending_state.has_pending_background_tasks
+        || pending_state.has_tick_scheduled
+        || maybe_scheduling
+      {
+        self.inner.state.waker.wake();
+      } else
+      // If ops were dispatched we may have progress on pending modules that we should re-check
+      if (pending_state.has_pending_module_evaluation
+        || pending_state.has_pending_dyn_module_evaluation)
+        && dispatched_ops
+      {
+        self.inner.state.waker.wake();
+      }
     }
-
-    // If ops were dispatched we may have progress on pending modules that we should re-check
-    if (pending_state.has_pending_module_evaluation
-      || pending_state.has_pending_dyn_module_evaluation)
-      && dispatched_ops
-    {
-      state.op_state.borrow().waker.wake();
-    }
-
-    drop(state);
 
     if pending_state.has_pending_module_evaluation {
       if pending_state.has_pending_refed_ops
@@ -1660,12 +1635,8 @@ impl JsRuntime {
       {
         // pass, will be polled again
       } else {
-        let known_realms = &self.inner.state.borrow().known_realms;
         return Poll::Ready(Err(
-          find_and_report_stalled_level_await_in_any_realm(
-            &mut self.inner.v8_isolate,
-            known_realms,
-          ),
+          find_and_report_stalled_level_await_in_any_realm(scope, &realm.0),
         ));
       }
     }
@@ -1677,52 +1648,38 @@ impl JsRuntime {
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
-      } else if self.inner.state.borrow().dyn_module_evaluate_idle_counter >= 1
-      {
-        let known_realms = &self.inner.state.borrow().known_realms;
+      } else if realm.modules_idle() {
         return Poll::Ready(Err(
-          find_and_report_stalled_level_await_in_any_realm(
-            &mut self.inner.v8_isolate,
-            known_realms,
-          ),
+          find_and_report_stalled_level_await_in_any_realm(scope, &realm.0),
         ));
       } else {
-        let mut state = self.inner.state.borrow_mut();
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
         // reset.
-        state.dyn_module_evaluate_idle_counter += 1;
-        state.op_state.borrow().waker.wake();
+        realm.increment_modules_idle();
+        self.inner.state.waker.wake();
       }
     }
 
     Poll::Pending
   }
-
-  fn event_loop_pending_state(&mut self) -> EventLoopPendingState {
-    let mut scope = v8::HandleScope::new(self.inner.v8_isolate.as_mut());
-    EventLoopPendingState::new(&mut scope, &mut self.inner.state.borrow_mut())
-  }
 }
 
 fn find_and_report_stalled_level_await_in_any_realm(
-  v8_isolate: &mut v8::Isolate,
-  known_realms: &[JsRealmInner],
+  scope: &mut v8::HandleScope,
+  inner_realm: &JsRealmInner,
 ) -> Error {
-  for inner_realm in known_realms {
-    let scope = &mut inner_realm.handle_scope(v8_isolate);
-    let module_map = inner_realm.module_map();
-    let messages = module_map.borrow().find_stalled_top_level_await(scope);
+  let module_map = inner_realm.module_map();
+  let messages = module_map.find_stalled_top_level_await(scope);
 
-    if !messages.is_empty() {
-      // We are gonna print only a single message to provide a nice formatting
-      // with source line of offending promise shown. Once user fixed it, then
-      // they will get another error message for the next promise (but this
-      // situation is gonna be very rare, if ever happening).
-      let msg = v8::Local::new(scope, &messages[0]);
-      let js_error = JsError::from_v8_message(scope, msg);
-      return js_error.into();
-    }
+  if !messages.is_empty() {
+    // We are gonna print only a single message to provide a nice formatting
+    // with source line of offending promise shown. Once user fixed it, then
+    // they will get another error message for the next promise (but this
+    // situation is gonna be very rare, if ever happening).
+    let msg = v8::Local::new(scope, &messages[0]);
+    let js_error = JsError::from_v8_message(scope, msg);
+    return js_error.into();
   }
 
   unreachable!("Expected at least one stalled top-level await");
@@ -1772,7 +1729,7 @@ impl JsRuntimeForSnapshot {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
 
-    let realm = self.main_realm();
+    let realm = JsRealm::clone(&self.inner.main_realm);
 
     // Set the context to be snapshot's default context
     {
@@ -1784,8 +1741,7 @@ impl JsRuntimeForSnapshot {
     // Serialize the module map and store its data in the snapshot.
     {
       let snapshotted_data = {
-        let module_map_rc = realm.0.module_map();
-        let module_map = module_map_rc.borrow();
+        let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
         )
@@ -1819,39 +1775,37 @@ pub(crate) struct EventLoopPendingState {
   has_pending_background_tasks: bool,
   has_tick_scheduled: bool,
 }
+
 impl EventLoopPendingState {
+  /// Collect event loop state from all the sub-states.
   pub fn new(
     scope: &mut v8::HandleScope<()>,
-    state: &mut JsRuntimeState,
-  ) -> EventLoopPendingState {
-    let mut num_unrefed_ops = 0;
-    let mut num_pending_ops = 0;
-    let mut has_pending_dyn_imports = false;
-    let mut has_pending_dyn_module_evaluation = false;
-    let mut has_pending_module_evaluation = false;
-    for realm in &state.known_realms {
-      num_unrefed_ops += realm.num_unrefed_ops();
-      num_pending_ops += realm.num_pending_ops();
-      if !has_pending_dyn_imports {
-        has_pending_dyn_imports = realm.has_pending_dyn_imports();
-      }
-      if !has_pending_dyn_module_evaluation {
-        has_pending_dyn_module_evaluation =
-          realm.has_pending_dyn_module_evaluation();
-      }
-      if !has_pending_module_evaluation {
-        has_pending_module_evaluation = realm.has_pending_module_evaluation();
-      }
-    }
-
+    state: &ContextState,
+    modules: &ModuleMap,
+  ) -> Self {
+    let num_unrefed_ops = state.unrefed_ops.len();
+    let num_pending_ops = state.pending_ops.len();
+    let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
+    let has_pending_dyn_module_evaluation =
+      modules.has_pending_dyn_module_evaluation();
+    let has_pending_module_evaluation =
+      modules.pending_mod_evaluate.borrow().is_some();
     EventLoopPendingState {
       has_pending_refed_ops: num_pending_ops > num_unrefed_ops,
       has_pending_dyn_imports,
       has_pending_dyn_module_evaluation,
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
-      has_tick_scheduled: state.has_tick_scheduled,
+      has_tick_scheduled: state.has_next_tick_scheduled,
     }
+  }
+
+  /// Collect event loop state from all the states stored in the scope.
+  pub fn new_from_scope(scope: &mut v8::HandleScope) -> Self {
+    let module_map = JsRealm::module_map_from(scope);
+    let context_state = JsRealm::state_from_scope(scope);
+    let context_state = context_state.borrow();
+    Self::new(scope, &context_state, &module_map)
   }
 
   pub fn is_pending(&self) -> bool {
@@ -1880,14 +1834,65 @@ where
 
 impl JsRuntimeState {
   pub(crate) fn inspector(&self) -> Rc<RefCell<JsRuntimeInspector>> {
-    self.inspector.as_ref().unwrap().clone()
+    self.inspector.borrow().as_ref().unwrap().clone()
   }
 
   /// Called by `bindings::host_import_module_dynamically_callback`
   /// after initiating new dynamic import load.
-  pub fn notify_new_dynamic_import(&mut self) {
+  pub fn notify_new_dynamic_import(&self) {
     // Notify event loop to poll again soon.
-    self.op_state.borrow().waker.wake();
+    self.waker.wake();
+  }
+
+  /// Performs an action with the inspector, if we have one
+  pub(crate) fn with_inspector<T>(
+    &self,
+    mut f: impl FnMut(&JsRuntimeInspector) -> T,
+  ) -> Option<T> {
+    // Fast path
+    if !self.has_inspector.get() {
+      return None;
+    }
+    self
+      .inspector
+      .borrow()
+      .as_ref()
+      .map(|inspector| f(&inspector.borrow()))
+  }
+
+  pub(crate) fn has_dispatched_exception(&self) -> bool {
+    // SAFETY: we limit access to this cell to this method only
+    unsafe {
+      self
+        .dispatched_exception
+        .as_ptr()
+        .as_ref()
+        .unwrap_unchecked()
+        .is_some()
+    }
+  }
+
+  pub(crate) fn set_dispatched_exception(
+    &self,
+    exception: v8::Global<v8::Value>,
+  ) {
+    self.dispatched_exception.set(Some(exception))
+  }
+
+  pub(crate) fn get_dispatched_exception_as_local<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> Option<v8::Local<'s, v8::Value>> {
+    // SAFETY: we limit access to this cell to this method only
+    unsafe {
+      self
+        .dispatched_exception
+        .as_ptr()
+        .as_ref()
+        .unwrap_unchecked()
+    }
+    .as_ref()
+    .map(|global| v8::Local::new(scope, global))
   }
 }
 
@@ -1898,13 +1903,15 @@ impl JsRuntime {
     &mut self,
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
-    self.main_realm().instantiate_module(self.v8_isolate(), id)
+    let isolate = &mut self.inner.v8_isolate;
+    let realm = JsRealm::clone(&self.inner.main_realm);
+    let scope = &mut realm.handle_scope(isolate);
+    realm.instantiate_module(scope, id)
   }
 
-  // TODO(bartlomieju): make it return `ModuleEvaluationFuture`?
   /// Evaluates an already instantiated ES module.
   ///
-  /// Returns a receiver handle that resolves when module promise resolves.
+  /// Returns a future that resolves when module promise resolves.
   /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
   /// module evaluation future.
   ///
@@ -1915,15 +1922,11 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> oneshot::Receiver<Result<(), Error>> {
-    self.main_realm().mod_evaluate(self.v8_isolate(), id)
-  }
-
-  /// Clears all loaded modules
-  /// May not free all associated memory, and should not be used
-  /// in production environments
-  pub fn clear_modules(&mut self) {
-    self.main_realm().clear_modules()
+  ) -> impl Future<Output = Result<(), Error>> {
+    let isolate = &mut self.inner.v8_isolate;
+    let realm = &self.inner.main_realm;
+    let scope = &mut realm.handle_scope(isolate);
+    realm.mod_evaluate(scope, id)
   }
 
   /// Asynchronously load specified module and all of its dependencies.
@@ -1938,9 +1941,11 @@ impl JsRuntime {
     specifier: &ModuleSpecifier,
     code: Option<ModuleCode>,
   ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .load_main_module(self.v8_isolate(), specifier, code)
+      .inner
+      .main_realm
+      .load_main_module(isolate, specifier, code)
       .await
   }
 
@@ -1956,103 +1961,91 @@ impl JsRuntime {
     specifier: &ModuleSpecifier,
     code: Option<ModuleCode>,
   ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
     self
-      .main_realm()
-      .load_side_module(self.v8_isolate(), specifier, code)
+      .inner
+      .main_realm
+      .load_side_module(isolate, specifier, code)
       .await
   }
 
-  fn check_promise_rejections(&mut self) -> Result<(), Error> {
-    let state_rc = self.inner.state.clone();
-    let isolate = &mut self.v8_isolate();
-    let state = state_rc.borrow();
-    for realm in &state.known_realms {
-      realm.check_promise_rejections(isolate)?;
-    }
-    Ok(())
-  }
-
-  // Polls pending ops and then runs `Deno.core.eventLoopTick` callback.
-  fn do_js_event_loop_tick(&mut self, cx: &mut Context) -> Result<bool, Error> {
-    // Handle responses for each realm.
-    let state = self.inner.state.clone();
-    let isolate = &mut self.inner.v8_isolate;
-    let realm_count = state.borrow().known_realms.len();
+  fn do_js_event_loop_tick_realm(
+    cx: &mut Context,
+    scope: &mut v8::HandleScope,
+    context_state: &RefCell<ContextState>,
+  ) -> Result<bool, Error> {
+    let mut context_state = context_state.borrow_mut();
     let mut dispatched_ops = false;
 
-    for realm_idx in 0..realm_count {
-      let realm = state.borrow().known_realms.get(realm_idx).unwrap().clone();
-      let context_state = realm.state();
-      let mut context_state = context_state.borrow_mut();
-      let scope = &mut realm.handle_scope(isolate);
+    // We return async responses to JS in unbounded batches (may change),
+    // each batch is a flat vector of tuples:
+    // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
+    // promise_id is a simple integer, op_result is an ops::OpResult
+    // which contains a value OR an error, encoded as a tuple.
+    // This batch is received in JS via the special `arguments` variable
+    // and then each tuple is used to resolve or reject promises
+    //
+    // This can handle 15 promises futures in a single batch without heap
+    // allocations.
+    let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
+      SmallVec::with_capacity(32);
 
-      // We return async responses to JS in unbounded batches (may change),
-      // each batch is a flat vector of tuples:
-      // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
-      // promise_id is a simple integer, op_result is an ops::OpResult
-      // which contains a value OR an error, encoded as a tuple.
-      // This batch is received in JS via the special `arguments` variable
-      // and then each tuple is used to resolve or reject promises
-      //
-      // This can handle 15 promises futures in a single batch without heap
-      // allocations.
-      let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
-        SmallVec::with_capacity(32);
-
-      loop {
-        let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx) else {
-          break;
-        };
-        // TODO(mmastrac): If this task is really errored, things could be pretty bad
-        let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
-        context_state.unrefed_ops.remove(&promise_id);
-        dispatched_ops |= true;
-        args.push(v8::Integer::new(scope, promise_id).into());
-        let was_error = matches!(resp, OpResult::Err(_));
-        let res = resp.to_v8(scope);
-        if metrics_event {
-          if res.is_ok() && !was_error {
-            dispatch_metrics_async(
-              &context_state.op_ctxs[op_id as usize],
-              OpMetricsEvent::CompletedAsync,
-            );
-          } else {
-            dispatch_metrics_async(
-              &context_state.op_ctxs[op_id as usize],
-              OpMetricsEvent::ErrorAsync,
-            );
-          }
+    loop {
+      let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx)
+      else {
+        break;
+      };
+      // TODO(mmastrac): If this task is really errored, things could be pretty bad
+      let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
+      context_state.unrefed_ops.remove(&promise_id);
+      dispatched_ops |= true;
+      args.push(v8::Integer::new(scope, promise_id).into());
+      let was_error = matches!(resp, OpResult::Err(_));
+      let res = resp.to_v8(scope);
+      if metrics_event {
+        if res.is_ok() && !was_error {
+          dispatch_metrics_async(
+            &context_state.op_ctxs[op_id as usize],
+            OpMetricsEvent::CompletedAsync,
+          );
+        } else {
+          dispatch_metrics_async(
+            &context_state.op_ctxs[op_id as usize],
+            OpMetricsEvent::ErrorAsync,
+          );
         }
-        args.push(match res {
-          Ok(v) => v,
-          Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
-            .to_v8(scope)
-            .unwrap(),
-        });
       }
+      args.push(match res {
+        Ok(v) => v,
+        Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
+          .to_v8(scope)
+          .unwrap(),
+      });
+    }
 
-      let has_tick_scheduled = self.inner.state.borrow().has_tick_scheduled;
-      dispatched_ops |= has_tick_scheduled;
-      let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
-      args.push(has_tick_scheduled.into());
+    let has_tick_scheduled = context_state.has_next_tick_scheduled;
+    dispatched_ops |= has_tick_scheduled;
+    let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
+    args.push(has_tick_scheduled.into());
 
-      let js_event_loop_tick_cb_handle =
-        context_state.js_event_loop_tick_cb.clone().unwrap();
-      let tc_scope = &mut v8::TryCatch::new(scope);
-      let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
-      let this = v8::undefined(tc_scope).into();
-      drop(context_state);
-      js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());
+    let js_event_loop_tick_cb_handle =
+      context_state.js_event_loop_tick_cb.clone().unwrap();
+    let tc_scope = &mut v8::TryCatch::new(scope);
+    let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
+    let this = v8::undefined(tc_scope).into();
 
-      if let Some(exception) = tc_scope.exception() {
-        // TODO(@andreubotella): Returning here can cause async ops in other
-        // realms to never resolve.
-        return exception_to_err_result(tc_scope, exception, false);
-      }
+    drop(context_state);
 
-      if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-        return Ok(false);
-      }
+    js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());
+
+    if let Some(exception) = tc_scope.exception() {
+      // TODO(@andreubotella): Returning here can cause async ops in other
+      // realms to never resolve.
+      return exception_to_err_result(tc_scope, exception, false);
+    }
+
+    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+      return Ok(false);
     }
 
     Ok(dispatched_ops)

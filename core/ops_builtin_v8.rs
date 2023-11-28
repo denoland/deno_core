@@ -8,12 +8,13 @@ use crate::op2;
 use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::script_origin;
+use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::source_map::apply_source_map;
 use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
-use crate::JsRealm;
 use crate::JsRuntime;
+use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -132,7 +133,7 @@ pub fn op_queue_microtask(
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
 // allowed to touch JS heap.
-#[op2(nofast)]
+#[op2(nofast, reentrant)]
 pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   // SAFETY: we know v8 provides us with a valid, non-null isolate
   unsafe {
@@ -143,14 +144,18 @@ pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   };
 }
 
-#[op2(fast)]
-pub fn op_has_tick_scheduled(state: &JsRuntimeState) -> bool {
-  state.has_tick_scheduled
+#[op2]
+pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
+  JsRealm::state_from_scope(scope)
+    .borrow()
+    .has_next_tick_scheduled
 }
 
-#[op2(fast)]
-pub fn op_set_has_tick_scheduled(state: &mut JsRuntimeState, v: bool) {
-  state.has_tick_scheduled = v;
+#[op2]
+pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
+  JsRealm::state_from_scope(scope)
+    .borrow_mut()
+    .has_next_tick_scheduled = v;
 }
 
 #[derive(Serialize)]
@@ -167,7 +172,7 @@ pub struct EvalContextResult<'s>(
   Option<EvalContextError<'s>>,
 );
 
-#[op2]
+#[op2(reentrant)]
 #[serde]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -303,8 +308,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
     if self.for_storage {
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
       let backing_store = shared_array_buffer.get_backing_store();
       let id = shared_array_buffer_store.insert(backing_store);
@@ -324,8 +328,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
       self.throw_data_clone_error(scope, message);
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(compiled_wasm_module_store) = &state.compiled_wasm_module_store
     {
       let compiled_wasm_module = module.get_compiled_module();
@@ -366,8 +369,7 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
     if self.for_storage {
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
       let backing_store = shared_array_buffer_store.take(transfer_id)?;
       let shared_array_buffer =
@@ -386,8 +388,7 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
     if self.for_storage {
       return None;
     }
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(compiled_wasm_module_store) = &state.compiled_wasm_module_store
     {
       let compiled_module = compiled_wasm_module_store.take(clone_id)?;
@@ -430,7 +431,8 @@ pub struct SerializeDeserializeOptions<'a> {
   for_storage: bool,
 }
 
-#[op2]
+// May be reentrant in the case of errors.
+#[op2(reentrant)]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
@@ -471,8 +473,7 @@ pub fn op_serialize(
   value_serializer.write_header();
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     for index in 0..transferred_array_buffers.length() {
       let i = v8::Number::new(scope, index as f64).into();
       let buf = transferred_array_buffers.get(scope, i).unwrap();
@@ -555,8 +556,7 @@ pub fn op_deserialize<'a>(
   }
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow_mut();
+    let state = JsRuntime::state_from(scope);
     if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
       for i in 0..transferred_array_buffers.length() {
         let i = v8::Number::new(scope, i as f64).into();
@@ -782,9 +782,8 @@ pub fn op_set_wasm_streaming_callback(
         .as_ref()
         .unwrap()
         .clone();
-      let state_rc = JsRuntime::state_from(scope);
-      let streaming_rid = state_rc
-        .borrow()
+      let state = JsRuntime::state_from(scope);
+      let streaming_rid = state
         .op_state
         .borrow_mut()
         .resource_table
@@ -801,30 +800,25 @@ pub fn op_set_wasm_streaming_callback(
   Ok(())
 }
 
+// This op is re-entrant as it makes a v8 call. It also cannot be fast because
+// we require a JS execution scope.
 #[allow(clippy::let_and_return)]
-#[op2]
+#[op2(nofast, reentrant)]
 pub fn op_abort_wasm_streaming(
-  scope: &mut v8::HandleScope,
+  state: Rc<RefCell<OpState>>,
   rid: u32,
   error: v8::Local<v8::Value>,
 ) -> Result<(), Error> {
-  let wasm_streaming = {
-    let state_rc = JsRuntime::state_from(scope);
-    let state = state_rc.borrow();
-    let wsr = state
-      .op_state
-      .borrow_mut()
-      .resource_table
-      .take::<WasmStreamingResource>(rid)?;
-    wsr
-  };
+  // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
+  let wasm_streaming = state
+    .borrow_mut()
+    .resource_table
+    .take::<WasmStreamingResource>(rid)?;
 
   // At this point there are no clones of Rc<WasmStreamingResource> on the
   // resource table, and no one should own a reference because we're never
   // cloning them. So we can be sure `wasm_streaming` is the only reference.
   if let Ok(wsr) = std::rc::Rc::try_unwrap(wasm_streaming) {
-    // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
-    // see https://github.com/denoland/deno/issues/13917
     wsr.0.into_inner().abort(Some(error));
   } else {
     panic!("Couldn't consume WasmStreamingResource.");
@@ -832,7 +826,8 @@ pub fn op_abort_wasm_streaming(
   Ok(())
 }
 
-#[op2]
+// This op calls `op_apply_source_map` re-entrantly.
+#[op2(reentrant)]
 #[serde]
 pub fn op_destructure_error(
   scope: &mut v8::HandleScope,
@@ -849,17 +844,16 @@ pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
 ) {
-  let state_rc = JsRuntime::state_from(scope);
-  let mut state = state_rc.borrow_mut();
-  if let Some(inspector) = &state.inspector {
-    let inspector = inspector.borrow();
+  let state = JsRuntime::state_from(scope);
+  if let Some(true) = state.with_inspector(|inspector| {
     inspector.exception_thrown(scope, exception, false);
+    inspector.is_dispatching_message()
+  }) {
     // This indicates that the op is being called from a REPL. Skip termination.
-    if inspector.is_dispatching_message() {
-      return;
-    }
+    return;
   }
-  state.dispatched_exception = Some(v8::Global::new(scope, exception));
+
+  state.set_dispatched_exception(v8::Global::new(scope, exception));
   scope.terminate_execution();
 }
 
@@ -963,7 +957,7 @@ pub fn op_apply_source_map_filename(
 #[string]
 pub fn op_current_user_call_site(
   scope: &mut v8::HandleScope,
-  js_runtime_state: &mut JsRuntimeState,
+  js_runtime_state: &JsRuntimeState,
   #[buffer] ret_buf: &mut [u8],
 ) -> String {
   let stack_trace = v8::StackTrace::current_stack_trace(scope, 10).unwrap();
@@ -1046,7 +1040,7 @@ pub fn op_set_format_exception_callback<'a>(
 
 #[op2]
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
-  JsRuntime::event_loop_pending_state_from_scope(scope).is_pending()
+  JsRuntime::has_more_work(scope)
 }
 
 #[op2]

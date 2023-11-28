@@ -51,7 +51,7 @@ fn main() -> Result<(), Error> {
 
     let result = js_runtime.mod_evaluate(mod_id);
     js_runtime.run_event_loop(false).await?;
-    result.await?
+    result.await
   };
 
   tokio::runtime::Builder::new_current_thread()

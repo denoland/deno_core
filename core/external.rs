@@ -5,16 +5,18 @@ use std::mem::ManuallyDrop;
 /// Define an external type.
 #[macro_export]
 macro_rules! external {
-  ($type:ident, $name:literal) => {
-    impl $crate::external::Externalizable for $type {
+  ($type:ty, $name:literal) => {
+    impl $crate::Externalizable for $type {
       fn external_marker() -> usize {
         // Use the address of a static mut as a way to get around lack of usize-sized TypeId. Because it is mutable, the
         // compiler cannot collapse multiple definitions into one.
-        static mut DEFINITION: $crate::external::ExternalDefinition =
-          $crate::external::ExternalDefinition::new($name);
-        // Wash the pointer through black_box so the compiler cannot see what we're going to do with it and needs
-        // to assume it will be used for valid purposes.
-        let ptr = std::hint::black_box(unsafe { &mut DEFINITION } as *mut _);
+        static mut DEFINITION: $crate::ExternalDefinition =
+          $crate::ExternalDefinition::new($name);
+        // SAFETY: Wash the pointer through black_box so the compiler cannot see what we're going to do with it and needs
+        // to assume it will be used for valid purposes. We are taking the address of a static item, but we avoid taking an
+        // intermediate mutable reference to make this safe.
+        let ptr =
+          std::hint::black_box(unsafe { std::ptr::addr_of_mut!(DEFINITION) });
         ptr as usize
       }
 
@@ -24,8 +26,6 @@ macro_rules! external {
     }
   };
 }
-
-pub use external;
 
 pub trait Externalizable {
   fn external_marker() -> usize;

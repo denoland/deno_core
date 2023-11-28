@@ -37,7 +37,6 @@ pub fn map_async_op_infallible<R: 'static>(
 ) -> Option<R> {
   let id = ctx.id;
   let metrics = ctx.metrics_enabled();
-
   if lazy {
     let mapper = move |r| {
       PendingOp(
@@ -454,8 +453,8 @@ where
     if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.get_backing_store() else {
-      return Err("buffer missing");
-    };
+        return Err("buffer missing");
+      };
       (buffer, buf.byte_offset(), buf.byte_length())
     } else {
       return Err("expected typed ArrayBufferView");
@@ -479,8 +478,8 @@ where
     if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.buffer(scope) else {
-      return Err("buffer missing");
-    };
+        return Err("buffer missing");
+      };
       let res = (
         buffer.get_backing_store(),
         buf.byte_offset(),
@@ -673,7 +672,6 @@ mod tests {
       op_test_v8_global,
       op_test_serde_v8,
       op_jsruntimestate,
-      op_jsruntimestate_mut,
       op_state_rc,
       op_state_ref,
       op_state_mut,
@@ -1464,13 +1462,9 @@ mod tests {
   #[op2(fast)]
   pub fn op_jsruntimestate(_state: &JsRuntimeState) {}
 
-  #[op2(fast)]
-  pub fn op_jsruntimestate_mut(_state: &mut JsRuntimeState) {}
-
   #[tokio::test]
   pub async fn test_jsruntimestate() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(10000, "op_jsruntimestate", "op_jsruntimestate()")?;
-    run_test2(10000, "op_jsruntimestate_mut", "op_jsruntimestate_mut()")?;
     Ok(())
   }
 

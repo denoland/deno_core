@@ -147,7 +147,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "Promise.resolve(1 + 2)")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     {
       let scope = &mut runtime.handle_scope();
       assert!(
@@ -161,7 +161,7 @@ async fn test_poll_value() {
         "Promise.resolve(new Promise(resolve => resolve(2 + 2)))",
       )
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     {
       let scope = &mut runtime.handle_scope();
       assert!(
@@ -172,7 +172,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "Promise.reject(new Error('fail'))")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     assert!(
       matches!(v, Poll::Ready(Err(e)) if e.downcast_ref::<JsError>().unwrap().exception_message == "Uncaught Error: fail")
     );
@@ -180,7 +180,7 @@ async fn test_poll_value() {
     let value_global = runtime
       .execute_script_static("a.js", "new Promise(resolve => {})")
       .unwrap();
-    let v = runtime.poll_value(&value_global, cx);
+    let v = runtime.poll_value(cx, &value_global);
     matches!(v, Poll::Ready(Err(e)) if e.to_string() == "Promise resolution is still pending but the event loop has already resolved.");
     Poll::Ready(())
   }).await;
@@ -339,7 +339,6 @@ async fn wasm_streaming_op_invocation_in_import() {
                              WebAssembly.instantiateStreaming(bytes, {
                                env: {
                                  get data() {
-                                   Deno.core.ops.op_resources();
                                    return new WebAssembly.Global({ value: "i64", mutable: false }, 42n);
                                  }
                                }
@@ -736,7 +735,12 @@ fn test_has_tick_scheduled() {
   assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
 
-  runtime.inner.state.borrow_mut().has_tick_scheduled = false;
+  runtime
+    .main_realm()
+    .0
+    .state()
+    .borrow_mut()
+    .has_next_tick_scheduled = false;
   assert!(matches!(
     runtime.poll_event_loop(cx, false),
     Poll::Ready(Ok(()))
@@ -767,9 +771,8 @@ fn terminate_during_module_eval() {
   runtime.v8_isolate().terminate_execution();
 
   let mod_result =
-    futures::executor::block_on(runtime.mod_evaluate(module_id)).unwrap();
+    futures::executor::block_on(runtime.mod_evaluate(module_id)).unwrap_err();
   assert!(mod_result
-    .unwrap_err()
     .to_string()
     .contains("JavaScript execution has been terminated"));
 }
@@ -853,7 +856,8 @@ async fn test_set_promise_reject_callback_top_level_await() {
   static PROMISE_REJECT: AtomicUsize = AtomicUsize::new(0);
 
   #[op2(fast)]
-  fn op_promise_reject() -> Result<(), AnyError> {
+  fn op_promise_reject(promise_type: u32) -> Result<(), AnyError> {
+    eprintln!("{promise_type}");
     PROMISE_REJECT.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
@@ -865,7 +869,7 @@ async fn test_set_promise_reject_callback_top_level_await() {
     ascii_str!(
       r#"
   Deno.core.ops.op_set_promise_reject_callback((type, promise, reason) => {
-    Deno.core.ops.op_promise_reject();
+    Deno.core.ops.op_promise_reject(type);
   });
   throw new Error('top level throw');
   "#
@@ -884,7 +888,11 @@ async fn test_set_promise_reject_callback_top_level_await() {
     .unwrap();
   let receiver = runtime.mod_evaluate(id);
   runtime.run_event_loop(false).await.unwrap();
-  receiver.await.unwrap().unwrap_err();
+  let err = receiver.await.unwrap_err();
+  assert_eq!(
+    err.to_string(),
+    "Error: top level throw\n    at file:///main.js:5:9"
+  );
 
   assert_eq!(1, PROMISE_REJECT.load(Ordering::Relaxed));
 }
@@ -958,23 +966,16 @@ async fn test_stalled_tla() {
     Url::parse("file:///test.js").unwrap(),
     ascii_str!("await new Promise(() => {});"),
   );
-  let mut runtime = JsRuntime::new(Default::default());
-  let realm = runtime
-    .create_realm(CreateRealmOptions {
-      module_loader: Some(Rc::new(loader)),
-    })
-    .unwrap();
-
-  let module_id = realm
-    .load_main_module(
-      runtime.v8_isolate(),
-      &crate::resolve_url("file:///test.js").unwrap(),
-      None,
-    )
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+  let module_id = runtime
+    .load_main_module(&crate::resolve_url("file:///test.js").unwrap(), None)
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
-  let _ = realm.mod_evaluate(runtime.v8_isolate(), module_id);
+  let _ = runtime.mod_evaluate(module_id);
 
   let error = runtime.run_event_loop(false).await.unwrap_err();
   let js_error = error.downcast::<JsError>().unwrap();

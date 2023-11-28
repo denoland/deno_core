@@ -1,5 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-mod bindings;
+pub(crate) mod bindings;
 mod jsrealm;
 mod jsruntime;
 #[doc(hidden)]
@@ -14,7 +14,7 @@ pub const V8_WRAPPER_TYPE_INDEX: i32 = 0;
 pub const V8_WRAPPER_OBJECT_INDEX: i32 = 1;
 
 pub(crate) use jsrealm::ContextState;
-pub use jsrealm::JsRealm;
+pub(crate) use jsrealm::JsRealm;
 pub use jsruntime::CompiledWasmModuleStore;
 pub use jsruntime::CreateRealmOptions;
 pub use jsruntime::CrossIsolateStore;
@@ -22,6 +22,7 @@ pub(crate) use jsruntime::InitMode;
 pub use jsruntime::JsRuntime;
 pub use jsruntime::JsRuntimeForSnapshot;
 pub use jsruntime::JsRuntimeState;
+pub use jsruntime::PollEventLoopOptions;
 pub use jsruntime::RuntimeOptions;
 pub use jsruntime::SharedArrayBufferStore;
 pub use jsruntime::Snapshot;
