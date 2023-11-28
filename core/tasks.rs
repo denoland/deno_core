@@ -196,11 +196,10 @@ impl V8CrossThreadTaskSpawner {
 
 #[cfg(test)]
 mod tests {
+  use super::*;
   use std::future::poll_fn;
-
   use tokio::task::LocalSet;
 
-  use super::*;
   #[test]
   fn test_spawner_serial() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -208,7 +207,7 @@ mod tests {
       .build()
       .unwrap();
     runtime.block_on(async {
-      let factory = Arc::new(V8TaskSpawnerFactory::default());
+      let factory = Arc::<V8TaskSpawnerFactory>::default();
       let cross_thread_spawner = factory.clone().new_cross_thread_spawner();
       let local_set = LocalSet::new();
 
@@ -242,7 +241,7 @@ mod tests {
       .build()
       .unwrap();
     runtime.block_on(async {
-      let factory = Arc::new(V8TaskSpawnerFactory::default());
+      let factory = Arc::<V8TaskSpawnerFactory>::default();
       let cross_thread_spawner = factory.clone().new_cross_thread_spawner();
       let local_set = LocalSet::new();
 
