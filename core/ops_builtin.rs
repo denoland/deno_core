@@ -53,7 +53,6 @@ deno_core::extension!(
     ops_builtin_v8::op_set_has_tick_scheduled,
     ops_builtin_v8::op_eval_context,
     ops_builtin_v8::op_queue_microtask,
-    ops_builtin_v8::op_create_host_object,
     ops_builtin_v8::op_encode,
     ops_builtin_v8::op_decode,
     ops_builtin_v8::op_serialize,

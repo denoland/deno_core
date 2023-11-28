@@ -150,15 +150,6 @@ pub fn op_eval_context<'a>(
 }
 
 #[op2]
-pub fn op_create_host_object<'a>(
-  scope: &mut v8::HandleScope<'a>,
-) -> v8::Local<'a, v8::Object> {
-  let template = v8::ObjectTemplate::new(scope);
-  template.set_internal_field_count(1);
-  template.new_instance(scope).unwrap()
-}
-
-#[op2]
 pub fn op_encode<'a>(
   scope: &mut v8::HandleScope<'a>,
   text: v8::Local<'a, v8::Value>,
@@ -208,6 +199,7 @@ struct SerializeDeserialize<'a> {
   host_objects: Option<v8::Local<'a, v8::Array>>,
   error_callback: Option<v8::Local<'a, v8::Function>>,
   for_storage: bool,
+  host_object_brand: Option<v8::Global<v8::Symbol>>,
 }
 
 impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
@@ -266,6 +258,23 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
       Some(id)
     } else {
       None
+    }
+  }
+
+  fn has_custom_host_object(&mut self, _isolate: &mut v8::Isolate) -> bool {
+    true
+  }
+
+  fn is_host_object<'s>(
+    &mut self,
+    scope: &mut v8::HandleScope<'s>,
+    object: v8::Local<'s, v8::Object>,
+  ) -> Option<bool> {
+    if let Some(symbol) = &self.host_object_brand {
+      let key = v8::Local::new(scope, symbol);
+      object.has_own_property(scope, key.into())
+    } else {
+      Some(false)
     }
   }
 
@@ -393,10 +402,15 @@ pub fn op_serialize(
     None => None,
   };
 
+  let key = v8::String::new(scope, "Deno.core.hostObject").unwrap();
+  let symbol = v8::Symbol::for_key(scope, key);
+  let host_object_brand = Some(v8::Global::new(scope, symbol));
+
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback,
     for_storage: options.for_storage,
+    host_object_brand,
   });
   let mut value_serializer =
     v8::ValueSerializer::new(scope, serialize_deserialize);
@@ -475,6 +489,7 @@ pub fn op_deserialize<'a>(
     host_objects,
     error_callback: None,
     for_storage: options.for_storage,
+    host_object_brand: None,
   });
   let mut value_deserializer =
     v8::ValueDeserializer::new(scope, serialize_deserialize, &zero_copy);

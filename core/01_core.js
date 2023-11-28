@@ -750,6 +750,8 @@
     return { fileName, lineNumber, columnNumber };
   }
 
+  const hostObjectBrand = SymbolFor("Deno.core.hostObject");
+
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     asyncStub,
@@ -794,7 +796,7 @@
       source,
       specifier,
     ) => ops.op_eval_context(source, specifier),
-    createHostObject: () => ops.op_create_host_object(),
+    hostObjectBrand,
     encode: (text) => ops.op_encode(text),
     decode: (buffer) => ops.op_decode(buffer),
     serialize: (
