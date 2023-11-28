@@ -8,6 +8,7 @@ use quote::quote;
 use quote::ToTokens;
 use quote::TokenStreamExt;
 use std::collections::BTreeMap;
+
 use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
 use strum_macros::EnumIter;
@@ -143,6 +144,7 @@ pub enum Special {
   OpState,
   JsRuntimeState,
   FastApiCallbackOptions,
+  Isolate,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -189,6 +191,13 @@ impl BufferType {
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::Any),
         )*]
       };
+      (extra = $t:expr, $($mode:ident),*) => {
+        &[$t, $(
+          AttributeModifier::Buffer(BufferMode::$mode, BufferSource::TypedArray),
+          AttributeModifier::Buffer(BufferMode::$mode, BufferSource::ArrayBuffer),
+          AttributeModifier::Buffer(BufferMode::$mode, BufferSource::Any),
+        )*]
+      };
     }
     match position {
       Position::Arg => match self {
@@ -196,7 +205,10 @@ impl BufferType {
           expand!(Copy)
         }
         JsBuffer | V8Slice(..) => expand!(Copy, Detach, Default),
-        Slice(..) | Ptr(..) => expand!(Default),
+        Slice(..) | Ptr(..) => expand!(
+          extra = AttributeModifier::WasmMemory(WasmMemorySource::Caller),
+          Default
+        ),
       },
       Position::RetVal => match self {
         Bytes | BytesMut | JsBuffer | V8Slice(..) | Vec(..) | BoxSlice(..) => {
@@ -263,6 +275,8 @@ pub enum Arg {
   SerdeV8(String),
   State(RefType, String),
   OptionState(RefType, String),
+  WasmMemory(RefType, WasmMemorySource),
+  OptionWasmMemory(RefType, WasmMemorySource),
 }
 
 impl Arg {
@@ -288,7 +302,14 @@ impl Arg {
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
       CBare(TString(string)) => Ok(Arg::String(string)),
       CBare(TBuffer(buffer)) => {
-        Ok(Arg::Buffer(buffer, buffer_mode()?, buffer_source()?))
+        if let Some(AttributeModifier::WasmMemory(mode)) = attr.primary {
+          let BufferType::Slice(ref_type, NumericArg::u8) = buffer else {
+            unreachable!("non-u8-slice buffer");
+          };
+          Ok(Arg::WasmMemory(ref_type, mode))
+        } else {
+          Ok(Arg::Buffer(buffer, buffer_mode()?, buffer_source()?))
+        }
       }
       COption(TNumeric(special)) => {
         Ok(Arg::OptionNumeric(special, NumericFlag::None))
@@ -296,7 +317,14 @@ impl Arg {
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       COption(TString(string)) => Ok(Arg::OptionString(string)),
       COption(TBuffer(buffer)) => {
-        Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
+        if let Some(AttributeModifier::WasmMemory(mode)) = attr.primary {
+          let BufferType::Slice(ref_type, NumericArg::u8) = buffer else {
+            unreachable!("non-u8-slice buffer");
+          };
+          Ok(Arg::OptionWasmMemory(ref_type, mode))
+        } else {
+          Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
+        }
       }
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
@@ -318,7 +346,8 @@ impl Arg {
         Special::FastApiCallbackOptions
         | Special::OpState
         | Special::JsRuntimeState
-        | Special::HandleScope,
+        | Special::HandleScope
+        | Special::Isolate,
       ) => true,
       Self::Ref(
         _,
@@ -334,6 +363,8 @@ impl Arg {
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
+      Self::WasmMemory(_, WasmMemorySource::Caller)
+      | Self::OptionWasmMemory(_, WasmMemorySource::Caller) => true,
       _ => false,
     }
   }
@@ -342,21 +373,21 @@ impl Arg {
   #[allow(unused)] // unused for now but keeping
   pub fn type_token(&self, deno_core: &TokenStream) -> TokenStream {
     match self {
-      Arg::V8Ref(RefType::Ref, v8) => quote!(&#deno_core::v8::#v8),
-      Arg::V8Ref(RefType::Mut, v8) => quote!(&mut #deno_core::v8::#v8),
-      Arg::V8Local(v8) => quote!(#deno_core::v8::Local<#deno_core::v8::#v8>),
-      Arg::V8Global(v8) => quote!(#deno_core::v8::Global<#deno_core::v8::#v8>),
+      Arg::V8Ref(RefType::Ref, v8) => quote!(&deno_core::v8::#v8),
+      Arg::V8Ref(RefType::Mut, v8) => quote!(&mut deno_core::v8::#v8),
+      Arg::V8Local(v8) => quote!(deno_core::v8::Local<deno_core::v8::#v8>),
+      Arg::V8Global(v8) => quote!(deno_core::v8::Global<deno_core::v8::#v8>),
       Arg::OptionV8Ref(RefType::Ref, v8) => {
-        quote!(::std::option::Option<&#deno_core::v8::#v8>)
+        quote!(::std::option::Option<&deno_core::v8::#v8>)
       }
       Arg::OptionV8Ref(RefType::Mut, v8) => {
-        quote!(::std::option::Option<&mut #deno_core::v8::#v8>)
+        quote!(::std::option::Option<&mut deno_core::v8::#v8>)
       }
       Arg::OptionV8Local(v8) => {
-        quote!(::std::option::Option<#deno_core::v8::Local<#deno_core::v8::#v8>>)
+        quote!(::std::option::Option<deno_core::v8::Local<deno_core::v8::#v8>>)
       }
       Arg::OptionV8Global(v8) => {
-        quote!(::std::option::Option<#deno_core::v8::Global<#deno_core::v8::#v8>>)
+        quote!(::std::option::Option<deno_core::v8::Global<deno_core::v8::#v8>>)
       }
       _ => todo!(),
     }
@@ -568,7 +599,7 @@ impl ParsedTypeContainer {
           return Err(ArgError::InvalidAttributeType(
             attr.name(),
             stringify_token(tp),
-          ))
+          ));
         }
       },
       Some(attr) => {
@@ -624,6 +655,29 @@ impl RetVal {
       Future(..) | FutureResult(..) | ResultFuture(..) | ResultFutureResult(..)
     )
   }
+
+  /// If this function returns a `Result<T, E>` (including if `T` is a `Future`), return `Some(T)`.
+  pub fn unwrap_result(&self) -> Option<RetVal> {
+    use RetVal::*;
+    Some(match self {
+      Result(arg) => Infallible(arg.clone()),
+      ResultFuture(arg) => Future(arg.clone()),
+      ResultFutureResult(arg) => FutureResult(arg.clone()),
+      _ => return None,
+    })
+  }
+
+  pub fn arg(&self) -> &Arg {
+    use RetVal::*;
+    match self {
+      Infallible(arg)
+      | Result(arg)
+      | Future(arg)
+      | FutureResult(arg)
+      | ResultFuture(arg)
+      | ResultFutureResult(arg) => arg,
+    }
+  }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -676,6 +730,16 @@ pub enum BufferSource {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum WasmMemorySource {
+  /// The calling wasm module's memory space.
+  Caller,
+  // TODO(mmastrac): This needs to be implemented
+  /// A v8::WasmMemoryObject.
+  #[allow(unused)]
+  WasmMemoryObject,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
@@ -694,6 +758,8 @@ pub enum AttributeModifier {
   Bigint,
   /// #[number], for u64/usize/i64/isize indicating value is a Number
   Number,
+  /// #[memory], for a WasmMemory-backed buffer
+  WasmMemory(WasmMemorySource),
 }
 
 impl AttributeModifier {
@@ -707,6 +773,7 @@ impl AttributeModifier {
       AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
+      AttributeModifier::WasmMemory(..) => "memory",
     }
   }
 }
@@ -1098,6 +1165,7 @@ fn parse_attribute(
       (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
+      (#[memory(caller)]) => Some(AttributeModifier::WasmMemory(WasmMemorySource::Caller)),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
@@ -1128,12 +1196,19 @@ fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
   Ok(res)
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum TypePathContext {
+  None,
+  Ref,
+  Ptr,
+}
+
 /// Parse a raw type into a container + type, allowing us to simplify the typechecks elsewhere in
 /// this code.
 fn parse_type_path(
   position: Position,
   attrs: Attributes,
-  is_ref: bool,
+  ctx: TypePathContext,
   tp: &TypePath,
 ) -> Result<ParsedTypeContainer, ArgError> {
   use ParsedType::*;
@@ -1152,19 +1227,19 @@ fn parse_type_path(
       ( $( std :: str :: )? str ) => {
         Ok(CBare(TString(Strings::RefStr)))
       }
-      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? str > ) => {
+      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? str $(,)? > ) => {
         Ok(CBare(TString(Strings::CowStr)))
       }
-      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? [ u8 ] > ) => {
+      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? [ u8 ] $(,)? > ) => {
         Ok(CBare(TString(Strings::CowByte)))
       }
-      ( $( std :: vec ::)? Vec < $ty:path > ) => {
+      ( $( std :: vec ::)? Vec < $ty:path $(,)? > ) => {
         Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(&ty)?))))
       }
-      ( $( std :: boxed ::)? Box < [ $ty:path ] > ) => {
+      ( $( std :: boxed ::)? Box < [ $ty:path ] $(,)? > ) => {
         Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&ty)?))))
       }
-      ( $( serde_v8 :: )? V8Slice < $ty:path > ) => {
+      ( $( serde_v8 :: )? V8Slice < $ty:path $(,)? > ) => {
         Ok(CBare(TBuffer(BufferType::V8Slice(parse_numeric_type(&ty)?))))
       }
       ( $( serde_v8 :: )? JsBuffer ) => {
@@ -1178,18 +1253,20 @@ fn parse_type_path(
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
+      ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
-      ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
-      ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
+      ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
+      ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
       ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
-      ( $( std :: rc :: )? Rc < RefCell < $ty:ty > > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
-      ( Option < $ty:ty > ) => {
+      ( $( std :: rc :: )? Rc < RefCell < $ty:ty $(,)? > $(,)? > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
+      ( Option < $ty:ty $(,)? > ) => {
         match parse_type(position, attrs, &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::String(string) => Ok(COption(TString(string))),
           Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
           Arg::Buffer(buffer, ..) => Ok(COption(TBuffer(buffer))),
+          Arg::WasmMemory(ref_type, ..) => Ok(COption(TBuffer(BufferType::Slice(ref_type, NumericArg::u8)))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
@@ -1214,23 +1291,26 @@ fn parse_type_path(
   // the easiest way to work with the 'rules!' macro above.
   match res {
     // OpState and JsRuntimeState appears in both ways
-    CBare(TSpecial(Special::OpState)) => {}
-    CBare(TSpecial(Special::JsRuntimeState)) => {}
+    CBare(TSpecial(Special::OpState | Special::JsRuntimeState)) => {}
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {
-      if !is_ref {
+      if ctx != TypePathContext::Ref {
         return Err(ArgError::MissingReference(stringify_token(tp)));
       }
     }
     _ => {
-      if is_ref {
+      if ctx == TypePathContext::Ref {
         return Err(ArgError::InvalidReference(stringify_token(tp)));
       }
     }
   }
 
-  res.validate_attributes(position, attrs, &tp)?;
+  // TODO(mmastrac): this is a bit awkward, but we need to modify the type container here
+  // if this is going to work any other way
+  if ctx != TypePathContext::Ptr {
+    res.validate_attributes(position, attrs, &tp)?;
+  }
 
   Ok(res)
 }
@@ -1259,7 +1339,7 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
     Type::Path(of) => {
       let inner_type = std::panic::catch_unwind(|| {
         rules!(of.into_token_stream() => {
-          (Option< $ty:ty >) => ty,
+          (Option< $ty:ty $(,)? >) => ty,
         })
       })
       .map_err(|_| ArgError::InvalidStateType(stringify_token(ty)))?;
@@ -1296,14 +1376,26 @@ pub(crate) fn parse_type(
         }
         Type::Path(of) => {
           // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(position, Attributes::default(), false, of).is_ok()
+          if parse_type_path(
+            position,
+            Attributes::default(),
+            TypePathContext::None,
+            of,
+          )
+          .is_ok()
           {
             return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
               ty,
             )));
           }
           // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(position, Attributes::string(), false, of).is_ok()
+          if parse_type_path(
+            position,
+            Attributes::string(),
+            TypePathContext::None,
+            of,
+          )
+          .is_ok()
           {
             return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
               ty,
@@ -1315,8 +1407,8 @@ pub(crate) fn parse_type(
           let token = stringify_token(of.path.clone());
           if let Ok(Some(err)) = std::panic::catch_unwind(|| {
             rules!(ty => {
-              ( serde_v8::Value $( < $_lifetime:lifetime >)? ) => Some("use v8::Value"),
-              ( Value $( < $_lifetime:lifetime >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
+              ( serde_v8::Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use v8::Value"),
+              ( Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
               ( $_ty:ty ) => None,
             })
           }) {
@@ -1334,30 +1426,33 @@ pub(crate) fn parse_type(
       }
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
+      | AttributeModifier::WasmMemory(..)
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
       }
       AttributeModifier::Number => match ty {
-        Type::Path(of) => match parse_type_path(position, attrs, false, of)? {
-          COption(TNumeric(
-            n @ (NumericArg::u64
-            | NumericArg::usize
-            | NumericArg::i64
-            | NumericArg::isize),
-          )) => return Ok(Arg::OptionNumeric(n, NumericFlag::Number)),
-          CBare(TNumeric(
-            n @ (NumericArg::u64
-            | NumericArg::usize
-            | NumericArg::i64
-            | NumericArg::isize),
-          )) => return Ok(Arg::Numeric(n, NumericFlag::Number)),
-          _ => {
-            return Err(ArgError::InvalidNumberAttributeType(stringify_token(
-              ty,
-            )))
+        Type::Path(of) => {
+          match parse_type_path(position, attrs, TypePathContext::None, of)? {
+            COption(TNumeric(
+              n @ (NumericArg::u64
+              | NumericArg::usize
+              | NumericArg::i64
+              | NumericArg::isize),
+            )) => return Ok(Arg::OptionNumeric(n, NumericFlag::Number)),
+            CBare(TNumeric(
+              n @ (NumericArg::u64
+              | NumericArg::usize
+              | NumericArg::i64
+              | NumericArg::isize),
+            )) => return Ok(Arg::Numeric(n, NumericFlag::Number)),
+            _ => {
+              return Err(ArgError::InvalidNumberAttributeType(
+                stringify_token(ty),
+              ))
+            }
           }
-        },
+        }
         _ => {
           return Err(ArgError::InvalidNumberAttributeType(stringify_token(ty)))
         }
@@ -1365,7 +1460,7 @@ pub(crate) fn parse_type(
       AttributeModifier::Smi => match ty {
         Type::Path(of) => {
           let is_option = rules!(of.into_token_stream() => {
-            ( Option < $_ty:ty > ) => true,
+            ( Option < $_ty:ty $(,)? > ) => true,
             ( $_ty:ty ) => false,
           });
           if is_option {
@@ -1416,18 +1511,20 @@ pub(crate) fn parse_type(
             Err(ArgError::InvalidType(stringify_token(ty), "for slice"))
           }
         }
-        Type::Path(of) => match parse_type_path(position, attrs, true, of)? {
-          CBare(TString(Strings::RefStr)) => Ok(Arg::String(Strings::RefStr)),
-          COption(TString(Strings::RefStr)) => {
-            Ok(Arg::OptionString(Strings::RefStr))
+        Type::Path(of) => {
+          match parse_type_path(position, attrs, TypePathContext::Ref, of)? {
+            CBare(TString(Strings::RefStr)) => Ok(Arg::String(Strings::RefStr)),
+            COption(TString(Strings::RefStr)) => {
+              Ok(Arg::OptionString(Strings::RefStr))
+            }
+            CBare(TV8(v8)) => Ok(Arg::V8Ref(mut_type, v8)),
+            CBare(TSpecial(special)) => Ok(Arg::Ref(mut_type, special)),
+            _ => Err(ArgError::InvalidType(
+              stringify_token(ty),
+              "for reference path",
+            )),
           }
-          CBare(TV8(v8)) => Ok(Arg::V8Ref(mut_type, v8)),
-          CBare(TSpecial(special)) => Ok(Arg::Ref(mut_type, special)),
-          _ => Err(ArgError::InvalidType(
-            stringify_token(ty),
-            "for reference path",
-          )),
-        },
+        }
         _ => Err(ArgError::InvalidType(stringify_token(ty), "for reference")),
       }
     }
@@ -1438,23 +1535,38 @@ pub(crate) fn parse_type(
         RefType::Ref
       };
       match &*of.elem {
-        Type::Path(of) => match parse_numeric_type(&of.path)? {
-          NumericArg::__VOID__ => Ok(Arg::External(External::Ptr(mut_type))),
-          numeric => {
-            let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
-            res.validate_attributes(position, attrs, &of)?;
-            Arg::from_parsed(res, attrs).map_err(|_| {
-              ArgError::InvalidType(stringify_token(ty), "for pointer")
-            })
+        Type::Path(of) => {
+          match parse_type_path(position, attrs, TypePathContext::Ptr, of)? {
+            CBare(TNumeric(NumericArg::__VOID__)) => {
+              Ok(Arg::External(External::Ptr(mut_type)))
+            }
+            CBare(TNumeric(numeric)) => {
+              let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
+              res.validate_attributes(position, attrs, &of)?;
+              Arg::from_parsed(res, attrs).map_err(|_| {
+                ArgError::InvalidType(
+                  stringify_token(ty),
+                  "for numeric pointer",
+                )
+              })
+            }
+            CBare(TSpecial(Special::Isolate)) => {
+              Ok(Arg::Special(Special::Isolate))
+            }
+            _ => Err(ArgError::InvalidType(
+              stringify_token(of),
+              "for pointer to type path",
+            )),
           }
-        },
+        }
         _ => Err(ArgError::InvalidType(stringify_token(ty), "for pointer")),
       }
     }
-    Type::Path(of) => {
-      Arg::from_parsed(parse_type_path(position, attrs, false, of)?, attrs)
-        .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
-    }
+    Type::Path(of) => Arg::from_parsed(
+      parse_type_path(position, attrs, TypePathContext::None, of)?,
+      attrs,
+    )
+    .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path")),
     _ => Err(ArgError::InvalidType(
       stringify_token(ty),
       "for top-level type",
@@ -1628,11 +1740,11 @@ mod tests {
     (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
   );
   test!(
-    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result <f64, AnyError>;
+    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, AnyError>;
     (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
   );
   test!(
-    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result <u64, AnyError>;
+    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, AnyError>;
     (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
   );
   test!(
@@ -1722,6 +1834,26 @@ mod tests {
     fn op_js_runtime_state_rc(state: Rc<RefCell<JsRuntimeState>>);
     (RcRefCell(JsRuntimeState)) -> Infallible(Void)
   );
+  test!(
+    fn op_isolate(isolate: *mut v8::Isolate);
+    (Special(Isolate)) -> Infallible(Void)
+  );
+  test!(
+    #[serde]
+    async fn op_serde_result_with_comma(
+      state: Rc<RefCell<OpState>>,
+      #[smi] rid: ResourceId
+    ) -> Result<
+      ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas,
+      AnyError,
+    >;
+    (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
+  );
+  test!(
+    fn op_wasm_memory(#[memory(caller)] memory: Option<&[u8]>);
+    (OptionWasmMemory(Ref, Caller)) -> Infallible(Void)
+  );
+
   // Args
 
   expect_fail!(

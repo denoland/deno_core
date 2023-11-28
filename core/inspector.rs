@@ -801,7 +801,7 @@ impl LocalInspectorSession {
     }
   }
 
-  async fn receive_from_v8_session(&mut self) {
+  pub async fn receive_from_v8_session(&mut self) {
     let inspector_msg = self.v8_session_rx.next().await.unwrap();
     if let InspectorMsgKind::Message(msg_id) = inspector_msg.kind {
       let message: serde_json::Value =

@@ -5,6 +5,7 @@ mod buffer_strategy;
 pub mod error;
 mod error_codes;
 mod extensions;
+mod external;
 mod fast_string;
 mod feature_checker;
 mod flags;
@@ -41,7 +42,6 @@ pub use sourcemap;
 pub use url;
 pub use v8;
 
-pub use deno_ops::op;
 pub use deno_ops::op2;
 
 pub use crate::async_cancel::CancelFuture;
@@ -66,6 +66,9 @@ pub use crate::extensions::ExtensionFileSourceCode;
 pub use crate::extensions::Op;
 pub use crate::extensions::OpDecl;
 pub use crate::extensions::OpMiddlewareFn;
+pub use crate::external::ExternalDefinition;
+pub use crate::external::ExternalPointer;
+pub use crate::external::Externalizable;
 pub use crate::fast_string::FastString;
 pub use crate::feature_checker::FeatureChecker;
 pub use crate::flags::v8_set_flags;
@@ -106,8 +109,8 @@ pub use crate::ops_builtin::op_print;
 pub use crate::ops_builtin::op_resources;
 pub use crate::ops_builtin::op_void_async;
 pub use crate::ops_builtin::op_void_sync;
-pub use crate::ops_metrics::OpMetrics;
-pub use crate::ops_metrics::OpsTracker;
+pub use crate::ops_metrics::OpMetricsSummary;
+pub use crate::ops_metrics::OpMetricsSummaryTracker;
 pub use crate::path::strip_unc_prefix;
 pub use crate::resources::AsyncResult;
 pub use crate::resources::Resource;
@@ -129,6 +132,9 @@ pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::source_map::SourceMapGetter;
 
+// Ensure we can use op2 in deno_core without any hackery.
+extern crate self as deno_core;
+
 pub fn v8_version() -> &'static str {
   v8::V8::get_version()
 }
@@ -140,10 +146,12 @@ pub mod _ops {
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
-  pub use super::ops::to_op_result;
   pub use super::ops::OpCtx;
-  pub use super::ops::OpMetricsEvent;
   pub use super::ops::OpResult;
+  pub use super::ops_metrics::dispatch_metrics_async;
+  pub use super::ops_metrics::dispatch_metrics_fast;
+  pub use super::ops_metrics::dispatch_metrics_slow;
+  pub use super::ops_metrics::OpMetricsEvent;
   pub use super::runtime::ops::*;
   pub use super::runtime::ops_rust_to_v8::*;
   pub use super::runtime::V8_WRAPPER_OBJECT_INDEX;

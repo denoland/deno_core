@@ -22,8 +22,8 @@ impl op_async {
     pub const fn decl() -> deno_core::_ops::OpDecl {
         <Self as deno_core::_ops::Op>::DECL
     }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+    #[inline(always)]
+    fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
         let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
             &*info
         });
@@ -34,12 +34,6 @@ impl op_async {
             &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
                 as *const deno_core::_ops::OpCtx)
         };
-        if opctx.metrics_enabled() {
-            deno_core::_ops::dispatch_metrics_async(
-                &opctx,
-                deno_core::_ops::OpMetricsEvent::Dispatched,
-            );
-        }
         let result = {
             let arg0 = args.get(1usize as i32);
             let Some(arg0) = deno_core::_ops::to_i32_option(&arg0) else {
@@ -52,7 +46,7 @@ impl op_async {
                     .unwrap();
                 let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
                 scope.throw_exception(exc);
-                return;
+                return 1;
             };
             let arg0 = arg0 as _;
             Self::call(arg0)
@@ -61,6 +55,7 @@ impl op_async {
             .unwrap_or_default();
         if let Some(result) = deno_core::_ops::map_async_op_fallible(
             opctx,
+            false,
             false,
             promise_id,
             result,
@@ -87,6 +82,7 @@ impl op_async {
                     )
                 }
                 Err(err) => {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                     let err = err.into();
                     let exception = deno_core::error::to_v8_error(
                         &mut scope,
@@ -94,13 +90,40 @@ impl op_async {
                         &err,
                     );
                     scope.throw_exception(exception);
-                    return;
+                    return 1;
                 }
             };
+            return 0;
         }
+        return 2;
+    }
+    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        Self::slow_function_impl(info);
     }
     extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::v8_fn_ptr(info)
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+            &*info
+        });
+        let opctx = unsafe {
+            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+                as *const deno_core::_ops::OpCtx)
+        };
+        deno_core::_ops::dispatch_metrics_async(
+            &opctx,
+            deno_core::_ops::OpMetricsEvent::Dispatched,
+        );
+        let res = Self::slow_function_impl(info);
+        if res == 0 {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Completed,
+            );
+        } else if res == 1 {
+            deno_core::_ops::dispatch_metrics_async(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Error,
+            );
+        }
     }
     #[inline(always)]
     pub async fn call(rid: ResourceId) -> std::io::Result<ResourceId> {

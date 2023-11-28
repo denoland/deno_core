@@ -1,18 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
-use deno_core::op;
-use deno_core::Extension;
-use deno_core::JsRuntime;
-use deno_core::Op;
-use deno_core::RuntimeOptions;
+#![allow(deprecated)]
+use deno_core::*;
 use std::mem::transmute;
 use std::ptr::NonNull;
-
-// This is a hack to make the `#[op]` macro work with
-// deno_core examples.
-// You can remove this:
-
-use deno_core::*;
 
 struct WasmMemory(NonNull<v8::WasmMemoryObject>);
 
@@ -32,35 +22,52 @@ fn wasm_memory_unchecked(state: &mut OpState) -> &mut [u8] {
   unsafe { std::slice::from_raw_parts_mut(ptr, len) }
 }
 
-#[op(wasm)]
-fn op_wasm(state: &mut OpState, memory: Option<&mut [u8]>) {
+#[op2]
+#[buffer]
+fn op_get_wasm_module() -> Vec<u8> {
+  include_bytes!("wasm.wasm").as_slice().to_vec()
+}
+
+#[op2(fast)]
+fn op_wasm(state: &mut OpState, #[memory(caller)] memory: Option<&mut [u8]>) {
   let memory = memory.unwrap_or_else(|| wasm_memory_unchecked(state));
   memory[0] = 69;
 }
 
-#[op(v8)]
-fn op_set_wasm_mem(
-  scope: &mut v8::HandleScope,
-  state: &mut OpState,
-  memory: serde_v8::Value,
-) {
-  let memory =
-    v8::Local::<v8::WasmMemoryObject>::try_from(memory.v8_value).unwrap();
-  let global = v8::Global::new(scope, memory);
-  state.put(WasmMemory(global.into_raw()));
+#[op2(fast)]
+fn op_wasm_mem(memory: &v8::WasmMemoryObject) {
+  // let memory = memory.unwrap_or_else(|| wasm_memory_unchecked(state));
+  // memory[0] = 69;
+  let len = memory.buffer().byte_length();
+  let slice = unsafe {
+    std::ptr::slice_from_raw_parts_mut(
+      memory.buffer().data().unwrap().as_ptr() as *mut u8,
+      len,
+    )
+    .as_mut()
+    .unwrap()
+  };
+  slice[0] = 68;
 }
 
-fn main() {
-  // Build a deno_core::Extension providing custom ops
-  let ext = Extension {
-    name: "my_ext",
-    ops: std::borrow::Cow::Borrowed(&[op_wasm::DECL, op_set_wasm_mem::DECL]),
-    ..Default::default()
-  };
+#[op2]
+fn op_set_wasm_mem(
+  state: &mut OpState,
+  #[global] memory: v8::Global<v8::WasmMemoryObject>,
+) {
+  state.put(WasmMemory(memory.into_raw()));
+}
 
+// Build a deno_core::Extension providing custom ops
+deno_core::extension!(
+  wasm_example,
+  ops = [op_get_wasm_module, op_wasm, op_wasm_mem, op_set_wasm_mem]
+);
+
+fn main() {
   // Initialize a runtime instance
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![ext],
+    extensions: vec![wasm_example::init_ops()],
     ..Default::default()
   });
 

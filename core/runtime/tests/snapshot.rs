@@ -8,7 +8,6 @@ use crate::modules::ModuleType;
 use crate::modules::SymbolicModule;
 use crate::*;
 use anyhow::Error;
-use deno_ops::op;
 use std::borrow::Cow;
 use std::rc::Rc;
 use url::Url;
@@ -197,7 +196,8 @@ fn es_snapshot() {
     }
   }
 
-  #[op]
+  #[op2]
+  #[string]
   fn op_test() -> Result<String, Error> {
     Ok(String::from("test"))
   }

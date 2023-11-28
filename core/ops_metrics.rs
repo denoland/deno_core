@@ -1,92 +1,136 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use crate::ops::OpCtx;
 use crate::serde::Serialize;
+use crate::OpDecl;
 use crate::OpId;
 use std::cell::Ref;
 use std::cell::RefCell;
 use std::cell::RefMut;
+use std::rc::Rc;
 
-// TODO(@AaronO): split into AggregateMetrics & PerOpMetrics
-#[derive(Clone, Default, Debug, Serialize)]
+/// The type of op metrics event.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum OpMetricsEvent {
+  /// Entered an op dispatch.
+  Dispatched,
+  /// Left an op synchronously.
+  Completed,
+  /// Left an op asynchronously.
+  CompletedAsync,
+  /// Left an op synchronously with an exception.
+  Error,
+  /// Left an op asynchronously with an exception.
+  ErrorAsync,
+}
+
+/// A callback to receieve an [`OpMetricsEvent`].
+pub type OpMetricsFn = Rc<dyn Fn(&OpCtx, OpMetricsEvent)>;
+
+// TODO(mmastrac): this would be better as a trait
+/// A callback to retrieve an optional [`OpMetricsFn`] for this op.
+pub type OpMetricsFactoryFn =
+  Box<dyn Fn(OpId, usize, &OpDecl) -> Option<OpMetricsFn>>;
+
+#[doc(hidden)]
+pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  // SAFETY: this should only be called from ops where we know the function is Some
+  unsafe { (opctx.metrics_fn.as_ref().unwrap_unchecked())(opctx, metrics) }
+}
+
+#[doc(hidden)]
+pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  // SAFETY: this should only be called from ops where we know the function is Some
+  unsafe { (opctx.metrics_fn.as_ref().unwrap_unchecked())(opctx, metrics) }
+}
+
+#[doc(hidden)]
+pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
+  // SAFETY: this should only be called from ops where we know the function is Some
+  unsafe { (opctx.metrics_fn.as_ref().unwrap_unchecked())(opctx, metrics) }
+}
+
+/// Used for both aggregate and per-op metrics.
+#[derive(Clone, Default, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct OpMetrics {
-  pub ops_dispatched: u64,
+pub struct OpMetricsSummary {
   pub ops_dispatched_sync: u64,
   pub ops_dispatched_async: u64,
-  // TODO(bartlomieju): this field is never updated
-  pub ops_dispatched_async_unref: u64,
-  pub ops_completed: u64,
-  pub ops_completed_sync: u64,
   pub ops_completed_async: u64,
-  // TODO(bartlomieju): this field is never updated
-  pub ops_completed_async_unref: u64,
-  pub bytes_sent_control: u64,
-  pub bytes_sent_data: u64,
-  pub bytes_received: u64,
 }
 
-// TODO(@AaronO): track errors
-#[derive(Default, Debug)]
-pub struct OpsTracker {
-  ops: RefCell<Vec<OpMetrics>>,
-}
-
-impl OpsTracker {
-  pub fn new(ops_count: usize) -> Self {
-    Self {
-      ops: RefCell::new(vec![Default::default(); ops_count]),
-    }
+impl OpMetricsSummary {
+  /// Does this op have outstanding async op dispatches?
+  pub fn has_outstanding_ops(&self) -> bool {
+    self.ops_dispatched_async > self.ops_completed_async
   }
+}
 
-  pub fn per_op(&self) -> Ref<'_, Vec<OpMetrics>> {
+#[derive(Default, Debug)]
+pub struct OpMetricsSummaryTracker {
+  ops: RefCell<Vec<OpMetricsSummary>>,
+}
+
+impl OpMetricsSummaryTracker {
+  pub fn per_op(&self) -> Ref<'_, Vec<OpMetricsSummary>> {
     self.ops.borrow()
   }
 
-  pub fn aggregate(&self) -> OpMetrics {
-    let mut sum = OpMetrics::default();
+  pub fn aggregate(&self) -> OpMetricsSummary {
+    let mut sum = OpMetricsSummary::default();
 
     for metrics in self.ops.borrow().iter() {
-      sum.ops_dispatched += metrics.ops_dispatched;
       sum.ops_dispatched_sync += metrics.ops_dispatched_sync;
       sum.ops_dispatched_async += metrics.ops_dispatched_async;
-      sum.ops_dispatched_async_unref += metrics.ops_dispatched_async_unref;
-      sum.ops_completed += metrics.ops_completed;
-      sum.ops_completed_sync += metrics.ops_completed_sync;
       sum.ops_completed_async += metrics.ops_completed_async;
-      sum.ops_completed_async_unref += metrics.ops_completed_async_unref;
-      sum.bytes_sent_control += metrics.bytes_sent_control;
-      sum.bytes_sent_data += metrics.bytes_sent_data;
-      sum.bytes_received += metrics.bytes_received;
     }
 
     sum
   }
 
   #[inline]
-  fn metrics_mut(&self, id: OpId) -> RefMut<OpMetrics> {
+  fn metrics_mut(&self, id: OpId) -> RefMut<OpMetricsSummary> {
     RefMut::map(self.ops.borrow_mut(), |ops| &mut ops[id as usize])
   }
 
-  #[inline]
-  pub fn track_sync(&self, id: OpId) {
-    let mut metrics = self.metrics_mut(id);
-    metrics.ops_dispatched += 1;
-    metrics.ops_completed += 1;
-    metrics.ops_dispatched_sync += 1;
-    metrics.ops_completed_sync += 1;
+  /// Returns a [`OpMetricsFn`] for this tracker.
+  fn op_metrics_fn(self: Rc<Self>) -> OpMetricsFn {
+    Rc::new(move |ctx, event| match event {
+      OpMetricsEvent::Dispatched => {
+        if ctx.decl.is_async {
+          self.metrics_mut(ctx.id).ops_dispatched_async += 1;
+        } else {
+          self.metrics_mut(ctx.id).ops_dispatched_sync += 1;
+        }
+      }
+      OpMetricsEvent::Completed
+      | OpMetricsEvent::Error
+      | OpMetricsEvent::CompletedAsync
+      | OpMetricsEvent::ErrorAsync => {
+        if ctx.decl.is_async {
+          self.metrics_mut(ctx.id).ops_completed_async += 1;
+        }
+      }
+    })
   }
 
-  #[inline]
-  pub fn track_async(&self, id: OpId) {
-    let mut metrics = self.metrics_mut(id);
-    metrics.ops_dispatched += 1;
-    metrics.ops_dispatched_async += 1;
-  }
-
-  #[inline]
-  pub fn track_async_completed(&self, id: OpId) {
-    let mut metrics = self.metrics_mut(id);
-    metrics.ops_completed += 1;
-    metrics.ops_completed_async += 1;
+  /// Retrieves the metrics factory function for this tracker.
+  pub fn op_metrics_factory_fn(
+    self: Rc<Self>,
+    op_enabled: impl Fn(&OpDecl) -> bool + 'static,
+  ) -> OpMetricsFactoryFn {
+    Box::new(move |_, total, op| {
+      let mut ops = self.ops.borrow_mut();
+      if ops.capacity() == 0 {
+        ops.reserve_exact(total);
+      }
+      ops.push(OpMetricsSummary::default());
+      if op_enabled(op) {
+        Some(self.clone().op_metrics_fn())
+      } else {
+        None
+      }
+    })
   }
 }

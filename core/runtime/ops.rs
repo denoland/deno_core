@@ -1,9 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ops::*;
 use crate::OpResult;
-use crate::PromiseId;
 use anyhow::Error;
-use futures::future::Either;
 use futures::future::Future;
 use futures::future::FutureExt;
 use futures::task::noop_waker_ref;
@@ -11,7 +9,6 @@ use serde::Deserialize;
 use serde_v8::from_v8;
 use serde_v8::V8Sliceable;
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::ffi::c_void;
 use std::future::ready;
 use std::mem::MaybeUninit;
@@ -27,120 +24,10 @@ use v8::WriteOptions;
 pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
 
 #[inline]
-pub fn queue_fast_async_op<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  promise_id: PromiseId,
-  op: impl Future<Output = Result<R, Error>> + 'static,
-) {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  let fut =
-    op.map(|result| crate::_ops::to_op_result(ctx.get_error_class_fn, result));
-  ctx
-    .context_state
-    .borrow_mut()
-    .pending_ops
-    .spawn(OpCall::new(ctx, promise_id, fut));
-}
-
-#[inline]
-pub fn map_async_op1<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: impl Future<Output = Result<R, Error>> + 'static,
-) -> impl Future<Output = OpResult> {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  op.map(|res| crate::_ops::to_op_result(ctx.get_error_class_fn, res))
-}
-
-#[inline]
-pub fn map_async_op2<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: impl Future<Output = R> + 'static,
-) -> impl Future<Output = OpResult> {
-  let state = RefCell::borrow(&ctx.state);
-  state.tracker.track_async(ctx.id);
-
-  op.map(|res| OpResult::Ok(res.into()))
-}
-
-#[inline]
-pub fn map_async_op3<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: Result<impl Future<Output = Result<R, Error>> + 'static, Error>,
-) -> impl Future<Output = OpResult> {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  match op {
-    Err(err) => Either::Left(ready(OpResult::Err(OpError::new(
-      ctx.get_error_class_fn,
-      err,
-    )))),
-    Ok(fut) => Either::Right(
-      fut.map(|res| crate::_ops::to_op_result(ctx.get_error_class_fn, res)),
-    ),
-  }
-}
-
-#[inline]
-pub fn map_async_op4<R: serde::Serialize + 'static>(
-  ctx: &OpCtx,
-  op: Result<impl Future<Output = R> + 'static, Error>,
-) -> impl Future<Output = OpResult> {
-  RefCell::borrow(&ctx.state).tracker.track_async(ctx.id);
-  match op {
-    Err(err) => Either::Left(ready(OpResult::Err(OpError::new(
-      ctx.get_error_class_fn,
-      err,
-    )))),
-    Ok(fut) => Either::Right(fut.map(|r| OpResult::Ok(r.into()))),
-  }
-}
-
-pub fn queue_async_op<'s>(
-  ctx: &OpCtx,
-  scope: &'s mut v8::HandleScope,
-  deferred: bool,
-  promise_id: PromiseId,
-  op: impl Future<Output = OpResult> + 'static,
-) -> Option<v8::Local<'s, v8::Value>> {
-  // An op's realm (as given by `OpCtx::realm_idx`) must match the realm in
-  // which it is invoked. Otherwise, we might have cross-realm object exposure.
-  // deno_core doesn't currently support such exposure, even though embedders
-  // can cause them, so we panic in debug mode (since the check is expensive).
-  // TODO(mmastrac): Restore this
-  // debug_assert_eq!(
-  //   runtime_state.borrow().context(ctx.realm_idx as usize, scope),
-  //   Some(scope.get_current_context())
-  // );
-
-  let id = ctx.id;
-  let metrics = ctx.metrics_enabled();
-
-  // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
-  // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-  let mut pinned = op
-    .map(move |res| PendingOp(promise_id, id, res, metrics))
-    .boxed_local();
-
-  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => {}
-    Poll::Ready(res) => {
-      if deferred {
-        ctx.context_state.borrow_mut().pending_ops.spawn(ready(res));
-        return None;
-      } else {
-        ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-        return Some(res.2.to_v8(scope).unwrap());
-      }
-    }
-  }
-
-  ctx.context_state.borrow_mut().pending_ops.spawn(pinned);
-  None
-}
-
-#[inline]
 pub fn map_async_op_infallible<R: 'static>(
   ctx: &OpCtx,
   lazy: bool,
+  deferred: bool,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
   rv_map: for<'r> fn(
@@ -149,7 +36,6 @@ pub fn map_async_op_infallible<R: 'static>(
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<R> {
   let id = ctx.id;
-  ctx.state.borrow().tracker.track_async(id);
   let metrics = ctx.metrics_enabled();
 
   if lazy {
@@ -173,16 +59,18 @@ pub fn map_async_op_infallible<R: 'static>(
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
   let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
 
-  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => {}
-    Poll::Ready(res) => {
-      if ctx.metrics_enabled() {
-        dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+  let pinned =
+    match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      Poll::Pending => pinned,
+      Poll::Ready(res) => {
+        // TODO(mmastrac): optimize this so we don't double-allocate
+        if deferred {
+          ready(res).boxed_local()
+        } else {
+          return Some(res.2);
+        }
       }
-      ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-      return Some(res.2);
-    }
-  }
+    };
 
   ctx
     .context_state
@@ -203,6 +91,7 @@ pub fn map_async_op_infallible<R: 'static>(
 pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ctx: &OpCtx,
   lazy: bool,
+  deferred: bool,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
   rv_map: for<'r> fn(
@@ -211,7 +100,6 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<Result<R, E>> {
   let id = ctx.id;
-  ctx.state.borrow().tracker.track_async(id);
   let metrics = ctx.metrics_enabled();
 
   if lazy {
@@ -239,20 +127,18 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
   let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
 
-  match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-    Poll::Pending => {}
-    Poll::Ready(res) => {
-      if ctx.metrics_enabled() {
-        if res.2.is_err() {
-          dispatch_metrics_async(ctx, OpMetricsEvent::Error);
+  let pinned =
+    match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      Poll::Pending => pinned,
+      Poll::Ready(res) => {
+        // TODO(mmastrac): optimize this so we don't double-allocate
+        if deferred {
+          ready(res).boxed_local()
         } else {
-          dispatch_metrics_async(ctx, OpMetricsEvent::Completed);
+          return Some(res.2);
         }
       }
-      ctx.state.borrow_mut().tracker.track_async_completed(ctx.id);
-      return Some(res.2);
-    }
-  }
+    };
 
   let get_class = ctx.get_error_class_fn;
   ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
@@ -272,18 +158,6 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
     },
   ));
   None
-}
-
-pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
-}
-
-pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
-}
-
-pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
-  (opctx.metrics_fn.as_ref().unwrap())(&opctx.decl, metrics)
 }
 
 macro_rules! try_number_some {
@@ -569,7 +443,6 @@ pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
 
 /// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
 pub fn to_v8_slice<'a, T>(
-  scope: &mut v8::HandleScope,
   input: v8::Local<'a, v8::Value>,
 ) -> Result<serde_v8::V8Slice<T>, &'static str>
 where
@@ -580,14 +453,10 @@ where
   let (store, offset, length) =
     if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
-      let Some(buffer) = buf.buffer(scope) else {
+      let Some(buffer) = buf.get_backing_store() else {
       return Err("buffer missing");
     };
-      (
-        buffer.get_backing_store(),
-        buf.byte_offset(),
-        buf.byte_length(),
-      )
+      (buffer, buf.byte_offset(), buf.byte_length())
     } else {
       return Err("expected typed ArrayBufferView");
     };
@@ -719,20 +588,16 @@ pub fn to_v8_slice_buffer_detachable(
 
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
 pub fn to_v8_slice_any(
-  scope: &mut v8::HandleScope,
   input: v8::Local<v8::Value>,
 ) -> Result<serde_v8::V8Slice<u8>, &'static str> {
   if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
     let offset = buf.byte_offset();
     let len = buf.byte_length();
-    let Some(buf) = buf.buffer(scope) else {
+    let Some(buf) = buf.get_backing_store() else {
       return Err("buffer missing");
     };
     return Ok(unsafe {
-      serde_v8::V8Slice::<u8>::from_parts(
-        buf.get_backing_store(),
-        offset..offset + len,
-      )
+      serde_v8::V8Slice::<u8>::from_parts(buf, offset..offset + len)
     });
   }
   if let Ok(buf) = to_v8_slice_buffer(input) {
@@ -746,6 +611,9 @@ mod tests {
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
+  use crate::external;
+  use crate::external::ExternalPointer;
+  use crate::op2;
   use crate::runtime::JsRuntimeState;
   use crate::FastString;
   use crate::JsRuntime;
@@ -754,7 +622,6 @@ mod tests {
   use anyhow::bail;
   use anyhow::Error;
   use bytes::BytesMut;
-  use deno_ops::op2;
   use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
@@ -765,7 +632,7 @@ mod tests {
   use std::rc::Rc;
   use std::time::Duration;
 
-  crate::extension!(
+  deno_core::extension!(
     testing,
     ops = [
       op_test_fail,
@@ -817,6 +684,8 @@ mod tests {
       op_buffer_ptr,
       op_buffer_slice_32,
       op_buffer_ptr_32,
+      op_buffer_slice_f64,
+      op_buffer_ptr_f64,
       op_buffer_slice_unsafe_callback,
       op_buffer_copy,
       op_buffer_bytesmut,
@@ -827,6 +696,11 @@ mod tests {
       op_external_process,
       op_external_make_ptr,
       op_external_process_ptr,
+      op_typed_external,
+      op_typed_external_process,
+      op_typed_external_take,
+      op_isolate_queue_microtask,
+      op_isolate_run_microtasks,
 
       op_async_void,
       op_async_number,
@@ -835,7 +709,10 @@ mod tests {
       op_async_sleep,
       op_async_sleep_impl,
       op_async_sleep_error,
+      op_async_deferred_error,
+      op_async_deferred_success,
       op_async_lazy_error,
+      op_async_lazy_success,
       op_async_result_impl,
       op_async_state_rc,
       op_async_buffer,
@@ -854,12 +731,12 @@ mod tests {
     static FAIL: Cell<bool> = Cell::new(false)
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_fail() {
     FAIL.with(|b| b.set(true))
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_print_debug(#[string] s: &str) {
     println!("{s}")
   }
@@ -983,7 +860,7 @@ mod tests {
     assert!(run_test2(1, "", "assert(false)").is_err());
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_add(a: u32, b: i32) -> u32 {
     (a as i32 + b) as u32
   }
@@ -1010,7 +887,7 @@ mod tests {
 
   // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
   // of valid ranges result in automatic wrapping.
-  #[op2(core, fast)]
+  #[op2(fast)]
   #[smi]
   pub fn op_test_add_smi_unsigned(#[smi] a: u32, #[smi] b: u16) -> u32 {
     a + b as u32
@@ -1032,7 +909,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2]
   pub fn op_test_add_option(a: u32, b: Option<u32>) -> u32 {
     a + b.unwrap_or(100)
   }
@@ -1057,7 +934,7 @@ mod tests {
     static RETURN_COUNT: Cell<usize> = Cell::new(0);
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_result_void_switch() -> Result<(), AnyError> {
     let count = RETURN_COUNT.with(|count| {
       let new = count.get() + 1;
@@ -1071,12 +948,12 @@ mod tests {
     }
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_result_void_err() -> Result<(), AnyError> {
     Err(generic_error("failed!!!"))
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_result_void_ok() -> Result<(), AnyError> {
     Ok(())
   }
@@ -1109,12 +986,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_result_primitive_err() -> Result<u32, AnyError> {
     Err(generic_error("failed!!!"))
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_result_primitive_ok() -> Result<u32, AnyError> {
     Ok(123)
   }
@@ -1135,12 +1012,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_bool(b: bool) -> bool {
     b
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_bool_result(b: bool) -> Result<bool, AnyError> {
     if b {
       Ok(true)
@@ -1169,12 +1046,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_float(a: f32, b: f64) -> f32 {
     a + b as f32
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, AnyError> {
     let a = a as f64;
     if a + b >= 0. {
@@ -1200,19 +1077,19 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   #[bigint]
   pub fn op_test_bigint_u64(#[bigint] input: u64) -> u64 {
     input
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   #[bigint]
   pub fn op_test_bigint_i64(#[bigint] input: i64) -> i64 {
     input
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   #[number]
   pub fn op_test_bigint_i64_as_number(#[number] input: i64) -> i64 {
     input
@@ -1248,27 +1125,27 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_string_owned(#[string] s: String) -> u32 {
     s.len() as _
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_string_ref(#[string] s: &str) -> u32 {
     s.len() as _
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_string_cow(#[string] s: Cow<str>) -> u32 {
     s.len() as _
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_string_roundtrip_char(#[string] s: Cow<str>) -> u32 {
     s.chars().next().unwrap() as u32
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_string_roundtrip_char_onebyte(
     #[string(onebyte)] s: Cow<[u8]>,
   ) -> u32 {
@@ -1346,7 +1223,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2]
   #[string]
   pub fn op_test_string_return(
     #[string] a: Cow<str>,
@@ -1355,7 +1232,7 @@ mod tests {
     (a + b).to_string()
   }
 
-  #[op2(core)]
+  #[op2]
   #[string]
   pub fn op_test_string_option_return(
     #[string] a: Cow<str>,
@@ -1367,13 +1244,13 @@ mod tests {
     Some((a + b).to_string())
   }
 
-  #[op2(core)]
+  #[op2]
   #[string]
   pub fn op_test_string_roundtrip(#[string] s: String) -> String {
     s
   }
 
-  #[op2(core)]
+  #[op2]
   #[string(onebyte)]
   pub fn op_test_string_roundtrip_onebyte(
     #[string(onebyte)] s: Cow<[u8]>,
@@ -1413,12 +1290,12 @@ mod tests {
   }
 
   // We don't actually test this one -- we just want it to compile
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_generics<T: Clone>() {}
 
   /// Tests v8 types without a handle scope
   #[allow(clippy::needless_lifetimes)]
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
     s2: v8::Local<v8::String>,
@@ -1433,7 +1310,7 @@ mod tests {
     }
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_test_v8_option_string(s: Option<&v8::String>) -> i32 {
     if let Some(s) = s {
       s.length() as i32
@@ -1443,7 +1320,7 @@ mod tests {
   }
 
   /// Tests v8 types without a handle scope
-  #[op2(core)]
+  #[op2]
   #[allow(clippy::needless_lifetimes)]
   pub fn op_test_v8_type_return<'s>(
     s: v8::Local<'s, v8::String>,
@@ -1452,7 +1329,7 @@ mod tests {
   }
 
   /// Tests v8 types without a handle scope
-  #[op2(core)]
+  #[op2]
   #[allow(clippy::needless_lifetimes)]
   pub fn op_test_v8_type_return_option<'s>(
     s: Option<v8::Local<'s, v8::String>>,
@@ -1460,7 +1337,7 @@ mod tests {
     s
   }
 
-  #[op2(core)]
+  #[op2]
   pub fn op_test_v8_type_handle_scope<'s>(
     scope: &mut v8::HandleScope<'s>,
     s: &v8::String,
@@ -1470,7 +1347,7 @@ mod tests {
   }
 
   /// Extract whatever lives in "key" from the object.
-  #[op2(core)]
+  #[op2]
   pub fn op_test_v8_type_handle_scope_obj<'s>(
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
@@ -1480,7 +1357,7 @@ mod tests {
   }
 
   /// Extract whatever lives in "key" from the object.
-  #[op2(core)]
+  #[op2]
   pub fn op_test_v8_type_handle_scope_result<'s>(
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
@@ -1538,7 +1415,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2]
   pub fn op_test_v8_global(
     scope: &mut v8::HandleScope,
     #[global] s: v8::Global<v8::String>,
@@ -1562,7 +1439,7 @@ mod tests {
     pub s: String,
   }
 
-  #[op2(core)]
+  #[op2]
   #[serde]
   pub fn op_test_serde_v8(#[serde] mut serde: Serde) -> Serde {
     serde.s += "!";
@@ -1584,10 +1461,10 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_jsruntimestate(_state: &JsRuntimeState) {}
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_jsruntimestate_mut(_state: &mut JsRuntimeState) {}
 
   #[tokio::test]
@@ -1597,32 +1474,32 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_state_rc(state: Rc<RefCell<OpState>>, value: u32) -> u32 {
     let old_value: u32 = state.borrow_mut().take();
     state.borrow_mut().put(value);
     old_value
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_state_ref(state: &OpState) -> u32 {
     let old_value: &u32 = state.borrow();
     *old_value
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_state_mut(state: &mut OpState, value: u32) {
     *state.borrow_mut() = value;
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_state_mut_attr(#[state] value: &mut u32, new_value: u32) -> u32 {
     let old_value = *value;
     *value = new_value;
     old_value
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_state_multi_attr(
     #[state] value32: &u32,
     #[state] value16: &u16,
@@ -1654,7 +1531,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_buffer_slice(
     #[buffer] input: &[u8],
     #[number] inlen: usize,
@@ -1668,7 +1545,7 @@ mod tests {
     }
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_buffer_ptr(
     #[buffer] input: *const u8,
     #[number] inlen: usize,
@@ -1681,7 +1558,7 @@ mod tests {
     }
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_buffer_slice_32(
     #[buffer] input: &[u32],
     #[number] inlen: usize,
@@ -1695,11 +1572,38 @@ mod tests {
     }
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_buffer_ptr_32(
     #[buffer] input: *const u32,
     #[number] inlen: usize,
     #[buffer] output: *mut u32,
+    #[number] outlen: usize,
+  ) {
+    if inlen > 0 && outlen > 0 {
+      // SAFETY: for test
+      unsafe { std::ptr::write(output, std::ptr::read(input)) }
+    }
+  }
+
+  #[op2(fast)]
+  pub fn op_buffer_slice_f64(
+    #[buffer] input: &[f64],
+    #[number] inlen: usize,
+    #[buffer] output: &mut [f64],
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[op2(fast)]
+  pub fn op_buffer_ptr_f64(
+    #[buffer] input: *const f64,
+    #[number] inlen: usize,
+    #[buffer] output: *mut f64,
     #[number] outlen: usize,
   ) {
     if inlen > 0 && outlen > 0 {
@@ -1714,6 +1618,12 @@ mod tests {
     for (op, op_ptr, arr, size) in [
       ("op_buffer_slice", "op_buffer_ptr", "Uint8Array", 1),
       ("op_buffer_slice_32", "op_buffer_ptr_32", "Uint32Array", 4),
+      (
+        "op_buffer_slice_f64",
+        "op_buffer_ptr_f64",
+        "Float64Array",
+        8,
+      ),
     ] {
       // Zero-length buffers
       run_test2(
@@ -1795,7 +1705,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2(fast)]
   pub fn op_buffer_jsbuffer(
     #[buffer] input: JsBuffer,
     #[number] inlen: usize,
@@ -1826,7 +1736,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
     let mut sum: u32 = 0;
     for i in buffer {
@@ -1880,7 +1790,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
     buffer.len() as _
   }
@@ -1931,7 +1841,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   pub fn op_arraybuffer_slice(
     #[arraybuffer] input: &[u8],
     #[number] inlen: usize,
@@ -1967,7 +1877,7 @@ mod tests {
   }
 
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
-  #[op2(core)]
+  #[op2]
   pub fn op_buffer_slice_unsafe_callback(
     scope: &mut v8::HandleScope,
     buffer: v8::Local<v8::ArrayBuffer>,
@@ -1997,7 +1907,7 @@ mod tests {
 
   /// Ensures that three copies are independent. Note that we cannot mutate the
   /// `bytes::Bytes`.
-  #[op2(core, fast)]
+  #[op2(fast)]
   #[allow(clippy::boxed_local)] // Clippy bug? It warns about input2
   pub fn op_buffer_copy(
     #[buffer(copy)] mut input1: Vec<u8>,
@@ -2028,7 +1938,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core)]
+  #[op2]
   #[buffer]
   pub fn op_buffer_bytesmut() -> BytesMut {
     let mut buffer = BytesMut::new();
@@ -2051,12 +1961,12 @@ mod tests {
 
   static STRING: &str = "hello world";
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   fn op_external_make() -> *const std::ffi::c_void {
     STRING.as_ptr() as _
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   fn op_external_process(
     input: *const std::ffi::c_void,
   ) -> *const std::ffi::c_void {
@@ -2074,12 +1984,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   fn op_external_make_ptr(#[bigint] value: u64) -> *const std::ffi::c_void {
     value as _
   }
 
-  #[op2(core, fast)]
+  #[op2(fast)]
   fn op_external_process_ptr(
     input: *const std::ffi::c_void,
     #[number] offset: isize,
@@ -2103,7 +2013,64 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  struct ExternalObject(RefCell<u32>);
+
+  external!(ExternalObject, "test external object");
+
+  #[op2(fast)]
+  fn op_typed_external() -> *const std::ffi::c_void {
+    // This operation is safe because we know
+    ExternalPointer::new(ExternalObject(RefCell::new(42))).into_raw()
+  }
+
+  #[op2(fast)]
+  fn op_typed_external_process(ptr: *const std::ffi::c_void) {
+    let ptr = ExternalPointer::<ExternalObject>::from_raw(ptr);
+    *(unsafe { ptr.unsafely_deref() }.0.borrow_mut()) += 1;
+  }
+
+  #[op2(fast)]
+  fn op_typed_external_take(ptr: *const std::ffi::c_void) -> u32 {
+    let ptr = ExternalPointer::<ExternalObject>::from_raw(ptr);
+    *unsafe { ptr.unsafely_take() }.0.borrow()
+  }
+
+  #[tokio::test]
+  pub async fn test_typed_external() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_typed_external, op_typed_external_process, op_typed_external_take",
+      "let external = op_typed_external(); op_typed_external_process(external); assert(op_typed_external_take(external) == 43);",
+    )?;
+    Ok(())
+  }
+
+  #[op2(nofast)]
+  fn op_isolate_run_microtasks(isolate: *mut v8::Isolate) {
+    // SAFETY: testing
+    unsafe { isolate.as_mut().unwrap().perform_microtask_checkpoint() };
+  }
+
+  #[op2(nofast)]
+  fn op_isolate_queue_microtask(
+    isolate: *mut v8::Isolate,
+    cb: v8::Local<v8::Function>,
+  ) {
+    // SAFETY: testing
+    unsafe { isolate.as_mut().unwrap().enqueue_microtask(cb) };
+  }
+
+  #[tokio::test]
+  pub async fn test_isolate() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10000,
+      "op_isolate_queue_microtask,op_isolate_run_microtasks",
+      "op_isolate_queue_microtask(() => {}); op_isolate_run_microtasks();",
+    )?;
+    Ok(())
+  }
+
+  #[op2(async)]
   async fn op_async_void() {}
 
   #[tokio::test]
@@ -2112,19 +2079,19 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   async fn op_async_number(x: u32) -> u32 {
     x
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   async fn op_async_add(x: u32, y: u32) -> u32 {
     x.wrapping_add(y)
   }
 
   // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
   // of valid ranges result in automatic wrapping.
-  #[op2(async, core)]
+  #[op2(async)]
   #[smi]
   async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2161,12 +2128,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   async fn op_async_sleep() {
     tokio::time::sleep(Duration::from_millis(500)).await
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   fn op_async_sleep_impl() -> impl Future<Output = ()> {
     tokio::time::sleep(Duration::from_millis(500))
   }
@@ -2179,7 +2146,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   pub async fn op_async_sleep_error() -> Result<(), Error> {
     tokio::time::sleep(Duration::from_millis(500)).await;
     bail!("whoops")
@@ -2197,16 +2164,54 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async(lazy), core)]
+  #[op2(async(deferred), fast)]
+  pub async fn op_async_deferred_success() -> Result<u32, Error> {
+    Ok(42)
+  }
+
+  #[op2(async(deferred), fast)]
+  pub async fn op_async_deferred_error() -> Result<(), Error> {
+    bail!("whoops")
+  }
+
+  #[tokio::test]
+  pub async fn test_op_async_deferred() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
+      1000,
+      "op_async_deferred_success",
+      "assert(await op_async_deferred_success() == 42)",
+    )
+    .await?;
+    run_async_test(
+      1000,
+      "op_async_deferred_error",
+      "try { await op_async_deferred_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
+    )
+    .await?;
+    Ok(())
+  }
+
+  #[op2(async(lazy), fast)]
+  pub async fn op_async_lazy_success() -> Result<u32, Error> {
+    Ok(42)
+  }
+
+  #[op2(async(lazy), fast)]
   pub async fn op_async_lazy_error() -> Result<(), Error> {
     bail!("whoops")
   }
 
   #[tokio::test]
-  pub async fn test_op_async_lazy_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_lazy() -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
-      5,
+      1000,
+      "op_async_lazy_success",
+      "assert(await op_async_lazy_success() == 42)",
+    )
+    .await?;
+    run_async_test(
+      1000,
       "op_async_lazy_error",
       "try { await op_async_lazy_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
@@ -2216,7 +2221,7 @@ mod tests {
 
   /// Test exits from the three possible routes -- before future, future immediate,
   /// future polled failed, future polled success.
-  #[op2(async, core)]
+  #[op2(async)]
   pub fn op_async_result_impl(
     mode: u8,
   ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
@@ -2255,7 +2260,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   pub async fn op_async_state_rc(
     state: Rc<RefCell<OpState>>,
     value: u32,
@@ -2275,13 +2280,13 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   #[buffer]
   async fn op_async_buffer(#[buffer] input: JsBuffer) -> JsBuffer {
     input
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   #[buffer]
   async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
     let mut output = input.to_vec();
@@ -2289,7 +2294,7 @@ mod tests {
     output
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
     let l = input.len();
     async move { l as _ }
@@ -2319,7 +2324,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   async fn op_async_external(
     input: *const std::ffi::c_void,
   ) -> *const std::ffi::c_void {
@@ -2339,7 +2344,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async, core)]
+  #[op2(async)]
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,
