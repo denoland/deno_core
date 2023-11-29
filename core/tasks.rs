@@ -4,6 +4,7 @@ use futures::task::AtomicWaker;
 use std::marker::PhantomData;
 use std::ops::DerefMut;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::Context;
@@ -52,16 +53,20 @@ impl V8TaskSpawnerFactory {
   ///
   /// Calls should prefer using the waker, but this is left while we rework the event loop.
   pub fn has_pending_tasks(&self) -> bool {
-    self.has_tasks.load(std::sync::atomic::Ordering::SeqCst)
+    // Ensure that all reads after this point happen-after we load from the atomic
+    self.has_tasks.load(Ordering::Acquire)
   }
 
   /// Poll this set of tasks, returning a non-empty set of tasks if there have
   /// been any queued, or registering the waker if not.
   pub fn poll_inner(&self, cx: &mut Context) -> Poll<Vec<UnsendTask>> {
-    // Check the flag first -- if it's false we definitely have no tasks
-    if !self
+    // Check the flag first -- if it's false we definitely have no tasks. AcqRel semantics ensure
+    // that this read happens-before the vector read below, and that any writes happen-after the success
+    // case.
+    if self
       .has_tasks
-      .swap(false, std::sync::atomic::Ordering::Acquire)
+      .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+      .is_err()
     {
       self.waker.register(cx.waker());
       return Poll::Pending;
@@ -86,9 +91,8 @@ impl V8TaskSpawnerFactory {
   fn spawn(&self, task: SendTask) {
     self.tasks.lock().unwrap().push(task);
     // TODO(mmastrac): can we skip the mutex here?
-    self
-      .has_tasks
-      .store(true, std::sync::atomic::Ordering::Release);
+    // Release ordering means that the writes in the above lock happen-before the atomic store
+    self.has_tasks.store(true, Ordering::Release);
     self.waker.wake();
   }
 }
@@ -220,7 +224,7 @@ mod tests {
       let cross_thread_spawner = factory.clone().new_cross_thread_spawner();
       let local_set = LocalSet::new();
 
-      const COUNT: usize = 100;
+      const COUNT: usize = 1000;
 
       let task = runtime.spawn(async move {
         for _ in 0..COUNT {
