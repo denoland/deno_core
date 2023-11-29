@@ -16,6 +16,11 @@ static_assertions::assert_not_impl_any!(V8TaskSpawnerFactory: Send);
 static_assertions::assert_not_impl_any!(V8TaskSpawner: Send);
 static_assertions::assert_impl_all!(V8CrossThreadTaskSpawner: Send);
 
+/// The [`V8TaskSpawnerFactory`] must be created on the same thread as the thread that runs tasks.
+///
+/// This factory is not [`Send`] because it may contain `!Send` tasks submitted by a
+/// [`V8CrossThreadTaskSpawner`]. It is only safe to send this object to another thread if you plan on
+/// submitting [`Send`] tasks to it, which is what [`V8CrossThreadTaskSpawner`] does.
 #[derive(Default)]
 pub(crate) struct V8TaskSpawnerFactory {
   // TODO(mmastrac): ideally we wouldn't box if we could use arena allocation and a max submission size
@@ -26,9 +31,7 @@ pub(crate) struct V8TaskSpawnerFactory {
   has_tasks: AtomicBool,
   /// The polled waker, woken on task submission.
   waker: AtomicWaker,
-  /// This cannot be Send because it may contain `!Send` tasks submitted by a [`V8TaskSpawner`]. It is
-  /// only safe to send this object to another thread if you plan on submitting [`Send`] tasks to it,
-  /// which is what [`V8CrossThreadTaskSpawner`] does.
+  /// Mark as `!Send`. See note above.
   _unsend_marker: PhantomData<*const ()>,
 }
 
@@ -44,6 +47,10 @@ impl V8TaskSpawnerFactory {
     V8CrossThreadTaskSpawner { tasks: self }
   }
 
+  /// `false` guarantees that there are no queued tasks, while `true` means that it is likely (but not guaranteed)
+  /// that tasks exist.
+  ///
+  /// Calls should prefer using the waker, but this is left while we rework the event loop.
   pub fn has_pending_tasks(&self) -> bool {
     self.has_tasks.load(std::sync::atomic::Ordering::SeqCst)
   }
@@ -54,7 +61,7 @@ impl V8TaskSpawnerFactory {
     // Check the flag first -- if it's false we definitely have no tasks
     if !self
       .has_tasks
-      .swap(false, std::sync::atomic::Ordering::SeqCst)
+      .swap(false, std::sync::atomic::Ordering::Acquire)
     {
       self.waker.register(cx.waker());
       return Poll::Pending;
@@ -78,10 +85,10 @@ impl V8TaskSpawnerFactory {
 
   fn spawn(&self, task: SendTask) {
     self.tasks.lock().unwrap().push(task);
-    // TODO(mmastrac): can we use a looser ordering here?
+    // TODO(mmastrac): can we skip the mutex here?
     self
       .has_tasks
-      .store(true, std::sync::atomic::Ordering::SeqCst);
+      .store(true, std::sync::atomic::Ordering::Release);
     self.waker.wake();
   }
 }
@@ -103,7 +110,7 @@ impl V8TaskSpawner {
   /// The task is handed off to be run the next time the event loop is polled, and there are
   /// no guarantees as to when this may happen.
   ///
-  /// # Important Notes
+  /// # Safety
   ///
   /// The task shares the same [`v8::HandleScope`] as the core event loop, which means that it
   /// must maintain the scope in a valid state to avoid corrupting or destroying the runtime.
@@ -169,7 +176,7 @@ impl V8CrossThreadTaskSpawner {
   /// no guarantees as to when this may happen, however the function will not return until the
   /// task has been fully run to completion.
   ///
-  /// # Important Notes
+  /// # Safety
   ///
   /// The task shares the same [`v8::HandleScope`] as the core event loop, which means that it
   /// must maintain the scope in a valid state to avoid corrupting or destroying the runtime.
