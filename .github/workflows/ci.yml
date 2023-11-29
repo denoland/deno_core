@@ -69,7 +69,7 @@ jobs:
 
       - name: Cargo test (miri)
         run: |
-          rustup component add miri
+          rustup component add --toolchain nightly miri
           cargo +nightly miri test -p deno_core
 
       - name: Run examples
