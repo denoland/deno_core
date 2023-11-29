@@ -247,7 +247,9 @@ mod tests {
     });
   }
 
+  // https://github.com/tokio-rs/tokio/issues/6155
   #[test]
+  #[cfg(not(all(miri, target_os = "linux")))]
   fn test_spawner_parallel() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
       .worker_threads(1)
