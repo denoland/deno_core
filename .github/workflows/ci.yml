@@ -68,6 +68,7 @@ jobs:
         run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
 
       - name: Cargo test (miri)
+        if: contains(matrix.os, 'ubuntu')
         run: |
           rustup component add --toolchain nightly miri
           cargo +nightly miri test -p deno_core
