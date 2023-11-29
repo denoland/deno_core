@@ -278,6 +278,7 @@ dependencies = [
  "serde_v8",
  "smallvec",
  "sourcemap 7.0.1",
+ "static_assertions",
  "tokio",
  "url",
  "v8",
