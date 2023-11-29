@@ -141,7 +141,7 @@ impl V8CrossThreadTaskSpawner {
   /// The task is handed off to be run the next time the event loop is polled, and there are
   /// no guarantees as to when this may happen.
   ///
-  /// # Important Notes
+  /// # Safety
   ///
   /// The task shares the same [`v8::HandleScope`] as the core event loop, which means that it
   /// must maintain the scope in a valid state to avoid corrupting or destroying the runtime.
