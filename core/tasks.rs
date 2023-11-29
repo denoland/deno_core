@@ -115,9 +115,9 @@ impl V8TaskSpawner {
   where
     F: FnOnce(&mut v8::HandleScope) + 'static,
   {
-    // SAFETY: we are transmuting Send into a !Send handle but we can guarantee this object will never
-    // leave the current thread because `V8TaskSpawner` is !Send.
     let task: Box<dyn FnOnce(&mut v8::HandleScope<'_>)> = Box::new(f);
+    // SAFETY: we are transmuting Send into a !Send handle but we guarantee this object will never
+    // leave the current thread because `V8TaskSpawner` is !Send.
     let task: Box<dyn FnOnce(&mut v8::HandleScope<'_>) + Send> =
       unsafe { std::mem::transmute(task) };
     self.tasks.spawn(task)
