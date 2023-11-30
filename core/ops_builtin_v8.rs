@@ -715,7 +715,7 @@ pub fn set_wasm_streaming_callback(
     let context_state_rc = JsRealm::state_from_scope(scope);
     let ctx = context_state_rc.borrow();
     let cb = ctx.wasm_streaming_cb.as_ref().unwrap();
-    let state_rc = JsRuntime::state_from(scope).borrow().op_state.clone();
+    let state_rc = JsRuntime::state_from(scope).op_state.clone();
 
     cb(state_rc, scope, arg, wasm_streaming);
   });
