@@ -213,7 +213,9 @@ mod tests {
   use std::future::poll_fn;
   use tokio::task::LocalSet;
 
+  // https://github.com/tokio-rs/tokio/issues/6155
   #[test]
+  #[cfg(not(all(miri, target_os = "linux")))]
   fn test_spawner_serial() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
       .worker_threads(1)
