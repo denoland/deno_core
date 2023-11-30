@@ -13,7 +13,6 @@ use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
 use crate::modules::ImportAssertionsKind;
 use crate::modules::ModuleMap;
-use crate::modules::ResolutionKind;
 use crate::ops::OpCtx;
 use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
@@ -389,16 +388,13 @@ fn import_meta_resolve(
   let loader = module_map_rc.loader.clone();
   let specifier_str = specifier.to_rust_string_lossy(scope);
 
-  if specifier_str.starts_with("npm:") {
-    throw_type_error(scope, "\"npm:\" specifiers are currently not supported in import.meta.resolve()");
-    return;
-  }
+  let import_meta_resolve_result = {
+    let loader = loader.borrow();
+    let loader = loader.as_ref();
+    (module_map_rc.import_meta_resolve_cb)(loader, specifier_str, referrer)
+  };
 
-  match loader.borrow().resolve(
-    &specifier_str,
-    &referrer,
-    ResolutionKind::DynamicImport,
-  ) {
+  match import_meta_resolve_result {
     Ok(resolved) => {
       let resolved_val = serde_v8::to_v8(scope, resolved.as_str()).unwrap();
       rv.set(resolved_val);
@@ -508,15 +504,8 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
       };
 
     if has_unhandled_rejection_handler {
-      let state_rc = JsRealm::state_from_scope(tc_scope);
-      let mut state = state_rc.borrow_mut();
-      if let Some(pending_mod_evaluate) = state.pending_mod_evaluate.as_mut() {
-        if !pending_mod_evaluate.has_evaluated {
-          pending_mod_evaluate
-            .handled_promise_rejections
-            .push(promise_global);
-        }
-      }
+      let modules = JsRealm::module_map_from(tc_scope);
+      modules.notify_promise_rejection(promise_global);
     }
   } else {
     let promise = message.get_promise();

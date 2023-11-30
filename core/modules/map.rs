@@ -17,10 +17,13 @@ use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::NoopModuleLoader;
 use crate::modules::ResolutionKind;
+use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
+use crate::runtime::JsRuntimeState;
 use crate::runtime::SnapshottedData;
 use crate::JsRuntime;
 use crate::ModuleSource;
+use anyhow::bail;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
@@ -36,12 +39,23 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
+use tokio::sync::oneshot;
+
+use super::module_map_data::ModuleMapData;
+use super::AssertedModuleType;
 
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 
-use super::module_map_data::ModuleMapData;
-use super::AssertedModuleType;
+use super::default_import_meta_resolve_cb;
+use super::ImportMetaResolveCallback;
+
+pub(crate) struct ModEvaluate {
+  promise: Option<v8::Global<v8::Promise>>,
+  pub(crate) has_evaluated: bool,
+  pub(crate) handled_promise_rejections: Vec<v8::Global<v8::Promise>>,
+  sender: oneshot::Sender<Result<(), Error>>,
+}
 
 pub const BOM_CHAR: &[u8] = &[0xef, 0xbb, 0xbf];
 
@@ -66,6 +80,7 @@ pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
   // TODO(mmastrac): we should not be swapping this loader out
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
+  pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
   dynamic_import_map:
     RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
@@ -77,6 +92,7 @@ pub(crate) struct ModuleMap {
   pending_dynamic_imports_pending: Cell<bool>,
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
   pending_dyn_mod_evaluations_pending: Cell<bool>,
+  pub(crate) pending_mod_evaluate: RefCell<Option<ModEvaluate>>,
   data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
@@ -91,6 +107,21 @@ impl ModuleMap {
     let id = data.next_load_id;
     data.next_load_id += 1;
     id + 1
+  }
+
+  pub(crate) fn notify_promise_rejection(
+    &self,
+    promise_global: v8::Global<v8::Promise>,
+  ) {
+    if let Some(pending_mod_evaluate) =
+      self.pending_mod_evaluate.borrow_mut().as_mut()
+    {
+      if !pending_mod_evaluate.has_evaluated {
+        pending_mod_evaluate
+          .handled_promise_rejections
+          .push(promise_global);
+      }
+    }
   }
 
   #[cfg(debug_assertions)]
@@ -117,9 +148,13 @@ impl ModuleMap {
     }
   }
 
-  pub(crate) fn new(loader: Rc<dyn ModuleLoader>) -> Self {
+  pub(crate) fn new(
+    loader: Rc<dyn ModuleLoader>,
+    import_meta_resolve_cb: ImportMetaResolveCallback,
+  ) -> Self {
     Self {
       loader: loader.into(),
+      import_meta_resolve_cb,
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
       preparing_dynamic_imports: Default::default(),
@@ -128,16 +163,18 @@ impl ModuleMap {
       pending_dynamic_imports_pending: Default::default(),
       pending_dyn_mod_evaluations: Default::default(),
       pending_dyn_mod_evaluations_pending: Default::default(),
+      pending_mod_evaluate: Default::default(),
       data: Default::default(),
     }
   }
 
   pub(crate) fn new_from_snapshotted_data(
     loader: Rc<dyn ModuleLoader>,
+    import_meta_resolve_cb: ImportMetaResolveCallback,
     scope: &mut v8::HandleScope,
     data: SnapshottedData,
   ) -> Self {
-    let new = Self::new(loader);
+    let new = Self::new(loader, import_meta_resolve_cb);
     new
       .data
       .borrow_mut()
@@ -259,51 +296,36 @@ impl ModuleMap {
     Ok(module_id)
   }
 
-  pub(crate) fn new_json_module(
+  /// Creates a "synthetic module", that contains only a single, "default" export,
+  /// that returns the provided value.
+  pub fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
     name: ModuleName,
-    source: ModuleCode,
+    module_type: ModuleType,
+    value: v8::Local<v8::Value>,
   ) -> Result<ModuleId, ModuleError> {
     let name_str = name.v8(scope);
-    let source_str = v8::String::new_from_utf8(
-      scope,
-      strip_bom(source.as_bytes()),
-      v8::NewStringType::Normal,
-    )
-    .unwrap();
 
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let parsed_json = match v8::json::parse(tc_scope, source_str) {
-      Some(parsed_json) => parsed_json,
-      None => {
-        assert!(tc_scope.has_caught());
-        let exception = tc_scope.exception().unwrap();
-        let exception = v8::Global::new(tc_scope, exception);
-        return Err(ModuleError::Exception(exception));
-      }
-    };
-
-    let export_names = [v8::String::new(tc_scope, "default").unwrap()];
+    let export_names = [v8::String::new(scope, "default").unwrap()];
     let module = v8::Module::create_synthetic_module(
-      tc_scope,
+      scope,
       name_str,
       &export_names,
-      json_module_evaluation_steps,
+      synthetic_module_evaluation_steps,
     );
 
-    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let value_handle = v8::Global::<v8::Value>::new(tc_scope, parsed_json);
+    let handle = v8::Global::<v8::Module>::new(scope, module);
+    let value_handle = v8::Global::<v8::Value>::new(scope, value);
     self
       .data
       .borrow_mut()
-      .json_value_store
+      .synthetic_module_value_store
       .insert(handle.clone(), value_handle);
 
     let id = self.data.borrow_mut().create_module_info(
       name,
-      ModuleType::Json,
+      module_type,
       handle,
       false,
       vec![],
@@ -415,6 +437,32 @@ impl ModuleMap {
     );
 
     Ok(id)
+  }
+
+  pub(crate) fn new_json_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: ModuleName,
+    code: ModuleCode,
+  ) -> Result<ModuleId, ModuleError> {
+    let source_str = v8::String::new_from_utf8(
+      scope,
+      strip_bom(code.as_bytes()),
+      v8::NewStringType::Normal,
+    )
+    .unwrap();
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let parsed_json = match v8::json::parse(tc_scope, source_str) {
+      Some(parsed_json) => parsed_json,
+      None => {
+        assert!(tc_scope.has_caught());
+        let exception = tc_scope.exception().unwrap();
+        let exception = v8::Global::new(tc_scope, exception);
+        return Err(ModuleError::Exception(exception));
+      }
+    };
+    self.new_synthetic_module(tc_scope, name, ModuleType::Json, parsed_json)
   }
 
   pub(crate) fn instantiate_module(
@@ -613,6 +661,195 @@ impl ModuleMap {
 
   pub(crate) fn has_pending_dyn_module_evaluation(&self) -> bool {
     self.pending_dyn_mod_evaluations_pending.get()
+  }
+
+  /// Evaluates an already instantiated ES module.
+  ///
+  /// Returns a future that resolves when module promise resolves.
+  /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
+  /// module evaluation future.
+  ///
+  /// `Error` can usually be downcast to `JsError` and should be awaited and
+  /// checked after [`JsRuntime::run_event_loop`] completion.
+  ///
+  /// This function panics if module has not been instantiated.
+  pub fn mod_evaluate(
+    self: &Rc<Self>,
+    scope: &mut v8::HandleScope,
+    context_state: Rc<RefCell<ContextState>>,
+    runtime_state: Rc<JsRuntimeState>,
+    id: ModuleId,
+  ) -> impl Future<Output = Result<(), Error>> + Unpin {
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let module = self
+      .get_handle(id)
+      .map(|handle| v8::Local::new(tc_scope, handle))
+      .expect("ModuleInfo not found");
+    let mut status = module.get_status();
+    assert_eq!(
+      status,
+      v8::ModuleStatus::Instantiated,
+      "{} {} ({})",
+      if status == v8::ModuleStatus::Evaluated {
+        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
+      } else {
+        "Module not instantiated"
+      },
+      self.get_name_by_id(id).unwrap(),
+      id,
+    );
+
+    let (sender, receiver) = oneshot::channel();
+
+    // IMPORTANT: Top-level-await is enabled, which means that return value
+    // of module evaluation is a promise.
+    //
+    // Because that promise is created internally by V8, when error occurs during
+    // module evaluation the promise is rejected, and since the promise has no rejection
+    // handler it will result in call to `bindings::promise_reject_callback` adding
+    // the promise to pending promise rejection table - meaning JsRuntime will return
+    // error on next poll().
+    //
+    // This situation is not desirable as we want to manually return error at the
+    // end of this function to handle it further. It means we need to manually
+    // remove this promise from pending promise rejection table.
+    //
+    // For more details see:
+    // https://github.com/denoland/deno/issues/4908
+    // https://v8.dev/features/top-level-await#module-execution-order
+    {
+      let mut mod_evaluate = self.pending_mod_evaluate.borrow_mut();
+      assert!(
+        mod_evaluate.is_none(),
+        "There is already pending top level module evaluation"
+      );
+      *mod_evaluate = Some(ModEvaluate {
+        promise: None,
+        has_evaluated: false,
+        handled_promise_rejections: vec![],
+        sender,
+      });
+    }
+
+    let maybe_value = module.evaluate(tc_scope);
+
+    self
+      .pending_mod_evaluate
+      .borrow_mut()
+      .as_mut()
+      .unwrap()
+      .has_evaluated = true;
+
+    // Update status after evaluating.
+    status = module.get_status();
+
+    if runtime_state.has_dispatched_exception() {
+      // This will be overridden in `exception_to_err_result()`.
+      let exception = v8::undefined(tc_scope).into();
+      let pending_mod_evaluate =
+        self.pending_mod_evaluate.borrow_mut().take().unwrap();
+      pending_mod_evaluate
+        .sender
+        .send(exception_to_err_result(tc_scope, exception, false))
+        .expect("Failed to send module evaluation error.");
+    } else if let Some(value) = maybe_value {
+      assert!(
+        status == v8::ModuleStatus::Evaluated
+          || status == v8::ModuleStatus::Errored
+      );
+      let promise = v8::Local::<v8::Promise>::try_from(value)
+        .expect("Expected to get promise as module evaluation result");
+      let promise_global = v8::Global::new(tc_scope, promise);
+      {
+        let pending_mod_evaluate = self.pending_mod_evaluate.borrow_mut();
+        let pending_mod_evaluate = pending_mod_evaluate.as_ref().unwrap();
+        let pending_rejection_was_already_handled = pending_mod_evaluate
+          .handled_promise_rejections
+          .contains(&promise_global);
+        if !pending_rejection_was_already_handled {
+          context_state
+            .borrow_mut()
+            .pending_promise_rejections
+            .retain(|(key, _)| key != &promise_global);
+        }
+      }
+      let promise_global = v8::Global::new(tc_scope, promise);
+      self
+        .pending_mod_evaluate
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .promise = Some(promise_global);
+      tc_scope.perform_microtask_checkpoint();
+    } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+      // Just drop the sender to send the generic closed error
+      _ = self.pending_mod_evaluate.borrow_mut().take();
+    } else {
+      assert!(status == v8::ModuleStatus::Errored);
+    }
+
+    receiver.map(|res| {
+      res.unwrap_or_else(|_| {
+        bail!("Cannot evaluate module, because JavaScript execution has been terminated")
+      }
+    )})
+  }
+
+  /// "deno_core" runs V8 with Top Level Await enabled. It means that each
+  /// module evaluation returns a promise from V8.
+  /// Feature docs: https://v8.dev/features/top-level-await
+  ///
+  /// This promise resolves after all dependent modules have also
+  /// resolved. Each dependent module may perform calls to "import()" and APIs
+  /// using async ops will add futures to the runtime's event loop.
+  /// It means that the promise returned from module evaluation will
+  /// resolve only after all futures in the event loop are done.
+  ///
+  /// Thus during turn of event loop we need to check if V8 has
+  /// resolved or rejected the promise. If the promise is still pending
+  /// then another turn of event loop must be performed.
+  pub(crate) fn evaluate_pending_module(&self, scope: &mut v8::HandleScope) {
+    let maybe_module_evaluation = self.pending_mod_evaluate.borrow_mut().take();
+    if maybe_module_evaluation.is_none() {
+      return;
+    }
+
+    let mut module_evaluation = maybe_module_evaluation.unwrap();
+
+    let promise_global = module_evaluation.promise.clone().unwrap();
+    let promise = promise_global.open(scope);
+    let promise_state = promise.state();
+    match promise_state {
+      v8::PromiseState::Pending => {
+        // NOTE: `poll_event_loop` will decide if
+        // runtime would be woken soon
+        *self.pending_mod_evaluate.borrow_mut() = Some(module_evaluation);
+      }
+      v8::PromiseState::Fulfilled => {
+        scope.perform_microtask_checkpoint();
+        // Receiver end might have been already dropped, ignore the result
+        let _ = module_evaluation.sender.send(Ok(()));
+        module_evaluation.handled_promise_rejections.clear();
+      }
+      v8::PromiseState::Rejected => {
+        let exception = promise.result(scope);
+        scope.perform_microtask_checkpoint();
+
+        // Receiver end might have been already dropped, ignore the result
+        if module_evaluation
+          .handled_promise_rejections
+          .contains(&promise_global)
+        {
+          let _ = module_evaluation.sender.send(Ok(()));
+          module_evaluation.handled_promise_rejections.clear();
+        } else {
+          let _ = module_evaluation
+            .sender
+            .send(exception_to_err_result(scope, exception, false));
+        }
+      }
+    }
   }
 
   fn dynamic_import_module_evaluate(
@@ -1068,14 +1305,17 @@ impl ModuleMap {
 
 impl Default for ModuleMap {
   fn default() -> Self {
-    Self::new(Rc::new(NoopModuleLoader))
+    Self::new(
+      Rc::new(NoopModuleLoader),
+      Box::new(default_import_meta_resolve_cb),
+    )
   }
 }
 
 // Clippy thinks the return value doesn't need to be an Option, it's unaware
 // of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
 #[allow(clippy::unnecessary_wraps)]
-fn json_module_evaluation_steps<'a>(
+fn synthetic_module_evaluation_steps<'a>(
   context: v8::Local<'a, v8::Context>,
   module: v8::Local<v8::Module>,
 ) -> Option<v8::Local<'a, v8::Value>> {
@@ -1088,7 +1328,7 @@ fn json_module_evaluation_steps<'a>(
   let value_handle = module_map
     .data
     .borrow_mut()
-    .json_value_store
+    .synthetic_module_value_store
     .remove(&handle)
     .unwrap();
   let value_local = v8::Local::new(tc_scope, value_handle);

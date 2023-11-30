@@ -124,9 +124,9 @@ pub(crate) struct ModuleMapData {
   pub(crate) next_load_id: ModuleLoadId,
   /// If a main module has been loaded, points to it by index.
   pub(crate) main_module_id: Option<ModuleId>,
-  /// This store is used temporarily, to forward parsed JSON
-  /// value from `new_json_module` to `json_module_evaluation_steps`
-  pub(crate) json_value_store:
+  /// This store is used to temporarily store data that is used
+  /// to evaluate a "synthetic module".
+  pub(crate) synthetic_module_value_store:
     HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
 }
 

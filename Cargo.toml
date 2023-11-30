@@ -17,11 +17,11 @@ repository = "https://github.com/denoland/deno_core"
 
 [workspace.dependencies]
 # Local dependencies
-deno_core = { version = "0.232.0", path = "./core" }
-deno_ops = { version = "0.108.0", path = "./ops" }
-serde_v8 = { version = "0.141.0", path = "./serde_v8" }
+deno_core = { version = "0.234.0", path = "./core" }
+deno_ops = { version = "0.110.0", path = "./ops" }
+serde_v8 = { version = "0.143.0", path = "./serde_v8" }
 
-v8 = { version = "0.81.0", default-features = false }
+v8 = { version = "0.82.0", default-features = false }
 deno_ast = { version = "0.31.2", features = ["transpiling"] }
 deno_unsync = "0.3.0"
 
@@ -31,8 +31,6 @@ bytes = "1.4.0"
 cooked-waker = "5"
 derive_more = "0.99.17"
 futures = "0.3.21"
-hex = "0.4"
-indexmap = "2"
 libc = "0.2.126"
 log = "0.4.17"
 num-bigint = { version = "0.4", features = ["rand"] }
@@ -44,18 +42,14 @@ prettyplease = "0.2.15"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1"
-sha2 = { version = "0.10.6", features = ["oid"] }
 smallvec = "1.8"
 sourcemap = "7"
+static_assertions = "1"
 strum = { version = "0.25.0", features = ["derive"] }
 strum_macros = "0.25.0"
-tempfile = "3"
 testing_macros = "0.2.11"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
-tokio-metrics = { version = "0.3.0", features = ["rt"] }
-tokio-rustls = "0.24.0"
-tokio-util = "0.7.4"
 url = { version = "2", features = ["serde", "expose_internals"] }
 
 # macros

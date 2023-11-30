@@ -550,23 +550,23 @@ await op_void_async_deferred();
     .unwrap();
   let mut rx = runtime.mod_evaluate(id);
 
-  let res = tokio::select! {
+  tokio::select! {
     // Not using biased mode leads to non-determinism for relatively simple
     // programs.
     biased;
 
     maybe_result = &mut rx => {
       debug!("received module evaluate {:#?}", maybe_result);
-      maybe_result.expect("Module evaluation result not provided.")
+      maybe_result
     }
 
     event_loop_result = runtime.run_event_loop(false) => {
       event_loop_result.unwrap();
-      let maybe_result = rx.await;
-      maybe_result.expect("Module evaluation result not provided.")
+
+      rx.await
     }
-  };
-  res.unwrap();
+  }
+  .expect("Failed to get module result");
 }
 
 #[op2(async)]

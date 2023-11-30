@@ -73,7 +73,7 @@ macro_rules! defail {
   ($fn_name:ident, $t:ty, $src:expr, $failcase:expr) => {
     #[test]
     fn $fn_name() {
-      #[allow(clippy::bool_assert_comparison)]
+      #[allow(clippy::bool_assert_comparison, clippy::redundant_closure_call)]
       dedo($src, |scope, v| {
         let rt: serde_v8::Result<$t> = serde_v8::from_v8(scope, v);
         let rtstr = format!("{:?}", rt);

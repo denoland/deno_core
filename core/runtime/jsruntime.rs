@@ -14,8 +14,10 @@ use crate::extensions::OpDecl;
 use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::default_import_meta_resolve_cb;
 use crate::modules::AssertedModuleType;
 use crate::modules::ExtModuleLoader;
+use crate::modules::ImportMetaResolveCallback;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
@@ -40,10 +42,11 @@ use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
-use futures::channel::oneshot;
 use futures::future::poll_fn;
+use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
+use futures::FutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
 use std::cell::Cell;
@@ -444,9 +447,15 @@ pub struct RuntimeOptions {
   pub feature_checker: Option<Arc<FeatureChecker>>,
 
   /// A callback that can be used to validate import attributes received at
-  /// the import site. If not callback is provided, a default one is used. The
+  /// the import site. If no callback is provided, a default one is used. The
   /// default callback only allows `"type"` attribute, with a value of `"json"`.
   pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
+
+  /// A callback that can be used to customize behavior of
+  /// `import.meta.resolve()` API. If no callback is provided, a default one
+  /// is used. The default callback returns value of
+  /// `RuntimeOptions::module_loader::resolve()` call.
+  pub import_meta_resolve_callback: Option<ImportMetaResolveCallback>,
 }
 
 impl RuntimeOptions {
@@ -623,6 +632,21 @@ impl JsRuntime {
 
     let weak = Rc::downgrade(&state_rc);
     let context_state = Rc::new(RefCell::new(ContextState::default()));
+
+    // Add the task spawners to the OpState
+    let spawner = context_state
+      .borrow()
+      .task_spawner_factory
+      .clone()
+      .new_same_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+    let spawner = context_state
+      .borrow()
+      .task_spawner_factory
+      .clone()
+      .new_cross_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+
     let count = ops.len();
     let mut op_ctxs = ops
       .into_iter()
@@ -743,15 +767,19 @@ impl JsRuntime {
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+    let import_meta_resolve_cb = options
+      .import_meta_resolve_callback
+      .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
 
     let module_map = if let Some(snapshotted_data) = snapshotted_data {
       Rc::new(ModuleMap::new_from_snapshotted_data(
         loader,
+        import_meta_resolve_cb,
         scope,
         snapshotted_data,
       ))
     } else {
-      Rc::new(ModuleMap::new(loader))
+      Rc::new(ModuleMap::new(loader, import_meta_resolve_cb))
     };
 
     context.set_slot(scope, module_map.clone());
@@ -933,19 +961,19 @@ impl JsRuntime {
           let isolate = self.v8_isolate();
           let scope = &mut realm.handle_scope(isolate);
           let receiver = realm.mod_evaluate(scope, mod_id);
-          realm.evaluate_pending_module(scope);
+          module_map.evaluate_pending_module(scope);
           receiver
         };
 
         // After evaluate_pending_module, if the module isn't fully evaluated
         // and the resolver solved, it means the module or one of its imports
         // uses TLA.
-        match receiver.try_recv()? {
-          Some(result) => {
+        match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+          Poll::Ready(result) => {
             result
               .with_context(|| format!("Couldn't execute '{specifier}'"))?;
           }
-          None => {
+          Poll::Pending => {
             // Find the TLA location to display it on the panic.
             let location = {
               let scope = &mut realm.handle_scope(self.v8_isolate());
@@ -1554,7 +1582,7 @@ impl JsRuntime {
     }
 
     // Top level module
-    realm.evaluate_pending_module(scope);
+    modules.evaluate_pending_module(scope);
 
     // Get the pending state from the main realm, or all realms
     let pending_state = {
@@ -1772,12 +1800,15 @@ impl EventLoopPendingState {
   ) -> Self {
     let num_unrefed_ops = state.unrefed_ops.len();
     let num_pending_ops = state.pending_ops.len();
+    let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
-    let has_pending_module_evaluation = state.pending_mod_evaluate.is_some();
+    let has_pending_module_evaluation =
+      modules.pending_mod_evaluate.borrow().is_some();
     EventLoopPendingState {
-      has_pending_refed_ops: num_pending_ops > num_unrefed_ops,
+      has_pending_refed_ops: has_pending_tasks
+        || num_pending_ops > num_unrefed_ops,
       has_pending_dyn_imports,
       has_pending_dyn_module_evaluation,
       has_pending_module_evaluation,
@@ -1895,10 +1926,9 @@ impl JsRuntime {
     realm.instantiate_module(scope, id)
   }
 
-  // TODO(bartlomieju): make it return `ModuleEvaluationFuture`?
   /// Evaluates an already instantiated ES module.
   ///
-  /// Returns a receiver handle that resolves when module promise resolves.
+  /// Returns a future that resolves when module promise resolves.
   /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
   /// module evaluation future.
   ///
@@ -1909,7 +1939,7 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> oneshot::Receiver<Result<(), Error>> {
+  ) -> impl Future<Output = Result<(), Error>> {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
@@ -1961,8 +1991,20 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     context_state: &RefCell<ContextState>,
   ) -> Result<bool, Error> {
-    let mut context_state = context_state.borrow_mut();
     let mut dispatched_ops = false;
+
+    // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
+    // Rust will extend the lifetime of the borrow longer than we expect.
+    let tasks = context_state.borrow().task_spawner_factory.poll_inner(cx);
+    if let Poll::Ready(tasks) = tasks {
+      // TODO(mmastrac): we are using this flag
+      dispatched_ops = true;
+      for task in tasks {
+        task(scope);
+      }
+    }
+
+    let mut context_state = context_state.borrow_mut();
 
     // We return async responses to JS in unbounded batches (may change),
     // each batch is a flat vector of tuples:
@@ -1978,7 +2020,8 @@ impl JsRuntime {
       SmallVec::with_capacity(32);
 
     loop {
-      let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx) else {
+      let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx)
+      else {
         break;
       };
       // TODO(mmastrac): If this task is really errored, things could be pretty bad

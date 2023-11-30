@@ -453,8 +453,8 @@ where
     if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.get_backing_store() else {
-      return Err("buffer missing");
-    };
+        return Err("buffer missing");
+      };
       (buffer, buf.byte_offset(), buf.byte_length())
     } else {
       return Err("expected typed ArrayBufferView");
@@ -478,8 +478,8 @@ where
     if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.buffer(scope) else {
-      return Err("buffer missing");
-    };
+        return Err("buffer missing");
+      };
       let res = (
         buffer.get_backing_store(),
         buf.byte_offset(),
@@ -605,7 +605,7 @@ pub fn to_v8_slice_any(
   Err("expected ArrayBuffer or ArrayBufferView")
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
   use crate::error::generic_error;
   use crate::error::AnyError;

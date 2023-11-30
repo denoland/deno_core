@@ -20,6 +20,7 @@ use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use crate::Snapshot;
+use anyhow::bail;
 use anyhow::Error;
 use deno_ops::op2;
 use futures::future::poll_fn;
@@ -502,13 +503,13 @@ fn test_json_module() {
 
   let receiver = runtime.mod_evaluate(mod_a);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-  futures::executor::block_on(receiver).unwrap().unwrap();
+  futures::executor::block_on(receiver).unwrap();
 
   runtime.instantiate_module(mod_b).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_b);
   futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-  futures::executor::block_on(receiver).unwrap().unwrap();
+  futures::executor::block_on(receiver).unwrap();
 }
 
 #[test]
@@ -1204,7 +1205,7 @@ fn import_meta_snapshot() {
     #[allow(clippy::let_underscore_future)]
     let eval_fut = runtime.mod_evaluate(main_id);
     futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
-    futures::executor::block_on(eval_fut).unwrap().unwrap();
+    futures::executor::block_on(eval_fut).unwrap();
     runtime.snapshot()
   };
 
@@ -1326,4 +1327,48 @@ async fn no_duplicate_loads() {
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(a_id);
   runtime.run_event_loop(false).await.unwrap();
+}
+
+#[test]
+fn import_meta_resolve_cb() {
+  fn import_meta_resolve_cb(
+    _loader: &dyn ModuleLoader,
+    specifier: String,
+    _referrer: String,
+  ) -> Result<ModuleSpecifier, Error> {
+    if specifier == "foo" {
+      return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
+    }
+
+    if specifier == "./mod.js" {
+      return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
+    }
+
+    bail!("unexpected")
+  }
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    import_meta_resolve_callback: Some(Box::new(import_meta_resolve_cb)),
+    ..Default::default()
+  });
+
+  let spec = ModuleSpecifier::parse("file:///test.js").unwrap();
+  let source = r#"
+  if (import.meta.resolve("foo") !== "foo") throw new Error();
+  if (import.meta.resolve("./mod.js") !== "file:///mod.js") throw new Error();
+  let caught = false;
+  try {
+    import.meta.resolve("boom!");
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw new Error();
+  }
+  if (!caught) throw new Error();
+  "#
+  .to_string();
+  let a_id_fut = runtime.load_main_module(&spec, Some(source.into()));
+  let a_id = futures::executor::block_on(a_id_fut).unwrap();
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(a_id);
+  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
 }

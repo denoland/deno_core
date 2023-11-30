@@ -23,6 +23,7 @@ mod path;
 mod resources;
 mod runtime;
 mod source_map;
+mod tasks;
 
 // Re-exports
 pub use anyhow;
@@ -138,6 +139,8 @@ pub use crate::runtime::WasmStreamingFn;
 pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::source_map::SourceMapGetter;
+pub use crate::tasks::V8CrossThreadTaskSpawner;
+pub use crate::tasks::V8TaskSpawner;
 
 // Ensure we can use op2 in deno_core without any hackery.
 extern crate self as deno_core;
@@ -195,7 +198,7 @@ macro_rules! located_script_name {
   };
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
   use std::process::{Command, Stdio};
 
