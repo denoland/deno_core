@@ -4,7 +4,6 @@ use crate::error::is_instance_of_error;
 use crate::error::range_error;
 use crate::error::type_error;
 use crate::error::JsError;
-use crate::op2;
 use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::script_origin;
@@ -15,6 +14,7 @@ use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
+use crate::{op2, ModuleLoader};
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -35,17 +35,20 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   context_state.borrow_mut().unrefed_ops.insert(promise_id);
 }
 
-#[op2]
+#[op2(reentrant)]
 #[global]
 pub fn op_lazy_load_esm(
   scope: &mut v8::HandleScope,
-  #[string] module_name: String,
+  #[string] module_specifier: String,
 ) -> Result<v8::Global<v8::Value>, Error> {
   let module_map_rc = JsRealm::module_map_from(scope);
 
+  let lazy_esm = module_map_rc.data.borrow().lazy_esm.clone();
+  let loader = crate::modules::LazyEsmModuleLoader::new(lazy_esm);
+
   let mod_ns = futures::executor::block_on(async {
-    let specifier = crate::ModuleSpecifier::parse(&module_name)?;
-    let loader = module_map_rc.loader.borrow();
+    let specifier = crate::ModuleSpecifier::parse(&module_specifier)?;
+
     let source = loader.load(&specifier, None, false).await?;
 
     // false for side module (not main module)
@@ -60,7 +63,13 @@ pub fn op_lazy_load_esm(
         crate::modules::ModuleError::Other(error) => error,
       })?;
 
-    module_map_rc.instantiate_module(scope, mod_id).unwrap();
+    module_map_rc
+      .instantiate_module(scope, mod_id)
+      .map_err(|e| {
+        let exception = v8::Local::new(scope, e);
+        crate::error::exception_to_err_result::<()>(scope, exception, false)
+          .unwrap_err()
+      })?;
 
     let module_handle = module_map_rc.get_handle(mod_id).unwrap();
     let module_local = v8::Local::new(scope, module_handle);
@@ -69,6 +78,13 @@ pub fn op_lazy_load_esm(
     assert_eq!(status, v8::ModuleStatus::Instantiated);
 
     let value = module_local.evaluate(scope);
+    let promise = v8::Local::<v8::Promise>::try_from(value.unwrap()).unwrap();
+    let exception = promise.result(scope);
+    let exception = v8::Local::new(scope, exception);
+    dbg!(
+      crate::error::exception_to_err_result::<()>(scope, exception, false)
+        .unwrap_err()
+    );
     dbg!(value.unwrap().type_repr());
 
     let status = module_local.get_status();

@@ -409,7 +409,7 @@ fn test_mods() {
 
 #[test]
 fn test_mods_() {
-  deno_core::extension!(test_ext, lazy_loaded_esm = [ dir "modules/testdata", "lazy_loaded.js"]);
+  deno_core::extension!(test_ext, lazy_loaded_esm = [dir "modules/testdata", "lazy_loaded.js"]);
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops_and_esm()],

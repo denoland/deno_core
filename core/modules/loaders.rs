@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
+use std::rc::Rc;
 
 pub trait ModuleLoader {
   /// Returns an absolute URL.
@@ -151,6 +152,60 @@ impl ModuleLoader for ExtModuleLoader {
       .used_specifiers
       .borrow_mut()
       .insert(specifier.to_string());
+    let result = source.load();
+    match result {
+      Ok(code) => {
+        let res = ModuleSource::new(ModuleType::JavaScript, code, specifier);
+        return futures::future::ok(res).boxed_local();
+      }
+      Err(err) => return futures::future::err(err).boxed_local(),
+    }
+  }
+
+  fn prepare_load(
+    &self,
+    _specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<String>,
+    _is_dyn_import: bool,
+  ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    async { Ok(()) }.boxed_local()
+  }
+}
+
+pub(crate) struct LazyEsmModuleLoader {
+  sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+}
+
+impl LazyEsmModuleLoader {
+  pub fn new(
+    sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+  ) -> Self {
+    LazyEsmModuleLoader { sources }
+  }
+}
+
+impl ModuleLoader for LazyEsmModuleLoader {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    _kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, Error> {
+    Ok(resolve_import(specifier, referrer)?)
+  }
+
+  fn load(
+    &self,
+    specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleSpecifier>,
+    _is_dyn_import: bool,
+  ) -> Pin<Box<ModuleSourceFuture>> {
+    let sources = self.sources.borrow();
+    dbg!(sources.keys().collect::<Vec<_>>(), specifier);
+    let source = match sources.get(specifier.as_str()) {
+      Some(source) => source,
+      None => return futures::future::err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier)).boxed_local(),
+    };
     let result = source.load();
     match result {
       Ok(code) => {

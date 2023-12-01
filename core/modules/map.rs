@@ -21,8 +21,8 @@ use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::SnapshottedData;
-use crate::JsRuntime;
 use crate::ModuleSource;
+use crate::{ExtensionFileSource, JsRuntime};
 use anyhow::bail;
 use anyhow::Error;
 use futures::future::FutureExt;
@@ -93,7 +93,7 @@ pub(crate) struct ModuleMap {
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
   pending_dyn_mod_evaluations_pending: Cell<bool>,
   pub(crate) pending_mod_evaluate: RefCell<Option<ModEvaluate>>,
-  data: RefCell<ModuleMapData>,
+  pub(crate) data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -1240,7 +1240,9 @@ impl ModuleMap {
       .iter()
       .map(|mod_name| (self.get_handle_by_name(mod_name).unwrap(), mod_name))
       .collect::<Vec<_>>();
+    let lazy_esm = self.data.borrow().lazy_esm.clone();
     *self.data.borrow_mut() = ModuleMapData::default();
+    self.data.borrow_mut().lazy_esm = lazy_esm;
     for (handle, new_name) in handles {
       self.inject_handle(
         ModuleName::from_static(new_name),
@@ -1300,6 +1302,23 @@ impl ModuleMap {
     }
 
     vec![]
+  }
+
+  pub(crate) fn add_lazy_loaded_esm_sources(
+    &self,
+    sources: &[ExtensionFileSource],
+  ) {
+    if sources.is_empty() {
+      return;
+    }
+
+    let data = self.data.borrow_mut();
+    data.lazy_esm.borrow_mut().extend(
+      sources
+        .iter()
+        .cloned()
+        .map(|source| (source.specifier, source)),
+    );
   }
 }
 

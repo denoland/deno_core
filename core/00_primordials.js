@@ -613,4 +613,6 @@
   // Provide bootstrap namespace
   globalThis.__bootstrap ??= {};
   globalThis.__bootstrap.primordials = primordials;
+  globalThis.__bootstrap.internals ??= {};
+  globalThis.__bootstrap.internals.primordials = primordials;
 })();

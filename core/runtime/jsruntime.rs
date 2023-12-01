@@ -931,6 +931,9 @@ impl JsRuntime {
             file_source.load()?,
           )?;
         }
+
+        module_map
+          .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
       }
 
       for specifier in esm_entrypoints {

@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::AssertedModuleType;
 use crate::fast_string::FastString;
@@ -8,7 +9,9 @@ use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::runtime::SnapshottedData;
+use crate::ExtensionFileSource;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// A symbolic module entity.
 #[derive(Debug, PartialEq)]
@@ -128,6 +131,7 @@ pub(crate) struct ModuleMapData {
   /// to evaluate a "synthetic module".
   pub(crate) synthetic_module_value_store:
     HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
+  pub(crate) lazy_esm: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
 }
 
 impl ModuleMapData {

@@ -589,6 +589,10 @@ impl Extension {
     self.esm_files.as_ref()
   }
 
+  pub fn get_lazy_loaded_esm_sources(&self) -> &[ExtensionFileSource] {
+    self.lazy_loaded_esm_files.as_ref()
+  }
+
   pub fn get_esm_entry_point(&self) -> Option<&'static str> {
     self.esm_entry_point
   }
