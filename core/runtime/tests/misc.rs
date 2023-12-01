@@ -11,6 +11,7 @@ use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use futures::future::poll_fn;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
@@ -323,16 +324,29 @@ fn terminate_execution() {
 async fn wasm_streaming_op_invocation_in_import() {
   let (mut runtime, _dispatch_count) = setup(Mode::Async);
 
-  // Run an infinite loop in WebAssembly code, which should be terminated.
-  runtime.execute_script_static("setup.js",
-                               r#"
-                                Deno.core.setWasmStreamingCallback((source, rid) => {
-                                  Deno.core.ops.op_wasm_streaming_set_url(rid, "file:///foo.wasm");
-                                  Deno.core.ops.op_wasm_streaming_feed(rid, source);
-                                  Deno.core.close(rid);
-                                });
-                               "#).unwrap();
+  fn handle_wasm_streaming(
+    _state: Rc<RefCell<OpState>>,
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+    mut wasm_streaming: v8::WasmStreaming,
+  ) {
+    wasm_streaming.set_url("file:///foo.wasm");
+    let ab: v8::Local<v8::ArrayBufferView> =
+      value.try_into().expect("value is not an array buffer");
+    let backing_store = ab.buffer(scope).unwrap().get_backing_store();
+    let ptr = backing_store.data().unwrap().as_ptr() as *mut u8;
+    let len = backing_store.byte_length();
+    let contents = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
+    wasm_streaming.on_bytes_received(contents);
+    wasm_streaming.finish();
+  }
 
+  crate::set_wasm_streaming_callback(
+    &mut runtime.handle_scope(),
+    handle_wasm_streaming,
+  );
+
+  // Run an infinite loop in WebAssembly code, which should be terminated.
   let promise = runtime.execute_script_static("main.js",
                             r#"
                              // (module (import "env" "data" (global i64)))
