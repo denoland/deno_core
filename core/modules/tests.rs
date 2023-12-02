@@ -37,6 +37,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
+use tokio::task::LocalSet;
 use url::Url;
 
 // deno_ops macros generate code assuming deno_core in scope.
@@ -1329,8 +1330,8 @@ async fn no_duplicate_loads() {
   runtime.run_event_loop(false).await.unwrap();
 }
 
-#[test]
-fn import_meta_resolve_cb() {
+#[tokio::test]
+async fn import_meta_resolve_cb() {
   fn import_meta_resolve_cb(
     _loader: &dyn ModuleLoader,
     specifier: String,
@@ -1354,21 +1355,28 @@ fn import_meta_resolve_cb() {
 
   let spec = ModuleSpecifier::parse("file:///test.js").unwrap();
   let source = r#"
-  if (import.meta.resolve("foo") !== "foo") throw new Error();
-  if (import.meta.resolve("./mod.js") !== "file:///mod.js") throw new Error();
+  if (import.meta.resolve("foo") !== "foo:bar") throw new Error("a");
+  if (import.meta.resolve("./mod.js") !== "file:///mod.js") throw new Error("b");
   let caught = false;
   try {
     import.meta.resolve("boom!");
   } catch (e) {
-    if (!(e instanceof TypeError)) throw new Error();
+    if (!(e instanceof TypeError)) throw new Error("c");
+    caught = true;
   }
-  if (!caught) throw new Error();
+  if (!caught) throw new Error("d");
   "#
   .to_string();
-  let a_id_fut = runtime.load_main_module(&spec, Some(source.into()));
-  let a_id = futures::executor::block_on(a_id_fut).unwrap();
 
-  #[allow(clippy::let_underscore_future)]
-  let _ = runtime.mod_evaluate(a_id);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  let a_id = runtime
+    .load_main_module(&spec, Some(source.into()))
+    .await
+    .unwrap();
+  let local = LocalSet::new();
+  let a = local.spawn_local(runtime.mod_evaluate(a_id));
+  let b = local.spawn_local(async move { runtime.run_event_loop(false).await });
+  local.await;
+
+  a.await.unwrap().unwrap();
+  b.await.unwrap().unwrap();
 }
