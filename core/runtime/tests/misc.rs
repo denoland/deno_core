@@ -10,6 +10,7 @@ use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use futures::future::poll_fn;
+use rstest::rstest;
 use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -22,7 +23,6 @@ use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
 use url::Url;
-use rstest::rstest;
 
 #[test]
 fn icu() {
@@ -189,23 +189,62 @@ async fn test_poll_value() {
 }
 
 #[rstest]
-#[case("Promise.resolve(1 + 2)", Ok(Some(3)))]
-#[case("Promise.resolve(new Promise(resolve => resolve(2 + 2)))", Ok(Some(4)))]
-#[case("Promise.reject(new Error('fail'))", Err("Uncaught Error: fail"))]
-#[case("new Promise(resolve => {})", Ok(None))]
+#[case("script", "Promise.resolve(1 + 2)", Ok(Some(3)))]
+#[case(
+  "script",
+  "Promise.resolve(new Promise(resolve => resolve(2 + 2)))",
+  Ok(Some(4))
+)]
+#[case(
+  "script",
+  "Promise.reject(new Error('fail'))",
+  Err("Uncaught Error: fail")
+)]
+#[case("script", "new Promise(resolve => {})", Ok(None))]
+#[case("call", "async () => 1 + 2", Ok(Some(3)))]
+#[case(
+  "call",
+  "async () => { throw new Error('fail'); }",
+  Err("Uncaught Error: fail")
+)]
+#[case("call", "async () => new Promise(resolve => {})", Ok(None))]
+#[case("call", "() => Promise.resolve(1 + 2)", Ok(Some(3)))]
+#[case(
+  "call",
+  "() => Promise.resolve(new Promise(resolve => resolve(2 + 2)))",
+  Ok(Some(4))
+)]
+#[case(
+  "call",
+  "() => Promise.reject(new Error('fail'))",
+  Err("Uncaught Error: fail")
+)]
+#[case("call", "() => new Promise(resolve => {})", Ok(None))]
+// TODO(mmastrac): this is currently incorrect but we'll fix in a later revision
+#[case(
+  "call",
+  "() => { throw new Error('fail'); }",
+  Err("Uncaught undefined")
+)]
+#[case(
+  "call",
+  "() => { Promise.reject(new Error('fail')); return; }",
+  Err("Uncaught (in promise) Error: fail")
+)]
 #[tokio::test]
 async fn test_resolve_value(
+  #[case] runner: &'static str,
   #[case] code: &'static str,
   #[case] output: Result<Option<u32>, &'static str>,
-  #[values("script", "call")] runner: &'static str,
 ) {
   let mut runtime = JsRuntime::new(Default::default());
   let result_global = if runner == "script" {
     let value_global = runtime.execute_script_static("a.js", code).unwrap();
     runtime.resolve_value(value_global).await
   } else if runner == "call" {
-    let value_global = runtime.execute_script("a.js", format!("() => {{ return {code} }}").into()).unwrap();
-    let function: v8::Global<v8::Function> = unsafe { std::mem::transmute(value_global) };
+    let value_global = runtime.execute_script_static("a.js", code).unwrap();
+    let function: v8::Global<v8::Function> =
+      unsafe { std::mem::transmute(value_global) };
     runtime.call_and_await(&function).await
   } else {
     unreachable!()
