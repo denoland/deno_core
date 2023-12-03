@@ -22,6 +22,7 @@ use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
 use url::Url;
+use rstest::rstest;
 
 #[test]
 fn icu() {
@@ -187,53 +188,48 @@ async fn test_poll_value() {
   }).await;
 }
 
+#[rstest]
+#[case("Promise.resolve(1 + 2)", Ok(Some(3)))]
+#[case("Promise.resolve(new Promise(resolve => resolve(2 + 2)))", Ok(Some(4)))]
+#[case("Promise.reject(new Error('fail'))", Err("Uncaught Error: fail"))]
+#[case("new Promise(resolve => {})", Ok(None))]
 #[tokio::test]
-async fn test_resolve_value() {
+async fn test_resolve_value(
+  #[case] code: &'static str,
+  #[case] output: Result<Option<u32>, &'static str>,
+  #[values("script", "call")] runner: &'static str,
+) {
   let mut runtime = JsRuntime::new(Default::default());
-  let value_global = runtime
-    .execute_script_static("a.js", "Promise.resolve(1 + 2)")
-    .unwrap();
-  let result_global = runtime.resolve_value(value_global).await.unwrap();
-  {
-    let scope = &mut runtime.handle_scope();
-    let value = result_global.open(scope);
-    assert_eq!(value.integer_value(scope).unwrap(), 3);
+  let result_global = if runner == "script" {
+    let value_global = runtime.execute_script_static("a.js", code).unwrap();
+    runtime.resolve_value(value_global).await
+  } else if runner == "call" {
+    let value_global = runtime.execute_script("a.js", format!("() => {{ return {code} }}").into()).unwrap();
+    let function: v8::Global<v8::Function> = unsafe { std::mem::transmute(value_global) };
+    runtime.call_and_await(&function).await
+  } else {
+    unreachable!()
+  };
+  let scope = &mut runtime.handle_scope();
+
+  match output {
+    Ok(None) => {
+      let error_string = result_global.unwrap_err().to_string();
+      assert_eq!(
+        "Promise resolution is still pending but the event loop has already resolved.",
+        error_string,
+      );
+    }
+    Ok(Some(v)) => {
+      let value = result_global.unwrap();
+      let value = value.open(scope);
+      assert_eq!(value.integer_value(scope).unwrap(), v as i64);
+    }
+    Err(e) => {
+      let err = result_global.unwrap_err();
+      assert_eq!(e, err.downcast::<JsError>().unwrap().exception_message);
+    }
   }
-
-  let value_global = runtime
-    .execute_script_static(
-      "a.js",
-      "Promise.resolve(new Promise(resolve => resolve(2 + 2)))",
-    )
-    .unwrap();
-  let result_global = runtime.resolve_value(value_global).await.unwrap();
-  {
-    let scope = &mut runtime.handle_scope();
-    let value = result_global.open(scope);
-    assert_eq!(value.integer_value(scope).unwrap(), 4);
-  }
-
-  let value_global = runtime
-    .execute_script_static("a.js", "Promise.reject(new Error('fail'))")
-    .unwrap();
-  let err = runtime.resolve_value(value_global).await.unwrap_err();
-  assert_eq!(
-    "Uncaught Error: fail",
-    err.downcast::<JsError>().unwrap().exception_message
-  );
-
-  let value_global = runtime
-    .execute_script_static("a.js", "new Promise(resolve => {})")
-    .unwrap();
-  let error_string = runtime
-    .resolve_value(value_global)
-    .await
-    .unwrap_err()
-    .to_string();
-  assert_eq!(
-    "Promise resolution is still pending but the event loop has already resolved.",
-    error_string,
-  );
 }
 
 #[test]
