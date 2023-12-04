@@ -81,7 +81,10 @@ pub fn op_lazy_load_esm(
     let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
     let result = promise.result(scope);
     if !result.is_undefined() {
-      return Err(crate::error::exception_to_err_result::<()>(scope, result, false).unwrap_err());
+      return Err(
+        crate::error::exception_to_err_result::<()>(scope, result, false)
+          .unwrap_err(),
+      );
     }
 
     let status = module_local.get_status();
