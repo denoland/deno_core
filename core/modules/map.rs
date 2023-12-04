@@ -1323,9 +1323,9 @@ impl ModuleMap {
     );
   }
 
-  /// TODO(bartlomieju): add docs
-  /// TODO(bartlomieju): this method is not idempotent, it will most likely
-  /// crash if trying to evaluate the same module again
+  /// Lazy load and evaluate an ES module. Only modules that have been added
+  /// during build time can be executed (the ones stored in 
+  /// `ModuleMapData::lazy_esm_sources`), not _any, random_ module.
   pub(crate) fn lazy_load_esm_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -1334,6 +1334,7 @@ impl ModuleMap {
     let lazy_esm_sources = self.data.borrow().lazy_esm_sources.clone();
     let loader = LazyEsmModuleLoader::new(lazy_esm_sources);
 
+    // Check if this module has already been loaded.
     {
       let module_map_data = self.data.borrow();
       if let Some(id) = module_map_data
@@ -1388,7 +1389,7 @@ impl ModuleMap {
 
     let mod_ns = module_local.get_module_namespace();
 
-    Ok::<_, Error>(v8::Global::new(scope, mod_ns))
+    Ok(v8::Global::new(scope, mod_ns))
   }
 }
 
