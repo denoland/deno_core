@@ -923,6 +923,11 @@ impl JsRuntime {
       self.init_cbs(&realm);
 
       for extension in &extensions {
+        // If the extension provides "lazy loaded ES modules" then store them
+        // on the ModuleMap.
+        module_map
+          .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
+
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
         for file_source in extension.get_esm_sources() {
@@ -946,9 +951,6 @@ impl JsRuntime {
             file_source.load()?,
           )?;
         }
-
-        module_map
-          .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
       }
 
       for specifier in esm_entrypoints {
