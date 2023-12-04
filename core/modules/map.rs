@@ -1324,7 +1324,7 @@ impl ModuleMap {
   }
 
   /// Lazy load and evaluate an ES module. Only modules that have been added
-  /// during build time can be executed (the ones stored in 
+  /// during build time can be executed (the ones stored in
   /// `ModuleMapData::lazy_esm_sources`), not _any, random_ module.
   pub(crate) fn lazy_load_esm_module(
     &self,
