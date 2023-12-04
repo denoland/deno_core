@@ -1333,8 +1333,21 @@ impl ModuleMap {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let lazy_esm_sources = self.data.borrow().lazy_esm_sources.clone();
     let loader = LazyEsmModuleLoader::new(lazy_esm_sources);
-    let specifier = ModuleSpecifier::parse(module_specifier)?;
 
+    {
+      let module_map_data = self.data.borrow();
+      if let Some(id) = module_map_data
+        .get_id(module_specifier, AssertedModuleType::JavaScriptOrWasm)
+      {
+        let handle = module_map_data.get_handle(id).unwrap();
+        let handle_local = v8::Local::new(scope, handle);
+        let module =
+          v8::Global::new(scope, handle_local.get_module_namespace());
+        return Ok(module);
+      }
+    }
+
+    let specifier = ModuleSpecifier::parse(module_specifier)?;
     let source = futures::executor::block_on(async {
       loader.load(&specifier, None, false).await
     })?;
