@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
+use std::time::Instant;
 use url::Url;
 
 #[test]
@@ -1075,4 +1076,104 @@ export const TEST = "foo";
     extensions: vec![extension],
     ..Default::default()
   });
+}
+
+fn create_spawner_runtime() -> JsRuntime {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    ..Default::default()
+  });
+  runtime
+    .execute_script("main", ascii_str!("function f() { return 42; }"))
+    .unwrap();
+  runtime
+}
+
+fn call_i32_function(scope: &mut v8::HandleScope) -> i32 {
+  let ctx = scope.get_current_context();
+  let global = ctx.global(scope);
+  let key = v8::String::new_external_onebyte_static(scope, b"f")
+    .unwrap()
+    .into();
+  let f: v8::Local<'_, v8::Function> =
+    global.get(scope, key).unwrap().try_into().unwrap();
+  let recv = v8::undefined(scope).into();
+  let res: v8::Local<v8::Integer> =
+    f.call(scope, recv, &[]).unwrap().try_into().unwrap();
+  res.int32_value(scope).unwrap()
+}
+
+#[tokio::test]
+async fn task_spawner() {
+  let mut runtime = create_spawner_runtime();
+  let value = Arc::new(AtomicUsize::new(0));
+  let value_clone = value.clone();
+  runtime
+    .op_state()
+    .borrow()
+    .borrow::<V8TaskSpawner>()
+    .spawn(move |scope| {
+      let res = call_i32_function(scope);
+      value_clone.store(res as _, Ordering::SeqCst);
+    });
+  poll_fn(|cx| runtime.poll_event_loop(cx, false))
+    .await
+    .unwrap();
+  assert_eq!(value.load(Ordering::SeqCst), 42);
+}
+
+#[tokio::test]
+async fn task_spawner_cross_thread() {
+  let mut runtime = create_spawner_runtime();
+  let value = Arc::new(AtomicUsize::new(0));
+  let value_clone = value.clone();
+  let spawner = runtime
+    .op_state()
+    .borrow()
+    .borrow::<V8CrossThreadTaskSpawner>()
+    .clone();
+
+  std::thread::spawn(move || {
+    spawner.spawn(move |scope| {
+      let res = call_i32_function(scope);
+      value_clone.store(res as _, Ordering::SeqCst);
+    });
+  });
+
+  // Async spin while we wait for this to complete
+  let start = Instant::now();
+  while value.load(Ordering::SeqCst) != 42 {
+    poll_fn(|cx| runtime.poll_event_loop(cx, false))
+      .await
+      .unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(start.elapsed().as_secs() < 60);
+  }
+}
+
+#[tokio::test]
+async fn task_spawner_cross_thread_blocking() {
+  let mut runtime = create_spawner_runtime();
+
+  let value = Arc::new(AtomicUsize::new(0));
+  let value_clone = value.clone();
+  let spawner = runtime
+    .op_state()
+    .borrow()
+    .borrow::<V8CrossThreadTaskSpawner>()
+    .clone();
+
+  std::thread::spawn(move || {
+    let res = spawner.spawn_blocking(call_i32_function);
+    value_clone.store(res as _, Ordering::SeqCst);
+  });
+
+  // Async spin while we wait for this to complete
+  let start = Instant::now();
+  while value.load(Ordering::SeqCst) != 42 {
+    poll_fn(|cx| runtime.poll_event_loop(cx, false))
+      .await
+      .unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(start.elapsed().as_secs() < 60);
+  }
 }

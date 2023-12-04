@@ -632,6 +632,21 @@ impl JsRuntime {
 
     let weak = Rc::downgrade(&state_rc);
     let context_state = Rc::new(RefCell::new(ContextState::default()));
+
+    // Add the task spawners to the OpState
+    let spawner = context_state
+      .borrow()
+      .task_spawner_factory
+      .clone()
+      .new_same_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+    let spawner = context_state
+      .borrow()
+      .task_spawner_factory
+      .clone()
+      .new_cross_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+
     let count = ops.len();
     let mut op_ctxs = ops
       .into_iter()
@@ -1788,13 +1803,15 @@ impl EventLoopPendingState {
   ) -> Self {
     let num_unrefed_ops = state.unrefed_ops.len();
     let num_pending_ops = state.pending_ops.len();
+    let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
     let has_pending_module_evaluation =
       modules.pending_mod_evaluate.borrow().is_some();
     EventLoopPendingState {
-      has_pending_refed_ops: num_pending_ops > num_unrefed_ops,
+      has_pending_refed_ops: has_pending_tasks
+        || num_pending_ops > num_unrefed_ops,
       has_pending_dyn_imports,
       has_pending_dyn_module_evaluation,
       has_pending_module_evaluation,
@@ -1977,8 +1994,20 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     context_state: &RefCell<ContextState>,
   ) -> Result<bool, Error> {
-    let mut context_state = context_state.borrow_mut();
     let mut dispatched_ops = false;
+
+    // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
+    // Rust will extend the lifetime of the borrow longer than we expect.
+    let tasks = context_state.borrow().task_spawner_factory.poll_inner(cx);
+    if let Poll::Ready(tasks) = tasks {
+      // TODO(mmastrac): we are using this flag
+      dispatched_ops = true;
+      for task in tasks {
+        task(scope);
+      }
+    }
+
+    let mut context_state = context_state.borrow_mut();
 
     // We return async responses to JS in unbounded batches (may change),
     // each batch is a flat vector of tuples:

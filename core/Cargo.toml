@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.233.0"
+version = "0.234.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -35,6 +35,7 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 serde_v8.workspace = true
 smallvec.workspace = true
 sourcemap.workspace = true
+static_assertions.workspace = true
 tokio.workspace = true
 url.workspace = true
 v8.workspace = true
