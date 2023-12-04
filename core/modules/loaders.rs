@@ -201,7 +201,6 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let sources = self.sources.borrow();
-    dbg!(sources.keys().collect::<Vec<_>>(), specifier);
     let source = match sources.get(specifier.as_str()) {
       Some(source) => source,
       None => return futures::future::err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier)).boxed_local(),

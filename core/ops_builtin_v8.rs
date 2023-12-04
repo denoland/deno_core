@@ -72,20 +72,17 @@ pub fn op_lazy_load_esm(
       })?;
 
     let module_handle = module_map_rc.get_handle(mod_id).unwrap();
-    let module_local = v8::Local::new(scope, module_handle);
+    let module_local = v8::Local::<v8::Module>::new(scope, module_handle);
 
     let status = module_local.get_status();
     assert_eq!(status, v8::ModuleStatus::Instantiated);
 
-    let value = module_local.evaluate(scope);
-    let promise = v8::Local::<v8::Promise>::try_from(value.unwrap()).unwrap();
-    let exception = promise.result(scope);
-    let exception = v8::Local::new(scope, exception);
-    dbg!(
-      crate::error::exception_to_err_result::<()>(scope, exception, false)
-        .unwrap_err()
-    );
-    dbg!(value.unwrap().type_repr());
+    let value = module_local.evaluate(scope).unwrap();
+    let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
+    let result = promise.result(scope);
+    if !result.is_undefined() {
+      return Err(crate::error::exception_to_err_result::<()>(scope, result, false).unwrap_err());
+    }
 
     let status = module_local.get_status();
     assert_eq!(status, v8::ModuleStatus::Evaluated);
