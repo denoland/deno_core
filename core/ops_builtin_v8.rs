@@ -14,7 +14,7 @@ use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
-use crate::{op2, ModuleLoader};
+use crate::op2;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -42,60 +42,7 @@ pub fn op_lazy_load_esm(
   #[string] module_specifier: String,
 ) -> Result<v8::Global<v8::Value>, Error> {
   let module_map_rc = JsRealm::module_map_from(scope);
-
-  let lazy_esm = module_map_rc.data.borrow().lazy_esm.clone();
-  let loader = crate::modules::LazyEsmModuleLoader::new(lazy_esm);
-
-  let mod_ns = futures::executor::block_on(async {
-    let specifier = crate::ModuleSpecifier::parse(&module_specifier)?;
-
-    let source = loader.load(&specifier, None, false).await?;
-
-    // false for side module (not main module)
-    let mod_id = module_map_rc
-      .new_es_module(scope, false, specifier.into(), source.code, false)
-      .map_err(|e| match e {
-        crate::modules::ModuleError::Exception(exception) => {
-          let exception = v8::Local::new(scope, exception);
-          crate::error::exception_to_err_result::<()>(scope, exception, false)
-            .unwrap_err()
-        }
-        crate::modules::ModuleError::Other(error) => error,
-      })?;
-
-    module_map_rc
-      .instantiate_module(scope, mod_id)
-      .map_err(|e| {
-        let exception = v8::Local::new(scope, e);
-        crate::error::exception_to_err_result::<()>(scope, exception, false)
-          .unwrap_err()
-      })?;
-
-    let module_handle = module_map_rc.get_handle(mod_id).unwrap();
-    let module_local = v8::Local::<v8::Module>::new(scope, module_handle);
-
-    let status = module_local.get_status();
-    assert_eq!(status, v8::ModuleStatus::Instantiated);
-
-    let value = module_local.evaluate(scope).unwrap();
-    let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
-    let result = promise.result(scope);
-    if !result.is_undefined() {
-      return Err(
-        crate::error::exception_to_err_result::<()>(scope, result, false)
-          .unwrap_err(),
-      );
-    }
-
-    let status = module_local.get_status();
-    assert_eq!(status, v8::ModuleStatus::Evaluated);
-
-    let mod_ns = module_local.get_module_namespace();
-
-    Ok::<_, Error>(v8::Global::new(scope, mod_ns))
-  });
-
-  mod_ns
+  module_map_rc.lazy_load_esm_module(scope, &module_specifier)
 }
 
 #[op2]

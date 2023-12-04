@@ -1,3 +1,4 @@
+use crate::ModuleSpecifier;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -43,6 +44,7 @@ use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
 use super::AssertedModuleType;
+use super::LazyEsmModuleLoader;
 
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
@@ -1319,6 +1321,64 @@ impl ModuleMap {
         .cloned()
         .map(|source| (source.specifier, source)),
     );
+  }
+
+  /// TODO(bartlomieju): add docs
+  /// TODO(bartlomieju): this method is not idempotent, it will most likely
+  /// crash if trying to evaluate the same module again
+  pub(crate) fn lazy_load_esm_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    module_specifier: &str,
+  ) -> Result<v8::Global<v8::Value>, Error> {
+    let lazy_esm = self.data.borrow().lazy_esm.clone();
+    let loader = LazyEsmModuleLoader::new(lazy_esm);
+    let specifier = ModuleSpecifier::parse(module_specifier)?;
+
+    let source = futures::executor::block_on(async {
+      loader.load(&specifier, None, false).await
+    })?;
+
+    // false for side module (not main module)
+    let mod_id = self
+      .new_es_module(scope, false, specifier.into(), source.code, false)
+      .map_err(|e| match e {
+        crate::modules::ModuleError::Exception(exception) => {
+          let exception = v8::Local::new(scope, exception);
+          crate::error::exception_to_err_result::<()>(scope, exception, false)
+            .unwrap_err()
+        }
+        crate::modules::ModuleError::Other(error) => error,
+      })?;
+
+    self.instantiate_module(scope, mod_id).map_err(|e| {
+      let exception = v8::Local::new(scope, e);
+      crate::error::exception_to_err_result::<()>(scope, exception, false)
+        .unwrap_err()
+    })?;
+
+    let module_handle = self.get_handle(mod_id).unwrap();
+    let module_local = v8::Local::<v8::Module>::new(scope, module_handle);
+
+    let status = module_local.get_status();
+    assert_eq!(status, v8::ModuleStatus::Instantiated);
+
+    let value = module_local.evaluate(scope).unwrap();
+    let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
+    let result = promise.result(scope);
+    if !result.is_undefined() {
+      return Err(
+        crate::error::exception_to_err_result::<()>(scope, result, false)
+          .unwrap_err(),
+      );
+    }
+
+    let status = module_local.get_status();
+    assert_eq!(status, v8::ModuleStatus::Evaluated);
+
+    let mod_ns = module_local.get_module_namespace();
+
+    Ok::<_, Error>(v8::Global::new(scope, mod_ns))
   }
 }
 
