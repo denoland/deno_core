@@ -824,7 +824,7 @@
     currentUserCallSite,
   });
 
-  ObjectAssign(globalThis.__bootstrap, { core,  });
+  ObjectAssign(globalThis.__bootstrap, { core });
   ObjectAssign(globalThis.Deno, { core });
   ObjectFreeze(globalThis.__bootstrap.core);
 
