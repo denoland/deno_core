@@ -1356,18 +1356,16 @@ impl ModuleMap {
     let mod_id = self
       .new_es_module(scope, false, specifier.into(), source.code, false)
       .map_err(|e| match e {
-        crate::modules::ModuleError::Exception(exception) => {
+        ModuleError::Exception(exception) => {
           let exception = v8::Local::new(scope, exception);
-          crate::error::exception_to_err_result::<()>(scope, exception, false)
-            .unwrap_err()
+          exception_to_err_result::<()>(scope, exception, false).unwrap_err()
         }
-        crate::modules::ModuleError::Other(error) => error,
+        ModuleError::Other(error) => error,
       })?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
-      crate::error::exception_to_err_result::<()>(scope, exception, false)
-        .unwrap_err()
+      exception_to_err_result::<()>(scope, exception, false).unwrap_err()
     })?;
 
     let module_handle = self.get_handle(mod_id).unwrap();
@@ -1381,8 +1379,7 @@ impl ModuleMap {
     let result = promise.result(scope);
     if !result.is_undefined() {
       return Err(
-        crate::error::exception_to_err_result::<()>(scope, result, false)
-          .unwrap_err(),
+        exception_to_err_result::<()>(scope, result, false).unwrap_err(),
       );
     }
 
