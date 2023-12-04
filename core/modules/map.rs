@@ -1242,9 +1242,9 @@ impl ModuleMap {
       .iter()
       .map(|mod_name| (self.get_handle_by_name(mod_name).unwrap(), mod_name))
       .collect::<Vec<_>>();
-    let lazy_esm = self.data.borrow().lazy_esm.clone();
+    let lazy_esm = self.data.borrow().lazy_esm_sources.clone();
     *self.data.borrow_mut() = ModuleMapData::default();
-    self.data.borrow_mut().lazy_esm = lazy_esm;
+    self.data.borrow_mut().lazy_esm_sources = lazy_esm;
     for (handle, new_name) in handles {
       self.inject_handle(
         ModuleName::from_static(new_name),
@@ -1315,7 +1315,7 @@ impl ModuleMap {
     }
 
     let data = self.data.borrow_mut();
-    data.lazy_esm.borrow_mut().extend(
+    data.lazy_esm_sources.borrow_mut().extend(
       sources
         .iter()
         .cloned()
@@ -1331,8 +1331,8 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     module_specifier: &str,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    let lazy_esm = self.data.borrow().lazy_esm.clone();
-    let loader = LazyEsmModuleLoader::new(lazy_esm);
+    let lazy_esm_sources = self.data.borrow().lazy_esm_sources.clone();
+    let loader = LazyEsmModuleLoader::new(lazy_esm_sources);
     let specifier = ModuleSpecifier::parse(module_specifier)?;
 
     let source = futures::executor::block_on(async {
