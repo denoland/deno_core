@@ -221,6 +221,8 @@ pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 3] = include_js_files!(
   "01_core.js",
   "02_error.js",
 );
+pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
+  include_js_files!(core "mod.js",);
 
 /// A single execution context of JavaScript. Corresponds roughly to the "Web
 /// Worker" concept in the DOM.
@@ -915,6 +917,14 @@ impl JsRuntime {
         for file_source in &BUILTIN_SOURCES {
           realm.execute_script(
             self.v8_isolate(),
+            file_source.specifier,
+            file_source.load()?,
+          )?;
+        }
+        for file_source in &BUILTIN_ES_MODULES {
+          let mut scope = realm.handle_scope(self.v8_isolate());
+          module_map.lazy_load_es_module_from_code(
+            &mut scope,
             file_source.specifier,
             file_source.load()?,
           )?;
