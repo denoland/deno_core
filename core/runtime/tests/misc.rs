@@ -220,26 +220,44 @@ async fn test_poll_value() {
   Err("Uncaught Error: fail")
 )]
 #[case("call", "() => new Promise(resolve => {})", Ok(None))]
-// TODO(mmastrac): this is currently incorrect but we'll fix in a later revision
+// TODO(mmastrac): This is a bug -- will be fixed
 #[case(
   "call",
   "() => { throw new Error('fail'); }",
   Err("Uncaught undefined")
 )]
+// TODO(mmastrac): This is a bug -- will be fixed
 #[case(
   "call",
-  "() => { Promise.reject(new Error('fail')); return; }",
+  "() => { Promise.reject(new Error('fail')); return 1; }",
   Err("Uncaught (in promise) Error: fail")
 )]
+// TODO(mmastrac): This is a bug -- will be fixed
+#[case(
+  "call",
+  "() => { Deno.core.reportUnhandledException(new Error('fail')); }",
+  Err("Uncaught undefined")
+)]
+// TODO(mmastrac): This is a bug -- will be fixed
+#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }", Err("Uncaught undefined"))]
 #[tokio::test]
 async fn test_resolve_value(
   #[case] runner: &'static str,
   #[case] code: &'static str,
   #[case] output: Result<Option<u32>, &'static str>,
 ) {
+  test_resolve_value_generic(runner, code, output).await
+}
+
+async fn test_resolve_value_generic(
+  runner: &'static str,
+  code: &'static str,
+  output: Result<Option<u32>, &'static str>,
+) {
   let mut runtime = JsRuntime::new(Default::default());
   let result_global = if runner == "script" {
-    let value_global = runtime.execute_script_static("a.js", code).unwrap();
+    let value_global: v8::Global<v8::Value> =
+      runtime.execute_script_static("a.js", code).unwrap();
     runtime.resolve_value(value_global).await
   } else if runner == "call" {
     let value_global = runtime.execute_script_static("a.js", code).unwrap();
@@ -265,7 +283,14 @@ async fn test_resolve_value(
       assert_eq!(value.integer_value(scope).unwrap(), v as i64);
     }
     Err(e) => {
-      let err = result_global.unwrap_err();
+      let Err(err) = result_global else {
+        let value = result_global.unwrap();
+        let value = value.open(scope);
+        panic!(
+          "Expected an error, got {}",
+          value.to_rust_string_lossy(scope)
+        );
+      };
       assert_eq!(e, err.downcast::<JsError>().unwrap().exception_message);
     }
   }
