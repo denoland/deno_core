@@ -141,7 +141,7 @@ impl JsRealmInner {
     let isolate = unsafe { raw_ptr.as_mut().unwrap() };
     let mut realm_state = state.borrow_mut();
     // These globals will prevent snapshots from completing, take them
-    realm_state.exception_state.destroy();
+    realm_state.exception_state.prepare_to_destroy();
     std::mem::take(&mut realm_state.js_event_loop_tick_cb);
     std::mem::take(&mut realm_state.js_wasm_streaming_cb);
     // The OpCtx slice may contain a circular reference

@@ -23,7 +23,13 @@ pub(crate) struct ExceptionState {
 }
 
 impl ExceptionState {
-  pub fn destroy(&self) {
+  /// Clear all the associated v8 objects to prepare for this isolate to be torn down, either for
+  /// a snapshot or for process termination purposes.
+  ///
+  /// The [`ExceptionState`] is not considered valid after this operation and should not be used.
+  /// It generally will not live long after this, however.
+  pub(crate) fn prepare_to_destroy(&self) {
+    // TODO(mmastrac): we can probably move this to Drop eventually
     self.js_build_custom_error_cb.borrow_mut().take();
     self.js_promise_reject_cb.borrow_mut().take();
     self.js_format_exception_cb.borrow_mut().take();
