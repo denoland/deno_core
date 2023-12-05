@@ -31,7 +31,6 @@ bytes = "1.4.0"
 cooked-waker = "5"
 derive_more = "0.99.17"
 futures = "0.3.21"
-itertools = "0"
 libc = "0.2.126"
 log = "0.4.17"
 num-bigint = { version = "0.4", features = ["rand"] }
