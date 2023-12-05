@@ -1962,9 +1962,11 @@ impl JsRuntime {
   /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
   /// module evaluation future.
   ///
-  /// Rejection errors from module evaluation are treated as unhandled rejections, and
-  /// are provided to the unhandled promise rejection handler. If those rejections are
-  /// not handled, then the runtime will terminate.
+  /// Modules with top-level await are treated like promises, so a `throw` in the top-level
+  /// block of a module is treated as an unhandled rejection. These rejections are provided to
+  /// the unhandled promise rejection handler, which has the opportunity to pass them off to
+  /// error-handling code. If those rejections are not handled (indicated by a `false` return
+  /// from that unhandled promise rejection handler), then the runtime will terminate.
   ///
   /// The future provided by `mod_evaluate` will only return errors in the case where
   /// the runtime is shutdown and no longer available to provide unhandled rejection
