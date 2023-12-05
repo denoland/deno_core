@@ -147,7 +147,8 @@ fn es_snapshot() {
       )
       .unwrap()
     };
-    assert_eq!(i, id);
+    // There's always one internal `deno_core` ES module loaded, so +1 here.
+    assert_eq!(i + 1, id);
 
     #[allow(clippy::let_underscore_future)]
     let _ = runtime.mod_evaluate(id);

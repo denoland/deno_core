@@ -496,10 +496,11 @@ impl ModuleMapData {
   #[cfg(test)]
   pub fn assert_module_map(&self, modules: &Vec<ModuleInfo>) {
     let data = self;
-    assert_eq!(data.handles.len(), modules.len());
-    assert_eq!(data.info.len(), modules.len());
+    // There's always one internal `deno_core` ES module loaded, so +1 here.
+    assert_eq!(data.handles.len(), modules.len() + 1);
+    assert_eq!(data.info.len(), modules.len() + 1);
     assert_eq!(data.next_load_id as usize, modules.len());
-    assert_eq!(data.by_name.len(), modules.len());
+    assert_eq!(data.by_name.len(), modules.len() + 1);
 
     for info in modules {
       assert!(data.handles.get(info.id).is_some());

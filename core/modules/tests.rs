@@ -1404,3 +1404,32 @@ async fn import_meta_resolve_cb() {
   a.await.unwrap().unwrap();
   b.await.unwrap().unwrap();
 }
+
+#[test]
+fn builtin_core_module() {
+  let main_specifier = resolve_url("file:///main_module.js").unwrap();
+
+  let source_code =
+    r#"import { core, primordials, internals } from "ext:core/mod.js";
+if (typeof core === "undefined") throw new Error("core missing");
+if (typeof primordials === "undefined") throw new Error("core missing");
+if (typeof internals === "undefined") throw new Error("core missing");
+"#
+    .to_string();
+  let loader =
+    StaticModuleLoader::new([(main_specifier.clone(), source_code.into())]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+
+  let main_id_fut = runtime
+    .load_main_module(&main_specifier, None)
+    .boxed_local();
+  let main_id = futures::executor::block_on(main_id_fut).unwrap();
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(main_id);
+  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+}
