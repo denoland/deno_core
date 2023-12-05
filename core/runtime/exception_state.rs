@@ -1,3 +1,4 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use anyhow::Error;
 use std::cell::Cell;
