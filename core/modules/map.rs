@@ -133,7 +133,7 @@ impl ModuleMap {
       for m in not_evaluated {
         msg.push_str(&format!("  - {}\n", m));
       }
-      // panic!("{}", msg);
+      panic!("{}", msg);
     }
   }
 
