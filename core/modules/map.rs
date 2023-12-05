@@ -1,4 +1,3 @@
-use crate::ModuleSpecifier;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -24,6 +23,7 @@ use crate::runtime::JsRuntimeState;
 use crate::runtime::SnapshottedData;
 use crate::JsRuntime;
 use crate::ModuleSource;
+use crate::ModuleSpecifier;
 use anyhow::bail;
 use anyhow::Error;
 use futures::future::FutureExt;
@@ -1305,9 +1305,9 @@ impl ModuleMap {
 
   /// Load and evaluate an ES module provided the specifier and source code.
   ///
-  /// The module should not have Top-Level Await (that is, it should be 
+  /// The module should not have Top-Level Await (that is, it should be
   /// possible to evaluate it synchronously).
-  /// 
+  ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
   pub(crate) fn lazy_load_es_module_from_code(

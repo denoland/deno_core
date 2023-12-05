@@ -1385,17 +1385,15 @@ async fn import_meta_resolve_cb() {
 fn builtin_core_module() {
   let main_specifier = resolve_url("file:///main_module.js").unwrap();
 
-  let source_code = r#"import { core, primordials, internals } from "ext:core/mod.js";
+  let source_code =
+    r#"import { core, primordials, internals } from "ext:core/mod.js";
 if (typeof core === "undefined") throw new Error("core missing");
 if (typeof primordials === "undefined") throw new Error("core missing");
 if (typeof internals === "undefined") throw new Error("core missing");
-"#.to_string();
-  let loader = StaticModuleLoader::new([
-    (
-      main_specifier.clone(),
-      source_code.into(),
-    ),
-  ]);
+"#
+    .to_string();
+  let loader =
+    StaticModuleLoader::new([(main_specifier.clone(), source_code.into())]);
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
