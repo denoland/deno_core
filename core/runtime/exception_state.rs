@@ -100,8 +100,9 @@ impl ExceptionState {
     .map(|global| v8::Local::new(scope, global))
   }
 
-  /// Calls the project rejection callback, if one exists.
-  pub fn call_promise_reject_callback(
+  /// Tracks this promise rejection until we have a chance to give it to the
+  /// unhandled promise rejection handler.
+  pub fn track_promise_rejection(
     &self,
     scope: &mut v8::HandleScope,
     promise: v8::Local<v8::Promise>,

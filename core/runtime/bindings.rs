@@ -470,7 +470,7 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
   let scope = &mut unsafe { v8::CallbackScope::new(&message) };
 
   let exception_state = JsRealm::exception_state_from_scope(scope);
-  exception_state.call_promise_reject_callback(
+  exception_state.track_promise_rejection(
     scope,
     message.get_promise(),
     message.get_event(),
