@@ -4,6 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use crate::runtime::jsruntime::BUILTIN_ES_MODULES;
 use crate::runtime::jsruntime::BUILTIN_SOURCES;
 use crate::Extension;
 use crate::ExtensionFileSourceCode;
@@ -51,6 +52,13 @@ pub fn create_snapshot(
 
   let mut files_loaded_during_snapshot = vec![];
   for source in &BUILTIN_SOURCES {
+    if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
+      &source.code
+    {
+      files_loaded_during_snapshot.push(PathBuf::from(path));
+    }
+  }
+  for source in &BUILTIN_ES_MODULES {
     if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
       &source.code
     {
