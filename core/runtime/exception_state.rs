@@ -63,15 +63,17 @@ impl ExceptionState {
     self.dispatched_exception_is_promise.set(promise);
   }
 
+  /// If there is an exception condition (ie: an unhandled promise rejection or exception, or
+  /// the runtime is shut down), returns it from here. If not, returns `Ok`.
   pub(crate) fn check_exception_condition(
     &self,
     scope: &mut v8::HandleScope,
   ) -> Result<(), Error> {
-    // TODO(mmastrac): rewrite before landing
-    if let Some(exception) = self.get_dispatched_exception_as_local(scope) {
+    if self.has_dispatched_exception() {
+      let undefined = v8::undefined(scope);
       exception_to_err_result(
         scope,
-        exception,
+        undefined.into(),
         self.dispatched_exception_is_promise.get(),
         true,
       )
