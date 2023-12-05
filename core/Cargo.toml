@@ -45,6 +45,7 @@ cooked-waker.workspace = true
 deno_ast.workspace = true
 bencher.workspace = true
 pretty_assertions.workspace = true
+rstest.workspace = true
 
 [[bench]]
 name = "ops_sync"
