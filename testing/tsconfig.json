@@ -5,6 +5,6 @@
       "checkin:console": ["runtime/console.ts"],
       "checkin:testing": ["runtime/testing.ts"]
     },
-    "lib": ["ESNext", "DOM"]
+    "lib": ["ESNext", "DOM", "ES2023.Array"]
   }
 }

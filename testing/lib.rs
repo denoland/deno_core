@@ -31,9 +31,6 @@ macro_rules! system_test {
   };
 }
 
-unit_test!(
-  encode_decode_test,
-  microtask_test,
-  test_test,);
+unit_test!(encode_decode_test, microtask_test, tc39_test, test_test,);
 
 system_test!(smoke_test,);
