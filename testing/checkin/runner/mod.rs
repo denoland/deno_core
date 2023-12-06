@@ -63,6 +63,8 @@ fn create_runtime() -> JsRuntime {
   })
 }
 
+/// Run a system test within the `checkin` runtime. This executes a single file, imports and all,
+/// and compares its output with the `.out` file in the same directory.
 pub fn run_system_test(test: &str) {
   let runtime = create_runtime();
   let tokio = tokio::runtime::Builder::new_current_thread()
@@ -104,6 +106,8 @@ async fn run_system_test_task(
   Ok(())
 }
 
+/// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
+/// then each test is run individually and failures are printed.
 pub fn run_unit_test(test: &str) {
   let runtime = create_runtime();
   let tokio = tokio::runtime::Builder::new_current_thread()

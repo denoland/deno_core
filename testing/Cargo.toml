@@ -3,12 +3,12 @@
 [package]
 name = "deno_core_testing"
 version = "0.0.0"
+private = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
 readme = "README.md"
 repository.workspace = true
-description = "Proc macro for writing Deno Ops"
 
 [lib]
 path = "./lib.rs"

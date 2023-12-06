@@ -31,6 +31,8 @@ macro_rules! system_test {
   };
 }
 
+/// Test individual bits of functionality.
 unit_test!(encode_decode_test, microtask_test, tc39_test, test_test,);
 
+/// Test the load and run of an entire file within the `checkin` infrastructure.
 system_test!(smoke_test,);
