@@ -56,6 +56,9 @@ fn create_runtime() -> JsRuntime {
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),
+    get_error_class_fn: Some(&|error| {
+      deno_core::error::get_custom_error_class(error).unwrap()
+    }),
     ..Default::default()
   })
 }

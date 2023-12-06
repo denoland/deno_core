@@ -422,25 +422,6 @@ fn dangling_shared_isolate() {
 }
 
 #[tokio::test]
-async fn test_encode_decode() {
-  let (mut runtime, _dispatch_count) = setup(Mode::Async);
-  poll_fn(move |cx| {
-    runtime
-      .execute_script(
-        "encode_decode_test.js",
-        // Note: We make this to_owned because it contains non-ASCII chars
-        include_str!("encode_decode_test.js").to_owned().into(),
-      )
-      .unwrap();
-    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, false) {
-      unreachable!();
-    }
-    Poll::Ready(())
-  })
-  .await;
-}
-
-#[tokio::test]
 async fn test_serialize_deserialize() {
   let (mut runtime, _dispatch_count) = setup(Mode::Async);
   poll_fn(move |cx| {
