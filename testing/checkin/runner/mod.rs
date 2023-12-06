@@ -63,25 +63,25 @@ fn create_runtime() -> JsRuntime {
   })
 }
 
-/// Run a system test within the `checkin` runtime. This executes a single file, imports and all,
+/// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
 /// and compares its output with the `.out` file in the same directory.
-pub fn run_system_test(test: &str) {
+pub fn run_integration_test(test: &str) {
   let runtime = create_runtime();
   let tokio = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
     .expect("Failed to build a runtime");
   tokio
-    .block_on(run_system_test_task(runtime, test.to_owned()))
+    .block_on(run_integration_test_task(runtime, test.to_owned()))
     .expect("Failed to complete test");
 }
 
-async fn run_system_test_task(
+async fn run_integration_test_task(
   mut runtime: JsRuntime,
   test: String,
 ) -> Result<(), Error> {
   let test_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-    .join("system/")
+    .join("integration/")
     .join(&test);
   let path = test_dir.join(format!("{test}.ts"));
   let path = path.canonicalize()?.to_owned();
