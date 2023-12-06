@@ -104,9 +104,9 @@ pub fn to_v8_error<'a>(
   error: &Error,
 ) -> v8::Local<'a, v8::Value> {
   let tc_scope = &mut v8::TryCatch::new(scope);
-  let cb = JsRealm::state_from_scope(tc_scope)
-    .borrow()
+  let cb = JsRealm::exception_state_from_scope(tc_scope)
     .js_build_custom_error_cb
+    .borrow()
     .clone()
     .expect("Custom error builder must be set");
   let cb = cb.open(tc_scope);
@@ -281,6 +281,29 @@ pub(crate) struct NativeJsError {
 }
 
 impl JsError {
+  /// Compares all properties of JsError, except for JsError::cause. This function is used to
+  /// detect that 2 JsError objects in a JsError::cause chain are identical, ie. there is a recursive cause.
+  ///
+  /// We don't have access to object identity here, so we do it via field comparison. Ideally this should
+  /// be able to maintain object identity somehow.
+  pub fn is_same_error(&self, other: &JsError) -> bool {
+    let a = self;
+    let b = other;
+    // `a.cause == b.cause` omitted, because it is absent in recursive errors,
+    // despite the error being identical to a previously seen one.
+    a.name == b.name
+      && a.message == b.message
+      && a.stack == b.stack
+      // TODO(mmastrac): we need consistency around when we insert "in promise" and when we don't. For now, we
+      // are going to manually replace this part of the string.
+      && (a.exception_message == b.exception_message
+        || a.exception_message.replace(" (in promise) ", " ") == b.exception_message.replace(" (in promise) ", " "))
+      && a.frames == b.frames
+      && a.source_line == b.source_line
+      && a.source_line_frame_index == b.source_line_frame_index
+      && a.aggregated == b.aggregated
+  }
+
   pub fn from_v8_exception(
     scope: &mut v8::HandleScope,
     exception: v8::Local<v8::Value>,
@@ -360,10 +383,10 @@ impl JsError {
     let msg = v8::Exception::create_message(scope, exception);
 
     let mut exception_message = None;
-    let context_state_rc = JsRealm::state_from_scope(scope);
+    let exception_state = JsRealm::exception_state_from_scope(scope);
 
     let js_format_exception_cb =
-      context_state_rc.borrow().js_format_exception_cb.clone();
+      exception_state.js_format_exception_cb.borrow().clone();
     if let Some(format_exception_cb) = js_format_exception_cb {
       let format_exception_cb = format_exception_cb.open(scope);
       let this = v8::undefined(scope).into();
@@ -693,11 +716,12 @@ fn abbrev_file_name(file_name: &str) -> Option<String> {
 pub(crate) fn exception_to_err_result<T>(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
-  in_promise: bool,
+  mut in_promise: bool,
+  clear_error: bool,
 ) -> Result<T, Error> {
-  let state = JsRuntime::state_from(scope);
+  let state = JsRealm::exception_state_from_scope(scope);
 
-  let was_terminating_execution = scope.is_execution_terminating();
+  let mut was_terminating_execution = scope.is_execution_terminating();
 
   // Disable running microtasks for a moment. When upgrading to V8 v11.4
   // we discovered that canceling termination here will cause the queued
@@ -711,9 +735,14 @@ pub(crate) fn exception_to_err_result<T>(
   let exception = if let Some(dispatched_exception) =
     state.get_dispatched_exception_as_local(scope)
   {
-    // If termination is the result of a `op_dispatch_exception` call, we want
+    // If termination is the result of a `reportUnhandledException` call, we want
     // to use the exception that was passed to it rather than the exception that
     // was passed to this function.
+    in_promise = state.is_dispatched_exception_promise();
+    if clear_error {
+      state.clear_error();
+      was_terminating_execution = false;
+    }
     dispatched_exception
   } else if was_terminating_execution && exception.is_null_or_undefined() {
     // If we are terminating and there is no exception, throw `new Error("execution terminated")``.

@@ -80,7 +80,7 @@ fn test_snapshot_callbacks() {
         Deno.core.ops.op_set_format_exception_callback(()=> {
           return null;
         })
-        Deno.core.setPromiseRejectCallback(() => {
+        Deno.core.setUnhandledPromiseRejectionHandler(() => {
           return false;
         });
         a = 1 + 2;
