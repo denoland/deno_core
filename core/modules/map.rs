@@ -1,9 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::error::AnyError;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
+use crate::error::AnyError;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
 use crate::modules::recursive_load::RecursiveModuleLoad;
@@ -554,7 +554,8 @@ impl ModuleMap {
     if specifier.starts_with("ext:")
       && !referrer.starts_with("ext:")
       && !referrer.starts_with("node:")
-      && referrer != "." && kind != ResolutionKind::MainModule
+      && referrer != "."
+      && kind != ResolutionKind::MainModule
     {
       let referrer = if referrer.is_empty() {
         "(no referrer)"
@@ -562,13 +563,10 @@ impl ModuleMap {
         referrer
       };
       let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
-      return Err(generic_error( msg));
+      return Err(generic_error(msg));
     }
 
-    self
-      .loader
-      .borrow()
-      .resolve(specifier, referrer, kind)
+    self.loader.borrow().resolve(specifier, referrer, kind)
   }
 
   /// Called by `module_resolve_callback` during module instantiation.
@@ -579,13 +577,14 @@ impl ModuleMap {
     referrer: &str,
     import_assertions: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
-    let resolved_specifier = match self.resolve(specifier, referrer, ResolutionKind::Import) {
-      Ok(s) => s,
-      Err(e) => {
-        throw_type_error(scope, e.to_string());
-        return None
-      }
-    };
+    let resolved_specifier =
+      match self.resolve(specifier, referrer, ResolutionKind::Import) {
+        Ok(s) => s,
+        Err(e) => {
+          throw_type_error(scope, e.to_string());
+          return None;
+        }
+      };
 
     let module_type =
       get_asserted_module_type_from_assertions(&import_assertions);
@@ -662,11 +661,8 @@ impl ModuleMap {
       .borrow_mut()
       .insert(load.id, resolver_handle);
 
-    let resolve_result = self.resolve(
-      specifier,
-      referrer,
-      ResolutionKind::DynamicImport,
-    );
+    let resolve_result =
+      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
       Ok(module_specifier) => {
         if self
