@@ -230,10 +230,13 @@ async fn test_poll_value() {
   "() => { Promise.reject(new Error('fail')); return 1; }",
   Ok(Some(1))
 )]
+// V8 will not terminate the runtime properly before this call returns. This test may fail
+// in the future, but is being left as a form of change detection so we can see when this
+// happens.
 #[case(
   "call",
-  "() => { Deno.core.reportUnhandledException(new Error('fail')); }",
-  Err("Uncaught Error: fail")
+  "() => { Deno.core.reportUnhandledException(new Error('fail')); return 1; }",
+  Ok(Some(1))
 )]
 #[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }", Err("Uncaught Error: fail"))]
 #[tokio::test]

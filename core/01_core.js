@@ -838,16 +838,8 @@
     byteLength: (str) => ops.op_str_byte_length(str),
     setUnhandledPromiseRejectionHandler: (handler) =>
       unhandledPromiseRejectionHandler = handler,
-    reportUnhandledException: (e) => {
-      ops.op_dispatch_exception(e, false);
-      // If the final instruction of a function terminates the runtime, we cannot detect it.
-      ops.op_void_sync();
-    },
-    reportUnhandledPromiseRejection: (e) => {
-      ops.op_dispatch_exception(e, true);
-      // If the final instruction of a function terminates the runtime, we cannot detect it.
-      ops.op_void_sync();
-    },
+    reportUnhandledException: (e) => ops.op_dispatch_exception(e, false),
+    reportUnhandledPromiseRejection: (e) => ops.op_dispatch_exception(e, true),
     build,
     setBuildInfo,
     currentUserCallSite,
