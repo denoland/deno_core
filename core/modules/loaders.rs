@@ -172,6 +172,9 @@ impl ModuleLoader for ExtModuleLoader {
   }
 }
 
+/// A loader that is used in `op_lazy_load_esm` to load and execute
+/// ES modules that were embedded in the binary using `lazy_loaded_esm`
+/// option in `extension!` macro.
 pub(crate) struct LazyEsmModuleLoader {
   sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
 }
@@ -203,7 +206,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     let sources = self.sources.borrow();
     let source = match sources.get(specifier.as_str()) {
       Some(source) => source,
-      None => return futures::future::err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier)).boxed_local(),
+      None => return futures::future::err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the snapshot.", specifier)).boxed_local(),
     };
     let result = source.load();
     match result {
