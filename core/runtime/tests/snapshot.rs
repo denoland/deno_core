@@ -1,8 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::extensions::Op;
 use crate::modules::AssertedModuleType;
-use crate::modules::LoggingModuleLoader;
 use crate::modules::ModuleInfo;
+use crate::modules::TestingModuleLoader;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
@@ -344,7 +344,7 @@ pub(crate) fn generic_preserve_snapshotted_modules_test(test_snapshot: bool) {
     ..Default::default()
   };
 
-  let loader = Rc::new(LoggingModuleLoader::new(NoopModuleLoader));
+  let loader = Rc::new(TestingModuleLoader::new(NoopModuleLoader));
 
   let mut runtime = if test_snapshot {
     let snapshot_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
