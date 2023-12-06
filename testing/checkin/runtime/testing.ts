@@ -23,6 +23,14 @@ export function assert(value) {
 }
 
 /**
+ * Fails a test.
+ */
+export function fail(reason: string) {
+  console.debug("Failed: " + reason);
+  throw new Error("Failed: " + reason);
+}
+
+/**
  * Assert two values match (==).
  */
 export function assertEquals(a1, a2) {
