@@ -46,6 +46,13 @@ impl Hasher for IdentityHasher {
   }
 }
 
+pub type WasmStreamingFn = fn(
+  Rc<RefCell<crate::OpState>>,
+  &mut v8::HandleScope,
+  v8::Local<v8::Value>,
+  v8::WasmStreaming,
+);
+
 #[derive(Default)]
 pub(crate) struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
@@ -53,7 +60,7 @@ pub(crate) struct ContextState {
   pub(crate) js_build_custom_error_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) js_promise_reject_cb: Option<Rc<v8::Global<v8::Function>>>,
   pub(crate) js_format_exception_cb: Option<Rc<v8::Global<v8::Function>>>,
-  pub(crate) js_wasm_streaming_cb: Option<Rc<v8::Global<v8::Function>>>,
+  pub(crate) wasm_streaming_cb: Option<Rc<WasmStreamingFn>>,
   pub(crate) pending_promise_rejections:
     VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>,
   pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
@@ -179,7 +186,6 @@ impl JsRealmInner {
     std::mem::take(&mut realm_state.js_build_custom_error_cb);
     std::mem::take(&mut realm_state.js_promise_reject_cb);
     std::mem::take(&mut realm_state.js_format_exception_cb);
-    std::mem::take(&mut realm_state.js_wasm_streaming_cb);
     // The OpCtx slice may contain a circular reference
     std::mem::take(&mut realm_state.op_ctxs);
 
