@@ -1433,7 +1433,7 @@ async fn import_meta_resolve_cb() {
 
 #[test]
 fn builtin_core_module() {
-  let main_specifier = resolve_url("file:///main_module.js").unwrap();
+  let main_specifier = resolve_url("ext:///main_module.js").unwrap();
 
   let source_code =
     r#"import { core, primordials, internals } from "ext:core/mod.js";

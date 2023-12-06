@@ -3,6 +3,7 @@ use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
+use crate::error::AnyError;
 use crate::error::JsError;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
@@ -387,7 +388,7 @@ impl ModuleMap {
         return Err(ModuleError::Exception(exception));
       }
 
-      let module_specifier = match self.loader.borrow().resolve(
+      let module_specifier = match self.resolve(
         &import_specifier,
         name.as_ref(),
         if is_dynamic_import {
@@ -533,6 +534,33 @@ impl ModuleMap {
     None
   }
 
+  /// Resolve provided module. This function calls out to `loader.resolve`,
+  /// but applies some additional checks that disallow resolving/importing
+  /// certain modules (eg. `ext:` or `node:` modules)
+  pub fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, AnyError> {
+    if specifier.starts_with("ext:")
+      && !referrer.starts_with("ext:")
+      && !referrer.starts_with("node:")
+      && referrer != "."
+      && kind != ResolutionKind::MainModule
+    {
+      let referrer = if referrer.is_empty() {
+        "(no referrer)"
+      } else {
+        referrer
+      };
+      let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
+      return Err(generic_error(msg));
+    }
+
+    self.loader.borrow().resolve(specifier, referrer, kind)
+  }
+
   /// Called by `module_resolve_callback` during module instantiation.
   fn resolve_callback<'s>(
     &self,
@@ -541,11 +569,14 @@ impl ModuleMap {
     referrer: &str,
     import_assertions: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
-    let resolved_specifier = self
-      .loader
-      .borrow()
-      .resolve(specifier, referrer, ResolutionKind::Import)
-      .expect("Module should have been already resolved");
+    let resolved_specifier =
+      match self.resolve(specifier, referrer, ResolutionKind::Import) {
+        Ok(s) => s,
+        Err(e) => {
+          throw_type_error(scope, e.to_string());
+          return None;
+        }
+      };
 
     let module_type =
       get_asserted_module_type_from_assertions(&import_assertions);
@@ -622,12 +653,8 @@ impl ModuleMap {
       .borrow_mut()
       .insert(load.id, resolver_handle);
 
-    let loader = self.loader.clone();
-    let resolve_result = loader.borrow().resolve(
-      specifier,
-      referrer,
-      ResolutionKind::DynamicImport,
-    );
+    let resolve_result =
+      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
       Ok(module_specifier) => {
         if self
