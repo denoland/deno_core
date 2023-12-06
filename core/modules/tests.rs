@@ -1,8 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
-use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::ModuleLoadEventCounts;
+use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
 use crate::modules::AssertedModuleType;
 use crate::modules::ModuleError;
