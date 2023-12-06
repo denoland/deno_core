@@ -73,9 +73,6 @@ deno_core::extension!(
     ops_builtin_v8::op_current_user_call_site,
     ops_builtin_v8::op_set_format_exception_callback,
     ops_builtin_v8::op_event_loop_has_more_work,
-    ops_builtin_v8::op_store_pending_promise_rejection,
-    ops_builtin_v8::op_remove_pending_promise_rejection,
-    ops_builtin_v8::op_has_pending_promise_rejection,
     ops_builtin_v8::op_arraybuffer_was_detached,
   ],
 );
