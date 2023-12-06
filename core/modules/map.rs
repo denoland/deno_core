@@ -100,7 +100,7 @@ pub(crate) struct ModuleMap {
   pending_dyn_mod_evaluations_pending: Cell<bool>,
   pending_mod_evaluation: Cell<bool>,
   module_waker: AtomicWaker,
-  pub(crate) data: RefCell<ModuleMapData>,
+  data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
