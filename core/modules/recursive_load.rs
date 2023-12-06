@@ -136,7 +136,9 @@ impl RecursiveModuleLoad {
           .resolve(specifier, ".", ResolutionKind::MainModule)
       }
       LoadInit::Side(ref specifier) => {
-        self.module_map_rc.resolve(specifier, ".", ResolutionKind::Import)
+        self
+          .module_map_rc
+          .resolve(specifier, ".", ResolutionKind::Import)
       }
       LoadInit::DynamicImport(ref specifier, ref referrer, _) => self
         .module_map_rc
@@ -147,10 +149,11 @@ impl RecursiveModuleLoad {
   pub(crate) async fn prepare(&self) -> Result<(), Error> {
     let (module_specifier, maybe_referrer) = match self.init {
       LoadInit::Main(ref specifier) => {
-        let spec =
-          self
-            .module_map_rc
-            .resolve(specifier, ".", ResolutionKind::MainModule)?;
+        let spec = self.module_map_rc.resolve(
+          specifier,
+          ".",
+          ResolutionKind::MainModule,
+        )?;
         (spec, None)
       }
       LoadInit::Side(ref specifier) => {

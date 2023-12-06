@@ -1,9 +1,10 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::error::AnyError;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
+use crate::error::AnyError;
+use crate::error::JsError;
 use crate::modules::get_asserted_module_type_from_assertions;
 use crate::modules::parse_import_assertions;
 use crate::modules::recursive_load::RecursiveModuleLoad;
@@ -16,11 +17,9 @@ use crate::modules::ModuleLoader;
 use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
-use crate::modules::NoopModuleLoader;
 use crate::modules::ResolutionKind;
-use crate::runtime::ContextState;
+use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
-use crate::runtime::JsRuntimeState;
 use crate::runtime::SnapshottedData;
 use crate::ExtensionFileSource;
 use crate::JsRuntime;
@@ -31,9 +30,13 @@ use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
+use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
 use log::debug;
+use v8::Function;
+use v8::PromiseState;
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -51,14 +54,11 @@ use super::LazyEsmModuleLoader;
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 
-use super::default_import_meta_resolve_cb;
 use super::ImportMetaResolveCallback;
 
-pub(crate) struct ModEvaluate {
-  promise: Option<v8::Global<v8::Promise>>,
-  pub(crate) has_evaluated: bool,
-  pub(crate) handled_promise_rejections: Vec<v8::Global<v8::Promise>>,
-  sender: oneshot::Sender<Result<(), Error>>,
+struct ModEvaluate {
+  module_map: Rc<ModuleMap>,
+  sender: Option<oneshot::Sender<Result<(), Error>>>,
 }
 
 pub const BOM_CHAR: &[u8] = &[0xef, 0xbb, 0xbf];
@@ -86,6 +86,8 @@ pub(crate) struct ModuleMap {
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
   pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
+  // TODO(mmastrac): temporarily crate-public to avoid RefCell on ContextState
+  pub(crate) exception_state: Rc<ExceptionState>,
   dynamic_import_map:
     RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
   preparing_dynamic_imports:
@@ -96,7 +98,8 @@ pub(crate) struct ModuleMap {
   pending_dynamic_imports_pending: Cell<bool>,
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
   pending_dyn_mod_evaluations_pending: Cell<bool>,
-  pub(crate) pending_mod_evaluate: RefCell<Option<ModEvaluate>>,
+  pending_mod_evaluation: Cell<bool>,
+  module_waker: AtomicWaker,
   pub(crate) data: RefCell<ModuleMapData>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
@@ -111,21 +114,6 @@ impl ModuleMap {
     let id = data.next_load_id;
     data.next_load_id += 1;
     id + 1
-  }
-
-  pub(crate) fn notify_promise_rejection(
-    &self,
-    promise_global: v8::Global<v8::Promise>,
-  ) {
-    if let Some(pending_mod_evaluate) =
-      self.pending_mod_evaluate.borrow_mut().as_mut()
-    {
-      if !pending_mod_evaluate.has_evaluated {
-        pending_mod_evaluate
-          .handled_promise_rejections
-          .push(promise_global);
-      }
-    }
   }
 
   #[cfg(debug_assertions)]
@@ -154,10 +142,12 @@ impl ModuleMap {
 
   pub(crate) fn new(
     loader: Rc<dyn ModuleLoader>,
+    exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
   ) -> Self {
     Self {
       loader: loader.into(),
+      exception_state,
       import_meta_resolve_cb,
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
@@ -167,18 +157,20 @@ impl ModuleMap {
       pending_dynamic_imports_pending: Default::default(),
       pending_dyn_mod_evaluations: Default::default(),
       pending_dyn_mod_evaluations_pending: Default::default(),
-      pending_mod_evaluate: Default::default(),
+      pending_mod_evaluation: Default::default(),
+      module_waker: Default::default(),
       data: Default::default(),
     }
   }
 
   pub(crate) fn new_from_snapshotted_data(
     loader: Rc<dyn ModuleLoader>,
+    exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
     scope: &mut v8::HandleScope,
     data: SnapshottedData,
   ) -> Self {
-    let new = Self::new(loader, import_meta_resolve_cb);
+    let new = Self::new(loader, exception_state, import_meta_resolve_cb);
     new
       .data
       .borrow_mut()
@@ -556,7 +548,8 @@ impl ModuleMap {
     if specifier.starts_with("ext:")
       && !referrer.starts_with("ext:")
       && !referrer.starts_with("node:")
-      && referrer != "." && kind != ResolutionKind::MainModule
+      && referrer != "."
+      && kind != ResolutionKind::MainModule
     {
       let referrer = if referrer.is_empty() {
         "(no referrer)"
@@ -564,13 +557,10 @@ impl ModuleMap {
         referrer
       };
       let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
-      return Err(generic_error( msg));
+      return Err(generic_error(msg));
     }
 
-    self
-      .loader
-      .borrow()
-      .resolve(specifier, referrer, kind)
+    self.loader.borrow().resolve(specifier, referrer, kind)
   }
 
   /// Called by `module_resolve_callback` during module instantiation.
@@ -581,13 +571,14 @@ impl ModuleMap {
     referrer: &str,
     import_assertions: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
-    let resolved_specifier = match self.resolve(specifier, referrer, ResolutionKind::Import) {
-      Ok(s) => s,
-      Err(e) => {
-        throw_type_error(scope, e.to_string());
-        return None
-      }
-    };
+    let resolved_specifier =
+      match self.resolve(specifier, referrer, ResolutionKind::Import) {
+        Ok(s) => s,
+        Err(e) => {
+          throw_type_error(scope, e.to_string());
+          return None;
+        }
+      };
 
     let module_type =
       get_asserted_module_type_from_assertions(&import_assertions);
@@ -664,11 +655,8 @@ impl ModuleMap {
       .borrow_mut()
       .insert(load.id, resolver_handle);
 
-    let resolve_result = self.resolve(
-      specifier,
-      referrer,
-      ResolutionKind::DynamicImport,
-    );
+    let resolve_result =
+      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
       Ok(module_specifier) => {
         if self
@@ -693,25 +681,17 @@ impl ModuleMap {
       || self.pending_dynamic_imports_pending.get()
   }
 
+  pub(crate) fn has_pending_module_evaluation(&self) -> bool {
+    self.pending_mod_evaluation.get()
+  }
   pub(crate) fn has_pending_dyn_module_evaluation(&self) -> bool {
     self.pending_dyn_mod_evaluations_pending.get()
   }
 
-  /// Evaluates an already instantiated ES module.
-  ///
-  /// Returns a future that resolves when module promise resolves.
-  /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
-  /// module evaluation future.
-  ///
-  /// `Error` can usually be downcast to `JsError` and should be awaited and
-  /// checked after [`JsRuntime::run_event_loop`] completion.
-  ///
-  /// This function panics if module has not been instantiated.
+  /// See [`JsRuntime::mod_evaluate`].
   pub fn mod_evaluate(
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
-    context_state: Rc<RefCell<ContextState>>,
-    runtime_state: Rc<JsRuntimeState>,
     id: ModuleId,
   ) -> impl Future<Output = Result<(), Error>> + Unpin {
     let tc_scope = &mut v8::TryCatch::new(scope);
@@ -735,155 +715,115 @@ impl ModuleMap {
     );
 
     let (sender, receiver) = oneshot::channel();
+    let receiver = receiver.map(|res| {
+      res.unwrap_or_else(|_| {
+        bail!("Cannot evaluate module, because JavaScript execution has been terminated")
+      }
+    )});
 
-    // IMPORTANT: Top-level-await is enabled, which means that return value
-    // of module evaluation is a promise.
-    //
-    // Because that promise is created internally by V8, when error occurs during
-    // module evaluation the promise is rejected, and since the promise has no rejection
-    // handler it will result in call to `bindings::promise_reject_callback` adding
-    // the promise to pending promise rejection table - meaning JsRuntime will return
-    // error on next poll().
-    //
-    // This situation is not desirable as we want to manually return error at the
-    // end of this function to handle it further. It means we need to manually
-    // remove this promise from pending promise rejection table.
-    //
-    // For more details see:
-    // https://github.com/denoland/deno/issues/4908
-    // https://v8.dev/features/top-level-await#module-execution-order
-    {
-      let mut mod_evaluate = self.pending_mod_evaluate.borrow_mut();
-      assert!(
-        mod_evaluate.is_none(),
-        "There is already pending top level module evaluation"
-      );
-      *mod_evaluate = Some(ModEvaluate {
-        promise: None,
-        has_evaluated: false,
-        handled_promise_rejections: vec![],
-        sender,
-      });
-    }
+    let Some(value) = module.evaluate(tc_scope) else {
+      if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+        let undefined = v8::undefined(tc_scope).into();
+        _ = sender
+          .send(exception_to_err_result(tc_scope, undefined, true, false));
+      } else {
+        debug_assert_eq!(module.get_status(), v8::ModuleStatus::Errored);
+      }
+      return receiver;
+    };
 
-    let maybe_value = module.evaluate(tc_scope);
-
-    self
-      .pending_mod_evaluate
-      .borrow_mut()
-      .as_mut()
-      .unwrap()
-      .has_evaluated = true;
+    self.pending_mod_evaluation.set(true);
 
     // Update status after evaluating.
     status = module.get_status();
 
-    if runtime_state.has_dispatched_exception() {
+    if self.exception_state.has_dispatched_exception() {
       // This will be overridden in `exception_to_err_result()`.
       let exception = v8::undefined(tc_scope).into();
-      let pending_mod_evaluate =
-        self.pending_mod_evaluate.borrow_mut().take().unwrap();
-      pending_mod_evaluate
-        .sender
-        .send(exception_to_err_result(tc_scope, exception, false))
+      sender
+        .send(exception_to_err_result(tc_scope, exception, false, false))
         .expect("Failed to send module evaluation error.");
-    } else if let Some(value) = maybe_value {
-      assert!(
+    } else {
+      debug_assert!(
         status == v8::ModuleStatus::Evaluated
           || status == v8::ModuleStatus::Errored
       );
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
-      let promise_global = v8::Global::new(tc_scope, promise);
+
+      // Create a ModEvaluate instance and stash it in an external
+      let evaluation = v8::External::new(
+        tc_scope,
+        Box::into_raw(Box::new(ModEvaluate {
+          module_map: self.clone(),
+          sender: Some(sender),
+        })) as _,
+      );
+
+      fn get_sender(arg: v8::Local<v8::Value>) -> ModEvaluate {
+        let sender = v8::Local::<v8::External>::try_from(arg).unwrap();
+        *unsafe { Box::from_raw(sender.value() as _) }
+      }
+
+      let on_fulfilled = Function::builder(
+        |_scope: &mut v8::HandleScope<'_>,
+         args: v8::FunctionCallbackArguments<'_>,
+         _rv: v8::ReturnValue| {
+          let mut sender = get_sender(args.data());
+          sender.module_map.pending_mod_evaluation.set(false);
+          sender.module_map.module_waker.wake();
+          _ = sender.sender.take().unwrap().send(Ok(()));
+        },
+      )
+      .data(evaluation.into())
+      .build(tc_scope);
+
+      let on_rejected = Function::builder(
+        |scope: &mut v8::HandleScope<'_>,
+         args: v8::FunctionCallbackArguments<'_>,
+         _rv: v8::ReturnValue| {
+          let mut sender = get_sender(args.data());
+          sender.module_map.pending_mod_evaluation.set(false);
+          sender.module_map.module_waker.wake();
+          _ = sender.sender.take().unwrap().send(Ok(()));
+          scope.throw_exception(args.get(0));
+        },
+      )
+      .data(evaluation.into())
+      .build(tc_scope);
+
+      // V8 GC roots all promises, so we don't need to worry about it after this
+      // then2 will return None if the runtime is shutting down
+      if on_fulfilled.is_none()
+        || on_rejected.is_none()
+        || promise
+          .then2(tc_scope, on_fulfilled.unwrap(), on_rejected.unwrap())
+          .is_none()
       {
-        let pending_mod_evaluate = self.pending_mod_evaluate.borrow_mut();
-        let pending_mod_evaluate = pending_mod_evaluate.as_ref().unwrap();
-        let pending_rejection_was_already_handled = pending_mod_evaluate
-          .handled_promise_rejections
-          .contains(&promise_global);
-        if !pending_rejection_was_already_handled {
-          context_state
-            .borrow_mut()
-            .pending_promise_rejections
-            .retain(|(key, _)| key != &promise_global);
+        // The runtime might have been shut down, so we need to synthesize a promise result here
+        let mut sender = get_sender(evaluation.into());
+        match promise.state() {
+          PromiseState::Fulfilled => {
+            // Module loaded OK
+            _ = sender.sender.take().unwrap().send(Ok(()));
+          }
+          PromiseState::Rejected => {
+            // Module was rejected
+            let err = promise.result(tc_scope);
+            let err = JsError::from_v8_exception(tc_scope, err);
+            _ = sender.sender.take().unwrap().send(Err(err.into()));
+          }
+          PromiseState::Pending => {
+            // Module pending, just drop the sender at this point -- we can't do anything with a shut-down runtime.
+            drop(sender);
+          }
         }
       }
-      let promise_global = v8::Global::new(tc_scope, promise);
-      self
-        .pending_mod_evaluate
-        .borrow_mut()
-        .as_mut()
-        .unwrap()
-        .promise = Some(promise_global);
+
       tc_scope.perform_microtask_checkpoint();
-    } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      // Just drop the sender to send the generic closed error
-      _ = self.pending_mod_evaluate.borrow_mut().take();
-    } else {
-      assert!(status == v8::ModuleStatus::Errored);
     }
 
-    receiver.map(|res| {
-      res.unwrap_or_else(|_| {
-        bail!("Cannot evaluate module, because JavaScript execution has been terminated")
-      }
-    )})
-  }
-
-  /// "deno_core" runs V8 with Top Level Await enabled. It means that each
-  /// module evaluation returns a promise from V8.
-  /// Feature docs: https://v8.dev/features/top-level-await
-  ///
-  /// This promise resolves after all dependent modules have also
-  /// resolved. Each dependent module may perform calls to "import()" and APIs
-  /// using async ops will add futures to the runtime's event loop.
-  /// It means that the promise returned from module evaluation will
-  /// resolve only after all futures in the event loop are done.
-  ///
-  /// Thus during turn of event loop we need to check if V8 has
-  /// resolved or rejected the promise. If the promise is still pending
-  /// then another turn of event loop must be performed.
-  pub(crate) fn evaluate_pending_module(&self, scope: &mut v8::HandleScope) {
-    let maybe_module_evaluation = self.pending_mod_evaluate.borrow_mut().take();
-    if maybe_module_evaluation.is_none() {
-      return;
-    }
-
-    let mut module_evaluation = maybe_module_evaluation.unwrap();
-
-    let promise_global = module_evaluation.promise.clone().unwrap();
-    let promise = promise_global.open(scope);
-    let promise_state = promise.state();
-    match promise_state {
-      v8::PromiseState::Pending => {
-        // NOTE: `poll_event_loop` will decide if
-        // runtime would be woken soon
-        *self.pending_mod_evaluate.borrow_mut() = Some(module_evaluation);
-      }
-      v8::PromiseState::Fulfilled => {
-        scope.perform_microtask_checkpoint();
-        // Receiver end might have been already dropped, ignore the result
-        let _ = module_evaluation.sender.send(Ok(()));
-        module_evaluation.handled_promise_rejections.clear();
-      }
-      v8::PromiseState::Rejected => {
-        let exception = promise.result(scope);
-        scope.perform_microtask_checkpoint();
-
-        // Receiver end might have been already dropped, ignore the result
-        if module_evaluation
-          .handled_promise_rejections
-          .contains(&promise_global)
-        {
-          let _ = module_evaluation.sender.send(Ok(()));
-          module_evaluation.handled_promise_rejections.clear();
-        } else {
-          let _ = module_evaluation
-            .sender
-            .send(exception_to_err_result(scope, exception, false));
-        }
-      }
-    }
+    receiver
   }
 
   fn dynamic_import_module_evaluate(
@@ -923,7 +863,7 @@ impl ModuleMap {
     let status = module.get_status();
 
     if let Some(value) = maybe_value {
-      assert!(
+      debug_assert!(
         status == v8::ModuleStatus::Evaluated
           || status == v8::ModuleStatus::Errored
       );
@@ -952,7 +892,7 @@ impl ModuleMap {
         generic_error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.")
       );
     } else {
-      assert!(status == v8::ModuleStatus::Errored);
+      assert_eq!(status, v8::ModuleStatus::Errored);
     }
 
     Ok(())
@@ -1068,6 +1008,11 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
   ) -> Result<(), Error> {
     let mut has_evaluated = true;
+
+    // TODO(mmastrac): We register this waker unconditionally because we occasionally need to re-run
+    // the event loop. Eventually we will want this method to correctly wake the waker on any forward
+    // progress.
+    self.module_waker.register(cx.waker());
 
     // Run in a loop so that dynamic imports that only depend on another
     // dynamic import can be resolved in this event loop iteration.
@@ -1251,7 +1196,7 @@ impl ModuleMap {
 
     if module.get_status() == v8::ModuleStatus::Errored {
       let exception = module.get_exception();
-      return exception_to_err_result(scope, exception, false);
+      return exception_to_err_result(scope, exception, false, false);
     }
 
     assert!(matches!(
@@ -1357,14 +1302,15 @@ impl ModuleMap {
       .map_err(|e| match e {
         ModuleError::Exception(exception) => {
           let exception = v8::Local::new(scope, exception);
-          exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+          exception_to_err_result::<()>(scope, exception, false, true)
+            .unwrap_err()
         }
         ModuleError::Other(error) => error,
       })?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false).unwrap_err()
+      exception_to_err_result::<()>(scope, exception, false, true).unwrap_err()
     })?;
 
     let module_handle = self.get_handle(mod_id).unwrap();
@@ -1378,7 +1324,7 @@ impl ModuleMap {
     let result = promise.result(scope);
     if !result.is_undefined() {
       return Err(
-        exception_to_err_result::<()>(scope, result, false).unwrap_err(),
+        exception_to_err_result::<()>(scope, result, false, true).unwrap_err(),
       );
     }
 
@@ -1438,15 +1384,6 @@ impl ModuleMap {
     })?;
 
     self.lazy_load_es_module_from_code(scope, module_specifier, source.code)
-  }
-}
-
-impl Default for ModuleMap {
-  fn default() -> Self {
-    Self::new(
-      Rc::new(NoopModuleLoader),
-      Box::new(default_import_meta_resolve_cb),
-    )
   }
 }
 

@@ -1,6 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use super::bindings;
+use super::bindings::watch_promise;
+use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::snapshot_util;
 use crate::error::exception_to_err_result;
@@ -40,6 +42,7 @@ use crate::OpResult;
 use crate::OpState;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
+use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::future::poll_fn;
@@ -226,7 +229,7 @@ pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
 
 /// A single execution context of JavaScript. Corresponds roughly to the "Web
 /// Worker" concept in the DOM.
-////
+///
 /// The JsRuntime future completes when there is an error or when all
 /// pending ops have completed.
 ///
@@ -313,14 +316,11 @@ pub struct JsRuntimeState {
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
-  /// The error that was passed to an `op_dispatch_exception` call.
+  /// The error that was passed to a `reportUnhandledException` call.
   /// It will be retrieved by `exception_to_err_result` and used as an error
   /// instead of any other exceptions.
   pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
   waker: Arc<AtomicWaker>,
-  // TODO(nayeemrmn): This is polled in `exception_to_err_result()` which is
-  // flimsy. Try to poll it similarly to `pending_promise_rejections`.
-  dispatched_exception: Cell<Option<v8::Global<v8::Value>>>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
   has_inspector: Cell<bool>,
@@ -624,7 +624,6 @@ impl JsRuntime {
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       op_state: op_state.clone(),
-      dispatched_exception: None.into(),
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
       has_inspector: false.into(),
@@ -773,26 +772,28 @@ impl JsRuntime {
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
 
+    let exception_state = context_state.borrow().exception_state.clone();
     let module_map = if let Some(snapshotted_data) = snapshotted_data {
       Rc::new(ModuleMap::new_from_snapshotted_data(
         loader,
+        exception_state,
         import_meta_resolve_cb,
         scope,
         snapshotted_data,
       ))
     } else {
-      Rc::new(ModuleMap::new(loader, import_meta_resolve_cb))
+      Rc::new(ModuleMap::new(
+        loader,
+        exception_state,
+        import_meta_resolve_cb,
+      ))
     };
 
     context.set_slot(scope, module_map.clone());
 
     let main_realm = {
-      let main_realm = JsRealmInner::new(
-        context_state,
-        main_context,
-        module_map.clone(),
-        state_rc.clone(),
-      );
+      let main_realm =
+        JsRealmInner::new(context_state, main_context, module_map.clone());
       state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
       main_realm
@@ -975,9 +976,8 @@ impl JsRuntime {
         let mut receiver = {
           let isolate = self.v8_isolate();
           let scope = &mut realm.handle_scope(isolate);
-          let receiver = realm.mod_evaluate(scope, mod_id);
-          module_map.evaluate_pending_module(scope);
-          receiver
+
+          module_map.mod_evaluate(scope, mod_id)
         };
 
         // After evaluate_pending_module, if the module isn't fully evaluated
@@ -1168,7 +1168,9 @@ impl JsRuntime {
       .js_event_loop_tick_cb
       .replace(Rc::new(event_loop_tick_cb));
     state
+      .exception_state
       .js_build_custom_error_cb
+      .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
   }
 
@@ -1259,6 +1261,7 @@ impl JsRuntime {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let promise = {
       let scope = &mut self.handle_scope();
+      let scope = &mut v8::TryCatch::new(scope);
       let cb = function.open(scope);
       let this = v8::undefined(scope).into();
       let promise = if args.is_empty() {
@@ -1271,18 +1274,56 @@ impl JsRuntime {
         }
         cb.call(scope, this, &local_args)
       };
-      if promise.is_none() || scope.is_execution_terminating() {
-        let undefined = v8::undefined(scope).into();
-        return exception_to_err_result(scope, undefined, false);
+      if promise.is_none() {
+        if scope.is_execution_terminating() {
+          let undefined = v8::undefined(scope).into();
+          return exception_to_err_result(scope, undefined, false, true);
+        }
+        let exception = scope.exception().unwrap();
+        return exception_to_err_result(scope, exception, false, true);
       }
-      v8::Global::new(scope, promise.unwrap())
+      let promise = promise.unwrap();
+      if !promise.is_promise() {
+        return Ok(v8::Global::new(scope, promise));
+      }
+      let promise = v8::Local::<v8::Promise>::try_from(promise).unwrap();
+      let Some(promise) =
+        watch_promise(scope, promise, |scope, mut rv, res| {
+          let array = v8::Array::new(scope, 2);
+          match res {
+            Ok(value) => {
+              let b = v8::Boolean::new(scope, true);
+              array.set_index(scope, 0, b.into());
+              array.set_index(scope, 1, value);
+            }
+            Err(value) => {
+              let b = v8::Boolean::new(scope, false);
+              array.set_index(scope, 0, b.into());
+              array.set_index(scope, 1, value);
+            }
+          }
+          rv.set(array.into());
+        })
+      else {
+        bail!("Runtime shutdown");
+      };
+      v8::Global::new(scope, v8::Local::<v8::Value>::from(promise))
     };
-    let result = self.resolve_value(promise).await;
-    let isolate = &mut self.inner.v8_isolate;
-    let realm = &self.inner.main_realm;
-    let scope = &mut realm.handle_scope(isolate);
-    realm.0.check_promise_rejections(scope)?;
-    result
+
+    let res = self.resolve_value(promise).await?;
+    let scope = &mut self.handle_scope();
+    let res = v8::Local::new(scope, res);
+    if let Ok(array) = v8::Local::<v8::Array>::try_from(res) {
+      if array.get_index(scope, 0).unwrap().boolean_value(scope) {
+        let value = array.get_index(scope, 1).unwrap();
+        Ok(v8::Global::new(scope, value))
+      } else {
+        let value = array.get_index(scope, 1).unwrap();
+        Err(JsError::from_v8_exception(scope, value).into())
+      }
+    } else {
+      bail!("Unexpected V8 type");
+    }
   }
 
   /// Returns the namespace object of a module.
@@ -1352,7 +1393,9 @@ impl JsRuntime {
     tc_scope.perform_microtask_checkpoint();
     match tc_scope.exception() {
       None => Ok(()),
-      Some(exception) => exception_to_err_result(tc_scope, exception, false),
+      Some(exception) => {
+        exception_to_err_result(tc_scope, exception, false, true)
+      }
     }
   }
 
@@ -1414,11 +1457,13 @@ impl JsRuntime {
       v8::PromiseState::Rejected => {
         let exception = promise.result(scope);
         let promise_global = v8::Global::new(scope, promise);
-        JsRealm::state_from_scope(scope)
-          .borrow_mut()
+        JsRealm::exception_state_from_scope(scope)
           .pending_promise_rejections
+          .borrow_mut()
           .retain(|(key, _)| key != &promise_global);
-        return Poll::Ready(exception_to_err_result(scope, exception, false));
+        return Poll::Ready(exception_to_err_result(
+          scope, exception, false, true,
+        ));
       }
     }
 
@@ -1448,7 +1493,7 @@ impl JsRuntime {
       }
       v8::PromiseState::Rejected => {
         let exception = promise.result(scope);
-        Poll::Ready(exception_to_err_result(scope, exception, false))
+        Poll::Ready(exception_to_err_result(scope, exception, false, true))
       }
     }
   }
@@ -1574,6 +1619,7 @@ impl JsRuntime {
 
     let realm = &self.inner.main_realm;
     let modules = &realm.0.module_map;
+    let exception_state = &modules.exception_state;
 
     modules.poll_progress(cx, scope)?;
 
@@ -1581,9 +1627,13 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let dispatched_ops =
-      Self::do_js_event_loop_tick_realm(cx, scope, &realm.0.context_state)?;
-    realm.0.check_promise_rejections(scope)?;
+    let dispatched_ops = Self::do_js_event_loop_tick_realm(
+      cx,
+      scope,
+      &realm.0.context_state,
+      exception_state,
+    )?;
+    exception_state.check_exception_condition(scope)?;
 
     // Event loop middlewares
     let mut maybe_scheduling = false;
@@ -1595,9 +1645,6 @@ impl JsRuntime {
         }
       }
     }
-
-    // Top level module
-    modules.evaluate_pending_module(scope);
 
     // Get the pending state from the main realm, or all realms
     let pending_state = {
@@ -1642,6 +1689,7 @@ impl JsRuntime {
     {
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
+        || pending_state.has_pending_promise_rejections
         || maybe_scheduling
       {
         self.inner.state.waker.wake();
@@ -1804,6 +1852,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_module_evaluation: bool,
   has_pending_background_tasks: bool,
   has_tick_scheduled: bool,
+  has_pending_promise_rejections: bool,
 }
 
 impl EventLoopPendingState {
@@ -1819,8 +1868,12 @@ impl EventLoopPendingState {
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
-    let has_pending_module_evaluation =
-      modules.pending_mod_evaluate.borrow().is_some();
+    let has_pending_module_evaluation = modules.has_pending_module_evaluation();
+    let has_pending_promise_rejections = !modules
+      .exception_state
+      .pending_promise_rejections
+      .borrow()
+      .is_empty();
     EventLoopPendingState {
       has_pending_refed_ops: has_pending_tasks
         || num_pending_ops > num_unrefed_ops,
@@ -1829,6 +1882,7 @@ impl EventLoopPendingState {
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
       has_tick_scheduled: state.has_next_tick_scheduled,
+      has_pending_promise_rejections,
     }
   }
 
@@ -1847,6 +1901,7 @@ impl EventLoopPendingState {
       || self.has_pending_module_evaluation
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
+      || self.has_pending_promise_rejections
   }
 }
 
@@ -1891,41 +1946,6 @@ impl JsRuntimeState {
       .as_ref()
       .map(|inspector| f(&inspector.borrow()))
   }
-
-  pub(crate) fn has_dispatched_exception(&self) -> bool {
-    // SAFETY: we limit access to this cell to this method only
-    unsafe {
-      self
-        .dispatched_exception
-        .as_ptr()
-        .as_ref()
-        .unwrap_unchecked()
-        .is_some()
-    }
-  }
-
-  pub(crate) fn set_dispatched_exception(
-    &self,
-    exception: v8::Global<v8::Value>,
-  ) {
-    self.dispatched_exception.set(Some(exception))
-  }
-
-  pub(crate) fn get_dispatched_exception_as_local<'s>(
-    &self,
-    scope: &mut v8::HandleScope<'s>,
-  ) -> Option<v8::Local<'s, v8::Value>> {
-    // SAFETY: we limit access to this cell to this method only
-    unsafe {
-      self
-        .dispatched_exception
-        .as_ptr()
-        .as_ref()
-        .unwrap_unchecked()
-    }
-    .as_ref()
-    .map(|global| v8::Local::new(scope, global))
-  }
 }
 
 // Related to module loading
@@ -1947,8 +1967,15 @@ impl JsRuntime {
   /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
   /// module evaluation future.
   ///
-  /// `Error` can usually be downcast to `JsError` and should be awaited and
-  /// checked after [`JsRuntime::run_event_loop`] completion.
+  /// Modules with top-level await are treated like promises, so a `throw` in the top-level
+  /// block of a module is treated as an unhandled rejection. These rejections are provided to
+  /// the unhandled promise rejection handler, which has the opportunity to pass them off to
+  /// error-handling code. If those rejections are not handled (indicated by a `false` return
+  /// from that unhandled promise rejection handler), then the runtime will terminate.
+  ///
+  /// The future provided by `mod_evaluate` will only return errors in the case where
+  /// the runtime is shutdown and no longer available to provide unhandled rejection
+  /// information.
   ///
   /// This function panics if module has not been instantiated.
   pub fn mod_evaluate(
@@ -1958,7 +1985,7 @@ impl JsRuntime {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
-    realm.mod_evaluate(scope, id)
+    self.inner.main_realm.0.module_map.mod_evaluate(scope, id)
   }
 
   /// Asynchronously load specified module and all of its dependencies.
@@ -2005,6 +2032,7 @@ impl JsRuntime {
     cx: &mut Context,
     scope: &mut v8::HandleScope,
     context_state: &RefCell<ContextState>,
+    exception_state: &ExceptionState,
   ) -> Result<bool, Error> {
     let mut dispatched_ops = false;
 
@@ -2067,8 +2095,35 @@ impl JsRuntime {
       });
     }
 
+    let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled;
     dispatched_ops |= has_tick_scheduled;
+
+    let rejections = if !exception_state
+      .pending_promise_rejections
+      .borrow_mut()
+      .is_empty()
+    {
+      let mut rejections =
+        exception_state.pending_promise_rejections.borrow_mut();
+      let arr = v8::Array::new(scope, (rejections.len() * 2) as i32);
+      let mut index = 0;
+      for rejection in rejections.drain(..) {
+        let value = v8::Local::new(scope, rejection.0);
+        arr.set_index(scope, index, value.into());
+        index += 1;
+        let value = v8::Local::new(scope, rejection.1);
+        arr.set_index(scope, index, value);
+        index += 1;
+      }
+      drop(rejections);
+      arr.into()
+    } else {
+      undefined
+    };
+
+    args.push(rejections);
+
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
     args.push(has_tick_scheduled.into());
 
@@ -2076,20 +2131,17 @@ impl JsRuntime {
       context_state.js_event_loop_tick_cb.clone().unwrap();
     let tc_scope = &mut v8::TryCatch::new(scope);
     let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
-    let this = v8::undefined(tc_scope).into();
 
     drop(context_state);
 
-    js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());
-
-    if let Some(exception) = tc_scope.exception() {
-      // TODO(@andreubotella): Returning here can cause async ops in other
-      // realms to never resolve.
-      return exception_to_err_result(tc_scope, exception, false);
-    }
+    js_event_loop_tick_cb.call(tc_scope, undefined, args.as_slice());
 
     if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
       return Ok(false);
+    }
+
+    if let Some(exception) = tc_scope.exception() {
+      return exception_to_err_result(tc_scope, exception, false, true);
     }
 
     Ok(dispatched_ops)

@@ -50,10 +50,10 @@ pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[global] cb: v8::Global<v8::Function>,
 ) -> Option<v8::Local<'a, v8::Function>> {
-  let context_state_rc = JsRealm::state_from_scope(scope);
-  let old = context_state_rc
-    .borrow_mut()
+  let exception_state = JsRealm::exception_state_from_scope(scope);
+  let old = exception_state
     .js_promise_reject_cb
+    .borrow_mut()
     .replace(Rc::new(cb));
   old.map(|v| v8::Local::new(scope, &*v))
 }
@@ -794,10 +794,11 @@ pub fn op_destructure_error(
 /// Effectively throw an uncatchable error. This will terminate runtime
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
-#[op2]
+#[op2(reentrant)]
 pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
+  promise: bool,
 ) {
   let state = JsRuntime::state_from(scope);
   if let Some(true) = state.with_inspector(|inspector| {
@@ -808,7 +809,8 @@ pub fn op_dispatch_exception(
     return;
   }
 
-  state.set_dispatched_exception(v8::Global::new(scope, exception));
+  JsRealm::exception_state_from_scope(scope)
+    .set_dispatched_exception(v8::Global::new(scope, exception), promise);
   scope.terminate_execution();
 }
 
@@ -987,7 +989,9 @@ pub fn op_set_format_exception_callback<'a>(
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .borrow_mut()
+    .exception_state
     .js_format_exception_cb
+    .borrow_mut()
     .replace(Rc::new(cb));
   let old = old.map(|v| v8::Local::new(scope, &*v));
   old.map(|func| func.into())
@@ -996,44 +1000,6 @@ pub fn op_set_format_exception_callback<'a>(
 #[op2]
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::has_more_work(scope)
-}
-
-#[op2]
-pub fn op_store_pending_promise_rejection(
-  scope: &mut v8::HandleScope,
-  #[global] promise: v8::Global<v8::Promise>,
-  #[global] reason: v8::Global<v8::Value>,
-) {
-  let context_state_rc = JsRealm::state_from_scope(scope);
-  let mut context_state = context_state_rc.borrow_mut();
-  context_state
-    .pending_promise_rejections
-    .push_back((promise, reason));
-}
-
-#[op2]
-pub fn op_remove_pending_promise_rejection(
-  scope: &mut v8::HandleScope,
-  #[global] promise: v8::Global<v8::Promise>,
-) {
-  let context_state_rc = JsRealm::state_from_scope(scope);
-  let mut context_state = context_state_rc.borrow_mut();
-  context_state
-    .pending_promise_rejections
-    .retain(|(key, _)| key != &promise);
-}
-
-#[op2]
-pub fn op_has_pending_promise_rejection(
-  scope: &mut v8::HandleScope,
-  #[global] promise: v8::Global<v8::Promise>,
-) -> bool {
-  let context_state_rc = JsRealm::state_from_scope(scope);
-  let context_state = context_state_rc.borrow();
-  context_state
-    .pending_promise_rejections
-    .iter()
-    .any(|(key, _)| key == &promise)
 }
 
 #[op2]
