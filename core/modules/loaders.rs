@@ -301,34 +301,51 @@ impl ModuleLoader for StaticModuleLoader {
 }
 
 /// Annotates a `ModuleLoader` with a log of all `load()` calls.
+/// as well as a count of all `resolve()`, `prepare()`, and `load()` calls.
 #[cfg(test)]
-pub struct LoggingModuleLoader<L: ModuleLoader> {
+pub struct TestingModuleLoader<L: ModuleLoader> {
   loader: L,
   log: RefCell<Vec<ModuleSpecifier>>,
+  load_count: std::cell::Cell<usize>,
+  prepare_count: std::cell::Cell<usize>,
+  resolve_count: std::cell::Cell<usize>,
 }
 
 #[cfg(test)]
-impl<L: ModuleLoader> LoggingModuleLoader<L> {
+impl<L: ModuleLoader> TestingModuleLoader<L> {
   pub fn new(loader: L) -> Self {
     Self {
       loader,
       log: RefCell::new(vec![]),
+      load_count: Default::default(),
+      prepare_count: Default::default(),
+      resolve_count: Default::default(),
     }
   }
 
   pub fn log(&self) -> Vec<ModuleSpecifier> {
     self.log.borrow().clone()
   }
+
+  /// Retrieve the current module load event counts.
+  pub fn counts(&self) -> ModuleLoadEventCounts {
+    ModuleLoadEventCounts {
+      load: self.load_count.get(),
+      prepare: self.prepare_count.get(),
+      resolve: self.resolve_count.get(),
+    }
+  }
 }
 
 #[cfg(test)]
-impl<L: ModuleLoader> ModuleLoader for LoggingModuleLoader<L> {
+impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
   fn resolve(
     &self,
     specifier: &str,
     referrer: &str,
     kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, Error> {
+    self.resolve_count.set(self.resolve_count.get() + 1);
     self.loader.resolve(specifier, referrer, kind)
   }
 
@@ -338,6 +355,7 @@ impl<L: ModuleLoader> ModuleLoader for LoggingModuleLoader<L> {
     maybe_referrer: Option<String>,
     is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    self.prepare_count.set(self.prepare_count.get() + 1);
     self
       .loader
       .prepare_load(module_specifier, maybe_referrer, is_dyn_import)
@@ -349,20 +367,12 @@ impl<L: ModuleLoader> ModuleLoader for LoggingModuleLoader<L> {
     maybe_referrer: Option<&ModuleSpecifier>,
     is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
+    self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
     self
       .loader
       .load(module_specifier, maybe_referrer, is_dyn_import)
   }
-}
-
-/// Annotates a `ModuleLoader` with a count of all `resolve()`, `prepare()`, and `load()` calls.
-#[cfg(test)]
-pub struct CountingModuleLoader<L: ModuleLoader> {
-  loader: L,
-  load_count: std::cell::Cell<usize>,
-  prepare_count: std::cell::Cell<usize>,
-  resolve_count: std::cell::Cell<usize>,
 }
 
 #[cfg(test)]
@@ -381,63 +391,5 @@ impl ModuleLoadEventCounts {
       prepare,
       load,
     }
-  }
-}
-
-#[cfg(test)]
-impl<L: ModuleLoader> CountingModuleLoader<L> {
-  pub fn new(loader: L) -> Self {
-    Self {
-      loader,
-      load_count: Default::default(),
-      prepare_count: Default::default(),
-      resolve_count: Default::default(),
-    }
-  }
-
-  /// Retrieve the current module load event counts.
-  pub fn counts(&self) -> ModuleLoadEventCounts {
-    ModuleLoadEventCounts {
-      load: self.load_count.get(),
-      prepare: self.prepare_count.get(),
-      resolve: self.resolve_count.get(),
-    }
-  }
-}
-
-#[cfg(test)]
-impl<L: ModuleLoader> ModuleLoader for CountingModuleLoader<L> {
-  fn load(
-    &self,
-    module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
-    is_dyn_import: bool,
-  ) -> Pin<Box<ModuleSourceFuture>> {
-    self.load_count.set(self.load_count.get() + 1);
-    self
-      .loader
-      .load(module_specifier, maybe_referrer, is_dyn_import)
-  }
-
-  fn prepare_load(
-    &self,
-    module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<String>,
-    is_dyn_import: bool,
-  ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
-    self.prepare_count.set(self.prepare_count.get() + 1);
-    self
-      .loader
-      .prepare_load(module_specifier, maybe_referrer, is_dyn_import)
-  }
-
-  fn resolve(
-    &self,
-    specifier: &str,
-    referrer: &str,
-    kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
-    self.resolve_count.set(self.resolve_count.get() + 1);
-    self.loader.resolve(specifier, referrer, kind)
   }
 }
