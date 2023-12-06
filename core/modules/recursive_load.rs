@@ -132,14 +132,14 @@ impl RecursiveModuleLoad {
     match self.init {
       LoadInit::Main(ref specifier) => {
         self
-          .loader
+          .module_map_rc
           .resolve(specifier, ".", ResolutionKind::MainModule)
       }
       LoadInit::Side(ref specifier) => {
-        self.loader.resolve(specifier, ".", ResolutionKind::Import)
+        self.module_map_rc.resolve(specifier, ".", ResolutionKind::Import)
       }
       LoadInit::DynamicImport(ref specifier, ref referrer, _) => self
-        .loader
+        .module_map_rc
         .resolve(specifier, referrer, ResolutionKind::DynamicImport),
     }
   }
@@ -149,19 +149,19 @@ impl RecursiveModuleLoad {
       LoadInit::Main(ref specifier) => {
         let spec =
           self
-            .loader
+            .module_map_rc
             .resolve(specifier, ".", ResolutionKind::MainModule)?;
         (spec, None)
       }
       LoadInit::Side(ref specifier) => {
         let spec =
           self
-            .loader
+            .module_map_rc
             .resolve(specifier, ".", ResolutionKind::Import)?;
         (spec, None)
       }
       LoadInit::DynamicImport(ref specifier, ref referrer, _) => {
-        let spec = self.loader.resolve(
+        let spec = self.module_map_rc.resolve(
           specifier,
           referrer,
           ResolutionKind::DynamicImport,
