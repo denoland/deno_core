@@ -653,7 +653,7 @@ async fn dyn_import_op() {
     },
   );
 
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([
     (Url::parse("file:///main.js").unwrap(), ascii_str!("(async () => { await import('./dynamic.js'); await Deno.core.opAsync('op_wait'); })();")),
     (Url::parse("file:///dynamic.js").unwrap(), ascii_str!("await Deno.core.opAsync('op_test');")),
   ])));
