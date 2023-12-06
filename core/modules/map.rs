@@ -549,6 +549,16 @@ impl ModuleMap {
     referrer: &str,
     import_assertions: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
+    eprintln!("module resolve callback {} {}", specifier, referrer);
+    if specifier.starts_with("ext:")
+      && !referrer.starts_with("ext:")
+      && !referrer.starts_with("node:")
+    {
+      let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
+      throw_type_error(scope, msg);
+      return None;
+    }
+
     let resolved_specifier = self
       .loader
       .borrow()
@@ -631,6 +641,20 @@ impl ModuleMap {
       .insert(load.id, resolver_handle);
 
     let loader = self.loader.clone();
+
+    eprintln!("load dynamic import {} {}", specifier, referrer);
+    if specifier.starts_with("ext:")
+      && !referrer.starts_with("ext:")
+      && !referrer.starts_with("node:")
+    {
+      let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
+      let err = generic_error(msg);
+      let fut = async move { (load.id, Err(err)) }.boxed_local();
+      self.preparing_dynamic_imports.borrow_mut().push(fut);
+      self.preparing_dynamic_imports_pending.set(true);
+      return;
+    }
+
     let resolve_result = loader.borrow().resolve(
       specifier,
       referrer,
