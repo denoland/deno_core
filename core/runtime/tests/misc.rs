@@ -422,25 +422,6 @@ fn dangling_shared_isolate() {
 }
 
 #[tokio::test]
-async fn test_encode_decode() {
-  let (mut runtime, _dispatch_count) = setup(Mode::Async);
-  poll_fn(move |cx| {
-    runtime
-      .execute_script(
-        "encode_decode_test.js",
-        // Note: We make this to_owned because it contains non-ASCII chars
-        include_str!("encode_decode_test.js").to_owned().into(),
-      )
-      .unwrap();
-    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, false) {
-      unreachable!();
-    }
-    Poll::Ready(())
-  })
-  .await;
-}
-
-#[tokio::test]
 async fn test_serialize_deserialize() {
   let (mut runtime, _dispatch_count) = setup(Mode::Async);
   poll_fn(move |cx| {
@@ -970,66 +951,6 @@ async fn test_promise_rejection_handler(
   #[values(true, false)] module: bool,
 ) {
   test_promise_rejection_handler_generic(module, case, error).await
-}
-
-#[test]
-fn test_array_by_copy() {
-  // Verify that "array by copy" proposal is enabled (https://github.com/tc39/proposal-change-array-by-copy)
-  let mut runtime = JsRuntime::new(Default::default());
-  assert!(runtime
-    .execute_script_static(
-      "test_array_by_copy.js",
-      "const a = [1, 2, 3];
-      const b = a.toReversed();
-      if (!(a[0] === 1 && a[1] === 2 && a[2] === 3)) {
-        throw new Error('Expected a to be intact');
-      }
-      if (!(b[0] === 3 && b[1] === 2 && b[2] === 1)) {
-        throw new Error('Expected b to be reversed');
-      }",
-    )
-    .is_ok());
-}
-
-#[test]
-fn test_array_from_async() {
-  // Verify that "Array.fromAsync" proposal is enabled (https://github.com/tc39/proposal-array-from-async)
-  let mut runtime = JsRuntime::new(Default::default());
-  assert!(runtime
-    .execute_script_static(
-      "test_array_from_async.js",
-      "(async () => {
-        const b = await Array.fromAsync(new Map([[1, 2], [3, 4]]));
-        if (b[0][0] !== 1 || b[0][1] !== 2 || b[1][0] !== 3 || b[1][1] !== 4) {
-          throw new Error('failed');
-        }
-      })();",
-    )
-    .is_ok());
-}
-
-#[test]
-fn test_iterator_helpers() {
-  // Verify that "Iterator helpers" proposal is enabled (https://github.com/tc39/proposal-iterator-helpers)
-  let mut runtime = JsRuntime::new(Default::default());
-  assert!(runtime
-    .execute_script_static(
-      "test_iterator_helpers.js",
-      "function* naturals() {
-        let i = 0;
-        while (true) {
-          yield i;
-          i += 1;
-        }
-      }
-      
-      const a = naturals().take(5).toArray();
-      if (a[0] !== 0 || a[1] !== 1 || a[2] !== 2 || a[3] !== 3 || a[4] !== 4) {
-        throw new Error('failed');
-      }
-      ",
-    )
-    .is_ok());
 }
 
 // Make sure that stalled top-level awaits (that is, top-level awaits that

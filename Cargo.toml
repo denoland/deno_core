@@ -7,6 +7,7 @@ members = [
   "ops",
   "ops/compile_test_runner",
   "serde_v8",
+  "testing",
 ]
 
 [workspace.package]

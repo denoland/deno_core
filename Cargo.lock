@@ -286,6 +286,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "deno_core_testing"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "deno_ast",
+ "deno_core",
+ "futures",
+ "pretty_assertions",
+ "prettyplease",
+ "testing_macros",
+ "tokio",
+]
+
+[[package]]
 name = "deno_media_type"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

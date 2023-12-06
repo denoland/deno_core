@@ -7,6 +7,9 @@
 
 declare namespace Deno {
   namespace core {
+    /** Returns a proxy that generates the fast versions of sync and async ops. */
+    function ensureFastOps(): any;
+
     /** Call an op in Rust, and asynchronously receive the result. */
     function opAsync(
       opName: string,

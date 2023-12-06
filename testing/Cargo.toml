@@ -1,0 +1,24 @@
+# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+
+[package]
+name = "deno_core_testing"
+version = "0.0.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+
+[lib]
+path = "./lib.rs"
+
+[dev-dependencies]
+deno_core.workspace = true
+pretty_assertions.workspace = true
+prettyplease.workspace = true
+testing_macros.workspace = true
+anyhow.workspace = true
+deno_ast.workspace = true
+futures.workspace = true
+tokio.workspace = true
