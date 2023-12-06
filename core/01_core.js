@@ -845,7 +845,8 @@
     currentUserCallSite,
   });
 
-  ObjectAssign(globalThis.__bootstrap, { core });
+  const internals = {};
+  ObjectAssign(globalThis.__bootstrap, { core, internals });
   ObjectAssign(globalThis.Deno, { core });
   ObjectFreeze(globalThis.__bootstrap.core);
 

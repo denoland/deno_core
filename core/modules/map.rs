@@ -1219,9 +1219,7 @@ impl ModuleMap {
       .iter()
       .map(|mod_name| (self.get_handle_by_name(mod_name).unwrap(), mod_name))
       .collect::<Vec<_>>();
-    let lazy_esm = self.data.borrow().lazy_esm_sources.clone();
     *self.data.borrow_mut() = ModuleMapData::default();
-    self.data.borrow_mut().lazy_esm_sources = lazy_esm;
     for (handle, new_name) in handles {
       self.inject_handle(
         ModuleName::from_static(new_name),
