@@ -129,7 +129,7 @@ impl ModuleLoader for TypescriptModuleLoader {
 pub fn maybe_transpile_source(
   source: &mut ExtensionFileSource,
 ) -> Result<(), AnyError> {
-  // Always transpile `node:` built-in modules, since they might be TypeScript.
+  // Always transpile `checkin:` built-in modules, since they might be TypeScript.
   let media_type = if source.specifier.starts_with("checkin:") {
     MediaType::TypeScript
   } else {
