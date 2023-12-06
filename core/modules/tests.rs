@@ -1,8 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
-use crate::modules::loaders::CountingModuleLoader;
 use crate::modules::loaders::ModuleLoadEventCounts;
+use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
 use crate::modules::AssertedModuleType;
 use crate::modules::ModuleError;
@@ -317,7 +317,7 @@ fn test_recursive_load() {
 
 #[test]
 fn test_mods() {
-  let loader = Rc::new(CountingModuleLoader::new(NoopModuleLoader));
+  let loader = Rc::new(TestingModuleLoader::new(NoopModuleLoader));
   static DISPATCH_COUNT: AtomicUsize = AtomicUsize::new(0);
 
   #[op2(fast)]
@@ -434,7 +434,7 @@ fn test_lazy_loaded_esm() {
 
 #[test]
 fn test_json_module() {
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
@@ -548,7 +548,7 @@ fn test_validate_import_attributes() {
     scope.throw_exception(ex);
   }
 
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
@@ -586,7 +586,7 @@ fn test_validate_import_attributes() {
 
 #[test]
 fn test_validate_import_attributes_default() {
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
@@ -655,7 +655,7 @@ fn test_validate_import_attributes_default() {
 
 #[tokio::test]
 async fn dyn_import_err() {
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
@@ -685,7 +685,7 @@ async fn dyn_import_err() {
 
 #[tokio::test]
 async fn dyn_import_ok() {
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::with(
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
     Url::parse("file:///b.js").unwrap(),
     ascii_str!("export function b() { return 'b' }"),
   )));
@@ -732,7 +732,7 @@ async fn dyn_import_ok() {
 #[tokio::test]
 async fn dyn_import_borrow_mut_error() {
   // https://github.com/denoland/deno/issues/6054
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::with(
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
     Url::parse("file:///b.js").unwrap(),
     ascii_str!("export function b() { return 'b' }"),
   )));
@@ -773,7 +773,7 @@ async fn dyn_import_borrow_mut_error() {
 // Regression test for https://github.com/denoland/deno/issues/3736.
 #[test]
 fn dyn_concurrent_circular_import() {
-  let loader = Rc::new(CountingModuleLoader::new(StaticModuleLoader::new([
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([
     (
       Url::parse("file:///a.js").unwrap(),
       ascii_str!("import './b.js';"),
