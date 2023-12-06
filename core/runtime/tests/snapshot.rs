@@ -294,7 +294,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     );
   }
 
-  // We can still import a module that was registered manually
+  // Dynamic imports of ext: from non-ext: modules are not allowed.
   let dyn_import_promise = realm
     .execute_script_static(
       runtime.v8_isolate(),
@@ -304,7 +304,10 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     .unwrap();
   let dyn_import_result =
     futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
-  assert!(dyn_import_result.is_ok());
+  assert_eq!(
+    dyn_import_result.err().unwrap().to_string().as_str(),
+    r#"Uncaught (in promise) TypeError: Importing ext: modules is only allowed from ext: and node: modules. Tried to import ext:module_snapshot/test.js from (no referrer)"#
+  );
 
   // But not a new one
   let dyn_import_promise = realm
@@ -319,7 +322,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
   assert!(dyn_import_result.is_err());
   assert_eq!(
     dyn_import_result.err().unwrap().to_string().as_str(),
-    r#"Uncaught (in promise) TypeError: Module loading is not supported; attempted to load: "ext:module_snapshot/test2.js" from "(no referrer)""#
+    r#"Uncaught (in promise) TypeError: Importing ext: modules is only allowed from ext: and node: modules. Tried to import ext:module_snapshot/test2.js from (no referrer)"#
   );
 }
 
