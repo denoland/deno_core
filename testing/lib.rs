@@ -36,7 +36,4 @@ unit_test!(encode_decode_test, microtask_test, tc39_test, test_test,);
 
 // Test the load and run of an entire file within the `checkin` infrastructure.
 // These files are loaded from the system/ dir.
-integration_test!(
-  dyn_import_circular,
-  smoke_test,
-);
+integration_test!(dyn_import_circular, smoke_test,);
