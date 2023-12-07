@@ -37,7 +37,7 @@ jobs:
         run: cargo clean
       - name: ${{ inputs.job }}
         id: job
-        uses: ./.github/workflows/ci-${{ inputs.job }}
+        uses: ./.github/workflows/ci-lint
       - name: Cargo publish
         if: |
           contains(inputs.os, 'ubuntu') &&
