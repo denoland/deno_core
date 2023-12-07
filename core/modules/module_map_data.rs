@@ -8,7 +8,10 @@ use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::runtime::SnapshottedData;
+use crate::ExtensionFileSource;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// A symbolic module entity.
 #[derive(Debug, PartialEq)]
@@ -128,6 +131,8 @@ pub(crate) struct ModuleMapData {
   /// to evaluate a "synthetic module".
   pub(crate) synthetic_module_value_store:
     HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
+  pub(crate) lazy_esm_sources:
+    Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
 }
 
 impl ModuleMapData {

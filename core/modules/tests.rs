@@ -411,6 +411,30 @@ fn test_mods() {
 }
 
 #[test]
+fn test_lazy_loaded_esm() {
+  deno_core::extension!(test_ext, lazy_loaded_esm = [dir "modules/testdata", "lazy_loaded.js"]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops_and_esm()],
+    ..Default::default()
+  });
+
+  runtime
+    .execute_script_static(
+      "setup.js",
+      r#"
+      Deno.core.print("1\n");
+      const module = Deno.core.ops.op_lazy_load_esm("ext:test_ext/lazy_loaded.js");
+      module.blah("hello\n");
+      Deno.core.print(`${JSON.stringify(module)}\n`);
+      const module1 = Deno.core.ops.op_lazy_load_esm("ext:test_ext/lazy_loaded.js");
+      if (module !== module1) throw new Error("should return the same error");
+      "#,
+    )
+    .unwrap();
+}
+
+#[test]
 fn test_json_module() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {

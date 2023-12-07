@@ -270,6 +270,8 @@ macro_rules! or {
 ///  * bounds: a comma-separated list of additional type bounds, eg: `bounds = [ P::MyAssociatedType: MyTrait ]`
 ///  * ops: a comma-separated list of [`OpDecl`]s to provide, eg: `ops = [ op_foo, op_bar ]`
 ///  * esm: a comma-separated list of ESM module filenames (see [`include_js_files`]), eg: `esm = [ dir "dir", "my_file.js" ]`
+///  * lazy_loaded_esm: a comma-separated list of ESM module filenames (see [`include_js_files`]), that will be included in
+///     the produced binary, but not automatically evaluated. Eg: `lazy_loaded_esm = [ dir "dir", "my_file.js" ]`
 ///  * js: a comma-separated list of JS filenames (see [`include_js_files`]), eg: `js = [ dir "dir", "my_file.js" ]`
 ///  * config: a structure-like definition for configuration parameters which will be required when initializing this extension, eg: `config = { my_param: Option<usize> }`
 ///  * middleware: an [`OpDecl`] middleware function with the signature `fn (OpDecl) -> OpDecl`
@@ -289,6 +291,7 @@ macro_rules! extension {
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
     $(, esm_entry_point = $esm_entry_point:expr )?
     $(, esm = [ $( dir $dir_esm:expr , )? $( $esm:literal $( with_specifier $esm_specifier:expr )? ),* $(,)? ] )?
+    $(, lazy_loaded_esm = [ $( dir $dir_lazy_loaded_esm:expr , )? $( $lazy_loaded_esm:literal $( with_specifier $lazy_loaded_esm_specifier:expr )? ),* $(,)? ] )?
     $(, js = [ $( dir $dir_js:expr , )? $( $js:literal ),* $(,)? ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
@@ -336,6 +339,10 @@ macro_rules! extension {
           },
           esm_files: {
             const V: std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, []));
+            V
+          },
+          lazy_loaded_esm_files: {
+            const V: std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_lazy_loaded_js_files!( $name $( dir $dir_lazy_loaded_esm , )? $( $lazy_loaded_esm $( with_specifier $lazy_loaded_esm_specifier )? , )* ))?, []));
             V
           },
           esm_entry_point: {
@@ -497,6 +504,7 @@ pub struct Extension {
   pub deps: &'static [&'static str],
   pub js_files: Cow<'static, [ExtensionFileSource]>,
   pub esm_files: Cow<'static, [ExtensionFileSource]>,
+  pub lazy_loaded_esm_files: Cow<'static, [ExtensionFileSource]>,
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
   pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
@@ -515,6 +523,7 @@ impl Default for Extension {
       deps: &[],
       js_files: Cow::Borrowed(&[]),
       esm_files: Cow::Borrowed(&[]),
+      lazy_loaded_esm_files: Cow::Borrowed(&[]),
       esm_entry_point: None,
       ops: Cow::Borrowed(&[]),
       external_references: Cow::Borrowed(&[]),
@@ -582,6 +591,10 @@ impl Extension {
     self.esm_files.as_ref()
   }
 
+  pub fn get_lazy_loaded_esm_sources(&self) -> &[ExtensionFileSource] {
+    self.lazy_loaded_esm_files.as_ref()
+  }
+
   pub fn get_esm_entry_point(&self) -> Option<&'static str> {
     self.esm_entry_point
   }
@@ -644,6 +657,7 @@ impl Extension {
 pub struct ExtensionBuilder {
   js: Vec<ExtensionFileSource>,
   esm: Vec<ExtensionFileSource>,
+  lazy_loaded_esm: Vec<ExtensionFileSource>,
   esm_entry_point: Option<&'static str>,
   ops: Vec<OpDecl>,
   state: Option<Box<OpStateFn>>,
@@ -664,6 +678,14 @@ impl ExtensionBuilder {
 
   pub fn esm(&mut self, esm_files: Vec<ExtensionFileSource>) -> &mut Self {
     self.esm.extend(esm_files);
+    self
+  }
+
+  pub fn lazy_loaded_esm(
+    &mut self,
+    lazy_loaded_esm_files: Vec<ExtensionFileSource>,
+  ) -> &mut Self {
+    self.lazy_loaded_esm.extend(lazy_loaded_esm_files);
     self
   }
 
@@ -732,6 +754,7 @@ impl ExtensionBuilder {
       deps: self.deps,
       js_files: Cow::Owned(self.js),
       esm_files: Cow::Owned(self.esm),
+      lazy_loaded_esm_files: Cow::Owned(self.lazy_loaded_esm),
       esm_entry_point: self.esm_entry_point,
       ops: Cow::Owned(self.ops),
       external_references: Cow::Owned(self.external_references),
@@ -750,6 +773,9 @@ impl ExtensionBuilder {
       deps: std::mem::take(&mut self.deps),
       js_files: Cow::Owned(std::mem::take(&mut self.js)),
       esm_files: Cow::Owned(std::mem::take(&mut self.esm)),
+      lazy_loaded_esm_files: Cow::Owned(std::mem::take(
+        &mut self.lazy_loaded_esm,
+      )),
       esm_entry_point: self.esm_entry_point.take(),
       ops: Cow::Owned(std::mem::take(&mut self.ops)),
       external_references: Cow::Owned(std::mem::take(
@@ -838,6 +864,31 @@ macro_rules! include_js_files {
         specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
         code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
           concat!(env!("CARGO_MANIFEST_DIR"), "/", $file)
+        ),
+      },)+
+    ]
+  };
+}
+
+#[macro_export]
+macro_rules! include_lazy_loaded_js_files {
+  ($name:ident dir $dir:expr, $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
+    [
+      $($crate::ExtensionFileSource {
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
+        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
+          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
+        ),
+      },)+
+    ]
+  };
+
+  ($name:ident $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
+    [
+      $($crate::ExtensionFileSource {
+        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
+        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
+          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file))
         ),
       },)+
     ]

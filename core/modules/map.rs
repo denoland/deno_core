@@ -21,6 +21,7 @@ use crate::modules::ResolutionKind;
 use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshottedData;
+use crate::ExtensionFileSource;
 use crate::JsRuntime;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
@@ -48,6 +49,7 @@ use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
 use super::AssertedModuleType;
+use super::LazyEsmModuleLoader;
 
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
@@ -1330,6 +1332,56 @@ impl ModuleMap {
     let mod_ns = module_local.get_module_namespace();
 
     Ok(v8::Global::new(scope, mod_ns))
+  }
+
+  pub(crate) fn add_lazy_loaded_esm_sources(
+    &self,
+    sources: &[ExtensionFileSource],
+  ) {
+    if sources.is_empty() {
+      return;
+    }
+
+    let data = self.data.borrow_mut();
+    data.lazy_esm_sources.borrow_mut().extend(
+      sources
+        .iter()
+        .cloned()
+        .map(|source| (source.specifier, source)),
+    );
+  }
+
+  /// Lazy load and evaluate an ES module. Only modules that have been added
+  /// during build time can be executed (the ones stored in
+  /// `ModuleMapData::lazy_esm_sources`), not _any, random_ module.
+  pub(crate) fn lazy_load_esm_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    module_specifier: &str,
+  ) -> Result<v8::Global<v8::Value>, Error> {
+    let lazy_esm_sources = self.data.borrow().lazy_esm_sources.clone();
+    let loader = LazyEsmModuleLoader::new(lazy_esm_sources);
+
+    // Check if this module has already been loaded.
+    {
+      let module_map_data = self.data.borrow();
+      if let Some(id) = module_map_data
+        .get_id(module_specifier, AssertedModuleType::JavaScriptOrWasm)
+      {
+        let handle = module_map_data.get_handle(id).unwrap();
+        let handle_local = v8::Local::new(scope, handle);
+        let module =
+          v8::Global::new(scope, handle_local.get_module_namespace());
+        return Ok(module);
+      }
+    }
+
+    let specifier = ModuleSpecifier::parse(module_specifier)?;
+    let source = futures::executor::block_on(async {
+      loader.load(&specifier, None, false).await
+    })?;
+
+    self.lazy_load_es_module_from_code(scope, module_specifier, source.code)
   }
 }
 

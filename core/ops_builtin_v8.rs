@@ -35,6 +35,16 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   context_state.borrow_mut().unrefed_ops.insert(promise_id);
 }
 
+#[op2(reentrant)]
+#[global]
+pub fn op_lazy_load_esm(
+  scope: &mut v8::HandleScope,
+  #[string] module_specifier: String,
+) -> Result<v8::Global<v8::Value>, Error> {
+  let module_map_rc = JsRealm::module_map_from(scope);
+  module_map_rc.lazy_load_esm_module(scope, &module_specifier)
+}
+
 #[op2]
 pub fn op_set_promise_reject_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
