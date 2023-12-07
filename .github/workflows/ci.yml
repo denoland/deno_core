@@ -55,6 +55,7 @@ jobs:
         run: |
           cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
           deno lint
+          tools/copyright_checker.js
 
       - name: Lint deps
         if: contains(matrix.os, 'ubuntu')
