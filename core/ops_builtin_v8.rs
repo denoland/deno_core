@@ -35,6 +35,46 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   context_state.unrefed_ops.borrow_mut().insert(promise_id);
 }
 
+/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
+/// timers to exist).
+#[op2]
+pub fn op_timer_queue(
+  scope: &mut v8::HandleScope,
+  depth: u32,
+  repeat: bool,
+  timeout_ms: f64,
+  #[global] task: v8::Global<v8::Function>,
+) -> f64 {
+  let context_state = JsRealm::state_from_scope(scope);
+  if repeat {
+    context_state
+      .timers
+      .queue_timer_repeat(timeout_ms as _, (task, depth)) as _
+  } else {
+    context_state
+      .timers
+      .queue_timer(timeout_ms as _, (task, depth)) as _
+  }
+}
+
+#[op2]
+pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.timers.cancel_timer(id as _);
+}
+
+#[op2]
+pub fn op_timer_ref(scope: &mut v8::HandleScope, id: f64) {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.timers.ref_timer(id as _);
+}
+
+#[op2]
+pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.timers.unref_timer(id as _);
+}
+
 #[op2(reentrant)]
 #[global]
 pub fn op_lazy_load_esm(
