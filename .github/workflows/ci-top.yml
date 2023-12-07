@@ -14,6 +14,8 @@ jobs:
     name: Top-level
     runs-on: ${{ inputs.os }}
     steps:
+      - run: echo ${{ inputs.job }}
+
       - name: Clone repository
         uses: actions/checkout@v3
 
@@ -35,9 +37,16 @@ jobs:
       - name: Clean
         if: github.ref == 'refs/heads/main'
         run: cargo clean
-      - name: ${{ inputs.job }}
-        id: job
+
+      - name: Lint
+        id: lint
+        if: inputs.job == "lint"
         uses: ./.github/workflows/ci-lint
+
+      - name: Test
+        id: test
+        if: inputs.job == "test"
+        uses: ./.github/workflows/ci-test
       - name: Cargo publish
         if: |
           contains(inputs.os, 'ubuntu') &&
