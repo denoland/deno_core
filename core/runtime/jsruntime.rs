@@ -631,18 +631,18 @@ impl JsRuntime {
       waker,
     });
 
-    let weak = Rc::downgrade(&state_rc);
-    let context_state = Rc::new(RefCell::new(ContextState::default()));
+    let context_state = Rc::new(ContextState {
+      isolate: Some(isolate_ptr),
+      ..Default::default()
+    });
 
     // Add the task spawners to the OpState
     let spawner = context_state
-      .borrow()
       .task_spawner_factory
       .clone()
       .new_same_thread_spawner();
     op_state.borrow_mut().put(spawner);
     let spawner = context_state
-      .borrow()
       .task_spawner_factory
       .clone()
       .new_cross_thread_spawner();
@@ -663,14 +663,13 @@ impl JsRuntime {
           context_state.clone(),
           Rc::new(decl),
           op_state.clone(),
-          weak.clone(),
+          state_rc.clone(),
           options.get_error_class_fn.unwrap_or(&|_| "Error"),
           metrics_fn,
         )
       })
       .collect::<Vec<_>>()
       .into_boxed_slice();
-    context_state.borrow_mut().isolate = Some(isolate_ptr);
 
     let refs = bindings::external_references(&op_ctxs, &additional_references);
     // V8 takes ownership of external_references.
@@ -704,7 +703,7 @@ impl JsRuntime {
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
-    context_state.borrow_mut().op_ctxs = op_ctxs;
+    *context_state.op_ctxs.borrow_mut() = op_ctxs;
 
     isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
     isolate.set_promise_reject_callback(bindings::promise_reject_callback);
@@ -752,7 +751,7 @@ impl JsRuntime {
     bindings::initialize_context(
       scope,
       context,
-      &context_state.borrow().op_ctxs,
+      &context_state.op_ctxs.borrow(),
       init_mode,
     );
 
@@ -772,7 +771,7 @@ impl JsRuntime {
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
 
-    let exception_state = context_state.borrow().exception_state.clone();
+    let exception_state = context_state.exception_state.clone();
     let module_map = if let Some(snapshotted_data) = snapshotted_data {
       Rc::new(ModuleMap::new_from_snapshotted_data(
         loader,
@@ -1163,11 +1162,11 @@ impl JsRuntime {
 
     // Put global handles in the realm's ContextState
     let state_rc = realm.0.state();
-    let mut state = state_rc.borrow_mut();
-    state
+    state_rc
       .js_event_loop_tick_cb
+      .borrow_mut()
       .replace(Rc::new(event_loop_tick_cb));
-    state
+    state_rc
       .exception_state
       .js_build_custom_error_cb
       .borrow_mut()
@@ -1184,8 +1183,8 @@ impl JsRuntime {
   pub fn op_names(&self) -> Vec<&'static str> {
     let main_realm = self.inner.main_realm.clone();
     let state_rc = main_realm.0.state();
-    let state = state_rc.borrow();
-    state.op_ctxs.iter().map(|o| o.decl.name).collect()
+    let ctx = state_rc.op_ctxs.borrow();
+    ctx.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
@@ -1619,7 +1618,8 @@ impl JsRuntime {
 
     let realm = &self.inner.main_realm;
     let modules = &realm.0.module_map;
-    let exception_state = &modules.exception_state;
+    let context_state = &realm.0.context_state;
+    let exception_state = &context_state.exception_state;
 
     modules.poll_progress(cx, scope)?;
 
@@ -1630,7 +1630,7 @@ impl JsRuntime {
     let dispatched_ops = Self::do_js_event_loop_tick_realm(
       cx,
       scope,
-      &realm.0.context_state,
+      context_state,
       exception_state,
     )?;
     exception_state.check_exception_condition(scope)?;
@@ -1647,13 +1647,8 @@ impl JsRuntime {
     }
 
     // Get the pending state from the main realm, or all realms
-    let pending_state = {
-      EventLoopPendingState::new(
-        scope,
-        &realm.0.context_state.borrow(),
-        modules,
-      )
-    };
+    let pending_state =
+      EventLoopPendingState::new(scope, context_state, modules);
 
     if !pending_state.is_pending() && !maybe_scheduling {
       if has_inspector {
@@ -1862,14 +1857,14 @@ impl EventLoopPendingState {
     state: &ContextState,
     modules: &ModuleMap,
   ) -> Self {
-    let num_unrefed_ops = state.unrefed_ops.len();
-    let num_pending_ops = state.pending_ops.len();
+    let num_unrefed_ops = state.unrefed_ops.borrow().len();
+    let num_pending_ops = state.pending_ops.borrow().len();
     let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
     let has_pending_module_evaluation = modules.has_pending_module_evaluation();
-    let has_pending_promise_rejections = !modules
+    let has_pending_promise_rejections = !state
       .exception_state
       .pending_promise_rejections
       .borrow()
@@ -1881,7 +1876,7 @@ impl EventLoopPendingState {
       has_pending_dyn_module_evaluation,
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
-      has_tick_scheduled: state.has_next_tick_scheduled,
+      has_tick_scheduled: state.has_next_tick_scheduled.get(),
       has_pending_promise_rejections,
     }
   }
@@ -1890,7 +1885,6 @@ impl EventLoopPendingState {
   pub fn new_from_scope(scope: &mut v8::HandleScope) -> Self {
     let module_map = JsRealm::module_map_from(scope);
     let context_state = JsRealm::state_from_scope(scope);
-    let context_state = context_state.borrow();
     Self::new(scope, &context_state, &module_map)
   }
 
@@ -2031,14 +2025,14 @@ impl JsRuntime {
   fn do_js_event_loop_tick_realm(
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-    context_state: &RefCell<ContextState>,
+    context_state: &ContextState,
     exception_state: &ExceptionState,
   ) -> Result<bool, Error> {
     let mut dispatched_ops = false;
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
     // Rust will extend the lifetime of the borrow longer than we expect.
-    let tasks = context_state.borrow().task_spawner_factory.poll_inner(cx);
+    let tasks = context_state.task_spawner_factory.poll_inner(cx);
     if let Poll::Ready(tasks) = tasks {
       // TODO(mmastrac): we are using this flag
       dispatched_ops = true;
@@ -2046,8 +2040,6 @@ impl JsRuntime {
         task(scope);
       }
     }
-
-    let mut context_state = context_state.borrow_mut();
 
     // We return async responses to JS in unbounded batches (may change),
     // each batch is a flat vector of tuples:
@@ -2063,13 +2055,14 @@ impl JsRuntime {
       SmallVec::with_capacity(32);
 
     loop {
-      let Poll::Ready(item) = context_state.pending_ops.poll_join_next(cx)
+      let Poll::Ready(item) =
+        context_state.pending_ops.borrow_mut().poll_join_next(cx)
       else {
         break;
       };
       // TODO(mmastrac): If this task is really errored, things could be pretty bad
       let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
-      context_state.unrefed_ops.remove(&promise_id);
+      context_state.unrefed_ops.borrow_mut().remove(&promise_id);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       let was_error = matches!(resp, OpResult::Err(_));
@@ -2077,12 +2070,12 @@ impl JsRuntime {
       if metrics_event {
         if res.is_ok() && !was_error {
           dispatch_metrics_async(
-            &context_state.op_ctxs[op_id as usize],
+            &context_state.op_ctxs.borrow()[op_id as usize],
             OpMetricsEvent::CompletedAsync,
           );
         } else {
           dispatch_metrics_async(
-            &context_state.op_ctxs[op_id as usize],
+            &context_state.op_ctxs.borrow()[op_id as usize],
             OpMetricsEvent::ErrorAsync,
           );
         }
@@ -2096,7 +2089,7 @@ impl JsRuntime {
     }
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
-    let has_tick_scheduled = context_state.has_next_tick_scheduled;
+    let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
     dispatched_ops |= has_tick_scheduled;
 
     let rejections = if !exception_state
@@ -2127,12 +2120,10 @@ impl JsRuntime {
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
     args.push(has_tick_scheduled.into());
 
-    let js_event_loop_tick_cb_handle =
-      context_state.js_event_loop_tick_cb.clone().unwrap();
     let tc_scope = &mut v8::TryCatch::new(scope);
-    let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
-
-    drop(context_state);
+    let js_event_loop_tick_cb = context_state.js_event_loop_tick_cb.borrow();
+    let js_event_loop_tick_cb =
+      js_event_loop_tick_cb.as_ref().unwrap().open(tc_scope);
 
     js_event_loop_tick_cb.call(tc_scope, undefined, args.as_slice());
 

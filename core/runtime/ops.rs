@@ -47,9 +47,9 @@ pub fn map_async_op_infallible<R: 'static>(
       )
     };
     ctx
-      .context_state
-      .borrow_mut()
+      .context_state()
       .pending_ops
+      .borrow_mut()
       .spawn(op.map(mapper));
     return None;
   }
@@ -72,9 +72,9 @@ pub fn map_async_op_infallible<R: 'static>(
     };
 
   ctx
-    .context_state
-    .borrow_mut()
+    .context_state()
     .pending_ops
+    .borrow_mut()
     .spawn(pinned.map(move |r| {
       PendingOp(
         r.0,
@@ -103,7 +103,7 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
 
   if lazy {
     let get_class = ctx.get_error_class_fn;
-    ctx.context_state.borrow_mut().pending_ops.spawn(op.map(
+    ctx.context_state().pending_ops.borrow_mut().spawn(op.map(
       move |r| match r {
         Ok(v) => PendingOp(
           promise_id,
@@ -140,8 +140,11 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
     };
 
   let get_class = ctx.get_error_class_fn;
-  ctx.context_state.borrow_mut().pending_ops.spawn(pinned.map(
-    move |r| match r.2 {
+  ctx
+    .context_state()
+    .pending_ops
+    .borrow_mut()
+    .spawn(pinned.map(move |r| match r.2 {
       Ok(v) => PendingOp(
         r.0,
         r.1,
@@ -154,8 +157,7 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
         OpResult::Err(OpError::new(get_class, err.into())),
         metrics,
       ),
-    },
-  ));
+    }));
   None
 }
 
