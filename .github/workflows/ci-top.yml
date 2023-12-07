@@ -41,6 +41,7 @@ jobs:
 
       - name: Lint
         if: contains(inputs.os, 'ubuntu')
+        id: lint
         uses: .github/workflows/ci-lint.yml
 
       - name: Lint deps
