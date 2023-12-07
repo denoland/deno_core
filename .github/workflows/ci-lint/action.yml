@@ -1,6 +1,7 @@
 name: Lint workflow
 runs:
   using: "composite"
+  shell: bash
   steps:
     - name: Lint
       run: |
