@@ -2,6 +2,11 @@ name: Lint workflow
 runs:
   using: "composite"
   steps:
+    - name: Format
+      shell: bash
+      run: |
+        cargo fmt -- --check
+        deno fmt --check ./core/ ./ops/ ./serde_v8/
     - name: Lint
       shell: bash
       run: |
@@ -14,3 +19,9 @@ runs:
       shell: bash
       run: |
         tools/copyright_checker.js
+    - name: Lint deps
+      run: |
+        cargo install cargo-machete --locked
+        cargo machete
+        cargo install cargo-udeps --locked
+        cargo +nightly udeps
