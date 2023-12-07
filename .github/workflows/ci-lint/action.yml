@@ -20,6 +20,7 @@ runs:
       run: |
         tools/copyright_checker.js
     - name: Lint deps
+      shell: bash
       run: |
         cargo install cargo-machete --locked
         cargo machete
