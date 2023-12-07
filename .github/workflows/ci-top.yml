@@ -9,7 +9,7 @@ on:
 jobs:
   lint:
     name: Top-level
-    runs-on: ${{ os }}
+    runs-on: ${{ inputs.os }}
     steps:
       - name: Clone repository
         uses: actions/checkout@v3
@@ -26,7 +26,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Rust (nightly)
-        if: contains(os, 'ubuntu')
+        if: contains(inputs.os, 'ubuntu')
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Clean
@@ -34,20 +34,20 @@ jobs:
         run: cargo clean
 
       - name: Format
-        if: contains(os, 'ubuntu')
+        if: contains(inputs.os, 'ubuntu')
         run: |
           cargo fmt -- --check
           deno fmt --check ./core/ ./ops/ ./serde_v8/
 
       - name: Lint
-        if: contains(os, 'ubuntu')
+        if: contains(inputs.os, 'ubuntu')
         run: |
           cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
           deno lint
           tools/copyright_checker.js
 
       - name: Lint deps
-        if: contains(os, 'ubuntu')
+        if: contains(inputs.os, 'ubuntu')
         run: |
           cargo install cargo-machete --locked
           cargo machete
@@ -58,7 +58,7 @@ jobs:
         run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
 
       - name: Cargo test (miri)
-        if: contains(os, 'ubuntu')
+        if: contains(inputs.os, 'ubuntu')
         run: |
           # Install and run miri tests
           rustup component add --toolchain nightly miri
@@ -74,7 +74,7 @@ jobs:
 
       - name: Cargo publish
         if: |
-          contains(os, 'ubuntu') &&
+          contains(inputs.os, 'ubuntu') &&
           github.repository == 'denoland/deno_core' &&
           startsWith(github.ref, 'refs/tags/')
         env:
@@ -82,7 +82,7 @@ jobs:
         run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
 
       - name: Get tag version
-        if: contains(os, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
+        if: contains(inputs.os, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
         id: get_tag_version
         run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
 
