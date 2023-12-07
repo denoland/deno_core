@@ -206,7 +206,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     let sources = self.sources.borrow();
     let source = match sources.get(specifier.as_str()) {
       Some(source) => source,
-      None => return futures::future::err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the snapshot.", specifier)).boxed_local(),
+      None => return futures::future::err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the binary.", specifier)).boxed_local(),
     };
     let result = source.load();
     match result {
