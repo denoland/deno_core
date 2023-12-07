@@ -1,14 +1,16 @@
 name: Lint workflow
 runs:
   using: "composite"
-  shell: bash
   steps:
     - name: Lint
+      shell: bash
       run: |
         cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
     - name: Lint
+      shell: bash
       run: |
         deno lint
     - name: Lint
+      shell: bash
       run: |
         tools/copyright_checker.js
