@@ -9,6 +9,7 @@ on:
 jobs:
   lint:
     name: Top-level
+    runs-on: ${{ os }}
     steps:
       - name: Clone repository
         uses: actions/checkout@v3
