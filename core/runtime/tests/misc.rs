@@ -780,8 +780,8 @@ fn test_has_tick_scheduled() {
     .main_realm()
     .0
     .state()
-    .borrow_mut()
-    .has_next_tick_scheduled = false;
+    .has_next_tick_scheduled
+    .take();
   assert!(matches!(
     runtime.poll_event_loop(cx, false),
     Poll::Ready(Ok(()))
