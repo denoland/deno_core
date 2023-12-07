@@ -41,10 +41,7 @@ jobs:
 
       - name: Lint
         if: contains(inputs.os, 'ubuntu')
-        run: |
-          cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
-          deno lint
-          tools/copyright_checker.js
+        uses: .github/workflows/ci-lint.yml
 
       - name: Lint deps
         if: contains(inputs.os, 'ubuntu')

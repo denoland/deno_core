@@ -1,0 +1,13 @@
+name: Lint workflow
+runs:
+  using: "composite"
+  steps:
+    - name: Lint
+      run: |
+        cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
+    - name: Lint
+      run: |
+        deno lint
+    - name: Lint
+      run: |
+        tools/copyright_checker.js
