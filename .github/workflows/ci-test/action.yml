@@ -1,0 +1,17 @@
+name: Test workflow
+runs:
+  using: "composite"
+  steps:
+    - name: Cargo test
+      shell: bash
+      run: |-
+        cargo test --workspace --release --all-features --bins --tests --examples --exclude deno_ops_compile_test_runner
+        cargo test --doc
+
+    - name: Run examples
+      shell: bash
+      # Only regression tests here for now.
+      # Regression test for https://github.com/denoland/deno/pull/19615.
+      run: |-
+        cargo run -p deno_core --example op2
+        cargo run -p deno_core --example op2 --features include_js_files_for_snapshotting
