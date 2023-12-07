@@ -1,27 +1,14 @@
-name: ci
-
-on: [push, pull_request]
+name: CI top-level
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
 
 jobs:
-  top:
-    name: deno_core-${{ matrix.os }}
-    if: |
-      (github.event_name == 'push' || !startsWith(github.event.pull_request.head.label, 'denoland:'))
-      && github.ref_name != 'deno_core'
-      && !startsWith(github.ref, 'refs/tags/deno/')
-    runs-on: ${{ matrix.os }}
-    uses: ./.github/workflows/ci-top.yml
-    timeout-minutes: 30
-    strategy:
-      matrix:
-        os: [macOS-latest, ubuntu-latest, windows-2019]
-
-    env:
-      CARGO_INCREMENTAL: 0
-      GH_ACTIONS: 1
-      RUST_BACKTRACE: full
-      RUSTFLAGS: -D warnings
-
+  lint:
+    name: Lint
     steps:
       - name: Clone repository
         uses: actions/checkout@v3
@@ -38,7 +25,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Rust (nightly)
-        if: contains(matrix.os, 'ubuntu')
+        if: contains(os, 'ubuntu')
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Clean
@@ -46,20 +33,20 @@ jobs:
         run: cargo clean
 
       - name: Format
-        if: contains(matrix.os, 'ubuntu')
+        if: contains(os, 'ubuntu')
         run: |
           cargo fmt -- --check
           deno fmt --check ./core/ ./ops/ ./serde_v8/
 
       - name: Lint
-        if: contains(matrix.os, 'ubuntu')
+        if: contains(os, 'ubuntu')
         run: |
           cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
           deno lint
           tools/copyright_checker.js
 
       - name: Lint deps
-        if: contains(matrix.os, 'ubuntu')
+        if: contains(os, 'ubuntu')
         run: |
           cargo install cargo-machete --locked
           cargo machete
@@ -70,7 +57,7 @@ jobs:
         run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
 
       - name: Cargo test (miri)
-        if: contains(matrix.os, 'ubuntu')
+        if: contains(os, 'ubuntu')
         run: |
           # Install and run miri tests
           rustup component add --toolchain nightly miri
@@ -86,7 +73,7 @@ jobs:
 
       - name: Cargo publish
         if: |
-          contains(matrix.os, 'ubuntu') &&
+          contains(os, 'ubuntu') &&
           github.repository == 'denoland/deno_core' &&
           startsWith(github.ref, 'refs/tags/')
         env:
@@ -94,7 +81,7 @@ jobs:
         run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
 
       - name: Get tag version
-        if: contains(matrix.os, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
+        if: contains(os, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
         id: get_tag_version
         run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
 
