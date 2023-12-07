@@ -12,6 +12,8 @@ jobs:
     uses: ./.github/workflows/ci-top.yml
     with:
       os: ${{ matrix.os }}
+      job: ${{ matrix.job }}
     strategy:
       matrix:
         os: [macOS-latest, ubuntu-latest, windows-2019]
+        jobs: [test, lint]

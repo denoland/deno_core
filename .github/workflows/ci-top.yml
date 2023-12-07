@@ -1,8 +1,11 @@
-name: CI top-level
+name: CI ${{ inputs.job }}
 on:
   workflow_call:
     inputs:
       os:
+        required: true
+        type: string
+      job:
         required: true
         type: string
 
@@ -32,12 +35,9 @@ jobs:
       - name: Clean
         if: github.ref == 'refs/heads/main'
         run: cargo clean
-      - name: Lint
-        id: lint
-        uses: ./.github/workflows/ci-lint
-      - name: Test
-        id: test
-        uses: ./.github/workflows/ci-test
+      - name: ${{ inputs.job }}
+        id: job
+        uses: ./.github/workflows/ci-${{ inputs.job }}
       - name: Cargo publish
         if: |
           contains(inputs.os, 'ubuntu') &&
