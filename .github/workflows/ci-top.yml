@@ -1,4 +1,4 @@
-name: CI ${{ inputs.job }}
+name: CI
 on:
   workflow_call:
     inputs:
