@@ -11,7 +11,7 @@ on:
 
 jobs:
   lint:
-    name: Top-level
+    name: ${{ inputs.job }}
     runs-on: ${{ inputs.os }}
     steps:
       - run: echo ${{ inputs.job }}
