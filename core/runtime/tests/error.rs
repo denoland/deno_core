@@ -32,7 +32,8 @@ async fn test_error_builder() {
         include_str!("error_builder_test.js"),
       )
       .unwrap();
-    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, Default::default()) {
+    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, Default::default())
+    {
       unreachable!();
     }
     Poll::Ready(())

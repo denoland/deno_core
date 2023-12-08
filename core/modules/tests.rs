@@ -259,7 +259,8 @@ fn test_recursive_load() {
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(a_id);
-  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
   let l = loads.lock();
   assert_eq!(
     l.to_vec(),
@@ -529,13 +530,15 @@ fn test_json_module() {
   runtime.instantiate_module(mod_a).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_a);
-  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
   futures::executor::block_on(receiver).unwrap();
 
   runtime.instantiate_module(mod_b).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_b);
-  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
   futures::executor::block_on(receiver).unwrap();
 }
 
@@ -1071,7 +1074,8 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(main_id);
-  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
 
   let l = loads.lock();
   assert_eq!(
@@ -1157,7 +1161,8 @@ fn main_and_side_module() {
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(main_id);
-  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
 
   // Try to add another main module - it should error.
   let side_id_fut = runtime
@@ -1173,7 +1178,8 @@ fn main_and_side_module() {
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(side_id);
-  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
 }
 
 #[test]
@@ -1203,7 +1209,8 @@ fn dynamic_imports_snapshot() {
 
     #[allow(clippy::let_underscore_future)]
     let _ = runtime.mod_evaluate(main_id);
-    futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+    futures::executor::block_on(runtime.run_event_loop(Default::default()))
+      .unwrap();
     runtime.snapshot()
   };
 
@@ -1244,7 +1251,8 @@ fn import_meta_snapshot() {
 
     #[allow(clippy::let_underscore_future)]
     let eval_fut = runtime.mod_evaluate(main_id);
-    futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+    futures::executor::block_on(runtime.run_event_loop(Default::default()))
+      .unwrap();
     futures::executor::block_on(eval_fut).unwrap();
     runtime.snapshot()
   };
@@ -1413,7 +1421,9 @@ async fn import_meta_resolve_cb() {
     .unwrap();
   let local = LocalSet::new();
   let a = local.spawn_local(runtime.mod_evaluate(a_id));
-  let b = local.spawn_local(async move { runtime.run_event_loop(Default::default()).await });
+  let b = local.spawn_local(async move {
+    runtime.run_event_loop(Default::default()).await
+  });
   local.await;
 
   a.await.unwrap().unwrap();
@@ -1446,5 +1456,6 @@ if (typeof internals === "undefined") throw new Error("core missing");
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(main_id);
-  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
 }
