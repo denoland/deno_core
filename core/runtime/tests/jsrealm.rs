@@ -66,7 +66,7 @@ fn test_set_format_exception_callback_realms() {
         )
         .unwrap();
 
-      let result = futures::executor::block_on(runtime.run_event_loop(false));
+      let result = futures::executor::block_on(runtime.run_event_loop(Default::default()));
       assert!(result.is_err());
       let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
       assert_eq!(
@@ -101,7 +101,7 @@ async fn js_realm_ref_unref_ops() {
         r#"var promise =Deno.core.opAsync("op_pending")"#,
       )
       .unwrap();
-    assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));
+    assert!(matches!(runtime.poll_event_loop(cx, Default::default()), Poll::Pending));
 
     main_realm
       .execute_script_static(
@@ -114,7 +114,7 @@ async fn js_realm_ref_unref_ops() {
       .unwrap();
 
     assert!(matches!(
-      runtime.poll_event_loop(cx, false),
+      runtime.poll_event_loop(cx, Default::default()),
       Poll::Ready(Ok(()))
     ));
     Poll::Ready(())

@@ -32,7 +32,7 @@ async fn test_error_builder() {
         include_str!("error_builder_test.js"),
       )
       .unwrap();
-    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, false) {
+    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, Default::default()) {
       unreachable!();
     }
     Poll::Ready(())
@@ -110,7 +110,7 @@ async fn test_error_async_stack() {
     at async error_async_stack.js:4:5
     at async error_async_stack.js:9:5"#;
 
-    match runtime.poll_event_loop(cx, false) {
+    match runtime.poll_event_loop(cx, Default::default()) {
       Poll::Ready(Err(e)) => {
         assert_eq!(e.to_string(), expected_error);
       }

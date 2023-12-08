@@ -55,7 +55,7 @@ async fn test_async_opstate_borrow() {
       "Deno.core.opAsync(\"op_async_borrow\")",
     )
     .unwrap();
-  runtime.run_event_loop(false).await.unwrap();
+  runtime.run_event_loop(Default::default()).await.unwrap();
 }
 
 #[tokio::test]
@@ -97,7 +97,7 @@ lines: {
 "#,
     )
     .unwrap();
-  runtime.run_event_loop(false).await.unwrap();
+  runtime.run_event_loop(Default::default()).await.unwrap();
 }
 
 #[tokio::test]
@@ -140,7 +140,7 @@ lines: {
 "#,
     )
     .unwrap();
-  runtime.run_event_loop(false).await.unwrap();
+  runtime.run_event_loop(Default::default()).await.unwrap();
 }
 
 #[test]
@@ -560,7 +560,7 @@ await op_void_async_deferred();
       maybe_result
     }
 
-    event_loop_result = runtime.run_event_loop(false) => {
+    event_loop_result = runtime.run_event_loop(Default::default()) => {
       event_loop_result.unwrap();
 
       rx.await

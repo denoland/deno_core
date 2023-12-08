@@ -259,7 +259,7 @@ fn test_recursive_load() {
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(a_id);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
   let l = loads.lock();
   assert_eq!(
     l.to_vec(),
@@ -529,13 +529,13 @@ fn test_json_module() {
   runtime.instantiate_module(mod_a).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_a);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
   futures::executor::block_on(receiver).unwrap();
 
   runtime.instantiate_module(mod_b).unwrap();
 
   let receiver = runtime.mod_evaluate(mod_b);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
   futures::executor::block_on(receiver).unwrap();
 }
 
@@ -697,7 +697,7 @@ async fn dyn_import_op() {
     .await
     .unwrap();
   let f = runtime.mod_evaluate(id);
-  poll_fn(|cx| runtime.poll_event_loop(cx, false))
+  poll_fn(|cx| runtime.poll_event_loop(cx, Default::default()))
     .await
     .unwrap();
   _ = f.await;
@@ -725,7 +725,7 @@ async fn dyn_import_err() {
       .unwrap();
 
     // We should get an error here.
-    let result = runtime.poll_event_loop(cx, false);
+    let result = runtime.poll_event_loop(cx, Default::default());
     assert!(matches!(result, Poll::Ready(Err(_))));
     assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
     Poll::Ready(())
@@ -765,12 +765,12 @@ async fn dyn_import_ok() {
       .unwrap();
 
     assert!(matches!(
-      runtime.poll_event_loop(cx, false),
+      runtime.poll_event_loop(cx, Default::default()),
       Poll::Ready(Ok(_))
     ));
     assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
     assert!(matches!(
-      runtime.poll_event_loop(cx, false),
+      runtime.poll_event_loop(cx, Default::default()),
       Poll::Ready(Ok(_))
     ));
     assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
@@ -810,10 +810,10 @@ async fn dyn_import_borrow_mut_error() {
 
     // Old comments that are likely wrong:
     // First poll runs `prepare_load` hook.
-    let _ = runtime.poll_event_loop(cx, false);
+    let _ = runtime.poll_event_loop(cx, Default::default());
     assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
     // Second poll triggers error
-    let _ = runtime.poll_event_loop(cx, false);
+    let _ = runtime.poll_event_loop(cx, Default::default());
     assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
     Poll::Ready(())
   })
@@ -836,7 +836,7 @@ fn test_circular_load() {
     let circular1_id = result.unwrap();
     #[allow(clippy::let_underscore_future)]
     let _ = runtime.mod_evaluate(circular1_id);
-    runtime.run_event_loop(false).await.unwrap();
+    runtime.run_event_loop(Default::default()).await.unwrap();
 
     let l = loads.lock();
     assert_eq!(
@@ -917,7 +917,7 @@ fn test_redirect_load() {
     let redirect1_id = result.unwrap();
     #[allow(clippy::let_underscore_future)]
     let _ = runtime.mod_evaluate(redirect1_id);
-    runtime.run_event_loop(false).await.unwrap();
+    runtime.run_event_loop(Default::default()).await.unwrap();
     let l = loads.lock();
     assert_eq!(
       l.to_vec(),
@@ -1071,7 +1071,7 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(main_id);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
 
   let l = loads.lock();
   assert_eq!(
@@ -1157,7 +1157,7 @@ fn main_and_side_module() {
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(main_id);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
 
   // Try to add another main module - it should error.
   let side_id_fut = runtime
@@ -1173,7 +1173,7 @@ fn main_and_side_module() {
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(side_id);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
 }
 
 #[test]
@@ -1203,7 +1203,7 @@ fn dynamic_imports_snapshot() {
 
     #[allow(clippy::let_underscore_future)]
     let _ = runtime.mod_evaluate(main_id);
-    futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+    futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
     runtime.snapshot()
   };
 
@@ -1244,7 +1244,7 @@ fn import_meta_snapshot() {
 
     #[allow(clippy::let_underscore_future)]
     let eval_fut = runtime.mod_evaluate(main_id);
-    futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+    futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
     futures::executor::block_on(eval_fut).unwrap();
     runtime.snapshot()
   };
@@ -1366,7 +1366,7 @@ async fn no_duplicate_loads() {
   let a_id = runtime.load_main_module(&spec, None).await.unwrap();
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(a_id);
-  runtime.run_event_loop(false).await.unwrap();
+  runtime.run_event_loop(Default::default()).await.unwrap();
 }
 
 #[tokio::test]
@@ -1413,7 +1413,7 @@ async fn import_meta_resolve_cb() {
     .unwrap();
   let local = LocalSet::new();
   let a = local.spawn_local(runtime.mod_evaluate(a_id));
-  let b = local.spawn_local(async move { runtime.run_event_loop(false).await });
+  let b = local.spawn_local(async move { runtime.run_event_loop(Default::default()).await });
   local.await;
 
   a.await.unwrap().unwrap();
@@ -1446,5 +1446,5 @@ if (typeof internals === "undefined") throw new Error("core missing");
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(main_id);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default())).unwrap();
 }

@@ -1513,26 +1513,13 @@ impl JsRuntime {
   /// This future resolves when:
   ///  - there are no more pending dynamic imports
   ///  - there are no more pending ops
-  ///  - there are no more active inspector sessions (only if `wait_for_inspector` is set to true)
-  pub async fn run_event_loop(
-    &mut self,
-    wait_for_inspector: bool,
-  ) -> Result<(), Error> {
-    poll_fn(|cx| self.poll_event_loop(cx, wait_for_inspector)).await
-  }
-
-  /// Runs event loop to completion
-  ///
-  /// This future resolves when:
-  ///  - there are no more pending dynamic imports
-  ///  - there are no more pending ops
   ///  - there are no more active inspector sessions (only if
   ///     `PollEventLoopOptions.wait_for_inspector` is set to true)
-  pub async fn run_event_loop2(
+  pub async fn run_event_loop(
     &mut self,
     poll_options: PollEventLoopOptions,
   ) -> Result<(), Error> {
-    poll_fn(|cx| self.poll_event_loop2(cx, poll_options)).await
+    poll_fn(|cx| self.poll_event_loop(cx, poll_options)).await
   }
 
   /// A utility function that run provided future concurrently with the event loop.
@@ -1551,41 +1538,16 @@ impl JsRuntime {
           return result;
         },
 
-        _ = self.run_event_loop2(poll_options) => {}
+        _ = self.run_event_loop(poll_options) => {}
       }
     }
   }
 
   /// Runs a single tick of event loop
   ///
-  /// If `wait_for_inspector` is set to true event loop
-  /// will return `Poll::Pending` if there are active inspector sessions.
-  pub fn poll_event_loop(
-    &mut self,
-    cx: &mut Context,
-    wait_for_inspector: bool,
-  ) -> Poll<Result<(), Error>> {
-    Self::with_context_scope(
-      self.v8_isolate_ptr(),
-      self.inner.main_realm.context_ptr(),
-      |scope| {
-        self.poll_event_loop_inner(
-          cx,
-          scope,
-          PollEventLoopOptions {
-            wait_for_inspector,
-            ..Default::default()
-          },
-        )
-      },
-    )
-  }
-
-  /// Runs a single tick of event loop
-  ///
   /// If `PollEventLoopOptions.wait_for_inspector` is set to true, the event
   /// loop will return `Poll::Pending` if there are active inspector sessions.
-  pub fn poll_event_loop2(
+  pub fn poll_event_loop(
     &mut self,
     cx: &mut Context,
     poll_options: PollEventLoopOptions,

@@ -107,7 +107,7 @@ async fn test_wakers_for_async_ops() {
   // Drain events until we get to Ready
   loop {
     logging_waker.woken.store(false, Ordering::SeqCst);
-    let res = runtime.poll_event_loop(&mut Context::from_waker(&waker), false);
+    let res = runtime.poll_event_loop(&mut Context::from_waker(&waker), Default::default());
     let ready = matches!(res, Poll::Ready(Ok(())));
     assert!(ready || logging_waker.woken.load(Ordering::SeqCst));
     if ready {
@@ -431,7 +431,7 @@ async fn test_serialize_deserialize() {
         include_ascii_string!("serialize_deserialize_test.js"),
       )
       .unwrap();
-    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, false) {
+    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, Default::default()) {
       unreachable!();
     }
     Poll::Ready(())
@@ -617,7 +617,7 @@ assertEquals(1, notify_return_value);
       )
       .unwrap();
 
-    match runtime.poll_event_loop(cx, false) {
+    match runtime.poll_event_loop(cx, Default::default()) {
       Poll::Ready(Ok(())) => {}
       _ => panic!(),
     };
@@ -712,7 +712,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
       "#,
     )
     .unwrap();
-  runtime.run_event_loop(false).await.unwrap();
+  runtime.run_event_loop(Default::default()).await.unwrap();
 }
 
 #[test]
@@ -765,15 +765,15 @@ fn test_has_tick_scheduled() {
   let waker = futures::task::waker(Arc::new(ArcWakeImpl(awoken_times.clone())));
   let cx = &mut Context::from_waker(&waker);
 
-  assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));
+  assert!(matches!(runtime.poll_event_loop(cx, Default::default()), Poll::Pending));
   assert_eq!(1, MACROTASK.load(Ordering::Relaxed));
   assert_eq!(1, NEXT_TICK.load(Ordering::Relaxed));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
-  assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));
+  assert!(matches!(runtime.poll_event_loop(cx, Default::default()), Poll::Pending));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
-  assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));
+  assert!(matches!(runtime.poll_event_loop(cx, Default::default()), Poll::Pending));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
-  assert!(matches!(runtime.poll_event_loop(cx, false), Poll::Pending));
+  assert!(matches!(runtime.poll_event_loop(cx, Default::default()), Poll::Pending));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
 
   runtime
@@ -783,12 +783,12 @@ fn test_has_tick_scheduled() {
     .has_next_tick_scheduled
     .take();
   assert!(matches!(
-    runtime.poll_event_loop(cx, false),
+    runtime.poll_event_loop(cx, Default::default()),
     Poll::Ready(Ok(()))
   ));
   assert_eq!(awoken_times.load(Ordering::Relaxed), 0);
   assert!(matches!(
-    runtime.poll_event_loop(cx, false),
+    runtime.poll_event_loop(cx, Default::default()),
     Poll::Ready(Ok(()))
   ));
   assert_eq!(awoken_times.load(Ordering::Relaxed), 0);
@@ -829,7 +829,7 @@ async fn test_unhandled_rejection_order() {
       "#,
     )
     .unwrap();
-  let err = runtime.run_event_loop(false).await.unwrap_err();
+  let err = runtime.run_event_loop(Default::default()).await.unwrap_err();
   assert_eq!(err.to_string(), "Uncaught (in promise) 0");
 }
 
@@ -900,7 +900,7 @@ async fn test_promise_rejection_handler_generic(
     None
   };
 
-  let res = runtime.run_event_loop(false).await;
+  let res = runtime.run_event_loop(Default::default()).await;
   if let Some(error) = error {
     let err = res.expect_err("Expected a failure");
     let Ok(js_error) = err.downcast::<JsError>() else {
@@ -973,7 +973,7 @@ async fn test_stalled_tla() {
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(module_id);
 
-  let error = runtime.run_event_loop(false).await.unwrap_err();
+  let error = runtime.run_event_loop(Default::default()).await.unwrap_err();
   let js_error = error.downcast::<JsError>().unwrap();
   assert_eq!(
     &js_error.exception_message,
@@ -1024,7 +1024,7 @@ async fn test_dynamic_import_module_error_stack() {
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(module_id);
 
-  let error = runtime.run_event_loop(false).await.unwrap_err();
+  let error = runtime.run_event_loop(Default::default()).await.unwrap_err();
   let js_error = error.downcast::<JsError>().unwrap();
   assert_eq!(
     js_error.to_string(),
@@ -1110,7 +1110,7 @@ async fn task_spawner() {
       let res = call_i32_function(scope);
       value_clone.store(res as _, Ordering::SeqCst);
     });
-  poll_fn(|cx| runtime.poll_event_loop(cx, false))
+  poll_fn(|cx| runtime.poll_event_loop(cx, Default::default()))
     .await
     .unwrap();
   assert_eq!(value.load(Ordering::SeqCst), 42);
@@ -1137,7 +1137,7 @@ async fn task_spawner_cross_thread() {
   // Async spin while we wait for this to complete
   let start = Instant::now();
   while value.load(Ordering::SeqCst) != 42 {
-    poll_fn(|cx| runtime.poll_event_loop(cx, false))
+    poll_fn(|cx| runtime.poll_event_loop(cx, Default::default()))
       .await
       .unwrap();
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1165,7 +1165,7 @@ async fn task_spawner_cross_thread_blocking() {
   // Async spin while we wait for this to complete
   let start = Instant::now();
   while value.load(Ordering::SeqCst) != 42 {
-    poll_fn(|cx| runtime.poll_event_loop(cx, false))
+    poll_fn(|cx| runtime.poll_event_loop(cx, Default::default()))
       .await
       .unwrap();
     tokio::time::sleep(Duration::from_millis(10)).await;
