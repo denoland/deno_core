@@ -42,4 +42,10 @@ unit_test!(
 
 // Test the load and run of an entire file within the `checkin` infrastructure.
 // These files are loaded from the system/ dir.
-integration_test!(dyn_import_circular, smoke_test,);
+integration_test!(
+  dyn_import_circular,
+  error_async_stack,
+  error_with_stack,
+  error_without_stack,
+  smoke_test,
+);
