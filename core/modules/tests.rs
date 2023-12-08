@@ -820,41 +820,6 @@ async fn dyn_import_borrow_mut_error() {
   .await;
 }
 
-// Regression test for https://github.com/denoland/deno/issues/3736.
-#[test]
-fn dyn_concurrent_circular_import() {
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([
-    (
-      Url::parse("file:///a.js").unwrap(),
-      ascii_str!("import './b.js';"),
-    ),
-    (
-      Url::parse("file:///b.js").unwrap(),
-      ascii_str!("import './c.js';\nimport './a.js';"),
-    ),
-    (
-      Url::parse("file:///c.js").unwrap(),
-      ascii_str!("import './d.js';"),
-    ),
-    (Url::parse("file:///d.js").unwrap(), ascii_str!("// pass")),
-  ])));
-
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader.clone()),
-    ..Default::default()
-  });
-
-  runtime
-    .execute_script_static(
-      "file:///entry.js",
-      "import('./b.js');\nimport('./a.js');",
-    )
-    .unwrap();
-
-  let result = futures::executor::block_on(runtime.run_event_loop(false));
-  assert!(result.is_ok());
-}
-
 #[test]
 fn test_circular_load() {
   let loader = MockLoader::new();

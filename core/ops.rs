@@ -18,7 +18,6 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::rc::Weak;
 use std::sync::Arc;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::CTypeInfo;
@@ -125,11 +124,12 @@ pub struct OpCtx {
 
   pub(crate) decl: Rc<OpDecl>,
   pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
-  pub(crate) runtime_state: Weak<JsRuntimeState>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
-  pub(crate) context_state: Rc<RefCell<ContextState>>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
+
+  context_state: Rc<ContextState>,
+  runtime_state: Rc<JsRuntimeState>,
 }
 
 impl OpCtx {
@@ -137,10 +137,10 @@ impl OpCtx {
   pub(crate) fn new(
     id: OpId,
     isolate: *mut Isolate,
-    context_state: Rc<RefCell<ContextState>>,
+    context_state: Rc<ContextState>,
     decl: Rc<OpDecl>,
     state: Rc<RefCell<OpState>>,
-    runtime_state: Weak<JsRuntimeState>,
+    runtime_state: Rc<JsRuntimeState>,
     get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
@@ -220,6 +220,16 @@ impl OpCtx {
   pub unsafe fn unsafely_set_last_error_for_ops_only(&self, error: AnyError) {
     let opt_mut = &mut *self.last_fast_error.get();
     *opt_mut = Some(error);
+  }
+
+  /// Get the [`ContextState`] for this op.
+  pub(crate) fn context_state(&self) -> &ContextState {
+    &self.context_state
+  }
+
+  /// Get the [`JsRuntimeState`] for this op.
+  pub(crate) fn runtime_state(&self) -> &JsRuntimeState {
+    &self.runtime_state
   }
 }
 

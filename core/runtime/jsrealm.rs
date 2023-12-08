@@ -13,6 +13,7 @@ use crate::tasks::V8TaskSpawnerFactory;
 use anyhow::Error;
 use deno_unsync::JoinSet;
 use futures::stream::StreamExt;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
@@ -46,16 +47,19 @@ impl Hasher for IdentityHasher {
 #[derive(Default)]
 pub(crate) struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
-  pub(crate) js_event_loop_tick_cb: Option<Rc<v8::Global<v8::Function>>>,
-  pub(crate) js_wasm_streaming_cb: Option<Rc<v8::Global<v8::Function>>>,
-  pub(crate) unrefed_ops: HashSet<i32, BuildHasherDefault<IdentityHasher>>,
-  pub(crate) pending_ops: JoinSet<PendingOp>,
+  pub(crate) js_event_loop_tick_cb:
+    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) js_wasm_streaming_cb:
+    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) unrefed_ops:
+    RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
+  pub(crate) pending_ops: RefCell<JoinSet<PendingOp>>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
-  pub(crate) op_ctxs: Box<[OpCtx]>,
+  pub(crate) op_ctxs: RefCell<Box<[OpCtx]>>,
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
-  pub(crate) has_next_tick_scheduled: bool,
+  pub(crate) has_next_tick_scheduled: Cell<bool>,
 }
 
 /// A representation of a JavaScript realm tied to a [`JsRuntime`], that allows
@@ -92,14 +96,14 @@ pub(crate) struct JsRealm(pub(crate) JsRealmInner);
 
 #[derive(Clone)]
 pub(crate) struct JsRealmInner {
-  pub(crate) context_state: Rc<RefCell<ContextState>>,
+  pub(crate) context_state: Rc<ContextState>,
   context: Rc<v8::Global<v8::Context>>,
   pub(crate) module_map: Rc<ModuleMap>,
 }
 
 impl JsRealmInner {
   pub(crate) fn new(
-    context_state: Rc<RefCell<ContextState>>,
+    context_state: Rc<ContextState>,
     context: v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
   ) -> Self {
@@ -116,7 +120,7 @@ impl JsRealmInner {
   }
 
   #[inline(always)]
-  pub(crate) fn state(&self) -> Rc<RefCell<ContextState>> {
+  pub(crate) fn state(&self) -> Rc<ContextState> {
     self.context_state.clone()
   }
 
@@ -136,16 +140,15 @@ impl JsRealmInner {
 
   pub fn destroy(self) {
     let state = self.state();
-    let raw_ptr = self.state().borrow().isolate.unwrap();
+    let raw_ptr = self.state().isolate.unwrap();
     // SAFETY: We know the isolate outlives the realm
     let isolate = unsafe { raw_ptr.as_mut().unwrap() };
-    let mut realm_state = state.borrow_mut();
     // These globals will prevent snapshots from completing, take them
-    realm_state.exception_state.prepare_to_destroy();
-    std::mem::take(&mut realm_state.js_event_loop_tick_cb);
-    std::mem::take(&mut realm_state.js_wasm_streaming_cb);
+    state.exception_state.prepare_to_destroy();
+    std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
+    std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
     // The OpCtx slice may contain a circular reference
-    std::mem::take(&mut realm_state.op_ctxs);
+    std::mem::take(&mut *state.op_ctxs.borrow_mut());
 
     self.context().open(isolate).clear_all_slots(isolate);
 
@@ -163,12 +166,9 @@ impl JsRealm {
   #[inline(always)]
   pub(crate) fn state_from_scope(
     scope: &mut v8::HandleScope,
-  ) -> Rc<RefCell<ContextState>> {
+  ) -> Rc<ContextState> {
     let context = scope.get_current_context();
-    context
-      .get_slot::<Rc<RefCell<ContextState>>>(scope)
-      .unwrap()
-      .clone()
+    context.get_slot::<Rc<ContextState>>(scope).unwrap().clone()
   }
 
   #[inline(always)]
@@ -183,7 +183,7 @@ impl JsRealm {
   ) -> Rc<ExceptionState> {
     let context = scope.get_current_context();
     context
-      .get_slot::<Rc<ModuleMap>>(scope)
+      .get_slot::<Rc<ContextState>>(scope)
       .unwrap()
       .exception_state
       .clone()
@@ -192,13 +192,13 @@ impl JsRealm {
   #[cfg(test)]
   #[inline(always)]
   pub fn num_pending_ops(&self) -> usize {
-    self.0.context_state.borrow().pending_ops.len()
+    self.0.context_state.pending_ops.borrow().len()
   }
 
   #[cfg(test)]
   #[inline(always)]
   pub fn num_unrefed_ops(&self) -> usize {
-    self.0.context_state.borrow().unrefed_ops.len()
+    self.0.context_state.unrefed_ops.borrow().len()
   }
 
   /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].

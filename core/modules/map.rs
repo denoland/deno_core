@@ -86,8 +86,7 @@ pub(crate) struct ModuleMap {
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
   pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
-  // TODO(mmastrac): temporarily crate-public to avoid RefCell on ContextState
-  pub(crate) exception_state: Rc<ExceptionState>,
+  exception_state: Rc<ExceptionState>,
   dynamic_import_map:
     RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
   preparing_dynamic_imports:

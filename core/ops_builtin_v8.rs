@@ -26,13 +26,13 @@ use v8::ValueSerializerHelper;
 #[op2]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.borrow_mut().unrefed_ops.remove(&promise_id);
+  context_state.unrefed_ops.borrow_mut().remove(&promise_id);
 }
 
 #[op2]
 pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.borrow_mut().unrefed_ops.insert(promise_id);
+  context_state.unrefed_ops.borrow_mut().insert(promise_id);
 }
 
 #[op2(reentrant)]
@@ -87,15 +87,15 @@ pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
 #[op2]
 pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
   JsRealm::state_from_scope(scope)
-    .borrow()
     .has_next_tick_scheduled
+    .get()
 }
 
 #[op2]
 pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
   JsRealm::state_from_scope(scope)
-    .borrow_mut()
-    .has_next_tick_scheduled = v;
+    .has_next_tick_scheduled
+    .set(v);
 }
 
 #[derive(Serialize)]
@@ -719,21 +719,20 @@ pub fn op_set_wasm_streaming_callback(
   #[global] cb: v8::Global<v8::Function>,
 ) -> Result<(), Error> {
   let context_state_rc = JsRealm::state_from_scope(scope);
-  let mut context_state = context_state_rc.borrow_mut();
   // The callback to pass to the v8 API has to be a unit type, so it can't
   // borrow or move any local variables. Therefore, we're storing the JS
   // callback in a JsRuntimeState slot.
-  if context_state.js_wasm_streaming_cb.is_some() {
+  if context_state_rc.js_wasm_streaming_cb.borrow().is_some() {
     return Err(type_error("op_set_wasm_streaming_callback already called"));
   }
-  context_state.js_wasm_streaming_cb = Some(Rc::new(cb));
+  *context_state_rc.js_wasm_streaming_cb.borrow_mut() = Some(Rc::new(cb));
 
   scope.set_wasm_streaming_callback(|scope, arg, wasm_streaming| {
     let (cb_handle, streaming_rid) = {
       let context_state_rc = JsRealm::state_from_scope(scope);
       let cb_handle = context_state_rc
-        .borrow()
         .js_wasm_streaming_cb
+        .borrow()
         .as_ref()
         .unwrap()
         .clone();
@@ -817,13 +816,9 @@ pub fn op_dispatch_exception(
 #[op2]
 #[serde]
 pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
-  let state_rc = JsRealm::state_from_scope(scope);
-  let state = state_rc.borrow();
-  state
-    .op_ctxs
-    .iter()
-    .map(|o| o.decl.name.to_string())
-    .collect()
+  let state = JsRealm::state_from_scope(scope);
+  let ctx = state.op_ctxs.borrow();
+  ctx.iter().map(|o| o.decl.name.to_string()).collect()
 }
 
 #[derive(Deserialize, Serialize)]
@@ -988,7 +983,6 @@ pub fn op_set_format_exception_callback<'a>(
 ) -> Option<v8::Local<'a, v8::Value>> {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
-    .borrow_mut()
     .exception_state
     .js_format_exception_cb
     .borrow_mut()
