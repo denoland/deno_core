@@ -422,25 +422,6 @@ fn dangling_shared_isolate() {
   v8_isolate_handle.terminate_execution();
 }
 
-#[tokio::test]
-async fn test_serialize_deserialize() {
-  let (mut runtime, _dispatch_count) = setup(Mode::Async);
-  poll_fn(move |cx| {
-    runtime
-      .execute_script(
-        "serialize_deserialize_test.js",
-        include_ascii_string!("serialize_deserialize_test.js"),
-      )
-      .unwrap();
-    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, Default::default())
-    {
-      unreachable!();
-    }
-    Poll::Ready(())
-  })
-  .await;
-}
-
 /// Ensure that putting the inspector into OpState doesn't cause crashes. The only valid place we currently allow
 /// the inspector to be stashed without cleanup is the OpState, and this should not actually cause crashes.
 #[test]
@@ -828,26 +809,6 @@ fn terminate_during_module_eval() {
   let mod_result =
     futures::executor::block_on(runtime.mod_evaluate(module_id)).unwrap_err();
   assert!(mod_result.to_string().contains("terminated"));
-}
-
-#[tokio::test]
-async fn test_unhandled_rejection_order() {
-  let mut runtime = JsRuntime::new(Default::default());
-  runtime
-    .execute_script_static(
-      "",
-      r#"
-      for (let i = 0; i < 100; i++) {
-        Promise.reject(i);
-      }
-      "#,
-    )
-    .unwrap();
-  let err = runtime
-    .run_event_loop(Default::default())
-    .await
-    .unwrap_err();
-  assert_eq!(err.to_string(), "Uncaught (in promise) 0");
 }
 
 async fn test_promise_rejection_handler_generic(

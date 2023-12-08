@@ -180,6 +180,14 @@ declare namespace Deno {
 
     export type UncaughtExceptionCallback = (err: any) => void;
 
+    function serialize(
+      value: any,
+      options?: any,
+      errorCallback?,
+    ): Uint8Array;
+
+    function deserialize(buffer: Uint8Array, options?: any): any;
+
     /**
      * Enables collection of stack traces of all async ops. This allows for
      * debugging of where a given async op was started. Deno CLI uses this for

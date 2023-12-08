@@ -1,13 +1,15 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use std::path::Path;
-use std::rc::Rc;
-
+use anyhow::bail;
 use anyhow::Error;
 use deno_core::url::Url;
+use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
 use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
 use pretty_assertions::assert_eq;
+use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
 use testing::Output;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -59,6 +61,7 @@ fn create_runtime() -> JsRuntime {
     get_error_class_fn: Some(&|error| {
       deno_core::error::get_custom_error_class(error).unwrap()
     }),
+    shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   })
 }
@@ -80,20 +83,24 @@ async fn run_integration_test_task(
   mut runtime: JsRuntime,
   test: String,
 ) -> Result<(), Error> {
-  let test_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-    .join("integration/")
-    .join(&test);
-  let path = test_dir.join(format!("{test}.ts"));
-  let path = path.canonicalize()?.to_owned();
-  let url = Url::from_file_path(path).unwrap();
+  let test_dir = get_test_dir(&["integration", &test]);
+  let url = get_test_url(&test_dir, &test)?;
   let module = runtime.load_main_module(&url, None).await?;
   let f = runtime.mod_evaluate(module);
-  runtime
+  let mut actual_output = String::new();
+  if let Err(e) = runtime
     .run_event_loop(PollEventLoopOptions {
       pump_v8_message_loop: true,
       wait_for_inspector: false,
     })
-    .await?;
+    .await
+  {
+    for line in e.to_string().split('\n') {
+      actual_output += "[ERR] ";
+      actual_output += line;
+      actual_output += "\n";
+    }
+  }
   f.await?;
   let mut output: Output = runtime.op_state().borrow_mut().take();
   output.lines.push(String::new());
@@ -102,7 +109,8 @@ async fn run_integration_test_task(
     .await?
     .read_to_string(&mut expected_output)
     .await?;
-  assert_eq!(output.lines.join("\n"), expected_output);
+  actual_output += &output.lines.join("\n");
+  assert_eq!(actual_output, expected_output);
   Ok(())
 }
 
@@ -123,10 +131,8 @@ async fn run_unit_test_task(
   mut runtime: JsRuntime,
   test: String,
 ) -> Result<(), Error> {
-  let test_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("unit/");
-  let path = test_dir.join(format!("{test}.ts"));
-  let path = path.canonicalize()?.to_owned();
-  let url = Url::from_file_path(path).unwrap();
+  let test_dir = get_test_dir(&["unit"]);
+  let url = get_test_url(&test_dir, &test)?;
   let module = runtime.load_main_module(&url, None).await?;
   let f = runtime.mod_evaluate(module);
   runtime
@@ -150,4 +156,34 @@ async fn run_unit_test_task(
   }
 
   Ok(())
+}
+
+fn get_test_dir(dirs: &[&str]) -> PathBuf {
+  let mut test_dir = Path::new(env!("CARGO_MANIFEST_DIR")).to_owned();
+  for dir in dirs {
+    test_dir = test_dir.join(dir).to_owned();
+  }
+
+  test_dir.to_owned()
+}
+
+fn get_test_url(test_dir: &Path, test: &str) -> Result<Url, Error> {
+  let mut path = None;
+  for extension in ["ts", "js", "nocompile"] {
+    let test_path = test_dir.join(format!("{test}.{extension}"));
+    if test_path.exists() {
+      path = Some(test_path);
+      break;
+    }
+  }
+  let Some(path) = path else {
+    bail!("Test file not found");
+  };
+  let path = path.canonicalize()?.to_owned();
+  let url = Url::from_file_path(path).unwrap().to_string();
+  let base_url = Url::from_file_path(Path::new(env!("CARGO_MANIFEST_DIR")))
+    .unwrap()
+    .to_string();
+  let url = Url::parse(&format!("test://{}", &url[base_url.len()..]))?;
+  Ok(url)
 }
