@@ -33,6 +33,7 @@ deno_core::extension!(
     "__init.js",
     "console.ts" with_specifier "checkin:console",
     "testing.ts" with_specifier "checkin:testing",
+    "timers.ts" with_specifier "checkin:timers",
   ],
   state = |state| {
     state.put(TestFunctions::default());

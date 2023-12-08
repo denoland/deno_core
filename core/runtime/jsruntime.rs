@@ -1822,6 +1822,7 @@ impl EventLoopPendingState {
     let num_unrefed_ops = state.unrefed_ops.borrow().len();
     let num_pending_ops = state.pending_ops.borrow().len();
     let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
+    let has_pending_timers = state.timers.has_pending_timers();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
@@ -1833,6 +1834,7 @@ impl EventLoopPendingState {
       .is_empty();
     EventLoopPendingState {
       has_pending_refed_ops: has_pending_tasks
+        || has_pending_timers
         || num_pending_ops > num_unrefed_ops,
       has_pending_dyn_imports,
       has_pending_dyn_module_evaluation,
@@ -2097,6 +2099,22 @@ impl JsRuntime {
     };
 
     args.push(rejections);
+
+    let timers =
+      if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
+        let arr = v8::Array::new(scope, (timers.len() * 2) as _);
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..timers.len() {
+          let value = v8::Integer::new(scope, timers[i].1 .1 as _);
+          arr.set_index(scope, (i * 2) as _, value.into());
+          let value = v8::Local::new(scope, timers[i].1 .0.clone());
+          arr.set_index(scope, (i * 2 + 1) as _, value.into());
+        }
+        arr.into()
+      } else {
+        undefined
+      };
+    args.push(timers);
 
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
     args.push(has_tick_scheduled.into());

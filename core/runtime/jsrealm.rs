@@ -10,6 +10,7 @@ use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::ops::PendingOp;
 use crate::tasks::V8TaskSpawnerFactory;
+use crate::web_timeout::WebTimers;
 use anyhow::Error;
 use deno_unsync::JoinSet;
 use futures::stream::StreamExt;
@@ -47,6 +48,7 @@ impl Hasher for IdentityHasher {
 #[derive(Default)]
 pub(crate) struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
+  pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) js_wasm_streaming_cb:

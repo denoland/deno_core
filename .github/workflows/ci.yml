@@ -74,7 +74,7 @@ jobs:
           # Install and run miri tests
           rustup component add --toolchain nightly miri
           # This somehow prints errors in CI that don't show up locally
-          RUSTFLAGS=-Awarnings cargo +nightly miri test -p deno_core
+          MIRIFLAGS="-Zmiri-disable-isolation" RUSTFLAGS=-Awarnings cargo +nightly miri test -p deno_core
 
       - name: Run examples
         # Only regression tests here for now.

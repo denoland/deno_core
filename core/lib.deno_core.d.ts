@@ -135,6 +135,26 @@ declare namespace Deno {
     /** Set a value telling the runtime if there are "next ticks" scheduled */
     function setHasNextTickScheduled(value: boolean): void;
 
+    /** Enqueue a timer at the given depth, optionally repeating. */
+    function queueTimer(
+      depth: number,
+      repeat: boolean,
+      delay: number,
+      callback: () => void,
+    ): number;
+
+    /** Cancel a timer with a given ID. */
+    function cancelTimer(id: number);
+
+    /** Ref a timer with a given ID, blocking the runtime from exiting if the timer is still running. */
+    function refTimer(id: number);
+
+    /** Unref a timer with a given ID, allowing the runtime to exit if the timer is still running. */
+    function unrefTimer(id: number);
+
+    /** Gets the current timer depth. */
+    function getTimerDepth(): number;
+
     /**
      * Set a callback that will be called after resolving ops and "next ticks".
      */

@@ -72,6 +72,7 @@
   registerErrorClass("URIError", URIError);
 
   let unhandledPromiseRejectionHandler = () => false;
+  let timerDepth = 0;
 
   let nextPromiseId = 0;
   const promiseMap = new SafeMap();
@@ -165,7 +166,7 @@
   // responses of async ops.
   function eventLoopTick() {
     // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 2; i += 2) {
+    for (let i = 0; i < arguments.length - 3; i += 2) {
       const promiseId = arguments[i];
       const res = arguments[i + 1];
       const promise = getPromise(promiseId);
@@ -201,8 +202,17 @@
       }
     }
 
+    const timers = arguments[arguments.length - 2];
+    if (timers) {
+      for (let i = 0; i < timers.length; i += 2) {
+        timerDepth = timers[i];
+        timers[i + 1]();
+      }
+      timerDepth = 0;
+    }
+
     // If we have any rejections for this tick, attempt to process them
-    const rejections = arguments[arguments.length - 2];
+    const rejections = arguments[arguments.length - 3];
     if (rejections) {
       for (let i = 0; i < rejections.length; i += 2) {
         const handled = unhandledPromiseRejectionHandler(
@@ -840,6 +850,12 @@
       unhandledPromiseRejectionHandler = handler,
     reportUnhandledException: (e) => ops.op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => ops.op_dispatch_exception(e, true),
+    queueTimer: (depth, repeat, timeout, task) =>
+      ops.op_timer_queue(depth, repeat, timeout, task),
+    cancelTimer: (id) => ops.op_timer_cancel(id),
+    refTimer: (id) => ops.op_timer_ref(id),
+    unrefTimer: (id) => ops.op_timer_unref(id),
+    getTimerDepth: () => timerDepth,
     build,
     setBuildInfo,
     currentUserCallSite,

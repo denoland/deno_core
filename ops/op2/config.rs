@@ -170,7 +170,8 @@ impl MacroConfig {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use syn::{ItemFn, Meta};
+  use syn::ItemFn;
+  use syn::Meta;
 
   fn test_parse(s: &str, expected: MacroConfig) {
     let item_fn = syn::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))

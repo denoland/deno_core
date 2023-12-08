@@ -37,7 +37,7 @@ unit_test!(
   microtask_test,
   serialize_deserialize_test,
   tc39_test,
-  test_test,
+  timer_test,
 );
 
 // Test the load and run of an entire file within the `checkin` infrastructure.
@@ -49,4 +49,6 @@ integration_test!(
   error_with_stack,
   error_without_stack,
   smoke_test,
+  timer_ref,
+  timer_many,
 );
