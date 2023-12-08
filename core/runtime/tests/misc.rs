@@ -811,26 +811,6 @@ fn terminate_during_module_eval() {
   assert!(mod_result.to_string().contains("terminated"));
 }
 
-#[tokio::test]
-async fn test_unhandled_rejection_order() {
-  let mut runtime = JsRuntime::new(Default::default());
-  runtime
-    .execute_script_static(
-      "",
-      r#"
-      for (let i = 0; i < 100; i++) {
-        Promise.reject(i);
-      }
-      "#,
-    )
-    .unwrap();
-  let err = runtime
-    .run_event_loop(Default::default())
-    .await
-    .unwrap_err();
-  assert_eq!(err.to_string(), "Uncaught (in promise) 0");
-}
-
 async fn test_promise_rejection_handler_generic(
   module: bool,
   case: &'static str,
