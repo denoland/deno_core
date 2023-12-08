@@ -454,4 +454,15 @@ impl JsRealm {
     })?;
     Ok(root_id)
   }
+
+  pub(crate) fn lazy_load_es_module_from_code(
+    &self,
+    isolate: &mut v8::Isolate,
+    module_specifier: &str,
+    code: ModuleCode,
+  ) -> Result<v8::Global<v8::Value>, Error> {
+    let module_map_rc = self.0.module_map();
+    let scope = &mut self.handle_scope(isolate);
+    module_map_rc.lazy_load_es_module_from_code(scope, module_specifier, code)
+  }
 }

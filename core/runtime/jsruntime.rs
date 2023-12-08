@@ -2028,6 +2028,18 @@ impl JsRuntime {
       .await
   }
 
+  pub fn lazy_load_es_module_from_code(
+    &mut self,
+    specifier: &str,
+    code: ModuleCode,
+  ) -> Result<v8::Global<v8::Value>, Error> {
+    let isolate = &mut self.inner.v8_isolate;
+    self
+      .inner
+      .main_realm
+      .lazy_load_es_module_from_code(isolate, specifier, code)
+  }
+
   fn do_js_event_loop_tick_realm(
     cx: &mut Context,
     scope: &mut v8::HandleScope,
