@@ -3,6 +3,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use anyhow::Error;
+use deno_core::CrossIsolateStore;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
 use deno_core::PollEventLoopOptions;
@@ -59,6 +60,7 @@ fn create_runtime() -> JsRuntime {
     get_error_class_fn: Some(&|error| {
       deno_core::error::get_custom_error_class(error).unwrap()
     }),
+    shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   })
 }

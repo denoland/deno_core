@@ -422,25 +422,6 @@ fn dangling_shared_isolate() {
   v8_isolate_handle.terminate_execution();
 }
 
-#[tokio::test]
-async fn test_serialize_deserialize() {
-  let (mut runtime, _dispatch_count) = setup(Mode::Async);
-  poll_fn(move |cx| {
-    runtime
-      .execute_script(
-        "serialize_deserialize_test.js",
-        include_ascii_string!("serialize_deserialize_test.js"),
-      )
-      .unwrap();
-    if let Poll::Ready(Err(_)) = runtime.poll_event_loop(cx, Default::default())
-    {
-      unreachable!();
-    }
-    Poll::Ready(())
-  })
-  .await;
-}
-
 /// Ensure that putting the inspector into OpState doesn't cause crashes. The only valid place we currently allow
 /// the inspector to be stashed without cleanup is the OpState, and this should not actually cause crashes.
 #[test]
