@@ -847,7 +847,7 @@ mod tests {
       ),
     )?;
 
-    runtime.run_event_loop(false).await?;
+    runtime.run_event_loop(Default::default()).await?;
     if FAIL.with(|b| b.get()) {
       Err(generic_error(format!("{op} test failed ({test})")))
     } else {

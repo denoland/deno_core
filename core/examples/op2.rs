@@ -51,7 +51,7 @@ fn main() -> Result<(), Error> {
       .await?;
 
     let result = js_runtime.mod_evaluate(mod_id);
-    js_runtime.run_event_loop(false).await?;
+    js_runtime.run_event_loop(Default::default()).await?;
     result.await
   };
 

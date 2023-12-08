@@ -152,7 +152,8 @@ fn es_snapshot() {
 
     #[allow(clippy::let_underscore_future)]
     let _ = runtime.mod_evaluate(id);
-    futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+    futures::executor::block_on(runtime.run_event_loop(Default::default()))
+      .unwrap();
 
     ModuleInfo {
       id,
@@ -191,7 +192,8 @@ fn es_snapshot() {
 
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(id);
-  futures::executor::block_on(runtime.run_event_loop(false)).unwrap();
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
 
   let mut modules = vec![];
   modules.push(ModuleInfo {
