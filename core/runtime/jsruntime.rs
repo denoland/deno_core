@@ -2028,6 +2028,13 @@ impl JsRuntime {
       .await
   }
 
+  /// Load and evaluate an ES module provided the specifier and source code.
+  ///
+  /// The module should not have Top-Level Await (that is, it should be
+  /// possible to evaluate it synchronously).
+  ///
+  /// It is caller's responsibility to ensure that not duplicate specifiers are
+  /// passed to this method.
   pub fn lazy_load_es_module_from_code(
     &mut self,
     specifier: &str,

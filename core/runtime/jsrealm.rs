@@ -455,6 +455,13 @@ impl JsRealm {
     Ok(root_id)
   }
 
+  /// Load and evaluate an ES module provided the specifier and source code.
+  ///
+  /// The module should not have Top-Level Await (that is, it should be
+  /// possible to evaluate it synchronously).
+  ///
+  /// It is caller's responsibility to ensure that not duplicate specifiers are
+  /// passed to this method.
   pub(crate) fn lazy_load_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
