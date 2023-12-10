@@ -47,7 +47,7 @@ jobs:
         uses: ./.github/workflows/ci-lint
 
       - name: Lint (deps)
-        id: lint
+        id: lint-deps
         if: inputs.job == 'lint-deps'
         uses: ./.github/workflows/ci-lint-deps
 
@@ -57,7 +57,7 @@ jobs:
         uses: ./.github/workflows/ci-test
 
       - name: Test (miri)
-        id: test
+        id: test-miri
         if: inputs.job == 'test-miri'
         uses: ./.github/workflows/ci-test-miri
 
