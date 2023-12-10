@@ -6,7 +6,7 @@ jobs:
   compute-jobs:
     runs-on: ubuntu-latest
     outputs:
-      subjobs: ${{ steps.set-matrix.outputs.matrix }}
+      matrix: ${{ steps.read-jobs.outputs.matrix }}
     steps:
       # https://github.com/marketplace/actions/query-yaml-config-as-outputs
       - name: Read job configuration
@@ -27,10 +27,6 @@ jobs:
               uses: windows-2019
               jobs: [lint, test]
 
-      - name: Output job configuration
-        id: matrix
-        run: echo "matrix=${{ toJSON(steps.read-jobs.outputs.matrix) }}" >> $GITHUB_OUTPUT
-
   top:
     name: build-${{ matrix.os }}
     needs: compute-jobs
@@ -44,10 +40,4 @@ jobs:
       job: ${{ matrix.job }}
     strategy:
       matrix:
-        os: [macos, linux, windows]
-        job: [lint, test]
-        include:
-          - os: linux
-            job: lint-deps
-          - os: linux
-            job: test-miri
+        include: ${{ fromJSON(jobs.compute-jobs.outputs.matrix) }}
