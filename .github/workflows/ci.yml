@@ -19,7 +19,7 @@ jobs:
         run: echo "matrix=${{ toJSON(steps.read_action_js.outputs) }}" >> $GITHUB_OUTPUT
 
   top:
-    name: build-${{ inputs.os }}
+    name: build-${{ matrix.os }}
     needs: compute-jobs
     if: |
       (github.event_name == 'push' || !startsWith(github.event.pull_request.head.label, 'denoland:'))
