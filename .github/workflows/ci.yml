@@ -13,7 +13,7 @@ jobs:
         uses: pietrobolcato/action-read-yaml@1.0.0
         id: read-jobs
         with:
-          config: .github/workflows/data/jobs.yml
+          config: ./.github/workflows/data/jobs.yml
       - name: Output job configuration
         id: matrix
         run: echo "matrix=${{ toJSON(steps.read_action_js.outputs) }}" >> $GITHUB_OUTPUT
@@ -28,6 +28,13 @@ jobs:
     uses: ./.github/workflows/ci-per-platform.yml
     with:
       os: ${{ matrix.os }}
+      job: ${{ matrix.job }}
     strategy:
       matrix:
         os: [macos, linux, windows]
+        job: [lint, test]
+        include:
+          - os: linux
+            job: lint-deps
+          - os: linux
+            job: test-miri
