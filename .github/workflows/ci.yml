@@ -40,4 +40,4 @@ jobs:
       job: ${{ matrix.job }}
     strategy:
       matrix:
-        include: ${{ fromJSON(jobs.compute-jobs.outputs.matrix) }}
+        include: ${{ fromJSON(needs.compute-jobs.outputs.matrix) }}
