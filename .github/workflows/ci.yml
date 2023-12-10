@@ -15,7 +15,7 @@ jobs:
         with:
           # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
           # matrix below
-          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.uses, job: . }] }"
+          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
           config: |-
             linux:
               os: ubuntu-latest
