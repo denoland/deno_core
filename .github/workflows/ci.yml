@@ -15,7 +15,7 @@ jobs:
         with:
           # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
           # matrix below
-          query: "[. | to_entries[] | . as $entry | .value.jobs[] | { os: $entry.key, uses: $entry.value.uses, job: . }]"
+          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { os: $entry.key, uses: $entry.value.uses, job: . }] }"
           config: |-
             linux:
               uses: ubuntu-latest
@@ -29,7 +29,7 @@ jobs:
 
       - name: Output job configuration
         id: matrix
-        run: echo "matrix=${{ toJSON(steps.read-jobs.outputs) }}" >> $GITHUB_OUTPUT
+        run: echo "matrix=${{ toJSON(steps.read-jobs.outputs.matrix) }}" >> $GITHUB_OUTPUT
 
   top:
     name: build-${{ matrix.os }}
