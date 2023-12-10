@@ -1,0 +1,19 @@
+name: CI Per-Platform
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+
+jobs:
+  per-platform:
+    name: build-${{ matrix.os }}
+    uses: ./.github/workflows/ci-job.yml
+    with:
+      os: ${{ matrix.os }}
+      job: ${{ matrix.job }}
+    strategy:
+      matrix:
+        os: [macOS-latest, ubuntu-latest, windows-2019]
+        job: [test, lint]

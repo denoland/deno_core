@@ -1,19 +1,31 @@
-name: ci
+name: CI
 
 on: [push, pull_request]
 
 jobs:
+  compute-jobs:
+    runs-on: ubuntu-latest
+    outputs:
+      subjobs: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      # https://github.com/marketplace/actions/yaml-read
+      - name: Read job configuration
+        uses: pietrobolcato/action-read-yaml@1.0.0
+        id: read-jobs
+        with:
+          config: .github/workflows/data/jobs.yml
+      - name: Output job configuration
+        id: matrix
+        run: echo "matrix=${{ toJSON(steps.read_action_js.outputs) }}" >> $GITHUB_OUTPUT
+
   top:
-    name: deno_core-${{ matrix.os }}
+    name: build-${{ inputs.os }}
+    needs: compute-jobs
     if: |
       (github.event_name == 'push' || !startsWith(github.event.pull_request.head.label, 'denoland:'))
       && github.ref_name != 'deno_core'
       && !startsWith(github.ref, 'refs/tags/deno/')
-    uses: ./.github/workflows/ci-top.yml
-    with:
-      os: ${{ matrix.os }}
-      job: ${{ matrix.job }}
+    uses: ./.github/workflows/ci-per-platform.yml
     strategy:
       matrix:
-        os: [macOS-latest, ubuntu-latest, windows-2019]
-        job: [test, lint]
+        os: [macos, linux, windows]

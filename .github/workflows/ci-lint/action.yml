@@ -1,4 +1,4 @@
-name: Lint workflow
+name: Lint
 runs:
   using: "composite"
   steps:
@@ -19,10 +19,3 @@ runs:
       shell: bash
       run: |
         tools/copyright_checker.js
-    - name: Lint deps
-      shell: bash
-      run: |
-        cargo install cargo-machete --locked
-        cargo machete
-        cargo install cargo-udeps --locked
-        cargo +nightly udeps

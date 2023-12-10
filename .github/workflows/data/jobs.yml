@@ -1,0 +1,10 @@
+build:
+  linux:
+    uses: ubuntu-latest
+    jobs: [lint, lint-deps, test, test-miri]
+  macos:
+    uses: macOS-latest
+    jobs: [lint, test]
+  windows:
+    uses: windows-2019
+    jobs: [lint, test]

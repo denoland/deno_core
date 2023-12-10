@@ -1,4 +1,4 @@
-name: CI
+name: CI Job
 on:
   workflow_call:
     inputs:
@@ -47,6 +47,7 @@ jobs:
         id: test
         if: inputs.job == 'test'
         uses: ./.github/workflows/ci-test
+
       - name: Cargo publish
         if: |
           contains(inputs.os, 'ubuntu') &&
