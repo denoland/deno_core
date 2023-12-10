@@ -31,7 +31,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          #save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Rust (nightly)
         if: contains(inputs.os, 'ubuntu')
