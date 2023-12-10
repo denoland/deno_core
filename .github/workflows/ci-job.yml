@@ -46,10 +46,20 @@ jobs:
         if: inputs.job == 'lint'
         uses: ./.github/workflows/ci-lint
 
+      - name: Lint (deps)
+        id: lint
+        if: inputs.job == 'lint-deps'
+        uses: ./.github/workflows/ci-lint-deps
+
       - name: Test
         id: test
         if: inputs.job == 'test'
         uses: ./.github/workflows/ci-test
+
+      - name: Test (miri)
+        id: test
+        if: inputs.job == 'test-miri'
+        uses: ./.github/workflows/ci-test-miri
 
       - name: Cargo publish
         if: |
