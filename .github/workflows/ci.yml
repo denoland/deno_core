@@ -8,15 +8,28 @@ jobs:
     outputs:
       subjobs: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      # https://github.com/marketplace/actions/yaml-read
+      # https://github.com/marketplace/actions/query-yaml-config-as-outputs
       - name: Read job configuration
-        uses: pietrobolcato/action-read-yaml@1.0.0
+        uses: cloudposse/github-action-yaml-config-query@main
         id: read-jobs
         with:
-          config: ./.github/workflows/data/jobs.yml
+          # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
+          # matrix below
+          query: [. | to_entries[] | . as $entry | .value.jobs[] | { os: $entry.key, uses: $entry.value.uses, job: . }]
+          config: |-
+            linux:
+              uses: ubuntu-latest
+              jobs: [lint, lint-deps, test, test-miri]
+            macos:
+              uses: macOS-latest
+              jobs: [lint, test]
+            windows:
+              uses: windows-2019
+              jobs: [lint, test]
+
       - name: Output job configuration
         id: matrix
-        run: echo "matrix=${{ toJSON(steps.read_action_js.outputs) }}" >> $GITHUB_OUTPUT
+        run: echo "matrix=${{ toJSON(steps.read-jobs.outputs) }}" >> $GITHUB_OUTPUT
 
   top:
     name: build-${{ matrix.os }}
