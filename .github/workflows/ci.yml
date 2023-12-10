@@ -15,16 +15,16 @@ jobs:
         with:
           # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
           # matrix below
-          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { os: $entry.key, uses: $entry.value.uses, job: . }] }"
+          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.uses, job: . }] }"
           config: |-
             linux:
-              uses: ubuntu-latest
+              os: ubuntu-latest
               jobs: [lint, lint-deps, test, test-miri]
             macos:
-              uses: macOS-latest
+              os: macOS-latest
               jobs: [lint, test]
             windows:
-              uses: windows-2019
+              os: windows-2019
               jobs: [lint, test]
 
   top:
@@ -36,6 +36,7 @@ jobs:
       && !startsWith(github.ref, 'refs/tags/deno/')
     uses: ./.github/workflows/ci-job.yml
     with:
+      os: ${{ matrix.os }}
       os: ${{ matrix.os }}
       job: ${{ matrix.job }}
     strategy:

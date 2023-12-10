@@ -2,6 +2,9 @@ name: CI Job
 on:
   workflow_call:
     inputs:
+      label:
+        required: true
+        type: string
       os:
         required: true
         type: string
@@ -11,7 +14,7 @@ on:
 
 jobs:
   lint:
-    name: ${{ inputs.job }}
+    name: ${{ inputs.label }} ${{ inputs.job }}
     runs-on: ${{ inputs.os }}
     steps:
       - run: echo ${{ inputs.job }}
