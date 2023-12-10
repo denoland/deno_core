@@ -26,6 +26,8 @@ jobs:
       && github.ref_name != 'deno_core'
       && !startsWith(github.ref, 'refs/tags/deno/')
     uses: ./.github/workflows/ci-per-platform.yml
+    with:
+      os: ${{ matrix.os }}
     strategy:
       matrix:
         os: [macos, linux, windows]
