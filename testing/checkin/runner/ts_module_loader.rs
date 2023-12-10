@@ -5,7 +5,6 @@ use std::path::Path;
 use std::pin::Pin;
 use std::rc::Rc;
 
-use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 
@@ -69,9 +68,8 @@ impl ModuleLoader for TypescriptModuleLoader {
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
     ) -> Result<ModuleSource, AnyError> {
-      let path = module_specifier
-        .to_file_path()
-        .map_err(|_| anyhow!("Only file:// URLs are supported."))?;
+      let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+      let path = root.join(Path::new(&module_specifier.path()[1..]));
 
       let media_type = MediaType::from_path(&path);
       let (module_type, should_transpile) = match MediaType::from_path(&path) {
@@ -87,7 +85,13 @@ impl ModuleLoader for TypescriptModuleLoader {
         | MediaType::Dcts
         | MediaType::Tsx => (ModuleType::JavaScript, true),
         MediaType::Json => (ModuleType::Json, false),
-        _ => bail!("Unknown extension {:?}", path.extension()),
+        _ => {
+          if path.extension().unwrap_or_default() == "nocompile" {
+            (ModuleType::JavaScript, false)
+          } else {
+            bail!("Unknown extension {:?}", path.extension());
+          }
+        }
       };
 
       let code = std::fs::read_to_string(&path)?;

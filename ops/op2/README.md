@@ -1087,20 +1087,6 @@ Only usable in `deno_core`.
 <td>
 
 ```text
-Rc<JsRuntimeState>
-```
-
-</td><td>
-✅
-</td><td>
-
-</td><td>
-Only usable in `deno_core`.
-</td></tr>
-<tr>
-<td>
-
-```text
 *mut v8::Isolate
 ```
 

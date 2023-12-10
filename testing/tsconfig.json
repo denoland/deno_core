@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "baseUrl": "./checkin",
+    "baseUrl": ".",
     "paths": {
-      "checkin:console": ["runtime/console.ts"],
-      "checkin:testing": ["runtime/testing.ts"]
+      "checkin:console": ["checkin/runtime/console.ts"],
+      "checkin:testing": ["checkin/runtime/testing.ts"]
     },
     "lib": ["ESNext", "DOM", "ES2023.Array"]
   }

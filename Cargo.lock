@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.235.0"
+version = "0.237.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -267,6 +267,7 @@ dependencies = [
  "deno_ast",
  "deno_ops",
  "deno_unsync",
+ "fastrand",
  "futures",
  "libc",
  "log",
@@ -312,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.111.0"
+version = "0.113.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -417,6 +418,12 @@ dependencies = [
  "libc",
  "windows-sys",
 ]
+
+[[package]]
+name = "fastrand"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25cbce373ec4653f1a01a31e8a5e5ec0c622dc27ff9c4e6606eefef5cbbed4a5"
 
 [[package]]
 name = "form_urlencoded"
@@ -1205,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.144.0"
+version = "0.146.0"
 dependencies = [
  "bencher",
  "bytes",

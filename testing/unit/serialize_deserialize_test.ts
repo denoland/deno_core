@@ -1,23 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-"use strict";
+import { assertArrayEquals, assertEquals, test } from "checkin:testing";
 
-function assert(cond) {
-  if (!cond) {
-    throw Error("assert");
-  }
-}
-
-function assertArrayEquals(a1, a2) {
-  if (a1.length !== a2.length) throw Error("assert");
-
-  for (const index in a1) {
-    if (a1[index] !== a2[index]) {
-      throw Error(`assert: (index ${index}) ${a1[index]} !== ${a2[index]}`);
-    }
-  }
-}
-
-function testIssue20727() {
+test(function testIssue20727() {
   // https://github.com/denoland/deno/issues/20727
   const ab = new ArrayBuffer(10);
   const transferList = [ab];
@@ -26,45 +10,51 @@ function testIssue20727() {
     { transferredArrayBuffers: transferList },
   );
 
-  // check that shared_array_buffer_store is set
-  assert(typeof transferList[0] === "number");
+  // The shared_array_buffer_store replaces this with a number
+  assertEquals(typeof transferList[0], "number");
+});
+
+test(function testIssue20727b() {
   const data = {
     array1: new Uint32Array([]),
     array2: new Float32Array([]),
   };
-
-  const transferListTwo = [
+  const transferList = [
     data.array1.buffer,
     data.array2.buffer,
   ];
-  const serializedMultipleTransferredBuffers = Deno.core.ops.op_serialize(
+  const serializedMultipleTransferredBuffers = Deno.core.serialize(
     { id: 2, data },
-    { transferredArrayBuffers: transferListTwo },
+    { transferredArrayBuffers: transferList },
   );
 
-  assert(typeof transferListTwo[0] === "number");
-  assert(typeof transferListTwo[1] === "number");
+  // The shared_array_buffer_store replaces these with a number
+  assertEquals(typeof transferList[0], "number");
+  assertEquals(typeof transferList[1], "number");
+
   // should not throw
-  Deno.core.ops.op_deserialize(
+  Deno.core.deserialize(
     serializedMultipleTransferredBuffers,
-    { transferredArrayBuffers: transferListTwo },
+    { transferredArrayBuffers: transferList },
   );
-}
+});
 
-function main() {
+test(function testEmptyString() {
   const emptyString = "";
   const emptyStringSerialized = [255, 15, 34, 0];
   assertArrayEquals(
-    Deno.core.ops.op_serialize(emptyString),
+    Deno.core.serialize(emptyString),
     emptyStringSerialized,
   );
-  assert(
-    Deno.core.ops.op_deserialize(
+  assertEquals(
+    Deno.core.deserialize(
       new Uint8Array(emptyStringSerialized),
-    ) ===
-      emptyString,
+    ),
+    emptyString,
   );
+});
 
+test(function testPrimitiveArray() {
   const primitiveValueArray = ["test", "a", null, undefined];
   // deno-fmt-ignore
   const primitiveValueArraySerialized = [
@@ -72,17 +62,18 @@ function main() {
     34, 1, 97, 48, 95, 36, 0, 4,
   ];
   assertArrayEquals(
-    Deno.core.ops.op_serialize(primitiveValueArray),
+    Deno.core.serialize(primitiveValueArray),
     primitiveValueArraySerialized,
   );
-
   assertArrayEquals(
-    Deno.core.ops.op_deserialize(
+    Deno.core.deserialize(
       new Uint8Array(primitiveValueArraySerialized),
     ),
     primitiveValueArray,
   );
+});
 
+test(function testCircularObject() {
   const circularObject = { test: null, test2: "dd", test3: "aa" };
   circularObject.test = circularObject;
   // deno-fmt-ignore
@@ -93,18 +84,13 @@ function main() {
     116, 101, 115, 116, 51, 34, 2, 97,
     97, 123, 3,
   ];
-
   assertArrayEquals(
-    Deno.core.ops.op_serialize(circularObject),
+    Deno.core.serialize(circularObject),
     circularObjectSerialized,
   );
 
-  const deserializedCircularObject = Deno.core.ops.op_deserialize(
+  const deserializedCircularObject = Deno.core.deserialize(
     new Uint8Array(circularObjectSerialized),
   );
-  assert(deserializedCircularObject.test == deserializedCircularObject);
-
-  testIssue20727();
-}
-
-main();
+  assertEquals(deserializedCircularObject.test, deserializedCircularObject);
+});

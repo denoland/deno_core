@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-/// <reference path="../../../core/lib.deno_core.d.ts" />
 
 const {
   op_test_register,
@@ -15,10 +14,11 @@ export function test(test: () => void | Promise<void>) {
 /**
  * Assert a value is truthy.
  */
-export function assert(value) {
+export function assert(value, message?: string | undefined) {
   if (!value) {
-    console.debug("Failed assertion");
-    throw new Error("Failed assertion");
+    const assertion = "Failed assertion" + (message ? `: ${message}` : "");
+    console.debug(assertion);
+    throw new Error(assertion);
   }
 }
 
@@ -34,7 +34,7 @@ export function fail(reason: string) {
  * Assert two values match (==).
  */
 export function assertEquals(a1, a2) {
-  assert(a1 == a2);
+  assert(a1 == a2, `${a1} != ${a2}`);
 }
 
 /**

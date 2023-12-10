@@ -53,7 +53,7 @@ fn main() {
         r#"for (let i = 1; i <= 10; i++) Deno.core.ops.op_schedule_task(i);"#,
       )
       .unwrap();
-    js_runtime.run_event_loop(false).await
+    js_runtime.run_event_loop(Default::default()).await
   };
   runtime.block_on(future).unwrap();
 }

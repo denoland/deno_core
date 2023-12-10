@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.235.0"
+version = "0.237.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -39,13 +39,14 @@ static_assertions.workspace = true
 tokio.workspace = true
 url.workspace = true
 v8.workspace = true
+cooked-waker.workspace = true
 
 [dev-dependencies]
-cooked-waker.workspace = true
 deno_ast.workspace = true
 bencher.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
+fastrand.workspace = true
 
 [[bench]]
 name = "ops_sync"

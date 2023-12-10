@@ -24,6 +24,7 @@ mod resources;
 mod runtime;
 mod source_map;
 mod tasks;
+mod web_timeout;
 
 // Re-exports
 pub use anyhow;
@@ -198,7 +199,8 @@ macro_rules! located_script_name {
 
 #[cfg(all(test, not(miri)))]
 mod tests {
-  use std::process::{Command, Stdio};
+  use std::process::Command;
+  use std::process::Stdio;
 
   use super::*;
 

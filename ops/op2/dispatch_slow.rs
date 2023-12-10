@@ -232,7 +232,7 @@ pub(crate) fn with_js_runtime_state(
 ) -> TokenStream {
   generator_state.needs_opctx = true;
   gs_quote!(generator_state(opctx, js_runtime_state) =>
-    (let #js_runtime_state = std::rc::Weak::upgrade(&#opctx.runtime_state).unwrap();)
+    (let #js_runtime_state = &#opctx.runtime_state();)
   )
 }
 
@@ -429,10 +429,6 @@ pub fn from_arg(
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
-    }
-    Arg::Rc(Special::JsRuntimeState) => {
-      *needs_js_runtime_state = true;
-      quote!(let #arg_ident = #js_runtime_state.clone();)
     }
     Arg::State(RefType::Ref, state) => {
       *needs_opstate = true;

@@ -431,7 +431,7 @@ pub(crate) fn generate_dispatch_fast(
   let with_js_runtime_state = if generator_state.needs_fast_js_runtime_state {
     generator_state.needs_fast_opctx = true;
     gs_quote!(generator_state(js_runtime_state, opctx) => {
-      let #js_runtime_state = std::rc::Weak::upgrade(&#opctx.runtime_state).unwrap();
+      let #js_runtime_state = &#opctx.runtime_state();
     })
   } else {
     quote!()
@@ -621,10 +621,6 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
-    }
-    Arg::Rc(Special::JsRuntimeState) => {
-      *needs_js_runtime_state = true;
-      quote!(let #arg_ident = #js_runtime_state.clone();)
     }
     Arg::State(RefType::Ref, state) => {
       *needs_opctx = true;
