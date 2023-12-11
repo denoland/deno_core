@@ -64,20 +64,6 @@ jobs:
         if: inputs.job == 'test-miri'
         uses: ./.github/workflows/ci-test-miri
 
-      - name: Cargo publish
-        if: |
-          contains(inputs.os, 'ubuntu') &&
-          github.repository == 'denoland/deno_core' &&
-          startsWith(github.ref, 'refs/tags/')
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
-
-      - name: Get tag version
-        if: contains(inputs.os, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
-        id: get_tag_version
-        run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
-
     env:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
