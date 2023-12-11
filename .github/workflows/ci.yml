@@ -46,6 +46,7 @@ jobs:
   publish:
     name: publish
     needs: top
+    runs-on: ubuntu-latest
     if: github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Cargo publish
