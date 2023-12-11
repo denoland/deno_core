@@ -30,10 +30,7 @@ jobs:
   top:
     name: build-${{ matrix.label }}
     needs: compute-jobs
-    if: |
-      (github.event_name == 'push' || !startsWith(github.event.pull_request.head.label, 'denoland:'))
-      && github.ref_name != 'deno_core'
-      && !startsWith(github.ref, 'refs/tags/deno/')
+    if: github.repository == 'denoland/deno_core'
     uses: ./.github/workflows/ci-job.yml
     with:
       label: ${{ matrix.label }}
