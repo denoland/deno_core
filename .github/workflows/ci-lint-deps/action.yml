@@ -2,6 +2,8 @@ name: Lint Dependencies
 runs:
   using: "composite"
   steps:
+    - name: Install Rust (nightly)
+      uses: dtolnay/rust-toolchain@nightly
     - name: Lint deps
       shell: bash
       run: |

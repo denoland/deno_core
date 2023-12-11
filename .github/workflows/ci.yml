@@ -19,7 +19,7 @@ jobs:
           config: |-
             linux:
               os: ubuntu-latest
-              jobs: [lint, lint-deps, test, test-miri]
+              jobs: [lint, lint-deps, test, test-miri, test-ops]
             macos:
               os: macOS-latest
               jobs: [lint, test]
