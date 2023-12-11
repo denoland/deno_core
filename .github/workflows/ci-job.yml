@@ -13,7 +13,7 @@ on:
         type: string
 
 jobs:
-  lint:
+  job:
     name: ${{ inputs.label }} ${{ inputs.job }}
     runs-on: ${{ inputs.os }}
     steps:
@@ -28,9 +28,10 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v1
 
+      # https://github.com/marketplace/actions/rust-cache
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1-rust"
+          shared-key: "v0-rust-${{ inputs.label }}-${{ inputs.job }}"
           #save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Rust (nightly)
