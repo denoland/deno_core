@@ -143,50 +143,36 @@ async fn test_wakers_for_async_ops() {
   panic!("The waker was never woken after the future completed");
 }
 
+#[rstest]
+#[case("Promise.resolve(1 + 2)", Ok(3))]
+#[case("Promise.resolve(new Promise(resolve => resolve(2 + 2)))", Ok(4))]
+#[case(
+  "Promise.reject(new Error('fail'))",
+  Err("Error: fail\n    at a.js:1:16")
+)]
+#[case("new Promise(resolve => {})", Err("Promise resolution is still pending but the event loop has already resolved."))]
 #[tokio::test]
-async fn test_poll_value() {
+async fn test_resolve_promise(
+  #[case] script: &'static str,
+  #[case] result: Result<i32, &'static str>,
+) {
   let mut runtime = JsRuntime::new(Default::default());
-  poll_fn(move |cx| {
-    let value_global = runtime
-      .execute_script_static("a.js", "Promise.resolve(1 + 2)")
-      .unwrap();
-    let v = runtime.poll_value(cx, &value_global);
-    {
-      let scope = &mut runtime.handle_scope();
-      assert!(
-        matches!(v, Poll::Ready(Ok(v)) if v.open(scope).integer_value(scope).unwrap() == 3)
-      );
+  let value_global = runtime.execute_script_static("a.js", script).unwrap();
+  let resolve = runtime.resolve(value_global);
+  let out = runtime
+    .with_event_loop_promise(resolve, PollEventLoopOptions::default())
+    .await;
+  let scope = &mut runtime.handle_scope();
+  match result {
+    Ok(value) => {
+      let out = v8::Local::new(scope, out.expect("expected success"));
+      assert_eq!(out.int32_value(scope).unwrap(), value);
     }
-
-    let value_global = runtime
-      .execute_script_static(
-        "a.js",
-        "Promise.resolve(new Promise(resolve => resolve(2 + 2)))",
-      )
-      .unwrap();
-    let v = runtime.poll_value(cx, &value_global);
-    {
-      let scope = &mut runtime.handle_scope();
-      assert!(
-        matches!(v, Poll::Ready(Ok(v)) if v.open(scope).integer_value(scope).unwrap() == 4)
-      );
-    }
-
-    let value_global = runtime
-      .execute_script_static("a.js", "Promise.reject(new Error('fail'))")
-      .unwrap();
-    let v = runtime.poll_value(cx, &value_global);
-    assert!(
-      matches!(v, Poll::Ready(Err(e)) if e.downcast_ref::<JsError>().unwrap().exception_message == "Uncaught Error: fail")
-    );
-
-    let value_global = runtime
-      .execute_script_static("a.js", "new Promise(resolve => {})")
-      .unwrap();
-    let v = runtime.poll_value(cx, &value_global);
-    matches!(v, Poll::Ready(Err(e)) if e.to_string() == "Promise resolution is still pending but the event loop has already resolved.");
-    Poll::Ready(())
-  }).await;
+    Err(err) => assert_eq!(
+      out.expect_err("expected error").to_string(),
+      err.to_string()
+    ),
+  }
 }
 
 #[rstest]
@@ -199,14 +185,14 @@ async fn test_poll_value() {
 #[case(
   "script",
   "Promise.reject(new Error('fail'))",
-  Err("Uncaught Error: fail")
+  Err("Uncaught (in promise) Error: fail")
 )]
 #[case("script", "new Promise(resolve => {})", Ok(None))]
 #[case("call", "async () => 1 + 2", Ok(Some(3)))]
 #[case(
   "call",
   "async () => { throw new Error('fail'); }",
-  Err("Uncaught Error: fail")
+  Err("Uncaught (in promise) Error: fail")
 )]
 #[case("call", "async () => new Promise(resolve => {})", Ok(None))]
 #[case("call", "() => Promise.resolve(1 + 2)", Ok(Some(3)))]
@@ -218,7 +204,7 @@ async fn test_poll_value() {
 #[case(
   "call",
   "() => Promise.reject(new Error('fail'))",
-  Err("Uncaught Error: fail")
+  Err("Uncaught (in promise) Error: fail")
 )]
 #[case("call", "() => new Promise(resolve => {})", Ok(None))]
 #[case(
@@ -258,11 +244,13 @@ async fn test_resolve_value_generic(
   let result_global = if runner == "script" {
     let value_global: v8::Global<v8::Value> =
       runtime.execute_script_static("a.js", code).unwrap();
+    #[allow(deprecated)]
     runtime.resolve_value(value_global).await
   } else if runner == "call" {
     let value_global = runtime.execute_script_static("a.js", code).unwrap();
     let function: v8::Global<v8::Function> =
       unsafe { std::mem::transmute(value_global) };
+    #[allow(deprecated)]
     runtime.call_and_await(&function).await
   } else {
     unreachable!()
@@ -316,6 +304,7 @@ fn terminate_execution_webassembly() {
                                 globalThis.wasmInstance = new WebAssembly.Instance(wasmModule);
                                 })()
                                     "#).unwrap();
+  #[allow(deprecated)]
   futures::executor::block_on(runtime.resolve_value(promise)).unwrap();
   let terminator_thread = std::thread::spawn(move || {
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -405,6 +394,7 @@ async fn wasm_streaming_op_invocation_in_import() {
                                }
                              });
                             "#).unwrap();
+  #[allow(deprecated)]
   let value = runtime.resolve_value(promise).await.unwrap();
   let val = value.open(&mut runtime.handle_scope());
   assert!(val.is_object());

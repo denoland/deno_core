@@ -90,10 +90,7 @@ async fn run_integration_test_task(
   let f = runtime.mod_evaluate(module);
   let mut actual_output = String::new();
   if let Err(e) = runtime
-    .run_event_loop(PollEventLoopOptions {
-      pump_v8_message_loop: true,
-      wait_for_inspector: false,
-    })
+    .run_event_loop(PollEventLoopOptions::default())
     .await
   {
     for line in e.to_string().split('\n') {
@@ -137,22 +134,16 @@ async fn run_unit_test_task(
   let module = runtime.load_main_module(&url, None).await?;
   let f = runtime.mod_evaluate(module);
   runtime
-    .run_event_loop(PollEventLoopOptions {
-      pump_v8_message_loop: true,
-      wait_for_inspector: false,
-    })
+    .run_event_loop(PollEventLoopOptions::default())
     .await?;
   f.await?;
 
   let tests: TestFunctions = runtime.op_state().borrow_mut().take();
   for (name, function) in tests.functions {
     println!("Testing {name}...");
-    runtime.call_and_await(&function).await?;
+    let call = runtime.call(&function);
     runtime
-      .run_event_loop(PollEventLoopOptions {
-        pump_v8_message_loop: true,
-        wait_for_inspector: false,
-      })
+      .with_event_loop_promise(call, PollEventLoopOptions::default())
       .await?;
   }
 

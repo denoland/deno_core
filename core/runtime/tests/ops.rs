@@ -385,6 +385,7 @@ async fn test_dispatch_many_ops() {
   Promise.all(promises);
   "#;
   let promise = runtime.execute_script_static("test", src).unwrap();
+  #[allow(deprecated)]
   runtime.resolve_value(promise).await.unwrap();
 }
 
@@ -693,6 +694,7 @@ pub async fn test_op_metrics() {
     "#,
   )
   .unwrap();
+  #[allow(deprecated)]
   runtime
     .resolve_value(promise)
     .await
@@ -764,6 +766,7 @@ pub async fn test_op_metrics_summary_tracker() {
     "#,
   )
   .unwrap();
+  #[allow(deprecated)]
   runtime
     .resolve_value(promise)
     .await

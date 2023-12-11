@@ -246,6 +246,7 @@ fn es_snapshot() {
     return mod.f400() + " " + Deno.core.ops.op_test();
   })();"#;
   let val = runtime3.execute_script_static(".", source_code).unwrap();
+  #[allow(deprecated)]
   let val = futures::executor::block_on(runtime3.resolve_value(val)).unwrap();
   {
     let scope = &mut runtime3.handle_scope();
@@ -304,6 +305,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
       "import('ext:module_snapshot/test.js')",
     )
     .unwrap();
+  #[allow(deprecated)]
   let dyn_import_result =
     futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
   assert_eq!(
@@ -319,6 +321,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
       "import('ext:module_snapshot/test2.js')",
     )
     .unwrap();
+  #[allow(deprecated)]
   let dyn_import_result =
     futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
   assert!(dyn_import_result.is_err());
@@ -385,6 +388,7 @@ pub(crate) fn generic_preserve_snapshotted_modules_test(test_snapshot: bool) {
         "import('test:not-preserved')",
       )
       .unwrap();
+    #[allow(deprecated)]
     let dyn_import_result =
       futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
     assert!(dyn_import_result.is_err());
@@ -408,6 +412,7 @@ pub(crate) fn generic_preserve_snapshotted_modules_test(test_snapshot: bool) {
         "import('test:preserved').then(module => module.TEST)",
       )
       .unwrap();
+    #[allow(deprecated)]
     let dyn_import_result =
       futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
         .unwrap();

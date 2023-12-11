@@ -50,5 +50,6 @@ integration_test!(
   error_without_stack,
   smoke_test,
   timer_ref,
+  timer_ref_and_cancel,
   timer_many,
 );

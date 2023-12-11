@@ -37,3 +37,17 @@ export function clearTimeout(id) {
 export function clearInterval(id) {
   Deno.core.cancelTimer(id);
 }
+
+/**
+ * Mark a timer as not blocking event loop exit.
+ */
+export function unrefTimer(id) {
+  Deno.core.unrefTimer(id);
+}
+
+/**
+ * Mark a timer as blocking event loop exit.
+ */
+export function refTimer(id) {
+  Deno.core.refTimer(id);
+}

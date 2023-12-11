@@ -3,6 +3,7 @@ use crate::error::custom_error;
 use crate::error::JsError;
 use crate::op2;
 use crate::JsRuntime;
+use crate::PollEventLoopOptions;
 use crate::RuntimeOptions;
 use anyhow::Error;
 use futures::future::poll_fn;
@@ -61,11 +62,10 @@ async fn test_error_context() {
     ..Default::default()
   });
 
-  poll_fn(move |cx| {
-    runtime
-      .execute_script_static(
-        "test_error_context_sync.js",
-        r#"
+  runtime
+    .execute_script_static(
+      "test_error_context_sync.js",
+      r#"
 let errMessage;
 try {
   Deno.core.ops.op_err_sync();
@@ -76,37 +76,32 @@ if (errMessage !== "higher-level sync error: original sync error") {
   throw new Error("unexpected error message from op_err_sync: " + errMessage);
 }
 "#,
-      )
-      .unwrap();
+    )
+    .unwrap();
 
-    let promise = runtime
-      .execute_script_static(
-        "test_error_context_async.js",
-        r#"
-
+  let promise = runtime
+    .execute_script_static(
+      "test_error_context_async.js",
+      r#"
 (async () => {
-let errMessage;
-try {
-  await Deno.core.opAsync("op_err_async");
-} catch (err) {
-  errMessage = err.message;
-}
-if (errMessage !== "higher-level async error: original async error") {
-  throw new Error("unexpected error message from op_err_async: " + errMessage);
-}
+  let errMessage;
+  try {
+    await Deno.core.opAsync("op_err_async");
+  } catch (err) {
+    errMessage = err.message;
+  }
+  if (errMessage !== "higher-level async error: original async error") {
+    throw new Error("unexpected error message from op_err_async: " + errMessage);
+  }
 })()
 "#,
-      )
-      .unwrap();
+    ).unwrap();
 
-    match runtime.poll_value(cx, &promise) {
-      Poll::Ready(Ok(_)) => {}
-      Poll::Ready(Err(err)) => panic!("{err:?}"),
-      _ => panic!(),
-    }
-    Poll::Ready(())
-  })
-  .await;
+  let resolve = runtime.resolve(promise);
+  futures::executor::block_on(
+    runtime.with_event_loop_promise(resolve, PollEventLoopOptions::default()),
+  )
+  .unwrap();
 }
 
 #[test]

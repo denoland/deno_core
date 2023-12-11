@@ -380,9 +380,14 @@ impl<T: Clone> WebTimers<T> {
     self.data_map.borrow().is_empty()
   }
 
-  #[cfg(test)]
+  /// The total number of timers in this collection.
   pub fn len(&self) -> usize {
     self.data_map.borrow().len()
+  }
+
+  /// The number of unref'd timers in this collection.
+  pub fn unref_len(&self) -> usize {
+    self.unrefd_count.get()
   }
 
   #[cfg(test)]
@@ -402,7 +407,7 @@ impl<T: Clone> WebTimers<T> {
   }
 
   pub fn has_pending_timers(&self) -> bool {
-    self.timers.borrow().len() > self.unrefd_count.get()
+    self.len() > self.unref_len()
   }
 }
 

@@ -1,12 +1,11 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
 use super::bindings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::snapshot_util;
 use crate::error::exception_to_err_result;
-use crate::error::generic_error;
+use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
 use crate::extensions::EventLoopMiddlewareFn;
@@ -42,7 +41,7 @@ use crate::OpResult;
 use crate::OpState;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
-use anyhow::bail;
+use anyhow::anyhow;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::future::poll_fn;
@@ -69,6 +68,7 @@ use std::sync::Mutex;
 use std::sync::Once;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Waker;
 use v8::Isolate;
 
 const STATE_DATA_OFFSET: u32 = 0;
@@ -215,6 +215,37 @@ impl InitMode {
   #[inline]
   pub fn is_from_snapshot(&self) -> bool {
     matches!(self, Self::FromSnapshot { .. })
+  }
+}
+
+#[derive(Default)]
+struct PromiseFuture {
+  resolved: Cell<Option<Result<v8::Global<v8::Value>, Error>>>,
+  waker: Cell<Option<Waker>>,
+}
+
+#[derive(Clone, Default)]
+struct RcPromiseFuture(Rc<PromiseFuture>);
+
+impl RcPromiseFuture {
+  pub fn new(res: Result<v8::Global<v8::Value>, Error>) -> Self {
+    Self(Rc::new(PromiseFuture {
+      resolved: Some(res).into(),
+      ..Default::default()
+    }))
+  }
+}
+
+impl Future for RcPromiseFuture {
+  type Output = Result<v8::Global<v8::Value>, Error>;
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let this = self.get_mut();
+    if let Some(resolved) = this.0.resolved.take() {
+      Poll::Ready(resolved)
+    } else {
+      this.0.waker.set(Some(cx.waker().clone()));
+      Poll::Pending
+    }
   }
 }
 
@@ -481,7 +512,7 @@ pub struct PollEventLoopOptions {
 impl Default for PollEventLoopOptions {
   fn default() -> Self {
     Self {
-      wait_for_inspector: true,
+      wait_for_inspector: false,
       pump_v8_message_loop: true,
     }
   }
@@ -1240,89 +1271,123 @@ impl JsRuntime {
     )
   }
 
+  /// Call a function and returns a future resolving with the return value of the
+  /// function. If the function returns a promise, the future will resolve only once the
+  /// event loop resolves the underlying promise. If the future rejects, the future will
+  /// resolve with the underlying error.
+  ///
+  /// The event loop must be polled seperately for this future to resolve. If the event loop
+  /// is not polled, the future will never make progress.
+  pub fn call(
+    &mut self,
+    function: &v8::Global<v8::Function>,
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+    self.call_with_args(function, &[])
+  }
+
+  /// Call a function and returns a future resolving with the return value of the
+  /// function. If the function returns a promise, the future will resolve only once the
+  /// event loop resolves the underlying promise. If the future rejects, the future will
+  /// resolve with the underlying error.
+  ///
+  /// The event loop must be polled seperately for this future to resolve. If the event loop
+  /// is not polled, the future will never make progress.
+  pub fn scoped_call(
+    scope: &mut v8::HandleScope,
+    function: &v8::Global<v8::Function>,
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+    Self::scoped_call_with_args(scope, function, &[])
+  }
+
+  /// Call a function and returns a future resolving with the return value of the
+  /// function. If the function returns a promise, the future will resolve only once the
+  /// event loop resolves the underlying promise. If the future rejects, the future will
+  /// resolve with the underlying error.
+  ///
+  /// The event loop must be polled seperately for this future to resolve. If the event loop
+  /// is not polled, the future will never make progress.
+  pub fn call_with_args(
+    &mut self,
+    function: &v8::Global<v8::Function>,
+    args: &[v8::Global<v8::Value>],
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+    let scope = &mut self.handle_scope();
+    Self::scoped_call_with_args(scope, function, args)
+  }
+
+  /// Call a function and returns a future resolving with the return value of the
+  /// function. If the function returns a promise, the future will resolve only once the
+  /// event loop resolves the underlying promise. If the future rejects, the future will
+  /// resolve with the underlying error.
+  ///
+  /// The event loop must be polled seperately for this future to resolve. If the event loop
+  /// is not polled, the future will never make progress.
+  pub fn scoped_call_with_args(
+    scope: &mut v8::HandleScope,
+    function: &v8::Global<v8::Function>,
+    args: &[v8::Global<v8::Value>],
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+    let scope = &mut v8::TryCatch::new(scope);
+    let cb = function.open(scope);
+    let this = v8::undefined(scope).into();
+    let promise = if args.is_empty() {
+      cb.call(scope, this, &[])
+    } else {
+      let mut local_args: SmallVec<[v8::Local<v8::Value>; 8]> =
+        SmallVec::with_capacity(args.len());
+      for v in args {
+        local_args.push(v8::Local::new(scope, v));
+      }
+      cb.call(scope, this, &local_args)
+    };
+
+    if promise.is_none() {
+      if scope.is_execution_terminating() {
+        let undefined = v8::undefined(scope).into();
+        return RcPromiseFuture::new(exception_to_err_result(
+          scope, undefined, false, true,
+        ));
+      }
+      let exception = scope.exception().unwrap();
+      return RcPromiseFuture::new(exception_to_err_result(
+        scope, exception, false, true,
+      ));
+    }
+    let promise = promise.unwrap();
+    if !promise.is_promise() {
+      return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
+    }
+    let promise = v8::Local::<v8::Promise>::try_from(promise).unwrap();
+    Self::resolve_promise_inner(scope, promise)
+  }
+
   /// Call a function. If it returns a promise, run the event loop until that
   /// promise is settled. If the promise rejects or there is an uncaught error
   /// in the event loop, return `Err(error)`. Or return `Ok(<await returned>)`.
+  #[deprecated = "Use call"]
   pub async fn call_and_await(
     &mut self,
     function: &v8::Global<v8::Function>,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    self.call_with_args_and_await(function, &[]).await
+    let call = self.call(function);
+    self
+      .with_event_loop_promise(call, PollEventLoopOptions::default())
+      .await
   }
 
   /// Call a function with args. If it returns a promise, run the event loop until that
   /// promise is settled. If the promise rejects or there is an uncaught error
   /// in the event loop, return `Err(error)`. Or return `Ok(<await returned>)`.
+  #[deprecated = "Use call_with_args"]
   pub async fn call_with_args_and_await(
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
   ) -> Result<v8::Global<v8::Value>, Error> {
-    let promise = {
-      let scope = &mut self.handle_scope();
-      let scope = &mut v8::TryCatch::new(scope);
-      let cb = function.open(scope);
-      let this = v8::undefined(scope).into();
-      let promise = if args.is_empty() {
-        cb.call(scope, this, &[])
-      } else {
-        let mut local_args: SmallVec<[v8::Local<v8::Value>; 8]> =
-          SmallVec::with_capacity(args.len());
-        for v in args {
-          local_args.push(v8::Local::new(scope, v));
-        }
-        cb.call(scope, this, &local_args)
-      };
-      if promise.is_none() {
-        if scope.is_execution_terminating() {
-          let undefined = v8::undefined(scope).into();
-          return exception_to_err_result(scope, undefined, false, true);
-        }
-        let exception = scope.exception().unwrap();
-        return exception_to_err_result(scope, exception, false, true);
-      }
-      let promise = promise.unwrap();
-      if !promise.is_promise() {
-        return Ok(v8::Global::new(scope, promise));
-      }
-      let promise = v8::Local::<v8::Promise>::try_from(promise).unwrap();
-      let Some(promise) =
-        watch_promise(scope, promise, |scope, mut rv, res| {
-          let array = v8::Array::new(scope, 2);
-          match res {
-            Ok(value) => {
-              let b = v8::Boolean::new(scope, true);
-              array.set_index(scope, 0, b.into());
-              array.set_index(scope, 1, value);
-            }
-            Err(value) => {
-              let b = v8::Boolean::new(scope, false);
-              array.set_index(scope, 0, b.into());
-              array.set_index(scope, 1, value);
-            }
-          }
-          rv.set(array.into());
-        })
-      else {
-        bail!("Runtime shutdown");
-      };
-      v8::Global::new(scope, v8::Local::<v8::Value>::from(promise))
-    };
-
-    let res = self.resolve_value(promise).await?;
-    let scope = &mut self.handle_scope();
-    let res = v8::Local::new(scope, res);
-    if let Ok(array) = v8::Local::<v8::Array>::try_from(res) {
-      if array.get_index(scope, 0).unwrap().boolean_value(scope) {
-        let value = array.get_index(scope, 1).unwrap();
-        Ok(v8::Global::new(scope, value))
-      } else {
-        let value = array.get_index(scope, 1).unwrap();
-        Err(JsError::from_v8_exception(scope, value).into())
-      }
-    } else {
-      bail!("Unexpected V8 type");
-    }
+    let call = self.call_with_args(function, args);
+    self
+      .with_event_loop_promise(call, PollEventLoopOptions::default())
+      .await
   }
 
   /// Returns the namespace object of a module.
@@ -1419,93 +1484,68 @@ impl JsRuntime {
     ));
   }
 
-  pub fn poll_value(
+  /// Waits for the given value to resolve while polling the event loop.
+  ///
+  /// This future resolves when either the value is resolved or the event loop runs to
+  /// completion.
+  pub fn resolve(
     &mut self,
-    cx: &mut Context,
-    global: &v8::Global<v8::Value>,
-  ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
-    Self::with_context_scope(
-      self.v8_isolate_ptr(),
-      self.inner.main_realm.context_ptr(),
-      |scope| self.poll_value_inner(cx, scope, global),
-    )
-  }
-
-  fn poll_value_inner(
-    &mut self,
-    cx: &mut Context,
-    scope: &mut v8::HandleScope,
-    global: &v8::Global<v8::Value>,
-  ) -> Poll<Result<v8::Global<v8::Value>, Error>> {
-    let promise = v8::Local::new(scope, global);
-
-    // TODO(mmastrac): this would be better if we just type-tested at the top level
-    let Ok(promise) = v8::Local::<v8::Promise>::try_from(promise) else {
-      return Poll::Ready(Ok(global.clone()));
-    };
-
-    // Check if the value is not a promise or already settled before polling the
-    // event loop.
-    match promise.state() {
-      v8::PromiseState::Pending => {}
-      v8::PromiseState::Fulfilled => {
-        let value = promise.result(scope);
-        let value_handle = v8::Global::new(scope, value);
-        return Poll::Ready(Ok(value_handle));
-      }
-      v8::PromiseState::Rejected => {
-        let exception = promise.result(scope);
-        let promise_global = v8::Global::new(scope, promise);
-        JsRealm::exception_state_from_scope(scope)
-          .pending_promise_rejections
-          .borrow_mut()
-          .retain(|(key, _)| key != &promise_global);
-        return Poll::Ready(exception_to_err_result(
-          scope, exception, false, true,
-        ));
-      }
-    }
-
-    // Poll the event loop.
-    let event_loop_result = self.poll_event_loop_inner(
-      cx,
-      scope,
-      PollEventLoopOptions {
-        wait_for_inspector: false,
-        pump_v8_message_loop: true,
-      },
-    )?;
-
-    // Check the promise state again.
-    match promise.state() {
-      v8::PromiseState::Pending => match event_loop_result {
-        Poll::Ready(_) => {
-          let msg = "Promise resolution is still pending but the event loop has already resolved.";
-          Poll::Ready(Err(generic_error(msg)))
-        }
-        Poll::Pending => Poll::Pending,
-      },
-      v8::PromiseState::Fulfilled => {
-        let value = promise.result(scope);
-        let value_handle = v8::Global::new(scope, value);
-        Poll::Ready(Ok(value_handle))
-      }
-      v8::PromiseState::Rejected => {
-        let exception = promise.result(scope);
-        Poll::Ready(exception_to_err_result(scope, exception, false, true))
-      }
-    }
+    promise: v8::Global<v8::Value>,
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+    let scope = &mut self.handle_scope();
+    Self::scoped_resolve(scope, promise)
   }
 
   /// Waits for the given value to resolve while polling the event loop.
   ///
   /// This future resolves when either the value is resolved or the event loop runs to
   /// completion.
+  pub fn scoped_resolve(
+    scope: &mut v8::HandleScope,
+    promise: v8::Global<v8::Value>,
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+    let promise = v8::Local::new(scope, promise);
+    if !promise.is_promise() {
+      return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
+    }
+    let promise = v8::Local::<v8::Promise>::try_from(promise).unwrap();
+    Self::resolve_promise_inner(scope, promise)
+  }
+
+  /// Waits for the given value to resolve while polling the event loop.
+  ///
+  /// This future resolves when either the value is resolved or the event loop runs to
+  /// completion.
+  #[deprecated = "Use resolve"]
   pub async fn resolve_value(
     &mut self,
     global: v8::Global<v8::Value>,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    poll_fn(|cx| self.poll_value(cx, &global)).await
+    let resolve = self.resolve(global);
+    self
+      .with_event_loop_promise(resolve, PollEventLoopOptions::default())
+      .await
+  }
+
+  /// Given a promise, returns a future that resolves when it does.
+  fn resolve_promise_inner<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    promise: v8::Local<'s, v8::Promise>,
+  ) -> RcPromiseFuture {
+    let future = RcPromiseFuture::default();
+    let f = future.clone();
+    watch_promise(scope, promise, move |scope, _rv, res| {
+      let res = match res {
+        Ok(l) => Ok(v8::Global::new(scope, l)),
+        Err(e) => exception_to_err_result(scope, e, true, true),
+      };
+      f.0.resolved.set(Some(res));
+      if let Some(waker) = f.0.waker.take() {
+        waker.wake();
+      }
+    });
+
+    future
   }
 
   /// Runs event loop to completion
@@ -1524,23 +1564,60 @@ impl JsRuntime {
 
   /// A utility function that run provided future concurrently with the event loop.
   ///
-  /// Useful for interacting with local inspector session.
-  pub async fn with_event_loop<'fut, T>(
+  /// If the event loop resolves while polling the future, it return an error with the text
+  /// `Promise resolution is still pending but the event loop has already resolved.`
+  pub async fn with_event_loop_promise<'fut, T, E>(
     &mut self,
-    mut fut: Pin<Box<dyn Future<Output = T> + 'fut>>,
+    mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
-  ) -> T {
-    loop {
-      tokio::select! {
-        biased;
-
-        result = &mut fut => {
-          return result;
-        },
-
-        _ = self.run_event_loop(poll_options) => {}
+  ) -> Result<T, AnyError>
+  where
+    AnyError: From<E>,
+  {
+    // Manually implement tokio::select
+    poll_fn(|cx| {
+      if let Poll::Ready(t) = fut.poll_unpin(cx) {
+        return Poll::Ready(t.map_err(|e| e.into()));
       }
-    }
+      if let Poll::Ready(t) = self.poll_event_loop(cx, poll_options) {
+        t?;
+        if let Poll::Ready(t) = fut.poll_unpin(cx) {
+          return Poll::Ready(t.map_err(|e| e.into()));
+        }
+        return Poll::Ready(Err(anyhow!("Promise resolution is still pending but the event loop has already resolved.")));
+      }
+      Poll::Pending
+    }).await
+  }
+
+  /// A utility function that run provided future concurrently with the event loop.
+  ///
+  /// If the event loop resolves while polling the future, it will continue to be polled,
+  /// regardless of whether it returned an error or success.
+  ///
+  /// Useful for interacting with local inspector session.
+  pub async fn with_event_loop_future<'fut, T, E>(
+    &mut self,
+    mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
+    poll_options: PollEventLoopOptions,
+  ) -> Result<T, AnyError>
+  where
+    AnyError: From<E>,
+  {
+    // Manually implement tokio::select
+    poll_fn(|cx| {
+      if let Poll::Ready(t) = fut.poll_unpin(cx) {
+        return Poll::Ready(t.map_err(|e| e.into()));
+      }
+      if let Poll::Ready(t) = self.poll_event_loop(cx, poll_options) {
+        // TODO(mmastrac): We need to ignore this error for things like the repl to behave as
+        // they did before, but this is definitely not correct. It's just something we're
+        // relying on. :(
+        _ = t;
+      }
+      Poll::Pending
+    })
+    .await
   }
 
   /// Runs a single tick of event loop

@@ -538,10 +538,10 @@ pub(crate) fn watch_promise<'s, F>(
 ) -> Option<v8::Local<'s, v8::Promise>>
 where
   F: FnOnce(
-    &mut v8::HandleScope,
-    v8::ReturnValue,
-    Result<v8::Local<v8::Value>, v8::Local<v8::Value>>,
-  ),
+      &mut v8::HandleScope,
+      v8::ReturnValue,
+      Result<v8::Local<v8::Value>, v8::Local<v8::Value>>,
+    ) + 'static,
 {
   let external =
     v8::External::new(scope, Box::into_raw(Box::new(Some(f))) as _);
@@ -564,7 +564,7 @@ where
   .data(external.into())
   .build(scope);
 
-  let on_rejected = v8::Function::builder(
+  let on_rejected: Option<v8::Local<'_, v8::Function>> = v8::Function::builder(
     |scope: &mut v8::HandleScope,
      args: v8::FunctionCallbackArguments,
      rv: v8::ReturnValue| {

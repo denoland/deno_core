@@ -142,6 +142,7 @@ fn bench_op(
     .unwrap();
   let guard = tokio.enter();
   let run = runtime.execute_script("", ascii_str!("run()")).unwrap();
+  #[allow(deprecated)]
   let bench = tokio.block_on(runtime.resolve_value(run)).unwrap();
   let mut scope = runtime.handle_scope();
   let bench: v8::Local<v8::Function> =
@@ -152,7 +153,11 @@ fn bench_op(
   b.iter(move || {
     tokio.block_on(async {
       let guard = tokio.enter();
-      runtime.call_and_await(&bench).await.unwrap();
+      let call = runtime.call(&bench);
+      runtime
+        .with_event_loop_promise(call, PollEventLoopOptions::default())
+        .await
+        .unwrap();
       drop(guard);
     });
   });
