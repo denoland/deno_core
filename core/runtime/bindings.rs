@@ -564,7 +564,7 @@ where
   .data(external.into())
   .build(scope);
 
-  let on_rejected: Option<v8::Local<'_, v8::Function>> = v8::Function::builder(
+  let on_rejected = v8::Function::builder(
     |scope: &mut v8::HandleScope,
      args: v8::FunctionCallbackArguments,
      rv: v8::ReturnValue| {
