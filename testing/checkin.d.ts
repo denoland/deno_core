@@ -11,3 +11,8 @@ interface PromiseConstructor {
     reject: (reason?: any) => void;
   };
 }
+
+declare namespace Deno {
+  export function refTimer(id);
+  export function unrefTimer(id);
+}

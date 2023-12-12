@@ -10,3 +10,5 @@ globalThis.setTimeout = timers.setTimeout;
 globalThis.setInterval = timers.setInterval;
 globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
+Deno.unrefTimer = timers.unrefTimer;
+Deno.refTimer = timers.refTimer;

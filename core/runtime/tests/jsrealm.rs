@@ -174,6 +174,7 @@ fn es_snapshot() {
         "import('mod:test').then(module => module.TEST)",
       )
       .unwrap();
+    #[allow(deprecated)]
     let test_export =
       futures::executor::block_on(runtime.resolve_value(test_export_promise))
         .unwrap();

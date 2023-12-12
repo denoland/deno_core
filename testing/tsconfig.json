@@ -5,6 +5,7 @@
       "checkin:console": ["checkin/runtime/console.ts"],
       "checkin:testing": ["checkin/runtime/testing.ts"]
     },
-    "lib": ["ESNext", "DOM", "ES2023.Array"]
+    "lib": ["ESNext", "DOM", "ES2023.Array"],
+    "moduleDetection": "force"
   }
 }
