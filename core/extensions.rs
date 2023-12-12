@@ -4,10 +4,7 @@ use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
-use std::task::Context;
 use v8::fast_api::FastFunction;
 use v8::ExternalReference;
 
@@ -82,7 +79,6 @@ pub trait Op {
   const NAME: &'static str;
   const DECL: OpDecl;
 }
-pub type EventLoopMiddlewareFn = fn(Rc<RefCell<OpState>>, &mut Context) -> bool;
 pub type GlobalTemplateMiddlewareFn =
   for<'s> fn(
     &mut v8::HandleScope<'s, ()>,
@@ -276,7 +272,6 @@ macro_rules! or {
 ///  * config: a structure-like definition for configuration parameters which will be required when initializing this extension, eg: `config = { my_param: Option<usize> }`
 ///  * middleware: an [`OpDecl`] middleware function with the signature `fn (OpDecl) -> OpDecl`
 ///  * state: a state initialization function, with the signature `fn (&mut OpState, ...) -> ()`, where `...` are parameters matching the fields of the config struct
-///  * event_loop_middleware: an event-loop middleware function (see [`ExtensionBuilder::event_loop_middleware`])
 ///  * global_template_middleware: a global template middleware function (see [`ExtensionBuilder::global_template_middleware`])
 ///  * global_object_middleware: a global object middleware function (see [`ExtensionBuilder::global_object_middleware`])
 ///  * docs: comma separated list of toplevel #[doc=...] tags to be applied to the extension's resulting struct
@@ -296,7 +291,6 @@ macro_rules! extension {
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
     $(, state = $state_fn:expr )?
-    $(, event_loop_middleware = $event_loop_middleware_fn:expr )?
     $(, global_template_middleware = $global_template_middleware_fn:expr )?
     $(, global_object_middleware = $global_object_middleware_fn:expr )?
     $(, external_references = [ $( $external_reference:expr ),* $(,)? ] )?
@@ -354,7 +348,6 @@ macro_rules! extension {
             $( $op )::+ $( :: < $($op_param),* > )? :: DECL
           ),+)?]),
           external_references: std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
-          event_loop_middleware: None,
           global_template_middleware: None,
           global_object_middleware: None,
           // Computed at runtime:
@@ -381,10 +374,6 @@ macro_rules! extension {
       $( where $( $bound : $bound_type ),+ )?
       {
         $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
-
-        $(
-          ext.event_loop_middleware = Some($event_loop_middleware_fn);
-        )?
 
         $(
           ext.global_template_middleware = Some($global_template_middleware_fn);
@@ -508,7 +497,6 @@ pub struct Extension {
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
   pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
-  pub event_loop_middleware: Option<EventLoopMiddlewareFn>,
   pub global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
   pub global_object_middleware: Option<GlobalObjectMiddlewareFn>,
   pub op_state_fn: Option<Box<OpStateFn>>,
@@ -527,7 +515,6 @@ impl Default for Extension {
       esm_entry_point: None,
       ops: Cow::Borrowed(&[]),
       external_references: Cow::Borrowed(&[]),
-      event_loop_middleware: None,
       global_template_middleware: None,
       global_object_middleware: None,
       op_state_fn: None,
@@ -621,10 +608,6 @@ impl Extension {
     self.middleware_fn.take()
   }
 
-  pub fn get_event_loop_middleware(&mut self) -> Option<EventLoopMiddlewareFn> {
-    self.event_loop_middleware
-  }
-
   pub fn get_global_template_middleware(
     &mut self,
   ) -> Option<GlobalTemplateMiddlewareFn> {
@@ -662,7 +645,6 @@ pub struct ExtensionBuilder {
   ops: Vec<OpDecl>,
   state: Option<Box<OpStateFn>>,
   middleware: Option<Box<OpMiddlewareFn>>,
-  event_loop_middleware: Option<EventLoopMiddlewareFn>,
   global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
   global_object_middleware: Option<GlobalObjectMiddlewareFn>,
   external_references: Vec<ExternalReference<'static>>,
@@ -715,14 +697,6 @@ impl ExtensionBuilder {
     self
   }
 
-  pub fn event_loop_middleware<F>(
-    &mut self,
-    middleware_fn: EventLoopMiddlewareFn,
-  ) -> &mut Self {
-    self.event_loop_middleware = Some(middleware_fn);
-    self
-  }
-
   pub fn global_template_middleware<F>(
     &mut self,
     middleware_fn: GlobalTemplateMiddlewareFn,
@@ -758,7 +732,6 @@ impl ExtensionBuilder {
       esm_entry_point: self.esm_entry_point,
       ops: Cow::Owned(self.ops),
       external_references: Cow::Owned(self.external_references),
-      event_loop_middleware: self.event_loop_middleware,
       global_template_middleware: self.global_template_middleware,
       global_object_middleware: self.global_object_middleware,
       op_state_fn: self.state,
@@ -781,7 +754,6 @@ impl ExtensionBuilder {
       external_references: Cow::Owned(std::mem::take(
         &mut self.external_references,
       )),
-      event_loop_middleware: self.event_loop_middleware.take(),
       global_template_middleware: self.global_template_middleware.take(),
       global_object_middleware: self.global_object_middleware.take(),
       op_state_fn: self.state.take(),
