@@ -182,6 +182,17 @@ fn baseline_promise(b: &mut Bencher) {
 }
 
 /// Tests the overhead of execute_script with a promise.
+fn baseline_promise_with_resolver(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_async_void",
+    0,
+    "{ let { promise, resolve } = Promise.withResolvers(); resolve(null); await promise; }",
+  );
+}
+
+/// Tests the overhead of execute_script with a promise.
 fn baseline_op_promise_resolver(b: &mut Bencher) {
   bench_op(
     b,
@@ -262,6 +273,7 @@ benchmark_group!(
   benches,
   baseline,
   baseline_promise,
+  baseline_promise_with_resolver,
   baseline_op_promise_resolver,
   baseline_op_promise,
   baseline_sync,

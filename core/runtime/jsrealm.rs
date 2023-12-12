@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::exception_state::ExceptionState;
+use super::op_driver::joinset_driver::JoinSetDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
@@ -8,11 +9,9 @@ use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
-use crate::ops::PendingOp;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
 use anyhow::Error;
-use deno_unsync::JoinSet;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -55,7 +54,7 @@ pub(crate) struct ContextState {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
-  pub(crate) pending_ops: RefCell<JoinSet<PendingOp>>,
+  pub(crate) pending_ops: JoinSetDriver,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: RefCell<Box<[OpCtx]>>,
@@ -194,7 +193,9 @@ impl JsRealm {
   #[cfg(test)]
   #[inline(always)]
   pub fn num_pending_ops(&self) -> usize {
-    self.0.context_state.pending_ops.borrow().len()
+    use crate::runtime::op_driver::OpDriver;
+
+    self.0.context_state.pending_ops.len()
   }
 
   #[cfg(test)]

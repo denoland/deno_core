@@ -271,6 +271,7 @@ dependencies = [
  "futures",
  "libc",
  "log",
+ "memoffset",
  "parking_lot",
  "pin-project",
  "pretty_assertions",
@@ -278,10 +279,12 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_v8",
+ "slab",
  "smallvec",
  "sourcemap 7.0.1",
  "static_assertions",
  "tokio",
+ "unicycle",
  "url",
  "v8",
 ]
@@ -713,6 +716,15 @@ name = "memchr"
 version = "2.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
+
+[[package]]
+name = "memoffset"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a634b1c61a95585bd15607c6ab0c4e5b226e695ff2800ba0cdccddf208c406c"
+dependencies = [
+ "autocfg",
+]
 
 [[package]]
 name = "miniz_oxide"
@@ -1925,6 +1937,25 @@ name = "unicode-width"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51733f11c9c4f72aa0c160008246859e340b00807569a0da0e7a1079b27ba85"
+
+[[package]]
+name = "unicycle"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0edfa5ca2452d3fbf68f7078c5e7f42b96f0c0c7def017994147f8acd8c4264d"
+dependencies = [
+ "futures-core",
+ "lock_api",
+ "parking_lot",
+ "pin-project",
+ "uniset",
+]
+
+[[package]]
+name = "uniset"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c9f21fe154ca4d5d06fc2ebb8c58cc80e338eacc372ec794943f69e535c131c"
 
 [[package]]
 name = "url"
