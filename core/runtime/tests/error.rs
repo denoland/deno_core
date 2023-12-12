@@ -98,10 +98,10 @@ if (errMessage !== "higher-level sync error: original sync error") {
     ).unwrap();
 
   let resolve = runtime.resolve(promise);
-  futures::executor::block_on(
-    runtime.with_event_loop_promise(resolve, PollEventLoopOptions::default()),
-  )
-  .unwrap();
+  runtime
+    .with_event_loop_promise(resolve, PollEventLoopOptions::default())
+    .await
+    .unwrap();
 }
 
 #[test]
