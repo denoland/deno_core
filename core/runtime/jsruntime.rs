@@ -1271,7 +1271,7 @@ impl JsRuntime {
     )
   }
 
-  /// Call a function and returns a future resolving with the return value of the
+  /// Call a function and return a future resolving with the return value of the
   /// function. If the function returns a promise, the future will resolve only once the
   /// event loop resolves the underlying promise. If the future rejects, the future will
   /// resolve with the underlying error.
