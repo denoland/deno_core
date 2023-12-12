@@ -9,7 +9,6 @@ use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
-use crate::extensions::EventLoopMiddlewareFn;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpDecl;
@@ -243,7 +242,6 @@ pub struct JsRuntime {
   pub(crate) inner: InnerIsolateState,
   pub(crate) allocations: IsolateAllocations,
   extensions: Vec<Extension>,
-  event_loop_middlewares: Vec<EventLoopMiddlewareFn>,
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
@@ -577,10 +575,8 @@ impl JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
 
-    // Collect event-loop middleware, global template middleware, global object
+    // Collect global template middleware, global object
     // middleware, and additional ExternalReferences from extensions.
-    let mut event_loop_middlewares =
-      Vec::with_capacity(options.extensions.len());
     let mut global_template_middlewares =
       Vec::with_capacity(options.extensions.len());
     let mut global_object_middlewares =
@@ -588,9 +584,6 @@ impl JsRuntime {
     let mut additional_references =
       Vec::with_capacity(options.extensions.len());
     for extension in &mut options.extensions {
-      if let Some(middleware) = extension.get_event_loop_middleware() {
-        event_loop_middlewares.push(middleware);
-      }
       if let Some(middleware) = extension.get_global_template_middleware() {
         global_template_middlewares.push(middleware);
       }
@@ -814,7 +807,6 @@ impl JsRuntime {
       },
       init_mode,
       allocations: IsolateAllocations::default(),
-      event_loop_middlewares,
       extensions: options.extensions,
       is_main_runtime: options.is_main,
     };
@@ -1597,22 +1589,11 @@ impl JsRuntime {
     )?;
     exception_state.check_exception_condition(scope)?;
 
-    // Event loop middlewares
-    let mut maybe_scheduling = false;
-    {
-      let op_state = self.inner.state.op_state.clone();
-      for f in &self.event_loop_middlewares {
-        if f(op_state.clone(), cx) {
-          maybe_scheduling = true;
-        }
-      }
-    }
-
     // Get the pending state from the main realm, or all realms
     let pending_state =
       EventLoopPendingState::new(scope, context_state, modules);
 
-    if !pending_state.is_pending() && !maybe_scheduling {
+    if !pending_state.is_pending() {
       if has_inspector {
         let inspector = self.inspector();
         let has_active_sessions = inspector.borrow().has_active_sessions();
@@ -1647,7 +1628,6 @@ impl JsRuntime {
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
         || pending_state.has_pending_promise_rejections
-        || maybe_scheduling
       {
         self.inner.state.waker.wake();
       } else
@@ -1666,7 +1646,6 @@ impl JsRuntime {
         || pending_state.has_pending_dyn_module_evaluation
         || pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
-        || maybe_scheduling
       {
         // pass, will be polled again
       } else {
