@@ -70,6 +70,7 @@ use std::task::Poll;
 use std::task::Waker;
 use v8::Isolate;
 
+pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
 
 pub enum Snapshot {
@@ -345,6 +346,7 @@ pub struct JsRuntimeState {
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
+  wait_for_inspector_disconnect_callback: Option<WaitForInspectorDisconnectCallback>,
   /// The error that was passed to a `reportUnhandledException` call.
   /// It will be retrieved by `exception_to_err_result` and used as an error
   /// instead of any other exceptions.
@@ -487,6 +489,14 @@ pub struct RuntimeOptions {
   /// is used. The default callback returns value of
   /// `RuntimeOptions::module_loader::resolve()` call.
   pub import_meta_resolve_callback: Option<ImportMetaResolveCallback>,
+
+  /// A callback that is called when the event loop has no more work to do,
+  /// but there are active, non-blocking inspector session (eg. Chrome 
+  /// DevTools inspector is connected). The embedder can use this callback
+  /// to eg. print a message notifying user about program finished running.
+  /// This callback can be called multiple times, eg. after the program finishes
+  /// more work can be scheduled from the DevTools.
+  pub wait_for_inspector_disconnect_callback: Option<WaitForInspectorDisconnectCallback>, 
 }
 
 impl RuntimeOptions {
@@ -647,6 +657,7 @@ impl JsRuntime {
       source_map_cache: Default::default(),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
+      wait_for_inspector_disconnect_callback: options.wait_for_inspector_disconnect_callback,
       op_state: op_state.clone(),
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
@@ -887,6 +898,13 @@ impl JsRuntime {
     self.inner.state.inspector()
   }
 
+  #[inline]
+  pub fn wait_for_inspector_disconnect(&mut self) {
+    if let Some(callback) = self.inner.state.wait_for_inspector_disconnect_callback.as_ref() {
+      callback();
+    }
+  }
+  
   /// Returns the extensions that this runtime is using (including internal ones).
   pub fn extensions(&self) -> &Vec<Extension> {
     &self.extensions
@@ -1683,7 +1701,7 @@ impl JsRuntime {
           if !has_blocking_sessions {
             let context = self.main_context();
             inspector.borrow_mut().context_destroyed(scope, context);
-            println!("Program finished. Waiting for inspector to disconnect to exit the process...");
+            self.wait_for_inspector_disconnect();
           }
 
           return Poll::Pending;
