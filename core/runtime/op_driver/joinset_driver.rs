@@ -5,7 +5,8 @@ use crate::OpError;
 use crate::OpMetricsEvent;
 use crate::OpResult;
 use crate::_ops::dispatch_metrics_async;
-use crate::arena::RawArena;
+use crate::arena::ArenaBox;
+use crate::arena::ArenaUnique;
 use crate::ops::OpCtx;
 use crate::ops::PendingOp;
 use crate::runtime::ContextState;
@@ -25,27 +26,15 @@ const MAX_ARENA_FUTURE_SIZE: usize = 1024;
 #[derive(Default)]
 pub struct JoinSetDriver {
   pending_ops: RefCell<JoinSet<PendingOp>>,
-  arena: RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, 256>,
+  arena: ArenaUnique<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, 256>,
 }
 
-enum FutureAllocation<R> {
-  Arena(
-    *mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>,
-    *const RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, 256>,
-  ),
+enum FutureAllocation<R: 'static> {
+  Arena(ArenaBox<ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>>),
   Box(Pin<Box<dyn Future<Output = R>>>),
 }
 
 impl<R> Unpin for FutureAllocation<R> {}
-
-impl<R> Drop for FutureAllocation<R> {
-  fn drop(&mut self) {
-    match self {
-      Self::Arena(alloc, arena) => unsafe { (**arena).recycle(*alloc as _) },
-      Self::Box(..) => {}
-    }
-  }
-}
 
 impl<R> Future for FutureAllocation<R> {
   type Output = R;
@@ -54,7 +43,7 @@ impl<R> Future for FutureAllocation<R> {
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     unsafe {
       match self.get_unchecked_mut() {
-        Self::Arena(ptr, _) => {
+        Self::Arena(ptr) => {
           let pin = Pin::new_unchecked(&mut **ptr);
           pin.poll(cx)
         }
@@ -65,6 +54,11 @@ impl<R> Future for FutureAllocation<R> {
 }
 
 impl JoinSetDriver {
+  /// Allocate a future to run in this `JoinSet`.
+  ///
+  /// # Safety
+  ///
+  /// All allocations _must_ be placed in the JoinSet.
   fn allocate<F, R>(&self, f: F) -> FutureAllocation<R>
   where
     F: Future<Output = R> + 'static,
@@ -73,9 +67,9 @@ impl JoinSetDriver {
       FutureAllocation::Box(f.boxed_local())
     } else {
       unsafe {
-        let ptr = self.arena.allocate() as _;
-        std::ptr::write(ptr, ErasedFuture::new(f));
-        FutureAllocation::Arena(ptr, &self.arena)
+        FutureAllocation::Arena(std::mem::transmute(self.arena.allocate(
+          std::mem::transmute(ErasedFuture::<MAX_ARENA_FUTURE_SIZE, _>::new(f)),
+        )))
       }
     }
   }
@@ -267,5 +261,31 @@ impl OpDriver for JoinSetDriver {
   #[inline(always)]
   fn len(&self) -> usize {
     self.pending_ops.borrow().len()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_double_free() {
+    let driver = JoinSetDriver::default();
+    let f = driver.allocate(async { 1 });
+    drop(f);
+    let f = driver.allocate(Box::pin(async { 1 }));
+    drop(f);
+    let f = driver.allocate(ready(Box::new(1)));
+    drop(f);
+  }
+
+  #[test]
+  fn test_exceed_arena() {
+    let driver = JoinSetDriver::default();
+    let mut v = vec![];
+    for _ in 0..1000 {
+      v.push(driver.allocate(ready(Box::new(1))));
+    }
+    drop(v);
   }
 }

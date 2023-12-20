@@ -130,13 +130,13 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   pub unsafe fn recycle(&self, data: *mut T) {
     let entry = Self::data_to_entry(data);
     if entry >= self.alloc && entry < self.past_alloc_end {
-      std::ptr::drop_in_place(entry);
+      std::ptr::drop_in_place(std::ptr::addr_of_mut!((*entry).value) as *mut T);
       let next = self.next.get();
       self.allocated.set(self.allocated.get() - 1);
       (*entry).next = next;
       self.next.set(entry);
     } else {
-      std::ptr::drop_in_place(entry);
+      std::ptr::drop_in_place(std::ptr::addr_of_mut!((*entry).value) as *mut T);
       std::alloc::dealloc(entry as _, Layout::new::<RawArenaEntry<T>>());
     }
   }
@@ -176,7 +176,7 @@ impl<T, const BASE_CAPACITY: usize> Drop for RawArena<T, BASE_CAPACITY> {
 
 #[cfg(test)]
 mod tests {
-  use super::RawArena;
+  use super::*;
 
   #[must_use = "If you don't use this, it'll leak!"]
   unsafe fn allocate<const BASE_CAPACITY: usize>(
@@ -237,18 +237,21 @@ mod tests {
   #[test]
   fn test_droppable() {
     // Make sure we correctly drop all the items in this arena if they are droppable
-    let arena =
-      RawArena::<Box<dyn std::future::Future<Output = ()>>, 16>::default();
+    let arena = RawArena::<_, 16>::default();
     unsafe {
       let mut nodes = vec![];
       // This will spill over into memory allocations
-      for _ in 0..20 {
+      for i in 0..20 {
         let node = arena.allocate();
-        std::ptr::write(node, Box::new(std::future::pending()));
+        std::ptr::write(
+          node,
+          Box::new(std::future::ready(format!("iteration {i}"))),
+        );
         nodes.push(node);
       }
       assert_eq!(arena.remaining(), 0);
       for node in nodes {
+        eprintln!("{:?}", (*node));
         arena.recycle(node);
       }
       assert_eq!(arena.remaining(), 16);

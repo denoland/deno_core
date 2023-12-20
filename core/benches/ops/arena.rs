@@ -22,6 +22,7 @@ fn bench_arc_arena(b: &mut Bencher) {
     for i in v.iter() {
       black_box(i);
     }
+    v.clear()
   });
 }
 
@@ -35,6 +36,8 @@ fn bench_box_arena(b: &mut Bencher) {
     for i in v.iter() {
       black_box(i);
     }
+    v.clear();
+    v
   });
 }
 
@@ -45,7 +48,9 @@ fn bench_arc(b: &mut Bencher) {
     for _ in 0..COUNT {
       v.push(Arc::<RefCell<usize>>::new(Default::default()));
     }
-    black_box(v);
+    v = black_box(v);
+    v.clear();
+    v
   })
 }
 
@@ -55,7 +60,9 @@ fn bench_box(b: &mut Bencher) {
     for _ in 0..COUNT {
       v.push(Box::<RefCell<usize>>::default());
     }
-    black_box(v);
+    v = black_box(v);
+    v.clear();
+    v
   })
 }
 
@@ -68,9 +75,12 @@ fn bench_raw_arena(b: &mut Bencher) {
         v.push(arena.allocate());
       }
     }
-    for i in v {
-      unsafe { arena.recycle(i) }
+    for i in v.iter() {
+      unsafe { arena.recycle(*i) }
     }
+    v = black_box(v);
+    v.clear();
+    v
   });
 }
 
@@ -82,11 +92,14 @@ fn bench_raw_alloc(b: &mut Bencher) {
         v.push(std::alloc::alloc(Layout::new::<RefCell<usize>>()));
       }
     }
-    for i in v {
+    for i in v.iter() {
       unsafe {
-        std::alloc::dealloc(i, Layout::new::<RefCell<usize>>());
+        std::alloc::dealloc(*i, Layout::new::<RefCell<usize>>());
       }
     }
+    v = black_box(v);
+    v.clear();
+    v
   })
 }
 

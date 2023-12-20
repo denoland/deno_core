@@ -20,19 +20,13 @@ impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
   }
 
   pub fn new<F>(f: F) -> Self {
-    let mut new = Self::default();
+    let mut new = Self {
+      memory: [MaybeUninit::uninit(); MAX_SIZE],
+      drop: |this| unsafe { std::ptr::drop_in_place::<F>(this as _) },
+      _unpin: PhantomPinned,
+    };
     unsafe { std::ptr::write(new.memory.as_mut_ptr() as *mut F, f) };
     new
-  }
-}
-
-impl<const MAX_SIZE: usize> Default for TypeErased<MAX_SIZE> {
-  fn default() -> Self {
-    Self {
-      memory: [MaybeUninit::uninit(); MAX_SIZE],
-      drop: |this| unsafe { std::ptr::drop_in_place(this) },
-      _unpin: PhantomPinned,
-    }
   }
 }
 

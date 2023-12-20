@@ -167,14 +167,16 @@ impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
   unsafe fn delete(data: &mut ArenaBoxData<T>) {
     let arena = data.arena_data as *mut ArenaUniqueData<T, BASE_CAPACITY>;
     (*arena).raw_arena.recycle(data as _);
-    if (*arena).ref_count == 0 {
+    let ref_count_ptr = std::ptr::addr_of_mut!((*arena).ref_count);
+    let ref_count = *ref_count_ptr;
+    if ref_count == 0 {
       std::ptr::drop_in_place(arena);
       std::alloc::dealloc(
         arena as _,
         Layout::new::<ArenaUniqueData<T, BASE_CAPACITY>>(),
       );
     } else {
-      (*arena).ref_count -= 1;
+      *ref_count_ptr = ref_count - 1;
     }
   }
 
@@ -237,14 +239,16 @@ impl<T, const BASE_CAPACITY: usize> Drop for ArenaUnique<T, BASE_CAPACITY> {
   fn drop(&mut self) {
     unsafe {
       let this = self.ptr.as_ptr();
-      if (*this).ref_count == 0 {
+      let ref_count_ptr = std::ptr::addr_of_mut!((*this).ref_count);
+      let ref_count = *ref_count_ptr;
+      if ref_count == 0 {
         std::ptr::drop_in_place(this);
         std::alloc::dealloc(
           this as _,
           Layout::new::<ArenaUniqueData<T, BASE_CAPACITY>>(),
         );
       } else {
-        (*this).ref_count -= 1;
+        *ref_count_ptr = ref_count - 1;
       }
     }
   }
