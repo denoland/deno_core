@@ -9,7 +9,7 @@ pub mod ops;
 pub mod ops_rust_to_v8;
 mod snapshot_util;
 
-#[cfg(all(test))]
+#[cfg(all(test, not(miri)))]
 mod tests;
 
 pub const V8_WRAPPER_TYPE_INDEX: i32 = 0;
