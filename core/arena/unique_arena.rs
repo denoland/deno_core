@@ -24,18 +24,22 @@ struct ArenaBoxData<T> {
 }
 
 impl<T: 'static> ArenaBox<T> {
+  /// Offset of the `ptr` field within the `ArenaBox` struct.
   const PTR_OFFSET: usize = memoffset::offset_of!(ArenaBox<T>, ptr);
 
+  /// Constructs a `NonNull` reference to `ArenaBoxData` from a raw pointer to `T`.
   #[inline(always)]
   unsafe fn data_from_ptr(ptr: *mut T) -> NonNull<ArenaBoxData<T>> {
     NonNull::new_unchecked((ptr as *mut u8).sub(Self::PTR_OFFSET) as _)
   }
 
+  /// Obtains a raw pointer to `T` from a `NonNull` reference to `ArenaBoxData`.  
   #[inline(always)]
   unsafe fn ptr_from_data(ptr: NonNull<ArenaBoxData<T>>) -> *mut T {
     (ptr.as_ptr() as *mut u8).add(Self::PTR_OFFSET) as _
   }
 
+  /// Transforms an `ArenaBox` into a raw pointer to `T` and forgets it.
   #[inline(always)]
   pub fn into_raw(mut alloc: ArenaBox<T>) -> *mut T {
     let ptr = NonNull::from(alloc.data_mut());
@@ -43,6 +47,11 @@ impl<T: 'static> ArenaBox<T> {
     unsafe { Self::ptr_from_data(ptr) }
   }
 
+  /// Constructs an `ArenaBox` instance from a raw pointer to `T`.
+  /// 
+  /// # Safety
+  ///
+  /// This function constructs an `ArenaBox` from a raw pointer, assuming the pointer is valid and properly aligned.
   #[inline(always)]
   pub unsafe fn from_raw(ptr: *mut T) -> ArenaBox<T> {
     let mut ptr = Self::data_from_ptr(ptr);
@@ -125,7 +134,7 @@ impl<T, const BASE_CAPACITY: usize> Default for ArenaUnique<T, BASE_CAPACITY> {
         ptr,
         ArenaUniqueData {
           raw_arena: Default::default(),
-          ref_count: 0,
+          ref_count: 1,
         },
       );
       Self {
@@ -136,6 +145,7 @@ impl<T, const BASE_CAPACITY: usize> Default for ArenaUnique<T, BASE_CAPACITY> {
 }
 
 impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
+  /// Deletes the data associated with an `ArenaBox` from the arena.
   unsafe fn delete(data: &mut ArenaBoxData<T>) {
     let arena = data.arena_data as *mut ArenaUniqueData<T, BASE_CAPACITY>;
     (*arena).raw_arena.recycle(data as _);
@@ -150,6 +160,33 @@ impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
     }
   }
 
+  /// Allocates a new data instance of type `T` within the arena, encapsulating it within an `ArenaBox`.
+  ///
+  /// This method creates a new instance of type `T` within the `RawArena`, which is the underlying memory
+  /// allocation mechanism used by the `ArenaUnique`. The provided `data` is initialized within the arena,
+  /// and an `ArenaBox` is returned to manage this allocated data. The `ArenaBox` serves as a reference to
+  /// the allocated data within the arena, providing safe access and management of the stored value.
+  ///
+  /// # Example
+  ///
+  /// ```rust
+  /// # use deno_core::arena::ArenaUnique;
+  ///
+  /// // Define a struct that will be allocated within the arena
+  /// struct MyStruct {
+  ///   data: usize,
+  /// }
+  ///
+  /// // Create a new instance of ArenaUnique with a specified base capacity
+  /// let arena: ArenaUnique<MyStruct, 16> = ArenaUnique::default();
+  ///
+  /// // Allocate a new MyStruct instance within the arena
+  /// let data_instance = MyStruct { data: 42 };
+  /// let allocated_box = arena.allocate(data_instance);
+  ///
+  /// // Now, allocated_box can be used as a managed reference to the allocated data
+  /// assert_eq!(allocated_box.data, 42); // Validate the data stored in the allocated box
+  /// ```
   pub fn allocate(&self, data: T) -> ArenaBox<T> {
     let ptr = unsafe {
       let this = self.ptr.as_ptr();

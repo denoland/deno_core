@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use bencher::*;
-use deno_core::OpSet;
 use futures::stream::FuturesOrdered;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
@@ -25,30 +24,30 @@ async fn task() {
   drop(v);
 }
 
-fn bench_opset(b: &mut Bencher) {
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .enable_time()
-    .build()
-    .unwrap();
-  let mut opset = OpSet::<(), ()>::default();
-  b.iter(|| {
-    runtime.block_on(async {
-      for _ in 0..LOOPS {
-        let mut expect = 0;
-        for _ in 0..COUNT {
-          if opset.insert_op(0, task(), |_, x| x).is_pending() {
-            expect += 1;
-          }
-        }
-        for _ in 0..expect {
-          opset.ready(&mut ()).await;
-        }
-      }
+// fn bench_opset(b: &mut Bencher) {
+//   let runtime = tokio::runtime::Builder::new_current_thread()
+//     .enable_time()
+//     .build()
+//     .unwrap();
+//   let mut opset = OpSet::<(), ()>::default();
+//   b.iter(|| {
+//     runtime.block_on(async {
+//       for _ in 0..LOOPS {
+//         let mut expect = 0;
+//         for _ in 0..COUNT {
+//           if opset.insert_op(0, task(), |_, x| x).is_pending() {
+//             expect += 1;
+//           }
+//         }
+//         for _ in 0..expect {
+//           opset.ready(&mut ()).await;
+//         }
+//       }
 
-      opset.reset()
-    });
-  });
-}
+//       opset.reset()
+//     });
+//   });
+// }
 
 fn bench_futures_unordered(b: &mut Bencher) {
   let runtime = tokio::runtime::Builder::new_current_thread()
@@ -134,7 +133,7 @@ benchmark_main!(benches);
 
 benchmark_group!(
   benches,
-  bench_opset,
+  // bench_opset,
   bench_futures_ordered,
   bench_futures_unordered,
   bench_joinset,

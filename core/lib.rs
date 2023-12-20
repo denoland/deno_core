@@ -127,8 +127,6 @@ pub use crate::resources::ResourceHandleFd;
 pub use crate::resources::ResourceHandleSocket;
 pub use crate::resources::ResourceId;
 pub use crate::resources::ResourceTable;
-#[doc(hidden)]
-pub use crate::runtime::op_driver::opset::OpSet;
 pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;

@@ -25,8 +25,6 @@ use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
-use crate::ops_metrics::dispatch_metrics_async;
-use crate::ops_metrics::OpMetricsEvent;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;

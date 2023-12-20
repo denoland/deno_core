@@ -10,23 +10,42 @@ use crate::arena::raw_arena::RawArena;
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x1122334455667788;
 
+/// Represents an atomic reference-counted pointer into an arena-allocated object.
 pub struct ArenaArc<T> {
   ptr: NonNull<ArenaArcData<T>>,
 }
 
 impl<T> ArenaArc<T> {
+  /// Offset of the `ptr` field within the `ArenaArc` struct.
   const PTR_OFFSET: usize = memoffset::offset_of!(ArenaArc<T>, ptr);
 
+  /// Converts a raw pointer to the data into a `NonNull` pointer to `ArenaArcData`.
+  ///
+  /// # Safety
+  ///
+  /// This function assumes that the input `ptr` points to the data within an `ArenaArc` object.
+  /// Improper usage may result in undefined behavior.
   #[inline(always)]
   unsafe fn data_from_ptr(ptr: *const T) -> NonNull<ArenaArcData<T>> {
     NonNull::new_unchecked((ptr as *const u8).sub(Self::PTR_OFFSET) as _)
   }
 
+  /// Converts a `NonNull` pointer to `ArenaArcData` into a raw pointer to the data.
+  ///
+  /// # Safety
+  ///
+  /// This function assumes that the input `ptr` is a valid `NonNull` pointer to `ArenaArcData`.
+  /// Improper usage may result in undefined behavior.
   #[inline(always)]
   unsafe fn ptr_from_data(ptr: NonNull<ArenaArcData<T>>) -> *const T {
     (ptr.as_ptr() as *const u8).add(Self::PTR_OFFSET) as _
   }
 
+  /// Consumes the `ArenaArc`, forgetting it, and returns a raw pointer to the contained data.
+  ///
+  /// # Safety
+  ///
+  /// This function returns a raw pointer without managing the memory. Use with caution to avoid memory leaks.
   #[inline(always)]
   pub fn into_raw(arc: ArenaArc<T>) -> *const T {
     let ptr = arc.ptr;
@@ -34,6 +53,9 @@ impl<T> ArenaArc<T> {
     unsafe { Self::ptr_from_data(ptr) }
   }
 
+  /// Clones the `ArenaArc` reference, increments its reference count, and returns a raw pointer to the contained data.
+  ///
+  /// This function increments the reference count of the `ArenaArc`.
   #[inline(always)]
   pub fn clone_into_raw(arc: &ArenaArc<T>) -> *const T {
     unsafe {
@@ -42,6 +64,11 @@ impl<T> ArenaArc<T> {
     }
   }
 
+  /// Constructs an `ArenaArc` from a raw pointer to the contained data.
+  ///
+  /// # Safety
+  ///
+  /// This function constructs an `ArenaArc` from a raw pointer, assuming the pointer is valid and properly aligned.
   #[inline(always)]
   pub unsafe fn from_raw(ptr: *const T) -> ArenaArc<T> {
     let ptr = Self::data_from_ptr(ptr);
@@ -51,6 +78,17 @@ impl<T> ArenaArc<T> {
     ArenaArc { ptr }
   }
 
+  /// Clones an `ArenaArc` reference from a raw pointer and increments its reference count.
+  ///
+  /// This method increments the reference count of the `ArenaArc` instance
+  /// associated with the provided raw pointer, allowing multiple references
+  /// to the same allocated data.
+  ///
+  /// # Safety
+  ///
+  /// This function assumes that the provided `ptr` is a valid raw pointer
+  /// to the data within an `ArenaArc` object. Improper usage may lead
+  /// to memory unsafety or data corruption.
   #[inline(always)]
   pub unsafe fn clone_from_raw(ptr: *const T) -> ArenaArc<T> {
     let ptr = Self::data_from_ptr(ptr);
@@ -58,12 +96,33 @@ impl<T> ArenaArc<T> {
     ArenaArc { ptr }
   }
 
+  /// Increments the reference count associated with the raw pointer to an `ArenaArc`-managed data.
+  ///
+  /// This method manually increases the reference count of the `ArenaArc` instance
+  /// associated with the provided raw pointer. It allows incrementing the reference count
+  /// without constructing a full `ArenaArc` instance, ideal for scenarios where direct
+  /// manipulation of raw pointers is required.
+  ///
+  /// # Safety
+  ///
+  /// This method bypasses some safety checks enforced by the `ArenaArc` type. Incorrect usage
+  /// or mishandling of raw pointers might lead to memory unsafety or data corruption.
+  /// Use with caution and ensure proper handling of associated data.
   #[inline(always)]
   pub unsafe fn clone_raw_from_raw(ptr: *const T) {
     let ptr = Self::data_from_ptr(ptr);
     ptr.as_ref().ref_count.fetch_add(1, Ordering::Relaxed);
   }
 
+  /// Drops the `ArenaArc` reference pointed to by the raw pointer.
+  ///
+  /// If the reference count drops to zero, the associated data is returned to the arena.
+  ///
+  /// # Safety
+  ///
+  /// This function assumes that the provided `ptr` is a valid raw pointer
+  /// to the data within an `ArenaArc` object. Improper usage may lead
+  /// to memory unsafety or data corruption.
   #[inline(always)]
   pub unsafe fn drop_from_raw(ptr: *const T) {
     let ptr = Self::data_from_ptr(ptr);
@@ -102,6 +161,7 @@ impl<T> std::ops::Deref for ArenaArc<T> {
   }
 }
 
+/// Data structure containing metadata and the actual data within the `ArenaArc`.
 struct ArenaArcData<T> {
   #[cfg(debug_assertions)]
   signature: usize,
@@ -125,7 +185,9 @@ unsafe impl<T, const BASE_CAPACITY: usize> Send
 static_assertions::assert_impl_any!(ArenaSharedAtomic<(), 16>: Send);
 static_assertions::assert_not_impl_any!(ArenaSharedAtomic<(), 16>: Sync);
 
+/// Data structure containing a mutex and the `RawArena` for atomic access in the `ArenaSharedAtomic`.
 struct ArenaSharedAtomicData<T, const BASE_CAPACITY: usize> {
+  /// A mutex ensuring thread-safe access to the internal raw arena and refcount.
   mutex: parking_lot::RawMutex,
   raw_arena: RawArena<ArenaArcData<T>, BASE_CAPACITY>,
   ref_count: usize,
@@ -174,6 +236,37 @@ impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
     }
   }
 
+  /// Allocates a new object in the arena and returns an `ArenaArc` pointing to it.
+  ///
+  /// This method creates a new instance of type `T` within the `RawArena`, which is the underlying memory
+  /// allocation mechanism used by the `ArenaSharedAtomic`. The provided `data` is initialized within the arena,
+  /// and an `ArenaArc` is returned to manage this allocated data. The `ArenaArc` serves as an atomic,
+  /// reference-counted pointer to the allocated data within the arena, ensuring safe concurrent access
+  /// across multiple threads while maintaining the reference count for memory management.
+  ///
+  /// The allocation process employs a mutex to ensure thread-safe access to the arena, allowing only one
+  /// thread at a time to modify the internal state, including allocating and deallocating memory.
+  ///
+  /// # Example
+  ///
+  /// ```rust
+  /// # use deno_core::arena::ArenaSharedAtomic;
+  ///
+  /// // Define a struct that will be allocated within the arena
+  /// struct MyStruct {
+  ///     data: usize,
+  /// }
+  ///
+  /// // Create a new instance of ArenaSharedAtomic with a specified base capacity
+  /// let arena: ArenaSharedAtomic<MyStruct, 16> = ArenaSharedAtomic::default();
+  ///
+  /// // Allocate a new MyStruct instance within the arena
+  /// let data_instance = MyStruct { data: 42 };
+  /// let allocated_arc = arena.allocate(data_instance);
+  ///
+  /// // Now, allocated_arc can be used as a managed reference to the allocated data
+  /// assert_eq!(allocated_arc.data, 42); // Validate the data stored in the allocated arc
+  /// ```
   pub fn allocate(&self, data: T) -> ArenaArc<T> {
     let ptr = unsafe {
       let this = self.ptr.as_ptr();

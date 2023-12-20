@@ -7,7 +7,6 @@ use std::task::Context;
 
 pub mod erased_future;
 pub mod joinset_driver;
-pub mod opset;
 
 pub(crate) trait OpDriver: Default {
   fn submit_op_infallible<R: 'static>(

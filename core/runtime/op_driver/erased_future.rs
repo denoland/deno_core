@@ -7,26 +7,15 @@ use std::task::Context;
 use std::task::Poll;
 
 #[repr(C, align(16))]
-pub(crate) struct TypeErased<const MAX_SIZE: usize> {
+struct TypeErased<const MAX_SIZE: usize> {
   memory: [MaybeUninit<u8>; MAX_SIZE],
   drop: fn(this: *mut ()),
   _unpin: PhantomPinned,
 }
 
 impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
-  const fn max_size() -> usize {
-    MAX_SIZE
-  }
-
   pub fn raw_ptr(&mut self) -> *mut () {
     self.memory.as_mut_ptr() as _
-  }
-
-  pub fn pin_mut<T>(&mut self) -> Pin<&mut T> {
-    unsafe {
-      let ptr = std::mem::transmute(&mut self.memory);
-      Pin::new_unchecked(ptr)
-    }
   }
 
   pub fn new<F>(f: F) -> Self {

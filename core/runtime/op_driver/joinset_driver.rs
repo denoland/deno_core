@@ -41,7 +41,7 @@ impl<R> Drop for FutureAllocation<R> {
   fn drop(&mut self) {
     match self {
       Self::Arena(alloc, arena) => unsafe { (**arena).recycle(*alloc as _) },
-      _ => {}
+      Self::Box(..) => {}
     }
   }
 }
