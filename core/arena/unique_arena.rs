@@ -40,6 +40,11 @@ impl<T: 'static> ArenaBox<T> {
   }
 
   /// Transforms an `ArenaBox` into a raw pointer to `T` and forgets it.
+  ///
+  /// # Safety
+  ///
+  /// This function returns a raw pointer without managing the memory, potentially leading to
+  /// memory leaks if the pointer is not properly handled or deallocated.
   #[inline(always)]
   pub fn into_raw(mut alloc: ArenaBox<T>) -> *mut T {
     let ptr = NonNull::from(alloc.data_mut());
@@ -47,11 +52,12 @@ impl<T: 'static> ArenaBox<T> {
     unsafe { Self::ptr_from_data(ptr) }
   }
 
-  /// Constructs an `ArenaBox` instance from a raw pointer to `T`.
+  /// Constructs an `ArenaBox` from a raw pointer to the contained data.
   ///
   /// # Safety
   ///
-  /// This function constructs an `ArenaBox` from a raw pointer, assuming the pointer is valid and properly aligned.
+  /// This function safely constructs an `ArenaBox` from a raw pointer, assuming the pointer is
+  /// valid and properly aligned. Misuse may lead to undefined behavior, memory unsafety, or data corruption.
   #[inline(always)]
   pub unsafe fn from_raw(ptr: *mut T) -> ArenaBox<T> {
     let ptr = Self::data_from_ptr(ptr);
@@ -174,10 +180,15 @@ impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
 
   /// Allocates a new data instance of type `T` within the arena, encapsulating it within an `ArenaBox`.
   ///
-  /// This method creates a new instance of type `T` within the `RawArena`, which is the underlying memory
-  /// allocation mechanism used by the `ArenaUnique`. The provided `data` is initialized within the arena,
-  /// and an `ArenaBox` is returned to manage this allocated data. The `ArenaBox` serves as a reference to
-  /// the allocated data within the arena, providing safe access and management of the stored value.
+  /// This method creates a new instance of type `T` within the `RawArena`. The provided `data`
+  /// is initialized within the arena, and an `ArenaBox` is returned to manage this allocated data.
+  /// The `ArenaBox` serves as a reference to the allocated data within the arena, providing safe access
+  /// and management of the stored value.
+  ///
+  /// # Safety
+  ///
+  /// The provided `data` is allocated within the arena and managed by the `ArenaBox`. Improper handling
+  /// or misuse of the returned `ArenaBox` pointer may lead to memory leaks or memory unsafety.
   ///
   /// # Example
   ///

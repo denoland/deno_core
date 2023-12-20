@@ -46,7 +46,8 @@ impl<T> ArenaArc<T> {
   ///
   /// # Safety
   ///
-  /// This function returns a raw pointer without managing the memory. Use with caution to avoid memory leaks.
+  /// This function returns a raw pointer without managing the memory, potentially leading to
+  /// memory leaks if the pointer is not properly handled or deallocated.
   #[inline(always)]
   pub fn into_raw(arc: ArenaArc<T>) -> *const T {
     let ptr = arc.ptr;
@@ -67,9 +68,13 @@ impl<T> ArenaArc<T> {
 
   /// Constructs an `ArenaArc` from a raw pointer to the contained data.
   ///
+  /// This function safely constructs an `ArenaArc` from a raw pointer, assuming the pointer is
+  /// valid, properly aligned, and was originally created by `into_raw` or `clone_into_raw`.
+  ///
   /// # Safety
   ///
-  /// This function constructs an `ArenaArc` from a raw pointer, assuming the pointer is valid and properly aligned.
+  /// This function assumes the provided `ptr` is a valid raw pointer to the data within an `ArenaArc`
+  /// object. Misuse may lead to undefined behavior, memory unsafety, or data corruption.
   #[inline(always)]
   pub unsafe fn from_raw(ptr: *const T) -> ArenaArc<T> {
     let ptr = Self::data_from_ptr(ptr);
@@ -253,14 +258,19 @@ impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
 
   /// Allocates a new object in the arena and returns an `ArenaArc` pointing to it.
   ///
-  /// This method creates a new instance of type `T` within the `RawArena`, which is the underlying memory
-  /// allocation mechanism used by the `ArenaSharedAtomic`. The provided `data` is initialized within the arena,
-  /// and an `ArenaArc` is returned to manage this allocated data. The `ArenaArc` serves as an atomic,
-  /// reference-counted pointer to the allocated data within the arena, ensuring safe concurrent access
-  /// across multiple threads while maintaining the reference count for memory management.
+  /// This method creates a new instance of type `T` within the `RawArena`. The provided `data`
+  /// is initialized within the arena, and an `ArenaArc` is returned to manage this allocated data.
+  /// The `ArenaArc` serves as an atomic, reference-counted pointer to the allocated data within
+  /// the arena, ensuring safe concurrent access across multiple threads while maintaining the
+  /// reference count for memory management.
   ///
-  /// The allocation process employs a mutex to ensure thread-safe access to the arena, allowing only one
-  /// thread at a time to modify the internal state, including allocating and deallocating memory.
+  /// The allocation process employs a mutex to ensure thread-safe access to the arena, allowing
+  /// only one thread at a time to modify the internal state, including allocating and deallocating memory.
+  ///
+  /// # Safety
+  ///
+  /// The provided `data` is allocated within the arena and managed by the `ArenaArc`. Improper handling
+  /// or misuse of the returned `ArenaArc` pointer may lead to memory leaks or memory unsafety.
   ///
   /// # Example
   ///
