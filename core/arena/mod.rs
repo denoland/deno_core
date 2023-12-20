@@ -1,3 +1,4 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 mod raw_arena;
 mod shared_atomic_arena;
 mod unique_arena;

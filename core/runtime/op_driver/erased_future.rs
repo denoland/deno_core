@@ -1,3 +1,4 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use std::future::Future;
 use std::marker::PhantomData;
 use std::marker::PhantomPinned;

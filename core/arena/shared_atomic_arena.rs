@@ -1,3 +1,4 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use std::alloc::Layout;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicUsize;

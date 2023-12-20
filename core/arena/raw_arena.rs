@@ -1,4 +1,6 @@
-use std::alloc::{handle_alloc_error, Layout};
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use std::alloc::handle_alloc_error;
+use std::alloc::Layout;
 use std::cell::Cell;
 use std::mem::ManuallyDrop;
 
