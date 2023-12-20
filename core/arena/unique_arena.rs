@@ -180,10 +180,8 @@ impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
   unsafe fn delete(data: NonNull<ArenaBoxData<T>>) {
     let data = data.as_ptr();
     let arena = (*data).arena_data as *mut ArenaUniqueData<T, BASE_CAPACITY>;
-    if (*arena).raw_arena.recycle(data as _) {
-      if !(*arena).alive {
-        Self::drop_data(arena)
-      }
+    if (*arena).raw_arena.recycle(data as _) && !(*arena).alive {
+      Self::drop_data(arena)
     }
   }
 

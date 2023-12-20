@@ -73,6 +73,11 @@ impl JoinSetDriver {
       }
     }
   }
+
+  #[inline(always)]
+  fn spawn(&self, task: impl Future<Output = PendingOp> + 'static) {
+    self.pending_ops.borrow_mut().spawn(task);
+  }
 }
 
 impl OpDriver for JoinSetDriver {
@@ -96,23 +101,20 @@ impl OpDriver for JoinSetDriver {
 
       if lazy {
         let get_class = ctx.get_error_class_fn;
-        self
-          .pending_ops
-          .borrow_mut()
-          .spawn(op.map(move |r| match r {
-            Ok(v) => PendingOp(
-              promise_id,
-              id,
-              OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
-              metrics,
-            ),
-            Err(err) => PendingOp(
-              promise_id,
-              id,
-              OpResult::Err(OpError::new(get_class, err.into())),
-              metrics,
-            ),
-          }));
+        self.spawn(op.map(move |r| match r {
+          Ok(v) => PendingOp(
+            promise_id,
+            id,
+            OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+            metrics,
+          ),
+          Err(err) => PendingOp(
+            promise_id,
+            id,
+            OpResult::Err(OpError::new(get_class, err.into())),
+            metrics,
+          ),
+        }));
         return None;
       }
 
@@ -134,23 +136,20 @@ impl OpDriver for JoinSetDriver {
         };
 
       let get_class = ctx.get_error_class_fn;
-      self
-        .pending_ops
-        .borrow_mut()
-        .spawn(pinned.map(move |r| match r.2 {
-          Ok(v) => PendingOp(
-            r.0,
-            r.1,
-            OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
-            metrics,
-          ),
-          Err(err) => PendingOp(
-            r.0,
-            r.1,
-            OpResult::Err(OpError::new(get_class, err.into())),
-            metrics,
-          ),
-        }));
+      self.spawn(pinned.map(move |r| match r.2 {
+        Ok(v) => PendingOp(
+          r.0,
+          r.1,
+          OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+          metrics,
+        ),
+        Err(err) => PendingOp(
+          r.0,
+          r.1,
+          OpResult::Err(OpError::new(get_class, err.into())),
+          metrics,
+        ),
+      }));
       None
     }
   }
@@ -181,35 +180,36 @@ impl OpDriver for JoinSetDriver {
             metrics,
           )
         };
-        self.pending_ops.borrow_mut().spawn(op.map(mapper));
+        self.spawn(op.map(mapper));
         return None;
       }
 
-      // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
-      // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-      let mut pinned = self.allocate(op.map(move |res| (promise_id, id, res)));
-
-      let pinned =
-        match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-          Poll::Pending => pinned,
-          Poll::Ready(res) => {
-            // TODO(mmastrac): optimize this so we don't double-allocate
-            if deferred {
-              self.allocate(ready(res))
-            } else {
-              return Some(res.2);
-            }
+      // TODO(mmastrac): we poll every future here because it's much faster to return a result than
+      // spin the event loop to get it.
+      let mut pinned = self.allocate(op);
+      match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+        Poll::Pending => self.spawn(pinned.map(move |res| {
+          PendingOp(
+            promise_id,
+            id,
+            OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, res))),
+            metrics,
+          )
+        })),
+        Poll::Ready(res) => {
+          if deferred {
+            self.spawn(ready(PendingOp(
+              promise_id,
+              id,
+              OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, res))),
+              metrics,
+            )))
+          } else {
+            return Some(res);
           }
-        };
+        }
+      };
 
-      self.pending_ops.borrow_mut().spawn(pinned.map(move |r| {
-        PendingOp(
-          r.0,
-          r.1,
-          OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r.2))),
-          metrics,
-        )
-      }));
       None
     }
   }
