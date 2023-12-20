@@ -9,6 +9,7 @@ pub mod erased_future;
 pub mod joinset_driver;
 
 pub(crate) trait OpDriver: Default {
+  /// Submits an operation that is expected to complete successfully without errors.
   fn submit_op_infallible<R: 'static>(
     &self,
     ctx: &OpCtx,
@@ -23,6 +24,10 @@ pub(crate) trait OpDriver: Default {
       -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
   ) -> Option<R>;
 
+  /// Submits an operation that may produce errors during execution.
+  ///
+  /// This method is similar to `submit_op_infallible` but is used when the op
+  /// might return an error (`Result`).
   fn submit_op_fallible<R: 'static, E: Into<Error> + 'static>(
     &self,
     ctx: &OpCtx,
@@ -37,6 +42,7 @@ pub(crate) trait OpDriver: Default {
       -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
   ) -> Option<Result<R, E>>;
 
+  /// Polls the readiness of the operation driver for handling a new operation.
   // TODO(mmastrac): Remove ContextState if possible
   fn poll_ready<'s>(
     &self,

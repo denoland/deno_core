@@ -53,10 +53,10 @@ impl<T: 'static> ArenaBox<T> {
   /// This function constructs an `ArenaBox` from a raw pointer, assuming the pointer is valid and properly aligned.
   #[inline(always)]
   pub unsafe fn from_raw(ptr: *mut T) -> ArenaBox<T> {
-    let mut ptr = Self::data_from_ptr(ptr);
+    let ptr = Self::data_from_ptr(ptr);
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(ptr.as_mut().signature, SIGNATURE);
+    debug_assert_eq!(ptr.as_ref().signature, SIGNATURE);
     ArenaBox { ptr }
   }
 }

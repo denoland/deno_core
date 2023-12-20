@@ -38,6 +38,7 @@ fn bench_box_arena(b: &mut Bencher) {
   });
 }
 
+#[allow(clippy::arc_with_non_send_sync)]
 fn bench_arc(b: &mut Bencher) {
   b.iter(|| {
     let mut v = Vec::with_capacity(COUNT);
@@ -52,7 +53,7 @@ fn bench_box(b: &mut Bencher) {
   b.iter(|| {
     let mut v = Vec::with_capacity(COUNT);
     for _ in 0..COUNT {
-      v.push(Box::<RefCell<usize>>::new(Default::default()));
+      v.push(Box::<RefCell<usize>>::default());
     }
     black_box(v);
   })

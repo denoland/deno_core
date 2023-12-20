@@ -128,6 +128,7 @@ mod tests {
   #[test]
   fn test_in_arena_selfref_easy() {
     let arena = ArenaUnique::<ErasedFuture<256, usize>, 16>::default();
+    #[allow(clippy::useless_vec)]
     let future = arena.allocate(ErasedFuture::new(async {
       let mut v = vec![1];
       let v = v.get_mut(0).unwrap();
