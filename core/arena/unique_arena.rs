@@ -1,8 +1,7 @@
 use std::alloc::Layout;
 use std::pin::Pin;
 use std::ptr::NonNull;
-
-use futures::Future;
+use std::future::Future;
 
 use crate::arena::raw_arena::RawArena;
 
@@ -111,6 +110,18 @@ where
   }
 }
 
+/// An arena-based unique ownership container allowing allocation
+/// and deallocation of objects with exclusive ownership semantics.
+///
+/// `ArenaUnique` provides exclusive ownership semantics similar to
+/// a `Box`. It utilizes a `RawArena` for allocation and
+/// deallocation of objects, maintaining the sole ownership of the
+/// allocated data and enabling safe cleanup when the `ArenaUnique`
+/// instance is dropped.
+///
+/// This container guarantees exclusive access to the allocated data
+/// within the arena, allowing single-threaded operations while
+/// efficiently managing memory and ensuring cleanup on drop.
 pub struct ArenaUnique<T, const BASE_CAPACITY: usize> {
   ptr: NonNull<ArenaUniqueData<T, BASE_CAPACITY>>,
 }

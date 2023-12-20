@@ -171,6 +171,20 @@ struct ArenaArcData<T> {
   data: T,
 }
 
+/// An atomic reference-counted pointer into an arena-allocated object
+/// with thread-safe allocation and deallocation capabilities.
+///
+/// This structure ensures atomic access and safe sharing of allocated
+/// data across multiple threads while maintaining reference counting
+/// to manage the memory deallocation when no longer needed.
+///
+/// It combines a thread-safe `RawArena` for allocation and deallocation
+/// and provides a mutex to guarantee exclusive access to the internal
+/// data for safe multi-threaded operation.
+///
+/// The `ArenaSharedAtomic` allows multiple threads to allocate, share,
+/// and deallocate objects within the arena, ensuring safety and atomicity
+/// during these operations.
 pub struct ArenaSharedAtomic<T, const BASE_CAPACITY: usize> {
   ptr: NonNull<ArenaSharedAtomicData<T, BASE_CAPACITY>>,
 }
