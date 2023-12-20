@@ -279,7 +279,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_v8",
- "slab",
  "smallvec",
  "sourcemap 7.0.1",
  "static_assertions",

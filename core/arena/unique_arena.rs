@@ -1,7 +1,7 @@
 use std::alloc::Layout;
+use std::future::Future;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::future::Future;
 
 use crate::arena::raw_arena::RawArena;
 
@@ -47,7 +47,7 @@ impl<T: 'static> ArenaBox<T> {
   }
 
   /// Constructs an `ArenaBox` instance from a raw pointer to `T`.
-  /// 
+  ///
   /// # Safety
   ///
   /// This function constructs an `ArenaBox` from a raw pointer, assuming the pointer is valid and properly aligned.
