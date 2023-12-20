@@ -76,7 +76,9 @@ fn bench_raw_arena(b: &mut Bencher) {
       }
     }
     for i in v.iter() {
-      unsafe { arena.recycle(*i) }
+      unsafe {
+        arena.recycle(*i);
+      }
     }
     v = black_box(v);
     v.clear();

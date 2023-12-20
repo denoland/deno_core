@@ -109,6 +109,11 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
     BASE_CAPACITY - self.allocated.get()
   }
 
+  /// Returns the remaining capacity of this [`RawArena`] that can be provided without allocation.
+  pub fn allocated(&self) -> usize {
+    self.allocated.get()
+  }
+
   /// Clear all internally-allocated entries, resetting the arena state to its original state.
   ///
   /// # Safety
@@ -127,18 +132,21 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// We assume this pointer is either internal to the arena (in which case we return it
   /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`].
-  pub unsafe fn recycle(&self, data: *mut T) {
+  pub unsafe fn recycle(&self, data: *mut T) -> bool {
     let entry = Self::data_to_entry(data);
+    let mut emptied = false;
+    std::ptr::drop_in_place(std::ptr::addr_of_mut!((*entry).value) as *mut T);
     if entry >= self.alloc && entry < self.past_alloc_end {
-      std::ptr::drop_in_place(std::ptr::addr_of_mut!((*entry).value) as *mut T);
       let next = self.next.get();
-      self.allocated.set(self.allocated.get() - 1);
+      let count = self.allocated.get() - 1;
+      emptied = count == 0;
+      self.allocated.set(count);
       (*entry).next = next;
       self.next.set(entry);
     } else {
-      std::ptr::drop_in_place(std::ptr::addr_of_mut!((*entry).value) as *mut T);
       std::alloc::dealloc(entry as _, Layout::new::<RawArenaEntry<T>>());
     }
+    emptied
   }
 }
 

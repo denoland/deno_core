@@ -19,7 +19,7 @@ struct ArenaBoxData<T> {
   #[cfg(debug_assertions)]
   signature: usize,
   arena_data: *const (),
-  deleter: unsafe fn(&mut Self),
+  deleter: unsafe fn(NonNull<Self>),
   data: T,
 }
 
@@ -84,7 +84,9 @@ impl<T> ArenaBox<T> {
 impl<T> Drop for ArenaBox<T> {
   fn drop(&mut self) {
     unsafe {
-      (self.data().deleter)(self.data_mut());
+      let deleter = self.data().deleter;
+      let ptr = self.ptr;
+      deleter(ptr);
     }
   }
 }
@@ -139,7 +141,7 @@ static_assertions::assert_not_impl_any!(ArenaUnique<(), 16>: Send, Sync);
 
 struct ArenaUniqueData<T, const BASE_CAPACITY: usize> {
   raw_arena: RawArena<ArenaBoxData<T>, BASE_CAPACITY>,
-  ref_count: usize,
+  alive: bool,
 }
 
 impl<T, const BASE_CAPACITY: usize> Default for ArenaUnique<T, BASE_CAPACITY> {
@@ -152,7 +154,7 @@ impl<T, const BASE_CAPACITY: usize> Default for ArenaUnique<T, BASE_CAPACITY> {
         ptr,
         ArenaUniqueData {
           raw_arena: Default::default(),
-          ref_count: 1,
+          alive: true,
         },
       );
       Self {
@@ -163,20 +165,25 @@ impl<T, const BASE_CAPACITY: usize> Default for ArenaUnique<T, BASE_CAPACITY> {
 }
 
 impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
-  /// Deletes the data associated with an `ArenaBox` from the arena.
-  unsafe fn delete(data: &mut ArenaBoxData<T>) {
-    let arena = data.arena_data as *mut ArenaUniqueData<T, BASE_CAPACITY>;
-    (*arena).raw_arena.recycle(data as _);
-    let ref_count_ptr = std::ptr::addr_of_mut!((*arena).ref_count);
-    let ref_count = *ref_count_ptr;
-    if ref_count == 0 {
-      std::ptr::drop_in_place(arena);
-      std::alloc::dealloc(
-        arena as _,
-        Layout::new::<ArenaUniqueData<T, BASE_CAPACITY>>(),
-      );
-    } else {
-      *ref_count_ptr = ref_count - 1;
+  #[cold]
+  #[inline(never)]
+  unsafe fn drop_data(data: *mut ArenaUniqueData<T, BASE_CAPACITY>) {
+    std::ptr::drop_in_place(data);
+    std::alloc::dealloc(
+      data as _,
+      Layout::new::<ArenaUniqueData<T, BASE_CAPACITY>>(),
+    );
+  }
+
+  /// Deletes the data associated with an `ArenaBox` from the arena. If this is the last
+  /// allocation for the arena and the arena has been dropped, de-allocate everything.
+  unsafe fn delete(data: NonNull<ArenaBoxData<T>>) {
+    let data = data.as_ptr();
+    let arena = (*data).arena_data as *mut ArenaUniqueData<T, BASE_CAPACITY>;
+    if (*arena).raw_arena.recycle(data as _) {
+      if !(*arena).alive {
+        Self::drop_data(arena)
+      }
     }
   }
 
@@ -216,7 +223,6 @@ impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
     let ptr = unsafe {
       let this = self.ptr.as_ptr();
       let ptr = (*this).raw_arena.allocate();
-      (*this).ref_count += 1;
 
       std::ptr::write(
         ptr,
@@ -239,16 +245,10 @@ impl<T, const BASE_CAPACITY: usize> Drop for ArenaUnique<T, BASE_CAPACITY> {
   fn drop(&mut self) {
     unsafe {
       let this = self.ptr.as_ptr();
-      let ref_count_ptr = std::ptr::addr_of_mut!((*this).ref_count);
-      let ref_count = *ref_count_ptr;
-      if ref_count == 0 {
-        std::ptr::drop_in_place(this);
-        std::alloc::dealloc(
-          this as _,
-          Layout::new::<ArenaUniqueData<T, BASE_CAPACITY>>(),
-        );
+      if (*this).raw_arena.allocated() == 0 {
+        Self::drop_data(this);
       } else {
-        *ref_count_ptr = ref_count - 1;
+        (*this).alive = false;
       }
     }
   }
