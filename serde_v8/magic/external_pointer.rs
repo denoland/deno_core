@@ -6,6 +6,7 @@ use super::transl8::impl_magic;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
 
+#[repr(transparent)]
 pub struct ExternalPointer(*mut c_void);
 
 // SAFETY: Nonblocking FFI is user controller and we must trust user to have it right.
@@ -52,5 +53,17 @@ impl From<*mut c_void> for ExternalPointer {
 impl From<*const c_void> for ExternalPointer {
   fn from(value: *const c_void) -> Self {
     ExternalPointer(value as *mut c_void)
+  }
+}
+
+impl From<ExternalPointer> for *mut c_void {
+  fn from(value: ExternalPointer) -> Self {
+    value.0
+  }
+}
+
+impl From<ExternalPointer> for *const c_void {
+  fn from(value: ExternalPointer) -> Self {
+    value.0
   }
 }
