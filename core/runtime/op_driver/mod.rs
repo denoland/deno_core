@@ -9,6 +9,10 @@ use std::task::Context;
 pub mod erased_future;
 pub mod joinset_driver;
 
+/// `OpDriver` encapsulates the interface for handling operations within Deno's runtime.
+///
+/// This trait defines methods for submitting ops and polling readiness inside of the
+/// event loop.
 pub(crate) trait OpDriver: Default {
   /// Submits an operation that is expected to complete successfully without errors.
   fn submit_op_infallible<R: 'static, const LAZY: bool, const DEFERRED: bool>(
