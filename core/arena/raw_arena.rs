@@ -107,7 +107,7 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// This pointer will be invalidated when we drop the `RawArena`, so the allocator API is `unsafe`
   /// as there are no lifetimes here.
-  /// 
+  ///
   /// **IMPORTANT:** Ensure all allocated entries are fully initialized before dropping `RawArena`,
   /// or use `recycle_without_drop` to manually handle recycling, as dropping the arena does not
   /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically
@@ -157,7 +157,7 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// This pointer will be invalidated when we drop the `RawArena`, so the allocator API is `unsafe`
   /// as there are no lifetimes here.
-  /// 
+  ///
   /// **IMPORTANT:** Ensure all allocated entries are fully initialized before dropping `RawArena`,
   /// or use `recycle_without_drop` to manually handle recycling, as dropping the arena does not
   /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically

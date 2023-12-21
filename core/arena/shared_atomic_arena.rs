@@ -11,6 +11,19 @@ use crate::arena::raw_arena::RawArena;
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x1122334455667788;
 
+
+pub struct ArenaSharedAtomicReservation<T, const BASE_CAPACITY: usize>(
+  *mut ArenaArcData<T>,
+);
+
+impl<T, const BASE_CAPACITY: usize> Drop
+  for ArenaSharedAtomicReservation<T, BASE_CAPACITY>
+{
+  fn drop(&mut self) {
+    panic!("A reservation must be completed or forgotten")
+  }
+}
+
 /// Represents an atomic reference-counted pointer into an arena-allocated object.
 pub struct ArenaArc<T> {
   ptr: NonNull<ArenaArcData<T>>,
@@ -317,6 +330,100 @@ impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
       NonNull::new_unchecked(ptr)
     };
 
+    ArenaArc { ptr }
+  }
+
+  /// Allocates a new object in the arena and returns an `ArenaArc` pointing to it. If no space
+  /// is available, returns the original object.
+  ///
+  /// This method creates a new instance of type `T` within the `RawArena`. The provided `data`
+  /// is initialized within the arena, and an `ArenaArc` is returned to manage this allocated data.
+  /// The `ArenaArc` serves as an atomic, reference-counted pointer to the allocated data within
+  /// the arena, ensuring safe concurrent access across multiple threads while maintaining the
+  /// reference count for memory management.
+  ///
+  /// The allocation process employs a mutex to ensure thread-safe access to the arena, allowing
+  /// only one thread at a time to modify the internal state, including allocating and deallocating memory.
+  pub fn allocate_if_space(&self, data: T) -> Result<ArenaArc<T>, T> {
+    let ptr = unsafe {
+      let this = self.ptr.as_ptr();
+      let mutex = std::ptr::addr_of!((*this).mutex);
+      while !(*mutex).try_lock() {
+        std::thread::yield_now();
+      }
+      let ptr = (*this).raw_arena.allocate_if_space();
+      if ptr.is_null() {
+        return Err(data);
+      }
+      (*this).ref_count += 1;
+      (*mutex).unlock();
+
+      std::ptr::write(
+        ptr,
+        ArenaArcData {
+          #[cfg(debug_assertions)]
+          signature: SIGNATURE,
+          arena_data: std::mem::transmute(self.ptr),
+          ref_count: AtomicUsize::default(),
+          deleter: Self::delete,
+          data,
+        },
+      );
+      NonNull::new_unchecked(ptr)
+    };
+
+    Ok(ArenaArc { ptr })
+  }
+
+  pub unsafe fn reserve_space(
+    &self,
+  ) -> Option<ArenaSharedAtomicReservation<T, BASE_CAPACITY>> {
+    let this = self.ptr.as_ptr();
+    let mutex = std::ptr::addr_of!((*this).mutex);
+    while !(*mutex).try_lock() {
+      std::thread::yield_now();
+    }
+    let ptr = (*this).raw_arena.allocate_if_space();
+    if ptr.is_null() {
+      return None;
+    }
+    (*this).ref_count += 1;
+    (*mutex).unlock();
+    Some(ArenaSharedAtomicReservation(ptr))
+  }
+
+  pub unsafe fn forget_reservation(
+    &self,
+    reservation: ArenaSharedAtomicReservation<T, BASE_CAPACITY>,
+  ) {
+    let ptr = reservation.0;
+    std::mem::forget(reservation);
+    let this = self.ptr.as_ptr();
+    (*this).ref_count -= 1;
+    (*this).raw_arena.recycle_without_drop(ptr);
+  }
+
+  pub unsafe fn complete_reservation(
+    &self,
+    reservation: ArenaSharedAtomicReservation<T, BASE_CAPACITY>,
+    data: T,
+  ) -> ArenaArc<T> {
+    let ptr = reservation.0;
+    std::mem::forget(reservation);
+    let ptr = {
+      std::ptr::write(
+        ptr,
+        ArenaArcData {
+          #[cfg(debug_assertions)]
+          signature: SIGNATURE,
+          arena_data: std::mem::transmute(self.ptr),
+          ref_count: AtomicUsize::default(),
+          deleter: Self::delete,
+          data,
+        },
+      );
+      NonNull::new_unchecked(ptr)
+    };
     ArenaArc { ptr }
   }
 }
