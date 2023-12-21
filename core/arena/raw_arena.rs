@@ -4,10 +4,23 @@ use std::alloc::Layout;
 use std::cell::Cell;
 use std::mem::ManuallyDrop;
 
+use bit_set::BitSet;
+use bit_vec::BitVec;
+
+#[cfg(debug_assertions)]
+const SIGNATURE: usize = 0x1234567812345678;
+
 /// A very-`unsafe`, arena for raw pointers that falls back to raw allocation when full. This
 /// should be used with great care, and ideally you should only be using the higher-level arenas
 /// built on top of this.
+///
+/// # Safety
+///
+/// Items placed into the RawArena are dropped, but there is no check to ensure that an allocated
+/// item is valid before dropping it.
 pub struct RawArena<T, const BASE_CAPACITY: usize> {
+  #[cfg(debug_assertions)]
+  signature: usize,
   alloc: *mut RawArenaEntry<T>,
   past_alloc_end: *mut RawArenaEntry<T>,
   max: Cell<*mut RawArenaEntry<T>>,
@@ -71,6 +84,8 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   /// This pointer will be invalidated when we drop the `RawArena`, so the allocator API is `unsafe`
   /// as there are no lifetimes here.
   pub unsafe fn allocate(&self) -> *mut T {
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(self.signature, SIGNATURE);
     let next = self.next.get();
     let max = self.max.get();
 
@@ -114,6 +129,8 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   /// This pointer will be invalidated when we drop the `RawArena`, so the allocator API is `unsafe`
   /// as there are no lifetimes here.
   pub unsafe fn allocate_if_space(&self) -> *mut T {
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(self.signature, SIGNATURE);
     let next = self.next.get();
     let max = self.max.get();
 
@@ -158,6 +175,40 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// Does not clear system-allocator entries. Pointers previously [`allocate`]d may still be in use.
   pub unsafe fn clear_allocated(&self) {
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(self.signature, SIGNATURE);
+
+    // We need to drop the allocated pointers, but we don't know which ones they are. We only
+    // know the vacant slots.
+    if self.allocated.get() > 0 {
+      unsafe {
+        // How many entries are we possibly using?
+        let max = self.max.get();
+
+        // Compute the vacant set by walking the `next` pointers
+        let count = max.offset_from(self.alloc) as usize;
+        let mut vacant = BitVec::with_capacity(count);
+        vacant.grow(count, false);
+
+        let mut next = self.next.get();
+        while next != max {
+          let i = next.offset_from(self.alloc) as usize;
+          vacant.set(i, true);
+          next = (*next).next;
+        }
+
+        vacant.negate();
+
+        // Iterate over the inverse of the vacant set and free those items
+        for alloc in BitSet::from_bit_vec(vacant).into_iter() {
+          let entry = self.alloc.add(alloc);
+          std::ptr::drop_in_place(
+            std::ptr::addr_of_mut!((*entry).value) as *mut T
+          );
+        }
+      }
+    }
+
     self.max.set(self.alloc);
     self.next.set(self.alloc);
     self.allocated.set(0);
@@ -171,9 +222,35 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   /// We assume this pointer is either internal to the arena (in which case we return it
   /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`].
   pub unsafe fn recycle(&self, data: *mut T) -> bool {
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(self.signature, SIGNATURE);
     let entry = Self::data_to_entry(data);
     let mut emptied = false;
     std::ptr::drop_in_place(std::ptr::addr_of_mut!((*entry).value) as *mut T);
+    if entry >= self.alloc && entry < self.past_alloc_end {
+      let next = self.next.get();
+      let count = self.allocated.get() - 1;
+      emptied = count == 0;
+      self.allocated.set(count);
+      (*entry).next = next;
+      self.next.set(entry);
+    } else {
+      std::alloc::dealloc(entry as _, Layout::new::<RawArenaEntry<T>>());
+    }
+    emptied
+  }
+
+  /// Recycle a used item, returning it to the next-free list.
+  ///
+  /// # Safety
+  ///
+  /// We assume this pointer is either internal to the arena (in which case we return it
+  /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`].
+  pub unsafe fn recycle_without_drop(&self, data: *mut T) -> bool {
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(self.signature, SIGNATURE);
+    let entry = Self::data_to_entry(data);
+    let mut emptied = false;
     if entry >= self.alloc && entry < self.past_alloc_end {
       let next = self.next.get();
       let count = self.allocated.get() - 1;
@@ -201,6 +278,8 @@ impl<T, const BASE_CAPACITY: usize> Default for RawArena<T, BASE_CAPACITY> {
       handle_alloc_error(Self::layout());
     }
     Self {
+      #[cfg(debug_assertions)]
+      signature: SIGNATURE,
       alloc,
       past_alloc_end: unsafe { alloc.add(BASE_CAPACITY) },
       max: alloc.into(),
@@ -216,6 +295,13 @@ impl<T, const BASE_CAPACITY: usize> Drop for RawArena<T, BASE_CAPACITY> {
   ///
   /// The allocation APIs are unsafe because we don't track lifetimes here.
   fn drop(&mut self) {
+    unsafe { self.clear_allocated() };
+
+    #[cfg(debug_assertions)]
+    {
+      debug_assert_eq!(self.signature, SIGNATURE);
+      self.signature = 0;
+    }
     unsafe { std::alloc::dealloc(self.alloc as _, Self::layout()) }
   }
 }
@@ -301,6 +387,45 @@ mod tests {
         arena.recycle(node);
       }
       assert_eq!(arena.remaining(), 16);
+    }
+  }
+
+  #[test]
+  fn test_no_drop() {
+    let arena = RawArena::<String, 16>::default();
+    unsafe {
+      arena.recycle_without_drop(arena.allocate());
+      arena.clear_allocated();
+    }
+  }
+
+  #[test]
+  fn test_drops() {
+    let arena = RawArena::<_, 16>::default();
+    unsafe {
+      for i in 0..2 {
+        let ptr = arena.allocate();
+        std::ptr::write(ptr, format!("iteration {i}"));
+      }
+      // Leave a space in the internal allocations
+      let ptr = arena.allocate();
+      std::ptr::write(ptr, format!("deleted"));
+      arena.recycle(ptr);
+      arena.clear_allocated();
+    }
+  }
+
+  #[test]
+  fn test_drops_full() {
+    struct Droppable(String);
+
+    let arena = RawArena::<_, 16>::default();
+    unsafe {
+      for i in 0..2 {
+        let ptr = arena.allocate();
+        std::ptr::write(ptr, Droppable(format!("iteration {i}")));
+      }
+      arena.clear_allocated();
     }
   }
 }

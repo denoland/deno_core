@@ -19,6 +19,7 @@ use std::cell::UnsafeCell;
 use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 
@@ -29,32 +30,36 @@ pub struct PendingOp(pub PendingOpInfo, pub OpResult);
 
 pub struct PendingOpInfo(pub PromiseId, pub OpId, pub bool);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[repr(transparent)]
 struct ArenaPtr(
-  *mut Option<
-    RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>,
+  Rc<
+    UnsafeCell<
+      Option<
+        RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>,
+      >,
+    >,
   >,
 );
 
 impl ArenaPtr {
-  pub fn recycle<R>(self, ptr: *mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>) {
+  pub fn recycle<R>(&self, ptr: *mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>) {
     unsafe {
-      if let Some(arena) = &*self.0 {
+      if let Some(arena) = &*self.0.get() {
         arena.recycle(ptr as _);
       }
     }
   }
 
   fn allocate<F, R>(
-    self,
+    &self,
     f: F,
   ) -> Result<*mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>, F>
   where
     F: Future<Output = R> + 'static,
   {
     unsafe {
-      let arena = (*self.0).as_ref();
+      let arena = (&*self.0.get()).as_ref();
       let alloc = arena.unwrap_unchecked().allocate_if_space();
       if alloc.is_null() {
         return Err(f);
@@ -67,9 +72,9 @@ impl ArenaPtr {
     }
   }
 
-  fn is_alive(self) -> bool {
+  fn is_alive(&self) -> bool {
     unsafe {
-      let ptr = &*self.0;
+      let ptr = &*self.0.get();
       ptr.is_some()
     }
   }
@@ -113,8 +118,12 @@ impl<R> Future for FutureAllocation<R> {
 
 pub struct JoinSetDriver {
   pending_ops: RefCell<JoinSet<PendingOp>>,
-  arena: UnsafeCell<
-    Option<RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>>,
+  arena: Rc<
+    UnsafeCell<
+      Option<
+        RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>,
+      >,
+    >,
   >,
 }
 
@@ -122,7 +131,7 @@ impl Default for JoinSetDriver {
   fn default() -> Self {
     Self {
       pending_ops: Default::default(),
-      arena: UnsafeCell::new(Some(Default::default())),
+      arena: Rc::new(UnsafeCell::new(Some(Default::default()))),
     }
   }
 }
@@ -146,7 +155,7 @@ impl JoinSetDriver {
     if std::mem::size_of::<F>() > MAX_ARENA_FUTURE_SIZE {
       FutureAllocation::Box(f.boxed_local())
     } else {
-      let arena = ArenaPtr(self.arena.get());
+      let arena = ArenaPtr(self.arena.clone());
       match arena.allocate(f) {
         Ok(alloc) => FutureAllocation::Arena(alloc, arena),
         Err(f) => FutureAllocation::Box(f.boxed_local()),
@@ -354,6 +363,17 @@ mod tests {
     for _ in 0..1000 {
       v.push(driver.allocate(ready(Box::new(1))));
     }
+    drop(v);
+  }
+
+  #[test]
+  fn test_drop_after_joinset() {
+    let driver = JoinSetDriver::default();
+    let mut v = vec![];
+    for _ in 0..1000 {
+      v.push(driver.allocate(ready(Box::new(1))));
+    }
+    drop(driver);
     drop(v);
   }
 }

@@ -22,6 +22,8 @@ unsafe_runtime_options = []
 
 [dependencies]
 anyhow.workspace = true
+bit-set.workspace = true
+bit-vec.workspace = true
 bytes.workspace = true
 cooked-waker.workspace = true
 deno_ops.workspace = true
