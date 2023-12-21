@@ -255,12 +255,24 @@ impl<T> ArenaUnique<T> {
     ArenaBox { ptr }
   }
 
+  /// Attempt to reserve space in this arena.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn reserve_space(&self) -> Option<ArenaUniqueReservation<T>> {
     let this = &mut *self.ptr.as_ptr();
     let ptr = this.raw_arena.allocate_if_space()?;
     Some(ArenaUniqueReservation(ptr))
   }
 
+  /// Forget a reservation.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn forget_reservation(
     &self,
     reservation: ArenaUniqueReservation<T>,
@@ -271,6 +283,12 @@ impl<T> ArenaUnique<T> {
     (*this).raw_arena.recycle_without_drop(ptr);
   }
 
+  /// Complete a reservation.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn complete_reservation(
     &self,
     reservation: ArenaUniqueReservation<T>,

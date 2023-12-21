@@ -346,6 +346,12 @@ impl<T> ArenaShared<T> {
     Ok(ArenaRc { ptr })
   }
 
+  /// Attempt to reserve space in this arena.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn reserve_space(&self) -> Option<ArenaSharedReservation<T>> {
     let this = &mut *self.ptr.as_ptr();
     let ptr = this.raw_arena.allocate_if_space()?;
@@ -353,6 +359,12 @@ impl<T> ArenaShared<T> {
     Some(ArenaSharedReservation(ptr))
   }
 
+  /// Forget a reservation.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn forget_reservation(
     &self,
     reservation: ArenaSharedReservation<T>,
@@ -364,6 +376,12 @@ impl<T> ArenaShared<T> {
     (*this).raw_arena.recycle_without_drop(ptr);
   }
 
+  /// Complete a reservation.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn complete_reservation(
     &self,
     reservation: ArenaSharedReservation<T>,

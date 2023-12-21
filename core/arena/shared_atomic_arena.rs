@@ -387,6 +387,12 @@ impl<T> ArenaSharedAtomic<T> {
     Ok(ArenaArc { ptr })
   }
 
+  /// Attempt to reserve space in this arena.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn reserve_space(
     &self,
   ) -> Option<ArenaSharedAtomicReservation<T>> {
@@ -397,6 +403,12 @@ impl<T> ArenaSharedAtomic<T> {
     Some(ArenaSharedAtomicReservation(ptr))
   }
 
+  /// Forget a reservation.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn forget_reservation(
     &self,
     reservation: ArenaSharedAtomicReservation<T>,
@@ -409,6 +421,12 @@ impl<T> ArenaSharedAtomic<T> {
     Self::unlock(self.ptr);
   }
 
+  /// Complete a reservation.
+  ///
+  /// # Safety
+  ///
+  /// Reservations must be either completed or forgotten, and must be provided to the same
+  /// arena that created them.
   pub unsafe fn complete_reservation(
     &self,
     reservation: ArenaSharedAtomicReservation<T>,

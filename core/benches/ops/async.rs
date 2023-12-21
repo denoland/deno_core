@@ -162,7 +162,7 @@ fn do_benchmark(
 ) {
   tokio.block_on(async {
     let guard = tokio.enter();
-    let call = runtime.call(&bench);
+    let call = runtime.call(bench);
     runtime
       .with_event_loop_promise(call, PollEventLoopOptions::default())
       .await

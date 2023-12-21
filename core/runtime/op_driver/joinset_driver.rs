@@ -31,6 +31,7 @@ struct PendingOp(pub PendingOpInfo, pub OpResult);
 
 struct PendingOpInfo(pub PromiseId, pub OpId, pub bool);
 
+#[allow(clippy::type_complexity)]
 struct OpValue {
   value: TypeErased<32>,
   rv_map: *const fn(),
@@ -55,7 +56,6 @@ impl OpValue {
   }
 }
 
-#[allow(clippy::type_complexity)]
 enum OpResult {
   Err(OpError),
   /// We temporarily provide a mapping function in a box for op2. This will go away when op goes away.
@@ -63,7 +63,7 @@ enum OpResult {
 }
 
 impl OpResult {
-  pub fn to_v8<'a>(
+  pub fn into_v8<'a>(
     self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, serde_v8::Error> {
@@ -296,7 +296,7 @@ impl OpDriver for JoinSetDriver {
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       let was_error = matches!(resp, OpResult::Err(_));
-      let res = resp.to_v8(scope);
+      let res = resp.into_v8(scope);
       if metrics_event {
         if res.is_ok() && !was_error {
           dispatch_metrics_async(
@@ -313,7 +313,7 @@ impl OpDriver for JoinSetDriver {
       args.push(match res {
         Ok(v) => v,
         Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
-          .to_v8(scope)
+          .into_v8(scope)
           .unwrap(),
       });
     }

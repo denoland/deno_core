@@ -463,7 +463,7 @@ mod tests {
       }
       // Leave a space in the internal allocations
       let ptr = arena.allocate();
-      std::ptr::write(ptr.as_ptr(), format!("deleted"));
+      std::ptr::write(ptr.as_ptr(), "deleted".to_owned());
       arena.recycle(ptr);
       arena.clear_allocated();
     }
