@@ -16,8 +16,20 @@ pub struct TypeErased<const MAX_SIZE: usize> {
 
 impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
   pub unsafe fn take<R: 'static>(self) -> R {
-    assert!(std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory));
-    assert!(std::mem::align_of::<R>() <= std::mem::align_of_val(&self));
+    assert!(
+      std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory),
+      "Invalid size for {}: {} (max {})",
+      std::any::type_name::<R>(),
+      std::mem::size_of::<R>(),
+      std::mem::size_of_val(&self.memory)
+    );
+    assert!(
+      std::mem::align_of::<R>() <= std::mem::align_of_val(&self),
+      "Invalid alignment for {}: {} (max {})",
+      std::any::type_name::<R>(),
+      std::mem::align_of::<R>(),
+      std::mem::align_of_val(&self)
+    );
     let r = std::ptr::read(self.memory.as_ptr() as _);
     std::mem::forget(self);
     r
@@ -33,8 +45,20 @@ impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
       drop: |this| unsafe { std::ptr::drop_in_place::<R>(this as _) },
       _unpin: PhantomPinned,
     };
-    assert!(std::mem::size_of::<R>() <= std::mem::size_of_val(&new.memory));
-    assert!(std::mem::align_of::<R>() <= std::mem::align_of_val(&new));
+    assert!(
+      std::mem::size_of::<R>() <= std::mem::size_of_val(&new.memory),
+      "Invalid size for {}: {} (max {})",
+      std::any::type_name::<R>(),
+      std::mem::size_of::<R>(),
+      std::mem::size_of_val(&new.memory)
+    );
+    assert!(
+      std::mem::align_of::<R>() <= std::mem::align_of_val(&new),
+      "Invalid alignment for {}: {} (max {})",
+      std::any::type_name::<R>(),
+      std::mem::align_of::<R>(),
+      std::mem::align_of_val(&new),
+    );
     unsafe { std::ptr::write(new.memory.as_mut_ptr() as *mut R, r) };
     new
   }

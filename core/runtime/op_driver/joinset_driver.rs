@@ -26,6 +26,7 @@ use std::task::Poll;
 
 const MAX_ARENA_FUTURE_SIZE: usize = 1024;
 const FUTURE_ARENA_COUNT: usize = 256;
+const MAX_RESULT_SIZE: usize = 32;
 
 struct PendingOp(pub PendingOpInfo, pub OpResult);
 
@@ -33,12 +34,12 @@ struct PendingOpInfo(pub PromiseId, pub OpId, pub bool);
 
 #[allow(clippy::type_complexity)]
 struct OpValue {
-  value: TypeErased<32>,
+  value: TypeErased<MAX_RESULT_SIZE>,
   rv_map: *const fn(),
   map_fn: for<'a> fn(
     scope: &mut v8::HandleScope<'a>,
     rv_map: *const fn(),
-    value: TypeErased<32>,
+    value: TypeErased<MAX_RESULT_SIZE>,
   ) -> Result<v8::Local<'a, v8::Value>, serde_v8::Error>,
 }
 
@@ -56,10 +57,15 @@ impl OpValue {
   }
 }
 
+type ValueLargeFn =
+  dyn for<'a> FnOnce(
+    &mut v8::HandleScope<'a>,
+  ) -> Result<v8::Local<'a, v8::Value>, serde_v8::Error>;
+
 enum OpResult {
   Err(OpError),
-  /// We temporarily provide a mapping function in a box for op2. This will go away when op goes away.
   Value(OpValue),
+  ValueLarge(Box<ValueLargeFn>),
 }
 
 impl OpResult {
@@ -70,6 +76,7 @@ impl OpResult {
     match self {
       Self::Err(err) => serde_v8::to_v8(scope, err),
       Self::Value(f) => (f.map_fn)(scope, f.rv_map, f.value),
+      Self::ValueLarge(f) => f(scope),
     }
   }
 }
@@ -165,7 +172,14 @@ impl JoinSetDriver {
     rv_map: RetValMapper<R>,
     v: R,
   ) -> PendingOp {
-    PendingOp(info, OpResult::Value(OpValue::new(rv_map, v)))
+    if std::mem::size_of::<R>() > MAX_RESULT_SIZE {
+      PendingOp(
+        info,
+        OpResult::ValueLarge(Box::new(move |scope| rv_map(scope, v))),
+      )
+    } else {
+      PendingOp(info, OpResult::Value(OpValue::new(rv_map, v)))
+    }
   }
 
   #[inline(always)]
