@@ -169,7 +169,11 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
     self.allocated.get()
   }
 
-  /// Clear all internally-allocated entries, resetting the arena state to its original state.
+  /// Clear all internally-allocated entries, resetting the arena state to its original state. Any
+  /// non-vacant entries are dropped.
+  ///
+  /// This operation must walk the vacant list and is worst-case `O(n)`, where `n` is the largest
+  /// size of this arena since the last clear operation.
   ///
   /// # Safety
   ///

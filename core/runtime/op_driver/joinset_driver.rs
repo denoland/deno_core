@@ -59,7 +59,7 @@ impl ArenaPtr {
     F: Future<Output = R> + 'static,
   {
     unsafe {
-      let arena = (&*self.0.get()).as_ref();
+      let arena = (*self.0.get()).as_ref();
       let alloc = arena.unwrap_unchecked().allocate_if_space();
       if alloc.is_null() {
         return Err(f);
