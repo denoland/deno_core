@@ -17,7 +17,31 @@ const SIGNATURE: usize = 0x1234567812345678;
 /// # Safety
 ///
 /// Items placed into the RawArena are dropped, but there is no check to ensure that an allocated
-/// item is valid before dropping it.
+/// item is valid before dropping it. Use `recycle_without_drop` to return an item to the arena
+/// without dropping it.
+///
+/// # Example
+///
+/// ```rust
+/// # use deno_core::arena::RawArena;
+/// // Create a RawArena with a capacity of 10 elements
+/// let arena = RawArena::<usize, 10>::default();
+///
+/// // Allocate elements in the arena
+/// unsafe {
+///   let mut elements = Vec::new();
+///   for i in 0..10 {
+///     let element_ptr = arena.allocate();
+///     *element_ptr = i * 2;
+///     elements.push(element_ptr);
+///   }
+///
+///   // Recycle elements back into the arena
+///   for &element_ptr in elements.iter() {
+///     arena.recycle(element_ptr);
+///   }
+/// }
+/// ```
 pub struct RawArena<T, const BASE_CAPACITY: usize> {
   #[cfg(debug_assertions)]
   signature: usize,
@@ -83,6 +107,11 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// This pointer will be invalidated when we drop the `RawArena`, so the allocator API is `unsafe`
   /// as there are no lifetimes here.
+  /// 
+  /// **IMPORTANT:** Ensure all allocated entries are fully initialized before dropping `RawArena`,
+  /// or use `recycle_without_drop` to manually handle recycling, as dropping the arena does not
+  /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically
+  /// trigger the drop of all items allocated within.
   pub unsafe fn allocate(&self) -> *mut T {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
@@ -128,6 +157,11 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// This pointer will be invalidated when we drop the `RawArena`, so the allocator API is `unsafe`
   /// as there are no lifetimes here.
+  /// 
+  /// **IMPORTANT:** Ensure all allocated entries are fully initialized before dropping `RawArena`,
+  /// or use `recycle_without_drop` to manually handle recycling, as dropping the arena does not
+  /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically
+  /// trigger the drop of all items allocated within.
   pub unsafe fn allocate_if_space(&self) -> *mut T {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
@@ -177,7 +211,7 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// # Safety
   ///
-  /// Does not clear system-allocator entries. Pointers previously [`allocate`]d may still be in use.
+  /// Does not clear system-allocator entries. Pointers previously [`allocate`](Self::allocate)d may still be in use.
   pub unsafe fn clear_allocated(&self) {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
@@ -224,7 +258,7 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   /// # Safety
   ///
   /// We assume this pointer is either internal to the arena (in which case we return it
-  /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`].
+  /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`](Self::allocate).
   pub unsafe fn recycle(&self, data: *mut T) -> bool {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
@@ -249,7 +283,7 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   /// # Safety
   ///
   /// We assume this pointer is either internal to the arena (in which case we return it
-  /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`].
+  /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`](Self::allocate).
   pub unsafe fn recycle_without_drop(&self, data: *mut T) -> bool {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
