@@ -19,7 +19,7 @@ use super::op_driver::OpDriver;
 /// so this is a limited resource!
 pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
 
-#[inline]
+#[inline(always)]
 pub fn map_async_op_infallible<R: 'static>(
   ctx: &OpCtx,
   lazy: bool,
@@ -31,13 +31,25 @@ pub fn map_async_op_infallible<R: 'static>(
     R,
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<R> {
-  ctx
-    .context_state()
-    .pending_ops
-    .submit_op_infallible(ctx, lazy, deferred, promise_id, op, rv_map)
+  if lazy {
+    ctx
+      .context_state()
+      .pending_ops
+      .submit_op_infallible::<_, true, false>(ctx, promise_id, op, rv_map)
+  } else if deferred {
+    ctx
+      .context_state()
+      .pending_ops
+      .submit_op_infallible::<_, false, true>(ctx, promise_id, op, rv_map)
+  } else {
+    ctx
+      .context_state()
+      .pending_ops
+      .submit_op_infallible::<_, false, false>(ctx, promise_id, op, rv_map)
+  }
 }
 
-#[inline]
+#[inline(always)]
 pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ctx: &OpCtx,
   lazy: bool,
@@ -49,10 +61,22 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
     R,
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
 ) -> Option<Result<R, E>> {
-  ctx
-    .context_state()
-    .pending_ops
-    .submit_op_fallible(ctx, lazy, deferred, promise_id, op, rv_map)
+  if lazy {
+    ctx
+      .context_state()
+      .pending_ops
+      .submit_op_fallible::<_, _, true, false>(ctx, promise_id, op, rv_map)
+  } else if deferred {
+    ctx
+      .context_state()
+      .pending_ops
+      .submit_op_fallible::<_, _, false, true>(ctx, promise_id, op, rv_map)
+  } else {
+    ctx
+      .context_state()
+      .pending_ops
+      .submit_op_fallible::<_, _, false, false>(ctx, promise_id, op, rv_map)
+  }
 }
 
 macro_rules! try_number_some {

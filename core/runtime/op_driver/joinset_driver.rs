@@ -2,19 +2,20 @@
 use super::erased_future::ErasedFuture;
 use super::OpDriver;
 use crate::OpError;
+use crate::OpId;
 use crate::OpMetricsEvent;
 use crate::OpResult;
+use crate::PromiseId;
 use crate::_ops::dispatch_metrics_async;
-use crate::arena::ArenaBox;
-use crate::arena::ArenaUnique;
+use crate::arena::RawArena;
 use crate::ops::OpCtx;
-use crate::ops::PendingOp;
 use crate::runtime::ContextState;
 use anyhow::Error;
 use deno_unsync::JoinSet;
 use futures::task::noop_waker_ref;
 use futures::FutureExt;
 use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
@@ -22,16 +23,70 @@ use std::task::Context;
 use std::task::Poll;
 
 const MAX_ARENA_FUTURE_SIZE: usize = 1024;
+const MAX_FUTURE_SIZE: usize = 256;
 
-#[derive(Default)]
-pub struct JoinSetDriver {
-  pending_ops: RefCell<JoinSet<PendingOp>>,
-  arena: ArenaUnique<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, 256>,
+pub struct PendingOp(pub PendingOpInfo, pub OpResult);
+
+pub struct PendingOpInfo(pub PromiseId, pub OpId, pub bool);
+
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct ArenaPtr(
+  *mut Option<
+    RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>,
+  >,
+);
+
+impl ArenaPtr {
+  pub fn recycle<R>(self, ptr: *mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>) {
+    unsafe {
+      if let Some(arena) = &*self.0 {
+        arena.recycle(ptr as _);
+      }
+    }
+  }
+
+  fn allocate<F, R>(
+    self,
+    f: F,
+  ) -> Result<*mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>, F>
+  where
+    F: Future<Output = R> + 'static,
+  {
+    unsafe {
+      let arena = (&*self.0).as_ref();
+      let alloc = arena.unwrap_unchecked().allocate_if_space();
+      if alloc.is_null() {
+        return Err(f);
+      }
+      std::ptr::write(
+        alloc as _,
+        ErasedFuture::<MAX_ARENA_FUTURE_SIZE, _>::new(f),
+      );
+      Ok(alloc as _)
+    }
+  }
+
+  fn is_alive(self) -> bool {
+    unsafe {
+      let ptr = &*self.0;
+      ptr.is_some()
+    }
+  }
 }
 
 enum FutureAllocation<R: 'static> {
-  Arena(ArenaBox<ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>>),
+  Arena(*mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>, ArenaPtr),
   Box(Pin<Box<dyn Future<Output = R>>>),
+}
+
+impl<R> Drop for FutureAllocation<R> {
+  fn drop(&mut self) {
+    match self {
+      Self::Arena(ptr, arena) => arena.recycle(*ptr),
+      Self::Box(..) => {}
+    }
+  }
 }
 
 impl<R> Unpin for FutureAllocation<R> {}
@@ -43,13 +98,38 @@ impl<R> Future for FutureAllocation<R> {
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     unsafe {
       match self.get_unchecked_mut() {
-        Self::Arena(ptr) => {
+        Self::Arena(ptr, arena) => {
+          if !arena.is_alive() {
+            return Poll::Pending;
+          }
           let pin = Pin::new_unchecked(&mut **ptr);
           pin.poll(cx)
         }
         Self::Box(f) => f.poll_unpin(cx),
       }
     }
+  }
+}
+
+pub struct JoinSetDriver {
+  pending_ops: RefCell<JoinSet<PendingOp>>,
+  arena: UnsafeCell<
+    Option<RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>>,
+  >,
+}
+
+impl Default for JoinSetDriver {
+  fn default() -> Self {
+    Self {
+      pending_ops: Default::default(),
+      arena: UnsafeCell::new(Some(Default::default())),
+    }
+  }
+}
+
+impl Drop for JoinSetDriver {
+  fn drop(&mut self) {
+    unsafe { *self.arena.get() = None }
   }
 }
 
@@ -66,10 +146,10 @@ impl JoinSetDriver {
     if std::mem::size_of::<F>() > MAX_ARENA_FUTURE_SIZE {
       FutureAllocation::Box(f.boxed_local())
     } else {
-      unsafe {
-        FutureAllocation::Arena(std::mem::transmute(self.arena.allocate(
-          std::mem::transmute(ErasedFuture::<MAX_ARENA_FUTURE_SIZE, _>::new(f)),
-        )))
+      let arena = ArenaPtr(self.arena.get());
+      match arena.allocate(f) {
+        Ok(alloc) => FutureAllocation::Arena(alloc, arena),
+        Err(f) => FutureAllocation::Box(f.boxed_local()),
       }
     }
   }
@@ -81,12 +161,14 @@ impl JoinSetDriver {
 }
 
 impl OpDriver for JoinSetDriver {
-  #[inline(always)]
-  fn submit_op_fallible<R: 'static, E: Into<Error> + 'static>(
+  fn submit_op_fallible<
+    R: 'static,
+    E: Into<Error> + 'static,
+    const LAZY: bool,
+    const DEFERRED: bool,
+  >(
     &self,
     ctx: &OpCtx,
-    lazy: bool,
-    deferred: bool,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: for<'r> fn(
@@ -96,70 +178,63 @@ impl OpDriver for JoinSetDriver {
       -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
   ) -> Option<Result<R, E>> {
     {
-      let id = ctx.id;
-      let metrics = ctx.metrics_enabled();
+      let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
+      let get_class = ctx.get_error_class_fn;
 
-      if lazy {
-        let get_class = ctx.get_error_class_fn;
+      if LAZY {
         self.spawn(op.map(move |r| match r {
           Ok(v) => PendingOp(
-            promise_id,
-            id,
+            info,
             OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
-            metrics,
           ),
-          Err(err) => PendingOp(
-            promise_id,
-            id,
-            OpResult::Err(OpError::new(get_class, err.into())),
-            metrics,
-          ),
+          Err(err) => {
+            PendingOp(info, OpResult::Err(OpError::new(get_class, err.into())))
+          }
         }));
         return None;
       }
 
-      // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
-      // of ops.
-      let mut pinned = self.allocate(op.map(move |res| (promise_id, id, res)));
-
-      let pinned =
-        match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-          Poll::Pending => pinned,
-          Poll::Ready(res) => {
-            // TODO(mmastrac): optimize this so we don't double-allocate
-            if deferred {
-              self.allocate(ready(res))
-            } else {
-              return Some(res.2);
-            }
+      // TODO(mmastrac): we poll every future here because it's much faster to return a result than
+      // spin the event loop to get it.
+      let mut pinned = self.allocate(op);
+      match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+        Poll::Pending => self.spawn(pinned.map(move |r| match r {
+          Ok(v) => PendingOp(
+            info,
+            OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+          ),
+          Err(err) => {
+            PendingOp(info, OpResult::Err(OpError::new(get_class, err.into())))
           }
-        };
-
-      let get_class = ctx.get_error_class_fn;
-      self.spawn(pinned.map(move |r| match r.2 {
-        Ok(v) => PendingOp(
-          r.0,
-          r.1,
-          OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
-          metrics,
-        ),
-        Err(err) => PendingOp(
-          r.0,
-          r.1,
-          OpResult::Err(OpError::new(get_class, err.into())),
-          metrics,
-        ),
-      }));
+        })),
+        Poll::Ready(res) => {
+          if DEFERRED {
+            match res {
+              Ok(v) => self.spawn(ready(PendingOp(
+                info,
+                OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
+              ))),
+              Err(err) => self.spawn(ready(PendingOp(
+                info,
+                OpResult::Err(OpError::new(get_class, err.into())),
+              ))),
+            }
+          } else {
+            return Some(res);
+          }
+        }
+      };
       None
     }
   }
 
-  #[inline(always)]
-  fn submit_op_infallible<R: 'static>(
+  fn submit_op_infallible<
+    R: 'static,
+    const LAZY: bool,
+    const DEFERRED: bool,
+  >(
     &self,
     ctx: &OpCtx,
-    lazy: bool,
-    deferred: bool,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
     rv_map: for<'r> fn(
@@ -169,18 +244,14 @@ impl OpDriver for JoinSetDriver {
       -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
   ) -> Option<R> {
     {
-      let id = ctx.id;
-      let metrics = ctx.metrics_enabled();
-      if lazy {
-        let mapper = move |r| {
+      let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
+      if LAZY {
+        self.spawn(op.map(move |r| {
           PendingOp(
-            promise_id,
-            id,
+            info,
             OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r))),
-            metrics,
           )
-        };
-        self.spawn(op.map(mapper));
+        }));
         return None;
       }
 
@@ -190,19 +261,15 @@ impl OpDriver for JoinSetDriver {
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => self.spawn(pinned.map(move |res| {
           PendingOp(
-            promise_id,
-            id,
+            info,
             OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, res))),
-            metrics,
           )
         })),
         Poll::Ready(res) => {
-          if deferred {
+          if DEFERRED {
             self.spawn(ready(PendingOp(
-              promise_id,
-              id,
+              info,
               OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, res))),
-              metrics,
             )))
           } else {
             return Some(res);
@@ -229,7 +296,8 @@ impl OpDriver for JoinSetDriver {
         break;
       };
       // TODO(mmastrac): If this task is really errored, things could be pretty bad
-      let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
+      let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) =
+        item.unwrap();
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());

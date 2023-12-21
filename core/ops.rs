@@ -25,7 +25,6 @@ use v8::Isolate;
 
 pub type PromiseId = i32;
 pub type OpId = u16;
-pub struct PendingOp(pub PromiseId, pub OpId, pub OpResult, pub bool);
 
 #[cfg(debug_assertions)]
 thread_local! {

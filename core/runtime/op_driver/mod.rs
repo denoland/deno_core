@@ -11,11 +11,9 @@ pub mod joinset_driver;
 
 pub(crate) trait OpDriver: Default {
   /// Submits an operation that is expected to complete successfully without errors.
-  fn submit_op_infallible<R: 'static>(
+  fn submit_op_infallible<R: 'static, const LAZY: bool, const DEFERRED: bool>(
     &self,
     ctx: &OpCtx,
-    lazy: bool,
-    deferred: bool,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
     rv_map: for<'r> fn(
@@ -29,11 +27,14 @@ pub(crate) trait OpDriver: Default {
   ///
   /// This method is similar to `submit_op_infallible` but is used when the op
   /// might return an error (`Result`).
-  fn submit_op_fallible<R: 'static, E: Into<Error> + 'static>(
+  fn submit_op_fallible<
+    R: 'static,
+    E: Into<Error> + 'static,
+    const LAZY: bool,
+    const DEFERRED: bool,
+  >(
     &self,
     ctx: &OpCtx,
-    lazy: bool,
-    deferred: bool,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: for<'r> fn(

@@ -104,6 +104,44 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
     Self::entry_to_data(next)
   }
 
+  /// Gets the next free entry, returning null if full. This is `O(1)`.
+  ///
+  /// # Safety
+  ///
+  /// As the memory area is considered uninitialized and you must be careful to fully and validly
+  /// initialize the underlying data, this method is marked as unsafe.
+  ///
+  /// This pointer will be invalidated when we drop the `RawArena`, so the allocator API is `unsafe`
+  /// as there are no lifetimes here.
+  pub unsafe fn allocate_if_space(&self) -> *mut T {
+    let next = self.next.get();
+    let max = self.max.get();
+
+    // Check to see if we have gone past our high-water mark, and we need to extend it. The high-water
+    // mark allows us to leave the allocation uninitialized, and assume that the remaining part of the
+    // next-free list is a trivial linked-list where each node points to the next one.
+    if max == next {
+      // Are we out of room?
+      if max == self.past_alloc_end {
+        // We filled the RawArena, so return null
+        return std::ptr::null_mut();
+      }
+
+      // Nope, we can extend by one
+      let next = self.max.get().add(1);
+      self.next.set(next);
+      self.max.set(next);
+    } else {
+      // We haven't passed the high-water mark, so walk the internal next-free list
+      // for our next allocation
+      self.next.set((*next).next);
+    }
+
+    // Update accounting
+    self.allocated.set(self.allocated.get() + 1);
+    Self::entry_to_data(next)
+  }
+
   /// Returns the remaining capacity of this [`RawArena`] that can be provided without allocation.
   pub fn remaining(&self) -> usize {
     BASE_CAPACITY - self.allocated.get()
