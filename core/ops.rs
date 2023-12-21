@@ -9,9 +9,7 @@ use crate::runtime::ContextState;
 use crate::runtime::JsRuntimeState;
 use crate::FeatureChecker;
 use crate::OpDecl;
-use anyhow::Error;
 use futures::task::AtomicWaker;
-use serde::Serialize;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
 use std::ops::Deref;
@@ -55,51 +53,6 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
   }
   CURRENT_OP.with(|f| f.set(Some(decl)));
   Some(ReentrancyGuard {})
-}
-
-#[allow(clippy::type_complexity)]
-pub enum OpResult {
-  Err(OpError),
-  /// We temporarily provide a mapping function in a box for op2. This will go away when op goes away.
-  Op2Temp(
-    Box<
-      dyn for<'a> FnOnce(
-        &mut v8::HandleScope<'a>,
-      )
-        -> Result<v8::Local<'a, v8::Value>, serde_v8::Error>,
-    >,
-  ),
-}
-
-impl OpResult {
-  pub fn to_v8<'a>(
-    self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, serde_v8::Error> {
-    match self {
-      Self::Err(err) => serde_v8::to_v8(scope, err),
-      Self::Op2Temp(f) => f(scope),
-    }
-  }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpError {
-  #[serde(rename = "$err_class_name")]
-  class_name: &'static str,
-  message: String,
-  code: Option<&'static str>,
-}
-
-impl OpError {
-  pub fn new(get_class: GetErrorClassFn, err: Error) -> Self {
-    Self {
-      class_name: (get_class)(&err),
-      message: format!("{err:#}"),
-      code: crate::error_codes::get_error_code(&err),
-    }
-  }
 }
 
 /// Per-op context.

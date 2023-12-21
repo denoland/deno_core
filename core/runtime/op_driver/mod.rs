@@ -9,6 +9,12 @@ use std::task::Context;
 pub mod erased_future;
 pub mod joinset_driver;
 
+pub type RetValMapper<R> =
+  for<'r> fn(
+    &mut v8::HandleScope<'r>,
+    R,
+  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>;
+
 /// `OpDriver` encapsulates the interface for handling operations within Deno's runtime.
 ///
 /// This trait defines methods for submitting ops and polling readiness inside of the
@@ -20,11 +26,7 @@ pub(crate) trait OpDriver: Default {
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
-    rv_map: for<'r> fn(
-      &mut v8::HandleScope<'r>,
-      R,
-    )
-      -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+    rv_map: RetValMapper<R>,
   ) -> Option<R>;
 
   /// Submits an operation that may produce errors during execution.
@@ -41,11 +43,7 @@ pub(crate) trait OpDriver: Default {
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
-    rv_map: for<'r> fn(
-      &mut v8::HandleScope<'r>,
-      R,
-    )
-      -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+    rv_map: RetValMapper<R>,
   ) -> Option<Result<R, E>>;
 
   /// Polls the readiness of the operation driver for handling a new operation.

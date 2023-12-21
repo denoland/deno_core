@@ -3,6 +3,7 @@ use bencher::*;
 use deno_core::error::generic_error;
 use deno_core::*;
 use std::ffi::c_void;
+use tokio::runtime::Runtime;
 
 deno_core::extension!(
   testing,
@@ -150,16 +151,23 @@ fn bench_op(
   let bench = v8::Global::new(&mut scope, bench);
   drop(scope);
   drop(guard);
-  b.iter(move || {
-    tokio.block_on(async {
-      let guard = tokio.enter();
-      let call = runtime.call(&bench);
-      runtime
-        .with_event_loop_promise(call, PollEventLoopOptions::default())
-        .await
-        .unwrap();
-      drop(guard);
-    });
+  b.iter(move || do_benchmark(&bench, &tokio, &mut runtime));
+}
+
+#[inline(never)]
+fn do_benchmark(
+  bench: &v8::Global<v8::Function>,
+  tokio: &Runtime,
+  runtime: &mut JsRuntime,
+) {
+  tokio.block_on(async {
+    let guard = tokio.enter();
+    let call = runtime.call(&bench);
+    runtime
+      .with_event_loop_promise(call, PollEventLoopOptions::default())
+      .await
+      .unwrap();
+    drop(guard);
   });
 }
 

@@ -13,6 +13,7 @@ use std::ptr::NonNull;
 use v8::WriteOptions;
 
 use super::op_driver::OpDriver;
+use super::op_driver::RetValMapper;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -26,25 +27,17 @@ pub fn map_async_op_infallible<R: 'static>(
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
-  rv_map: for<'r> fn(
-    &mut v8::HandleScope<'r>,
-    R,
-  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+  rv_map: RetValMapper<R>,
 ) -> Option<R> {
+  let pending_ops = &ctx.context_state().pending_ops;
   if lazy {
-    ctx
-      .context_state()
-      .pending_ops
+    pending_ops
       .submit_op_infallible::<_, true, false>(ctx, promise_id, op, rv_map)
   } else if deferred {
-    ctx
-      .context_state()
-      .pending_ops
+    pending_ops
       .submit_op_infallible::<_, false, true>(ctx, promise_id, op, rv_map)
   } else {
-    ctx
-      .context_state()
-      .pending_ops
+    pending_ops
       .submit_op_infallible::<_, false, false>(ctx, promise_id, op, rv_map)
   }
 }
@@ -56,25 +49,17 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
-  rv_map: for<'r> fn(
-    &mut v8::HandleScope<'r>,
-    R,
-  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+  rv_map: RetValMapper<R>,
 ) -> Option<Result<R, E>> {
+  let pending_ops = &ctx.context_state().pending_ops;
   if lazy {
-    ctx
-      .context_state()
-      .pending_ops
+    pending_ops
       .submit_op_fallible::<_, _, true, false>(ctx, promise_id, op, rv_map)
   } else if deferred {
-    ctx
-      .context_state()
-      .pending_ops
+    pending_ops
       .submit_op_fallible::<_, _, false, true>(ctx, promise_id, op, rv_map)
   } else {
-    ctx
-      .context_state()
-      .pending_ops
+    pending_ops
       .submit_op_fallible::<_, _, false, false>(ctx, promise_id, op, rv_map)
   }
 }

@@ -8,24 +8,34 @@ use std::task::Context;
 use std::task::Poll;
 
 #[repr(C, align(16))]
-struct TypeErased<const MAX_SIZE: usize> {
+pub struct TypeErased<const MAX_SIZE: usize> {
   memory: [MaybeUninit<u8>; MAX_SIZE],
   drop: fn(this: *mut ()),
   _unpin: PhantomPinned,
 }
 
 impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
+  pub unsafe fn take<R: 'static>(self) -> R {
+    assert!(std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory));
+    assert!(std::mem::align_of::<R>() <= std::mem::align_of_val(&self));
+    let r = std::ptr::read(self.memory.as_ptr() as _);
+    std::mem::forget(self);
+    r
+  }
+
   pub fn raw_ptr(&mut self) -> *mut () {
     self.memory.as_mut_ptr() as _
   }
 
-  pub fn new<F>(f: F) -> Self {
+  pub fn new<R>(r: R) -> Self {
     let mut new = Self {
       memory: [MaybeUninit::uninit(); MAX_SIZE],
-      drop: |this| unsafe { std::ptr::drop_in_place::<F>(this as _) },
+      drop: |this| unsafe { std::ptr::drop_in_place::<R>(this as _) },
       _unpin: PhantomPinned,
     };
-    unsafe { std::ptr::write(new.memory.as_mut_ptr() as *mut F, f) };
+    assert!(std::mem::size_of::<R>() <= std::mem::size_of_val(&new.memory));
+    assert!(std::mem::align_of::<R>() <= std::mem::align_of_val(&new));
+    unsafe { std::ptr::write(new.memory.as_mut_ptr() as *mut R, r) };
     new
   }
 }

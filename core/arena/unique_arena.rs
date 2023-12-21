@@ -11,6 +11,14 @@ use super::alloc;
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x8877665544332211;
 
+pub struct ArenaUniqueReservation<T>(NonNull<ArenaBoxData<T>>);
+
+impl<T> Drop for ArenaUniqueReservation<T> {
+  fn drop(&mut self) {
+    panic!("A reservation must be completed or forgotten")
+  }
+}
+
 pub struct ArenaBox<T: 'static> {
   ptr: NonNull<ArenaBoxData<T>>,
 }
@@ -232,6 +240,45 @@ impl<T> ArenaUnique<T> {
     let ptr = unsafe {
       let this = self.ptr.as_ptr();
       let ptr = (*this).raw_arena.allocate();
+      std::ptr::write(
+        ptr.as_ptr(),
+        ArenaBoxData {
+          #[cfg(debug_assertions)]
+          signature: SIGNATURE,
+          arena_data: self.ptr,
+          data,
+        },
+      );
+      ptr
+    };
+
+    ArenaBox { ptr }
+  }
+
+  pub unsafe fn reserve_space(&self) -> Option<ArenaUniqueReservation<T>> {
+    let this = &mut *self.ptr.as_ptr();
+    let ptr = this.raw_arena.allocate_if_space()?;
+    Some(ArenaUniqueReservation(ptr))
+  }
+
+  pub unsafe fn forget_reservation(
+    &self,
+    reservation: ArenaUniqueReservation<T>,
+  ) {
+    let ptr = reservation.0;
+    std::mem::forget(reservation);
+    let this = self.ptr.as_ptr();
+    (*this).raw_arena.recycle_without_drop(ptr);
+  }
+
+  pub unsafe fn complete_reservation(
+    &self,
+    reservation: ArenaUniqueReservation<T>,
+    data: T,
+  ) -> ArenaBox<T> {
+    let ptr = reservation.0;
+    std::mem::forget(reservation);
+    let ptr = {
       std::ptr::write(
         ptr.as_ptr(),
         ArenaBoxData {
