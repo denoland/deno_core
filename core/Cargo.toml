@@ -71,5 +71,5 @@ harness = false
 
 [[bench]]
 name = "arena"
-path = "benches/ops/arena.rs"
+path = "benches/infra/arena.rs"
 harness = false

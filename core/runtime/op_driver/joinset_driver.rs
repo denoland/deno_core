@@ -19,6 +19,7 @@ use std::cell::UnsafeCell;
 use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
+use std::ptr::NonNull;
 use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
@@ -33,20 +34,17 @@ pub struct PendingOpInfo(pub PromiseId, pub OpId, pub bool);
 #[derive(Clone)]
 #[repr(transparent)]
 struct ArenaPtr(
-  Rc<
-    UnsafeCell<
-      Option<
-        RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>,
-      >,
-    >,
-  >,
+  Rc<UnsafeCell<Option<RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>>>>>,
 );
 
 impl ArenaPtr {
-  pub fn recycle<R>(&self, ptr: *mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>) {
+  pub fn recycle<R>(
+    &self,
+    ptr: NonNull<ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>>,
+  ) {
     unsafe {
       if let Some(arena) = &*self.0.get() {
-        arena.recycle(ptr as _);
+        arena.recycle(ptr.cast());
       }
     }
   }
@@ -54,21 +52,20 @@ impl ArenaPtr {
   fn allocate<F, R>(
     &self,
     f: F,
-  ) -> Result<*mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>, F>
+  ) -> Result<NonNull<ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>>, F>
   where
     F: Future<Output = R> + 'static,
   {
     unsafe {
       let arena = (*self.0.get()).as_ref();
-      let alloc = arena.unwrap_unchecked().allocate_if_space();
-      if alloc.is_null() {
+      let Some(alloc) = arena.unwrap_unchecked().allocate_if_space() else {
         return Err(f);
-      }
+      };
       std::ptr::write(
-        alloc as _,
+        alloc.as_ptr() as _,
         ErasedFuture::<MAX_ARENA_FUTURE_SIZE, _>::new(f),
       );
-      Ok(alloc as _)
+      Ok(alloc.cast())
     }
   }
 
@@ -81,7 +78,7 @@ impl ArenaPtr {
 }
 
 enum FutureAllocation<R: 'static> {
-  Arena(*mut ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>, ArenaPtr),
+  Arena(NonNull<ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>>, ArenaPtr),
   Box(Pin<Box<dyn Future<Output = R>>>),
 }
 
@@ -107,7 +104,7 @@ impl<R> Future for FutureAllocation<R> {
           if !arena.is_alive() {
             return Poll::Pending;
           }
-          let pin = Pin::new_unchecked(&mut **ptr);
+          let pin = Pin::new_unchecked(ptr.as_mut());
           pin.poll(cx)
         }
         Self::Box(f) => f.poll_unpin(cx),
@@ -118,20 +115,17 @@ impl<R> Future for FutureAllocation<R> {
 
 pub struct JoinSetDriver {
   pending_ops: RefCell<JoinSet<PendingOp>>,
-  arena: Rc<
-    UnsafeCell<
-      Option<
-        RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>, MAX_FUTURE_SIZE>,
-      >,
-    >,
-  >,
+  arena:
+    Rc<UnsafeCell<Option<RawArena<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>>>>>,
 }
 
 impl Default for JoinSetDriver {
   fn default() -> Self {
     Self {
       pending_ops: Default::default(),
-      arena: Rc::new(UnsafeCell::new(Some(Default::default()))),
+      arena: Rc::new(UnsafeCell::new(Some(RawArena::with_capacity(
+        MAX_FUTURE_SIZE,
+      )))),
     }
   }
 }

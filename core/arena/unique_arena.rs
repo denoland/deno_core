@@ -6,6 +6,8 @@ use std::ptr::NonNull;
 
 use crate::arena::raw_arena::RawArena;
 
+use super::alloc;
+
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x8877665544332211;
 
@@ -18,8 +20,7 @@ impl<T> Unpin for ArenaBox<T> {}
 struct ArenaBoxData<T> {
   #[cfg(debug_assertions)]
   signature: usize,
-  arena_data: *const (),
-  deleter: unsafe fn(NonNull<Self>),
+  arena_data: NonNull<ArenaUniqueData<T>>,
   data: T,
 }
 
@@ -29,14 +30,14 @@ impl<T: 'static> ArenaBox<T> {
 
   /// Constructs a `NonNull` reference to `ArenaBoxData` from a raw pointer to `T`.
   #[inline(always)]
-  unsafe fn data_from_ptr(ptr: *mut T) -> NonNull<ArenaBoxData<T>> {
-    NonNull::new_unchecked((ptr as *mut u8).sub(Self::PTR_OFFSET) as _)
+  unsafe fn data_from_ptr(ptr: NonNull<T>) -> NonNull<ArenaBoxData<T>> {
+    NonNull::new_unchecked((ptr.as_ptr() as *mut u8).sub(Self::PTR_OFFSET) as _)
   }
 
   /// Obtains a raw pointer to `T` from a `NonNull` reference to `ArenaBoxData`.  
   #[inline(always)]
-  unsafe fn ptr_from_data(ptr: NonNull<ArenaBoxData<T>>) -> *mut T {
-    (ptr.as_ptr() as *mut u8).add(Self::PTR_OFFSET) as _
+  unsafe fn ptr_from_data(ptr: NonNull<ArenaBoxData<T>>) -> NonNull<T> {
+    NonNull::new_unchecked((ptr.as_ptr() as *mut u8).add(Self::PTR_OFFSET) as _)
   }
 
   /// Transforms an `ArenaBox` into a raw pointer to `T` and forgets it.
@@ -46,7 +47,7 @@ impl<T: 'static> ArenaBox<T> {
   /// This function returns a raw pointer without managing the memory, potentially leading to
   /// memory leaks if the pointer is not properly handled or deallocated.
   #[inline(always)]
-  pub fn into_raw(mut alloc: ArenaBox<T>) -> *mut T {
+  pub fn into_raw(mut alloc: ArenaBox<T>) -> NonNull<T> {
     let ptr = NonNull::from(alloc.data_mut());
     std::mem::forget(alloc);
     unsafe { Self::ptr_from_data(ptr) }
@@ -59,7 +60,7 @@ impl<T: 'static> ArenaBox<T> {
   /// This function safely constructs an `ArenaBox` from a raw pointer, assuming the pointer is
   /// valid and properly aligned. Misuse may lead to undefined behavior, memory unsafety, or data corruption.
   #[inline(always)]
-  pub unsafe fn from_raw(ptr: *mut T) -> ArenaBox<T> {
+  pub unsafe fn from_raw(ptr: NonNull<T>) -> ArenaBox<T> {
     let ptr = Self::data_from_ptr(ptr);
 
     #[cfg(debug_assertions)]
@@ -72,34 +73,51 @@ impl<T: 'static> ArenaBox<T> {
 static_assertions::assert_not_impl_any!(ArenaBox<()>: Send, Sync);
 
 impl<T> ArenaBox<T> {
+  #[inline(always)]
   fn data(&self) -> &ArenaBoxData<T> {
     unsafe { self.ptr.as_ref() }
   }
 
+  #[inline(always)]
   fn data_mut(&mut self) -> &mut ArenaBoxData<T> {
     unsafe { self.ptr.as_mut() }
   }
 }
 
 impl<T> Drop for ArenaBox<T> {
+  #[inline(always)]
   fn drop(&mut self) {
     unsafe {
-      let deleter = self.data().deleter;
-      let ptr = self.ptr;
-      deleter(ptr);
+      ArenaUnique::delete(self.ptr);
     }
   }
 }
 
 impl<T> std::ops::Deref for ArenaBox<T> {
   type Target = T;
+  #[inline(always)]
   fn deref(&self) -> &Self::Target {
     &self.data().data
   }
 }
 
+impl<T> std::convert::AsRef<T> for ArenaBox<T> {
+  #[inline(always)]
+  fn as_ref(&self) -> &T {
+    &self.data().data
+  }
+}
+
 impl<T> std::ops::DerefMut for ArenaBox<T> {
+  #[inline(always)]
   fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.data_mut().data
+  }
+}
+
+impl<T> std::convert::AsMut<T> for ArenaBox<T> {
+  #[inline(always)]
+  fn as_mut(&mut self) -> &mut T {
     &mut self.data_mut().data
   }
 }
@@ -131,57 +149,50 @@ where
 /// This container guarantees exclusive access to the allocated data
 /// within the arena, allowing single-threaded operations while
 /// efficiently managing memory and ensuring cleanup on drop.
-pub struct ArenaUnique<T, const BASE_CAPACITY: usize> {
-  ptr: NonNull<ArenaUniqueData<T, BASE_CAPACITY>>,
+pub struct ArenaUnique<T> {
+  ptr: NonNull<ArenaUniqueData<T>>,
 }
 
 // The arena itself may not be shared so that we can guarantee all [`RawArena`]
 // access happens on the owning thread.
-static_assertions::assert_not_impl_any!(ArenaUnique<(), 16>: Send, Sync);
+static_assertions::assert_not_impl_any!(ArenaUnique<()>: Send, Sync);
 
-struct ArenaUniqueData<T, const BASE_CAPACITY: usize> {
-  raw_arena: RawArena<ArenaBoxData<T>, BASE_CAPACITY>,
+struct ArenaUniqueData<T> {
+  raw_arena: RawArena<ArenaBoxData<T>>,
   alive: bool,
 }
 
-impl<T, const BASE_CAPACITY: usize> Default for ArenaUnique<T, BASE_CAPACITY> {
-  fn default() -> Self {
+impl<T> ArenaUnique<T> {
+  pub fn with_capacity(capacity: usize) -> Self {
     unsafe {
-      let ptr = std::alloc::alloc(Layout::new::<
-        ArenaUniqueData<T, BASE_CAPACITY>,
-      >()) as *mut ArenaUniqueData<T, BASE_CAPACITY>;
+      let ptr = alloc();
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaUniqueData {
-          raw_arena: Default::default(),
+          raw_arena: RawArena::with_capacity(capacity),
           alive: true,
         },
       );
-      Self {
-        ptr: NonNull::new_unchecked(ptr),
-      }
+      Self { ptr }
     }
   }
-}
 
-impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
   #[cold]
   #[inline(never)]
-  unsafe fn drop_data(data: *mut ArenaUniqueData<T, BASE_CAPACITY>) {
+  unsafe fn drop_data(data: NonNull<ArenaUniqueData<T>>) {
+    let data = data.as_ptr();
     std::ptr::drop_in_place(data);
-    std::alloc::dealloc(
-      data as _,
-      Layout::new::<ArenaUniqueData<T, BASE_CAPACITY>>(),
-    );
+    std::alloc::dealloc(data as _, Layout::new::<ArenaUniqueData<T>>());
   }
 
   /// Deletes the data associated with an `ArenaBox` from the arena. If this is the last
   /// allocation for the arena and the arena has been dropped, de-allocate everything.
+  #[inline(always)]
   unsafe fn delete(data: NonNull<ArenaBoxData<T>>) {
-    let data = data.as_ptr();
-    let arena = (*data).arena_data as *mut ArenaUniqueData<T, BASE_CAPACITY>;
-    if (*arena).raw_arena.recycle(data as _) && !(*arena).alive {
-      Self::drop_data(arena)
+    let arena_data = data.as_ref().arena_data;
+    let arena = arena_data.as_ref();
+    if arena.raw_arena.recycle(data) && !arena.alive {
+      Self::drop_data(arena_data)
     }
   }
 
@@ -208,7 +219,7 @@ impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
   /// }
   ///
   /// // Create a new instance of ArenaUnique with a specified base capacity
-  /// let arena: ArenaUnique<MyStruct, 16> = ArenaUnique::default();
+  /// let arena: ArenaUnique<MyStruct> = ArenaUnique::with_capacity(16);
   ///
   /// // Allocate a new MyStruct instance within the arena
   /// let data_instance = MyStruct { data: 42 };
@@ -221,32 +232,30 @@ impl<T, const BASE_CAPACITY: usize> ArenaUnique<T, BASE_CAPACITY> {
     let ptr = unsafe {
       let this = self.ptr.as_ptr();
       let ptr = (*this).raw_arena.allocate();
-
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaBoxData {
           #[cfg(debug_assertions)]
           signature: SIGNATURE,
-          arena_data: std::mem::transmute(self.ptr),
-          deleter: Self::delete,
+          arena_data: self.ptr,
           data,
         },
       );
-      std::mem::transmute(&mut *ptr)
+      ptr
     };
 
     ArenaBox { ptr }
   }
 }
 
-impl<T, const BASE_CAPACITY: usize> Drop for ArenaUnique<T, BASE_CAPACITY> {
+impl<T> Drop for ArenaUnique<T> {
   fn drop(&mut self) {
     unsafe {
-      let this = self.ptr.as_ptr();
-      if (*this).raw_arena.allocated() == 0 {
-        Self::drop_data(this);
+      let this = self.ptr.as_mut();
+      if this.raw_arena.allocated() == 0 {
+        Self::drop_data(self.ptr);
       } else {
-        (*this).alive = false;
+        this.alive = false;
       }
     }
   }
@@ -259,7 +268,7 @@ mod tests {
 
   #[test]
   fn test_raw() {
-    let arena: ArenaUnique<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaUnique<RefCell<usize>> = ArenaUnique::with_capacity(16);
     let arc = arena.allocate(Default::default());
     let raw = ArenaBox::into_raw(arc);
     _ = unsafe { ArenaBox::from_raw(raw) };
@@ -267,7 +276,7 @@ mod tests {
 
   #[test]
   fn test_allocate_drop_box_first() {
-    let arena: ArenaUnique<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaUnique<RefCell<usize>> = ArenaUnique::with_capacity(16);
     let alloc = arena.allocate(Default::default());
     *alloc.borrow_mut() += 1;
     drop(alloc);
@@ -276,7 +285,7 @@ mod tests {
 
   #[test]
   fn test_allocate_drop_arena_first() {
-    let arena: ArenaUnique<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaUnique<RefCell<usize>> = ArenaUnique::with_capacity(16);
     let alloc = arena.allocate(Default::default());
     *alloc.borrow_mut() += 1;
     drop(arena);

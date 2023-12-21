@@ -1,11 +1,14 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use std::alloc::handle_alloc_error;
 use std::alloc::Layout;
 use std::cell::Cell;
 use std::mem::ManuallyDrop;
+use std::ptr::NonNull;
 
 use bit_set::BitSet;
 use bit_vec::BitVec;
+
+use super::alloc;
+use super::alloc_layout;
 
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x1234567812345678;
@@ -25,14 +28,14 @@ const SIGNATURE: usize = 0x1234567812345678;
 /// ```rust
 /// # use deno_core::arena::RawArena;
 /// // Create a RawArena with a capacity of 10 elements
-/// let arena = RawArena::<usize, 10>::default();
+/// let arena = RawArena::<usize>::with_capacity(10);
 ///
 /// // Allocate elements in the arena
 /// unsafe {
 ///   let mut elements = Vec::new();
 ///   for i in 0..10 {
-///     let element_ptr = arena.allocate();
-///     *element_ptr = i * 2;
+///     let mut element_ptr = arena.allocate();
+///     *element_ptr.as_mut() = i * 2;
 ///     elements.push(element_ptr);
 ///   }
 ///
@@ -42,33 +45,71 @@ const SIGNATURE: usize = 0x1234567812345678;
 ///   }
 /// }
 /// ```
-pub struct RawArena<T, const BASE_CAPACITY: usize> {
+pub struct RawArena<T> {
   #[cfg(debug_assertions)]
   signature: usize,
-  alloc: *mut RawArenaEntry<T>,
-  past_alloc_end: *mut RawArenaEntry<T>,
-  max: Cell<*mut RawArenaEntry<T>>,
-  next: Cell<*mut RawArenaEntry<T>>,
+  alloc: NonNull<RawArenaEntry<T>>,
+  past_alloc_end: NonNull<RawArenaEntry<T>>,
+  max: Cell<NonNull<RawArenaEntry<T>>>,
+  next: Cell<NonNull<RawArenaEntry<T>>>,
   allocated: Cell<usize>,
+  capacity: usize,
 }
 
 /// The [`RawArena`] is [`Send`], but not [`Sync`].
-unsafe impl<T, const BASE_CAPACITY: usize> Send for RawArena<T, BASE_CAPACITY> {}
+unsafe impl<T> Send for RawArena<T> {}
 
-static_assertions::assert_impl_one!(RawArena<(), 16>: Send);
-static_assertions::assert_not_impl_any!(RawArena<(), 16>: Sync);
+static_assertions::assert_impl_one!(RawArena<()>: Send);
+static_assertions::assert_not_impl_any!(RawArena<()>: Sync);
 
 union RawArenaEntry<T> {
   /// If this is a vacant entry, points to the next entry.
-  next: *mut RawArenaEntry<T>,
+  next: NonNull<RawArenaEntry<T>>,
   /// If this is a valid entry, contains the raw data.
   value: ManuallyDrop<T>,
 }
 
-impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
+impl<T> RawArenaEntry<T> {
+  #[inline(always)]
+  unsafe fn next(
+    entry: NonNull<RawArenaEntry<T>>,
+  ) -> NonNull<RawArenaEntry<T>> {
+    (*(entry.as_ptr())).next
+  }
+
+  #[inline(always)]
+  unsafe fn drop(entry: NonNull<RawArenaEntry<T>>) {
+    std::ptr::drop_in_place(
+      std::ptr::addr_of_mut!((*entry.as_ptr()).value) as *mut T
+    );
+  }
+}
+
+impl<T> RawArena<T> {
+  /// Allocate an arena, completely initialized. This memory is not zeroed, and
+  /// we use the high-water mark to keep track of what we've initialized so far.
+  ///
+  /// This is safe, because dropping the [`RawArena`] without doing anything to
+  /// it is safe.
+  pub fn with_capacity(capacity: usize) -> Self {
+    let alloc = alloc_layout(Self::layout(capacity));
+    Self {
+      #[cfg(debug_assertions)]
+      signature: SIGNATURE,
+      alloc,
+      past_alloc_end: unsafe {
+        NonNull::new_unchecked(alloc.as_ptr().add(capacity))
+      },
+      max: alloc.into(),
+      next: Cell::new(alloc),
+      allocated: Default::default(),
+      capacity,
+    }
+  }
+
   // TODO(mmastrac): const when https://github.com/rust-lang/rust/issues/67521 is fixed
-  fn layout() -> Layout {
-    match Layout::array::<RawArenaEntry<T>>(BASE_CAPACITY) {
+  fn layout(capacity: usize) -> Layout {
+    match Layout::array::<RawArenaEntry<T>>(capacity) {
       Ok(l) => l,
       _ => panic!("Zero-sized objects are not supported"),
     }
@@ -80,9 +121,9 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// For internal use.
   #[inline(always)]
-  unsafe fn entry_to_data(entry: *mut RawArenaEntry<T>) -> *mut T {
+  unsafe fn entry_to_data(entry: NonNull<RawArenaEntry<T>>) -> NonNull<T> {
     // Transmute the union
-    std::ptr::addr_of_mut!((*entry).value) as _
+    entry.cast()
   }
 
   /// Helper method to transmute internal pointers.
@@ -91,9 +132,9 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// For internal use.
   #[inline(always)]
-  unsafe fn data_to_entry(data: *mut T) -> *mut RawArenaEntry<T> {
+  unsafe fn data_to_entry(data: NonNull<T>) -> NonNull<RawArenaEntry<T>> {
     // Transmute the union
-    data as _
+    data.cast()
   }
 
   /// Gets the next free entry, allocating if necessary. This is `O(1)` if we have free space in
@@ -112,7 +153,7 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   /// or use `recycle_without_drop` to manually handle recycling, as dropping the arena does not
   /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically
   /// trigger the drop of all items allocated within.
-  pub unsafe fn allocate(&self) -> *mut T {
+  pub unsafe fn allocate(&self) -> NonNull<T> {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
     let next = self.next.get();
@@ -125,22 +166,17 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
       // Are we out of room?
       if max == self.past_alloc_end {
         // We filled the RawArena, so start allocating
-        let new = std::alloc::alloc(Layout::new::<RawArenaEntry<T>>())
-          as *mut RawArenaEntry<T>;
-        if new.is_null() {
-          handle_alloc_error(Layout::new::<RawArenaEntry<T>>());
-        }
-        return Self::entry_to_data(new);
+        return Self::entry_to_data(alloc());
       }
 
       // Nope, we can extend by one
-      let next = self.max.get().add(1);
+      let next = NonNull::new_unchecked(self.max.get().as_ptr().add(1));
       self.next.set(next);
       self.max.set(next);
     } else {
       // We haven't passed the high-water mark, so walk the internal next-free list
       // for our next allocation
-      self.next.set((*next).next);
+      self.next.set(RawArenaEntry::next(next));
     }
 
     // Update accounting
@@ -162,7 +198,7 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   /// or use `recycle_without_drop` to manually handle recycling, as dropping the arena does not
   /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically
   /// trigger the drop of all items allocated within.
-  pub unsafe fn allocate_if_space(&self) -> *mut T {
+  pub unsafe fn allocate_if_space(&self) -> Option<NonNull<T>> {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
     let next = self.next.get();
@@ -174,28 +210,28 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
     if max == next {
       // Are we out of room?
       if max == self.past_alloc_end {
-        // We filled the RawArena, so return null
-        return std::ptr::null_mut();
+        // We filled the RawArena, so return None
+        return None;
       }
 
       // Nope, we can extend by one
-      let next = self.max.get().add(1);
+      let next = NonNull::new_unchecked(self.max.get().as_ptr().add(1));
       self.next.set(next);
       self.max.set(next);
     } else {
       // We haven't passed the high-water mark, so walk the internal next-free list
       // for our next allocation
-      self.next.set((*next).next);
+      self.next.set((*(next.as_ptr())).next);
     }
 
     // Update accounting
     self.allocated.set(self.allocated.get() + 1);
-    Self::entry_to_data(next)
+    Some(Self::entry_to_data(next))
   }
 
   /// Returns the remaining capacity of this [`RawArena`] that can be provided without allocation.
   pub fn remaining(&self) -> usize {
-    BASE_CAPACITY - self.allocated.get()
+    self.capacity - self.allocated.get()
   }
 
   /// Returns the remaining capacity of this [`RawArena`] that can be provided without allocation.
@@ -224,22 +260,22 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
         let max = self.max.get();
 
         // Compute the vacant set by walking the `next` pointers
-        let count = max.offset_from(self.alloc) as usize;
+        let count = max.as_ptr().offset_from(self.alloc.as_ptr()) as usize;
         let mut vacant = BitVec::with_capacity(count);
         vacant.grow(count, false);
 
         let mut next = self.next.get();
         while next != max {
-          let i = next.offset_from(self.alloc) as usize;
+          let i = next.as_ptr().offset_from(self.alloc.as_ptr()) as usize;
           vacant.set(i, true);
-          next = (*next).next;
+          next = RawArenaEntry::next(next);
         }
 
         vacant.negate();
 
         // Iterate over the inverse of the vacant set and free those items
         for alloc in BitSet::from_bit_vec(vacant).into_iter() {
-          let entry = self.alloc.add(alloc);
+          let entry = self.alloc.as_ptr().add(alloc);
           std::ptr::drop_in_place(
             std::ptr::addr_of_mut!((*entry).value) as *mut T
           );
@@ -259,21 +295,24 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// We assume this pointer is either internal to the arena (in which case we return it
   /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`](Self::allocate).
-  pub unsafe fn recycle(&self, data: *mut T) -> bool {
+  pub unsafe fn recycle(&self, data: NonNull<T>) -> bool {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
-    let entry = Self::data_to_entry(data);
+    let mut entry = Self::data_to_entry(data);
     let mut emptied = false;
-    std::ptr::drop_in_place(std::ptr::addr_of_mut!((*entry).value) as *mut T);
+    RawArenaEntry::drop(entry);
     if entry >= self.alloc && entry < self.past_alloc_end {
       let next = self.next.get();
       let count = self.allocated.get() - 1;
       emptied = count == 0;
       self.allocated.set(count);
-      (*entry).next = next;
+      entry.as_mut().next = next;
       self.next.set(entry);
     } else {
-      std::alloc::dealloc(entry as _, Layout::new::<RawArenaEntry<T>>());
+      std::alloc::dealloc(
+        entry.as_ptr() as _,
+        Layout::new::<RawArenaEntry<T>>(),
+      );
     }
     emptied
   }
@@ -284,50 +323,29 @@ impl<T, const BASE_CAPACITY: usize> RawArena<T, BASE_CAPACITY> {
   ///
   /// We assume this pointer is either internal to the arena (in which case we return it
   /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`](Self::allocate).
-  pub unsafe fn recycle_without_drop(&self, data: *mut T) -> bool {
+  pub unsafe fn recycle_without_drop(&self, data: NonNull<T>) -> bool {
     #[cfg(debug_assertions)]
     debug_assert_eq!(self.signature, SIGNATURE);
-    let entry = Self::data_to_entry(data);
+    let mut entry = Self::data_to_entry(data);
     let mut emptied = false;
     if entry >= self.alloc && entry < self.past_alloc_end {
       let next = self.next.get();
       let count = self.allocated.get() - 1;
       emptied = count == 0;
       self.allocated.set(count);
-      (*entry).next = next;
+      entry.as_mut().next = next;
       self.next.set(entry);
     } else {
-      std::alloc::dealloc(entry as _, Layout::new::<RawArenaEntry<T>>());
+      std::alloc::dealloc(
+        entry.as_ptr() as _,
+        Layout::new::<RawArenaEntry<T>>(),
+      );
     }
     emptied
   }
 }
 
-impl<T, const BASE_CAPACITY: usize> Default for RawArena<T, BASE_CAPACITY> {
-  /// Allocate an arena, completely initialized. This memory is not zeroed, and
-  /// we use the high-water mark to keep track of what we've initialized so far.
-  ///
-  /// This is safe, because dropping the [`RawArena`] without doing anything to
-  /// it is safe.
-  fn default() -> Self {
-    let alloc =
-      unsafe { std::alloc::alloc(Self::layout()) } as *mut RawArenaEntry<T>;
-    if alloc.is_null() {
-      handle_alloc_error(Self::layout());
-    }
-    Self {
-      #[cfg(debug_assertions)]
-      signature: SIGNATURE,
-      alloc,
-      past_alloc_end: unsafe { alloc.add(BASE_CAPACITY) },
-      max: alloc.into(),
-      next: Cell::new(alloc),
-      allocated: Default::default(),
-    }
-  }
-}
-
-impl<T, const BASE_CAPACITY: usize> Drop for RawArena<T, BASE_CAPACITY> {
+impl<T> Drop for RawArena<T> {
   /// Drop the arena. All pointers are invalidated at this point, except for those
   /// allocated outside outside of the arena.
   ///
@@ -340,7 +358,9 @@ impl<T, const BASE_CAPACITY: usize> Drop for RawArena<T, BASE_CAPACITY> {
       debug_assert_eq!(self.signature, SIGNATURE);
       self.signature = 0;
     }
-    unsafe { std::alloc::dealloc(self.alloc as _, Self::layout()) }
+    unsafe {
+      std::alloc::dealloc(self.alloc.as_ptr() as _, Self::layout(self.capacity))
+    }
   }
 }
 
@@ -349,23 +369,20 @@ mod tests {
   use super::*;
 
   #[must_use = "If you don't use this, it'll leak!"]
-  unsafe fn allocate<const BASE_CAPACITY: usize>(
-    arena: &RawArena<usize, BASE_CAPACITY>,
-    i: usize,
-  ) -> *mut usize {
-    let new = arena.allocate();
-    *new = i;
+  unsafe fn allocate(arena: &RawArena<usize>, i: usize) -> NonNull<usize> {
+    let mut new = arena.allocate();
+    *new.as_mut() = i;
     new
   }
 
   #[test]
   fn test_add_remove_many() {
-    let arena = RawArena::<usize, 1024>::default();
+    let arena = RawArena::<usize>::with_capacity(1024);
     unsafe {
       for i in 0..2000 {
         let v = allocate(&arena, i);
         assert_eq!(arena.remaining(), 1023);
-        assert_eq!(*v, i);
+        assert_eq!(*v.as_ref(), i);
         arena.recycle(v);
         assert_eq!(arena.remaining(), 1024);
       }
@@ -374,7 +391,7 @@ mod tests {
 
   #[test]
   fn test_add_clear_many() {
-    let arena = RawArena::<usize, 1024>::default();
+    let arena = RawArena::<usize>::with_capacity(1024);
     unsafe {
       for i in 0..2000 {
         _ = allocate(&arena, i);
@@ -387,7 +404,7 @@ mod tests {
 
   #[test]
   fn test_add_remove_many_separate() {
-    let arena = RawArena::<usize, 1024>::default();
+    let arena = RawArena::<usize>::with_capacity(1024);
     unsafe {
       let mut nodes = vec![];
       // This will spill over into memory allocations
@@ -397,7 +414,7 @@ mod tests {
       assert_eq!(arena.remaining(), 0);
       for i in (0..2000).rev() {
         let node = nodes.pop().unwrap();
-        assert_eq!(*node, i);
+        assert_eq!(*node.as_ref(), i);
         arena.recycle(node);
       }
       assert_eq!(arena.remaining(), 1024);
@@ -407,21 +424,20 @@ mod tests {
   #[test]
   fn test_droppable() {
     // Make sure we correctly drop all the items in this arena if they are droppable
-    let arena = RawArena::<_, 16>::default();
+    let arena = RawArena::<_>::with_capacity(16);
     unsafe {
       let mut nodes = vec![];
       // This will spill over into memory allocations
       for i in 0..20 {
         let node = arena.allocate();
         std::ptr::write(
-          node,
+          node.as_ptr(),
           Box::new(std::future::ready(format!("iteration {i}"))),
         );
         nodes.push(node);
       }
       assert_eq!(arena.remaining(), 0);
       for node in nodes {
-        eprintln!("{:?}", (*node));
         arena.recycle(node);
       }
       assert_eq!(arena.remaining(), 16);
@@ -430,7 +446,7 @@ mod tests {
 
   #[test]
   fn test_no_drop() {
-    let arena = RawArena::<String, 16>::default();
+    let arena = RawArena::<String>::with_capacity(16);
     unsafe {
       arena.recycle_without_drop(arena.allocate());
       arena.clear_allocated();
@@ -439,15 +455,15 @@ mod tests {
 
   #[test]
   fn test_drops() {
-    let arena = RawArena::<_, 16>::default();
+    let arena = RawArena::<_>::with_capacity(16);
     unsafe {
       for i in 0..2 {
         let ptr = arena.allocate();
-        std::ptr::write(ptr, format!("iteration {i}"));
+        std::ptr::write(ptr.as_ptr(), format!("iteration {i}"));
       }
       // Leave a space in the internal allocations
       let ptr = arena.allocate();
-      std::ptr::write(ptr, format!("deleted"));
+      std::ptr::write(ptr.as_ptr(), format!("deleted"));
       arena.recycle(ptr);
       arena.clear_allocated();
     }
@@ -457,11 +473,11 @@ mod tests {
   fn test_drops_full() {
     struct Droppable(String);
 
-    let arena = RawArena::<_, 16>::default();
+    let arena = RawArena::<_>::with_capacity(16);
     unsafe {
       for i in 0..2 {
         let ptr = arena.allocate();
-        std::ptr::write(ptr, Droppable(format!("iteration {i}")));
+        std::ptr::write(ptr.as_ptr(), Droppable(format!("iteration {i}")));
       }
       arena.clear_allocated();
     }

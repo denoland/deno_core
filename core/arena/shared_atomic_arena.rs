@@ -8,17 +8,14 @@ use parking_lot::lock_api::RawMutex;
 
 use crate::arena::raw_arena::RawArena;
 
+use super::alloc;
+
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x1122334455667788;
 
+pub struct ArenaSharedAtomicReservation<T>(NonNull<ArenaArcData<T>>);
 
-pub struct ArenaSharedAtomicReservation<T, const BASE_CAPACITY: usize>(
-  *mut ArenaArcData<T>,
-);
-
-impl<T, const BASE_CAPACITY: usize> Drop
-  for ArenaSharedAtomicReservation<T, BASE_CAPACITY>
-{
+impl<T> Drop for ArenaSharedAtomicReservation<T> {
   fn drop(&mut self) {
     panic!("A reservation must be completed or forgotten")
   }
@@ -40,8 +37,10 @@ impl<T> ArenaArc<T> {
   /// This function assumes that the input `ptr` points to the data within an `ArenaArc` object.
   /// Improper usage may result in undefined behavior.
   #[inline(always)]
-  unsafe fn data_from_ptr(ptr: *const T) -> NonNull<ArenaArcData<T>> {
-    NonNull::new_unchecked((ptr as *const u8).sub(Self::PTR_OFFSET) as _)
+  unsafe fn data_from_ptr(ptr: NonNull<T>) -> NonNull<ArenaArcData<T>> {
+    NonNull::new_unchecked(
+      (ptr.as_ptr() as *const u8).sub(Self::PTR_OFFSET) as _
+    )
   }
 
   /// Converts a `NonNull` pointer to `ArenaArcData` into a raw pointer to the data.
@@ -51,8 +50,10 @@ impl<T> ArenaArc<T> {
   /// This function assumes that the input `ptr` is a valid `NonNull` pointer to `ArenaArcData`.
   /// Improper usage may result in undefined behavior.
   #[inline(always)]
-  unsafe fn ptr_from_data(ptr: NonNull<ArenaArcData<T>>) -> *const T {
-    (ptr.as_ptr() as *const u8).add(Self::PTR_OFFSET) as _
+  unsafe fn ptr_from_data(ptr: NonNull<ArenaArcData<T>>) -> NonNull<T> {
+    NonNull::new_unchecked(
+      (ptr.as_ptr() as *const u8).add(Self::PTR_OFFSET) as _
+    )
   }
 
   /// Consumes the `ArenaArc`, forgetting it, and returns a raw pointer to the contained data.
@@ -62,7 +63,7 @@ impl<T> ArenaArc<T> {
   /// This function returns a raw pointer without managing the memory, potentially leading to
   /// memory leaks if the pointer is not properly handled or deallocated.
   #[inline(always)]
-  pub fn into_raw(arc: ArenaArc<T>) -> *const T {
+  pub fn into_raw(arc: ArenaArc<T>) -> NonNull<T> {
     let ptr = arc.ptr;
     std::mem::forget(arc);
     unsafe { Self::ptr_from_data(ptr) }
@@ -72,7 +73,7 @@ impl<T> ArenaArc<T> {
   ///
   /// This function increments the reference count of the `ArenaArc`.
   #[inline(always)]
-  pub fn clone_into_raw(arc: &ArenaArc<T>) -> *const T {
+  pub fn clone_into_raw(arc: &ArenaArc<T>) -> NonNull<T> {
     unsafe {
       arc.ptr.as_ref().ref_count.fetch_add(1, Ordering::Relaxed);
       Self::ptr_from_data(arc.ptr)
@@ -89,7 +90,7 @@ impl<T> ArenaArc<T> {
   /// This function assumes the provided `ptr` is a valid raw pointer to the data within an `ArenaArc`
   /// object. Misuse may lead to undefined behavior, memory unsafety, or data corruption.
   #[inline(always)]
-  pub unsafe fn from_raw(ptr: *const T) -> ArenaArc<T> {
+  pub unsafe fn from_raw(ptr: NonNull<T>) -> ArenaArc<T> {
     let ptr = Self::data_from_ptr(ptr);
 
     #[cfg(debug_assertions)]
@@ -109,9 +110,10 @@ impl<T> ArenaArc<T> {
   /// to the data within an `ArenaArc` object. Improper usage may lead
   /// to memory unsafety or data corruption.
   #[inline(always)]
-  pub unsafe fn clone_from_raw(ptr: *const T) -> ArenaArc<T> {
+  pub unsafe fn clone_from_raw(ptr: NonNull<T>) -> ArenaArc<T> {
     let ptr = Self::data_from_ptr(ptr);
-    ptr.as_ref().ref_count.fetch_add(1, Ordering::Relaxed);
+    let this = ptr.as_ref();
+    this.ref_count.fetch_add(1, Ordering::Relaxed);
     ArenaArc { ptr }
   }
 
@@ -128,9 +130,9 @@ impl<T> ArenaArc<T> {
   /// or mishandling of raw pointers might lead to memory unsafety or data corruption.
   /// Use with caution and ensure proper handling of associated data.
   #[inline(always)]
-  pub unsafe fn clone_raw_from_raw(ptr: *const T) {
-    let ptr = Self::data_from_ptr(ptr);
-    ptr.as_ref().ref_count.fetch_add(1, Ordering::Relaxed);
+  pub unsafe fn clone_raw_from_raw(ptr: NonNull<T>) {
+    let this = Self::data_from_ptr(ptr).as_ref();
+    this.ref_count.fetch_add(1, Ordering::Relaxed);
   }
 
   /// Drops the `ArenaArc` reference pointed to by the raw pointer.
@@ -143,11 +145,11 @@ impl<T> ArenaArc<T> {
   /// to the data within an `ArenaArc` object. Improper usage may lead
   /// to memory unsafety or data corruption.
   #[inline(always)]
-  pub unsafe fn drop_from_raw(ptr: *const T) {
+  pub unsafe fn drop_from_raw(ptr: NonNull<T>) {
     let ptr = Self::data_from_ptr(ptr);
-    if ptr.as_ref().ref_count.fetch_sub(1, Ordering::Relaxed) == 0 {
-      let this = ptr.as_ref();
-      (this.deleter)(this.arena_data, ptr.as_ptr() as _);
+    let this = ptr.as_ref();
+    if this.ref_count.fetch_sub(1, Ordering::Relaxed) == 0 {
+      ArenaSharedAtomic::delete(ptr);
     }
   }
 }
@@ -165,9 +167,9 @@ impl<T> ArenaArc<T> {}
 impl<T> Drop for ArenaArc<T> {
   fn drop(&mut self) {
     unsafe {
-      if self.ptr.as_ref().ref_count.fetch_sub(1, Ordering::Relaxed) == 0 {
-        let this = self.ptr.as_ref();
-        (this.deleter)(this.arena_data, self.ptr.as_ptr() as _);
+      let this = self.ptr.as_ref();
+      if this.ref_count.fetch_sub(1, Ordering::Relaxed) == 0 {
+        ArenaSharedAtomic::delete(self.ptr);
       }
     }
   }
@@ -175,7 +177,15 @@ impl<T> Drop for ArenaArc<T> {
 
 impl<T> std::ops::Deref for ArenaArc<T> {
   type Target = T;
+  #[inline(always)]
   fn deref(&self) -> &Self::Target {
+    unsafe { &self.ptr.as_ref().data }
+  }
+}
+
+impl<T> std::convert::AsRef<T> for ArenaArc<T> {
+  #[inline(always)]
+  fn as_ref(&self) -> &T {
     unsafe { &self.ptr.as_ref().data }
   }
 }
@@ -185,8 +195,7 @@ struct ArenaArcData<T> {
   #[cfg(debug_assertions)]
   signature: usize,
   ref_count: AtomicUsize,
-  arena_data: *const (),
-  deleter: unsafe fn(*const (), *const ()),
+  arena_data: NonNull<ArenaSharedAtomicData<T>>,
   data: T,
 }
 
@@ -204,68 +213,83 @@ struct ArenaArcData<T> {
 /// The `ArenaSharedAtomic` allows multiple threads to allocate, share,
 /// and deallocate objects within the arena, ensuring safety and atomicity
 /// during these operations.
-pub struct ArenaSharedAtomic<T, const BASE_CAPACITY: usize> {
-  ptr: NonNull<ArenaSharedAtomicData<T, BASE_CAPACITY>>,
+pub struct ArenaSharedAtomic<T> {
+  ptr: NonNull<ArenaSharedAtomicData<T>>,
 }
 
-unsafe impl<T, const BASE_CAPACITY: usize> Send
-  for ArenaSharedAtomic<T, BASE_CAPACITY>
-{
-}
+unsafe impl<T> Send for ArenaSharedAtomic<T> {}
 
 // The arena itself may not be shared so that we can guarantee all [`RawArena`]
 // access happens on the owning thread.
-static_assertions::assert_impl_any!(ArenaSharedAtomic<(), 16>: Send);
-static_assertions::assert_not_impl_any!(ArenaSharedAtomic<(), 16>: Sync);
+static_assertions::assert_impl_any!(ArenaSharedAtomic<()>: Send);
+static_assertions::assert_not_impl_any!(ArenaSharedAtomic<()>: Sync);
 
 /// Data structure containing a mutex and the `RawArena` for atomic access in the `ArenaSharedAtomic`.
-struct ArenaSharedAtomicData<T, const BASE_CAPACITY: usize> {
+struct ArenaSharedAtomicData<T> {
   /// A mutex ensuring thread-safe access to the internal raw arena and refcount.
   mutex: parking_lot::RawMutex,
-  raw_arena: RawArena<ArenaArcData<T>, BASE_CAPACITY>,
+  protected: ArenaSharedAtomicDataProtected<T>,
+}
+
+struct ArenaSharedAtomicDataProtected<T> {
+  raw_arena: RawArena<ArenaArcData<T>>,
   ref_count: usize,
 }
 
-impl<T, const BASE_CAPACITY: usize> Default
-  for ArenaSharedAtomic<T, BASE_CAPACITY>
-{
-  fn default() -> Self {
+impl<T> ArenaSharedAtomic<T> {
+  pub fn with_capacity(capacity: usize) -> Self {
     unsafe {
-      let ptr = std::alloc::alloc(Layout::new::<
-        ArenaSharedAtomicData<T, BASE_CAPACITY>,
-      >()) as *mut ArenaSharedAtomicData<T, BASE_CAPACITY>;
+      let ptr = alloc();
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaSharedAtomicData {
           mutex: parking_lot::RawMutex::INIT,
-          raw_arena: Default::default(),
-          ref_count: 0,
+          protected: ArenaSharedAtomicDataProtected {
+            raw_arena: RawArena::with_capacity(capacity),
+            ref_count: 0,
+          },
         },
       );
-      Self {
-        ptr: NonNull::new_unchecked(ptr),
-      }
+      Self { ptr }
     }
   }
-}
 
-impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
-  unsafe fn delete(arena: *const (), data: *const ()) {
-    let arena = arena as *mut ArenaSharedAtomicData<T, BASE_CAPACITY>;
-    let mutex = std::ptr::addr_of!((*arena).mutex);
-    while !(*mutex).try_lock() {
+  #[inline(always)]
+  unsafe fn lock<'s>(
+    arena: NonNull<ArenaSharedAtomicData<T>>,
+  ) -> &'s mut ArenaSharedAtomicDataProtected<T> {
+    let mutex = &*std::ptr::addr_of!((*arena.as_ptr()).mutex);
+    while !mutex.try_lock() {
       std::thread::yield_now();
     }
-    (*arena).raw_arena.recycle(data as _);
-    if (*arena).ref_count == 0 {
-      std::ptr::drop_in_place(arena);
-      std::alloc::dealloc(
-        arena as _,
-        Layout::new::<ArenaSharedAtomicData<T, BASE_CAPACITY>>(),
-      );
+    &mut *std::ptr::addr_of_mut!((*arena.as_ptr()).protected)
+  }
+
+  #[inline(always)]
+  unsafe fn unlock(arena: NonNull<ArenaSharedAtomicData<T>>) {
+    let mutex = &*std::ptr::addr_of!((*arena.as_ptr()).mutex);
+    mutex.unlock()
+  }
+
+  #[cold]
+  #[inline(never)]
+  unsafe fn drop_data(arena: NonNull<ArenaSharedAtomicData<T>>) {
+    let arena = arena.as_ptr();
+    std::ptr::drop_in_place(arena);
+    std::alloc::dealloc(arena as _, Layout::new::<ArenaSharedAtomicData<T>>());
+  }
+
+  #[inline(always)]
+  unsafe fn delete(data: NonNull<ArenaArcData<T>>) {
+    let ptr = (*data.as_ptr()).arena_data;
+    // We cannot materialize a reference to arena_data until we have the lock
+    let this = Self::lock(ptr);
+    this.raw_arena.recycle(data);
+    if this.ref_count == 0 {
+      Self::drop_data(ptr);
     } else {
-      (*arena).ref_count -= 1;
-      (*mutex).unlock();
+      this.ref_count -= 1;
+      Self::unlock(ptr);
     }
   }
 
@@ -296,7 +320,7 @@ impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
   /// }
   ///
   /// // Create a new instance of ArenaSharedAtomic with a specified base capacity
-  /// let arena: ArenaSharedAtomic<MyStruct, 16> = ArenaSharedAtomic::default();
+  /// let arena: ArenaSharedAtomic<MyStruct> = ArenaSharedAtomic::with_capacity(16);
   ///
   /// // Allocate a new MyStruct instance within the arena
   /// let data_instance = MyStruct { data: 42 };
@@ -307,27 +331,21 @@ impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
   /// ```
   pub fn allocate(&self, data: T) -> ArenaArc<T> {
     let ptr = unsafe {
-      let this = self.ptr.as_ptr();
-      let mutex = std::ptr::addr_of!((*this).mutex);
-      while !(*mutex).try_lock() {
-        std::thread::yield_now();
-      }
-      let ptr = (*this).raw_arena.allocate();
-      (*this).ref_count += 1;
-
+      let this = Self::lock(self.ptr);
+      let ptr = this.raw_arena.allocate();
+      this.ref_count += 1;
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaArcData {
           #[cfg(debug_assertions)]
           signature: SIGNATURE,
-          arena_data: std::mem::transmute(self.ptr),
+          arena_data: self.ptr,
           ref_count: AtomicUsize::default(),
-          deleter: Self::delete,
           data,
         },
       );
-      (*mutex).unlock();
-      NonNull::new_unchecked(ptr)
+      Self::unlock(self.ptr);
+      ptr
     };
 
     ArenaArc { ptr }
@@ -346,30 +364,24 @@ impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
   /// only one thread at a time to modify the internal state, including allocating and deallocating memory.
   pub fn allocate_if_space(&self, data: T) -> Result<ArenaArc<T>, T> {
     let ptr = unsafe {
-      let this = self.ptr.as_ptr();
-      let mutex = std::ptr::addr_of!((*this).mutex);
-      while !(*mutex).try_lock() {
-        std::thread::yield_now();
-      }
-      let ptr = (*this).raw_arena.allocate_if_space();
-      if ptr.is_null() {
+      let this = Self::lock(self.ptr);
+      let Some(ptr) = this.raw_arena.allocate_if_space() else {
         return Err(data);
-      }
-      (*this).ref_count += 1;
-      (*mutex).unlock();
+      };
+      this.ref_count += 1;
+      Self::unlock(self.ptr);
 
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaArcData {
           #[cfg(debug_assertions)]
           signature: SIGNATURE,
-          arena_data: std::mem::transmute(self.ptr),
+          arena_data: self.ptr,
           ref_count: AtomicUsize::default(),
-          deleter: Self::delete,
           data,
         },
       );
-      NonNull::new_unchecked(ptr)
+      ptr
     };
 
     Ok(ArenaArc { ptr })
@@ -377,76 +389,59 @@ impl<T, const BASE_CAPACITY: usize> ArenaSharedAtomic<T, BASE_CAPACITY> {
 
   pub unsafe fn reserve_space(
     &self,
-  ) -> Option<ArenaSharedAtomicReservation<T, BASE_CAPACITY>> {
-    let this = self.ptr.as_ptr();
-    let mutex = std::ptr::addr_of!((*this).mutex);
-    while !(*mutex).try_lock() {
-      std::thread::yield_now();
-    }
-    let ptr = (*this).raw_arena.allocate_if_space();
-    if ptr.is_null() {
-      return None;
-    }
-    (*this).ref_count += 1;
-    (*mutex).unlock();
+  ) -> Option<ArenaSharedAtomicReservation<T>> {
+    let this = Self::lock(self.ptr);
+    let ptr = this.raw_arena.allocate_if_space()?;
+    this.ref_count += 1;
+    Self::unlock(self.ptr);
     Some(ArenaSharedAtomicReservation(ptr))
   }
 
   pub unsafe fn forget_reservation(
     &self,
-    reservation: ArenaSharedAtomicReservation<T, BASE_CAPACITY>,
+    reservation: ArenaSharedAtomicReservation<T>,
   ) {
     let ptr = reservation.0;
     std::mem::forget(reservation);
-    let this = self.ptr.as_ptr();
-    (*this).ref_count -= 1;
-    (*this).raw_arena.recycle_without_drop(ptr);
+    let this = Self::lock(self.ptr);
+    this.ref_count -= 1;
+    this.raw_arena.recycle_without_drop(ptr);
+    Self::unlock(self.ptr);
   }
 
   pub unsafe fn complete_reservation(
     &self,
-    reservation: ArenaSharedAtomicReservation<T, BASE_CAPACITY>,
+    reservation: ArenaSharedAtomicReservation<T>,
     data: T,
   ) -> ArenaArc<T> {
     let ptr = reservation.0;
     std::mem::forget(reservation);
     let ptr = {
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaArcData {
           #[cfg(debug_assertions)]
           signature: SIGNATURE,
-          arena_data: std::mem::transmute(self.ptr),
+          arena_data: self.ptr,
           ref_count: AtomicUsize::default(),
-          deleter: Self::delete,
           data,
         },
       );
-      NonNull::new_unchecked(ptr)
+      ptr
     };
     ArenaArc { ptr }
   }
 }
 
-impl<T, const BASE_CAPACITY: usize> Drop
-  for ArenaSharedAtomic<T, BASE_CAPACITY>
-{
+impl<T> Drop for ArenaSharedAtomic<T> {
   fn drop(&mut self) {
     unsafe {
-      let this = self.ptr.as_ptr();
-      let mutex = std::ptr::addr_of!((*this).mutex);
-      while !(*mutex).try_lock() {
-        std::thread::yield_now();
-      }
-      if (*this).ref_count == 0 {
-        std::ptr::drop_in_place(this);
-        std::alloc::dealloc(
-          this as _,
-          Layout::new::<ArenaSharedAtomicData<T, BASE_CAPACITY>>(),
-        );
+      let this = Self::lock(self.ptr);
+      if this.ref_count == 0 {
+        Self::drop_data(self.ptr);
       } else {
-        (*this).ref_count -= 1;
-        (*mutex).unlock();
+        this.ref_count -= 1;
+        Self::unlock(self.ptr);
       }
     }
   }
@@ -461,7 +456,8 @@ mod tests {
 
   #[test]
   fn test_raw() {
-    let arena: ArenaSharedAtomic<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaSharedAtomic<RefCell<usize>> =
+      ArenaSharedAtomic::with_capacity(16);
     let arc = arena.allocate(Default::default());
     let raw = ArenaArc::into_raw(arc);
     _ = unsafe { ArenaArc::from_raw(raw) };
@@ -469,7 +465,8 @@ mod tests {
 
   #[test]
   fn test_clone_into_raw() {
-    let arena: ArenaSharedAtomic<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaSharedAtomic<RefCell<usize>> =
+      ArenaSharedAtomic::with_capacity(16);
     let arc = arena.allocate(Default::default());
     let raw = ArenaArc::clone_into_raw(&arc);
     _ = unsafe { ArenaArc::from_raw(raw) };
@@ -477,7 +474,8 @@ mod tests {
 
   #[test]
   fn test_allocate_drop_arc_first() {
-    let arena: ArenaSharedAtomic<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaSharedAtomic<RefCell<usize>> =
+      ArenaSharedAtomic::with_capacity(16);
     let arc = arena.allocate(Default::default());
     *arc.borrow_mut() += 1;
     drop(arc);
@@ -486,7 +484,8 @@ mod tests {
 
   #[test]
   fn test_allocate_drop_arena_first() {
-    let arena: ArenaSharedAtomic<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaSharedAtomic<RefCell<usize>> =
+      ArenaSharedAtomic::with_capacity(16);
     let arc = arena.allocate(Default::default());
     *arc.borrow_mut() += 1;
     drop(arena);
@@ -495,8 +494,8 @@ mod tests {
 
   #[test]
   fn test_threaded() {
-    let arena: Arc<Mutex<ArenaSharedAtomic<RefCell<usize>, 16>>> =
-      Default::default();
+    let arena: Arc<Mutex<ArenaSharedAtomic<RefCell<usize>>>> =
+      Arc::new(Mutex::new(ArenaSharedAtomic::with_capacity(2000)));
     const THREADS: usize = 20;
     const ITERATIONS: usize = 100;
 

@@ -115,14 +115,14 @@ mod tests {
 
   #[test]
   fn test_in_arena_simple() {
-    let arena = ArenaUnique::<ErasedFuture<256, usize>, 16>::default();
+    let arena = ArenaUnique::<ErasedFuture<256, usize>>::with_capacity(16);
     let future = arena.allocate(ErasedFuture::new(async { 1 }));
     assert_eq!(1, futures::executor::block_on(future));
   }
 
   #[test]
   fn test_in_arena_selfref_easy() {
-    let arena = ArenaUnique::<ErasedFuture<256, usize>, 16>::default();
+    let arena = ArenaUnique::<ErasedFuture<256, usize>>::with_capacity(16);
     #[allow(clippy::useless_vec)]
     let future = arena.allocate(ErasedFuture::new(async {
       let mut v = vec![1];
@@ -140,7 +140,7 @@ mod tests {
   #[cfg(not(miri))]
   #[test]
   fn test_in_arena_selfref_hard() {
-    let arena = ArenaUnique::<ErasedFuture<256, usize>, 16>::default();
+    let arena = ArenaUnique::<ErasedFuture<256, usize>>::with_capacity(16);
     let future = arena.allocate(ErasedFuture::new(async {
       let mut v = 1;
       add_one_to_reference(&mut v).await;

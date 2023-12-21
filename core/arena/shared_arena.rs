@@ -5,16 +5,14 @@ use std::ptr::NonNull;
 
 use crate::arena::raw_arena::RawArena;
 
+use super::alloc;
+
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x1122334455667788;
 
-pub struct ArenaSharedReservation<T, const BASE_CAPACITY: usize>(
-  *mut ArenaRcData<T>,
-);
+pub struct ArenaSharedReservation<T>(NonNull<ArenaRcData<T>>);
 
-impl<T, const BASE_CAPACITY: usize> Drop
-  for ArenaSharedReservation<T, BASE_CAPACITY>
-{
+impl<T> Drop for ArenaSharedReservation<T> {
   fn drop(&mut self) {
     panic!("A reservation must be completed or forgotten")
   }
@@ -147,7 +145,7 @@ impl<T> ArenaRc<T> {
     let ref_count = ptr.as_ref().ref_count.get();
     if ref_count == 0 {
       let this = ptr.as_ref();
-      (this.deleter)(this.arena_data, ptr.as_ptr() as _);
+      ArenaShared::delete(this.arena_data, ptr);
     } else {
       ptr.as_ref().ref_count.set(ref_count - 1);
     }
@@ -162,7 +160,7 @@ impl<T> Drop for ArenaRc<T> {
       let ref_count = self.ptr.as_ref().ref_count.get();
       if ref_count == 0 {
         let this = self.ptr.as_ref();
-        (this.deleter)(this.arena_data, self.ptr.as_ptr() as _);
+        ArenaShared::delete(this.arena_data, self.ptr);
       } else {
         self.ptr.as_ref().ref_count.set(ref_count - 1);
       }
@@ -177,13 +175,18 @@ impl<T> std::ops::Deref for ArenaRc<T> {
   }
 }
 
+impl<T> std::convert::AsRef<T> for ArenaRc<T> {
+  fn as_ref(&self) -> &T {
+    unsafe { &self.ptr.as_ref().data }
+  }
+}
+
 /// Data structure containing metadata and the actual data within the `ArenaRc`.
 struct ArenaRcData<T> {
   #[cfg(debug_assertions)]
   signature: usize,
   ref_count: Cell<usize>,
-  arena_data: *const (),
-  deleter: unsafe fn(*const (), *const ()),
+  arena_data: NonNull<ArenaSharedData<T>>,
   data: T,
 }
 
@@ -201,50 +204,52 @@ struct ArenaRcData<T> {
 /// The `ArenaShared` allows multiple threads to allocate, share,
 /// and deallocate objects within the arena, ensuring safety and atomicity
 /// during these operations.
-pub struct ArenaShared<T, const BASE_CAPACITY: usize> {
-  ptr: NonNull<ArenaSharedData<T, BASE_CAPACITY>>,
+pub struct ArenaShared<T> {
+  ptr: NonNull<ArenaSharedData<T>>,
 }
 
-static_assertions::assert_not_impl_any!(ArenaShared<(), 16>: Send, Sync);
+static_assertions::assert_not_impl_any!(ArenaShared<()>: Send, Sync);
 
 /// Data structure containing a mutex and the `RawArena` for atomic access in the `ArenaShared`.
-struct ArenaSharedData<T, const BASE_CAPACITY: usize> {
-  raw_arena: RawArena<ArenaRcData<T>, BASE_CAPACITY>,
+struct ArenaSharedData<T> {
+  raw_arena: RawArena<ArenaRcData<T>>,
   ref_count: usize,
 }
 
-impl<T, const BASE_CAPACITY: usize> Default for ArenaShared<T, BASE_CAPACITY> {
-  fn default() -> Self {
+impl<T> ArenaShared<T> {
+  pub fn with_capacity(capacity: usize) -> Self {
     unsafe {
-      let ptr = std::alloc::alloc(Layout::new::<
-        ArenaSharedData<T, BASE_CAPACITY>,
-      >()) as *mut ArenaSharedData<T, BASE_CAPACITY>;
+      let ptr = alloc();
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaSharedData {
-          raw_arena: Default::default(),
+          raw_arena: RawArena::with_capacity(capacity),
           ref_count: 0,
         },
       );
-      Self {
-        ptr: NonNull::new_unchecked(ptr),
-      }
+      Self { ptr }
     }
   }
-}
 
-impl<T, const BASE_CAPACITY: usize> ArenaShared<T, BASE_CAPACITY> {
-  unsafe fn delete(arena: *const (), data: *const ()) {
-    let arena = arena as *mut ArenaSharedData<T, BASE_CAPACITY>;
-    (*arena).raw_arena.recycle(data as _);
-    if (*arena).ref_count == 0 {
-      std::ptr::drop_in_place(arena);
-      std::alloc::dealloc(
-        arena as _,
-        Layout::new::<ArenaSharedData<T, BASE_CAPACITY>>(),
-      );
+  #[cold]
+  #[inline(never)]
+  unsafe fn drop_data(data: NonNull<ArenaSharedData<T>>) {
+    let data = data.as_ptr();
+    std::ptr::drop_in_place(data);
+    std::alloc::dealloc(data as _, Layout::new::<ArenaSharedData<T>>());
+  }
+
+  #[inline(always)]
+  unsafe fn delete(
+    mut arena_ptr: NonNull<ArenaSharedData<T>>,
+    data: NonNull<ArenaRcData<T>>,
+  ) {
+    let arena = arena_ptr.as_mut();
+    arena.raw_arena.recycle(data as _);
+    if arena.ref_count == 0 {
+      Self::drop_data(arena_ptr);
     } else {
-      (*arena).ref_count -= 1;
+      arena.ref_count -= 1;
     }
   }
 
@@ -275,7 +280,7 @@ impl<T, const BASE_CAPACITY: usize> ArenaShared<T, BASE_CAPACITY> {
   /// }
   ///
   /// // Create a new instance of ArenaShared with a specified base capacity
-  /// let arena: ArenaShared<MyStruct, 16> = ArenaShared::default();
+  /// let arena: ArenaShared<MyStruct> = ArenaShared::with_capacity(16);
   ///
   /// // Allocate a new MyStruct instance within the arena
   /// let data_instance = MyStruct { data: 42 };
@@ -291,17 +296,16 @@ impl<T, const BASE_CAPACITY: usize> ArenaShared<T, BASE_CAPACITY> {
       (*this).ref_count += 1;
 
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaRcData {
           #[cfg(debug_assertions)]
           signature: SIGNATURE,
-          arena_data: std::mem::transmute(self.ptr),
+          arena_data: self.ptr,
           ref_count: Default::default(),
-          deleter: Self::delete,
           data,
         },
       );
-      NonNull::new_unchecked(ptr)
+      ptr
     };
 
     ArenaRc { ptr }
@@ -320,45 +324,38 @@ impl<T, const BASE_CAPACITY: usize> ArenaShared<T, BASE_CAPACITY> {
   /// only one thread at a time to modify the internal state, including allocating and deallocating memory.
   pub fn allocate_if_space(&self, data: T) -> Result<ArenaRc<T>, T> {
     let ptr = unsafe {
-      let this = self.ptr.as_ptr();
-      let ptr = (*this).raw_arena.allocate_if_space();
-      if ptr.is_null() {
+      let this = &mut *self.ptr.as_ptr();
+      let Some(ptr) = this.raw_arena.allocate_if_space() else {
         return Err(data);
-      }
-      (*this).ref_count += 1;
+      };
+      this.ref_count += 1;
 
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaRcData {
           #[cfg(debug_assertions)]
           signature: SIGNATURE,
-          arena_data: std::mem::transmute(self.ptr),
+          arena_data: self.ptr,
           ref_count: Default::default(),
-          deleter: Self::delete,
           data,
         },
       );
-      NonNull::new_unchecked(ptr)
+      ptr
     };
 
     Ok(ArenaRc { ptr })
   }
 
-  pub unsafe fn reserve_space(
-    &self,
-  ) -> Option<ArenaSharedReservation<T, BASE_CAPACITY>> {
-    let this = self.ptr.as_ptr();
-    let ptr = (*this).raw_arena.allocate_if_space();
-    if ptr.is_null() {
-      return None;
-    }
-    (*this).ref_count += 1;
+  pub unsafe fn reserve_space(&self) -> Option<ArenaSharedReservation<T>> {
+    let this = &mut *self.ptr.as_ptr();
+    let ptr = this.raw_arena.allocate_if_space()?;
+    this.ref_count += 1;
     Some(ArenaSharedReservation(ptr))
   }
 
   pub unsafe fn forget_reservation(
     &self,
-    reservation: ArenaSharedReservation<T, BASE_CAPACITY>,
+    reservation: ArenaSharedReservation<T>,
   ) {
     let ptr = reservation.0;
     std::mem::forget(reservation);
@@ -369,42 +366,37 @@ impl<T, const BASE_CAPACITY: usize> ArenaShared<T, BASE_CAPACITY> {
 
   pub unsafe fn complete_reservation(
     &self,
-    reservation: ArenaSharedReservation<T, BASE_CAPACITY>,
+    reservation: ArenaSharedReservation<T>,
     data: T,
   ) -> ArenaRc<T> {
     let ptr = reservation.0;
     std::mem::forget(reservation);
     let ptr = {
       std::ptr::write(
-        ptr,
+        ptr.as_ptr(),
         ArenaRcData {
           #[cfg(debug_assertions)]
           signature: SIGNATURE,
-          arena_data: std::mem::transmute(self.ptr),
+          arena_data: self.ptr,
           ref_count: Default::default(),
-          deleter: Self::delete,
           data,
         },
       );
-      NonNull::new_unchecked(ptr)
+      ptr
     };
 
     ArenaRc { ptr }
   }
 }
 
-impl<T, const BASE_CAPACITY: usize> Drop for ArenaShared<T, BASE_CAPACITY> {
+impl<T> Drop for ArenaShared<T> {
   fn drop(&mut self) {
     unsafe {
-      let this = self.ptr.as_ptr();
-      if (*this).ref_count == 0 {
-        std::ptr::drop_in_place(this);
-        std::alloc::dealloc(
-          this as _,
-          Layout::new::<ArenaSharedData<T, BASE_CAPACITY>>(),
-        );
+      let this = self.ptr.as_mut();
+      if this.ref_count == 0 {
+        Self::drop_data(self.ptr);
       } else {
-        (*this).ref_count -= 1;
+        this.ref_count -= 1;
       }
     }
   }
@@ -417,7 +409,7 @@ mod tests {
 
   #[test]
   fn test_raw() {
-    let arena: ArenaShared<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaShared<RefCell<usize>> = ArenaShared::with_capacity(16);
     let arc = arena.allocate(Default::default());
     let raw = ArenaRc::into_raw(arc);
     _ = unsafe { ArenaRc::from_raw(raw) };
@@ -425,7 +417,7 @@ mod tests {
 
   #[test]
   fn test_clone_into_raw() {
-    let arena: ArenaShared<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaShared<RefCell<usize>> = ArenaShared::with_capacity(16);
     let arc = arena.allocate(Default::default());
     let raw = ArenaRc::clone_into_raw(&arc);
     _ = unsafe { ArenaRc::from_raw(raw) };
@@ -433,7 +425,7 @@ mod tests {
 
   #[test]
   fn test_allocate_drop_arc_first() {
-    let arena: ArenaShared<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaShared<RefCell<usize>> = ArenaShared::with_capacity(16);
     let arc = arena.allocate(Default::default());
     *arc.borrow_mut() += 1;
     drop(arc);
@@ -442,7 +434,7 @@ mod tests {
 
   #[test]
   fn test_allocate_drop_arena_first() {
-    let arena: ArenaShared<RefCell<usize>, 16> = Default::default();
+    let arena: ArenaShared<RefCell<usize>> = ArenaShared::with_capacity(16);
     let arc = arena.allocate(Default::default());
     *arc.borrow_mut() += 1;
     drop(arena);
