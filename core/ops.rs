@@ -142,6 +142,7 @@ impl OpCtx {
     &self.decl
   }
 
+  #[inline(always)]
   pub fn metrics_enabled(&self) -> bool {
     self.metrics_fn.is_some()
   }

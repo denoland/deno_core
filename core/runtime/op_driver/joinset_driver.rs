@@ -6,12 +6,9 @@ use super::RetValMapper;
 use crate::arena::ArenaBox;
 use crate::arena::ArenaUnique;
 use crate::ops::OpCtx;
-use crate::runtime::ContextState;
 use crate::GetErrorClassFn;
 use crate::OpId;
-use crate::OpMetricsEvent;
 use crate::PromiseId;
-use crate::_ops::dispatch_metrics_async;
 use anyhow::Error;
 use deno_unsync::JoinSet;
 use futures::task::noop_waker_ref;
@@ -21,6 +18,7 @@ use std::cell::RefCell;
 use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
+use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
 
@@ -320,44 +318,38 @@ impl OpDriver for JoinSetDriver {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope<'s>,
-    context_state: &ContextState,
-    args: &mut smallvec::SmallVec<[v8::Local<'s, v8::Value>; 32]>,
-  ) -> bool {
-    let mut dispatched_ops = false;
-    loop {
-      let Poll::Ready(item) = self.pending_ops.borrow_mut().poll_join_next(cx)
-      else {
-        break;
+  ) -> Poll<(
+    PromiseId,
+    OpId,
+    bool,
+    Result<v8::Local<'s, v8::Value>, v8::Local<'s, v8::Value>>,
+  )> {
+    let item = ready!(self.pending_ops.borrow_mut().poll_join_next(cx));
+    let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) =
+      match item {
+        Ok(x) => x,
+        Err(e) => {
+          // If this task is really errored, things could be pretty bad
+          panic!("Unrecoverable error: op panicked");
+        }
       };
-      // TODO(mmastrac): If this task is really errored, things could be pretty bad
-      let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) =
-        item.unwrap();
-      context_state.unrefed_ops.borrow_mut().remove(&promise_id);
-      dispatched_ops |= true;
-      args.push(v8::Integer::new(scope, promise_id).into());
-      let was_error = matches!(resp, OpResult::Err(_));
-      let res = resp.into_v8(scope);
-      if metrics_event {
-        if res.is_ok() && !was_error {
-          dispatch_metrics_async(
-            &context_state.op_ctxs.borrow()[op_id as usize],
-            OpMetricsEvent::CompletedAsync,
-          );
+
+    let was_error = matches!(resp, OpResult::Err(_));
+    let res = match resp.into_v8(scope) {
+      Ok(v) => {
+        if was_error {
+          Err(v)
         } else {
-          dispatch_metrics_async(
-            &context_state.op_ctxs.borrow()[op_id as usize],
-            OpMetricsEvent::ErrorAsync,
-          );
+          Ok(v)
         }
       }
-      args.push(match res {
-        Ok(v) => v,
-        Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
+      Err(e) => Err(
+        OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
           .into_v8(scope)
           .unwrap(),
-      });
-    }
-    dispatched_ops
+      ),
+    };
+    Poll::Ready((promise_id, op_id, metrics_event, res))
   }
 
   #[inline(always)]

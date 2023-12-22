@@ -5,6 +5,8 @@ use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
 use super::snapshot_util;
+use crate::OpMetricsEvent;
+use crate::_ops::dispatch_metrics_async;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
@@ -2117,10 +2119,32 @@ impl JsRuntime {
     let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
       SmallVec::with_capacity(32);
 
-    dispatched_ops |=
-      context_state
-        .pending_ops
-        .poll_ready(cx, scope, context_state, &mut args);
+    loop {
+      let Poll::Ready((promise_id, op_id, metrics_event, res)) =
+        context_state.pending_ops.poll_ready(cx, scope)
+      else {
+        break;
+      };
+
+      if metrics_event {
+        if res.is_ok() {
+          dispatch_metrics_async(
+            &context_state.op_ctxs.borrow()[op_id as usize],
+            OpMetricsEvent::CompletedAsync,
+          );
+        } else {
+          dispatch_metrics_async(
+            &context_state.op_ctxs.borrow()[op_id as usize],
+            OpMetricsEvent::ErrorAsync,
+          );
+        }
+      }
+
+      context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+      dispatched_ops |= true;
+      args.push(v8::Integer::new(scope, promise_id).into());
+      args.push(res.unwrap_or_else(std::convert::identity));
+    }
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();

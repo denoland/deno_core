@@ -1,10 +1,11 @@
+use crate::OpId;
+use crate::PromiseId;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use super::ContextState;
 use crate::ops::OpCtx;
 use anyhow::Error;
-use smallvec::SmallVec;
 use std::future::Future;
 use std::task::Context;
+use std::task::Poll;
 
 pub mod erased_future;
 pub mod joinset_driver;
@@ -46,15 +47,17 @@ pub(crate) trait OpDriver: Default {
     rv_map: RetValMapper<R>,
   ) -> Option<Result<R, E>>;
 
-  /// Polls the readiness of the operation driver for handling a new operation.
-  // TODO(mmastrac): Remove ContextState if possible
+  /// Polls the readiness of the op driver.
   fn poll_ready<'s>(
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope<'s>,
-    context_state: &ContextState,
-    args: &mut SmallVec<[v8::Local<'s, v8::Value>; 32]>,
-  ) -> bool;
+  ) -> Poll<(
+    PromiseId,
+    OpId,
+    bool,
+    Result<v8::Local<'s, v8::Value>, v8::Local<'s, v8::Value>>,
+  )>;
 
   fn len(&self) -> usize;
 }
