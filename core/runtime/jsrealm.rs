@@ -44,7 +44,10 @@ impl Hasher for IdentityHasher {
   }
 }
 
-#[cfg(feature = "op_driver_joinset")]
+#[cfg(all(
+  feature = "op_driver_joinset",
+  not(feature = "op_driver_futuresunordered")
+))]
 type DefaultOpDriver = super::op_driver::JoinSetDriver;
 #[cfg(feature = "op_driver_futuresunordered")]
 type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
