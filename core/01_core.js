@@ -740,17 +740,25 @@
     setUpAsyncStub(opName);
   }
 
-  function ensureFastOps() {
+  function ensureFastOps(keep) {
     return new Proxy({}, {
       get(_target, opName) {
         if (ops[opName] === undefined) {
-          throw new Error(`Unknown or disabled op '${opName}'`);
+          ops.op_panic(`Unknown or disabled op '${opName}'`);
         }
+        let op;
         if (asyncOps[opName] !== undefined) {
-          return setUpAsyncStub(opName);
+          op = setUpAsyncStub(opName);
+          if (keep !== true) {
+            delete asyncOps[opName];
+          }
         } else {
-          return ops[opName];
+          op = ops[opName];
+          if (keep !== true) {
+            delete ops[opName];
+          }
         }
+        return op;
       },
     });
   }
@@ -766,7 +774,7 @@
     op_read_sync: readSync,
     op_write_sync: writeSync,
     op_shutdown: shutdown,
-  } = ensureFastOps();
+  } = ensureFastOps(true);
 
   const callSiteRetBuf = new Uint32Array(2);
   const callSiteRetBufU8 = new Uint8Array(callSiteRetBuf.buffer);

@@ -45,6 +45,7 @@ deno_core::extension!(
     op_format_file_name,
     op_is_proxy,
     op_str_byte_length,
+    op_panic,
     ops_builtin_v8::op_timer_queue,
     ops_builtin_v8::op_timer_cancel,
     ops_builtin_v8::op_timer_ref,
@@ -81,6 +82,12 @@ deno_core::extension!(
     ops_builtin_v8::op_arraybuffer_was_detached,
   ],
 );
+
+#[op2(fast)]
+pub fn op_panic(#[string] message: String) {
+  eprintln!("JS PANIC: {}", message);
+  panic!("JS PANIC: {}", message);
+}
 
 /// Return map of resources with id as key
 /// and string representation as value.
