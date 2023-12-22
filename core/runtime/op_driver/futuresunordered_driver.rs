@@ -1,15 +1,18 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::erased_future::ErasedFuture;
+use super::future_arena::FutureAllocation;
+use super::future_arena::FutureArena;
 use super::op_results::*;
 use super::OpDriver;
 use super::RetValMapper;
-use crate::arena::ArenaBox;
-use crate::arena::ArenaUnique;
 use crate::ops::OpCtx;
 use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
+use deno_unsync::JoinHandle;
+use deno_unsync::spawn;
+use futures::future::poll_fn;
 use futures::stream::FuturesUnordered;
 use futures::task::noop_waker_ref;
 use futures::FutureExt;
@@ -18,84 +21,52 @@ use std::cell::RefCell;
 use std::cell::UnsafeCell;
 use std::future::ready;
 use std::future::Future;
-use std::pin::Pin;
+use std::rc::Rc;
 use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
 
-const MAX_ARENA_FUTURE_SIZE: usize = 1024;
-const FUTURE_ARENA_COUNT: usize = 256;
-
-enum FutureAllocation<R: 'static> {
-  Arena(ArenaBox<ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>>),
-  Box(Pin<Box<dyn Future<Output = R>>>),
-}
-
-impl<R> Unpin for FutureAllocation<R> {}
-
-impl<R> Future for FutureAllocation<R> {
-  type Output = R;
-
-  #[inline(always)]
-  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.get_mut() {
-      Self::Arena(f) => f.poll_unpin(cx),
-      Self::Box(f) => f.poll_unpin(cx),
-    }
-  }
-}
+const MAX_INLINE_FUTURE_SIZE: usize = 1024;
 
 /// [`OpDriver`] implementation built on a tokio [`FuturesUnordered`].
 pub struct FuturesUnorderedDriver {
   pending_ops:
-    RefCell<FuturesUnordered<ErasedFuture<MAX_ARENA_FUTURE_SIZE, PendingOp>>>,
-  arena: ArenaUnique<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>>,
+    Rc<RefCell<FuturesUnordered<ErasedFuture<MAX_INLINE_FUTURE_SIZE, PendingOp>>>>,
+  arena: FutureArena,
+  join_handle: JoinHandle<()>,
+  task_waker: Rc<UnsafeCell<Option<Waker>>>,
   waker: UnsafeCell<Option<Waker>>,
 }
 
 impl Default for FuturesUnorderedDriver {
   fn default() -> Self {
+    let pending_ops = Default::default();
+    let task_waker = Default::default();
+
+    let task_pending_ops = pending_ops.clone();
+    let join_handle = spawn(async {
+      poll_fn(|cx| cx.waker())
+    });
+
     Self {
-      pending_ops: Default::default(),
-      arena: ArenaUnique::with_capacity(FUTURE_ARENA_COUNT),
-      waker: UnsafeCell::default(),
+      arena: Default::default(),
+      task_waker: Default::default(),
+      waker: Default::default(),
+      join_handle
     }
   }
 }
 
 impl FuturesUnorderedDriver {
-  /// Allocate a future to run in this `FuturesUnordered`. If the future is too large, or the arena
-  /// is full, allocated in the heap.
-  fn allocate<F, R>(&self, f: F) -> FutureAllocation<R>
-  where
-    F: Future<Output = R> + 'static,
-  {
-    if std::mem::size_of::<F>() > MAX_ARENA_FUTURE_SIZE {
-      FutureAllocation::Box(f.boxed_local())
-    } else {
-      unsafe {
-        match self.arena.reserve_space() {
-          Some(reservation) => {
-            let alloc = self.arena.complete_reservation(
-              reservation,
-              std::mem::transmute(
-                ErasedFuture::<MAX_ARENA_FUTURE_SIZE, _>::new(f),
-              ),
-            );
-            FutureAllocation::Arena(std::mem::transmute(alloc))
-          }
-          None => FutureAllocation::Box(f.boxed_local()),
-        }
-      }
-    }
-  }
-
   #[inline(always)]
   fn wake(&self) {
     unsafe {
-      if let Some(waker) = (*self.waker.get()).as_ref() {
+      if let Some(waker) = (*self.waker.get()).take() {
+        eprintln!("woke");
         waker.wake_by_ref();
+      } else {
+        eprintln!("nobody");
       }
     }
   }
@@ -196,7 +167,7 @@ impl OpDriver for FuturesUnorderedDriver {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      let mut pinned = self.allocate(op);
+      let mut pinned = self.arena.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => self.spawn_polled(pinned, move |r| {
           Self::pending_op_result(info, rv_map, get_class, r)
@@ -237,7 +208,7 @@ impl OpDriver for FuturesUnorderedDriver {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      let mut pinned = self.allocate(op);
+      let mut pinned = self.arena.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => self.spawn_polled(pinned, move |res| {
           Self::pending_op_success(info, rv_map, res)
@@ -266,21 +237,26 @@ impl OpDriver for FuturesUnorderedDriver {
     bool,
     Result<v8::Local<'s, v8::Value>, v8::Local<'s, v8::Value>>,
   )> {
+    eprintln!("poll");
     let mut pending_ops = self.pending_ops.borrow_mut();
     if pending_ops.is_empty() {
       unsafe {
         if let Some(waker) =
           self.waker.get().as_ref().unwrap_unchecked().as_ref()
         {
-          if !waker.will_wake(cx.waker()) {
-            *self.waker.get() = Some(cx.waker().clone());
+          if waker.will_wake(cx.waker()) {
+            eprintln!("pending (fast)");
+            return Poll::Pending;
           }
-        } else {
-          *self.waker.get() = Some(cx.waker().clone());
         }
+        *self.waker.get() = Some(cx.waker().clone());
+        eprintln!("pending (slow)");
         return Poll::Pending;
       }
     }
+
+    eprintln!("got");
+
     let item = ready!(pending_ops.poll_next_unpin(cx));
     let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) =
       match item {
@@ -312,42 +288,5 @@ impl OpDriver for FuturesUnorderedDriver {
   #[inline(always)]
   fn len(&self) -> usize {
     self.pending_ops.borrow().len()
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_double_free() {
-    let driver = FuturesUnorderedDriver::default();
-    let f = driver.allocate(async { 1 });
-    drop(f);
-    let f = driver.allocate(Box::pin(async { 1 }));
-    drop(f);
-    let f = driver.allocate(ready(Box::new(1)));
-    drop(f);
-  }
-
-  #[test]
-  fn test_exceed_arena() {
-    let driver = FuturesUnorderedDriver::default();
-    let mut v = vec![];
-    for _ in 0..1000 {
-      v.push(driver.allocate(ready(Box::new(1))));
-    }
-    drop(v);
-  }
-
-  #[test]
-  fn test_drop_after_joinset() {
-    let driver = FuturesUnorderedDriver::default();
-    let mut v = vec![];
-    for _ in 0..1000 {
-      v.push(driver.allocate(ready(Box::new(1))));
-    }
-    drop(driver);
-    drop(v);
   }
 }

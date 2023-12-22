@@ -8,6 +8,7 @@ use std::task::Context;
 use std::task::Poll;
 
 mod erased_future;
+mod future_arena;
 mod futuresunordered_driver;
 mod joinset_driver;
 mod op_results;

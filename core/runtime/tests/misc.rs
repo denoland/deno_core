@@ -87,8 +87,11 @@ async fn test_wakers_for_async_ops() {
 
   #[op2(async)]
   async fn op_async_sleep() -> Result<(), Error> {
+    eprintln!("triggered");
     STATE.store(1, Ordering::SeqCst);
+    eprintln!("sleeping");
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    eprintln!("done sleeping");
     STATE.store(2, Ordering::SeqCst);
     Ok(())
   }
@@ -127,9 +130,11 @@ async fn test_wakers_for_async_ops() {
     .unwrap();
 
   // Wait for future to finish
+  eprintln!("waiting");
   while STATE.load(Ordering::SeqCst) < 2 {
     tokio::time::sleep(Duration::from_millis(1)).await;
   }
+  eprintln!("done");
 
   // This shouldn't take one minute, but if it does, things are definitely locked up
   for _ in 0..Duration::from_secs(60).as_millis() {
