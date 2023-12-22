@@ -10,16 +10,19 @@ use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
-use deno_unsync::JoinSet;
+use futures::stream::FuturesUnordered;
 use futures::task::noop_waker_ref;
 use futures::FutureExt;
+use futures::StreamExt;
 use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Waker;
 
 const MAX_ARENA_FUTURE_SIZE: usize = 1024;
 const FUTURE_ARENA_COUNT: usize = 256;
@@ -43,23 +46,26 @@ impl<R> Future for FutureAllocation<R> {
   }
 }
 
-/// [`OpDriver`] implementation built on a tokio [`JoinSet`].
-pub struct JoinSetDriver {
-  pending_ops: RefCell<JoinSet<PendingOp>>,
+/// [`OpDriver`] implementation built on a tokio [`FuturesUnordered`].
+pub struct FuturesUnorderedDriver {
+  pending_ops:
+    RefCell<FuturesUnordered<ErasedFuture<MAX_ARENA_FUTURE_SIZE, PendingOp>>>,
   arena: ArenaUnique<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>>,
+  waker: UnsafeCell<Option<Waker>>,
 }
 
-impl Default for JoinSetDriver {
+impl Default for FuturesUnorderedDriver {
   fn default() -> Self {
     Self {
       pending_ops: Default::default(),
       arena: ArenaUnique::with_capacity(FUTURE_ARENA_COUNT),
+      waker: UnsafeCell::default(),
     }
   }
 }
 
-impl JoinSetDriver {
-  /// Allocate a future to run in this `JoinSet`. If the future is too large, or the arena
+impl FuturesUnorderedDriver {
+  /// Allocate a future to run in this `FuturesUnordered`. If the future is too large, or the arena
   /// is full, allocated in the heap.
   fn allocate<F, R>(&self, f: F) -> FutureAllocation<R>
   where
@@ -85,6 +91,15 @@ impl JoinSetDriver {
     }
   }
 
+  #[inline(always)]
+  fn wake(&self) {
+    unsafe {
+      if let Some(waker) = (*self.waker.get()).as_ref() {
+        waker.wake_by_ref();
+      }
+    }
+  }
+
   /// Spawn an unpolled task, along with a function that can map it to a [`PendingOp`].
   #[inline(always)]
   fn spawn_unpolled<R>(
@@ -92,13 +107,21 @@ impl JoinSetDriver {
     task: impl Future<Output = R> + 'static,
     map: impl FnOnce(R) -> PendingOp + 'static,
   ) {
-    self.pending_ops.borrow_mut().spawn(task.map(map));
+    self
+      .pending_ops
+      .borrow_mut()
+      .push(ErasedFuture::new(task.map(map)));
+    self.wake();
   }
 
   /// Spawn a ready task that already has a [`PendingOp`].
   #[inline(always)]
   fn spawn_ready(&self, ready_op: PendingOp) {
-    self.pending_ops.borrow_mut().spawn(ready(ready_op));
+    self
+      .pending_ops
+      .borrow_mut()
+      .push(ErasedFuture::new(ready(ready_op)));
+    self.wake();
   }
 
   /// Spawn a polled task inside a [`FutureAllocation`], along with a function that can map it to a [`PendingOp`].
@@ -108,7 +131,11 @@ impl JoinSetDriver {
     task: FutureAllocation<R>,
     map: impl FnOnce(R) -> PendingOp + 'static,
   ) {
-    self.pending_ops.borrow_mut().spawn(task.map(map));
+    self
+      .pending_ops
+      .borrow_mut()
+      .push(ErasedFuture::new(task.map(map)));
+    self.wake();
   }
 
   #[inline(always)]
@@ -143,7 +170,7 @@ impl JoinSetDriver {
   }
 }
 
-impl OpDriver for JoinSetDriver {
+impl OpDriver for FuturesUnorderedDriver {
   fn submit_op_fallible<
     R: 'static,
     E: Into<Error> + 'static,
@@ -239,11 +266,26 @@ impl OpDriver for JoinSetDriver {
     bool,
     Result<v8::Local<'s, v8::Value>, v8::Local<'s, v8::Value>>,
   )> {
-    let item = ready!(self.pending_ops.borrow_mut().poll_join_next(cx));
+    let mut pending_ops = self.pending_ops.borrow_mut();
+    if pending_ops.is_empty() {
+      unsafe {
+        if let Some(waker) =
+          self.waker.get().as_ref().unwrap_unchecked().as_ref()
+        {
+          if !waker.will_wake(cx.waker()) {
+            *self.waker.get() = Some(cx.waker().clone());
+          }
+        } else {
+          *self.waker.get() = Some(cx.waker().clone());
+        }
+        return Poll::Pending;
+      }
+    }
+    let item = ready!(pending_ops.poll_next_unpin(cx));
     let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) =
       match item {
-        Ok(x) => x,
-        Err(_) => {
+        Some(x) => x,
+        None => {
           // If this task is really errored, things could be pretty bad
           panic!("Unrecoverable error: op panicked");
         }
@@ -279,7 +321,7 @@ mod tests {
 
   #[test]
   fn test_double_free() {
-    let driver = JoinSetDriver::default();
+    let driver = FuturesUnorderedDriver::default();
     let f = driver.allocate(async { 1 });
     drop(f);
     let f = driver.allocate(Box::pin(async { 1 }));
@@ -290,7 +332,7 @@ mod tests {
 
   #[test]
   fn test_exceed_arena() {
-    let driver = JoinSetDriver::default();
+    let driver = FuturesUnorderedDriver::default();
     let mut v = vec![];
     for _ in 0..1000 {
       v.push(driver.allocate(ready(Box::new(1))));
@@ -300,7 +342,7 @@ mod tests {
 
   #[test]
   fn test_drop_after_joinset() {
-    let driver = JoinSetDriver::default();
+    let driver = FuturesUnorderedDriver::default();
     let mut v = vec![];
     for _ in 0..1000 {
       v.push(driver.allocate(ready(Box::new(1))));

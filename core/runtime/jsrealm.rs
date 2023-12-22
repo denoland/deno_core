@@ -1,7 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::exception_state::ExceptionState;
-use super::op_driver::joinset_driver::JoinSetDriver;
+use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
@@ -44,8 +44,13 @@ impl Hasher for IdentityHasher {
   }
 }
 
+#[cfg(feature = "op_driver_joinset")]
+type DefaultOpDriver = super::op_driver::JoinSetDriver;
+#[cfg(feature = "op_driver_futuresunordered")]
+type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
+
 #[derive(Default)]
-pub(crate) struct ContextState {
+pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:
@@ -54,7 +59,7 @@ pub(crate) struct ContextState {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
-  pub(crate) pending_ops: JoinSetDriver,
+  pub(crate) pending_ops: OpDriverImpl,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: RefCell<Box<[OpCtx]>>,
@@ -193,8 +198,6 @@ impl JsRealm {
   #[cfg(test)]
   #[inline(always)]
   pub fn num_pending_ops(&self) -> usize {
-    use crate::runtime::op_driver::OpDriver;
-
     self.0.context_state.pending_ops.len()
   }
 

@@ -1,14 +1,19 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::ops::OpCtx;
 use crate::OpId;
 use crate::PromiseId;
-use crate::ops::OpCtx;
 use anyhow::Error;
 use std::future::Future;
 use std::task::Context;
 use std::task::Poll;
 
-pub mod erased_future;
-pub mod joinset_driver;
+mod erased_future;
+mod futuresunordered_driver;
+mod joinset_driver;
+mod op_results;
+
+pub use futuresunordered_driver::FuturesUnorderedDriver;
+pub use joinset_driver::JoinSetDriver;
 
 pub type RetValMapper<R> =
   for<'r> fn(
