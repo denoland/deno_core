@@ -63,8 +63,12 @@ type ValueLargeFn =
   ) -> Result<v8::Local<'a, v8::Value>, serde_v8::Error>;
 
 enum OpResult {
+  /// Errors.
   Err(OpError),
+  /// For small ops, we include them in an erased type container.
   Value(OpValue),
+  /// For ops that return "large" results (> MAX_RESULT_SIZE bytes) we just box a function
+  /// that can turn it into a v8 value.
   ValueLarge(Box<ValueLargeFn>),
 }
 
