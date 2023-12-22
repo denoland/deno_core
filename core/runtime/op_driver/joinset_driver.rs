@@ -165,9 +165,30 @@ impl JoinSetDriver {
     }
   }
 
+  /// Spawn an unpolled task, along with a function that can map it to a [`PendingOp`].
   #[inline(always)]
-  fn spawn(&self, task: impl Future<Output = PendingOp> + 'static) {
-    self.pending_ops.borrow_mut().spawn(task);
+  fn spawn_unpolled<R>(
+    &self,
+    task: impl Future<Output = R> + 'static,
+    map: impl FnOnce(R) -> PendingOp + 'static,
+  ) {
+    self.pending_ops.borrow_mut().spawn(task.map(map));
+  }
+
+  /// Spawn a ready task that already has a [`PendingOp`].
+  #[inline(always)]
+  fn spawn_ready(&self, ready_op: PendingOp) {
+    self.pending_ops.borrow_mut().spawn(ready(ready_op));
+  }
+
+  /// Spawn a polled task inside a [`FutureAllocation`], along with a function that can map it to a [`PendingOp`].
+  #[inline(always)]
+  fn spawn_polled<R>(
+    &self,
+    task: FutureAllocation<R>,
+    map: impl FnOnce(R) -> PendingOp + 'static,
+  ) {
+    self.pending_ops.borrow_mut().spawn(task.map(map));
   }
 
   #[inline(always)]
@@ -227,9 +248,9 @@ impl OpDriver for JoinSetDriver {
       let get_class = ctx.get_error_class_fn;
 
       if LAZY {
-        self.spawn(
-          op.map(move |r| Self::pending_op_result(info, rv_map, get_class, r)),
-        );
+        self.spawn_unpolled(op, move |r| {
+          Self::pending_op_result(info, rv_map, get_class, r)
+        });
         return None;
       }
 
@@ -237,15 +258,14 @@ impl OpDriver for JoinSetDriver {
       // spin the event loop to get it.
       let mut pinned = self.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-        Poll::Pending => self.spawn(
-          pinned
-            .map(move |r| Self::pending_op_result(info, rv_map, get_class, r)),
-        ),
+        Poll::Pending => self.spawn_polled(pinned, move |r| {
+          Self::pending_op_result(info, rv_map, get_class, r)
+        }),
         Poll::Ready(res) => {
           if DEFERRED {
-            self.spawn(ready(Self::pending_op_result(
+            self.spawn_ready(Self::pending_op_result(
               info, rv_map, get_class, res,
-            )))
+            ))
           } else {
             return Some(res);
           }
@@ -269,7 +289,9 @@ impl OpDriver for JoinSetDriver {
     {
       let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
       if LAZY {
-        self.spawn(op.map(move |r| Self::pending_op_success(info, rv_map, r)));
+        self.spawn_unpolled(op, move |r| {
+          Self::pending_op_success(info, rv_map, r)
+        });
         return None;
       }
 
@@ -277,12 +299,12 @@ impl OpDriver for JoinSetDriver {
       // spin the event loop to get it.
       let mut pinned = self.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-        Poll::Pending => self.spawn(
-          pinned.map(move |res| Self::pending_op_success(info, rv_map, res)),
-        ),
+        Poll::Pending => self.spawn_polled(pinned, move |res| {
+          Self::pending_op_success(info, rv_map, res)
+        }),
         Poll::Ready(res) => {
           if DEFERRED {
-            self.spawn(ready(Self::pending_op_success(info, rv_map, res)))
+            self.spawn_ready(Self::pending_op_success(info, rv_map, res))
           } else {
             return Some(res);
           }
