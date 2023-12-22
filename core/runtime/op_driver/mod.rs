@@ -1,6 +1,6 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::OpId;
 use crate::PromiseId;
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ops::OpCtx;
 use anyhow::Error;
 use std::future::Future;
