@@ -252,6 +252,35 @@ declare namespace Deno {
       resolve_hook?: (promise: Promise<unknown>) => void,
     ): void;
 
+    function isAnyArrayBuffer(value: unknown): value is ArrayBuffer | SharedArrayBuffer;
+    function isArgumentsObject(value: unknown): value is IArguments;
+    function isArrayBuffer(value: unknown): value is ArrayBuffer;
+    function isArrayBufferView(value: unknown): value is ArrayBufferView;
+    function isAsyncFunction(value: unknown): value is (...args: unknown[]) => Promise<unknown>;
+    function isBigIntObject(value: unknown): value is BigInt;
+    function isBooleanObject(value: unknown): value is Boolean;
+    function isBoxedPrimitive(value: unknown): value is BigInt | Boolean | Number | String | Symbol;
+    function isDataView(value: unknown): value is DataView;
+    function isDate(value: unknown): value is Date;
+    function isGeneratorFunction(value: unknown): value is GeneratorFunction;
+    function isGeneratorObject(value: unknown): value is Generator;
+    function isMap(value: unknown): value is Map<unknown, unknown>;
+    function isMapIterator(value: unknown): value is IterableIterator<unknown>;
+    function isModuleNamespaceObject(value: unknown): value is object;
+    function isNativeError(value: unknown): value is Error;
+    function isNumberObject(value: unknown): value is Number;
+    function isPromise(value: unknown): value is Promise<unknown>;
+    function isProxy(value: unknown): value is object;
+    function isRegExp(value: unknown): value is RegExp;
+    function isSet(value: unknown): value is Set<unknown>;
+    function isSetIterator(value: unknown): value is IterableIterator<unknown>;
+    function isSharedArrayBuffer(value: unknown): value is SharedArrayBuffer;
+    function isStringObject(value: unknown): value is String;
+    function isSymbolObject(value: unknown): value is Symbol;
+    function isTypedArray(value: unknown): value is Uint8Array | Uint8ClampedArray | Uint16Array | Uint32Array | Int8Array | Int16Array | Int32Array | Float32Array | Float64Array | BigUint64Array | BigInt64Array;
+    function isWeakMap(value: unknown): value is WeakMap<WeakKey, unknown>;
+    function isWeakSet(value: unknown): value is WeakSet<WeakKey>;
+
     const build: {
       target: string;
       arch: string;
