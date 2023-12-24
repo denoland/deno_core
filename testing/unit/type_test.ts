@@ -10,7 +10,9 @@ test(function testIsAnyArrayBuffer() {
 
 test(function testIsArgumentsObject() {
   let args: IArguments;
-  (function () { args = arguments })();
+  (function () {
+    args = arguments;
+  })();
   assert(Deno.core.isArgumentsObject(args));
   assert(!Deno.core.isArgumentsObject({}));
 });
@@ -28,10 +30,10 @@ test(function testIsArrayBufferView() {
 });
 
 test(function testIsAsyncFunction() {
-  assert(Deno.core.isAsyncFunction(async function() {}));
-  assert(Deno.core.isAsyncFunction(async function*() {}));
-  assert(!Deno.core.isAsyncFunction(function() {}));
-  assert(!Deno.core.isAsyncFunction(function*() {}));
+  assert(Deno.core.isAsyncFunction(async function () {}));
+  assert(Deno.core.isAsyncFunction(async function* () {}));
+  assert(!Deno.core.isAsyncFunction(function () {}));
+  assert(!Deno.core.isAsyncFunction(function* () {}));
 });
 
 test(function testIsBigIntObject() {
@@ -71,14 +73,14 @@ test(function testIsDate() {
 });
 
 test(function testIsGeneratorFunction() {
-  assert(Deno.core.isGeneratorFunction(async function*() {}));
-  assert(Deno.core.isGeneratorFunction(function*() {}));
-  assert(!Deno.core.isGeneratorFunction(async function() {}));
-  assert(!Deno.core.isGeneratorFunction(function() {}));
+  assert(Deno.core.isGeneratorFunction(async function* () {}));
+  assert(Deno.core.isGeneratorFunction(function* () {}));
+  assert(!Deno.core.isGeneratorFunction(async function () {}));
+  assert(!Deno.core.isGeneratorFunction(function () {}));
 });
 
 test(function testIsGeneratorObject() {
-  const generator = (function*() {})();
+  const generator = (function* () {})();
   assert(Deno.core.isGeneratorObject(generator));
   assert(!Deno.core.isGeneratorObject({}));
 });

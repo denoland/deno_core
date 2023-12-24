@@ -252,14 +252,20 @@ declare namespace Deno {
       resolve_hook?: (promise: Promise<unknown>) => void,
     ): void;
 
-    function isAnyArrayBuffer(value: unknown): value is ArrayBuffer | SharedArrayBuffer;
+    function isAnyArrayBuffer(
+      value: unknown,
+    ): value is ArrayBuffer | SharedArrayBuffer;
     function isArgumentsObject(value: unknown): value is IArguments;
     function isArrayBuffer(value: unknown): value is ArrayBuffer;
     function isArrayBufferView(value: unknown): value is ArrayBufferView;
-    function isAsyncFunction(value: unknown): value is (...args: unknown[]) => Promise<unknown>;
+    function isAsyncFunction(
+      value: unknown,
+    ): value is (...args: unknown[]) => Promise<unknown>;
     function isBigIntObject(value: unknown): value is BigInt;
     function isBooleanObject(value: unknown): value is Boolean;
-    function isBoxedPrimitive(value: unknown): value is BigInt | Boolean | Number | String | Symbol;
+    function isBoxedPrimitive(
+      value: unknown,
+    ): value is BigInt | Boolean | Number | String | Symbol;
     function isDataView(value: unknown): value is DataView;
     function isDate(value: unknown): value is Date;
     function isGeneratorFunction(value: unknown): value is GeneratorFunction;
@@ -277,7 +283,20 @@ declare namespace Deno {
     function isSharedArrayBuffer(value: unknown): value is SharedArrayBuffer;
     function isStringObject(value: unknown): value is String;
     function isSymbolObject(value: unknown): value is Symbol;
-    function isTypedArray(value: unknown): value is Uint8Array | Uint8ClampedArray | Uint16Array | Uint32Array | Int8Array | Int16Array | Int32Array | Float32Array | Float64Array | BigUint64Array | BigInt64Array;
+    function isTypedArray(
+      value: unknown,
+    ): value is
+      | Uint8Array
+      | Uint8ClampedArray
+      | Uint16Array
+      | Uint32Array
+      | Int8Array
+      | Int16Array
+      | Int32Array
+      | Float32Array
+      | Float64Array
+      | BigUint64Array
+      | BigInt64Array;
     function isWeakMap(value: unknown): value is WeakMap<WeakKey, unknown>;
     function isWeakSet(value: unknown): value is WeakSet<WeakKey>;
 
