@@ -260,7 +260,9 @@ declare namespace Deno {
     function isArrayBufferView(value: unknown): value is ArrayBufferView;
     function isAsyncFunction(
       value: unknown,
-    ): value is (...args: unknown[]) => Promise<unknown>;
+    ): value is (
+      ...args: unknown[]
+    ) => Promise<unknown> | AsyncGeneratorFunction;
     function isBigIntObject(value: unknown): value is BigInt;
     function isBooleanObject(value: unknown): value is Boolean;
     function isBoxedPrimitive(
@@ -268,7 +270,9 @@ declare namespace Deno {
     ): value is BigInt | Boolean | Number | String | Symbol;
     function isDataView(value: unknown): value is DataView;
     function isDate(value: unknown): value is Date;
-    function isGeneratorFunction(value: unknown): value is GeneratorFunction;
+    function isGeneratorFunction(
+      value: unknown,
+    ): value is GeneratorFunction | AsyncGeneratorFunction;
     function isGeneratorObject(value: unknown): value is Generator;
     function isMap(value: unknown): value is Map<unknown, unknown>;
     function isMapIterator(value: unknown): value is IterableIterator<unknown>;
