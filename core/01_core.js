@@ -9,6 +9,7 @@
     ArrayPrototypePush,
     Error,
     ErrorCaptureStackTrace,
+    FunctionPrototypeBind,
     MapPrototypeDelete,
     MapPrototypeGet,
     MapPrototypeHas,
@@ -18,6 +19,7 @@
     ObjectFreeze,
     ObjectFromEntries,
     ObjectKeys,
+    ObjectHasOwn,
     Promise,
     PromiseReject,
     PromiseResolve,
@@ -788,6 +790,78 @@
 
   const hostObjectBrand = SymbolFor("Deno.core.hostObject");
 
+  // A helper function that will bind our own console implementation
+  // with default implementation of Console from V8. This will cause
+  // console messages to be piped to inspector console.
+  //
+  // We are using `Deno.core.callConsole` binding to preserve proper stack
+  // frames in inspector console. This has to be done because V8 considers
+  // the last JS stack frame as gospel for the inspector. In our case we
+  // specifically want the latest user stack frame to be the one that matters
+  // though.
+  //
+  // Inspired by:
+  // https://github.com/nodejs/node/blob/1317252dfe8824fd9cfee125d2aaa94004db2f3b/lib/internal/util/inspector.js#L39-L61
+  function wrapConsole(customConsole, consoleFromV8) {
+    const callConsole = window.Deno.core.callConsole;
+
+    const keys = ObjectKeys(consoleFromV8);
+    for (let i = 0; i < keys.length; ++i) {
+      const key = keys[i];
+      if (ObjectHasOwn(customConsole, key)) {
+        customConsole[key] = FunctionPrototypeBind(
+          callConsole,
+          customConsole,
+          consoleFromV8[key],
+          customConsole[key],
+        );
+      } else {
+        // Add additional console APIs from the inspector
+        customConsole[key] = consoleFromV8[key];
+      }
+    }
+  }
+
+  // Minimal console implementation, that uses `Deno.core.print` under the hood.
+  // It's not fully fledged and is meant to make debugging slightly easier when working with
+  // only `deno_core` crate.
+  class CoreConsole {
+    #stringify = (arg) => {
+      if (
+        typeof arg === "string" || typeof arg === "boolean" ||
+        typeof arg === "number" || arg === null || arg === undefined
+      ) {
+        return arg;
+      }
+      return JSON.stringify(arg, undefined, 2);
+    };
+
+    log = (...args) => {
+      const stringifiedArgs = args.map(this.#stringify);
+      ops.op_print(`${stringifiedArgs.join(" ")}\n`, false);
+    };
+
+    debug = (...args) => {
+      const stringifiedArgs = args.map(this.#stringify);
+      ops.op_print(`${stringifiedArgs.join(" ")}\n`, false);
+    };
+
+    warn = (...args) => {
+      const stringifiedArgs = args.map(this.#stringify);
+      ops.op_print(`${stringifiedArgs.join(" ")}\n`, false);
+    };
+
+    error = (...args) => {
+      const stringifiedArgs = args.map(this.#stringify);
+      ops.op_print(`${stringifiedArgs.join(" ")}\n`, true);
+    };
+  }
+
+  const v8Console = globalThis.console;
+  const coreConsole = new CoreConsole();
+  globalThis.console = coreConsole;
+  wrapConsole(coreConsole, v8Console);
+
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     asyncStub,
@@ -867,6 +941,8 @@
     build,
     setBuildInfo,
     currentUserCallSite,
+    wrapConsole,
+    v8Console,
   });
 
   const internals = {};
