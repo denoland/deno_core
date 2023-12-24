@@ -1,6 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-// deno-lint-ignore-file no-explicit-any
+// deno-lint-ignore-file ban-types no-explicit-any
 
 /// <reference no-default-lib="true" />
 /// <reference lib="esnext" />
