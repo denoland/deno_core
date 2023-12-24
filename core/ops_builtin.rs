@@ -5,6 +5,7 @@ use crate::error::type_error;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::op2;
+use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
 use crate::resources::ResourceId;
 use crate::JsBuffer;
@@ -43,9 +44,36 @@ deno_core::extension!(
     op_write_type_error,
     op_shutdown,
     op_format_file_name,
-    op_is_proxy,
     op_str_byte_length,
     op_panic,
+    ops_builtin_types::op_is_any_array_buffer,
+    ops_builtin_types::op_is_arguments_object,
+    ops_builtin_types::op_is_array_buffer,
+    ops_builtin_types::op_is_array_buffer_view,
+    ops_builtin_types::op_is_async_function,
+    ops_builtin_types::op_is_big_int_object,
+    ops_builtin_types::op_is_boolean_object,
+    ops_builtin_types::op_is_boxed_primitive,
+    ops_builtin_types::op_is_data_view,
+    ops_builtin_types::op_is_date,
+    ops_builtin_types::op_is_generator_function,
+    ops_builtin_types::op_is_generator_object,
+    ops_builtin_types::op_is_map,
+    ops_builtin_types::op_is_map_iterator,
+    ops_builtin_types::op_is_module_namespace_object,
+    ops_builtin_types::op_is_native_error,
+    ops_builtin_types::op_is_number_object,
+    ops_builtin_types::op_is_promise,
+    ops_builtin_types::op_is_proxy,
+    ops_builtin_types::op_is_reg_exp,
+    ops_builtin_types::op_is_set,
+    ops_builtin_types::op_is_set_iterator,
+    ops_builtin_types::op_is_shared_array_buffer,
+    ops_builtin_types::op_is_string_object,
+    ops_builtin_types::op_is_symbol_object,
+    ops_builtin_types::op_is_typed_array,
+    ops_builtin_types::op_is_weak_map,
+    ops_builtin_types::op_is_weak_set,
     ops_builtin_v8::op_timer_queue,
     ops_builtin_v8::op_timer_cancel,
     ops_builtin_v8::op_timer_ref,
@@ -324,11 +352,6 @@ async fn op_shutdown(
 #[string]
 fn op_format_file_name(#[string] file_name: &str) -> String {
   format_file_name(file_name)
-}
-
-#[op2(fast)]
-fn op_is_proxy(value: v8::Local<v8::Value>) -> bool {
-  value.is_proxy()
 }
 
 #[op2]
