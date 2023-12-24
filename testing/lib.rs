@@ -38,6 +38,7 @@ unit_test!(
   serialize_deserialize_test,
   tc39_test,
   timer_test,
+  type_test,
 );
 
 // Test the load and run of an entire file within the `checkin` infrastructure.
