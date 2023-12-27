@@ -1,4 +1,3 @@
-use crate::FastString;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::generic_error;
 use crate::error::AnyError;
@@ -11,6 +10,7 @@ use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
+use crate::FastString;
 
 use anyhow::anyhow;
 use anyhow::Error;
