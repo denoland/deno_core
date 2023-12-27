@@ -38,7 +38,7 @@ pub(crate) type ModuleLoadId = i32;
 #[derive(Debug)]
 pub enum ModuleSourceCode {
   String(FastString),
-  Bytes(Box<[u8]>)
+  Bytes(Box<[u8]>),
 }
 // TODO(bartlomieju): remove
 pub type ModuleCode = FastString;
@@ -268,7 +268,9 @@ impl ModuleSource {
     }
   }
 
-  pub fn get_string_source(code: ModuleSourceCode) -> Result<ModuleCode, FromUtf8Error> {
+  pub fn get_string_source(
+    code: ModuleSourceCode,
+  ) -> Result<ModuleCode, FromUtf8Error> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {

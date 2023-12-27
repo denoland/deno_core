@@ -280,7 +280,8 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let code = ModuleSource::get_string_source(code).map_err(|e| ModuleError::Other(e.into()))?;
+    let code = ModuleSource::get_string_source(code)
+      .map_err(|e| ModuleError::Other(e.into()))?;
     let module_id = match module_type {
       ModuleType::JavaScript => {
         self.new_es_module(scope, main, module_url_found, code, dynamic)?
@@ -1381,7 +1382,11 @@ impl ModuleMap {
       loader.load(&specifier, None, false).await
     })?;
 
-    self.lazy_load_es_module_from_code(scope, module_specifier, ModuleSource::get_string_source(source.code)?)
+    self.lazy_load_es_module_from_code(
+      scope,
+      module_specifier,
+      ModuleSource::get_string_source(source.code)?,
+    )
   }
 }
 

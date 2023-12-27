@@ -158,7 +158,11 @@ impl ModuleLoader for ExtModuleLoader {
     let result = source.load();
     match result {
       Ok(code) => {
-        let res = ModuleSource::new(ModuleType::JavaScript, ModuleSourceCode::String(code), specifier);
+        let res = ModuleSource::new(
+          ModuleType::JavaScript,
+          ModuleSourceCode::String(code),
+          specifier,
+        );
         return futures::future::ok(res).boxed_local();
       }
       Err(err) => return futures::future::err(err).boxed_local(),
@@ -214,7 +218,11 @@ impl ModuleLoader for LazyEsmModuleLoader {
     let result = source.load();
     match result {
       Ok(code) => {
-        let res = ModuleSource::new(ModuleType::JavaScript, ModuleSourceCode::String(code), specifier);
+        let res = ModuleSource::new(
+          ModuleType::JavaScript,
+          ModuleSourceCode::String(code),
+          specifier,
+        );
         return futures::future::ok(res).boxed_local();
       }
       Err(err) => return futures::future::err(err).boxed_local(),
@@ -298,7 +306,11 @@ impl ModuleLoader for FsModuleLoader {
 
       // TODO(bartlomieju): handle bytes as well
       let code: FastString = std::fs::read_to_string(path)?.into();
-      let module = ModuleSource::new(module_type, ModuleSourceCode::String(code), module_specifier);
+      let module = ModuleSource::new(
+        module_type,
+        ModuleSourceCode::String(code),
+        module_specifier,
+      );
       Ok(module)
     }
 
