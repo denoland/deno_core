@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
+use std::string::FromUtf8Error;
 
 mod loaders;
 mod map;
@@ -33,6 +34,13 @@ pub(crate) use map::ModuleMap;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
+
+#[derive(Debug)]
+pub enum ModuleSourceCode {
+  String(FastString),
+  Bytes(Box<[u8]>)
+}
+// TODO(bartlomieju): remove
 pub type ModuleCode = FastString;
 pub type ModuleName = FastString;
 
@@ -183,7 +191,7 @@ impl std::fmt::Display for ModuleType {
 // NOTE: This should _not_ be made #[derive(Clone)] unless we take some precautions to avoid excessive string copying.
 #[derive(Debug)]
 pub struct ModuleSource {
-  pub code: ModuleCode,
+  pub code: ModuleSourceCode,
   pub module_type: ModuleType,
   module_url_specified: ModuleName,
   /// If the module was found somewhere other than the specified address, this will be [`Some`].
@@ -194,7 +202,7 @@ impl ModuleSource {
   /// Create a [`ModuleSource`] without a redirect.
   pub fn new(
     module_type: impl Into<ModuleType>,
-    code: ModuleCode,
+    code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
   ) -> Self {
     let module_url_specified = specifier.as_ref().to_owned().into();
@@ -210,7 +218,7 @@ impl ModuleSource {
   /// specifier, the code behaves the same was as `ModuleSource::new`.
   pub fn new_with_redirect(
     module_type: impl Into<ModuleType>,
-    code: ModuleCode,
+    code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
     specifier_found: &ModuleSpecifier,
   ) -> Self {
@@ -231,7 +239,7 @@ impl ModuleSource {
   #[cfg(test)]
   pub fn for_test(code: &'static str, file: impl AsRef<str>) -> Self {
     Self {
-      code: ModuleCode::from_static(code),
+      code: ModuleSourceCode::String(FastString::from_static(code)),
       module_type: ModuleType::JavaScript,
       module_url_specified: file.as_ref().to_owned().into(),
       module_url_found: None,
@@ -253,10 +261,20 @@ impl ModuleSource {
       Some(found.into())
     };
     Self {
-      code: ModuleCode::from_static(code),
+      code: ModuleSourceCode::String(FastString::from_static(code)),
       module_type: ModuleType::JavaScript,
       module_url_specified: specified.into(),
       module_url_found: found,
+    }
+  }
+
+  pub fn get_string_source(code: ModuleSourceCode) -> Result<ModuleCode, FromUtf8Error> {
+    match code {
+      ModuleSourceCode::String(code) => Ok(code),
+      ModuleSourceCode::Bytes(bytes) => {
+        let str_ = String::from_utf8(bytes.to_vec())?;
+        Ok(ModuleCode::from(str_))
+      }
     }
   }
 }

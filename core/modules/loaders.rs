@@ -1,3 +1,4 @@
+use crate::FastString;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::generic_error;
 use crate::error::AnyError;
@@ -21,6 +22,8 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+
+use super::ModuleSourceCode;
 
 pub trait ModuleLoader {
   /// Returns an absolute URL.
@@ -155,7 +158,7 @@ impl ModuleLoader for ExtModuleLoader {
     let result = source.load();
     match result {
       Ok(code) => {
-        let res = ModuleSource::new(ModuleType::JavaScript, code, specifier);
+        let res = ModuleSource::new(ModuleType::JavaScript, ModuleSourceCode::String(code), specifier);
         return futures::future::ok(res).boxed_local();
       }
       Err(err) => return futures::future::err(err).boxed_local(),
@@ -211,7 +214,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     let result = source.load();
     match result {
       Ok(code) => {
-        let res = ModuleSource::new(ModuleType::JavaScript, code, specifier);
+        let res = ModuleSource::new(ModuleType::JavaScript, ModuleSourceCode::String(code), specifier);
         return futures::future::ok(res).boxed_local();
       }
       Err(err) => return futures::future::err(err).boxed_local(),
@@ -293,8 +296,9 @@ impl ModuleLoader for FsModuleLoader {
         ModuleType::JavaScript
       };
 
-      let code = std::fs::read_to_string(path)?.into();
-      let module = ModuleSource::new(module_type, code, module_specifier);
+      // TODO(bartlomieju): handle bytes as well
+      let code: FastString = std::fs::read_to_string(path)?.into();
+      let module = ModuleSource::new(module_type, ModuleSourceCode::String(code), module_specifier);
       Ok(module)
     }
 
@@ -347,7 +351,7 @@ impl ModuleLoader for StaticModuleLoader {
     let res = if let Some(code) = self.map.get(module_specifier) {
       Ok(ModuleSource::new(
         ModuleType::JavaScript,
-        code.try_clone().unwrap(),
+        ModuleSourceCode::String(code.try_clone().unwrap()),
         module_specifier,
       ))
     } else {

@@ -11,6 +11,7 @@ use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceTextInfo;
+use deno_core::ModuleSourceCode;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::ExtensionFileSource;
@@ -121,7 +122,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       };
       Ok(ModuleSource::new(
         module_type,
-        code.into(),
+        ModuleSourceCode::String(code.into()),
         module_specifier,
       ))
     }

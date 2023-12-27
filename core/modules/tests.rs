@@ -17,6 +17,7 @@ use crate::ModuleSource;
 use crate::ModuleSourceFuture;
 use crate::ModuleSpecifier;
 use crate::ModuleType;
+use crate::modules::ModuleSourceCode;
 use crate::OpState;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
@@ -1355,7 +1356,7 @@ async fn no_duplicate_loads() {
           .unwrap()
       };
       let module_source = ModuleSource {
-        code: ModuleCode::from(source_code),
+        code: ModuleSourceCode::String(ModuleCode::from(source_code)),
         module_type: ModuleType::JavaScript,
         module_url_specified: module_specifier.clone().into(),
         module_url_found: found_specifier.map(|s| s.into()),
