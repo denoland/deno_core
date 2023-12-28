@@ -1,14 +1,15 @@
+use crate::error::AnyError;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
-use std::string::FromUtf8Error;
 
 mod loaders;
 mod map;
@@ -270,11 +271,12 @@ impl ModuleSource {
 
   pub fn get_string_source(
     code: ModuleSourceCode,
-  ) -> Result<ModuleCode, FromUtf8Error> {
+  ) -> Result<ModuleCode, AnyError> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes.to_vec())?;
+        let str_ = String::from_utf8(bytes.to_vec())
+          .context("Can't get a string source from bytes")?;
         Ok(ModuleCode::from(str_))
       }
     }

@@ -10,8 +10,8 @@ use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
-use crate::FastString;
 
+use anyhow::Context;
 use anyhow::anyhow;
 use anyhow::Error;
 use futures::future::ready;
@@ -304,11 +304,10 @@ impl ModuleLoader for FsModuleLoader {
         ModuleType::JavaScript
       };
 
-      // TODO(bartlomieju): handle bytes as well
-      let code: FastString = std::fs::read_to_string(path)?.into();
+      let code = std::fs::read(path).with_context(|| format!("Failed to load {}", module_specifier.as_str()))?;
       let module = ModuleSource::new(
         module_type,
-        ModuleSourceCode::String(code),
+        ModuleSourceCode::Bytes(code.into_boxed_slice()),
         module_specifier,
       );
       Ok(module)
