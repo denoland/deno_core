@@ -82,6 +82,7 @@ impl op_external_with_result {
         let result = match result {
             Ok(result) => result,
             Err(err) => {
+                let err = err.into();
                 unsafe {
                     opctx.unsafely_set_last_error_for_ops_only(err);
                 }

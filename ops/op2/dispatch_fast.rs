@@ -334,6 +334,8 @@ pub(crate) fn generate_fast_result_early_exit(
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
+        let err = err.into();
+
         // FASTCALL FALLBACK: This is where we set the errors for the slow-call error pickup path. There
         // is no code running between this and the other FASTCALL FALLBACK comment, except some V8 code
         // required to perform the fallback process. This is why the below call is safe.
