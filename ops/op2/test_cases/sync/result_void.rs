@@ -2,9 +2,7 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::error::AnyError;
-
 #[op2(fast)]
-pub fn op_void_with_result() -> Result<(), AnyError> {
+pub fn op_void_with_result() -> std::io::Result<()> {
     Ok(())
 }
