@@ -22,6 +22,7 @@ fn custom_module_evaluation_cb(
   match &*module_type {
     "bytes" => Ok(bytes_module(scope, code)),
     "text" => text_module(scope, module_name, code),
+    "url" => Ok(url_module(scope, module_name)),
     _ => Err(anyhow!(
       "Can't import {:?} because of unknown module type {}",
       module_name,
@@ -63,6 +64,15 @@ fn text_module(
   let str_ = v8::String::new(scope, &code).unwrap();
   let value: v8::Local<v8::Value> = str_.into();
   Ok(v8::Global::new(scope, value))
+}
+
+fn url_module(
+  scope: &mut v8::HandleScope,
+  module_name: &FastString,
+) -> v8::Global<v8::Value> {
+  let str_ = v8::String::new(scope, module_name.as_str()).unwrap();
+  let value: v8::Local<v8::Value> = str_.into();
+  v8::Global::new(scope, value)
 }
 
 fn validate_import_attributes(
