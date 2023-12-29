@@ -248,10 +248,10 @@ impl ModuleMap {
     module_source: ModuleSource,
   ) -> Result<ModuleId, ModuleError> {
     let ModuleSource {
+      code,
       module_type,
       module_url_found,
       module_url_specified,
-      code,
     } = module_source;
 
     // Register the module in the module map unless it's already there. If the
