@@ -156,15 +156,16 @@ pub(crate) fn get_requested_module_type_from_attributes(
 
 /// A type of module to be executed.
 ///
-/// For non-`JavaScript` modules, this value doesn't tell
-/// how to interpret the module; it is only used to validate
-/// the module against an import assertion (if one is present
-/// in the import statement).
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+/// For non-`JavaScript` modules, this value suggests
+/// how to interpret the module. For JSON modules it's used to validate
+/// against actually discovered MIME type.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum ModuleType {
   JavaScript,
   Json,
+  /// Non-well-known module type.
+  Other(Cow<'static, str>),
 }
 
 impl std::fmt::Display for ModuleType {
@@ -172,6 +173,7 @@ impl std::fmt::Display for ModuleType {
     match self {
       Self::JavaScript => write!(f, "JavaScript"),
       Self::Json => write!(f, "JSON"),
+      Self::Other(ty) => write!(f, "{}", ty),
     }
   }
 }
@@ -363,6 +365,7 @@ impl PartialEq<ModuleType> for RequestedModuleType {
     match other {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
+      ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
 }
@@ -372,6 +375,7 @@ impl From<ModuleType> for RequestedModuleType {
     match module_type {
       ModuleType::JavaScript => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
+      ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
   }
 }

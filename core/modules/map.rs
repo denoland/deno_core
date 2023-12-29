@@ -261,7 +261,7 @@ impl ModuleMap {
         module_url_found.into_cheap_copy();
       self.data.borrow_mut().alias(
         module_url_specified,
-        &module_type.into(),
+        &module_type.clone().into(),
         module_url_found1,
       );
       module_url_found2
@@ -269,7 +269,7 @@ impl ModuleMap {
       module_url_specified
     };
 
-    let requested_module_type = RequestedModuleType::from(module_type);
+    let requested_module_type = RequestedModuleType::from(module_type.clone());
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
@@ -288,6 +288,12 @@ impl ModuleMap {
       }
       ModuleType::Json => {
         self.new_json_module(scope, module_url_found, code)?
+      }
+      ModuleType::Other(module_type) => {
+        return Err(ModuleError::Other(generic_error(format!(
+          "Importing '{}' modules is not supported",
+          module_type
+        ))));
       }
     };
     Ok(module_id)

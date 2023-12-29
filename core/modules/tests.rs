@@ -544,6 +544,53 @@ fn test_json_module() {
 }
 
 #[test]
+fn test_custom_module_type() {
+  fn validate_import_attrs(
+    _scope: &mut v8::HandleScope,
+    _attrs: &HashMap<String, String>,
+  ) {
+    // pass, allow all
+  }
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
+    ..Default::default()
+  });
+
+  let module_map = runtime.module_map().clone();
+
+  let err = {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.png");
+    module_map
+      .new_module(
+        scope,
+        true,
+        false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(vec![]),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("bytes".into()),
+        },
+      )
+      .unwrap_err()
+  };
+
+  match err {
+    ModuleError::Other(err) => {
+      assert_eq!(
+        err.to_string(),
+        "Importing 'bytes' modules is not supported"
+      );
+    }
+    _ => unreachable!(),
+  };
+}
+
+#[test]
 fn test_validate_import_attributes() {
   fn validate_import_attrs(
     scope: &mut v8::HandleScope,
