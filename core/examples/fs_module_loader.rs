@@ -16,16 +16,27 @@ use std::rc::Rc;
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
   module_type: Cow<'_, str>,
-  _module_name: &FastString,
+  module_name: &FastString,
   code: ModuleSourceCode,
 ) -> Result<v8::Global<v8::Value>, Error> {
-  if module_type != "bytes" {
-    return Err(anyhow!("Unknown module type {}", module_type));
+  match &*module_type {
+    "bytes" => Ok(bytes_module(scope, code)),
+    "text" => text_module(scope, module_name, code),
+    _ => Err(anyhow!(
+      "Can't import {:?} because of unknown module type {}",
+      module_name,
+      module_type
+    )),
   }
+}
 
-  let buf = match code {
-    ModuleSourceCode::String(_) => unreachable!(),
-    ModuleSourceCode::Bytes(buf) => buf,
+fn bytes_module(
+  scope: &mut v8::HandleScope,
+  code: ModuleSourceCode,
+) -> v8::Global<v8::Value> {
+  // FsModuleLoader always returns bytes.
+  let ModuleSourceCode::Bytes(buf) = code else {
+    unreachable!()
   };
   let buf_len: usize = buf.len();
   let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(buf);
@@ -33,7 +44,24 @@ fn custom_module_evaluation_cb(
   let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
   let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
   let value: v8::Local<v8::Value> = uint8_array.into();
+  v8::Global::new(scope, value)
+}
 
+fn text_module(
+  scope: &mut v8::HandleScope,
+  module_name: &FastString,
+  code: ModuleSourceCode,
+) -> Result<v8::Global<v8::Value>, Error> {
+  // FsModuleLoader always returns bytes.
+  let ModuleSourceCode::Bytes(buf) = code else {
+    unreachable!()
+  };
+
+  let code = String::from_utf8(buf).with_context(|| {
+    format!("Can't convert {:?} source code to string", module_name)
+  })?;
+  let str_ = v8::String::new(scope, &code).unwrap();
+  let value: v8::Local<v8::Value> = str_.into();
   Ok(v8::Global::new(scope, value))
 }
 
