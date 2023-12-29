@@ -1,5 +1,5 @@
-use crate::error::AnyError;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::error::AnyError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use anyhow::bail;
