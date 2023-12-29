@@ -270,13 +270,18 @@ impl ModuleSource {
   }
 
   pub fn get_string_source(
+    specifier: &ModuleSpecifier,
     code: ModuleSourceCode,
   ) -> Result<ModuleCode, AnyError> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes.to_vec())
-          .context("Can't get a string source from bytes")?;
+        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
+          format!(
+            "Can't convert source code to string for {}",
+            specifier.as_str()
+          )
+        })?;
         Ok(ModuleCode::from(str_))
       }
     }

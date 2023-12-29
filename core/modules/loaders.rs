@@ -11,8 +11,8 @@ use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
 
-use anyhow::Context;
 use anyhow::anyhow;
+use anyhow::Context;
 use anyhow::Error;
 use futures::future::ready;
 use futures::future::FutureExt;
@@ -304,7 +304,9 @@ impl ModuleLoader for FsModuleLoader {
         ModuleType::JavaScript
       };
 
-      let code = std::fs::read(path).with_context(|| format!("Failed to load {}", module_specifier.as_str()))?;
+      let code = std::fs::read(path).with_context(|| {
+        format!("Failed to load {}", module_specifier.as_str())
+      })?;
       let module = ModuleSource::new(
         module_type,
         ModuleSourceCode::Bytes(code.into_boxed_slice()),

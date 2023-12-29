@@ -280,7 +280,7 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let code = ModuleSource::get_string_source(code)
+    let code = ModuleSource::get_string_source(&module_url_found, code)
       .map_err(|e| ModuleError::Other(e.into()))?;
     let module_id = match module_type {
       ModuleType::JavaScript => {
@@ -1385,7 +1385,7 @@ impl ModuleMap {
     self.lazy_load_es_module_from_code(
       scope,
       module_specifier,
-      ModuleSource::get_string_source(source.code)?,
+      ModuleSource::get_string_source(&specifier, source.code)?,
     )
   }
 }
