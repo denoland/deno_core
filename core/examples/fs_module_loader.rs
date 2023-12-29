@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use deno_core::anyhow::Error;
+use deno_core::v8;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
@@ -17,7 +18,23 @@ fn custom_module_evaluation_cb(
   module_name: &FastString,
   code: ModuleSourceCode,
 ) -> Result<v8::Global<v8::Value>, Error> {
-  todo!()
+  eprintln!("module type {:?} {}", module_name, module_type);
+  if module_type != "jpg" {
+    todo!()
+  }
+
+  let buf = match code {
+    ModuleSourceCode::String(_) => unreachable!(),
+    ModuleSourceCode::Bytes(buf) => buf,
+  };
+  let buf_len: usize = buf.len();
+  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(buf);
+  let backing_store_shared = backing_store.make_shared();
+  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+  let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+  let value: v8::Local<v8::Value> = uint8_array.into();
+
+  Ok(v8::Global::new(scope, value))
 }
 
 fn validate_import_attributes(

@@ -196,7 +196,9 @@ impl RecursiveModuleLoad {
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
     let requested_module_type = module_request.requested_module_type.clone();
-    if requested_module_type == RequestedModuleType::Json && requested_module_type != module_source.module_type {
+    if requested_module_type == RequestedModuleType::Json
+      && requested_module_type != module_source.module_type
+    {
       return Err(ModuleError::Other(generic_error(format!(
         "Expected a \"{}\" module but loaded a \"{}\" module.",
         requested_module_type, module_source.module_type,

@@ -294,7 +294,9 @@ impl ModuleLoader for FsModuleLoader {
       })?;
       let module_type = if let Some(extension) = path.extension() {
         let ext = extension.to_string_lossy().to_lowercase();
-        if ext == "json" {
+        if ext == "js" {
+          ModuleType::JavaScript
+        } else if ext == "json" {
           ModuleType::Json
         } else {
           ModuleType::Other(ext.into())

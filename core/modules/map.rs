@@ -299,12 +299,8 @@ impl ModuleMap {
           state.custom_module_evaluation_cb.as_ref();
 
         if let Some(evaluation_cb) = custom_module_evaluation_cb {
-          let evaluation_result = evaluation_cb(
-            scope,
-            module_type.clone(),
-            &module_url_found,
-            code,
-          );
+          let evaluation_result =
+            evaluation_cb(scope, module_type.clone(), &module_url_found, code);
           match evaluation_result {
             Ok(value_global) => {
               let value = v8::Local::new(scope, value_global);
