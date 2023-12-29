@@ -271,22 +271,24 @@ impl ModuleMap {
 
     let asserted_module_type = AssertedModuleType::from(module_type);
     let maybe_module_id = self.get_id(&module_url_found, asserted_module_type);
-    let module_id = match maybe_module_id {
-      Some(id) => {
-        debug!(
-          "Already-registered module fetched again: {:?}",
-          module_url_found
-        );
-        id
+
+    if let Some(module_id) = maybe_module_id {
+      debug!(
+        "Already-registered module fetched again: {:?}",
+        module_url_found
+      );
+      return Ok(module_id);
+    }
+
+    let code = ModuleSource::get_string_source(module_url_found.as_str(), code)
+      .map_err(ModuleError::Other)?;
+    let module_id = match module_type {
+      ModuleType::JavaScript => {
+        self.new_es_module(scope, main, module_url_found, code, dynamic)?
       }
-      None => match module_type {
-        ModuleType::JavaScript => {
-          self.new_es_module(scope, main, module_url_found, code, dynamic)?
-        }
-        ModuleType::Json => {
-          self.new_json_module(scope, module_url_found, code)?
-        }
-      },
+      ModuleType::Json => {
+        self.new_json_module(scope, module_url_found, code)?
+      }
     };
     Ok(module_id)
   }
@@ -1380,7 +1382,11 @@ impl ModuleMap {
       loader.load(&specifier, None, false).await
     })?;
 
-    self.lazy_load_es_module_from_code(scope, module_specifier, source.code)
+    self.lazy_load_es_module_from_code(
+      scope,
+      module_specifier,
+      ModuleSource::get_string_source(specifier.as_str(), source.code)?,
+    )
   }
 }
 

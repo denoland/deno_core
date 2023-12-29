@@ -7,6 +7,7 @@ use crate::modules::loaders::*;
 use crate::modules::AssertedModuleType;
 use crate::modules::ModuleError;
 use crate::modules::ModuleRequest;
+use crate::modules::ModuleSourceCode;
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
@@ -1355,7 +1356,7 @@ async fn no_duplicate_loads() {
           .unwrap()
       };
       let module_source = ModuleSource {
-        code: ModuleCode::from(source_code),
+        code: ModuleSourceCode::String(ModuleCode::from(source_code)),
         module_type: ModuleType::JavaScript,
         module_url_specified: module_specifier.clone().into(),
         module_url_found: found_specifier.map(|s| s.into()),

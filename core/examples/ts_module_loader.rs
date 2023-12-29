@@ -22,6 +22,7 @@ use deno_core::resolve_path;
 use deno_core::JsRuntime;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
+use deno_core::ModuleSourceCode;
 use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
@@ -120,7 +121,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       };
       Ok(ModuleSource::new(
         module_type,
-        code.into(),
+        ModuleSourceCode::String(code.into()),
         module_specifier,
       ))
     }

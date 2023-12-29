@@ -1,7 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::error::AnyError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -33,6 +35,18 @@ pub(crate) use map::ModuleMap;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
+
+/// The actual source code returned from the loader. Most embedders should
+/// try to return bytes and let deno_core interpret if the module should be
+/// converted to a string or not.
+#[derive(Debug)]
+pub enum ModuleSourceCode {
+  String(ModuleCode),
+  Bytes(Vec<u8>),
+}
+
+// TODO(bartlomieju): maybe remove it? It might be confusing between `ModuleSourceCode`
+// and `ModuleCode`.
 pub type ModuleCode = FastString;
 pub type ModuleName = FastString;
 
@@ -183,7 +197,7 @@ impl std::fmt::Display for ModuleType {
 // NOTE: This should _not_ be made #[derive(Clone)] unless we take some precautions to avoid excessive string copying.
 #[derive(Debug)]
 pub struct ModuleSource {
-  pub code: ModuleCode,
+  pub code: ModuleSourceCode,
   pub module_type: ModuleType,
   module_url_specified: ModuleName,
   /// If the module was found somewhere other than the specified address, this will be [`Some`].
@@ -194,7 +208,7 @@ impl ModuleSource {
   /// Create a [`ModuleSource`] without a redirect.
   pub fn new(
     module_type: impl Into<ModuleType>,
-    code: ModuleCode,
+    code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
   ) -> Self {
     let module_url_specified = specifier.as_ref().to_owned().into();
@@ -210,7 +224,7 @@ impl ModuleSource {
   /// specifier, the code behaves the same was as `ModuleSource::new`.
   pub fn new_with_redirect(
     module_type: impl Into<ModuleType>,
-    code: ModuleCode,
+    code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
     specifier_found: &ModuleSpecifier,
   ) -> Self {
@@ -231,7 +245,7 @@ impl ModuleSource {
   #[cfg(test)]
   pub fn for_test(code: &'static str, file: impl AsRef<str>) -> Self {
     Self {
-      code: ModuleCode::from_static(code),
+      code: ModuleSourceCode::String(FastString::from_static(code)),
       module_type: ModuleType::JavaScript,
       module_url_specified: file.as_ref().to_owned().into(),
       module_url_found: None,
@@ -253,10 +267,25 @@ impl ModuleSource {
       Some(found.into())
     };
     Self {
-      code: ModuleCode::from_static(code),
+      code: ModuleSourceCode::String(FastString::from_static(code)),
       module_type: ModuleType::JavaScript,
       module_url_specified: specified.into(),
       module_url_found: found,
+    }
+  }
+
+  pub fn get_string_source(
+    specifier: &str,
+    code: ModuleSourceCode,
+  ) -> Result<ModuleCode, AnyError> {
+    match code {
+      ModuleSourceCode::String(code) => Ok(code),
+      ModuleSourceCode::Bytes(bytes) => {
+        let str_ = String::from_utf8(bytes).with_context(|| {
+          format!("Can't convert source code to string for {}", specifier)
+        })?;
+        Ok(ModuleCode::from(str_))
+      }
     }
   }
 }

@@ -10,8 +10,10 @@ use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
+use crate::ModuleSourceCode;
 
 use anyhow::anyhow;
+use anyhow::Context;
 use anyhow::Error;
 use futures::future::ready;
 use futures::future::FutureExt;
@@ -155,7 +157,11 @@ impl ModuleLoader for ExtModuleLoader {
     let result = source.load();
     match result {
       Ok(code) => {
-        let res = ModuleSource::new(ModuleType::JavaScript, code, specifier);
+        let res = ModuleSource::new(
+          ModuleType::JavaScript,
+          ModuleSourceCode::String(code),
+          specifier,
+        );
         return futures::future::ok(res).boxed_local();
       }
       Err(err) => return futures::future::err(err).boxed_local(),
@@ -211,7 +217,11 @@ impl ModuleLoader for LazyEsmModuleLoader {
     let result = source.load();
     match result {
       Ok(code) => {
-        let res = ModuleSource::new(ModuleType::JavaScript, code, specifier);
+        let res = ModuleSource::new(
+          ModuleType::JavaScript,
+          ModuleSourceCode::String(code),
+          specifier,
+        );
         return futures::future::ok(res).boxed_local();
       }
       Err(err) => return futures::future::err(err).boxed_local(),
@@ -293,8 +303,14 @@ impl ModuleLoader for FsModuleLoader {
         ModuleType::JavaScript
       };
 
-      let code = std::fs::read_to_string(path)?.into();
-      let module = ModuleSource::new(module_type, code, module_specifier);
+      let code = std::fs::read(path).with_context(|| {
+        format!("Failed to load {}", module_specifier.as_str())
+      })?;
+      let module = ModuleSource::new(
+        module_type,
+        ModuleSourceCode::Bytes(code),
+        module_specifier,
+      );
       Ok(module)
     }
 
@@ -347,7 +363,7 @@ impl ModuleLoader for StaticModuleLoader {
     let res = if let Some(code) = self.map.get(module_specifier) {
       Ok(ModuleSource::new(
         ModuleType::JavaScript,
-        code.try_clone().unwrap(),
+        ModuleSourceCode::String(code.try_clone().unwrap()),
         module_specifier,
       ))
     } else {
