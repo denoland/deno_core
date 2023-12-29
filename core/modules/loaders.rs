@@ -7,6 +7,7 @@ use crate::modules::ModuleCode;
 use crate::modules::ModuleSource;
 use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
+use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
@@ -23,8 +24,6 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-
-use super::RequestedModuleType;
 
 pub trait ModuleLoader {
   /// Returns an absolute URL.

@@ -298,29 +298,27 @@ impl ModuleMap {
         let custom_module_evaluation_cb =
           state.custom_module_evaluation_cb.as_ref();
 
-        if let Some(evaluation_cb) = custom_module_evaluation_cb {
-          let evaluation_result =
-            evaluation_cb(scope, module_type.clone(), &module_url_found, code);
-          match evaluation_result {
-            Ok(value_global) => {
-              let value = v8::Local::new(scope, value_global);
-              self.new_synthetic_module(
-                scope,
-                module_url_found,
-                ModuleType::Other(module_type.clone()),
-                value,
-              )?
-            }
-            Err(err) => {
-              return Err(ModuleError::Other(err));
-            }
-          }
-        } else {
+        let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
           return Err(ModuleError::Other(generic_error(format!(
             "Importing '{}' modules is not supported",
             module_type
           ))));
-        }
+        };
+
+        let value_global = custom_evaluation_cb(
+          scope,
+          module_type.clone(),
+          &module_url_found,
+          code,
+        )
+        .map_err(ModuleError::Other)?;
+        let value = v8::Local::new(scope, value_global);
+        self.new_synthetic_module(
+          scope,
+          module_url_found,
+          ModuleType::Other(module_type.clone()),
+          value,
+        )?
       }
     };
     Ok(module_id)
