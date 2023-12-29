@@ -144,17 +144,17 @@ pub(crate) fn parse_import_assertions(
 
 pub(crate) fn get_asserted_module_type_from_assertions(
   assertions: &HashMap<String, String>,
-) -> AssertedModuleType {
+) -> RequestedModuleType {
   assertions
     .get("type")
     .map(|ty| {
       if ty == "json" {
-        AssertedModuleType::Json
+        RequestedModuleType::Json
       } else {
-        AssertedModuleType::JavaScriptOrWasm
+        RequestedModuleType::None
       }
     })
-    .unwrap_or(AssertedModuleType::JavaScriptOrWasm)
+    .unwrap_or(RequestedModuleType::None)
 }
 
 /// A type of module to be executed.
@@ -309,10 +309,13 @@ pub enum ResolutionKind {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum AssertedModuleType {
-  /// JavaScript or WASM.
-  JavaScriptOrWasm,
-  /// JSON.
+pub(crate) enum RequestedModuleType {
+  /// There was no attribute specified in the import statement.
+  None,
+
+  /// `type` attribute had value `json`. This is the only known module type
+  /// in `deno_core`. Embedders should use `Other` variant for custom module
+  /// types like `wasm`, `bytes` or `text`.
   Json,
 
   // IMPORTANT: If you add any additional enum values here, you must update `to_v8`` below!
@@ -320,15 +323,15 @@ pub(crate) enum AssertedModuleType {
   Other(Cow<'static, str>),
 }
 
-impl AssertedModuleType {
+impl RequestedModuleType {
   pub fn to_v8<'s>(
     &self,
     scope: &mut v8::HandleScope<'s>,
   ) -> v8::Local<'s, v8::Value> {
     match self {
-      AssertedModuleType::JavaScriptOrWasm => v8::Integer::new(scope, 0).into(),
-      AssertedModuleType::Json => v8::Integer::new(scope, 1).into(),
-      AssertedModuleType::Other(ty) => {
+      RequestedModuleType::None => v8::Integer::new(scope, 0).into(),
+      RequestedModuleType::Json => v8::Integer::new(scope, 1).into(),
+      RequestedModuleType::Other(ty) => {
         v8::String::new(scope, ty).unwrap().into()
       }
     }
@@ -340,46 +343,46 @@ impl AssertedModuleType {
   ) -> Option<Self> {
     Some(if let Some(int) = value.to_integer(scope) {
       match int.int32_value(scope).unwrap_or_default() {
-        0 => AssertedModuleType::JavaScriptOrWasm,
-        1 => AssertedModuleType::Json,
+        0 => RequestedModuleType::None,
+        1 => RequestedModuleType::Json,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
-      AssertedModuleType::Other(Cow::Owned(str.to_rust_string_lossy(scope)))
+      RequestedModuleType::Other(Cow::Owned(str.to_rust_string_lossy(scope)))
     } else {
       return None;
     })
   }
 }
 
-impl AsRef<AssertedModuleType> for AssertedModuleType {
-  fn as_ref(&self) -> &AssertedModuleType {
+impl AsRef<RequestedModuleType> for RequestedModuleType {
+  fn as_ref(&self) -> &RequestedModuleType {
     self
   }
 }
 
-impl PartialEq<ModuleType> for AssertedModuleType {
+impl PartialEq<ModuleType> for RequestedModuleType {
   fn eq(&self, other: &ModuleType) -> bool {
     match other {
-      ModuleType::JavaScript => self == &AssertedModuleType::JavaScriptOrWasm,
-      ModuleType::Json => self == &AssertedModuleType::Json,
+      ModuleType::JavaScript => self == &RequestedModuleType::None,
+      ModuleType::Json => self == &RequestedModuleType::Json,
     }
   }
 }
 
-impl From<ModuleType> for AssertedModuleType {
-  fn from(module_type: ModuleType) -> AssertedModuleType {
+impl From<ModuleType> for RequestedModuleType {
+  fn from(module_type: ModuleType) -> RequestedModuleType {
     match module_type {
-      ModuleType::JavaScript => AssertedModuleType::JavaScriptOrWasm,
-      ModuleType::Json => AssertedModuleType::Json,
+      ModuleType::JavaScript => RequestedModuleType::None,
+      ModuleType::Json => RequestedModuleType::Json,
     }
   }
 }
 
-impl std::fmt::Display for AssertedModuleType {
+impl std::fmt::Display for RequestedModuleType {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      Self::JavaScriptOrWasm => write!(f, "JavaScriptOrWasm"),
+      Self::None => write!(f, "None"),
       Self::Json => write!(f, "JSON"),
       Self::Other(ty) => write!(f, "Other({ty})"),
     }
@@ -389,11 +392,11 @@ impl std::fmt::Display for AssertedModuleType {
 /// Describes a request for a module as parsed from the source code.
 /// Usually executable (`JavaScriptOrWasm`) is used, except when an
 /// import assertions explicitly constrains an import to JSON, in
-/// which case this will have a `AssertedModuleType::Json`.
+/// which case this will have a `RequestedModuleType::Json`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ModuleRequest {
   pub specifier: String,
-  pub asserted_module_type: AssertedModuleType,
+  pub requested_module_type: RequestedModuleType,
 }
 
 #[derive(Debug, PartialEq)]
@@ -403,7 +406,7 @@ pub(crate) struct ModuleInfo {
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,
-  pub module_type: AssertedModuleType,
+  pub module_type: RequestedModuleType,
 }
 
 #[derive(Debug)]

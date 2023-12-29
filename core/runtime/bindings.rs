@@ -299,7 +299,7 @@ pub fn host_import_module_dynamically_callback<'s>(
       resolver.reject(tc_scope, e);
     }
   }
-  let asserted_module_type =
+  let requested_module_type =
     get_asserted_module_type_from_assertions(&assertions);
 
   let resolver_handle = v8::Global::new(scope, resolver);
@@ -315,7 +315,7 @@ pub fn host_import_module_dynamically_callback<'s>(
       module_map_rc,
       &specifier_str,
       &referrer_name_str,
-      asserted_module_type,
+      requested_module_type,
       resolver_handle,
     );
     state.notify_new_dynamic_import();

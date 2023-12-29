@@ -4,7 +4,7 @@ use crate::error::exception_to_err_result;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
-use crate::modules::AssertedModuleType;
+use crate::modules::RequestedModuleType;
 use crate::modules::ModuleError;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
@@ -277,28 +277,28 @@ fn test_recursive_load() {
   let modules = module_map_rc;
 
   assert_eq!(
-    modules.get_id("file:///a.js", AssertedModuleType::JavaScriptOrWasm),
+    modules.get_id("file:///a.js", RequestedModuleType::None),
     Some(a_id)
   );
   let b_id = modules
-    .get_id("file:///b.js", AssertedModuleType::JavaScriptOrWasm)
+    .get_id("file:///b.js", RequestedModuleType::None)
     .unwrap();
   let c_id = modules
-    .get_id("file:///c.js", AssertedModuleType::JavaScriptOrWasm)
+    .get_id("file:///c.js", RequestedModuleType::None)
     .unwrap();
   let d_id = modules
-    .get_id("file:///d.js", AssertedModuleType::JavaScriptOrWasm)
+    .get_id("file:///d.js", RequestedModuleType::None)
     .unwrap();
   assert_eq!(
     modules.get_requested_modules(a_id),
     Some(vec![
       ModuleRequest {
         specifier: "file:///b.js".to_string(),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       },
       ModuleRequest {
         specifier: "file:///c.js".to_string(),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       },
     ])
   );
@@ -306,14 +306,14 @@ fn test_recursive_load() {
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
       specifier: "file:///c.js".to_string(),
-      asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+      requested_module_type: RequestedModuleType::None,
     },])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
       specifier: "file:///d.js".to_string(),
-      asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+      requested_module_type: RequestedModuleType::None,
     },])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
@@ -382,7 +382,7 @@ fn test_mods() {
       imports,
       Some(vec![ModuleRequest {
         specifier: "file:///b.js".to_string(),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       },])
     );
 
@@ -484,7 +484,7 @@ fn test_json_module() {
       imports,
       Some(vec![ModuleRequest {
         specifier: "file:///c.json".to_string(),
-        asserted_module_type: AssertedModuleType::Json,
+        requested_module_type: RequestedModuleType::Json,
       },])
     );
 
@@ -509,7 +509,7 @@ fn test_json_module() {
       imports,
       Some(vec![ModuleRequest {
         specifier: "file:///c.json".to_string(),
-        asserted_module_type: AssertedModuleType::Json,
+        requested_module_type: RequestedModuleType::Json,
       },])
     );
 
@@ -857,18 +857,18 @@ fn test_circular_load() {
 
     assert_eq!(
       modules
-        .get_id("file:///circular1.js", AssertedModuleType::JavaScriptOrWasm),
+        .get_id("file:///circular1.js", RequestedModuleType::None),
       Some(circular1_id)
     );
     let circular2_id = modules
-      .get_id("file:///circular2.js", AssertedModuleType::JavaScriptOrWasm)
+      .get_id("file:///circular2.js", RequestedModuleType::None)
       .unwrap();
 
     assert_eq!(
       modules.get_requested_modules(circular1_id),
       Some(vec![ModuleRequest {
         specifier: "file:///circular2.js".to_string(),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       }])
     );
 
@@ -876,26 +876,26 @@ fn test_circular_load() {
       modules.get_requested_modules(circular2_id),
       Some(vec![ModuleRequest {
         specifier: "file:///circular3.js".to_string(),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       }])
     );
 
     assert!(modules
-      .get_id("file:///circular3.js", AssertedModuleType::JavaScriptOrWasm)
+      .get_id("file:///circular3.js", RequestedModuleType::None)
       .is_some());
     let circular3_id = modules
-      .get_id("file:///circular3.js", AssertedModuleType::JavaScriptOrWasm)
+      .get_id("file:///circular3.js", RequestedModuleType::None)
       .unwrap();
     assert_eq!(
       modules.get_requested_modules(circular3_id),
       Some(vec![
         ModuleRequest {
           specifier: "file:///circular1.js".to_string(),
-          asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+          requested_module_type: RequestedModuleType::None,
         },
         ModuleRequest {
           specifier: "file:///circular2.js".to_string(),
-          asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+          requested_module_type: RequestedModuleType::None,
         }
       ])
     );
@@ -937,41 +937,41 @@ fn test_redirect_load() {
 
     assert_eq!(
       modules
-        .get_id("file:///redirect1.js", AssertedModuleType::JavaScriptOrWasm),
+        .get_id("file:///redirect1.js", RequestedModuleType::None),
       Some(redirect1_id)
     );
 
     let redirect2_id = modules
       .get_id(
         "file:///dir/redirect2.js",
-        AssertedModuleType::JavaScriptOrWasm,
+        RequestedModuleType::None,
       )
       .unwrap();
     assert!(modules
-      .is_alias("file:///redirect2.js", AssertedModuleType::JavaScriptOrWasm));
+      .is_alias("file:///redirect2.js", RequestedModuleType::None));
     assert!(!modules.is_alias(
       "file:///dir/redirect2.js",
-      AssertedModuleType::JavaScriptOrWasm
+      RequestedModuleType::None
     ));
     assert_eq!(
       modules
-        .get_id("file:///redirect2.js", AssertedModuleType::JavaScriptOrWasm),
+        .get_id("file:///redirect2.js", RequestedModuleType::None),
       Some(redirect2_id)
     );
 
     let redirect3_id = modules
-      .get_id("file:///redirect3.js", AssertedModuleType::JavaScriptOrWasm)
+      .get_id("file:///redirect3.js", RequestedModuleType::None)
       .unwrap();
     assert!(modules.is_alias(
       "file:///dir/redirect3.js",
-      AssertedModuleType::JavaScriptOrWasm
+      RequestedModuleType::None
     ));
     assert!(!modules
-      .is_alias("file:///redirect3.js", AssertedModuleType::JavaScriptOrWasm));
+      .is_alias("file:///redirect3.js", RequestedModuleType::None));
     assert_eq!(
       modules.get_id(
         "file:///dir/redirect3.js",
-        AssertedModuleType::JavaScriptOrWasm
+        RequestedModuleType::None
       ),
       Some(redirect3_id)
     );
@@ -1090,18 +1090,18 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
   assert_eq!(
     modules.get_id(
       "file:///main_with_code.js",
-      AssertedModuleType::JavaScriptOrWasm
+      RequestedModuleType::None
     ),
     Some(main_id)
   );
   let b_id = modules
-    .get_id("file:///b.js", AssertedModuleType::JavaScriptOrWasm)
+    .get_id("file:///b.js", RequestedModuleType::None)
     .unwrap();
   let c_id = modules
-    .get_id("file:///c.js", AssertedModuleType::JavaScriptOrWasm)
+    .get_id("file:///c.js", RequestedModuleType::None)
     .unwrap();
   let d_id = modules
-    .get_id("file:///d.js", AssertedModuleType::JavaScriptOrWasm)
+    .get_id("file:///d.js", RequestedModuleType::None)
     .unwrap();
 
   assert_eq!(
@@ -1109,11 +1109,11 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
     Some(vec![
       ModuleRequest {
         specifier: "file:///b.js".to_string(),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       },
       ModuleRequest {
         specifier: "file:///c.js".to_string(),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       }
     ])
   );
@@ -1121,14 +1121,14 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
       specifier: "file:///c.js".to_string(),
-      asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+      requested_module_type: RequestedModuleType::None,
     }])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
       specifier: "file:///d.js".to_string(),
-      asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+      requested_module_type: RequestedModuleType::None,
     }])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));

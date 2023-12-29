@@ -1,5 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use super::AssertedModuleType;
+use super::RequestedModuleType;
 use crate::fast_string::FastString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleInfo;
@@ -24,10 +24,10 @@ pub(crate) enum SymbolicModule {
   Mod(ModuleId),
 }
 
-/// Map of [`ModuleName`] and [`AssertedModuleType`] to a data field.
+/// Map of [`ModuleName`] and [`RequestedModuleType`] to a data field.
 struct ModuleNameTypeMap<T> {
   submaps: Vec<HashMap<ModuleName, T>>,
-  map_index: HashMap<AssertedModuleType, usize>,
+  map_index: HashMap<RequestedModuleType, usize>,
   len: usize,
 }
 
@@ -46,11 +46,11 @@ impl<T> ModuleNameTypeMap<T> {
     self.len
   }
 
-  fn map_index(&self, ty: &AssertedModuleType) -> Option<usize> {
+  fn map_index(&self, ty: &RequestedModuleType) -> Option<usize> {
     self.map_index.get(ty).copied()
   }
 
-  pub fn get<Q>(&self, ty: &AssertedModuleType, name: &Q) -> Option<&T>
+  pub fn get<Q>(&self, ty: &RequestedModuleType, name: &Q) -> Option<&T>
   where
     ModuleName: std::borrow::Borrow<Q>,
     Q: std::cmp::Eq + std::hash::Hash + ?Sized,
@@ -72,7 +72,7 @@ impl<T> ModuleNameTypeMap<T> {
 
   pub fn insert(
     &mut self,
-    module_type: &AssertedModuleType,
+    module_type: &RequestedModuleType,
     name: FastString,
     module: T,
   ) {
@@ -101,7 +101,7 @@ impl<T> ModuleNameTypeMap<T> {
   /// doesn't have generators.
   pub fn walk(
     &self,
-    mut f: impl FnMut(usize, &AssertedModuleType, &ModuleName, &T),
+    mut f: impl FnMut(usize, &RequestedModuleType, &ModuleName, &T),
   ) {
     let mut i = 0;
     for (ty, value) in self.map_index.iter() {
@@ -172,18 +172,18 @@ impl ModuleMapData {
   pub fn get_id(
     &self,
     name: impl AsRef<str>,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
+    requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId> {
     let map = &self.by_name;
     let first_symbolic_module =
-      map.get(asserted_module_type.as_ref(), name.as_ref())?;
+      map.get(requested_module_type.as_ref(), name.as_ref())?;
     let mut mod_name = match first_symbolic_module {
       SymbolicModule::Mod(mod_id) => return Some(*mod_id),
       SymbolicModule::Alias(target) => target,
     };
     loop {
       let symbolic_module =
-        map.get(asserted_module_type.as_ref(), mod_name.as_ref())?;
+        map.get(requested_module_type.as_ref(), mod_name.as_ref())?;
       match symbolic_module {
         SymbolicModule::Alias(target) => {
           debug_assert!(mod_name != target);
@@ -197,22 +197,22 @@ impl ModuleMapData {
   pub fn is_registered(
     &self,
     specifier: impl AsRef<str>,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
+    requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> bool {
     self
-      .get_id(specifier.as_ref(), asserted_module_type.as_ref())
+      .get_id(specifier.as_ref(), requested_module_type.as_ref())
       .is_some()
   }
 
   pub(crate) fn alias(
     &mut self,
     name: FastString,
-    asserted_module_type: &AssertedModuleType,
+    requested_module_type: &RequestedModuleType,
     target: FastString,
   ) {
     debug_assert_ne!(name, target);
     self.by_name.insert(
-      asserted_module_type,
+      requested_module_type,
       name,
       SymbolicModule::Alias(target),
     );
@@ -222,10 +222,10 @@ impl ModuleMapData {
   pub(crate) fn is_alias(
     &self,
     name: &str,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
+    requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> bool {
     let map = &self.by_name;
-    let entry = map.get(asserted_module_type.as_ref(), name);
+    let entry = map.get(requested_module_type.as_ref(), name);
     matches!(entry, Some(SymbolicModule::Alias(_)))
   }
 
@@ -294,7 +294,7 @@ impl ModuleMapData {
         )
         .unwrap();
         requests_arr.set_index(scope, 2 * i as u32, specifier.into());
-        let value = request.asserted_module_type.to_v8(scope);
+        let value = request.requested_module_type.to_v8(scope);
         requests_arr.set_index(scope, (2 * i) as u32 + 1, value);
       }
       module_info_arr.set_index(scope, 2, requests_arr.into());
@@ -413,17 +413,17 @@ impl ModuleMapData {
             .to_rust_string_lossy(scope);
           let value =
             requests_arr.get_index(scope, (2 * i + 1) as u32).unwrap();
-          let asserted_module_type =
-            AssertedModuleType::try_from_v8(scope, value).unwrap();
+          let requested_module_type =
+            RequestedModuleType::try_from_v8(scope, value).unwrap();
           requests.push(ModuleRequest {
             specifier,
-            asserted_module_type,
+            requested_module_type,
           });
         }
 
         let value = module_info_arr.get_index(scope, 3).unwrap();
         let module_type =
-          AssertedModuleType::try_from_v8(scope, value).unwrap();
+          RequestedModuleType::try_from_v8(scope, value).unwrap();
 
         let main = self.main_module_id == Some(id);
         let module_info = ModuleInfo {
@@ -455,15 +455,15 @@ impl ModuleMapData {
 
         let specifier =
           arr.get_index(scope, 0).unwrap().to_rust_string_lossy(scope);
-        let asserted_module_type = match arr
+        let requested_module_type = match arr
           .get_index(scope, 1)
           .unwrap()
           .to_integer(scope)
           .unwrap()
           .value()
         {
-          0 => AssertedModuleType::JavaScriptOrWasm,
-          1 => AssertedModuleType::Json,
+          0 => RequestedModuleType::None,
+          1 => RequestedModuleType::Json,
           _ => unreachable!(),
         };
 
@@ -485,7 +485,7 @@ impl ModuleMapData {
 
         self
           .by_name
-          .insert(&asserted_module_type, specifier.into(), val);
+          .insert(&requested_module_type, specifier.into(), val);
       }
     }
 

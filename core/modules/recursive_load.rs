@@ -2,7 +2,7 @@
 use crate::error::generic_error;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::map::ModuleMap;
-use crate::modules::AssertedModuleType;
+use crate::modules::RequestedModuleType;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
@@ -37,7 +37,7 @@ enum LoadInit {
   Side(String),
   /// Dynamic import specifier with referrer and expected
   /// module type (which is determined by import assertion).
-  DynamicImport(String, String, AssertedModuleType),
+  DynamicImport(String, String, RequestedModuleType),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -53,7 +53,7 @@ pub(crate) struct RecursiveModuleLoad {
   pub id: ModuleLoadId,
   pub root_module_id: Option<ModuleId>,
   init: LoadInit,
-  root_asserted_module_type: Option<AssertedModuleType>,
+  root_asserted_module_type: Option<RequestedModuleType>,
   state: LoadState,
   module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
@@ -83,14 +83,14 @@ impl RecursiveModuleLoad {
   pub(crate) fn dynamic_import(
     specifier: &str,
     referrer: &str,
-    asserted_module_type: AssertedModuleType,
+    requested_module_type: RequestedModuleType,
     module_map_rc: Rc<ModuleMap>,
   ) -> Self {
     Self::new(
       LoadInit::DynamicImport(
         specifier.to_string(),
         referrer.to_string(),
-        asserted_module_type,
+        requested_module_type,
       ),
       module_map_rc,
     )
@@ -99,9 +99,9 @@ impl RecursiveModuleLoad {
   fn new(init: LoadInit, module_map_rc: Rc<ModuleMap>) -> Self {
     let id = module_map_rc.next_load_id();
     let loader = module_map_rc.loader.borrow().clone();
-    let asserted_module_type = match &init {
+    let requested_module_type = match &init {
       LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
-      _ => AssertedModuleType::JavaScriptOrWasm,
+      _ => RequestedModuleType::None,
     };
     let mut load = Self {
       id,
@@ -119,10 +119,10 @@ impl RecursiveModuleLoad {
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
     if let Ok(root_specifier) = load.resolve_root() {
       if let Some(module_id) =
-        module_map_rc.get_id(root_specifier, &asserted_module_type)
+        module_map_rc.get_id(root_specifier, &requested_module_type)
       {
         load.root_module_id = Some(module_id);
-        load.root_asserted_module_type = Some(asserted_module_type);
+        load.root_asserted_module_type = Some(requested_module_type);
       }
     }
     load
@@ -195,11 +195,11 @@ impl RecursiveModuleLoad {
     module_request: &ModuleRequest,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let asserted_module_type = module_request.asserted_module_type.clone();
-    if asserted_module_type != module_source.module_type {
+    let requested_module_type = module_request.requested_module_type.clone();
+    if requested_module_type != module_source.module_type {
       return Err(ModuleError::Other(generic_error(format!(
         "Expected a \"{}\" module but loaded a \"{}\" module.",
-        asserted_module_type, module_source.module_type,
+        requested_module_type, module_source.module_type,
       ))));
     }
 
@@ -215,7 +215,7 @@ impl RecursiveModuleLoad {
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
       self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(asserted_module_type);
+      self.root_asserted_module_type = Some(requested_module_type);
       self.state = LoadState::LoadingImports;
     }
     if self.pending.is_empty() {
@@ -258,7 +258,7 @@ impl RecursiveModuleLoad {
         {
           if let Some(module_id) = self.module_map_rc.get_id(
             module_request.specifier.as_str(),
-            &module_request.asserted_module_type,
+            &module_request.requested_module_type,
           ) {
             already_registered.push_back((module_id, module_request.clone()));
           } else {
@@ -314,13 +314,13 @@ impl Stream for RecursiveModuleLoad {
           Ok(url) => url,
           Err(error) => return Poll::Ready(Some(Err(error))),
         };
-        let asserted_module_type = match &inner.init {
+        let requested_module_type = match &inner.init {
           LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
-          _ => AssertedModuleType::JavaScriptOrWasm,
+          _ => RequestedModuleType::None,
         };
         let module_request = ModuleRequest {
           specifier: module_specifier.to_string(),
-          asserted_module_type,
+          requested_module_type,
         };
         let load_fut = if let Some(module_id) = inner.root_module_id {
           // If the inner future is already in the map, we might be done (assuming there are no pending

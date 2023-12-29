@@ -48,7 +48,7 @@ use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
-use super::AssertedModuleType;
+use super::RequestedModuleType;
 use super::LazyEsmModuleLoader;
 
 type PrepareLoadFuture =
@@ -182,8 +182,8 @@ impl ModuleMap {
     name: impl AsRef<str>,
   ) -> Option<v8::Global<v8::Module>> {
     let id = self
-      .get_id(name.as_ref(), AssertedModuleType::JavaScriptOrWasm)
-      .or_else(|| self.get_id(name.as_ref(), AssertedModuleType::Json))?;
+      .get_id(name.as_ref(), RequestedModuleType::None)
+      .or_else(|| self.get_id(name.as_ref(), RequestedModuleType::Json))?;
     self.get_handle(id)
   }
 
@@ -192,9 +192,9 @@ impl ModuleMap {
   pub(crate) fn get_id(
     &self,
     name: impl AsRef<str>,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
+    requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId> {
-    self.data.borrow().get_id(name, asserted_module_type)
+    self.data.borrow().get_id(name, requested_module_type)
   }
 
   pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
@@ -230,9 +230,9 @@ impl ModuleMap {
   pub fn is_alias(
     &self,
     name: &str,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
+    requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> bool {
-    self.data.borrow().is_alias(name, asserted_module_type)
+    self.data.borrow().is_alias(name, requested_module_type)
   }
 
   #[cfg(test)]
@@ -269,8 +269,8 @@ impl ModuleMap {
       module_url_specified
     };
 
-    let asserted_module_type = AssertedModuleType::from(module_type);
-    let maybe_module_id = self.get_id(&module_url_found, asserted_module_type);
+    let requested_module_type = RequestedModuleType::from(module_type);
+    let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
       debug!(
@@ -403,11 +403,11 @@ impl ModuleMap {
         Ok(s) => s,
         Err(e) => return Err(ModuleError::Other(e)),
       };
-      let asserted_module_type =
+      let requested_module_type =
         get_asserted_module_type_from_assertions(&assertions);
       let request = ModuleRequest {
         specifier: module_specifier.to_string(),
-        asserted_module_type,
+        requested_module_type,
       };
       requests.push(request);
     }
@@ -641,13 +641,13 @@ impl ModuleMap {
     self: Rc<Self>,
     specifier: &str,
     referrer: &str,
-    asserted_module_type: AssertedModuleType,
+    requested_module_type: RequestedModuleType,
     resolver_handle: v8::Global<v8::PromiseResolver>,
   ) {
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,
       referrer,
-      asserted_module_type.clone(),
+      requested_module_type.clone(),
       self.clone(),
     );
 
@@ -663,7 +663,7 @@ impl ModuleMap {
         if self
           .data
           .borrow()
-          .is_registered(module_specifier, asserted_module_type)
+          .is_registered(module_specifier, requested_module_type)
         {
           async move { (load.id, Ok(load)) }.boxed_local()
         } else {
@@ -1367,7 +1367,7 @@ impl ModuleMap {
     {
       let module_map_data = self.data.borrow();
       if let Some(id) = module_map_data
-        .get_id(module_specifier, AssertedModuleType::JavaScriptOrWasm)
+        .get_id(module_specifier, RequestedModuleType::None)
       {
         let handle = module_map_data.get_handle(id).unwrap();
         let handle_local = v8::Local::new(scope, handle);
