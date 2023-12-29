@@ -4,10 +4,10 @@ use crate::error::exception_to_err_result;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
-use crate::modules::RequestedModuleType;
 use crate::modules::ModuleError;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
+use crate::modules::RequestedModuleType;
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
@@ -856,8 +856,7 @@ fn test_circular_load() {
     let modules = module_map_rc;
 
     assert_eq!(
-      modules
-        .get_id("file:///circular1.js", RequestedModuleType::None),
+      modules.get_id("file:///circular1.js", RequestedModuleType::None),
       Some(circular1_id)
     );
     let circular2_id = modules
@@ -914,69 +913,61 @@ fn test_redirect_load() {
     ..Default::default()
   });
 
-  let fut = async move {
-    let spec = resolve_url("file:///redirect1.js").unwrap();
-    let result = runtime.load_main_module(&spec, None).await;
-    assert!(result.is_ok());
-    let redirect1_id = result.unwrap();
-    #[allow(clippy::let_underscore_future)]
-    let _ = runtime.mod_evaluate(redirect1_id);
-    runtime.run_event_loop(Default::default()).await.unwrap();
-    let l = loads.lock();
-    assert_eq!(
-      l.to_vec(),
-      vec![
-        "file:///redirect1.js",
-        "file:///redirect2.js",
-        "file:///dir/redirect3.js"
-      ]
-    );
+  let fut =
+    async move {
+      let spec = resolve_url("file:///redirect1.js").unwrap();
+      let result = runtime.load_main_module(&spec, None).await;
+      assert!(result.is_ok());
+      let redirect1_id = result.unwrap();
+      #[allow(clippy::let_underscore_future)]
+      let _ = runtime.mod_evaluate(redirect1_id);
+      runtime.run_event_loop(Default::default()).await.unwrap();
+      let l = loads.lock();
+      assert_eq!(
+        l.to_vec(),
+        vec![
+          "file:///redirect1.js",
+          "file:///redirect2.js",
+          "file:///dir/redirect3.js"
+        ]
+      );
 
-    let module_map_rc = runtime.module_map();
-    let modules = module_map_rc;
+      let module_map_rc = runtime.module_map();
+      let modules = module_map_rc;
 
-    assert_eq!(
-      modules
-        .get_id("file:///redirect1.js", RequestedModuleType::None),
-      Some(redirect1_id)
-    );
+      assert_eq!(
+        modules.get_id("file:///redirect1.js", RequestedModuleType::None),
+        Some(redirect1_id)
+      );
 
-    let redirect2_id = modules
-      .get_id(
-        "file:///dir/redirect2.js",
-        RequestedModuleType::None,
-      )
-      .unwrap();
-    assert!(modules
-      .is_alias("file:///redirect2.js", RequestedModuleType::None));
-    assert!(!modules.is_alias(
-      "file:///dir/redirect2.js",
-      RequestedModuleType::None
-    ));
-    assert_eq!(
-      modules
-        .get_id("file:///redirect2.js", RequestedModuleType::None),
-      Some(redirect2_id)
-    );
+      let redirect2_id = modules
+        .get_id("file:///dir/redirect2.js", RequestedModuleType::None)
+        .unwrap();
+      assert!(
+        modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
+      );
+      assert!(!modules
+        .is_alias("file:///dir/redirect2.js", RequestedModuleType::None));
+      assert_eq!(
+        modules.get_id("file:///redirect2.js", RequestedModuleType::None),
+        Some(redirect2_id)
+      );
 
-    let redirect3_id = modules
-      .get_id("file:///redirect3.js", RequestedModuleType::None)
-      .unwrap();
-    assert!(modules.is_alias(
-      "file:///dir/redirect3.js",
-      RequestedModuleType::None
-    ));
-    assert!(!modules
-      .is_alias("file:///redirect3.js", RequestedModuleType::None));
-    assert_eq!(
-      modules.get_id(
-        "file:///dir/redirect3.js",
-        RequestedModuleType::None
-      ),
-      Some(redirect3_id)
-    );
-  }
-  .boxed_local();
+      let redirect3_id = modules
+        .get_id("file:///redirect3.js", RequestedModuleType::None)
+        .unwrap();
+      assert!(
+        modules.is_alias("file:///dir/redirect3.js", RequestedModuleType::None)
+      );
+      assert!(
+        !modules.is_alias("file:///redirect3.js", RequestedModuleType::None)
+      );
+      assert_eq!(
+        modules.get_id("file:///dir/redirect3.js", RequestedModuleType::None),
+        Some(redirect3_id)
+      );
+    }
+    .boxed_local();
 
   futures::executor::block_on(fut);
 }
@@ -1088,10 +1079,7 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
   let modules = module_map_rc;
 
   assert_eq!(
-    modules.get_id(
-      "file:///main_with_code.js",
-      RequestedModuleType::None
-    ),
+    modules.get_id("file:///main_with_code.js", RequestedModuleType::None),
     Some(main_id)
   );
   let b_id = modules

@@ -101,34 +101,32 @@ pub(crate) fn validate_import_attributes(
 }
 
 #[derive(Debug)]
-pub(crate) enum ImportAssertionsKind {
+pub(crate) enum ImportAttributesKind {
   StaticImport,
   DynamicImport,
 }
 
-pub(crate) fn parse_import_assertions(
+pub(crate) fn parse_import_attributes(
   scope: &mut v8::HandleScope,
-  import_assertions: v8::Local<v8::FixedArray>,
-  kind: ImportAssertionsKind,
+  attributes: v8::Local<v8::FixedArray>,
+  kind: ImportAttributesKind,
 ) -> HashMap<String, String> {
   let mut assertions: HashMap<String, String> = HashMap::default();
 
   let assertions_per_line = match kind {
     // For static imports, assertions are triples of (keyword, value and source offset)
     // Also used in `module_resolve_callback`.
-    ImportAssertionsKind::StaticImport => 3,
+    ImportAttributesKind::StaticImport => 3,
     // For dynamic imports, assertions are tuples of (keyword, value)
-    ImportAssertionsKind::DynamicImport => 2,
+    ImportAttributesKind::DynamicImport => 2,
   };
-  assert_eq!(import_assertions.length() % assertions_per_line, 0);
-  let no_of_assertions = import_assertions.length() / assertions_per_line;
+  assert_eq!(attributes.length() % assertions_per_line, 0);
+  let no_of_assertions = attributes.length() / assertions_per_line;
 
   for i in 0..no_of_assertions {
-    let assert_key = import_assertions
-      .get(scope, assertions_per_line * i)
-      .unwrap();
+    let assert_key = attributes.get(scope, assertions_per_line * i).unwrap();
     let assert_key_val = v8::Local::<v8::Value>::try_from(assert_key).unwrap();
-    let assert_value = import_assertions
+    let assert_value = attributes
       .get(scope, (assertions_per_line * i) + 1)
       .unwrap();
     let assert_value_val =
@@ -142,19 +140,18 @@ pub(crate) fn parse_import_assertions(
   assertions
 }
 
-pub(crate) fn get_asserted_module_type_from_assertions(
-  assertions: &HashMap<String, String>,
+pub(crate) fn get_requested_module_type_from_attributes(
+  attributes: &HashMap<String, String>,
 ) -> RequestedModuleType {
-  assertions
-    .get("type")
-    .map(|ty| {
-      if ty == "json" {
-        RequestedModuleType::Json
-      } else {
-        RequestedModuleType::None
-      }
-    })
-    .unwrap_or(RequestedModuleType::None)
+  let Some(ty) = attributes.get("type") else {
+    return RequestedModuleType::None;
+  };
+
+  if ty == "json" {
+    RequestedModuleType::Json
+  } else {
+    RequestedModuleType::Other(Cow::Owned(ty.to_string()))
+  }
 }
 
 /// A type of module to be executed.

@@ -2,11 +2,11 @@
 use crate::error::generic_error;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::map::ModuleMap;
-use crate::modules::RequestedModuleType;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleRequest;
+use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_url;
 use crate::ModuleLoader;

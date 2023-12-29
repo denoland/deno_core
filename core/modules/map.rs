@@ -5,10 +5,10 @@ use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
 use crate::error::AnyError;
 use crate::error::JsError;
-use crate::modules::get_asserted_module_type_from_assertions;
-use crate::modules::parse_import_assertions;
+use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
-use crate::modules::ImportAssertionsKind;
+use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
@@ -48,8 +48,8 @@ use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
-use super::RequestedModuleType;
 use super::LazyEsmModuleLoader;
+use super::RequestedModuleType;
 
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
@@ -370,19 +370,19 @@ impl ModuleMap {
         .get_specifier()
         .to_rust_string_lossy(tc_scope);
 
-      let import_assertions = module_request.get_import_assertions();
+      let import_attributes = module_request.get_import_assertions();
 
-      let assertions = parse_import_assertions(
+      let attributes = parse_import_attributes(
         tc_scope,
-        import_assertions,
-        ImportAssertionsKind::StaticImport,
+        import_attributes,
+        ImportAttributesKind::StaticImport,
       );
 
       // FIXME(bartomieju): there are no stack frames if exception
       // is thrown here
       {
         let state = JsRuntime::state_from(tc_scope);
-        (state.validate_import_attributes_cb)(tc_scope, &assertions);
+        (state.validate_import_attributes_cb)(tc_scope, &attributes);
       }
 
       if tc_scope.has_caught() {
@@ -404,7 +404,7 @@ impl ModuleMap {
         Err(e) => return Err(ModuleError::Other(e)),
       };
       let requested_module_type =
-        get_asserted_module_type_from_assertions(&assertions);
+        get_requested_module_type_from_attributes(&attributes);
       let request = ModuleRequest {
         specifier: module_specifier.to_string(),
         requested_module_type,
@@ -495,7 +495,7 @@ impl ModuleMap {
   fn module_resolve_callback<'s>(
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
-    import_assertions: v8::Local<'s, v8::FixedArray>,
+    import_attributes: v8::Local<'s, v8::FixedArray>,
     referrer: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
@@ -515,10 +515,10 @@ impl ModuleMap {
 
     let specifier_str = specifier.to_rust_string_lossy(scope);
 
-    let assertions = parse_import_assertions(
+    let assertions = parse_import_attributes(
       scope,
-      import_assertions,
-      ImportAssertionsKind::StaticImport,
+      import_attributes,
+      ImportAttributesKind::StaticImport,
     );
     let maybe_module = module_map.resolve_callback(
       scope,
@@ -570,7 +570,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope<'s>,
     specifier: &str,
     referrer: &str,
-    import_assertions: HashMap<String, String>,
+    import_attributes: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     let resolved_specifier =
       match self.resolve(specifier, referrer, ResolutionKind::Import) {
@@ -582,7 +582,7 @@ impl ModuleMap {
       };
 
     let module_type =
-      get_asserted_module_type_from_assertions(&import_assertions);
+      get_requested_module_type_from_attributes(&import_attributes);
 
     if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type) {
       if let Some(handle) = self.get_handle(id) {
@@ -1366,8 +1366,8 @@ impl ModuleMap {
     // Check if this module has already been loaded.
     {
       let module_map_data = self.data.borrow();
-      if let Some(id) = module_map_data
-        .get_id(module_specifier, RequestedModuleType::None)
+      if let Some(id) =
+        module_map_data.get_id(module_specifier, RequestedModuleType::None)
       {
         let handle = module_map_data.get_handle(id).unwrap();
         let handle_local = v8::Local::new(scope, handle);
