@@ -5,10 +5,10 @@ use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
 use crate::error::AnyError;
 use crate::error::JsError;
-use crate::modules::get_asserted_module_type_from_assertions;
-use crate::modules::parse_import_assertions;
+use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
-use crate::modules::ImportAssertionsKind;
+use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
@@ -48,8 +48,8 @@ use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
-use super::AssertedModuleType;
 use super::LazyEsmModuleLoader;
+use super::RequestedModuleType;
 
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
@@ -182,8 +182,8 @@ impl ModuleMap {
     name: impl AsRef<str>,
   ) -> Option<v8::Global<v8::Module>> {
     let id = self
-      .get_id(name.as_ref(), AssertedModuleType::JavaScriptOrWasm)
-      .or_else(|| self.get_id(name.as_ref(), AssertedModuleType::Json))?;
+      .get_id(name.as_ref(), RequestedModuleType::None)
+      .or_else(|| self.get_id(name.as_ref(), RequestedModuleType::Json))?;
     self.get_handle(id)
   }
 
@@ -192,9 +192,9 @@ impl ModuleMap {
   pub(crate) fn get_id(
     &self,
     name: impl AsRef<str>,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
+    requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId> {
-    self.data.borrow().get_id(name, asserted_module_type)
+    self.data.borrow().get_id(name, requested_module_type)
   }
 
   pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
@@ -230,9 +230,9 @@ impl ModuleMap {
   pub fn is_alias(
     &self,
     name: &str,
-    asserted_module_type: impl AsRef<AssertedModuleType>,
+    requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> bool {
-    self.data.borrow().is_alias(name, asserted_module_type)
+    self.data.borrow().is_alias(name, requested_module_type)
   }
 
   #[cfg(test)]
@@ -269,8 +269,8 @@ impl ModuleMap {
       module_url_specified
     };
 
-    let asserted_module_type = AssertedModuleType::from(module_type);
-    let maybe_module_id = self.get_id(&module_url_found, asserted_module_type);
+    let requested_module_type = RequestedModuleType::from(module_type);
+    let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
       debug!(
@@ -370,19 +370,19 @@ impl ModuleMap {
         .get_specifier()
         .to_rust_string_lossy(tc_scope);
 
-      let import_assertions = module_request.get_import_assertions();
+      let import_attributes = module_request.get_import_assertions();
 
-      let assertions = parse_import_assertions(
+      let attributes = parse_import_attributes(
         tc_scope,
-        import_assertions,
-        ImportAssertionsKind::StaticImport,
+        import_attributes,
+        ImportAttributesKind::StaticImport,
       );
 
       // FIXME(bartomieju): there are no stack frames if exception
       // is thrown here
       {
         let state = JsRuntime::state_from(tc_scope);
-        (state.validate_import_attributes_cb)(tc_scope, &assertions);
+        (state.validate_import_attributes_cb)(tc_scope, &attributes);
       }
 
       if tc_scope.has_caught() {
@@ -403,11 +403,11 @@ impl ModuleMap {
         Ok(s) => s,
         Err(e) => return Err(ModuleError::Other(e)),
       };
-      let asserted_module_type =
-        get_asserted_module_type_from_assertions(&assertions);
+      let requested_module_type =
+        get_requested_module_type_from_attributes(&attributes);
       let request = ModuleRequest {
         specifier: module_specifier.to_string(),
-        asserted_module_type,
+        requested_module_type,
       };
       requests.push(request);
     }
@@ -495,7 +495,7 @@ impl ModuleMap {
   fn module_resolve_callback<'s>(
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
-    import_assertions: v8::Local<'s, v8::FixedArray>,
+    import_attributes: v8::Local<'s, v8::FixedArray>,
     referrer: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
@@ -515,10 +515,10 @@ impl ModuleMap {
 
     let specifier_str = specifier.to_rust_string_lossy(scope);
 
-    let assertions = parse_import_assertions(
+    let assertions = parse_import_attributes(
       scope,
-      import_assertions,
-      ImportAssertionsKind::StaticImport,
+      import_attributes,
+      ImportAttributesKind::StaticImport,
     );
     let maybe_module = module_map.resolve_callback(
       scope,
@@ -570,7 +570,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope<'s>,
     specifier: &str,
     referrer: &str,
-    import_assertions: HashMap<String, String>,
+    import_attributes: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     let resolved_specifier =
       match self.resolve(specifier, referrer, ResolutionKind::Import) {
@@ -582,7 +582,7 @@ impl ModuleMap {
       };
 
     let module_type =
-      get_asserted_module_type_from_assertions(&import_assertions);
+      get_requested_module_type_from_attributes(&import_attributes);
 
     if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type) {
       if let Some(handle) = self.get_handle(id) {
@@ -641,13 +641,13 @@ impl ModuleMap {
     self: Rc<Self>,
     specifier: &str,
     referrer: &str,
-    asserted_module_type: AssertedModuleType,
+    requested_module_type: RequestedModuleType,
     resolver_handle: v8::Global<v8::PromiseResolver>,
   ) {
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,
       referrer,
-      asserted_module_type.clone(),
+      requested_module_type.clone(),
       self.clone(),
     );
 
@@ -663,7 +663,7 @@ impl ModuleMap {
         if self
           .data
           .borrow()
-          .is_registered(module_specifier, asserted_module_type)
+          .is_registered(module_specifier, requested_module_type)
         {
           async move { (load.id, Ok(load)) }.boxed_local()
         } else {
@@ -1366,8 +1366,8 @@ impl ModuleMap {
     // Check if this module has already been loaded.
     {
       let module_map_data = self.data.borrow();
-      if let Some(id) = module_map_data
-        .get_id(module_specifier, AssertedModuleType::JavaScriptOrWasm)
+      if let Some(id) =
+        module_map_data.get_id(module_specifier, RequestedModuleType::None)
       {
         let handle = module_map_data.get_handle(id).unwrap();
         let handle_local = v8::Local::new(scope, handle);

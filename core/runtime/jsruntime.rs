@@ -15,13 +15,13 @@ use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
-use crate::modules::AssertedModuleType;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
 use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
@@ -1015,7 +1015,7 @@ impl JsRuntime {
       for specifier in esm_entrypoints {
         let mod_id = {
           module_map
-            .get_id(specifier, AssertedModuleType::JavaScriptOrWasm)
+            .get_id(specifier, RequestedModuleType::None)
             .unwrap_or_else(|| {
               panic!("{} not present in the module map", specifier)
             })

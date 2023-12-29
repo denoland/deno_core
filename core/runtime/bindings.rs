@@ -9,9 +9,9 @@ use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
 use crate::error::JsStackFrame;
-use crate::modules::get_asserted_module_type_from_assertions;
-use crate::modules::parse_import_assertions;
-use crate::modules::ImportAssertionsKind;
+use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::parse_import_attributes;
+use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::runtime::InitMode;
@@ -266,7 +266,7 @@ pub fn host_import_module_dynamically_callback<'s>(
   _host_defined_options: v8::Local<'s, v8::Data>,
   resource_name: v8::Local<'s, v8::Value>,
   specifier: v8::Local<'s, v8::String>,
-  import_assertions: v8::Local<'s, v8::FixedArray>,
+  import_attributes: v8::Local<'s, v8::FixedArray>,
 ) -> Option<v8::Local<'s, v8::Promise>> {
   // NOTE(bartlomieju): will crash for non-UTF-8 specifier
   let specifier_str = specifier
@@ -281,10 +281,10 @@ pub fn host_import_module_dynamically_callback<'s>(
   let resolver = v8::PromiseResolver::new(scope).unwrap();
   let promise = resolver.get_promise(scope);
 
-  let assertions = parse_import_assertions(
+  let assertions = parse_import_attributes(
     scope,
-    import_assertions,
-    ImportAssertionsKind::DynamicImport,
+    import_attributes,
+    ImportAttributesKind::DynamicImport,
   );
 
   {
@@ -299,8 +299,8 @@ pub fn host_import_module_dynamically_callback<'s>(
       resolver.reject(tc_scope, e);
     }
   }
-  let asserted_module_type =
-    get_asserted_module_type_from_assertions(&assertions);
+  let requested_module_type =
+    get_requested_module_type_from_attributes(&assertions);
 
   let resolver_handle = v8::Global::new(scope, resolver);
   {
@@ -315,7 +315,7 @@ pub fn host_import_module_dynamically_callback<'s>(
       module_map_rc,
       &specifier_str,
       &referrer_name_str,
-      asserted_module_type,
+      requested_module_type,
       resolver_handle,
     );
     state.notify_new_dynamic_import();

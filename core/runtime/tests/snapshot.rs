@@ -1,7 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::extensions::Op;
-use crate::modules::AssertedModuleType;
 use crate::modules::ModuleInfo;
+use crate::modules::RequestedModuleType;
 use crate::modules::TestingModuleLoader;
 use crate::*;
 use anyhow::Error;
@@ -161,9 +161,9 @@ fn es_snapshot() {
       name: specifier.into(),
       requests: vec![crate::modules::ModuleRequest {
         specifier: format!("file:///{prev}.js"),
-        asserted_module_type: AssertedModuleType::JavaScriptOrWasm,
+        requested_module_type: RequestedModuleType::None,
       }],
-      module_type: AssertedModuleType::JavaScriptOrWasm,
+      module_type: RequestedModuleType::None,
     }
   }
 
@@ -201,7 +201,7 @@ fn es_snapshot() {
     main: false,
     name: specifier.into(),
     requests: vec![],
-    module_type: AssertedModuleType::JavaScriptOrWasm,
+    module_type: RequestedModuleType::None,
   });
 
   modules.extend((1..200).map(|i| create_module(&mut runtime, i, false)));
