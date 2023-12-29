@@ -2,7 +2,6 @@
 
 use anyhow::Context;
 use deno_core::anyhow::Error;
-use deno_core::v8;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;

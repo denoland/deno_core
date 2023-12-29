@@ -39,7 +39,7 @@ pub(crate) type ModuleLoadId = i32;
 #[derive(Debug)]
 pub enum ModuleSourceCode {
   String(FastString),
-  Bytes(Box<[u8]>),
+  Bytes(Vec<u8>),
 }
 // TODO(bartlomieju): remove
 pub type ModuleCode = FastString;
@@ -270,17 +270,14 @@ impl ModuleSource {
   }
 
   pub fn get_string_source(
-    specifier: &ModuleSpecifier,
+    specifier: &str,
     code: ModuleSourceCode,
   ) -> Result<ModuleCode, AnyError> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
-          format!(
-            "Can't convert source code to string for {}",
-            specifier.as_str()
-          )
+        let str_ = String::from_utf8(bytes).with_context(|| {
+          format!("Can't convert source code to string for {}", specifier)
         })?;
         Ok(ModuleCode::from(str_))
       }

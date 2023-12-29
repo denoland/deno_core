@@ -308,7 +308,7 @@ impl ModuleLoader for FsModuleLoader {
       })?;
       let module = ModuleSource::new(
         module_type,
-        ModuleSourceCode::Bytes(code.into_boxed_slice()),
+        ModuleSourceCode::Bytes(code),
         module_specifier,
       );
       Ok(module)
