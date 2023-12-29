@@ -297,7 +297,7 @@ impl ModuleLoader for FsModuleLoader {
         if ext == "json" {
           ModuleType::Json
         } else {
-          ModuleType::JavaScript
+          ModuleType::Other(ext.into())
         }
       } else {
         ModuleType::JavaScript

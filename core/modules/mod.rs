@@ -78,7 +78,7 @@ pub type CustomModuleEvaluationCb = Box<
   dyn Fn(
     &mut v8::HandleScope,
     Cow<'_, str>,
-    FastString,
+    &FastString,
     ModuleSourceCode,
   ) -> Result<v8::Global<v8::Value>, AnyError>,
 >;

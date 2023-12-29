@@ -2,10 +2,30 @@
 
 use anyhow::Context;
 use deno_core::anyhow::Error;
+use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
+use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::rc::Rc;
+
+fn custom_module_evaluation_cb(
+  scope: &mut v8::HandleScope,
+  module_type: Cow<'_, str>,
+  module_name: &FastString,
+  code: ModuleSourceCode,
+) -> Result<v8::Global<v8::Value>, Error> {
+  todo!()
+}
+
+fn validate_import_attributes(
+  _scope: &mut v8::HandleScope,
+  _assertions: &HashMap<String, String>,
+) {
+  // allow all
+}
 
 fn main() -> Result<(), Error> {
   let args: Vec<String> = std::env::args().collect();
@@ -18,6 +38,8 @@ fn main() -> Result<(), Error> {
 
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
+    custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
+    validate_import_attributes_cb: Some(Box::new(validate_import_attributes)),
     ..Default::default()
   });
 

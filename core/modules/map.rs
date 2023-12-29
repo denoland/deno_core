@@ -302,7 +302,7 @@ impl ModuleMap {
           let evaluation_result = evaluation_cb(
             scope,
             module_type.clone(),
-            module_url_found.try_clone().unwrap(),
+            &module_url_found,
             code,
           );
           match evaluation_result {
