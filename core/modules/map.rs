@@ -280,20 +280,51 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let code = ModuleSource::get_string_source(module_url_found.as_str(), code)
-      .map_err(ModuleError::Other)?;
     let module_id = match module_type {
       ModuleType::JavaScript => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_es_module(scope, main, module_url_found, code, dynamic)?
       }
       ModuleType::Json => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_json_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
-        return Err(ModuleError::Other(generic_error(format!(
-          "Importing '{}' modules is not supported",
-          module_type
-        ))));
+        let state = JsRuntime::state_from(scope);
+        let custom_module_evaluation_cb =
+          state.custom_module_evaluation_cb.as_ref();
+
+        if let Some(evaluation_cb) = custom_module_evaluation_cb {
+          let evaluation_result = evaluation_cb(
+            scope,
+            module_type.clone(),
+            module_url_found.try_clone().unwrap(),
+            code,
+          );
+          match evaluation_result {
+            Ok(value_global) => {
+              let value = v8::Local::new(scope, value_global);
+              self.new_synthetic_module(
+                scope,
+                module_url_found,
+                ModuleType::Other(module_type.clone()),
+                value,
+              )?
+            }
+            Err(err) => {
+              return Err(ModuleError::Other(err));
+            }
+          }
+        } else {
+          return Err(ModuleError::Other(generic_error(format!(
+            "Importing '{}' modules is not supported",
+            module_type
+          ))));
+        }
       }
     };
     Ok(module_id)

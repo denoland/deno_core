@@ -72,6 +72,17 @@ pub(crate) fn default_import_meta_resolve_cb(
 pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
 
+/// Callback to validate import attributes. If the validation fails and exception
+/// should be thrown using `scope.throw_exception()`.
+pub type CustomModuleEvaluationCb = Box<
+  dyn Fn(
+    &mut v8::HandleScope,
+    Cow<'_, str>,
+    FastString,
+    ModuleSourceCode,
+  ) -> Result<v8::Global<v8::Value>, AnyError>,
+>;
+
 const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
 
 /// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
