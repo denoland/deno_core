@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
 use deno_core::v8;
@@ -15,12 +16,11 @@ use std::rc::Rc;
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
   module_type: Cow<'_, str>,
-  module_name: &FastString,
+  _module_name: &FastString,
   code: ModuleSourceCode,
 ) -> Result<v8::Global<v8::Value>, Error> {
-  eprintln!("module type {:?} {}", module_name, module_type);
-  if module_type != "jpg" {
-    todo!()
+  if module_type != "bytes" {
+    return Err(anyhow!("Unknown module type {}", module_type));
   }
 
   let buf = match code {

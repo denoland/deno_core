@@ -1412,7 +1412,9 @@ impl ModuleMap {
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let source = futures::executor::block_on(async {
-      loader.load(&specifier, None, false).await
+      loader
+        .load(&specifier, None, RequestedModuleType::None, false)
+        .await
     })?;
 
     self.lazy_load_es_module_from_code(

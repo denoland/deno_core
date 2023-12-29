@@ -319,7 +319,7 @@ pub enum ResolutionKind {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum RequestedModuleType {
+pub enum RequestedModuleType {
   /// There was no attribute specified in the import statement.
   None,
 

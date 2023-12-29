@@ -99,6 +99,7 @@ pub use crate::modules::ModuleSourceCode;
 pub use crate::modules::ModuleSourceFuture;
 pub use crate::modules::ModuleType;
 pub use crate::modules::NoopModuleLoader;
+pub use crate::modules::RequestedModuleType;
 pub use crate::modules::ResolutionKind;
 pub use crate::modules::StaticModuleLoader;
 pub use crate::modules::ValidateImportAttributesCb;

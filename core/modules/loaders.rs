@@ -24,6 +24,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
+use super::RequestedModuleType;
+
 pub trait ModuleLoader {
   /// Returns an absolute URL.
   /// When implementing an spec-complaint VM, this should be exactly the
@@ -50,6 +52,7 @@ pub trait ModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
+    requested_module_type: RequestedModuleType,
     is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>>;
 
@@ -89,6 +92,7 @@ impl ModuleLoader for NoopModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let maybe_referrer = maybe_referrer
@@ -143,6 +147,7 @@ impl ModuleLoader for ExtModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let sources = self.sources.borrow();
@@ -207,6 +212,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let sources = self.sources.borrow();
@@ -282,10 +288,12 @@ impl ModuleLoader for FsModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    requested_module_type: RequestedModuleType,
     _is_dynamic: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     fn load(
       module_specifier: &ModuleSpecifier,
+      requested_module_type: RequestedModuleType,
     ) -> Result<ModuleSource, AnyError> {
       let path = module_specifier.to_file_path().map_err(|_| {
         generic_error(format!(
@@ -294,12 +302,16 @@ impl ModuleLoader for FsModuleLoader {
       })?;
       let module_type = if let Some(extension) = path.extension() {
         let ext = extension.to_string_lossy().to_lowercase();
-        if ext == "js" {
-          ModuleType::JavaScript
-        } else if ext == "json" {
+        // We only return JSON modules if extension was actually `.json`.
+        // In other cases we defer to actual requested module type, so runtime
+        // can decide what to do with it.
+        if ext == "json" {
           ModuleType::Json
         } else {
-          ModuleType::Other(ext.into())
+          match requested_module_type {
+            RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
+            _ => ModuleType::JavaScript,
+          }
         }
       } else {
         ModuleType::JavaScript
@@ -316,7 +328,8 @@ impl ModuleLoader for FsModuleLoader {
       Ok(module)
     }
 
-    futures::future::ready(load(module_specifier)).boxed_local()
+    futures::future::ready(load(module_specifier, requested_module_type))
+      .boxed_local()
   }
 }
 
@@ -360,6 +373,7 @@ impl ModuleLoader for StaticModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let res = if let Some(code) = self.map.get(module_specifier) {
@@ -440,13 +454,17 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
+    requested_module_type: RequestedModuleType,
     is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
-    self
-      .loader
-      .load(module_specifier, maybe_referrer, is_dyn_import)
+    self.loader.load(
+      module_specifier,
+      maybe_referrer,
+      requested_module_type,
+      is_dyn_import,
+    )
   }
 }
 
