@@ -4,13 +4,13 @@ use std::collections::BTreeSet;
 use std::fmt::Debug;
 
 pub type ExitCb = Box<dyn Fn(&str, &str) + Send + Sync>;
-pub type WarnCb = Box<dyn Fn(&str) + Send + Sync>;
+pub type WarnCb = Box<dyn Fn(&str, &str) + Send + Sync>;
 
 fn exit(_feature: &str, _api_name: &str) {
   std::process::exit(70);
 }
 
-fn warn_legacy_flag(_feature: &str) {}
+fn warn_legacy_flag(_feature: &str, _api_name: &str) {}
 
 pub struct FeatureChecker {
   features: BTreeSet<&'static str>,
@@ -86,7 +86,7 @@ impl FeatureChecker {
     if !self.features.contains(feature) {
       if self.legacy_unstable {
         if self.warn_on_legacy_unstable {
-          (self.warn_cb)(feature);
+          (self.warn_cb)(feature, api_name);
         }
         return;
       }
@@ -122,7 +122,7 @@ mod tests {
       EXIT_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn warn_cb(_feature: &str) {
+    fn warn_cb(_feature: &str, _api_name: &str) {
       WARN_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
