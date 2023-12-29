@@ -36,12 +36,17 @@ pub(crate) use map::ModuleMap;
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
 
+/// The actual source code returned from the loader. Most embedders should
+/// try to return bytes and let deno_core interpret if the module should be
+/// converted to a string or not.
 #[derive(Debug)]
 pub enum ModuleSourceCode {
-  String(FastString),
+  String(ModuleCode),
   Bytes(Vec<u8>),
 }
-// TODO(bartlomieju): remove
+
+// TODO(bartlomieju): maybe remove it? It might be confusing between `ModuleSourceCode`
+// and `ModuleCode`.
 pub type ModuleCode = FastString;
 pub type ModuleName = FastString;
 
