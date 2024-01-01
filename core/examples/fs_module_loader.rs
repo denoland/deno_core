@@ -58,10 +58,10 @@ fn text_module(
     unreachable!()
   };
 
-  let code = String::from_utf8(buf).with_context(|| {
+  let code = std::str::from_utf8(&buf).with_context(|| {
     format!("Can't convert {:?} source code to string", module_name)
   })?;
-  let str_ = v8::String::new(scope, &code).unwrap();
+  let str_ = v8::String::new(scope, code).unwrap();
   let value: v8::Local<v8::Value> = str_.into();
   Ok(v8::Global::new(scope, value))
 }
