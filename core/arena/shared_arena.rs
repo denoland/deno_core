@@ -7,6 +7,8 @@ use crate::arena::raw_arena::RawArena;
 
 use super::alloc;
 
+/// In debug mode we use a signature to ensure that raw pointers are pointing to the correct
+/// shape of arena object.
 #[cfg(debug_assertions)]
 const SIGNATURE: usize = 0x1122334455667788;
 

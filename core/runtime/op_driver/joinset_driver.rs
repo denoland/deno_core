@@ -1,10 +1,9 @@
+use super::future_arena::FutureAllocation;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use super::erased_future::ErasedFuture;
+use super::future_arena::FutureArena;
 use super::op_results::*;
 use super::OpDriver;
 use super::RetValMapper;
-use crate::arena::ArenaBox;
-use crate::arena::ArenaUnique;
 use crate::ops::OpCtx;
 use crate::GetErrorClassFn;
 use crate::OpId;
@@ -16,75 +15,26 @@ use futures::FutureExt;
 use std::cell::RefCell;
 use std::future::ready;
 use std::future::Future;
-use std::pin::Pin;
 use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
 
-const MAX_ARENA_FUTURE_SIZE: usize = 1024;
-const FUTURE_ARENA_COUNT: usize = 256;
-
-enum FutureAllocation<R: 'static> {
-  Arena(ArenaBox<ErasedFuture<MAX_ARENA_FUTURE_SIZE, R>>),
-  Box(Pin<Box<dyn Future<Output = R>>>),
-}
-
-impl<R> Unpin for FutureAllocation<R> {}
-
-impl<R> Future for FutureAllocation<R> {
-  type Output = R;
-
-  #[inline(always)]
-  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.get_mut() {
-      Self::Arena(f) => f.poll_unpin(cx),
-      Self::Box(f) => f.poll_unpin(cx),
-    }
-  }
-}
-
 /// [`OpDriver`] implementation built on a tokio [`JoinSet`].
 pub struct JoinSetDriver {
   pending_ops: RefCell<JoinSet<PendingOp>>,
-  arena: ArenaUnique<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>>,
+  arena: FutureArena,
 }
 
 impl Default for JoinSetDriver {
   fn default() -> Self {
     Self {
       pending_ops: Default::default(),
-      arena: ArenaUnique::with_capacity(FUTURE_ARENA_COUNT),
+      arena: Default::default(),
     }
   }
 }
 
 impl JoinSetDriver {
-  /// Allocate a future to run in this `JoinSet`. If the future is too large, or the arena
-  /// is full, allocated in the heap.
-  fn allocate<F, R>(&self, f: F) -> FutureAllocation<R>
-  where
-    F: Future<Output = R> + 'static,
-  {
-    if std::mem::size_of::<F>() > MAX_ARENA_FUTURE_SIZE {
-      FutureAllocation::Box(f.boxed_local())
-    } else {
-      unsafe {
-        match self.arena.reserve_space() {
-          Some(reservation) => {
-            let alloc = self.arena.complete_reservation(
-              reservation,
-              std::mem::transmute(
-                ErasedFuture::<MAX_ARENA_FUTURE_SIZE, _>::new(f),
-              ),
-            );
-            FutureAllocation::Arena(std::mem::transmute(alloc))
-          }
-          None => FutureAllocation::Box(f.boxed_local()),
-        }
-      }
-    }
-  }
-
   /// Spawn an unpolled task, along with a function that can map it to a [`PendingOp`].
   #[inline(always)]
   fn spawn_unpolled<R>(
@@ -169,7 +119,7 @@ impl OpDriver for JoinSetDriver {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      let mut pinned = self.allocate(op);
+      let mut pinned = self.arena.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => self.spawn_polled(pinned, move |r| {
           Self::pending_op_result(info, rv_map, get_class, r)
@@ -210,7 +160,7 @@ impl OpDriver for JoinSetDriver {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      let mut pinned = self.allocate(op);
+      let mut pinned = self.arena.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => self.spawn_polled(pinned, move |res| {
           Self::pending_op_success(info, rv_map, res)
@@ -270,42 +220,5 @@ impl OpDriver for JoinSetDriver {
   #[inline(always)]
   fn len(&self) -> usize {
     self.pending_ops.borrow().len()
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_double_free() {
-    let driver = JoinSetDriver::default();
-    let f = driver.allocate(async { 1 });
-    drop(f);
-    let f = driver.allocate(Box::pin(async { 1 }));
-    drop(f);
-    let f = driver.allocate(ready(Box::new(1)));
-    drop(f);
-  }
-
-  #[test]
-  fn test_exceed_arena() {
-    let driver = JoinSetDriver::default();
-    let mut v = vec![];
-    for _ in 0..1000 {
-      v.push(driver.allocate(ready(Box::new(1))));
-    }
-    drop(v);
-  }
-
-  #[test]
-  fn test_drop_after_joinset() {
-    let driver = JoinSetDriver::default();
-    let mut v = vec![];
-    for _ in 0..1000 {
-      v.push(driver.allocate(ready(Box::new(1))));
-    }
-    drop(driver);
-    drop(v);
   }
 }

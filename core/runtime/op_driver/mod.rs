@@ -9,11 +9,9 @@ use std::task::Poll;
 
 mod erased_future;
 mod future_arena;
-mod futuresunordered_driver;
 mod joinset_driver;
 mod op_results;
 
-pub use futuresunordered_driver::FuturesUnorderedDriver;
 pub use joinset_driver::JoinSetDriver;
 
 pub type RetValMapper<R> =

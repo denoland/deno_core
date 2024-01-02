@@ -16,6 +16,8 @@ pub use unique_arena::*;
 
 #[inline(always)]
 fn alloc_layout<T>(layout: Layout) -> NonNull<T> {
+  // Layout of size zero is UB
+  assert!(std::mem::size_of::<T>() > 0);
   let alloc = unsafe { std::alloc::alloc(layout) } as *mut _;
   let Some(alloc) = NonNull::new(alloc) else {
     handle_alloc_error(layout);
@@ -25,6 +27,8 @@ fn alloc_layout<T>(layout: Layout) -> NonNull<T> {
 
 #[inline(always)]
 fn alloc<T>() -> NonNull<T> {
+  // Layout of size zero is UB
+  assert!(std::mem::size_of::<T>() > 0);
   let alloc = unsafe { std::alloc::alloc(Layout::new::<T>()) } as *mut _;
   let Some(alloc) = NonNull::new(alloc) else {
     handle_alloc_error(Layout::new::<T>());

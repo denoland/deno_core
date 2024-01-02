@@ -24,31 +24,6 @@ async fn task() {
   drop(v);
 }
 
-// fn bench_opset(b: &mut Bencher) {
-//   let runtime = tokio::runtime::Builder::new_current_thread()
-//     .enable_time()
-//     .build()
-//     .unwrap();
-//   let mut opset = OpSet::<(), ()>::default();
-//   b.iter(|| {
-//     runtime.block_on(async {
-//       for _ in 0..LOOPS {
-//         let mut expect = 0;
-//         for _ in 0..COUNT {
-//           if opset.insert_op(0, task(), |_, x| x).is_pending() {
-//             expect += 1;
-//           }
-//         }
-//         for _ in 0..expect {
-//           opset.ready(&mut ()).await;
-//         }
-//       }
-
-//       opset.reset()
-//     });
-//   });
-// }
-
 fn bench_futures_unordered(b: &mut Bencher) {
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_time()

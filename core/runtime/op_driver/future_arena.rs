@@ -30,14 +30,18 @@ impl<R> Future for FutureAllocation<R> {
   }
 }
 
+/// An arena of erased futures. Futures too large for the arena, or futures allocated when the
+/// arena are full, are automatically moved to the heap instead.
 #[repr(transparent)]
 pub struct FutureArena {
-  arena: ArenaUnique<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>>
+  arena: ArenaUnique<ErasedFuture<MAX_ARENA_FUTURE_SIZE, ()>>,
 }
 
 impl Default for FutureArena {
   fn default() -> Self {
-    FutureArena { arena: ArenaUnique::with_capacity(FUTURE_ARENA_COUNT) }
+    FutureArena {
+      arena: ArenaUnique::with_capacity(FUTURE_ARENA_COUNT),
+    }
   }
 }
 
@@ -73,7 +77,7 @@ impl FutureArena {
 mod tests {
   use std::future::ready;
 
-use super::*;
+  use super::*;
 
   #[test]
   fn test_double_free() {
