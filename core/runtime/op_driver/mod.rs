@@ -51,6 +51,7 @@ pub(crate) trait OpDriver: Default {
     rv_map: RetValMapper<R>,
   ) -> Option<Result<R, E>>;
 
+  #[allow(clippy::type_complexity)]
   /// Polls the readiness of the op driver.
   fn poll_ready<'s>(
     &self,

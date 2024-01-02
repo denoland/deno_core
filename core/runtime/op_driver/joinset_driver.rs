@@ -20,18 +20,10 @@ use std::task::Context;
 use std::task::Poll;
 
 /// [`OpDriver`] implementation built on a tokio [`JoinSet`].
+#[derive(Default)]
 pub struct JoinSetDriver {
   pending_ops: RefCell<JoinSet<PendingOp>>,
   arena: FutureArena,
-}
-
-impl Default for JoinSetDriver {
-  fn default() -> Self {
-    Self {
-      pending_ops: Default::default(),
-      arena: Default::default(),
-    }
-  }
 }
 
 impl JoinSetDriver {

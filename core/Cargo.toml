@@ -20,7 +20,6 @@ v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 
-op_driver_futuresunordered = []
 op_driver_joinset = []
 
 [dependencies]
