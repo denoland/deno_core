@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::exception_state::ExceptionState;
+use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCode;
@@ -8,11 +9,9 @@ use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
-use crate::ops::PendingOp;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
 use anyhow::Error;
-use deno_unsync::JoinSet;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -45,8 +44,13 @@ impl Hasher for IdentityHasher {
   }
 }
 
+/// We will be experimenting with different driver types in the future. This allows us to
+/// swap the driver out for experimentation.
+#[cfg(feature = "op_driver_joinset")]
+type DefaultOpDriver = super::op_driver::JoinSetDriver;
+
 #[derive(Default)]
-pub(crate) struct ContextState {
+pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:
@@ -55,7 +59,7 @@ pub(crate) struct ContextState {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
-  pub(crate) pending_ops: RefCell<JoinSet<PendingOp>>,
+  pub(crate) pending_ops: OpDriverImpl,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: RefCell<Box<[OpCtx]>>,
@@ -194,7 +198,7 @@ impl JsRealm {
   #[cfg(test)]
   #[inline(always)]
   pub fn num_pending_ops(&self) -> usize {
-    self.0.context_state.pending_ops.borrow().len()
+    self.0.context_state.pending_ops.len()
   }
 
   #[cfg(test)]

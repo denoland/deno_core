@@ -3,6 +3,7 @@ use super::bindings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
+use super::op_driver::OpDriver;
 use super::snapshot_util;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
@@ -25,7 +26,6 @@ use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
-use crate::ops_metrics::OpMetricsEvent;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
@@ -35,8 +35,8 @@ use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
+use crate::OpMetricsEvent;
 use crate::OpMiddlewareFn;
-use crate::OpResult;
 use crate::OpState;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
@@ -1661,6 +1661,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
+    eprintln!("looping");
     let has_inspector = self.inner.state.has_inspector.get();
     self.inner.state.waker.register(cx.waker());
 
@@ -1902,7 +1903,7 @@ impl EventLoopPendingState {
     modules: &ModuleMap,
   ) -> Self {
     let num_unrefed_ops = state.unrefed_ops.borrow().len();
-    let num_pending_ops = state.pending_ops.borrow().len();
+    let num_pending_ops = state.pending_ops.len();
     let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
     let has_pending_timers = state.timers.has_pending_timers();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
@@ -2120,20 +2121,14 @@ impl JsRuntime {
       SmallVec::with_capacity(32);
 
     loop {
-      let Poll::Ready(item) =
-        context_state.pending_ops.borrow_mut().poll_join_next(cx)
+      let Poll::Ready((promise_id, op_id, metrics_event, res)) =
+        context_state.pending_ops.poll_ready(cx, scope)
       else {
         break;
       };
-      // TODO(mmastrac): If this task is really errored, things could be pretty bad
-      let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
-      context_state.unrefed_ops.borrow_mut().remove(&promise_id);
-      dispatched_ops |= true;
-      args.push(v8::Integer::new(scope, promise_id).into());
-      let was_error = matches!(resp, OpResult::Err(_));
-      let res = resp.to_v8(scope);
+
       if metrics_event {
-        if res.is_ok() && !was_error {
+        if res.is_ok() {
           dispatch_metrics_async(
             &context_state.op_ctxs.borrow()[op_id as usize],
             OpMetricsEvent::CompletedAsync,
@@ -2145,12 +2140,11 @@ impl JsRuntime {
           );
         }
       }
-      args.push(match res {
-        Ok(v) => v,
-        Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
-          .to_v8(scope)
-          .unwrap(),
-      });
+
+      context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+      dispatched_ops |= true;
+      args.push(v8::Integer::new(scope, promise_id).into());
+      args.push(res.unwrap_or_else(std::convert::identity));
     }
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();

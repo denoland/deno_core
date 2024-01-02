@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+pub mod arena;
 mod async_cancel;
 mod async_cell;
 mod buffer_strategy;
@@ -103,9 +104,7 @@ pub use crate::modules::ResolutionKind;
 pub use crate::modules::StaticModuleLoader;
 pub use crate::modules::ValidateImportAttributesCb;
 pub use crate::normalize_path::normalize_path;
-pub use crate::ops::OpError;
 pub use crate::ops::OpId;
-pub use crate::ops::OpResult;
 pub use crate::ops::OpState;
 pub use crate::ops::PromiseId;
 pub use crate::ops_builtin::op_close;
@@ -160,7 +159,6 @@ pub mod _ops {
   #[cfg(debug_assertions)]
   pub use super::ops::reentrancy_check;
   pub use super::ops::OpCtx;
-  pub use super::ops::OpResult;
   pub use super::ops_metrics::dispatch_metrics_async;
   pub use super::ops_metrics::dispatch_metrics_fast;
   pub use super::ops_metrics::dispatch_metrics_slow;

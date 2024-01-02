@@ -1,164 +1,67 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ops::*;
-use crate::OpResult;
 use anyhow::Error;
 use futures::future::Future;
-use futures::future::FutureExt;
-use futures::task::noop_waker_ref;
 use serde::Deserialize;
 use serde_v8::from_v8;
 use serde_v8::V8Sliceable;
 use std::borrow::Cow;
 use std::ffi::c_void;
-use std::future::ready;
 use std::mem::MaybeUninit;
 use std::option::Option;
 use std::ptr::NonNull;
-use std::task::Context;
-use std::task::Poll;
 use v8::WriteOptions;
+
+use super::op_driver::OpDriver;
+use super::op_driver::RetValMapper;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
 /// so this is a limited resource!
 pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
 
-#[inline]
+#[inline(always)]
 pub fn map_async_op_infallible<R: 'static>(
   ctx: &OpCtx,
   lazy: bool,
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
-  rv_map: for<'r> fn(
-    &mut v8::HandleScope<'r>,
-    R,
-  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+  rv_map: RetValMapper<R>,
 ) -> Option<R> {
-  let id = ctx.id;
-  let metrics = ctx.metrics_enabled();
+  let pending_ops = &ctx.context_state().pending_ops;
   if lazy {
-    let mapper = move |r| {
-      PendingOp(
-        promise_id,
-        id,
-        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r))),
-        metrics,
-      )
-    };
-    ctx
-      .context_state()
-      .pending_ops
-      .borrow_mut()
-      .spawn(op.map(mapper));
-    return None;
+    pending_ops
+      .submit_op_infallible::<_, true, false>(ctx, promise_id, op, rv_map)
+  } else if deferred {
+    pending_ops
+      .submit_op_infallible::<_, false, true>(ctx, promise_id, op, rv_map)
+  } else {
+    pending_ops
+      .submit_op_infallible::<_, false, false>(ctx, promise_id, op, rv_map)
   }
-
-  // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
-  // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-  let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
-
-  let pinned =
-    match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-      Poll::Pending => pinned,
-      Poll::Ready(res) => {
-        // TODO(mmastrac): optimize this so we don't double-allocate
-        if deferred {
-          ready(res).boxed_local()
-        } else {
-          return Some(res.2);
-        }
-      }
-    };
-
-  ctx
-    .context_state()
-    .pending_ops
-    .borrow_mut()
-    .spawn(pinned.map(move |r| {
-      PendingOp(
-        r.0,
-        r.1,
-        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, r.2))),
-        metrics,
-      )
-    }));
-  None
 }
 
-#[inline]
+#[inline(always)]
 pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   ctx: &OpCtx,
   lazy: bool,
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
-  rv_map: for<'r> fn(
-    &mut v8::HandleScope<'r>,
-    R,
-  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>,
+  rv_map: RetValMapper<R>,
 ) -> Option<Result<R, E>> {
-  let id = ctx.id;
-  let metrics = ctx.metrics_enabled();
-
+  let pending_ops = &ctx.context_state().pending_ops;
   if lazy {
-    let get_class = ctx.get_error_class_fn;
-    ctx.context_state().pending_ops.borrow_mut().spawn(op.map(
-      move |r| match r {
-        Ok(v) => PendingOp(
-          promise_id,
-          id,
-          OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
-          metrics,
-        ),
-        Err(err) => PendingOp(
-          promise_id,
-          id,
-          OpResult::Err(OpError::new(get_class, err.into())),
-          metrics,
-        ),
-      },
-    ));
-    return None;
+    pending_ops
+      .submit_op_fallible::<_, _, true, false>(ctx, promise_id, op, rv_map)
+  } else if deferred {
+    pending_ops
+      .submit_op_fallible::<_, _, false, true>(ctx, promise_id, op, rv_map)
+  } else {
+    pending_ops
+      .submit_op_fallible::<_, _, false, false>(ctx, promise_id, op, rv_map)
   }
-
-  // TODO(mmastrac): We have to poll every future here because that assumption is baked into a large number
-  // of ops. If we can figure out a way around this, we can remove this call to boxed_local and save a malloc per future.
-  let mut pinned = op.map(move |res| (promise_id, id, res)).boxed_local();
-
-  let pinned =
-    match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-      Poll::Pending => pinned,
-      Poll::Ready(res) => {
-        // TODO(mmastrac): optimize this so we don't double-allocate
-        if deferred {
-          ready(res).boxed_local()
-        } else {
-          return Some(res.2);
-        }
-      }
-    };
-
-  let get_class = ctx.get_error_class_fn;
-  ctx
-    .context_state()
-    .pending_ops
-    .borrow_mut()
-    .spawn(pinned.map(move |r| match r.2 {
-      Ok(v) => PendingOp(
-        r.0,
-        r.1,
-        OpResult::Op2Temp(Box::new(move |scope| rv_map(scope, v))),
-        metrics,
-      ),
-      Err(err) => PendingOp(
-        r.0,
-        r.1,
-        OpResult::Err(OpError::new(get_class, err.into())),
-        metrics,
-      ),
-    }));
-  None
 }
 
 macro_rules! try_number_some {
