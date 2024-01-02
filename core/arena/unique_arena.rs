@@ -6,7 +6,9 @@ use std::ptr::NonNull;
 
 use crate::arena::raw_arena::RawArena;
 
-use super::{alloc, ptr_byte_add, ptr_byte_sub};
+use super::alloc;
+use super::ptr_byte_add;
+use super::ptr_byte_sub;
 
 /// In debug mode we use a signature to ensure that raw pointers are pointing to the correct
 /// shape of arena object.
