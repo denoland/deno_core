@@ -9,6 +9,8 @@ use parking_lot::lock_api::RawMutex;
 use crate::arena::raw_arena::RawArena;
 
 use super::alloc;
+use super::ptr_byte_add;
+use super::ptr_byte_sub;
 
 /// In debug mode we use a signature to ensure that raw pointers are pointing to the correct
 /// shape of arena object.
@@ -40,9 +42,7 @@ impl<T> ArenaArc<T> {
   /// Improper usage may result in undefined behavior.
   #[inline(always)]
   unsafe fn data_from_ptr(ptr: NonNull<T>) -> NonNull<ArenaArcData<T>> {
-    NonNull::new_unchecked(
-      (ptr.as_ptr() as *const u8).sub(Self::PTR_OFFSET) as _
-    )
+    ptr_byte_sub(ptr, Self::PTR_OFFSET)
   }
 
   /// Converts a `NonNull` pointer to `ArenaArcData` into a raw pointer to the data.
@@ -53,9 +53,7 @@ impl<T> ArenaArc<T> {
   /// Improper usage may result in undefined behavior.
   #[inline(always)]
   unsafe fn ptr_from_data(ptr: NonNull<ArenaArcData<T>>) -> NonNull<T> {
-    NonNull::new_unchecked(
-      (ptr.as_ptr() as *const u8).add(Self::PTR_OFFSET) as _
-    )
+    ptr_byte_add(ptr, Self::PTR_OFFSET)
   }
 
   /// Consumes the `ArenaArc`, forgetting it, and returns a raw pointer to the contained data.

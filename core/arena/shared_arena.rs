@@ -5,7 +5,7 @@ use std::ptr::NonNull;
 
 use crate::arena::raw_arena::RawArena;
 
-use super::alloc;
+use super::{alloc, ptr_byte_add, ptr_byte_sub};
 
 /// In debug mode we use a signature to ensure that raw pointers are pointing to the correct
 /// shape of arena object.
@@ -38,8 +38,8 @@ impl<T> ArenaRc<T> {
   /// This function assumes that the input `ptr` points to the data within an `ArenaRc` object.
   /// Improper usage may result in undefined behavior.
   #[inline(always)]
-  unsafe fn data_from_ptr(ptr: *const T) -> NonNull<ArenaRcData<T>> {
-    NonNull::new_unchecked((ptr as *const u8).sub(Self::PTR_OFFSET) as _)
+  unsafe fn data_from_ptr(ptr: NonNull<T>) -> NonNull<ArenaRcData<T>> {
+    ptr_byte_sub(ptr, Self::PTR_OFFSET)
   }
 
   /// Converts a `NonNull` pointer to `ArenaRcData` into a raw pointer to the data.
@@ -49,8 +49,8 @@ impl<T> ArenaRc<T> {
   /// This function assumes that the input `ptr` is a valid `NonNull` pointer to `ArenaRcData`.
   /// Improper usage may result in undefined behavior.
   #[inline(always)]
-  unsafe fn ptr_from_data(ptr: NonNull<ArenaRcData<T>>) -> *const T {
-    (ptr.as_ptr() as *const u8).add(Self::PTR_OFFSET) as _
+  unsafe fn ptr_from_data(ptr: NonNull<ArenaRcData<T>>) -> NonNull<T> {
+    ptr_byte_add(ptr, Self::PTR_OFFSET)
   }
 
   /// Consumes the `ArenaRc`, forgetting it, and returns a raw pointer to the contained data.
@@ -60,7 +60,7 @@ impl<T> ArenaRc<T> {
   /// This function returns a raw pointer without managing the memory, potentially leading to
   /// memory leaks if the pointer is not properly handled or deallocated.
   #[inline(always)]
-  pub fn into_raw(arc: ArenaRc<T>) -> *const T {
+  pub fn into_raw(arc: ArenaRc<T>) -> NonNull<T> {
     let ptr = arc.ptr;
     std::mem::forget(arc);
     unsafe { Self::ptr_from_data(ptr) }
@@ -70,7 +70,7 @@ impl<T> ArenaRc<T> {
   ///
   /// This function increments the reference count of the `ArenaRc`.
   #[inline(always)]
-  pub fn clone_into_raw(arc: &ArenaRc<T>) -> *const T {
+  pub fn clone_into_raw(arc: &ArenaRc<T>) -> NonNull<T> {
     unsafe {
       let ptr = arc.ptr;
       ptr.as_ref().ref_count.set(ptr.as_ref().ref_count.get() + 1);
@@ -88,7 +88,7 @@ impl<T> ArenaRc<T> {
   /// This function assumes the provided `ptr` is a valid raw pointer to the data within an `ArenaRc`
   /// object. Misuse may lead to undefined behavior, memory unsafety, or data corruption.
   #[inline(always)]
-  pub unsafe fn from_raw(ptr: *const T) -> ArenaRc<T> {
+  pub unsafe fn from_raw(ptr: NonNull<T>) -> ArenaRc<T> {
     let ptr = Self::data_from_ptr(ptr);
 
     #[cfg(debug_assertions)]
@@ -108,7 +108,7 @@ impl<T> ArenaRc<T> {
   /// to the data within an `ArenaRc` object. Improper usage may lead
   /// to memory unsafety or data corruption.
   #[inline(always)]
-  pub unsafe fn clone_from_raw(ptr: *const T) -> ArenaRc<T> {
+  pub unsafe fn clone_from_raw(ptr: NonNull<T>) -> ArenaRc<T> {
     let ptr = Self::data_from_ptr(ptr);
     ptr.as_ref().ref_count.set(ptr.as_ref().ref_count.get() + 1);
     ArenaRc { ptr }
@@ -127,7 +127,7 @@ impl<T> ArenaRc<T> {
   /// or mishandling of raw pointers might lead to memory unsafety or data corruption.
   /// Use with caution and ensure proper handling of associated data.
   #[inline(always)]
-  pub unsafe fn clone_raw_from_raw(ptr: *const T) {
+  pub unsafe fn clone_raw_from_raw(ptr: NonNull<T>) {
     let ptr = Self::data_from_ptr(ptr);
     ptr.as_ref().ref_count.set(ptr.as_ref().ref_count.get() + 1);
   }
@@ -142,7 +142,7 @@ impl<T> ArenaRc<T> {
   /// to the data within an `ArenaRc` object. Improper usage may lead
   /// to memory unsafety or data corruption.
   #[inline(always)]
-  pub unsafe fn drop_from_raw(ptr: *const T) {
+  pub unsafe fn drop_from_raw(ptr: NonNull<T>) {
     let ptr = Self::data_from_ptr(ptr);
     let ref_count = ptr.as_ref().ref_count.get();
     if ref_count == 0 {

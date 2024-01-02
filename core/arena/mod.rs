@@ -14,6 +14,20 @@ pub use shared_arena::*;
 pub use shared_atomic_arena::*;
 pub use unique_arena::*;
 
+const unsafe fn ptr_byte_add<T, U>(
+  ptr: NonNull<T>,
+  offset: usize,
+) -> NonNull<U> {
+  NonNull::new_unchecked((ptr.as_ptr() as *mut u8).add(offset) as _)
+}
+
+const unsafe fn ptr_byte_sub<T, U>(
+  ptr: NonNull<T>,
+  offset: usize,
+) -> NonNull<U> {
+  NonNull::new_unchecked((ptr.as_ptr() as *mut u8).sub(offset) as _)
+}
+
 #[inline(always)]
 fn alloc_layout<T>(layout: Layout) -> NonNull<T> {
   // Layout of size zero is UB

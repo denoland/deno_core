@@ -108,7 +108,6 @@ benchmark_main!(benches);
 
 benchmark_group!(
   benches,
-  // bench_opset,
   bench_futures_ordered,
   bench_futures_unordered,
   bench_joinset,

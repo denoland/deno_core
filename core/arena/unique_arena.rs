@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 
 use crate::arena::raw_arena::RawArena;
 
-use super::alloc;
+use super::{alloc, ptr_byte_add, ptr_byte_sub};
 
 /// In debug mode we use a signature to ensure that raw pointers are pointing to the correct
 /// shape of arena object.
@@ -41,13 +41,13 @@ impl<T: 'static> ArenaBox<T> {
   /// Constructs a `NonNull` reference to `ArenaBoxData` from a raw pointer to `T`.
   #[inline(always)]
   unsafe fn data_from_ptr(ptr: NonNull<T>) -> NonNull<ArenaBoxData<T>> {
-    NonNull::new_unchecked((ptr.as_ptr() as *mut u8).sub(Self::PTR_OFFSET) as _)
+    ptr_byte_sub(ptr, Self::PTR_OFFSET)
   }
 
   /// Obtains a raw pointer to `T` from a `NonNull` reference to `ArenaBoxData`.  
   #[inline(always)]
   unsafe fn ptr_from_data(ptr: NonNull<ArenaBoxData<T>>) -> NonNull<T> {
-    NonNull::new_unchecked((ptr.as_ptr() as *mut u8).add(Self::PTR_OFFSET) as _)
+    ptr_byte_add(ptr, Self::PTR_OFFSET)
   }
 
   /// Transforms an `ArenaBox` into a raw pointer to `T` and forgets it.
