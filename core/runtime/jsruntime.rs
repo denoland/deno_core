@@ -1661,7 +1661,6 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    eprintln!("looping");
     let has_inspector = self.inner.state.has_inspector.get();
     self.inner.state.waker.register(cx.waker());
 
