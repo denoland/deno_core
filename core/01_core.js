@@ -27,7 +27,6 @@
     Proxy,
     RangeError,
     ReferenceError,
-    ReflectHas,
     ReflectApply,
     SafeArrayIterator,
     SafeMap,
