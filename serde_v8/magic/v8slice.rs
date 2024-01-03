@@ -156,7 +156,9 @@ where
     // do not have overlapping read/write phases.
     unsafe {
       let ptr = ptr.add(self.range.start);
-      std::slice::from_raw_parts(ptr, self.range.len())
+      let clamped_end = std::cmp::min(self.range.end, store.len());
+      let clamped_len = clamped_end.saturating_sub(self.range.start);
+      std::slice::from_raw_parts(ptr, clamped_len)
     }
   }
 
@@ -175,7 +177,9 @@ where
     // do not have overlapping read/write phases.
     unsafe {
       let ptr = ptr.add(self.range.start);
-      std::slice::from_raw_parts_mut(ptr, self.range.len())
+      let clamped_end = std::cmp::min(self.range.end, store.len());
+      let clamped_len = clamped_end.saturating_sub(self.range.start);
+      std::slice::from_raw_parts_mut(ptr, clamped_len)
     }
   }
 

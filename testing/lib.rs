@@ -35,6 +35,7 @@ macro_rules! integration_test {
 unit_test!(
   encode_decode_test,
   microtask_test,
+  ops_buffer_test,
   serialize_deserialize_test,
   tc39_test,
   timer_test,
