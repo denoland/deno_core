@@ -100,6 +100,9 @@ declare namespace Deno {
     /** Encode a string to its Uint8Array representation. */
     function encode(input: string): Uint8Array;
 
+    /** Decode a string from its Uint8Array representation. */
+    function decode(input: Uint8Array): string;
+
     /**
      * Set a callback that will be called when the WebAssembly streaming APIs
      * (`WebAssembly.compileStreaming` and `WebAssembly.instantiateStreaming`)
@@ -175,6 +178,18 @@ declare namespace Deno {
       promise: Promise<unknown>,
       reason: any,
     ) => boolean;
+
+    /**
+     * Sets the handled promise rejection handler.
+     */
+    function setHandledPromiseRejectionHandler(
+      cb: PromiseHandledCallback,
+    ): PromiseHandledCallback;
+
+    export type PromiseHandledCallback = (
+      promise: Promise<unknown>,
+      reason: any,
+    ) => void;
 
     /**
      * Report an exception that was not handled by any runtime handler, and escaped to the

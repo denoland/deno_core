@@ -47,6 +47,7 @@ unit_test!(
 integration_test!(
   dyn_import_circular,
   error_async_stack,
+  error_rejection_catch,
   error_rejection_order,
   error_with_stack,
   error_without_stack,
