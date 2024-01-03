@@ -146,7 +146,7 @@ where
     let Some(ptr) = store.data() else {
       return &[];
     };
-    let clamped_end = std::cmp::min(self.range.end, store.len());
+    let clamped_end = std::cmp::min(self.range.end, store.len() / std::mem::size_of::<T>());
     let clamped_len = clamped_end.saturating_sub(self.range.start);
     if clamped_len == 0 {
       return &mut [];
@@ -170,8 +170,7 @@ where
     let Some(ptr) = store.data() else {
       return &mut [];
     };
-
-    let clamped_end = std::cmp::min(self.range.end, store.len());
+    let clamped_end = std::cmp::min(self.range.end, store.len() / std::mem::size_of::<T>());
     let clamped_len = clamped_end.saturating_sub(self.range.start);
     if clamped_len == 0 {
       return &mut [];
