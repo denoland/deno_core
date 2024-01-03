@@ -52,7 +52,7 @@ async fn test_async_opstate_borrow() {
   runtime
     .execute_script_static(
       "op_async_borrow.js",
-      "Deno.core.opAsync(\"op_async_borrow\")",
+      "const { op_async_borrow } = Deno.core.ensureFastOps(); op_async_borrow();",
     )
     .unwrap();
   runtime.run_event_loop(Default::default()).await.unwrap();
@@ -126,18 +126,18 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
     .execute_script_static(
       "op_async_serialize_object_with_numbers_as_keys.js",
       r#"
-
-Deno.core.opAsync("op_async_serialize_object_with_numbers_as_keys", {
-lines: {
-  100: {
-    unit: "m"
-  },
-  200: {
-    unit: "cm"
-  }
-}
-})
-"#,
+        const { op_async_serialize_object_with_numbers_as_keys } = Deno.core.ensureFastOps();
+        op_async_serialize_object_with_numbers_as_keys({
+          lines: {
+            100: {
+              unit: "m"
+            },
+            200: {
+              unit: "cm"
+            }
+          }
+        });
+      "#,
     )
     .unwrap();
   runtime.run_event_loop(Default::default()).await.unwrap();
@@ -445,10 +445,10 @@ fn test_dispatch() {
       "filename.js",
       r#"
       let control = 42;
-
-      Deno.core.opAsync("op_test", control);
+      const { op_test } = Deno.core.ensureFastOps();
+      op_test(control);
       async function main() {
-        Deno.core.opAsync("op_test", control);
+        op_test(control);
       }
       main();
       "#,
@@ -464,8 +464,8 @@ fn test_dispatch_no_zero_copy_buf() {
     .execute_script_static(
       "filename.js",
       r#"
-
-      Deno.core.opAsync("op_test", 0);
+      const { op_test } = Deno.core.ensureFastOps();
+      op_test(0);
       "#,
     )
     .unwrap();

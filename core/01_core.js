@@ -27,7 +27,6 @@
     Proxy,
     RangeError,
     ReferenceError,
-    ReflectHas,
     ReflectApply,
     SafeArrayIterator,
     SafeMap,
@@ -531,33 +530,6 @@
     return (ops[opName] = fn);
   }
 
-  /* BEGIN TEMPLATE opAsync */
-  /* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */
-  function opAsync(opName, ...args) {
-    const id = nextPromiseId;
-    try {
-      const maybeResult = asyncOps[opName](id, ...new SafeArrayIterator(args));
-      if (maybeResult !== undefined) {
-        return PromiseResolve(maybeResult);
-      }
-    } catch (err) {
-      if (!ReflectHas(asyncOps, opName)) {
-        return PromiseReject(new TypeError(`${opName} is not a registered op`));
-      }
-      ErrorCaptureStackTrace(err, opAsync);
-      return PromiseReject(err);
-    }
-    nextPromiseId = (id + 1) & 0xffffffff;
-    let promise = PromisePrototypeThen(
-      setPromise(id),
-      unwrapOpError(eventLoopTick),
-    );
-    promise = handleOpCallTracing(opName, id, promise);
-    promise[promiseIdSymbol] = id;
-    return promise;
-  }
-  /* END TEMPLATE */
-
   function handleOpCallTracing(opName, promiseId, p) {
     if (opCallTracingEnabled) {
       const stack = StringPrototypeSlice(new Error().stack, 6);
@@ -929,7 +901,6 @@
   const core = ObjectAssign(globalThis.Deno.core, {
     asyncStub,
     ensureFastOps,
-    opAsync,
     resources,
     metrics,
     registerErrorBuilder,
@@ -943,8 +914,6 @@
     enableOpCallTracing,
     isOpCallTracingEnabled,
     opCallTraces,
-    refOp,
-    unrefOp,
     refOpPromise,
     unrefOpPromise,
     setReportExceptionCallback,

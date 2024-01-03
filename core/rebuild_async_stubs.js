@@ -4,7 +4,7 @@
 const doNotModify =
   "/* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */\n";
 
-// The template function we build opAsync and op_async_N functions from
+// The template function we build op_async_N functions from
 function __TEMPLATE__(__ARGS_PARAM__) {
   const id = nextPromiseId;
   try {
@@ -60,28 +60,14 @@ ${func};
 }
 asyncStubCases += "/* END TEMPLATE */";
 
-const opAsync = "/* BEGIN TEMPLATE opAsync */\n" + doNotModify +
-  templateString
-    .replaceAll(/__TEMPLATE__/g, "opAsync")
-    .replaceAll(/__ARGS_PARAM__/g, "opName, ...args")
-    .replaceAll(/__ARGS__/g, "id, ...new SafeArrayIterator(args)")
-    .replaceAll(/__OP__/g, "asyncOps[opName]")
-    .replaceAll(
-      /__ERR__;/g,
-      "if (!ReflectHas(asyncOps, opName)) {\n      return PromiseReject(new TypeError(`${opName} is not a registered op`));\n    }",
-    ) +
-  "\n/* END TEMPLATE */";
-
 const asyncStubIndent =
   corePristine.match(/^([\t ]+)(?=TEMPLATE-setUpAsyncStub)/m)[0];
-const opAsyncIndent = corePristine.match(/^([\t ]+)(?=TEMPLATE-opAsync)/m)[0];
 
 const coreOutput = corePristine
   .replace(
     /[\t ]+TEMPLATE-setUpAsyncStub/,
     asyncStubCases.replaceAll(/^/gm, asyncStubIndent),
-  )
-  .replace(/[\t ]+TEMPLATE-opAsync/, opAsync.replaceAll(/^/gm, opAsyncIndent));
+  );
 
 if (Deno.args[0] === "--check") {
   if (coreOutput !== coreJs) {

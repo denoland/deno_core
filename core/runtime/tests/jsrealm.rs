@@ -99,7 +99,10 @@ async fn js_realm_ref_unref_ops() {
       .execute_script_static(
         runtime.v8_isolate(),
         "",
-        r#"var promise =Deno.core.opAsync("op_pending")"#,
+        r#"
+        const { op_pending } = Deno.core.ensureFastOps();
+        var promise = op_pending();
+        "#,
       )
       .unwrap();
     assert!(matches!(
