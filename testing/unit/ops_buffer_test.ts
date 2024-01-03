@@ -8,7 +8,6 @@ const {
 // Cloning a buffer should result in the same buffer being returned
 test(function testBufferStore() {
   const data = new Uint8Array(1024 * 1024);
-  const buffer = data.buffer;
   op_v8slice_store("buffer", data);
   const output = op_v8slice_clone("buffer");
   assertArrayEquals(output, new Uint8Array(1024 * 1024));
