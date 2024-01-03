@@ -82,7 +82,6 @@ deno_core::extension!(
     ops_builtin_v8::op_ref_op,
     ops_builtin_v8::op_unref_op,
     ops_builtin_v8::op_lazy_load_esm,
-    ops_builtin_v8::op_set_promise_reject_callback,
     ops_builtin_v8::op_run_microtasks,
     ops_builtin_v8::op_has_tick_scheduled,
     ops_builtin_v8::op_set_has_tick_scheduled,

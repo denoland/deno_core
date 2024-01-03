@@ -25,8 +25,11 @@ use v8::ValueSerializerHelper;
 
 #[op2]
 pub fn op_set_handled_promise_rejection_handler(
-  #[global] f: v8::Global<v8::Function>,
+  scope: &mut v8::HandleScope,
+  #[global] f: Option<v8::Global<v8::Function>>,
 ) {
+  let exception_state = JsRealm::exception_state_from_scope(scope);
+  *exception_state.js_handled_promise_rejection_cb.borrow_mut() = f;
 }
 
 #[op2]
@@ -89,19 +92,6 @@ pub fn op_lazy_load_esm(
 ) -> Result<v8::Global<v8::Value>, Error> {
   let module_map_rc = JsRealm::module_map_from(scope);
   module_map_rc.lazy_load_esm_module(scope, &module_specifier)
-}
-
-#[op2]
-pub fn op_set_promise_reject_callback<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  #[global] cb: v8::Global<v8::Function>,
-) -> Option<v8::Local<'a, v8::Function>> {
-  let exception_state = JsRealm::exception_state_from_scope(scope);
-  let old = exception_state
-    .js_promise_reject_cb
-    .borrow_mut()
-    .replace(Rc::new(cb));
-  old.map(|v| v8::Local::new(scope, &*v))
 }
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're

@@ -1018,7 +1018,7 @@
     opNames: () => op_op_names(),
     eventLoopHasMoreWork: () => op_event_loop_has_more_work(),
     byteLength: (str) => op_str_byte_length(str),
-    setHandledPromiseRejectionHandler: (handler) => 
+    setHandledPromiseRejectionHandler: (handler) =>
       op_set_handled_promise_rejection_handler(handler),
     setUnhandledPromiseRejectionHandler: (handler) =>
       unhandledPromiseRejectionHandler = handler,
