@@ -146,6 +146,11 @@ where
     let Some(ptr) = store.data() else {
       return &[];
     };
+    let clamped_end = std::cmp::min(self.range.end, store.len());
+    let clamped_len = clamped_end.saturating_sub(self.range.start);
+    if clamped_len == 0 {
+      return &mut [];
+    }
     let ptr = ptr.cast::<T>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
@@ -156,8 +161,6 @@ where
     // do not have overlapping read/write phases.
     unsafe {
       let ptr = ptr.add(self.range.start);
-      let clamped_end = std::cmp::min(self.range.end, store.len());
-      let clamped_len = clamped_end.saturating_sub(self.range.start);
       std::slice::from_raw_parts(ptr, clamped_len)
     }
   }
@@ -167,6 +170,12 @@ where
     let Some(ptr) = store.data() else {
       return &mut [];
     };
+
+    let clamped_end = std::cmp::min(self.range.end, store.len());
+    let clamped_len = clamped_end.saturating_sub(self.range.start);
+    if clamped_len == 0 {
+      return &mut [];
+    }
     let ptr = ptr.cast::<T>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
@@ -177,8 +186,6 @@ where
     // do not have overlapping read/write phases.
     unsafe {
       let ptr = ptr.add(self.range.start);
-      let clamped_end = std::cmp::min(self.range.end, store.len());
-      let clamped_len = clamped_end.saturating_sub(self.range.start);
       std::slice::from_raw_parts_mut(ptr, clamped_len)
     }
   }

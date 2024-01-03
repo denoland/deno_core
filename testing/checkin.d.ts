@@ -12,6 +12,14 @@ interface PromiseConstructor {
   };
 }
 
+interface ArrayBuffer {
+  transfer(size: number);
+}
+
+interface SharedArrayBuffer {
+  transfer(size: number);
+}
+
 declare namespace Deno {
   export function refTimer(id);
   export function unrefTimer(id);
