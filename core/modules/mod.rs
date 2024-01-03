@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::Arc;
 
 mod loaders;
 mod map;
@@ -41,13 +42,60 @@ pub(crate) type ModuleLoadId = i32;
 /// converted to a string or not.
 #[derive(Debug)]
 pub enum ModuleSourceCode {
-  String(ModuleCode),
-  Bytes(Vec<u8>),
+  String(ModuleCodeString),
+  Bytes(ModuleCodeBytes),
 }
 
-// TODO(bartlomieju): maybe remove it? It might be confusing between `ModuleSourceCode`
-// and `ModuleCode`.
-pub type ModuleCode = FastString;
+#[derive(Debug)]
+pub enum ModuleCodeBytes {
+  /// Created from static data.
+  Static(&'static [u8]),
+
+  /// An owned chunk of data. Note that we use `Box` rather than `Vec` to avoid
+  /// the storage overhead.
+  Boxed(Box<[u8]>),
+
+  /// Code loaded from the `deno_graph` infrastructure.
+  Arc(Arc<[u8]>),
+}
+
+impl ModuleCodeBytes {
+  pub fn as_bytes(&self) -> &[u8] {
+    match self {
+      ModuleCodeBytes::Static(s) => s,
+      ModuleCodeBytes::Boxed(s) => s,
+      ModuleCodeBytes::Arc(s) => s,
+    }
+  }
+
+  pub fn to_vec(&self) -> Vec<u8> {
+    match self {
+      ModuleCodeBytes::Static(s) => s.to_vec(),
+      ModuleCodeBytes::Boxed(s) => s.to_vec(),
+      ModuleCodeBytes::Arc(s) => s.to_vec(),
+    }
+  }
+}
+
+impl From<Arc<[u8]>> for ModuleCodeBytes {
+  fn from(value: Arc<[u8]>) -> Self {
+    Self::Arc(value)
+  }
+}
+
+impl From<Box<[u8]>> for ModuleCodeBytes {
+  fn from(value: Box<[u8]>) -> Self {
+    Self::Boxed(value)
+  }
+}
+
+impl From<&'static [u8]> for ModuleCodeBytes {
+  fn from(value: &'static [u8]) -> Self {
+    Self::Static(value)
+  }
+}
+
+pub type ModuleCodeString = FastString;
 pub type ModuleName = FastString;
 
 /// Callback to customize value of `import.meta.resolve("./foo.ts")`.
@@ -287,14 +335,14 @@ impl ModuleSource {
   pub fn get_string_source(
     specifier: &str,
     code: ModuleSourceCode,
-  ) -> Result<ModuleCode, AnyError> {
+  ) -> Result<ModuleCodeString, AnyError> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes).with_context(|| {
+        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
           format!("Can't convert source code to string for {}", specifier)
         })?;
-        Ok(ModuleCode::from(str_))
+        Ok(ModuleCodeString::from(str_))
       }
     }
   }

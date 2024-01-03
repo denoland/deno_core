@@ -9,7 +9,7 @@ use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::modules::ImportAttributesKind;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
@@ -368,7 +368,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     main: bool,
     name: ModuleName,
-    source: ModuleCode,
+    source: ModuleCodeString,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
     let name_str = name.v8(scope);
@@ -471,7 +471,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     name: ModuleName,
-    code: ModuleCode,
+    code: ModuleCodeString,
   ) -> Result<ModuleId, ModuleError> {
     let source_str = v8::String::new_from_utf8(
       scope,
@@ -1324,7 +1324,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     module_specifier: &str,
-    source_code: ModuleCode,
+    source_code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self

@@ -13,7 +13,8 @@ use crate::resolve_url;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
 use crate::FastString;
-use crate::ModuleCode;
+use crate::ModuleCodeBytes;
+use crate::ModuleCodeString;
 use crate::ModuleSource;
 use crate::ModuleSourceFuture;
 use crate::ModuleSpecifier;
@@ -571,7 +572,7 @@ fn test_custom_module_type() {
         true,
         false,
         ModuleSource {
-          code: ModuleSourceCode::Bytes(vec![]),
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
           module_url_found: None,
           module_url_specified: specifier_a,
           module_type: ModuleType::Other("bytes".into()),
@@ -1264,7 +1265,7 @@ fn dynamic_imports_snapshot() {
 #[test]
 fn import_meta_snapshot() {
   let snapshot = {
-    const MAIN_WITH_CODE_SRC: ModuleCode = ascii_str!(
+    const MAIN_WITH_CODE_SRC: ModuleCodeString = ascii_str!(
       r#"
   if (import.meta.url != 'file:///main_with_code.js') throw Error();
   globalThis.meta = import.meta;
@@ -1393,7 +1394,7 @@ async fn no_duplicate_loads() {
           .unwrap()
       };
       let module_source = ModuleSource {
-        code: ModuleSourceCode::String(ModuleCode::from(source_code)),
+        code: ModuleSourceCode::String(ModuleCodeString::from(source_code)),
         module_type: ModuleType::JavaScript,
         module_url_specified: module_specifier.clone().into(),
         module_url_found: found_specifier.map(|s| s.into()),
