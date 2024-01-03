@@ -14,9 +14,12 @@ use testing::Output;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
+use crate::checkin::runner::testing::TestData;
+
 use self::testing::TestFunctions;
 
 mod ops;
+mod ops_buffer;
 mod testing;
 mod ts_module_loader;
 
@@ -26,6 +29,8 @@ deno_core::extension!(
     ops::op_log_debug,
     ops::op_log_info,
     ops::op_test_register,
+    ops_buffer::op_v8slice_store,
+    ops_buffer::op_v8slice_clone,
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [
@@ -37,6 +42,7 @@ deno_core::extension!(
   ],
   state = |state| {
     state.put(TestFunctions::default());
+    state.put(TestData::default());
     state.put(Output::default());
   }
 );
@@ -145,6 +151,12 @@ async fn run_unit_test_task(
     runtime
       .with_event_loop_promise(call, PollEventLoopOptions::default())
       .await?;
+
+    // Clear any remaining test data so we have a fresh state
+    let state = runtime.op_state();
+    let mut state = state.borrow_mut();
+    let data = state.borrow_mut::<TestData>();
+    data.data.clear();
   }
 
   Ok(())

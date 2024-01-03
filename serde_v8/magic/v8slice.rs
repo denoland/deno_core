@@ -146,6 +146,12 @@ where
     let Some(ptr) = store.data() else {
       return &[];
     };
+    let clamped_end =
+      std::cmp::min(self.range.end, store.len() / std::mem::size_of::<T>());
+    let clamped_len = clamped_end.saturating_sub(self.range.start);
+    if clamped_len == 0 {
+      return &mut [];
+    }
     let ptr = ptr.cast::<T>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
@@ -156,7 +162,7 @@ where
     // do not have overlapping read/write phases.
     unsafe {
       let ptr = ptr.add(self.range.start);
-      std::slice::from_raw_parts(ptr, self.range.len())
+      std::slice::from_raw_parts(ptr, clamped_len)
     }
   }
 
@@ -165,6 +171,12 @@ where
     let Some(ptr) = store.data() else {
       return &mut [];
     };
+    let clamped_end =
+      std::cmp::min(self.range.end, store.len() / std::mem::size_of::<T>());
+    let clamped_len = clamped_end.saturating_sub(self.range.start);
+    if clamped_len == 0 {
+      return &mut [];
+    }
     let ptr = ptr.cast::<T>().as_ptr();
     // SAFETY: v8::SharedRef<v8::BackingStore> is similar to Arc<[u8]>,
     // it points to a fixed continuous slice of bytes on the heap.
@@ -175,16 +187,24 @@ where
     // do not have overlapping read/write phases.
     unsafe {
       let ptr = ptr.add(self.range.start);
-      std::slice::from_raw_parts_mut(ptr, self.range.len())
+      std::slice::from_raw_parts_mut(ptr, clamped_len)
     }
   }
 
+  /// Returns the underlying length of the range of this slice. If the range of this slice would exceed the range
+  /// of the underlying backing store, the range is clamped so that it falls within the underlying backing store's
+  /// valid length.
   pub fn len(&self) -> usize {
-    self.range.len()
+    let store = &self.store;
+    let clamped_end =
+      std::cmp::min(self.range.end, store.len() / std::mem::size_of::<T>());
+    clamped_end.saturating_sub(self.range.start)
   }
 
+  /// Returns whether this slice is empty. See `len` for notes about how the length is treated when the range of this
+  /// slice exceeds that of the underlying backing store.
   pub fn is_empty(&self) -> bool {
-    self.range.is_empty()
+    self.len() == 0
   }
 
   /// Create a [`Vec<T>`] copy of this slice data.
