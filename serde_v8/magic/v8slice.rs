@@ -189,12 +189,19 @@ where
     }
   }
 
+  /// Returns the underlying length of the range of this slice. If the range of this slice would exceed the range
+  /// of the underlying backing store, the range is clamped so that it falls within the underlying backing store's
+  /// valid length.
   pub fn len(&self) -> usize {
-    self.range.len()
+    let store = &self.store;
+    let clamped_end = std::cmp::min(self.range.end, store.len() / std::mem::size_of::<T>());
+    clamped_end.saturating_sub(self.range.start)
   }
 
+  /// Returns whether this slice is empty. See `len` for notes about how the length is treated when the range of this
+  /// slice exceeds that of the underlying backing store.
   pub fn is_empty(&self) -> bool {
-    self.range.is_empty()
+    self.len() == 0
   }
 
   /// Create a [`Vec<T>`] copy of this slice data.
