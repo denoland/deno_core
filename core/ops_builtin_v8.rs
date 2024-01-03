@@ -24,6 +24,12 @@ use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
 #[op2]
+pub fn op_set_handled_promise_rejection_handler(
+  #[global] f: v8::Global<v8::Function>,
+) {
+}
+
+#[op2]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().remove(&promise_id);

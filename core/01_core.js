@@ -180,7 +180,7 @@
         nextTickCallbacks[i]();
       }
     } else {
-      ops.op_run_microtasks();
+      op_run_microtasks();
     }
 
     // Finally drain macrotask queue.
@@ -195,7 +195,7 @@
           break;
         }
 
-        ops.op_run_microtasks();
+        op_run_microtasks();
         // If callback returned `true` then it has no more work to do, stop
         // calling it then.
         if (res === true) {
@@ -223,7 +223,7 @@
         );
         if (!handled) {
           const err = rejections[i + 1];
-          ops.op_dispatch_exception(err, true);
+          op_dispatch_exception(err, true);
         }
       }
     }
@@ -575,14 +575,14 @@
     if (!hasPromise(promiseId)) {
       return;
     }
-    ops.op_ref_op(promiseId);
+    op_ref_op(promiseId);
   }
 
   function unrefOp(promiseId) {
     if (!hasPromise(promiseId)) {
       return;
     }
-    ops.op_unref_op(promiseId);
+    op_unref_op(promiseId);
   }
 
   function refOpPromise(promise) {
@@ -594,7 +594,7 @@
   }
 
   function resources() {
-    return ObjectFromEntries(ops.op_resources());
+    return ObjectFromEntries(op_resources());
   }
 
   function metrics() {
@@ -633,7 +633,7 @@
     if (typeof cb != "function") {
       throw new TypeError("expected a function");
     }
-    return ops.op_queue_microtask(() => {
+    return op_queue_microtask(() => {
       try {
         cb();
       } catch (error) {
@@ -729,7 +729,7 @@
       }
     });
 
-    ops.op_set_promise_hooks(
+    op_set_promise_hooks(
       wrappedHooks[0],
       wrappedHooks[1],
       wrappedHooks[2],
@@ -746,7 +746,7 @@
     return new Proxy({}, {
       get(_target, opName) {
         if (ops[opName] === undefined) {
-          ops.op_panic(`Unknown or disabled op '${opName}'`);
+          op_panic(`Unknown or disabled op '${opName}'`);
         }
         let op;
         if (asyncOps[opName] !== undefined) {
@@ -782,7 +782,7 @@
   const callSiteRetBufU8 = new Uint8Array(callSiteRetBuf.buffer);
 
   function currentUserCallSite() {
-    const fileName = ops.op_current_user_call_site(callSiteRetBufU8);
+    const fileName = op_current_user_call_site(callSiteRetBufU8);
     const lineNumber = callSiteRetBuf[0];
     const columnNumber = callSiteRetBuf[1];
     return { fileName, lineNumber, columnNumber };
@@ -838,22 +838,22 @@
 
     log = (...args) => {
       const stringifiedArgs = args.map(this.#stringify);
-      ops.op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${stringifiedArgs.join(" ")}\n`, false);
     };
 
     debug = (...args) => {
       const stringifiedArgs = args.map(this.#stringify);
-      ops.op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${stringifiedArgs.join(" ")}\n`, false);
     };
 
     warn = (...args) => {
       const stringifiedArgs = args.map(this.#stringify);
-      ops.op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${stringifiedArgs.join(" ")}\n`, false);
     };
 
     error = (...args) => {
       const stringifiedArgs = args.map(this.#stringify);
-      ops.op_print(`${stringifiedArgs.join(" ")}\n`, true);
+      op_print(`${stringifiedArgs.join(" ")}\n`, true);
     };
   }
 
@@ -863,6 +863,38 @@
   wrapConsole(coreConsole, v8Console);
 
   const {
+    op_abort_wasm_streaming,
+    op_current_user_call_site,
+    op_decode,
+    op_deserialize,
+    op_destructure_error,
+    op_dispatch_exception,
+    op_encode,
+    op_eval_context,
+    op_event_loop_has_more_work,
+    op_get_promise_details,
+    op_get_proxy_details,
+    op_has_tick_scheduled,
+    op_memory_usage,
+    op_op_names,
+    op_panic,
+    op_print,
+    op_queue_microtask,
+    op_ref_op,
+    op_resources,
+    op_run_microtasks,
+    op_serialize,
+    op_set_handled_promise_rejection_handler,
+    op_set_has_tick_scheduled,
+    op_set_promise_hooks,
+    op_set_wasm_streaming_callback,
+    op_str_byte_length,
+    op_timer_cancel,
+    op_timer_queue,
+    op_timer_ref,
+    op_timer_unref,
+    op_unref_op,
+
     op_is_any_array_buffer,
     op_is_arguments_object,
     op_is_array_buffer,
@@ -927,27 +959,27 @@
     readSync,
     writeSync,
     shutdown,
-    print: (msg, isErr) => ops.op_print(msg, isErr),
+    print: (msg, isErr) => op_print(msg, isErr),
     setMacrotaskCallback,
     setNextTickCallback,
-    runMicrotasks: () => ops.op_run_microtasks(),
-    hasTickScheduled: () => ops.op_has_tick_scheduled(),
-    setHasTickScheduled: (bool) => ops.op_set_has_tick_scheduled(bool),
+    runMicrotasks: () => op_run_microtasks(),
+    hasTickScheduled: () => op_has_tick_scheduled(),
+    setHasTickScheduled: (bool) => op_set_has_tick_scheduled(bool),
     evalContext: (
       source,
       specifier,
-    ) => ops.op_eval_context(source, specifier),
+    ) => op_eval_context(source, specifier),
     hostObjectBrand,
-    encode: (text) => ops.op_encode(text),
-    decode: (buffer) => ops.op_decode(buffer),
+    encode: (text) => op_encode(text),
+    decode: (buffer) => op_decode(buffer),
     serialize: (
       value,
       options,
       errorCallback,
-    ) => ops.op_serialize(value, options, errorCallback),
-    deserialize: (buffer, options) => ops.op_deserialize(buffer, options),
-    getPromiseDetails: (promise) => ops.op_get_promise_details(promise),
-    getProxyDetails: (proxy) => ops.op_get_proxy_details(proxy),
+    ) => op_serialize(value, options, errorCallback),
+    deserialize: (buffer, options) => op_deserialize(buffer, options),
+    getPromiseDetails: (promise) => op_get_promise_details(promise),
+    getProxyDetails: (proxy) => op_get_proxy_details(proxy),
     isAnyArrayBuffer: (value) => op_is_any_array_buffer(value),
     isArgumentsObject: (value) => op_is_arguments_object(value),
     isArrayBuffer: (value) => op_is_array_buffer(value),
@@ -976,25 +1008,27 @@
     isTypedArray: (value) => op_is_typed_array(value),
     isWeakMap: (value) => op_is_weak_map(value),
     isWeakSet: (value) => op_is_weak_set(value),
-    memoryUsage: () => ops.op_memory_usage(),
-    setWasmStreamingCallback: (fn) => ops.op_set_wasm_streaming_callback(fn),
+    memoryUsage: () => op_memory_usage(),
+    setWasmStreamingCallback: (fn) => op_set_wasm_streaming_callback(fn),
     abortWasmStreaming: (
       rid,
       error,
-    ) => ops.op_abort_wasm_streaming(rid, error),
-    destructureError: (error) => ops.op_destructure_error(error),
-    opNames: () => ops.op_op_names(),
-    eventLoopHasMoreWork: () => ops.op_event_loop_has_more_work(),
-    byteLength: (str) => ops.op_str_byte_length(str),
+    ) => op_abort_wasm_streaming(rid, error),
+    destructureError: (error) => op_destructure_error(error),
+    opNames: () => op_op_names(),
+    eventLoopHasMoreWork: () => op_event_loop_has_more_work(),
+    byteLength: (str) => op_str_byte_length(str),
+    setHandledPromiseRejectionHandler: (handler) => 
+      op_set_handled_promise_rejection_handler(handler),
     setUnhandledPromiseRejectionHandler: (handler) =>
       unhandledPromiseRejectionHandler = handler,
-    reportUnhandledException: (e) => ops.op_dispatch_exception(e, false),
-    reportUnhandledPromiseRejection: (e) => ops.op_dispatch_exception(e, true),
+    reportUnhandledException: (e) => op_dispatch_exception(e, false),
+    reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
     queueTimer: (depth, repeat, timeout, task) =>
-      ops.op_timer_queue(depth, repeat, timeout, task),
-    cancelTimer: (id) => ops.op_timer_cancel(id),
-    refTimer: (id) => ops.op_timer_ref(id),
-    unrefTimer: (id) => ops.op_timer_unref(id),
+      op_timer_queue(depth, repeat, timeout, task),
+    cancelTimer: (id) => op_timer_cancel(id),
+    refTimer: (id) => op_timer_ref(id),
+    unrefTimer: (id) => op_timer_unref(id),
     getTimerDepth: () => timerDepth,
     build,
     setBuildInfo,
