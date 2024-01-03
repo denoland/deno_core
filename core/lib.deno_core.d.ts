@@ -10,20 +10,6 @@ declare namespace Deno {
     /** Returns a proxy that generates the fast versions of sync and async ops. */
     function ensureFastOps(): any;
 
-    /** Call an op in Rust, and asynchronously receive the result. */
-    function opAsync(
-      opName: string,
-      ...args: any[]
-    ): Promise<any>;
-
-    /** Mark following promise as "ref", ie. event loop won't exit
-     * until all "ref" promises are resolved. All async ops are "ref" by default. */
-    function refOp(promiseId: number): void;
-
-    /** Mark following promise as "unref", ie. event loop will exit
-     * if there are only "unref" promises left. */
-    function unrefOp(promiseId: number): void;
-
     /** Mark following promise as "ref", ie. event loop won't exit
      * until all "ref" promises are resolved. All async ops are "ref" by default. */
     function refOpPromise<T>(promise: Promise<T>): void;

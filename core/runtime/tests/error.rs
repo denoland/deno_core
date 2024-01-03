@@ -85,8 +85,9 @@ if (errMessage !== "higher-level sync error: original sync error") {
       r#"
 (async () => {
   let errMessage;
+  const { op_err_async } = Deno.core.ensureFastOps(); 
   try {
-    await Deno.core.opAsync("op_err_async");
+    await op_err_async();
   } catch (err) {
     errMessage = err.message;
   }

@@ -234,17 +234,6 @@ fn bench_op_async_void_deferred_return(b: &mut Bencher) {
   );
 }
 
-/// Tests the overhead of opAsync.
-fn bench_op_async_void_indirect(b: &mut Bencher) {
-  bench_op(
-    b,
-    BENCH_COUNT,
-    "op_async_void",
-    0,
-    "accum += await opAsync('op_async_void');",
-  );
-}
-
 macro_rules! bench_void {
   ($bench:ident, $op:ident) => {
     fn $bench(b: &mut Bencher) {
