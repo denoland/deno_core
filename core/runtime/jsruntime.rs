@@ -2169,7 +2169,7 @@ impl JsRuntime {
 
         let args = [
           v8::Local::new(scope, promise).into(),
-          v8::Local::new(scope, result).into(),
+          v8::Local::new(scope, result),
         ];
         function.call(scope, undefined, &args);
       }
