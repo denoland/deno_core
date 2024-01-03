@@ -14,10 +14,12 @@ pub(crate) struct ExceptionState {
   dispatched_exception_is_promise: Cell<bool>,
   pub(crate) pending_promise_rejections:
     RefCell<VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>>,
+  pub(crate) pending_handled_promise_rejections:
+    RefCell<VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>>,
   pub(crate) js_build_custom_error_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
-  pub(crate) js_promise_reject_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) js_handled_promise_rejection_cb:
+    RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_format_exception_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
 }
@@ -31,7 +33,7 @@ impl ExceptionState {
   pub(crate) fn prepare_to_destroy(&self) {
     // TODO(mmastrac): we can probably move this to Drop eventually
     self.js_build_custom_error_cb.borrow_mut().take();
-    self.js_promise_reject_cb.borrow_mut().take();
+    self.js_handled_promise_rejection_cb.borrow_mut().take();
     self.js_format_exception_cb.borrow_mut().take();
     self.pending_promise_rejections.borrow_mut().clear();
     self.dispatched_exception.set(None);
@@ -102,8 +104,19 @@ impl ExceptionState {
     .map(|global| v8::Local::new(scope, global))
   }
 
-  /// Tracks this promise rejection until we have a chance to give it to the
-  /// unhandled promise rejection handler.
+  /// Tracks this promise rejection until we have a chance to give it to the unhandled promise rejection handler.
+  /// This performs the role of `HostPromiseRejectionTracker` from https://262.ecma-international.org/14.0/#sec-host-promise-rejection-tracker.
+  ///
+  /// Notes from ECMAScript's `HostPromiseRejectionTracker` operation:
+  ///
+  /// - HostPromiseRejectionTracker is called with the operation argument set to "reject" when a promise is rejected
+  /// without any handlers, or "handle" when a handler is added to a previously rejected promise for the first time.
+  /// - Host environments can use this operation to track promise rejections without causing abrupt completion.
+  /// - Implementations may notify developers of unhandled rejections and invalidate notifications if new handlers are attached.
+  /// - If operation is "handle", an implementation should not hold a reference to promise in a way that would
+  /// interfere with garbage collection.
+  /// - An implementation may hold a reference to promise if operation is "reject", since it is expected that rejections
+  /// will be rare and not on hot code paths.
   pub fn track_promise_rejection(
     &self,
     scope: &mut v8::HandleScope,
@@ -123,10 +136,25 @@ impl ExceptionState {
           .push_back((promise_global, error_global));
       }
       PromiseHandlerAddedAfterReject => {
-        self
-          .pending_promise_rejections
-          .borrow_mut()
-          .retain(|(key, _)| key != &promise_global);
+        // The code has until the event loop yields to attach a handler and avoid an unhandled rejection
+        // event. If we haven't delivered an unhandled exception event yet, we search for the old promise
+        // in this list and remove it. If it doesn't exist, that means it was already "handled as unhandled"
+        // and we need to fire a rejectionhandled event.
+        let mut rejections = self.pending_promise_rejections.borrow_mut();
+        let previous_len = rejections.len();
+        rejections.retain(|(key, _)| key != &promise_global);
+        if rejections.len() == previous_len {
+          // The unhandled rejection was already delivered, so this means we need to deliver a
+          // "rejectionhandled" event if anyone cares.
+          if self.js_handled_promise_rejection_cb.borrow().is_some() {
+            let error = promise.result(scope);
+            let error_global = v8::Global::new(scope, error);
+            self
+              .pending_handled_promise_rejections
+              .borrow_mut()
+              .push_back((promise_global, error_global));
+          }
+        }
       }
       PromiseRejectAfterResolved => {}
       PromiseResolveAfterResolved => {

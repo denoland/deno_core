@@ -1730,7 +1730,7 @@ impl JsRuntime {
     {
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
-        || pending_state.has_pending_promise_rejections
+        || pending_state.has_pending_promise_events
       {
         self.inner.state.waker.wake();
       } else
@@ -1891,7 +1891,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_module_evaluation: bool,
   has_pending_background_tasks: bool,
   has_tick_scheduled: bool,
-  has_pending_promise_rejections: bool,
+  has_pending_promise_events: bool,
 }
 
 impl EventLoopPendingState {
@@ -1909,11 +1909,16 @@ impl EventLoopPendingState {
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
     let has_pending_module_evaluation = modules.has_pending_module_evaluation();
-    let has_pending_promise_rejections = !state
+    let has_pending_promise_events = !state
       .exception_state
       .pending_promise_rejections
       .borrow()
-      .is_empty();
+      .is_empty()
+      || !state
+        .exception_state
+        .pending_handled_promise_rejections
+        .borrow()
+        .is_empty();
     EventLoopPendingState {
       has_pending_refed_ops: has_pending_tasks
         || has_pending_timers
@@ -1923,7 +1928,7 @@ impl EventLoopPendingState {
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
       has_tick_scheduled: state.has_next_tick_scheduled.get(),
-      has_pending_promise_rejections,
+      has_pending_promise_events,
     }
   }
 
@@ -1941,7 +1946,7 @@ impl EventLoopPendingState {
       || self.has_pending_module_evaluation
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
-      || self.has_pending_promise_rejections
+      || self.has_pending_promise_events
   }
 }
 
@@ -2149,6 +2154,26 @@ impl JsRuntime {
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
     dispatched_ops |= has_tick_scheduled;
+
+    while let Some((promise, result)) = exception_state
+      .pending_handled_promise_rejections
+      .borrow_mut()
+      .pop_front()
+    {
+      if let Some(handler) = exception_state
+        .js_handled_promise_rejection_cb
+        .borrow()
+        .as_ref()
+      {
+        let function = handler.open(scope);
+
+        let args = [
+          v8::Local::new(scope, promise).into(),
+          v8::Local::new(scope, result),
+        ];
+        function.call(scope, undefined, &args);
+      }
+    }
 
     let rejections = if !exception_state
       .pending_promise_rejections

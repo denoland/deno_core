@@ -671,9 +671,9 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
         });
         Deno.core.setNextTickCallback(() => {
           results.push("nextTick");
-          Deno.core.ops.op_set_has_tick_scheduled(false);
+          Deno.core.setHasTickScheduled(false);
         });
-        Deno.core.ops.op_set_has_tick_scheduled(true);
+        Deno.core.setHasTickScheduled(true);
         await op_async_sleep();
         if (results[0] != "nextTick") {
           throw new Error(`expected nextTick, got: ${results[0]}`);
@@ -722,7 +722,7 @@ fn test_has_tick_scheduled() {
           return true; // We're done.
         });
         Deno.core.setNextTickCallback(() => Deno.core.ops.op_next_tick());
-        Deno.core.ops.op_set_has_tick_scheduled(true);
+        Deno.core.setHasTickScheduled(true);
         "#,
     )
     .unwrap();
