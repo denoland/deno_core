@@ -279,7 +279,6 @@ benchmark_group!(
   bench_op_async_yield_lazy_nofast,
   bench_op_async_yield_deferred,
   bench_op_async_yield_deferred_nofast,
-  bench_op_async_void_indirect,
   bench_op_async_void,
   bench_op_async_void_lazy,
   bench_op_async_void_lazy_nofast,
