@@ -19,6 +19,7 @@ use crate::checkin::runner::testing::TestData;
 use self::testing::TestFunctions;
 
 mod ops;
+mod ops_async;
 mod ops_buffer;
 mod testing;
 mod ts_module_loader;
@@ -29,6 +30,7 @@ deno_core::extension!(
     ops::op_log_debug,
     ops::op_log_info,
     ops::op_test_register,
+    ops_async::op_async_void_deferred,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
   ],
