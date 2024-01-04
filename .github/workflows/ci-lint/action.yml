@@ -1,0 +1,21 @@
+name: Lint
+runs:
+  using: "composite"
+  steps:
+    - name: Format
+      shell: bash
+      run: |
+        cargo fmt -- --check
+        deno fmt --check ./core/ ./ops/ ./serde_v8/
+    - name: Lint
+      shell: bash
+      run: |
+        cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
+    - name: Lint
+      shell: bash
+      run: |
+        deno lint
+    - name: Lint
+      shell: bash
+      run: |
+        tools/copyright_checker.js
