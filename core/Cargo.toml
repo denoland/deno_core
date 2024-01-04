@@ -53,6 +53,8 @@ pretty_assertions.workspace = true
 rstest.workspace = true
 fastrand.workspace = true
 unicycle = "0"
+rustyline = { version = "13.0.0", default-features = false, features = ["with-file-history"] }
+rustyline-derive = "=0.7.0"
 
 [[bench]]
 name = "ops_sync"
