@@ -1,9 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use anyhow::Context as _;
-use cdp::EvaluateResponse;
 use deno_core::anyhow::anyhow;
 use deno_core::anyhow::Error;
+use deno_core::cdp;
 use deno_core::error::AnyError;
 use deno_core::futures::channel::mpsc::UnboundedReceiver as FUnboundedReceiver;
 use deno_core::serde_json;
@@ -17,29 +16,16 @@ use deno_unsync::spawn_blocking;
 use futures::FutureExt;
 use futures::StreamExt;
 use parking_lot::Mutex;
-use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
-use rustyline::highlight::Highlighter;
-use rustyline::validate::ValidationContext;
-use rustyline::validate::ValidationResult;
-use rustyline::validate::Validator;
-use rustyline::Cmd;
 use rustyline::CompletionType;
 use rustyline::Config;
-use rustyline::Context;
 use rustyline::Editor;
-use rustyline::KeyCode;
-use rustyline::KeyEvent;
-use rustyline::Modifiers;
-use rustyline::RepeatCount;
 use rustyline_derive::Completer;
 use rustyline_derive::Helper;
 use rustyline_derive::Highlighter;
 use rustyline_derive::Hinter;
 use rustyline_derive::Validator;
-use std::borrow::Cow;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
@@ -51,18 +37,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 
-mod cdp;
-
 fn main() -> Result<(), Error> {
-  //   let args: Vec<String> = std::env::args().collect();
-  //   if args.len() < 2 {
-  //     println!("Usage: target/examples/debug/fs_module_loader <path_to_module>");
-  //     std::process::exit(1);
-  //   }
-  //   let main_url = &args[1];
-  //   println!("Run {main_url}");
-
-  let mut js_runtime = JsRuntime::new(RuntimeOptions {
+  let js_runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
     is_main: true,
     ..Default::default()
@@ -289,7 +265,7 @@ impl ReplSession {
       evaluate_response
     };
 
-    let output = match result {
+    match result {
       Ok(evaluate_response) => {
         let cdp::EvaluateResponse {
           result,
@@ -318,8 +294,7 @@ impl ReplSession {
         }
       }
       Err(err) => EvaluationOutput::Error(err.to_string()),
-    };
-    output
+    }
   }
 }
 
@@ -339,14 +314,11 @@ async fn read_line_and_poll_session(
         return result.unwrap();
       }
       result = message_handler.recv() => {
-        match result {
-          Some(RustylineSyncMessage::PostMessage { method, params }) => {
+        if let Some(RustylineSyncMessage::PostMessage { method, params }) = result {
             let result = repl_session
               .post_message_with_event_loop(&method, params)
               .await;
             message_handler.send(RustylineSyncResponse::PostMessage(result)).unwrap();
-          },
-          None => {}, // channel closed
         }
 
         poll_worker = true;
@@ -402,7 +374,7 @@ impl ReplEditor {
 }
 
 #[derive(Helper, Hinter, Validator, Highlighter, Completer)]
-struct EditorHelper {
+pub struct EditorHelper {
   pub context_id: u64,
   pub sync_sender: RustylineSyncMessageSender,
 }
