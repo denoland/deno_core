@@ -8,10 +8,14 @@ use serde::Serialize;
 
 const MAX_RESULT_SIZE: usize = 32;
 
-type MappedResult<'s, C: OpMappingContextLifetime<'s>> =
-  Result<C::Result, C::Result>;
-type UnmappedResult<'s, C: OpMappingContextLifetime<'s>> =
-  Result<C::Result, C::MappingError>;
+pub type MappedResult<'s, C> = Result<
+  <C as OpMappingContextLifetime<'s>>::Result,
+  <C as OpMappingContextLifetime<'s>>::Result,
+>;
+pub type UnmappedResult<'s, C> = Result<
+  <C as OpMappingContextLifetime<'s>>::Result,
+  <C as OpMappingContextLifetime<'s>>::MappingError,
+>;
 
 pub trait OpMappingContextLifetime<'s> {
   type Context: 's;
@@ -31,7 +35,9 @@ pub trait OpMappingContextLifetime<'s> {
 /// A type that allows for arbitrary mapping systems for op output with lifetime
 /// control. We add this extra layer of generics because we want to test our drivers
 /// without requiring V8.
-pub trait OpMappingContext: for<'s> OpMappingContextLifetime<'s> + 'static {
+pub trait OpMappingContext:
+  for<'s> OpMappingContextLifetime<'s> + 'static
+{
   type MappingFn<R: 'static>;
 
   fn erase_mapping_fn<R: 'static>(f: Self::MappingFn<R>) -> *const fn();
@@ -94,7 +100,7 @@ pub struct PendingOp<C: OpMappingContext>(pub PendingOpInfo, pub OpResult<C>);
 
 pub struct PendingOpInfo(pub PromiseId, pub OpId, pub bool);
 
-type MapRawFn<C: OpMappingContext> = for<'a> fn(
+type MapRawFn<C> = for<'a> fn(
   _lifetime: &'a (),
   scope: &mut <C as OpMappingContextLifetime<'a>>::Context,
   rv_map: *const fn(),
