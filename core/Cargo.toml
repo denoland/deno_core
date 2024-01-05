@@ -77,3 +77,7 @@ harness = false
 name = "arena"
 path = "benches/infra/arena.rs"
 harness = false
+
+[[example]]
+name = "repl"
+path = "examples/repl/mod.rs"
