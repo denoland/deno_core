@@ -3,7 +3,6 @@ use super::future_arena::FutureAllocation;
 use super::future_arena::FutureArena;
 use super::op_results::*;
 use super::OpDriver;
-use crate::ops::OpCtx;
 use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
@@ -100,14 +99,15 @@ impl<C: OpMappingContext> OpDriver<C> for JoinSetDriver<C> {
     const DEFERRED: bool,
   >(
     &self,
-    ctx: &OpCtx,
+    op_id: OpId,
+    metrics_enabled: bool,
+    get_class: GetErrorClassFn,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>> {
     {
-      let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
-      let get_class = ctx.get_error_class_fn;
+      let info = PendingOpInfo(promise_id, op_id, metrics_enabled);
 
       if LAZY {
         self.spawn_unpolled(op, move |r| {
@@ -143,13 +143,14 @@ impl<C: OpMappingContext> OpDriver<C> for JoinSetDriver<C> {
     const DEFERRED: bool,
   >(
     &self,
-    ctx: &OpCtx,
+    op_id: OpId,
+    metrics_enabled: bool,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<R> {
     {
-      let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
+      let info = PendingOpInfo(promise_id, op_id, metrics_enabled);
       if LAZY {
         self.spawn_unpolled(op, move |r| {
           Self::pending_op_success(info, rv_map, r)

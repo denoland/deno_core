@@ -31,14 +31,29 @@ pub fn map_async_op_infallible<R: 'static>(
 ) -> Option<R> {
   let pending_ops = &ctx.context_state().pending_ops;
   if lazy {
-    pending_ops
-      .submit_op_infallible::<_, true, false>(ctx, promise_id, op, rv_map)
+    pending_ops.submit_op_infallible::<_, true, false>(
+      ctx.id,
+      ctx.metrics_enabled(),
+      promise_id,
+      op,
+      rv_map,
+    )
   } else if deferred {
-    pending_ops
-      .submit_op_infallible::<_, false, true>(ctx, promise_id, op, rv_map)
+    pending_ops.submit_op_infallible::<_, false, true>(
+      ctx.id,
+      ctx.metrics_enabled(),
+      promise_id,
+      op,
+      rv_map,
+    )
   } else {
-    pending_ops
-      .submit_op_infallible::<_, false, false>(ctx, promise_id, op, rv_map)
+    pending_ops.submit_op_infallible::<_, false, false>(
+      ctx.id,
+      ctx.metrics_enabled(),
+      promise_id,
+      op,
+      rv_map,
+    )
   }
 }
 
@@ -53,14 +68,32 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
 ) -> Option<Result<R, E>> {
   let pending_ops = &ctx.context_state().pending_ops;
   if lazy {
-    pending_ops
-      .submit_op_fallible::<_, _, true, false>(ctx, promise_id, op, rv_map)
+    pending_ops.submit_op_fallible::<_, _, true, false>(
+      ctx.id,
+      ctx.metrics_enabled(),
+      ctx.get_error_class_fn,
+      promise_id,
+      op,
+      rv_map,
+    )
   } else if deferred {
-    pending_ops
-      .submit_op_fallible::<_, _, false, true>(ctx, promise_id, op, rv_map)
+    pending_ops.submit_op_fallible::<_, _, false, true>(
+      ctx.id,
+      ctx.metrics_enabled(),
+      ctx.get_error_class_fn,
+      promise_id,
+      op,
+      rv_map,
+    )
   } else {
-    pending_ops
-      .submit_op_fallible::<_, _, false, false>(ctx, promise_id, op, rv_map)
+    pending_ops.submit_op_fallible::<_, _, false, false>(
+      ctx.id,
+      ctx.metrics_enabled(),
+      ctx.get_error_class_fn,
+      promise_id,
+      op,
+      rv_map,
+    )
   }
 }
 
