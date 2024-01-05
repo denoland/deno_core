@@ -8,13 +8,12 @@ use std::task::Poll;
 use std::task::Waker;
 
 use futures::stream::FuturesUnordered;
+use futures::Future;
 use futures::Stream;
 
-use super::future_arena::FutureAllocation;
-use super::op_results::PendingOp;
-
-impl SubmissionQueueFutures for FuturesUnordered<FutureAllocation<PendingOp>> {
-  type Future = FutureAllocation<PendingOp>;
+impl<F: Future<Output = R>, R> SubmissionQueueFutures for FuturesUnordered<F> {
+  type Future = F;
+  type Output = F::Output;
 
   fn len(&self) -> usize {
     self.len()
@@ -24,7 +23,7 @@ impl SubmissionQueueFutures for FuturesUnordered<FutureAllocation<PendingOp>> {
     self.push(f)
   }
 
-  fn poll_next_unpin(&mut self, cx: &mut Context) -> Poll<PendingOp> {
+  fn poll_next_unpin(&mut self, cx: &mut Context) -> Poll<Self::Output> {
     Poll::Ready(ready!(Pin::new(self).poll_next(cx)).unwrap())
   }
 }
@@ -36,11 +35,12 @@ struct Queue<F: SubmissionQueueFutures> {
 }
 
 pub trait SubmissionQueueFutures: Default {
-  type Future;
+  type Future: Future<Output = Self::Output>;
+  type Output;
 
   fn len(&self) -> usize;
   fn spawn(&mut self, f: Self::Future);
-  fn poll_next_unpin(&mut self, cx: &mut Context) -> Poll<PendingOp>;
+  fn poll_next_unpin(&mut self, cx: &mut Context) -> Poll<Self::Output>;
 }
 
 pub struct SubmissionQueueResults<F: SubmissionQueueFutures> {
@@ -48,7 +48,7 @@ pub struct SubmissionQueueResults<F: SubmissionQueueFutures> {
 }
 
 impl<F: SubmissionQueueFutures> SubmissionQueueResults<F> {
-  pub fn poll_next_unpin(&mut self, cx: &mut Context) -> Poll<PendingOp> {
+  pub fn poll_next_unpin(&mut self, cx: &mut Context) -> Poll<F::Output> {
     let mut queue = self.queue.queue.borrow_mut();
     if queue.len() == 0 {
       self.queue.empty_waker.set(Some(cx.waker().clone()));
