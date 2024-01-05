@@ -589,62 +589,6 @@ any
 <td>
 
 ```text
-#[anybuffer] &mut [u8]
-```
-
-</td><td>
-✅
-</td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[anybuffer] &[u8]
-```
-
-</td><td>
-✅
-</td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[anybuffer] *mut u8
-```
-
-</td><td>
-✅
-</td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly. Because of how V8 treats empty arrays in fastcalls, they will always be passed as null.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[anybuffer] *const u8
-```
-
-</td><td>
-✅
-</td><td>
-ArrayBuffer, ArrayBufferView (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly. Because of how V8 treats empty arrays in fastcalls, they will always be passed as null.
-</td></tr>
-<tr>
-<td>
-
-```text
 #[arraybuffer] &mut [u8]
 ```
 
@@ -743,62 +687,6 @@ Safe, but forces a copy.
 <td>
 
 ```text
-#[buffer] &mut [u8]
-```
-
-</td><td>
-✅
-</td><td>
-UInt8Array (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[buffer] &[u8]
-```
-
-</td><td>
-✅
-</td><td>
-UInt8Array (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[buffer] *mut u8
-```
-
-</td><td>
-✅
-</td><td>
-UInt8Array (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly. Because of how V8 treats empty arrays in fastcalls, they will always be passed as null.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[buffer] *const u8
-```
-
-</td><td>
-✅
-</td><td>
-UInt8Array (resizable=true,false)
-</td><td>
-⚠️ JS may modify the contents of the slice if V8 is called re-entrantly. Because of how V8 treats empty arrays in fastcalls, they will always be passed as null.
-</td></tr>
-<tr>
-<td>
-
-```text
 #[buffer(copy)] Vec<u8>
 ```
 
@@ -892,20 +780,6 @@ Safe, but forces a copy.
 UInt32Array (resizable=true,false)
 </td><td>
 Safe, but forces a copy.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[buffer] JsBuffer
-```
-
-</td><td>
-✅
-</td><td>
-ArrayBufferView (resizable=false)
-</td><td>
-⚠️ JS may modify the contents of slices obtained from buffer.
 </td></tr>
 <tr>
 <td>
