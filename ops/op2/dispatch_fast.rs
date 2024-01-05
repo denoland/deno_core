@@ -730,13 +730,21 @@ fn map_arg_to_v8_fastcall_type(
       BufferType::JsBuffer | BufferType::V8Slice(..),
       _,
       BufferSource::TypedArray,
-    ) => V8FastCallType::V8Value,
+      // This cannot be fast at this time as we have no way of accessing
+      // the shared pointer to the backing store in a fastcall.
+      // https://github.com/denoland/deno_core/issues/417
+      // ) => V8FastCallType::V8Value,
+    ) => return Ok(None),
     Arg::Buffer(
       BufferType::Slice(.., NumericArg::u8)
       | BufferType::Ptr(.., NumericArg::u8),
       _,
       BufferSource::Any,
-    ) => V8FastCallType::AnyArray,
+      // This cannot be fast at this time as we have no way of accessing
+      // the shared pointer to the backing store in a fastcall.
+      // https://github.com/denoland/deno_core/issues/417
+      // ) => V8FastCallType::AnyArray,
+    ) => return Ok(None),
     // TODO(mmastrac): implement fast for any Any-typed buffer
     Arg::Buffer(_, _, BufferSource::Any) => return Ok(None),
     Arg::Buffer(_, _, BufferSource::ArrayBuffer) => V8FastCallType::ArrayBuffer,
