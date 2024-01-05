@@ -510,8 +510,7 @@ pub fn to_v8_slice_any(
   Err("expected ArrayBuffer or ArrayBufferView")
 }
 
-// #[cfg(all(test, not(miri)))]
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
   use crate::error::generic_error;
   use crate::error::AnyError;
