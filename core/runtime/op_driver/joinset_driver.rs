@@ -3,7 +3,6 @@ use super::future_arena::FutureAllocation;
 use super::future_arena::FutureArena;
 use super::op_results::*;
 use super::OpDriver;
-use super::RetValMapper;
 use crate::ops::OpCtx;
 use crate::GetErrorClassFn;
 use crate::OpId;
@@ -20,26 +19,34 @@ use std::task::Context;
 use std::task::Poll;
 
 /// [`OpDriver`] implementation built on a tokio [`JoinSet`].
-#[derive(Default)]
-pub struct JoinSetDriver {
-  pending_ops: RefCell<JoinSet<PendingOp>>,
+pub struct JoinSetDriver<C: OpMappingContext = V8OpMappingContext> {
+  pending_ops: RefCell<JoinSet<PendingOp<C>>>,
   arena: FutureArena,
 }
 
-impl JoinSetDriver {
+impl<C: OpMappingContext> Default for JoinSetDriver<C> {
+  fn default() -> Self {
+    Self {
+      pending_ops: Default::default(),
+      arena: Default::default(),
+    }
+  }
+}
+
+impl<C: OpMappingContext> JoinSetDriver<C> {
   /// Spawn an unpolled task, along with a function that can map it to a [`PendingOp`].
   #[inline(always)]
   fn spawn_unpolled<R>(
     &self,
     task: impl Future<Output = R> + 'static,
-    map: impl FnOnce(R) -> PendingOp + 'static,
+    map: impl FnOnce(R) -> PendingOp<C> + 'static,
   ) {
     self.pending_ops.borrow_mut().spawn(task.map(map));
   }
 
   /// Spawn a ready task that already has a [`PendingOp`].
   #[inline(always)]
-  fn spawn_ready(&self, ready_op: PendingOp) {
+  fn spawn_ready(&self, ready_op: PendingOp<C>) {
     self.pending_ops.borrow_mut().spawn(ready(ready_op));
   }
 
@@ -48,7 +55,7 @@ impl JoinSetDriver {
   fn spawn_polled<R>(
     &self,
     task: FutureAllocation<R>,
-    map: impl FnOnce(R) -> PendingOp + 'static,
+    map: impl FnOnce(R) -> PendingOp<C> + 'static,
   ) {
     self.pending_ops.borrow_mut().spawn(task.map(map));
   }
@@ -56,9 +63,9 @@ impl JoinSetDriver {
   #[inline(always)]
   fn pending_op_success<R: 'static>(
     info: PendingOpInfo,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
     v: R,
-  ) -> PendingOp {
+  ) -> PendingOp<C> {
     PendingOp(info, OpResult::new_value(v, rv_map))
   }
 
@@ -67,17 +74,17 @@ impl JoinSetDriver {
     info: PendingOpInfo,
     get_class: GetErrorClassFn,
     err: E,
-  ) -> PendingOp {
+  ) -> PendingOp<C> {
     PendingOp(info, OpResult::Err(OpError::new(get_class, err.into())))
   }
 
   #[inline(always)]
   fn pending_op_result<R: 'static, E: Into<Error> + 'static>(
     info: PendingOpInfo,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
     get_class: GetErrorClassFn,
     result: Result<R, E>,
-  ) -> PendingOp {
+  ) -> PendingOp<C> {
     match result {
       Ok(r) => Self::pending_op_success(info, rv_map, r),
       Err(err) => Self::pending_op_failure(info, get_class, err),
@@ -85,7 +92,7 @@ impl JoinSetDriver {
   }
 }
 
-impl OpDriver for JoinSetDriver {
+impl<C: OpMappingContext> OpDriver<C> for JoinSetDriver<C> {
   fn submit_op_fallible<
     R: 'static,
     E: Into<Error> + 'static,
@@ -96,7 +103,7 @@ impl OpDriver for JoinSetDriver {
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>> {
     {
       let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
@@ -139,7 +146,7 @@ impl OpDriver for JoinSetDriver {
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
   ) -> Option<R> {
     {
       let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
@@ -174,13 +181,7 @@ impl OpDriver for JoinSetDriver {
   fn poll_ready<'s>(
     &self,
     cx: &mut Context,
-    scope: &mut v8::HandleScope<'s>,
-  ) -> Poll<(
-    PromiseId,
-    OpId,
-    bool,
-    Result<v8::Local<'s, v8::Value>, v8::Local<'s, v8::Value>>,
-  )> {
+  ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)> {
     let item = ready!(self.pending_ops.borrow_mut().poll_join_next(cx));
     let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) =
       match item {
@@ -190,23 +191,7 @@ impl OpDriver for JoinSetDriver {
           panic!("Unrecoverable error: op panicked");
         }
       };
-
-    let was_error = matches!(resp, OpResult::Err(_));
-    let res = match resp.into_v8(scope) {
-      Ok(v) => {
-        if was_error {
-          Err(v)
-        } else {
-          Ok(v)
-        }
-      }
-      Err(e) => Err(
-        OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
-          .into_v8(scope)
-          .unwrap(),
-      ),
-    };
-    Poll::Ready((promise_id, op_id, metrics_event, res))
+    Poll::Ready((promise_id, op_id, metrics_event, resp))
   }
 
   #[inline(always)]

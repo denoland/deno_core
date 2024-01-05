@@ -2120,10 +2120,12 @@ impl JsRuntime {
 
     loop {
       let Poll::Ready((promise_id, op_id, metrics_event, res)) =
-        context_state.pending_ops.poll_ready(cx, scope)
+        context_state.pending_ops.poll_ready(cx)
       else {
         break;
       };
+
+      let res = res.unwrap(scope);
 
       if metrics_event {
         if res.is_ok() {

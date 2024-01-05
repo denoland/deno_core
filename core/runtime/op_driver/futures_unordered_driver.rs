@@ -6,7 +6,6 @@ use super::submission_queue::new_submission_queue;
 use super::submission_queue::SubmissionQueue;
 use super::submission_queue::SubmissionQueueResults;
 use super::OpDriver;
-use super::RetValMapper;
 use crate::ops::OpCtx;
 use crate::GetErrorClassFn;
 use crate::OpId;
@@ -29,11 +28,11 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
 
-async fn poll_task(
+async fn poll_task<C: OpMappingContext>(
   mut results: SubmissionQueueResults<
-    FuturesUnordered<FutureAllocation<PendingOp>>,
+    FuturesUnordered<FutureAllocation<PendingOp<C>>>,
   >,
-  tx: Rc<RefCell<VecDeque<PendingOp>>>,
+  tx: Rc<RefCell<VecDeque<PendingOp<C>>>>,
   tx_waker: Rc<Cell<Option<Waker>>>,
 ) {
   loop {
@@ -54,16 +53,18 @@ enum MaybeTask {
 }
 
 /// [`OpDriver`] implementation built on a tokio [`JoinSet`].
-pub struct FuturesUnorderedDriver {
+pub struct FuturesUnorderedDriver<
+  C: OpMappingContext + 'static = V8OpMappingContext,
+> {
   task: Cell<MaybeTask>,
   task_set: Cell<bool>,
-  queue: SubmissionQueue<FuturesUnordered<FutureAllocation<PendingOp>>>,
-  completed_ops: Rc<RefCell<VecDeque<PendingOp>>>,
+  queue: SubmissionQueue<FuturesUnordered<FutureAllocation<PendingOp<C>>>>,
+  completed_ops: Rc<RefCell<VecDeque<PendingOp<C>>>>,
   completed_waker: Rc<Cell<Option<Waker>>>,
   arena: FutureArena,
 }
 
-impl Default for FuturesUnorderedDriver {
+impl<C: OpMappingContext> Default for FuturesUnorderedDriver<C> {
   fn default() -> Self {
     let (queue, results) = new_submission_queue();
     let completed_ops = Rc::new(RefCell::new(VecDeque::with_capacity(128)));
@@ -86,7 +87,7 @@ impl Default for FuturesUnorderedDriver {
   }
 }
 
-impl FuturesUnorderedDriver {
+impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
   #[inline(always)]
   fn ensure_task(&self) {
     if !self.task_set.get() {
@@ -109,7 +110,7 @@ impl FuturesUnorderedDriver {
   fn spawn_unpolled<R>(
     &self,
     task: impl Future<Output = R> + 'static,
-    map: impl FnOnce(R) -> PendingOp + 'static,
+    map: impl FnOnce(R) -> PendingOp<C> + 'static,
   ) {
     self.ensure_task();
     self.queue.spawn(self.arena.allocate(task.map(map)));
@@ -117,7 +118,7 @@ impl FuturesUnorderedDriver {
 
   /// Spawn a ready task that already has a [`PendingOp`].
   #[inline(always)]
-  fn spawn_ready(&self, ready_op: PendingOp) {
+  fn spawn_ready(&self, ready_op: PendingOp<C>) {
     self.ensure_task();
     self.queue.spawn(self.arena.allocate(ready(ready_op)));
   }
@@ -127,7 +128,7 @@ impl FuturesUnorderedDriver {
   fn spawn_polled<R>(
     &self,
     task: FutureAllocation<R>,
-    map: impl FnOnce(R) -> PendingOp + 'static,
+    map: impl FnOnce(R) -> PendingOp<C> + 'static,
   ) {
     self.ensure_task();
     self.queue.spawn(self.arena.allocate(task.map(map)));
@@ -136,9 +137,9 @@ impl FuturesUnorderedDriver {
   #[inline(always)]
   fn pending_op_success<R: 'static>(
     info: PendingOpInfo,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
     v: R,
-  ) -> PendingOp {
+  ) -> PendingOp<C> {
     PendingOp(info, OpResult::new_value(v, rv_map))
   }
 
@@ -147,17 +148,17 @@ impl FuturesUnorderedDriver {
     info: PendingOpInfo,
     get_class: GetErrorClassFn,
     err: E,
-  ) -> PendingOp {
+  ) -> PendingOp<C> {
     PendingOp(info, OpResult::Err(OpError::new(get_class, err.into())))
   }
 
   #[inline(always)]
   fn pending_op_result<R: 'static, E: Into<Error> + 'static>(
     info: PendingOpInfo,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
     get_class: GetErrorClassFn,
     result: Result<R, E>,
-  ) -> PendingOp {
+  ) -> PendingOp<C> {
     match result {
       Ok(r) => Self::pending_op_success(info, rv_map, r),
       Err(err) => Self::pending_op_failure(info, get_class, err),
@@ -165,7 +166,7 @@ impl FuturesUnorderedDriver {
   }
 }
 
-impl OpDriver for FuturesUnorderedDriver {
+impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   fn submit_op_fallible<
     R: 'static,
     E: Into<Error> + 'static,
@@ -176,7 +177,7 @@ impl OpDriver for FuturesUnorderedDriver {
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>> {
     {
       let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
@@ -219,7 +220,7 @@ impl OpDriver for FuturesUnorderedDriver {
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
   ) -> Option<R> {
     {
       let info = PendingOpInfo(promise_id, ctx.id, ctx.metrics_enabled());
@@ -251,16 +252,10 @@ impl OpDriver for FuturesUnorderedDriver {
   }
 
   #[inline(always)]
-  fn poll_ready<'s>(
+  fn poll_ready(
     &self,
     cx: &mut Context,
-    scope: &mut v8::HandleScope<'s>,
-  ) -> Poll<(
-    PromiseId,
-    OpId,
-    bool,
-    Result<v8::Local<'s, v8::Value>, v8::Local<'s, v8::Value>>,
-  )> {
+  ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)> {
     let mut ops = self.completed_ops.borrow_mut();
     if ops.is_empty() {
       self.completed_waker.set(Some(cx.waker().clone()));
@@ -268,22 +263,7 @@ impl OpDriver for FuturesUnorderedDriver {
     }
     let item = ops.pop_front().unwrap();
     let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) = item;
-    let was_error = matches!(resp, OpResult::Err(_));
-    let res = match resp.into_v8(scope) {
-      Ok(v) => {
-        if was_error {
-          Err(v)
-        } else {
-          Ok(v)
-        }
-      }
-      Err(e) => Err(
-        OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
-          .into_v8(scope)
-          .unwrap(),
-      ),
-    };
-    Poll::Ready((promise_id, op_id, metrics_event, res))
+    Poll::Ready((promise_id, op_id, metrics_event, resp))
   }
 
   #[inline(always)]

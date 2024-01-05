@@ -17,24 +17,28 @@ mod submission_queue;
 pub use futures_unordered_driver::FuturesUnorderedDriver;
 pub use joinset_driver::JoinSetDriver;
 
-pub type RetValMapper<R> =
-  for<'r> fn(
-    &mut v8::HandleScope<'r>,
-    R,
-  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>;
+pub use self::op_results::OpMappingContext;
+use self::op_results::OpResult;
+pub use self::op_results::V8OpMappingContext;
+pub use self::op_results::V8RetValMapper;
 
 /// `OpDriver` encapsulates the interface for handling operations within Deno's runtime.
 ///
 /// This trait defines methods for submitting ops and polling readiness inside of the
 /// event loop.
-pub(crate) trait OpDriver: Default {
+///
+/// The driver takes an optional [`OpMappingContext`] implementation, which defaults to
+/// one compatible with v8. This is used solely for testing purposes.
+pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
+  Default
+{
   /// Submits an operation that is expected to complete successfully without errors.
   fn submit_op_infallible<R: 'static, const LAZY: bool, const DEFERRED: bool>(
     &self,
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
   ) -> Option<R>;
 
   /// Submits an operation that may produce errors during execution.
@@ -51,7 +55,7 @@ pub(crate) trait OpDriver: Default {
     ctx: &OpCtx,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
-    rv_map: RetValMapper<R>,
+    rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>>;
 
   #[allow(clippy::type_complexity)]
@@ -59,13 +63,7 @@ pub(crate) trait OpDriver: Default {
   fn poll_ready<'s>(
     &self,
     cx: &mut Context,
-    scope: &mut v8::HandleScope<'s>,
-  ) -> Poll<(
-    PromiseId,
-    OpId,
-    bool,
-    Result<v8::Local<'s, v8::Value>, v8::Local<'s, v8::Value>>,
-  )>;
+  ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)>;
 
   fn len(&self) -> usize;
 }
