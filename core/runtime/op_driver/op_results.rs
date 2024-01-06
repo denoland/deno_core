@@ -171,16 +171,17 @@ impl<C: OpMappingContext> OpResult<C> {
     self,
     context: &mut <C as OpMappingContextLifetime<'a>>::Context,
   ) -> MappedResult<'a, C> {
-    let res = match self {
-      Self::Err(err) => C::map_error(context, err),
-      Self::Value(f) => (f.map_fn)(&(), context, f.rv_map, f.value),
-      Self::ValueLarge(f) => f.unwrap(context),
+    let (success, res) = match self {
+      Self::Err(err) => (false, C::map_error(context, err)),
+      Self::Value(f) => (true, (f.map_fn)(&(), context, f.rv_map, f.value)),
+      Self::ValueLarge(f) => (true, f.unwrap(context)),
     };
-    match res {
-      Ok(x) => Ok(x),
-      Err(err) => Err(<C as OpMappingContextLifetime<'a>>::map_mapping_error(
-        context, err,
-      )),
+    match (success, res) {
+      (true, Ok(x)) => Ok(x),
+      (false, Ok(x)) => Err(x),
+      (_, Err(err)) => Err(
+        <C as OpMappingContextLifetime<'a>>::map_mapping_error(context, err),
+      ),
     }
   }
 }
