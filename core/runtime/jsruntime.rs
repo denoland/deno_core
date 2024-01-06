@@ -277,6 +277,7 @@ pub struct JsRuntime {
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
+  cpp_heap: v8::UniqueRef<v8::cppgc::Heap>,
 }
 
 /// The runtime type used for snapshot creation.
@@ -754,8 +755,7 @@ impl JsRuntime {
       v8::Isolate::new(params)
     };
 
-    let heap = Self::init_cppgc(&mut isolate);
-    std::mem::forget(heap);
+    let cpp_heap = Self::init_cppgc(&mut isolate);
 
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
@@ -873,6 +873,7 @@ impl JsRuntime {
       allocations: IsolateAllocations::default(),
       extensions: options.extensions,
       is_main_runtime: options.is_main,
+      cpp_heap,
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
