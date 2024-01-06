@@ -112,15 +112,6 @@ impl Repl {
   }
 }
 
-pub fn result_to_evaluation_output(
-  r: Result<EvaluationOutput, AnyError>,
-) -> EvaluationOutput {
-  match r {
-    Ok(value) => value,
-    Err(err) => EvaluationOutput::Error(format!("error: {:#}", err)),
-  }
-}
-
 async fn read_line_and_poll_session(
   repl_session: &mut ReplSession,
   message_handler: &mut RustylineSyncMessageHandler,

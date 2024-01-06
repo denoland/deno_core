@@ -2,6 +2,7 @@
 
 use deno_core::anyhow::Error;
 use deno_core::cdp;
+use deno_core::cdp::EvaluateResponse;
 use deno_core::error::AnyError;
 use deno_core::futures::channel::mpsc::UnboundedReceiver as FUnboundedReceiver;
 use deno_core::serde_json;
@@ -133,6 +134,41 @@ impl ReplSession {
       .and_then(|res| serde_json::from_value(res).map_err(|e| e.into()))
   }
 
+  fn evaluate_result_to_output(
+    result: Result<EvaluateResponse, AnyError>,
+  ) -> EvaluationOutput {
+    match result {
+      Ok(evaluate_response) => {
+        let cdp::EvaluateResponse {
+          result,
+          exception_details,
+        } = evaluate_response;
+
+        if let Some(exception_details) = exception_details {
+          let description = match exception_details.exception {
+            Some(exception) => {
+              if let Some(description) = exception.description {
+                description
+              } else if let Some(value) = exception.value {
+                value.to_string()
+              } else {
+                "undefined".to_string()
+              }
+            }
+            None => "Unknown exception".to_string(),
+          };
+          EvaluationOutput::Error(format!(
+            "{} {}",
+            exception_details.text, description
+          ))
+        } else {
+          EvaluationOutput::Value(format!("{:#?}", result))
+        }
+      }
+      Err(err) => EvaluationOutput::Error(err.to_string()),
+    }
+  }
+
   pub async fn evaluate_line_and_get_output(
     &mut self,
     line: &str,
@@ -165,36 +201,7 @@ impl ReplSession {
       evaluate_response
     };
 
-    match result {
-      Ok(evaluate_response) => {
-        let cdp::EvaluateResponse {
-          result,
-          exception_details,
-        } = evaluate_response;
-
-        if let Some(exception_details) = exception_details {
-          let description = match exception_details.exception {
-            Some(exception) => {
-              if let Some(description) = exception.description {
-                description
-              } else if let Some(value) = exception.value {
-                value.to_string()
-              } else {
-                "undefined".to_string()
-              }
-            }
-            None => "Unknown exception".to_string(),
-          };
-          EvaluationOutput::Error(format!(
-            "{} {}",
-            exception_details.text, description
-          ))
-        } else {
-          EvaluationOutput::Value(format!("{:#?}", result))
-        }
-      }
-      Err(err) => EvaluationOutput::Error(err.to_string()),
-    }
+    Self::evaluate_result_to_output(result)
   }
 }
 
