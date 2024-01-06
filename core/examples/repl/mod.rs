@@ -34,38 +34,30 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 
 mod session;
-use session::EvaluationOutput;
 use session::ReplSession;
 
-fn main() -> Result<(), Error> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Error> {
   let js_runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
     is_main: true,
     ..Default::default()
   });
 
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()?;
-
-  let future = async move {
-    let session = ReplSession::initialize(js_runtime).await?;
-    let rustyline_channel = rustyline_channel();
-    let helper = EditorHelper {
-      context_id: session.context_id,
-      sync_sender: rustyline_channel.0,
-    };
-    let editor = ReplEditor::new(helper)?;
-    let mut repl = Repl {
-      session,
-      editor,
-      message_handler: rustyline_channel.1,
-    };
-    repl.run().await?;
-
-    Ok(())
+  let session = ReplSession::initialize(js_runtime).await?;
+  let rustyline_channel = rustyline_channel();
+  let helper = EditorHelper {
+    context_id: session.context_id,
+    sync_sender: rustyline_channel.0,
   };
-  runtime.block_on(future)
+  let editor = ReplEditor::new(helper)?;
+  let mut repl = Repl {
+    session,
+    editor,
+    message_handler: rustyline_channel.1,
+  };
+  repl.run().await?;
+  Ok(())
 }
 
 struct Repl {
@@ -88,7 +80,7 @@ impl Repl {
           self.editor.set_should_exit_on_interrupt(false);
           let output = self.session.evaluate_line_and_get_output(&line).await;
 
-          print!("{}", output);
+          println!("{}", output);
         }
         Err(ReadlineError::Interrupted) => {
           if self.editor.should_exit_on_interrupt() {
