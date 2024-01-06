@@ -83,7 +83,7 @@ impl OpMappingContext for V8OpMappingContext {
 
   #[inline(always)]
   fn erase_mapping_fn<R: 'static>(f: Self::MappingFn<R>) -> *const fn() {
-    unsafe { std::mem::transmute(f) }
+    f as _
   }
   #[inline(always)]
   fn unerase_mapping_fn<'s, R: 'static>(
