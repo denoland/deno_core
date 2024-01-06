@@ -12,7 +12,6 @@ mod future_arena;
 mod futures_unordered_driver;
 mod joinset_driver;
 mod op_results;
-mod submission_queue;
 
 #[allow(unused)]
 pub use futures_unordered_driver::FuturesUnorderedDriver;
@@ -20,7 +19,7 @@ pub use futures_unordered_driver::FuturesUnorderedDriver;
 pub use joinset_driver::JoinSetDriver;
 
 pub use self::op_results::OpMappingContext;
-use self::op_results::OpResult;
+pub use self::op_results::OpResult;
 pub use self::op_results::V8OpMappingContext;
 pub use self::op_results::V8RetValMapper;
 
@@ -52,6 +51,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   ) -> Option<R>;
 
   /// Submits an operation that is expected to complete successfully without errors.
+  #[inline(always)]
   fn submit_op_infallible_scheduling<R: 'static>(
     &self,
     scheduling: OpScheduling,
@@ -106,6 +106,8 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   ) -> Option<Result<R, E>>;
 
   /// Submits an operation that is expected to complete successfully without errors.
+  #[inline(always)]
+  #[allow(clippy::too_many_arguments)]
   fn submit_op_fallible_scheduling<R: 'static, E: Into<Error> + 'static>(
     &self,
     scheduling: OpScheduling,
@@ -146,7 +148,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
 
   #[allow(clippy::type_complexity)]
   /// Polls the readiness of the op driver.
-  fn poll_ready<'s>(
+  fn poll_ready(
     &self,
     cx: &mut Context,
   ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)>;
@@ -169,14 +171,14 @@ mod tests {
     type MappingError = anyhow::Error;
 
     fn map_error(
-      context: &mut Self::Context,
+      _context: &mut Self::Context,
       err: op_results::OpError,
     ) -> UnmappedResult<'s, Self> {
       Ok(format!("{err:?}"))
     }
 
     fn map_mapping_error(
-      context: &mut Self::Context,
+      _context: &mut Self::Context,
       err: Self::MappingError,
     ) -> Self::Result {
       format!("{err:?}")
@@ -190,7 +192,7 @@ mod tests {
 
     fn unerase_mapping_fn<'s, R: 'static>(
       f: *const fn(),
-      scope: &mut <Self as OpMappingContextLifetime<'s>>::Context,
+      _context: &mut <Self as OpMappingContextLifetime<'s>>::Context,
       r: R,
     ) -> UnmappedResult<'s, Self> {
       let f: Self::MappingFn<R> = unsafe { std::mem::transmute(f) };
