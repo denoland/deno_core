@@ -398,8 +398,10 @@ fn v8_init(
 
   let v8_platform = v8_platform
     .unwrap_or_else(|| v8::new_default_platform(0, false).make_shared());
-  v8::V8::initialize_platform(v8_platform);
+  v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
+
+  v8::cppgc::initalize_process(v8_platform);
 }
 
 #[derive(Default)]
@@ -614,6 +616,25 @@ impl JsRuntime {
       .call_once(move || v8_init(v8_platform, predictable, expose_natives));
   }
 
+  fn init_cppgc(isolate: &mut v8::Isolate) -> v8::UniqueRef<v8::cppgc::Heap> {
+    const DEFAULT_CPP_GC_EMBEDDER_ID: u16 = 0xde90;
+
+    let heap = v8::cppgc::Heap::create(
+      v8::V8::get_current_platform(),
+      v8::cppgc::HeapCreateParams::new(v8::cppgc::WrapperDescriptor::new(
+        0,
+        1,
+        DEFAULT_CPP_GC_EMBEDDER_ID,
+      )),
+    );
+    println!("heap {:?}", heap);
+
+    isolate.attach_cpp_heap(&heap);
+    let h = isolate.get_cpp_heap();
+    println!("h {:?}", h as *const v8::cppgc::Heap as usize);
+    heap
+  }
+
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
@@ -737,6 +758,8 @@ impl JsRuntime {
       }
       v8::Isolate::new(params)
     };
+
+    Self::init_cppgc(&mut isolate);
 
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;

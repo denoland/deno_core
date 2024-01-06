@@ -595,6 +595,8 @@ mod tests {
       op_buffer_any,
       op_buffer_any_length,
       op_arraybuffer_slice,
+      op_test_get_cppgc_resource,
+      op_test_make_cppgc_resource,
       op_external_make,
       op_external_process,
       op_external_make_ptr,
@@ -1846,14 +1848,46 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
       r"
       const array = op_buffer_bytesmut();
       assert(array.length == 3);",
+    )?;
+    Ok(())
+  }
+
+  struct TestResource {
+    pub value: u32,
+  }
+  impl crate::Resource for TestResource {}
+
+  #[op2]
+  pub fn op_test_make_cppgc_resource<'s>(
+    scope: &'s mut v8::HandleScope,
+  ) -> v8::Local<'s, v8::Object> {
+    crate::cppgc::make_cppgc_object(scope, TestResource { value: 42 })
+  }
+
+  #[op2(fast)]
+  #[smi]
+  pub fn op_test_get_cppgc_resource(
+    resource: v8::Local<v8::Object>,
+  ) -> u32 {
+    let resource = crate::cppgc::unwrap_cppgc_object::<TestResource>(resource).unwrap();
+    resource.value
+  }
+
+  #[test]
+  pub fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10,
+      "op_test_make_cppgc_resource, op_test_get_cppgc_resource",
+      r"
+      const resource = op_test_make_cppgc_resource();
+      assert(op_test_get_cppgc_resource(resource) == 42);",
     )?;
     Ok(())
   }
