@@ -11,14 +11,14 @@ use deno_core::LocalInspectorSession;
 use deno_core::PollEventLoopOptions;
 use futures::FutureExt;
 use futures::StreamExt;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct ReplSession {
   runtime: JsRuntime,
   session: LocalInspectorSession,
   pub context_id: u64,
-  pub notifications: Rc<RefCell<FUnboundedReceiver<serde_json::Value>>>,
+  pub notifications: Arc<Mutex<FUnboundedReceiver<serde_json::Value>>>,
 }
 
 impl ReplSession {
@@ -43,18 +43,20 @@ impl ReplSession {
 
     loop {
       let notification = notification_rx.next().await.unwrap();
-      let method = notification.get("method").unwrap().as_str().unwrap();
-      let params = notification.get("params").unwrap();
-      if method == "Runtime.executionContextCreated" {
-        let context = params.get("context").unwrap();
-        assert!(context
-          .get("auxData")
-          .unwrap()
+      let notification =
+        serde_json::from_value::<cdp::Notification>(notification)?;
+      if notification.method == "Runtime.executionContextCreated" {
+        let execution_context_created = serde_json::from_value::<
+          cdp::ExecutionContextCreated,
+        >(notification.params)?;
+        assert!(execution_context_created
+          .context
+          .aux_data
           .get("isDefault")
           .unwrap()
           .as_bool()
           .unwrap());
-        context_id = context.get("id").unwrap().as_u64().unwrap();
+        context_id = execution_context_created.context.id;
         break;
       }
     }
@@ -66,7 +68,7 @@ impl ReplSession {
       runtime,
       session,
       context_id,
-      notifications: Rc::new(RefCell::new(notification_rx)),
+      notifications: Arc::new(Mutex::new(notification_rx)),
     })
   }
 
@@ -131,7 +133,7 @@ impl ReplSession {
       .and_then(|res| serde_json::from_value(res).map_err(|e| e.into()))
   }
 
-  async fn evaluate_line_and_get_output(
+  pub async fn evaluate_line_and_get_output(
     &mut self,
     line: &str,
   ) -> EvaluationOutput {
@@ -192,6 +194,20 @@ impl ReplSession {
         }
       }
       Err(err) => EvaluationOutput::Error(err.to_string()),
+    }
+  }
+}
+
+pub enum EvaluationOutput {
+  Value(String),
+  Error(String),
+}
+
+impl std::fmt::Display for EvaluationOutput {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      EvaluationOutput::Value(value) => f.write_str(value),
+      EvaluationOutput::Error(value) => f.write_str(value),
     }
   }
 }

@@ -4,16 +4,12 @@ use deno_core::anyhow::anyhow;
 use deno_core::anyhow::Error;
 use deno_core::cdp;
 use deno_core::error::AnyError;
-use deno_core::futures::channel::mpsc::UnboundedReceiver as FUnboundedReceiver;
 use deno_core::serde_json;
 use deno_core::serde_json::Value;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
-use deno_core::LocalInspectorSession;
-use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
 use deno_unsync::spawn_blocking;
-use futures::FutureExt;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use rustyline::error::ReadlineError;
@@ -38,6 +34,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 
 mod session;
+use session::EvaluationOutput;
 use session::ReplSession;
 
 fn main() -> Result<(), Error> {
@@ -52,33 +49,52 @@ fn main() -> Result<(), Error> {
     .build()?;
 
   let future = async move {
-    let mut repl_session = ReplSession::initialize(js_runtime).await?;
-    let mut rustyline_channel = rustyline_channel();
+    let session = ReplSession::initialize(js_runtime).await?;
+    let rustyline_channel = rustyline_channel();
     let helper = EditorHelper {
-      context_id: repl_session.context_id,
+      context_id: session.context_id,
       sync_sender: rustyline_channel.0,
     };
     let editor = ReplEditor::new(helper)?;
+    let mut repl = Repl {
+      session,
+      editor,
+      message_handler: rustyline_channel.1,
+    };
+    repl.run().await?;
 
+    Ok(())
+  };
+  runtime.block_on(future)
+}
+
+struct Repl {
+  session: ReplSession,
+  editor: ReplEditor,
+  message_handler: RustylineSyncMessageHandler,
+}
+
+impl Repl {
+  async fn run(&mut self) -> Result<(), AnyError> {
     loop {
       let line = read_line_and_poll_session(
-        &mut repl_session,
-        &mut rustyline_channel.1,
-        editor.clone(),
+        &mut self.session,
+        &mut self.message_handler,
+        self.editor.clone(),
       )
       .await;
       match line {
         Ok(line) => {
-          editor.set_should_exit_on_interrupt(false);
-          let output = repl_session.evaluate_line_and_get_output(&line).await;
+          self.editor.set_should_exit_on_interrupt(false);
+          let output = self.session.evaluate_line_and_get_output(&line).await;
 
           print!("{}", output);
         }
         Err(ReadlineError::Interrupted) => {
-          if editor.should_exit_on_interrupt() {
+          if self.editor.should_exit_on_interrupt() {
             break;
           }
-          editor.set_should_exit_on_interrupt(true);
+          self.editor.set_should_exit_on_interrupt(true);
           println!("press ctrl+c again to exit");
           continue;
         }
@@ -91,22 +107,8 @@ fn main() -> Result<(), Error> {
         }
       };
     }
+
     Ok(())
-  };
-  runtime.block_on(future)
-}
-
-pub enum EvaluationOutput {
-  Value(String),
-  Error(String),
-}
-
-impl std::fmt::Display for EvaluationOutput {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      EvaluationOutput::Value(value) => f.write_str(value),
-      EvaluationOutput::Error(value) => f.write_str(value),
-    }
   }
 }
 
@@ -127,7 +129,7 @@ async fn read_line_and_poll_session(
   let mut line_fut = spawn_blocking(move || editor.readline());
   let mut poll_worker = true;
   let notifications_rc = repl_session.notifications.clone();
-  let mut notifications = notifications_rc.borrow_mut();
+  let mut notifications = notifications_rc.lock().await;
 
   loop {
     tokio::select! {
