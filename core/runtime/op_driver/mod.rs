@@ -153,6 +153,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     cx: &mut Context,
   ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)>;
 
+  /// Return the number of futures currently being polled.
   fn len(&self) -> usize;
 }
 
@@ -187,7 +188,7 @@ mod tests {
   impl OpMappingContext for TestMappingContext {
     type MappingFn<R: 'static> = for<'s> fn(R) -> Result<String, anyhow::Error>;
     fn erase_mapping_fn<R: 'static>(f: Self::MappingFn<R>) -> *const fn() {
-      unsafe { std::mem::transmute(f) }
+      f as _
     }
 
     fn unerase_mapping_fn<'s, R: 'static>(
@@ -247,7 +248,7 @@ mod tests {
       poll_fn(|cx| driver.poll_ready(cx)).await;
     assert!(bitset.insert(promise_id as usize));
     assert_eq!(1234, op_id);
-    assert_eq!(false, metrics);
+    assert!(!metrics);
     assert_eq!(expected, &(result.unwrap(&mut ()).unwrap()));
   }
 
@@ -328,7 +329,8 @@ mod tests {
     scheduling: OpScheduling,
   ) {
     async fn task() -> i32 {
-      let mut v = [0; 1024];
+      let mut v = [0; 10 * 1024];
+      #[allow(clippy::needless_range_loop)]
       for i in 0..10 {
         tokio::task::yield_now().await;
         v[i] = 1;
