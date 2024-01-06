@@ -617,21 +617,16 @@ impl JsRuntime {
   }
 
   fn init_cppgc(isolate: &mut v8::Isolate) -> v8::UniqueRef<v8::cppgc::Heap> {
-    const DEFAULT_CPP_GC_EMBEDDER_ID: u16 = 0xde90;
-
     let heap = v8::cppgc::Heap::create(
       v8::V8::get_current_platform(),
       v8::cppgc::HeapCreateParams::new(v8::cppgc::WrapperDescriptor::new(
         0,
         1,
-        DEFAULT_CPP_GC_EMBEDDER_ID,
+        crate::cppgc::DEFAULT_CPP_GC_EMBEDDER_ID,
       )),
     );
-    println!("heap {:?}", heap);
 
     isolate.attach_cpp_heap(&heap);
-    let h = isolate.get_cpp_heap();
-    println!("h {:?}", h as *const v8::cppgc::Heap as usize);
     heap
   }
 
@@ -759,7 +754,8 @@ impl JsRuntime {
       v8::Isolate::new(params)
     };
 
-    Self::init_cppgc(&mut isolate);
+    let heap = Self::init_cppgc(&mut isolate);
+    std::mem::forget(heap);
 
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;

@@ -1848,7 +1848,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut() -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut(
+  ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
@@ -1873,10 +1874,9 @@ mod tests {
 
   #[op2(fast)]
   #[smi]
-  pub fn op_test_get_cppgc_resource(
-    resource: v8::Local<v8::Object>,
-  ) -> u32 {
-    let resource = crate::cppgc::unwrap_cppgc_object::<TestResource>(resource).unwrap();
+  pub fn op_test_get_cppgc_resource(resource: v8::Local<v8::Object>) -> u32 {
+    let resource =
+      crate::cppgc::unwrap_cppgc_object::<TestResource>(resource).unwrap();
     resource.value
   }
 
