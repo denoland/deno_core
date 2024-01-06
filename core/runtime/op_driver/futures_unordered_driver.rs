@@ -12,6 +12,7 @@ use crate::PromiseId;
 use anyhow::Error;
 use deno_unsync::spawn;
 use deno_unsync::JoinHandle;
+use deno_unsync::UnsyncWaker;
 use futures::future::poll_fn;
 use futures::stream::FuturesUnordered;
 use futures::task::noop_waker_ref;
@@ -25,21 +26,18 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
-use std::task::Waker;
 
 async fn poll_task<C: OpMappingContext>(
   mut results: SubmissionQueueResults<
     FuturesUnordered<FutureAllocation<PendingOp<C>>>,
   >,
   tx: Rc<RefCell<VecDeque<PendingOp<C>>>>,
-  tx_waker: Rc<Cell<Option<Waker>>>,
+  tx_waker: Rc<UnsyncWaker>,
 ) {
   loop {
     let ready = poll_fn(|cx| results.poll_next_unpin(cx)).await;
     tx.borrow_mut().push_back(ready);
-    if let Some(waker) = tx_waker.take() {
-      waker.wake();
-    }
+    tx_waker.wake_by_ref();
   }
 }
 
@@ -59,15 +57,24 @@ pub struct FuturesUnorderedDriver<
   task_set: Cell<bool>,
   queue: SubmissionQueue<FuturesUnordered<FutureAllocation<PendingOp<C>>>>,
   completed_ops: Rc<RefCell<VecDeque<PendingOp<C>>>>,
-  completed_waker: Rc<Cell<Option<Waker>>>,
+  completed_waker: Rc<UnsyncWaker>,
   arena: FutureArena,
+}
+
+impl<C: OpMappingContext + 'static> Drop for FuturesUnorderedDriver<C> {
+  fn drop(&mut self) {
+    match self.task.take() {
+      MaybeTask::Handle(h) => h.abort(),
+      _ => {}
+    }
+  }
 }
 
 impl<C: OpMappingContext> Default for FuturesUnorderedDriver<C> {
   fn default() -> Self {
     let (queue, results) = new_submission_queue();
     let completed_ops = Rc::new(RefCell::new(VecDeque::with_capacity(128)));
-    let completed_waker = Rc::new(Cell::new(None::<Waker>));
+    let completed_waker = Rc::new(UnsyncWaker::default());
     let task = MaybeTask::Task(Box::pin(poll_task(
       results,
       completed_ops.clone(),
@@ -97,7 +104,7 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
   #[inline(never)]
   #[cold]
   fn spawn_task(&self) {
-    let MaybeTask::Task(task) = self.task.take() else {
+    let MaybeTask::Task(task) = self.task.replace(Default::default()) else {
       unreachable!()
     };
     self.task.set(MaybeTask::Handle(spawn(task)));
@@ -259,7 +266,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)> {
     let mut ops = self.completed_ops.borrow_mut();
     if ops.is_empty() {
-      self.completed_waker.set(Some(cx.waker().clone()));
+      self.completed_waker.register(&cx.waker());
       return Poll::Pending;
     }
     let item = ops.pop_front().unwrap();

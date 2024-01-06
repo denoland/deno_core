@@ -1,12 +1,11 @@
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
-use std::task::Waker;
 
+use deno_unsync::UnsyncWaker;
 use futures::stream::FuturesUnordered;
 use futures::Future;
 use futures::Stream;
@@ -31,7 +30,7 @@ impl<F: Future<Output = R>, R> SubmissionQueueFutures for FuturesUnordered<F> {
 #[derive(Default)]
 struct Queue<F: SubmissionQueueFutures> {
   queue: RefCell<F>,
-  empty_waker: Cell<Option<Waker>>,
+  item_waker: UnsyncWaker,
 }
 
 pub trait SubmissionQueueFutures: Default {
@@ -50,8 +49,8 @@ pub struct SubmissionQueueResults<F: SubmissionQueueFutures> {
 impl<F: SubmissionQueueFutures> SubmissionQueueResults<F> {
   pub fn poll_next_unpin(&mut self, cx: &mut Context) -> Poll<F::Output> {
     let mut queue = self.queue.queue.borrow_mut();
+    self.queue.item_waker.register(&cx.waker());
     if queue.len() == 0 {
-      self.queue.empty_waker.set(Some(cx.waker().clone()));
       return Poll::Pending;
     }
     queue.poll_next_unpin(cx)
@@ -65,9 +64,7 @@ pub struct SubmissionQueue<F: SubmissionQueueFutures> {
 impl<F: SubmissionQueueFutures> SubmissionQueue<F> {
   pub fn spawn(&self, f: F::Future) {
     self.queue.queue.borrow_mut().spawn(f);
-    if let Some(waker) = self.queue.empty_waker.take() {
-      waker.wake();
-    }
+    self.queue.item_waker.wake_by_ref();
   }
 
   pub fn len(&self) -> usize {

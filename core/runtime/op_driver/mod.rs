@@ -14,7 +14,9 @@ mod joinset_driver;
 mod op_results;
 mod submission_queue;
 
+#[allow(unused)]
 pub use futures_unordered_driver::FuturesUnorderedDriver;
+#[allow(unused)]
 pub use joinset_driver::JoinSetDriver;
 
 pub use self::op_results::OpMappingContext;
@@ -154,11 +156,11 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
 
 #[cfg(test)]
 mod tests {
-  use std::future::poll_fn;
-
   use super::op_results::*;
   use super::*;
+  use bit_set::BitSet;
   use rstest::rstest;
+  use std::future::poll_fn;
 
   struct TestMappingContext {}
   impl<'s> OpMappingContextLifetime<'s> for TestMappingContext {
@@ -196,6 +198,57 @@ mod tests {
     }
   }
 
+  fn submit_task(
+    driver: &impl OpDriver<TestMappingContext>,
+    scheduling: OpScheduling,
+    id: usize,
+    op: impl Future<Output = i32> + 'static,
+  ) {
+    assert_eq!(
+      None,
+      driver.submit_op_infallible_scheduling(
+        scheduling,
+        1234,
+        false,
+        id as _,
+        op,
+        |r| { Ok(format!("{r}")) }
+      )
+    );
+  }
+
+  fn submit_task_eager_ready(
+    driver: &impl OpDriver<TestMappingContext>,
+    id: usize,
+    op: impl Future<Output = i32> + 'static,
+    result: i32,
+  ) {
+    assert_eq!(
+      Some(result),
+      driver.submit_op_infallible_scheduling(
+        OpScheduling::Eager,
+        1234,
+        false,
+        id as _,
+        op,
+        |r| { Ok(format!("{r}")) }
+      )
+    );
+  }
+
+  async fn reap_task(
+    driver: &impl OpDriver<TestMappingContext>,
+    bitset: &mut BitSet,
+    expected: &str,
+  ) {
+    let (promise_id, op_id, metrics, result) =
+      poll_fn(|cx| driver.poll_ready(cx)).await;
+    assert!(bitset.insert(promise_id as usize));
+    assert_eq!(1234, op_id);
+    assert_eq!(false, metrics);
+    assert_eq!(expected, &(result.unwrap(&mut ()).unwrap()));
+  }
+
   #[rstest]
   #[case::joinset(JoinSetDriver::<TestMappingContext>::default())]
   #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
@@ -210,30 +263,18 @@ mod tests {
       .unwrap();
     runtime.block_on(async {
       for i in 0..count {
-        let res = driver.submit_op_infallible_scheduling(
-          scheduling,
-          0,
-          false,
-          0,
-          async { 1 },
-          |r| Ok(format!("{r}")),
-        );
         if scheduling == OpScheduling::Eager {
-          assert_eq!(Some(1), res);
+          submit_task_eager_ready(&driver, i, async { 1 }, 1);
         } else {
-          assert_eq!(None, res);
+          submit_task(&driver, scheduling, i, async { 1 });
         }
       }
-      if scheduling == OpScheduling::Eager {
-        return;
-      }
-      for i in 0..count {
-        let (promise_id, op_id, metrics, result) =
-          poll_fn(|cx| driver.poll_ready(cx)).await;
-        assert_eq!(0, promise_id);
-        assert_eq!(0, op_id);
-        assert_eq!(false, metrics);
-        assert_eq!("1", &(result.unwrap(&mut ()).unwrap()));
+      if scheduling != OpScheduling::Eager {
+        let mut bitset = BitSet::default();
+        for _ in 0..count {
+          reap_task(&driver, &mut bitset, "1").await;
+        }
+        assert_eq!(bitset.len(), count);
       }
     });
   }
@@ -244,43 +285,33 @@ mod tests {
   fn test_driver_yield<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,
+    #[values(1, 5)] outer: usize,
     #[values(OpScheduling::Eager, OpScheduling::Lazy, OpScheduling::Deferred)]
     scheduling: OpScheduling,
   ) {
-    async fn task() -> usize {
+    async fn task() -> i32 {
       let v = [0_u8, 1, 2, 3];
       for i in &v {
         for _ in 0..*i {
           tokio::task::yield_now().await;
         }
       }
-      v.len()
+      v.len() as _
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
       .build()
       .unwrap();
     runtime.block_on(async {
-      for i in 0..count {
-        assert_eq!(
-          None,
-          driver.submit_op_infallible_scheduling(
-            scheduling,
-            0,
-            false,
-            0,
-            task(),
-            |r| { Ok(format!("{r}")) }
-          )
-        );
-      }
-      for i in 0..count {
-        let (promise_id, op_id, metrics, result) =
-          poll_fn(|cx| driver.poll_ready(cx)).await;
-        assert_eq!(0, promise_id);
-        assert_eq!(0, op_id);
-        assert_eq!(false, metrics);
-        assert_eq!("4", &(result.unwrap(&mut ()).unwrap()));
+      for _ in 0..outer {
+        for i in 0..count {
+          submit_task(&driver, scheduling, i, task());
+        }
+        let mut bitset = BitSet::default();
+        for _ in 0..count {
+          reap_task(&driver, &mut bitset, "4").await;
+        }
+        assert_eq!(bitset.len(), count);
       }
     });
   }
@@ -311,27 +342,52 @@ mod tests {
       .build()
       .unwrap();
     runtime.block_on(async {
-      for i in 0..2 {
-        assert_eq!(
-          None,
-          driver.submit_op_infallible_scheduling(
-            scheduling,
-            0,
-            false,
-            0,
-            task(),
-            |r| { Ok(format!("{r}")) }
-          )
-        );
+      for i in 0..count {
+        submit_task(&driver, scheduling, i, task());
       }
-      for i in 0..2 {
-        let (promise_id, op_id, metrics, result) =
-          poll_fn(|cx| driver.poll_ready(cx)).await;
-        assert_eq!(0, promise_id);
-        assert_eq!(0, op_id);
-        assert_eq!(false, metrics);
-        assert_eq!("10", &(result.unwrap(&mut ()).unwrap()));
+      let mut bitset = BitSet::default();
+      for _ in 0..count {
+        reap_task(&driver, &mut bitset, "10").await;
       }
+      assert_eq!(bitset.len(), count);
+    });
+  }
+
+  #[cfg(not(miri))]
+  #[rstest]
+  #[case::joinset(JoinSetDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  fn test_driver_io<D: OpDriver<TestMappingContext>>(
+    #[case] driver: D,
+    #[values(2, 16)] count: usize,
+    #[values(OpScheduling::Eager, OpScheduling::Lazy, OpScheduling::Deferred)]
+    scheduling: OpScheduling,
+  ) {
+    async fn task() -> i32 {
+      use tokio::net::TcpSocket;
+      let socket = TcpSocket::new_v4().unwrap();
+      socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+      let listen = socket.listen(1).unwrap();
+      let connect = TcpSocket::new_v4().unwrap();
+      let f = tokio::spawn(connect.connect(listen.local_addr().unwrap()));
+      listen.accept().await.unwrap();
+      f.await.unwrap().unwrap();
+      1
+    }
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+      .enable_io()
+      .build()
+      .unwrap();
+    runtime.block_on(async {
+      for i in 0..count {
+        submit_task(&driver, scheduling, i, task());
+      }
+      let mut bitset = BitSet::default();
+      for _ in 0..count {
+        reap_task(&driver, &mut bitset, "1").await;
+      }
+      assert_eq!(bitset.len(), count);
     });
   }
 }
