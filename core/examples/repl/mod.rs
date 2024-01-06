@@ -50,7 +50,7 @@ async fn main() -> Result<(), Error> {
     context_id: session.context_id,
     sync_sender: rustyline_channel.0,
   };
-  let editor = ReplEditor::new(helper)?;
+  let editor = ReplEditor::new(helper, Some(">>>".to_string()))?;
   let mut repl = Repl {
     session,
     editor,
@@ -148,18 +148,23 @@ async fn read_line_and_poll_session(
 
 #[derive(Clone)]
 struct ReplEditor {
+  prompt: String,
   inner: Arc<Mutex<Editor<EditorHelper, rustyline::history::FileHistory>>>,
   should_exit_on_interrupt: Arc<AtomicBool>,
 }
 
 impl ReplEditor {
-  pub fn new(helper: EditorHelper) -> Result<Self, Error> {
+  pub fn new(
+    helper: EditorHelper,
+    prompt: Option<String>,
+  ) -> Result<Self, Error> {
     let editor_config = Config::builder()
       .completion_type(CompletionType::List)
       .build();
     let mut editor = Editor::with_config(editor_config).unwrap();
     editor.set_helper(Some(helper));
     Ok(Self {
+      prompt: prompt.unwrap_or_else(|| ">".to_string()),
       inner: Arc::new(Mutex::new(editor)),
       should_exit_on_interrupt: Arc::new(AtomicBool::new(false)),
     })
@@ -167,7 +172,7 @@ impl ReplEditor {
 
   pub fn readline(&self) -> Result<String, ReadlineError> {
     // TODO(bartlomieju): make prompt configurable
-    self.inner.lock().readline("> ")
+    self.inner.lock().readline(&self.prompt)
   }
 
   pub fn should_exit_on_interrupt(&self) -> bool {
