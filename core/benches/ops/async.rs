@@ -110,7 +110,6 @@ fn bench_op(
   let tokio = tokio::runtime::Builder::new_current_thread()
     .build()
     .unwrap();
-  let guard = tokio.enter();
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![testing::init_ops_and_esm()],
     // We need to feature gate this here to prevent IDE errors
@@ -118,7 +117,6 @@ fn bench_op(
     unsafe_expose_natives_and_gc: true,
     ..Default::default()
   });
-  drop(guard);
   let err_mapper =
     |err| generic_error(format!("{op} test failed ({call}): {err:?}"));
 
