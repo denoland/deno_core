@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 pub struct ReplSession {
   runtime: JsRuntime,
-  session: LocalInspectorSession,
+  inspector_session: LocalInspectorSession,
   pub context_id: u64,
   pub notifications: Arc<Mutex<FUnboundedReceiver<serde_json::Value>>>,
 }
@@ -25,11 +25,12 @@ pub struct ReplSession {
 impl ReplSession {
   pub async fn initialize(mut runtime: JsRuntime) -> Result<Self, Error> {
     runtime.maybe_init_inspector();
-    let mut session = runtime.inspector().borrow().create_local_session();
+    let mut inspector_session =
+      runtime.inspector().borrow().create_local_session();
 
     runtime
       .with_event_loop_future(
-        session
+        inspector_session
           .post_message::<()>("Runtime.enable", None)
           .boxed_local(),
         PollEventLoopOptions::default(),
@@ -40,7 +41,7 @@ impl ReplSession {
     // context the inspector knows about so we grab the execution context from that since
     // our inspector does not support a default context (0 is an invalid context id).
     let context_id: u64;
-    let mut notification_rx = session.take_notification_rx();
+    let mut notification_rx = inspector_session.take_notification_rx();
 
     loop {
       let notification = notification_rx.next().await.unwrap();
@@ -67,7 +68,7 @@ impl ReplSession {
 
     Ok(Self {
       runtime,
-      session,
+      inspector_session,
       context_id,
       notifications: Arc::new(Mutex::new(notification_rx)),
     })
@@ -81,7 +82,10 @@ impl ReplSession {
     self
       .runtime
       .with_event_loop_future(
-        self.session.post_message(method, params).boxed_local(),
+        self
+          .inspector_session
+          .post_message(method, params)
+          .boxed_local(),
         PollEventLoopOptions {
           // NOTE(bartlomieju): this is an important bit; we don't want to pump V8
           // message loop here, so that GC won't run. Otherwise, the resulting
