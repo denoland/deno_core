@@ -127,6 +127,7 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
+  cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -163,9 +164,10 @@ impl InnerIsolateState {
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
     // SAFETY: We're copying out of self and then immediately forgetting self
-    let (state, isolate) = unsafe {
+    let (state, _cpp_heap, isolate) = unsafe {
       (
         ManuallyDrop::take(&mut self.state.0),
+        ManuallyDrop::take(&mut self.cpp_heap),
         ManuallyDrop::take(&mut self.v8_isolate),
       )
     };
@@ -185,6 +187,7 @@ impl Drop for InnerIsolateState {
         // Create the snapshot and just drop it.
         eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
       } else {
+        ManuallyDrop::drop(&mut self.cpp_heap);
         ManuallyDrop::drop(&mut self.v8_isolate);
       }
     }
@@ -277,7 +280,6 @@ pub struct JsRuntime {
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
-  cpp_heap: v8::UniqueRef<v8::cppgc::Heap>,
 }
 
 /// The runtime type used for snapshot creation.
@@ -868,12 +870,12 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
+        cpp_heap: ManuallyDrop::new(cpp_heap),
       },
       init_mode,
       allocations: IsolateAllocations::default(),
       extensions: options.extensions,
       is_main_runtime: options.is_main,
-      cpp_heap,
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
