@@ -63,7 +63,7 @@ pub fn unwrap_cppgc_object<'sc, T: Resource>(
   //
   // The object can only be created by `make_cppgc_object`.
   let member = unsafe {
-    let ptr = obj.get_aligned_pointer_from_internal_field(SLOT_OFFSET as i32);
+    let ptr = obj.get_aligned_pointer_from_internal_field(SLOT_OFFSET);
     let obj = &*(ptr as *const Obj<CppGcObject<T>>);
     &*obj.ptr
   };
