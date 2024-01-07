@@ -1604,7 +1604,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op2]
   pub fn op_buffer_jsbuffer(
     #[buffer] input: JsBuffer,
     #[number] inlen: usize,
@@ -1635,7 +1635,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op2]
   pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
     let mut sum: u32 = 0;
     for i in buffer {
@@ -1689,7 +1689,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op2]
   pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
     buffer.len() as _
   }

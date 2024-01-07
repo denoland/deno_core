@@ -4,7 +4,7 @@ use deno_core::JsBuffer;
 
 use super::testing::TestData;
 
-#[op2(fast)]
+#[op2]
 pub fn op_v8slice_store(
   #[state] test_data: &mut TestData,
   #[string] name: String,

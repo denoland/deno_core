@@ -133,7 +133,7 @@ pub fn op_external_nofast(_input: *const c_void) {}
 #[op2(fast)]
 pub fn op_buffer(#[buffer] _buffer: &[u8]) {}
 
-#[op2(fast)]
+#[op2]
 pub fn op_buffer_jsbuffer(#[buffer] _buffer: JsBuffer) {}
 
 #[op2(nofast)]
