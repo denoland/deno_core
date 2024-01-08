@@ -1,5 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
@@ -36,7 +36,7 @@ impl ExtensionFileSource {
     s.chars().filter(|c| !c.is_ascii()).collect::<String>()
   }
 
-  pub fn load(&self) -> Result<ModuleCode, Error> {
+  pub fn load(&self) -> Result<ModuleCodeString, Error> {
     match &self.code {
       ExtensionFileSourceCode::IncludedInBinary(code) => {
         debug_assert!(
@@ -45,7 +45,7 @@ impl ExtensionFileSource {
           self.specifier,
           Self::find_non_ascii(code)
         );
-        Ok(ModuleCode::from_static(code))
+        Ok(ModuleCodeString::from_static(code))
       }
       ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) => {
         let msg = || format!("Failed to read \"{}\"", path);
@@ -65,7 +65,7 @@ impl ExtensionFileSource {
           self.specifier,
           Self::find_non_ascii(code)
         );
-        Ok(ModuleCode::Arc(code.clone()))
+        Ok(ModuleCodeString::Arc(code.clone()))
       }
     }
   }

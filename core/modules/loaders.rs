@@ -3,10 +3,11 @@ use crate::error::generic_error;
 use crate::error::AnyError;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleSource;
 use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
+use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
@@ -50,6 +51,7 @@ pub trait ModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
+    requested_module_type: RequestedModuleType,
     is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>>;
 
@@ -89,6 +91,7 @@ impl ModuleLoader for NoopModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let maybe_referrer = maybe_referrer
@@ -106,7 +109,7 @@ impl ModuleLoader for NoopModuleLoader {
 /// Function that can be passed to the `ExtModuleLoader` that allows to
 /// transpile sources before passing to V8.
 pub type ExtModuleLoaderCb =
-  Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCode, Error>>;
+  Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCodeString, Error>>;
 
 pub(crate) struct ExtModuleLoader {
   sources: RefCell<HashMap<String, ExtensionFileSource>>,
@@ -143,6 +146,7 @@ impl ModuleLoader for ExtModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let sources = self.sources.borrow();
@@ -207,6 +211,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let sources = self.sources.borrow();
@@ -282,10 +287,12 @@ impl ModuleLoader for FsModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    requested_module_type: RequestedModuleType,
     _is_dynamic: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     fn load(
       module_specifier: &ModuleSpecifier,
+      requested_module_type: RequestedModuleType,
     ) -> Result<ModuleSource, AnyError> {
       let path = module_specifier.to_file_path().map_err(|_| {
         generic_error(format!(
@@ -294,10 +301,16 @@ impl ModuleLoader for FsModuleLoader {
       })?;
       let module_type = if let Some(extension) = path.extension() {
         let ext = extension.to_string_lossy().to_lowercase();
+        // We only return JSON modules if extension was actually `.json`.
+        // In other cases we defer to actual requested module type, so runtime
+        // can decide what to do with it.
         if ext == "json" {
           ModuleType::Json
         } else {
-          ModuleType::JavaScript
+          match requested_module_type {
+            RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
+            _ => ModuleType::JavaScript,
+          }
         }
       } else {
         ModuleType::JavaScript
@@ -308,26 +321,27 @@ impl ModuleLoader for FsModuleLoader {
       })?;
       let module = ModuleSource::new(
         module_type,
-        ModuleSourceCode::Bytes(code),
+        ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
         module_specifier,
       );
       Ok(module)
     }
 
-    futures::future::ready(load(module_specifier)).boxed_local()
+    futures::future::ready(load(module_specifier, requested_module_type))
+      .boxed_local()
   }
 }
 
 /// A module loader that you can pre-load a number of modules into and resolve from. Useful for testing and
 /// embedding situations where the filesystem and snapshot systems are not usable or a good fit.
 pub struct StaticModuleLoader {
-  map: HashMap<ModuleSpecifier, ModuleCode>,
+  map: HashMap<ModuleSpecifier, ModuleCodeString>,
 }
 
 impl StaticModuleLoader {
   /// Create a new [`StaticModuleLoader`] from an `Iterator` of specifiers and code.
   pub fn new(
-    from: impl IntoIterator<Item = (ModuleSpecifier, ModuleCode)>,
+    from: impl IntoIterator<Item = (ModuleSpecifier, ModuleCodeString)>,
   ) -> Self {
     Self {
       map: HashMap::from_iter(
@@ -339,7 +353,7 @@ impl StaticModuleLoader {
   }
 
   /// Create a new [`StaticModuleLoader`] from a single code item.
-  pub fn with(specifier: ModuleSpecifier, code: ModuleCode) -> Self {
+  pub fn with(specifier: ModuleSpecifier, code: ModuleCodeString) -> Self {
     Self::new([(specifier, code)])
   }
 }
@@ -358,6 +372,7 @@ impl ModuleLoader for StaticModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let res = if let Some(code) = self.map.get(module_specifier) {
@@ -438,13 +453,17 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
+    requested_module_type: RequestedModuleType,
     is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
-    self
-      .loader
-      .load(module_specifier, maybe_referrer, is_dyn_import)
+    self.loader.load(
+      module_specifier,
+      maybe_referrer,
+      requested_module_type,
+      is_dyn_import,
+    )
   }
 }
 

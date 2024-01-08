@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::Arc;
 
 mod loaders;
 mod map;
@@ -41,13 +42,60 @@ pub(crate) type ModuleLoadId = i32;
 /// converted to a string or not.
 #[derive(Debug)]
 pub enum ModuleSourceCode {
-  String(ModuleCode),
-  Bytes(Vec<u8>),
+  String(ModuleCodeString),
+  Bytes(ModuleCodeBytes),
 }
 
-// TODO(bartlomieju): maybe remove it? It might be confusing between `ModuleSourceCode`
-// and `ModuleCode`.
-pub type ModuleCode = FastString;
+#[derive(Debug)]
+pub enum ModuleCodeBytes {
+  /// Created from static data.
+  Static(&'static [u8]),
+
+  /// An owned chunk of data. Note that we use `Box` rather than `Vec` to avoid
+  /// the storage overhead.
+  Boxed(Box<[u8]>),
+
+  /// Code loaded from the `deno_graph` infrastructure.
+  Arc(Arc<[u8]>),
+}
+
+impl ModuleCodeBytes {
+  pub fn as_bytes(&self) -> &[u8] {
+    match self {
+      ModuleCodeBytes::Static(s) => s,
+      ModuleCodeBytes::Boxed(s) => s,
+      ModuleCodeBytes::Arc(s) => s,
+    }
+  }
+
+  pub fn to_vec(&self) -> Vec<u8> {
+    match self {
+      ModuleCodeBytes::Static(s) => s.to_vec(),
+      ModuleCodeBytes::Boxed(s) => s.to_vec(),
+      ModuleCodeBytes::Arc(s) => s.to_vec(),
+    }
+  }
+}
+
+impl From<Arc<[u8]>> for ModuleCodeBytes {
+  fn from(value: Arc<[u8]>) -> Self {
+    Self::Arc(value)
+  }
+}
+
+impl From<Box<[u8]>> for ModuleCodeBytes {
+  fn from(value: Box<[u8]>) -> Self {
+    Self::Boxed(value)
+  }
+}
+
+impl From<&'static [u8]> for ModuleCodeBytes {
+  fn from(value: &'static [u8]) -> Self {
+    Self::Static(value)
+  }
+}
+
+pub type ModuleCodeString = FastString;
 pub type ModuleName = FastString;
 
 /// Callback to customize value of `import.meta.resolve("./foo.ts")`.
@@ -71,6 +119,17 @@ pub(crate) fn default_import_meta_resolve_cb(
 /// should be thrown using `scope.throw_exception()`.
 pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
+
+/// Callback to validate import attributes. If the validation fails and exception
+/// should be thrown using `scope.throw_exception()`.
+pub type CustomModuleEvaluationCb = Box<
+  dyn Fn(
+    &mut v8::HandleScope,
+    Cow<'_, str>,
+    &FastString,
+    ModuleSourceCode,
+  ) -> Result<v8::Global<v8::Value>, AnyError>,
+>;
 
 const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
 
@@ -156,15 +215,16 @@ pub(crate) fn get_requested_module_type_from_attributes(
 
 /// A type of module to be executed.
 ///
-/// For non-`JavaScript` modules, this value doesn't tell
-/// how to interpret the module; it is only used to validate
-/// the module against an import assertion (if one is present
-/// in the import statement).
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+/// For non-`JavaScript` modules, this value suggests
+/// how to interpret the module. For JSON modules it's used to validate
+/// against actually discovered MIME type.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum ModuleType {
   JavaScript,
   Json,
+  /// Non-well-known module type.
+  Other(Cow<'static, str>),
 }
 
 impl std::fmt::Display for ModuleType {
@@ -172,6 +232,7 @@ impl std::fmt::Display for ModuleType {
     match self {
       Self::JavaScript => write!(f, "JavaScript"),
       Self::Json => write!(f, "JSON"),
+      Self::Other(ty) => write!(f, "{}", ty),
     }
   }
 }
@@ -274,14 +335,14 @@ impl ModuleSource {
   pub fn get_string_source(
     specifier: &str,
     code: ModuleSourceCode,
-  ) -> Result<ModuleCode, AnyError> {
+  ) -> Result<ModuleCodeString, AnyError> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes).with_context(|| {
+        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
           format!("Can't convert source code to string for {}", specifier)
         })?;
-        Ok(ModuleCode::from(str_))
+        Ok(ModuleCodeString::from(str_))
       }
     }
   }
@@ -306,7 +367,7 @@ pub enum ResolutionKind {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum RequestedModuleType {
+pub enum RequestedModuleType {
   /// There was no attribute specified in the import statement.
   None,
 
@@ -363,6 +424,7 @@ impl PartialEq<ModuleType> for RequestedModuleType {
     match other {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
+      ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
 }
@@ -372,6 +434,7 @@ impl From<ModuleType> for RequestedModuleType {
     match module_type {
       ModuleType::JavaScript => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
+      ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
   }
 }

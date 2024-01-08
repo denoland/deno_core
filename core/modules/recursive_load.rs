@@ -196,7 +196,9 @@ impl RecursiveModuleLoad {
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
     let requested_module_type = module_request.requested_module_type.clone();
-    if requested_module_type != module_source.module_type {
+    if requested_module_type == RequestedModuleType::Json
+      && requested_module_type != module_source.module_type
+    {
       return Err(ModuleError::Other(generic_error(format!(
         "Expected a \"{}\" module but loaded a \"{}\" module.",
         requested_module_type, module_source.module_type,
@@ -267,6 +269,7 @@ impl RecursiveModuleLoad {
               ModuleSpecifier::parse(&module_request.specifier).unwrap();
             let visited_as_alias = self.visited_as_alias.clone();
             let referrer = referrer.clone();
+            let requested_module_type = request.requested_module_type.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
             let fut = async move {
@@ -278,7 +281,12 @@ impl RecursiveModuleLoad {
                 return Ok(None);
               }
               let load_result = loader
-                .load(&specifier, Some(&referrer), is_dynamic_import)
+                .load(
+                  &specifier,
+                  Some(&referrer),
+                  requested_module_type,
+                  is_dynamic_import,
+                )
                 .await;
               if let Ok(source) = &load_result {
                 if let Some(found_specifier) = &source.module_url_found {
@@ -320,7 +328,7 @@ impl Stream for RecursiveModuleLoad {
         };
         let module_request = ModuleRequest {
           specifier: module_specifier.to_string(),
-          requested_module_type,
+          requested_module_type: requested_module_type.clone(),
         };
         let load_fut = if let Some(module_id) = inner.root_module_id {
           // If the inner future is already in the map, we might be done (assuming there are no pending
@@ -342,11 +350,13 @@ impl Stream for RecursiveModuleLoad {
           };
           let loader = inner.loader.clone();
           let is_dynamic_import = inner.is_dynamic_import();
+          let requested_module_type = requested_module_type.clone();
           async move {
             let result = loader
               .load(
                 &module_specifier,
                 maybe_referrer.as_ref(),
+                requested_module_type,
                 is_dynamic_import,
               )
               .await;

@@ -13,7 +13,8 @@ use crate::resolve_url;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
 use crate::FastString;
-use crate::ModuleCode;
+use crate::ModuleCodeBytes;
+use crate::ModuleCodeString;
 use crate::ModuleSource;
 use crate::ModuleSourceFuture;
 use crate::ModuleSpecifier;
@@ -237,6 +238,7 @@ impl ModuleLoader for MockLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
+    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let mut loads = self.loads.lock();
@@ -541,6 +543,53 @@ fn test_json_module() {
   futures::executor::block_on(runtime.run_event_loop(Default::default()))
     .unwrap();
   futures::executor::block_on(receiver).unwrap();
+}
+
+#[test]
+fn test_custom_module_type() {
+  fn validate_import_attrs(
+    _scope: &mut v8::HandleScope,
+    _attrs: &HashMap<String, String>,
+  ) {
+    // pass, allow all
+  }
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
+    ..Default::default()
+  });
+
+  let module_map = runtime.module_map().clone();
+
+  let err = {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.png");
+    module_map
+      .new_module(
+        scope,
+        true,
+        false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("bytes".into()),
+        },
+      )
+      .unwrap_err()
+  };
+
+  match err {
+    ModuleError::Other(err) => {
+      assert_eq!(
+        err.to_string(),
+        "Importing 'bytes' modules is not supported"
+      );
+    }
+    _ => unreachable!(),
+  };
 }
 
 #[test]
@@ -1216,7 +1265,7 @@ fn dynamic_imports_snapshot() {
 #[test]
 fn import_meta_snapshot() {
   let snapshot = {
-    const MAIN_WITH_CODE_SRC: ModuleCode = ascii_str!(
+    const MAIN_WITH_CODE_SRC: ModuleCodeString = ascii_str!(
       r#"
   if (import.meta.url != 'file:///main_with_code.js') throw Error();
   globalThis.meta = import.meta;
@@ -1317,6 +1366,7 @@ async fn no_duplicate_loads() {
       &self,
       module_specifier: &ModuleSpecifier,
       _maybe_referrer: Option<&ModuleSpecifier>,
+      _requested_module_type: RequestedModuleType,
       _is_dyn_import: bool,
     ) -> Pin<Box<ModuleSourceFuture>> {
       let found_specifier =
@@ -1344,7 +1394,7 @@ async fn no_duplicate_loads() {
           .unwrap()
       };
       let module_source = ModuleSource {
-        code: ModuleSourceCode::String(ModuleCode::from(source_code)),
+        code: ModuleSourceCode::String(ModuleCodeString::from(source_code)),
         module_type: ModuleType::JavaScript,
         module_url_specified: module_specifier.clone().into(),
         module_url_found: found_specifier.map(|s| s.into()),

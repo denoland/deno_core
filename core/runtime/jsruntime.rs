@@ -16,9 +16,10 @@ use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
+use crate::modules::CustomModuleEvaluationCb;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
@@ -352,6 +353,7 @@ pub struct JsRuntimeState {
   /// It will be retrieved by `exception_to_err_result` and used as an error
   /// instead of any other exceptions.
   pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
+  pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -498,6 +500,8 @@ pub struct RuntimeOptions {
   /// more work can be scheduled from the DevTools.
   pub wait_for_inspector_disconnect_callback:
     Option<WaitForInspectorDisconnectCallback>,
+
+  pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
 }
 
 impl RuntimeOptions {
@@ -647,6 +651,7 @@ impl JsRuntime {
       // SAFETY: we just asserted that layout has non-0 size.
       unsafe { std::alloc::alloc(layout) as *mut _ };
 
+    let custom_module_evaluation_cb = options.custom_module_evaluation_cb;
     let validate_import_attributes_cb = options
       .validate_import_attributes_cb
       .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
@@ -665,6 +670,7 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       validate_import_attributes_cb,
+      custom_module_evaluation_cb,
       waker,
     });
 
@@ -1252,7 +1258,7 @@ impl JsRuntime {
   pub fn execute_script(
     &mut self,
     name: &'static str,
-    source_code: ModuleCode,
+    source_code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
@@ -1284,7 +1290,7 @@ impl JsRuntime {
     self.inner.main_realm.execute_script(
       isolate,
       name,
-      ModuleCode::from_static(source_code),
+      ModuleCodeString::from_static(source_code),
     )
   }
 
@@ -2042,7 +2048,7 @@ impl JsRuntime {
   pub async fn load_main_module(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
@@ -2062,7 +2068,7 @@ impl JsRuntime {
   pub async fn load_side_module(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
@@ -2082,7 +2088,7 @@ impl JsRuntime {
   pub fn lazy_load_es_module_from_code(
     &mut self,
     specifier: &str,
-    code: ModuleCode,
+    code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self

@@ -9,7 +9,7 @@ use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::modules::ImportAttributesKind;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
@@ -261,7 +261,7 @@ impl ModuleMap {
         module_url_found.into_cheap_copy();
       self.data.borrow_mut().alias(
         module_url_specified,
-        &module_type.into(),
+        &module_type.clone().into(),
         module_url_found1,
       );
       module_url_found2
@@ -269,7 +269,7 @@ impl ModuleMap {
       module_url_specified
     };
 
-    let requested_module_type = RequestedModuleType::from(module_type);
+    let requested_module_type = RequestedModuleType::from(module_type.clone());
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
@@ -280,14 +280,80 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let code = ModuleSource::get_string_source(module_url_found.as_str(), code)
-      .map_err(ModuleError::Other)?;
     let module_id = match module_type {
       ModuleType::JavaScript => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_es_module(scope, main, module_url_found, code, dynamic)?
       }
       ModuleType::Json => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_json_module(scope, module_url_found, code)?
+      }
+      ModuleType::Other(module_type) => {
+        // TODO(bartlomieju): this needs to be abstracted away and assumes
+        // "bytes" import support
+        if module_type == "wasm" {
+          let source = format!(
+            r#"
+import wasmBytes from "{}" with {{ type: "bytes" }};
+const wasmMod = await WebAssembly.compile(wasmBytes);
+const requestedImports = WebAssembly.Module.imports(wasmMod);
+const importedModules = await Promise.all(
+  requestedImports.map((i) => i.module).map((m) => import(m)),
+);
+const importsObject = {{}};
+for (let i = 0; i < requestedImports.length; i++) {{
+  const importedModule = importedModules[i];
+  const requestedImport = requestedImports[i];
+  if (typeof importsObject[requestedImport.module] === "undefined") {{
+    importsObject[requestedImport.module] = {{}};
+  }}
+  const import_ = importedModule[requestedImport.name];
+  importsObject[requestedImport.module][requestedImport.name] = import_;
+}}
+const result = await WebAssembly.instantiate(wasmMod, importsObject);
+export default result;
+          "#,
+            module_url_found.as_str()
+          );
+          self.new_wasm_module(
+            scope,
+            main,
+            module_url_found,
+            source.into(),
+            dynamic,
+          )?
+        } else {
+          let state = JsRuntime::state_from(scope);
+          let custom_module_evaluation_cb =
+            state.custom_module_evaluation_cb.as_ref();
+
+          let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
+            return Err(ModuleError::Other(generic_error(format!(
+              "Importing '{}' modules is not supported",
+              module_type
+            ))));
+          };
+
+          let value_global = custom_evaluation_cb(
+            scope,
+            module_type.clone(),
+            &module_url_found,
+            code,
+          )
+          .map_err(ModuleError::Other)?;
+          let value = v8::Local::new(scope, value_global);
+          self.new_synthetic_module(
+            scope,
+            module_url_found,
+            ModuleType::Other(module_type.clone()),
+            value,
+          )?
+        }
       }
     };
     Ok(module_id)
@@ -337,7 +403,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     main: bool,
     name: ModuleName,
-    source: ModuleCode,
+    source: ModuleCodeString,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
     let name_str = name.v8(scope);
@@ -436,11 +502,116 @@ impl ModuleMap {
     Ok(id)
   }
 
+  /// Create and compile an ES module.
+  pub(crate) fn new_wasm_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    main: bool,
+    name: ModuleName,
+    source: ModuleCodeString,
+    is_dynamic_import: bool,
+  ) -> Result<ModuleId, ModuleError> {
+    let name_str = name.v8(scope);
+    let source_str = source.v8(scope);
+
+    let origin = module_origin(scope, name_str);
+    let source = v8::script_compiler::Source::new(source_str, Some(&origin));
+
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let maybe_module = v8::script_compiler::compile_module(tc_scope, source);
+
+    if tc_scope.has_caught() {
+      assert!(maybe_module.is_none());
+      let exception = tc_scope.exception().unwrap();
+      let exception = v8::Global::new(tc_scope, exception);
+      return Err(ModuleError::Exception(exception));
+    }
+
+    let module = maybe_module.unwrap();
+
+    let mut requests: Vec<ModuleRequest> = vec![];
+    let module_requests = module.get_module_requests();
+    for i in 0..module_requests.length() {
+      let module_request = v8::Local::<v8::ModuleRequest>::try_from(
+        module_requests.get(tc_scope, i).unwrap(),
+      )
+      .unwrap();
+      let import_specifier = module_request
+        .get_specifier()
+        .to_rust_string_lossy(tc_scope);
+
+      let import_attributes = module_request.get_import_assertions();
+
+      let attributes = parse_import_attributes(
+        tc_scope,
+        import_attributes,
+        ImportAttributesKind::StaticImport,
+      );
+
+      // FIXME(bartomieju): there are no stack frames if exception
+      // is thrown here
+      {
+        let state = JsRuntime::state_from(tc_scope);
+        (state.validate_import_attributes_cb)(tc_scope, &attributes);
+      }
+
+      if tc_scope.has_caught() {
+        let exception = tc_scope.exception().unwrap();
+        let exception = v8::Global::new(tc_scope, exception);
+        return Err(ModuleError::Exception(exception));
+      }
+
+      let module_specifier = match self.resolve(
+        &import_specifier,
+        name.as_ref(),
+        if is_dynamic_import {
+          ResolutionKind::DynamicImport
+        } else {
+          ResolutionKind::Import
+        },
+      ) {
+        Ok(s) => s,
+        Err(e) => return Err(ModuleError::Other(e)),
+      };
+      let requested_module_type =
+        get_requested_module_type_from_attributes(&attributes);
+      let request = ModuleRequest {
+        specifier: module_specifier.to_string(),
+        requested_module_type,
+      };
+      requests.push(request);
+    }
+
+    if main {
+      let data = self.data.borrow();
+      if let Some(main_module) = data.main_module_id {
+        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
+        return Err(ModuleError::Other(generic_error(
+          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
+          name.as_ref(),
+          main_name,
+        ))));
+      }
+    }
+
+    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
+    let id = self.data.borrow_mut().create_module_info(
+      name,
+      ModuleType::Other("wasm".into()),
+      handle,
+      main,
+      requests,
+    );
+
+    Ok(id)
+  }
+
   pub(crate) fn new_json_module(
     &self,
     scope: &mut v8::HandleScope,
     name: ModuleName,
-    code: ModuleCode,
+    code: ModuleCodeString,
   ) -> Result<ModuleId, ModuleError> {
     let source_str = v8::String::new_from_utf8(
       scope,
@@ -1293,7 +1464,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     module_specifier: &str,
-    source_code: ModuleCode,
+    source_code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
@@ -1379,7 +1550,9 @@ impl ModuleMap {
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let source = futures::executor::block_on(async {
-      loader.load(&specifier, None, false).await
+      loader
+        .load(&specifier, None, RequestedModuleType::None, false)
+        .await
     })?;
 
     self.lazy_load_es_module_from_code(
