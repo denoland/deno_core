@@ -1056,8 +1056,8 @@ async fn tla_in_esm_extensions_panics() {
 #[tokio::test]
 #[should_panic(
   expected = r#"Failed to evaluate extension JS: Error: This fails
-    at a (mod:tla:2:34)
-    at mod:tla:3:13"#
+    at a (mod:error:2:34)
+    at mod:error:3:13"#
 )]
 async fn esm_extensions_throws() {
   #[op2(async)]
@@ -1070,7 +1070,7 @@ async fn esm_extensions_throws() {
     ops: Cow::Borrowed(&[op_wait::DECL]),
     esm_files: Cow::Borrowed(&[
       ExtensionFileSource {
-        specifier: "mod:tla",
+        specifier: "mod:error",
         code: ExtensionFileSourceCode::IncludedInBinary(
           r#"
             function a() { throw new Error("This fails") };
@@ -1080,7 +1080,7 @@ async fn esm_extensions_throws() {
       },
       ExtensionFileSource {
         specifier: "mod:test",
-        code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:tla';"),
+        code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:error';"),
       },
     ]),
     esm_entry_point: Some("mod:test"),
