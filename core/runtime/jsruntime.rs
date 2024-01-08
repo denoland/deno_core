@@ -1049,10 +1049,9 @@ impl JsRuntime {
         }
       }
 
-      let mut scope = realm.handle_scope(self.v8_isolate());
-
       #[cfg(debug_assertions)]
       {
+        let mut scope = realm.handle_scope(self.v8_isolate());
         module_map.check_all_modules_evaluated(&mut scope)?;
       }
 
