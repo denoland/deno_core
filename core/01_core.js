@@ -804,6 +804,8 @@
         typeof arg === "number" || arg === null || arg === undefined
       ) {
         return arg;
+      } else if (arg instanceof Uint8Array) {
+        `Uint8Array(${arg.length}) [${arg.slice(0, 10).join(", ")}]`;
       }
       return JSON.stringify(arg, undefined, 2);
     };
