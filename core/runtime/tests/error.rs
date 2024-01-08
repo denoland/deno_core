@@ -85,7 +85,7 @@ if (errMessage !== "higher-level sync error: original sync error") {
       r#"
 (async () => {
   let errMessage;
-  const { op_err_async } = Deno.core.ensureFastOps(); 
+  const { op_err_async } = Deno.core.ensureFastOps();
   try {
     await op_err_async();
   } catch (err) {
@@ -114,4 +114,50 @@ fn syntax_error() {
   let js_error = e.downcast::<JsError>().unwrap();
   let frame = js_error.frames.first().unwrap();
   assert_eq!(frame.column_number, Some(12));
+}
+
+#[tokio::test]
+async fn aggregate_error() {
+  let mut runtime = JsRuntime::new(Default::default());
+  let src = r#"
+(async () => {
+  await Promise.any([]);
+})()
+"#;
+  let value_global = runtime.execute_script_static("test_aggregate_error.js", src).unwrap();
+  let resolve = runtime.resolve(value_global);
+  let e = runtime
+    .with_event_loop_promise(resolve, PollEventLoopOptions::default())
+    .await
+    .unwrap_err();
+  let js_error = e.downcast::<JsError>().unwrap();
+
+  assert_eq!(js_error.frames.len(), 0);
+}
+
+#[tokio::test]
+async fn aggregate_error_destructure() {
+  let mut runtime = JsRuntime::new(Default::default());
+  let src = r#"
+(async () => {
+  try {
+    await Promise.any([]);
+  } catch (e) {
+    return Deno.core.destructureError(e).frames;
+  }
+})()
+"#;
+  let value_global = runtime.execute_script_static("test_aggregate_error_destructure.js", src).unwrap();
+  let resolve = runtime.resolve(value_global);
+  let out = runtime
+    .with_event_loop_promise(resolve, PollEventLoopOptions::default())
+    .await
+    .unwrap();
+
+  let scope = &mut runtime.handle_scope();
+
+  let out = v8::Local::new(scope, out);
+  let out = v8::Local::<v8::Array>::try_from(out).unwrap();
+
+  assert_eq!(out.length(), 0);
 }
