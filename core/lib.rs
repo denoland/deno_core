@@ -3,6 +3,7 @@ pub mod arena;
 mod async_cancel;
 mod async_cell;
 mod buffer_strategy;
+pub mod cppgc;
 pub mod error;
 mod error_codes;
 mod extensions;
