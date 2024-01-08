@@ -1053,6 +1053,8 @@ async fn tla_in_esm_extensions_panics() {
   });
 }
 
+// TODO(mmastrac): This is only fired in debug mode
+#[cfg(debug_assertions)]
 #[tokio::test]
 #[should_panic(
   expected = r#"Failed to evaluate extension JS: Error: This fails
