@@ -1,31 +1,33 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
-use deno_core::external;
-use deno_core::ExternalPointer;
+use std::future::Future;
+use std::rc::Rc;
+
+use super::testing::TestData;
 
 #[op2(async)]
-pub async fn op_async_void_deferred() {
+pub async fn op_async_yield() {
   tokio::task::yield_now().await
 }
 
-struct Barrier(tokio::sync::Barrier);
-
-external!(Barrier, "barrier");
-
 #[op2(fast)]
-pub fn op_async_barrier_create(count: u32) -> *const std::ffi::c_void {
-  let barrier = Barrier(tokio::sync::Barrier::new(count as _));
-  ExternalPointer::new(barrier).into_raw()
+pub fn op_async_barrier_create(
+  #[state] test_data: &mut TestData,
+  #[string] name: String,
+  count: u32,
+) {
+  let barrier = Rc::new(tokio::sync::Barrier::new(count as _));
+  test_data.insert(name, barrier);
 }
 
 #[op2(async)]
-pub async fn op_async_barrier_await(barrier: *const std::ffi::c_void) {
-  let barrier = ExternalPointer::<Barrier>::from_raw(barrier);
-  unsafe { barrier.unsafely_deref().0.wait().await; }
-}
-
-#[op2(fast)]
-pub fn op_async_barrier_destroy(barrier: *const std::ffi::c_void) {
-  let barrier = ExternalPointer::<Barrier>::from_raw(barrier);
-  unsafe { barrier.unsafely_take(); }
+pub fn op_async_barrier_await(
+  #[state] test_data: &TestData,
+  #[string] name: String,
+) -> impl Future<Output = ()> {
+  let barrier: &Rc<tokio::sync::Barrier> = test_data.get(name);
+  let barrier = barrier.clone();
+  async move {
+    barrier.wait().await;
+  }
 }

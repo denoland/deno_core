@@ -18,7 +18,6 @@ use crate::ModuleSource;
 use crate::ModuleSourceFuture;
 use crate::ModuleSpecifier;
 use crate::ModuleType;
-use crate::OpState;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use crate::Snapshot;
@@ -39,7 +38,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
-use tokio::sync::Barrier;
 use tokio::task::LocalSet;
 use url::Url;
 
@@ -657,54 +655,6 @@ fn test_validate_import_attributes_default() {
       "Uncaught TypeError: \"bar\" is not a valid module type."
     );
   }
-}
-
-#[tokio::test]
-async fn dyn_import_op() {
-  #[op2(async)]
-  async fn op_test() {
-    tokio::task::yield_now().await;
-  }
-
-  #[op2(async)]
-  async fn op_wait(state: Rc<RefCell<OpState>>) {
-    eprintln!("op_wait!");
-    let barrier: Rc<Barrier> = state.borrow().borrow::<Rc<Barrier>>().clone();
-    barrier.wait().await;
-  }
-
-  deno_core::extension!(test_ext,
-    ops = [op_test, op_wait],
-    options = { count: Barrier },
-    state = |state, options| {
-      state.put(Rc::new(options.count));
-    },
-  );
-
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([
-    (Url::parse("file:///main.js").unwrap(), ascii_str!("const { op_wait } = Deno.core.ensureFastOps(); (async () => { await import('./dynamic.js'); await op_wait(); })();")),
-    (Url::parse("file:///dynamic.js").unwrap(), ascii_str!("const { op_test } = Deno.core.ensureFastOps(); await op_test();")),
-  ])));
-  let barrier = Barrier::new(2);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(loader.clone()),
-    extensions: vec![test_ext::init_ops(barrier)],
-    ..Default::default()
-  });
-  let id = runtime
-    .load_main_module(
-      &Url::parse("file:///root.js").unwrap(),
-      Some(ascii_str!(
-        "import 'file:///main.js'; const { op_wait } = Deno.core.ensureFastOps(); await op_wait();"
-      )),
-    )
-    .await
-    .unwrap();
-  let f = runtime.mod_evaluate(id);
-  poll_fn(|cx| runtime.poll_event_loop(cx, Default::default()))
-    .await
-    .unwrap();
-  _ = f.await;
 }
 
 #[tokio::test]

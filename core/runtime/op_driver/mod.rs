@@ -274,7 +274,8 @@ mod tests {
       }
       if scheduling != OpScheduling::Eager {
         let mut bitset = BitSet::default();
-        for _ in 0..count {
+        for i in 0..count {
+          assert_eq!(driver.len(), count - i);
           reap_task(&driver, &mut bitset, "1").await;
         }
         assert_eq!(bitset.len(), count);
@@ -311,7 +312,8 @@ mod tests {
           submit_task(&driver, scheduling, i, task());
         }
         let mut bitset = BitSet::default();
-        for _ in 0..count {
+        for i in 0..count {
+          assert_eq!(driver.len(), count - i);
           reap_task(&driver, &mut bitset, "4").await;
         }
         assert_eq!(bitset.len(), count);
@@ -350,7 +352,8 @@ mod tests {
         submit_task(&driver, scheduling, i, task());
       }
       let mut bitset = BitSet::default();
-      for _ in 0..count {
+      for i in 0..count {
+        assert_eq!(driver.len(), count - i);
         reap_task(&driver, &mut bitset, "10").await;
       }
       assert_eq!(bitset.len(), count);
@@ -388,7 +391,8 @@ mod tests {
         submit_task(&driver, scheduling, i, task());
       }
       let mut bitset = BitSet::default();
-      for _ in 0..count {
+      for i in 0..count {
+        assert_eq!(driver.len(), count - i);
         reap_task(&driver, &mut bitset, "1").await;
       }
       assert_eq!(bitset.len(), count);

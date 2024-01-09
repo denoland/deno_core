@@ -2105,20 +2105,27 @@ impl JsRuntime {
       }
     }
 
-    // We return async responses to JS in unbounded batches (may change),
+    // We return async responses to JS in bounded batches. Note that because
+    // we're passing these to JS as arguments, it is possible to overflow the
+    // JS stack by just passing too many.
+    const MAX_VEC_SIZE_FOR_OPS: usize = 1024;
+
     // each batch is a flat vector of tuples:
     // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
     // promise_id is a simple integer, op_result is an ops::OpResult
     // which contains a value OR an error, encoded as a tuple.
     // This batch is received in JS via the special `arguments` variable
     // and then each tuple is used to resolve or reject promises
-    //
-    // This can handle 15 promises futures in a single batch without heap
-    // allocations.
     let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
       SmallVec::with_capacity(32);
 
     loop {
+      if args.len() >= MAX_VEC_SIZE_FOR_OPS {
+        // We have too many, bail for now but re-wake the waker
+        cx.waker().wake_by_ref();
+        break;
+      }
+
       let Poll::Ready((promise_id, op_id, metrics_event, res)) =
         context_state.pending_ops.poll_ready(cx)
       else {

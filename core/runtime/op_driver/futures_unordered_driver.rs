@@ -52,6 +52,7 @@ enum MaybeTask {
 pub struct FuturesUnorderedDriver<
   C: OpMappingContext + 'static = V8OpMappingContext,
 > {
+  len: Cell<usize>,
   task: Cell<MaybeTask>,
   task_set: Cell<bool>,
   queue: SubmissionQueue<FuturesUnordered<FutureAllocation<PendingOp<C>>>>,
@@ -81,6 +82,7 @@ impl<C: OpMappingContext> Default for FuturesUnorderedDriver<C> {
     .into();
 
     Self {
+      len: Default::default(),
       task,
       task_set: Default::default(),
       completed_ops,
@@ -117,6 +119,7 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
     map: impl FnOnce(R) -> PendingOp<C> + 'static,
   ) {
     self.ensure_task();
+    self.len.set(self.len.get() + 1);
     self.queue.spawn(self.arena.allocate(task.map(map)));
   }
 
@@ -124,6 +127,7 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
   #[inline(always)]
   fn spawn_ready(&self, ready_op: PendingOp<C>) {
     self.ensure_task();
+    self.len.set(self.len.get() + 1);
     self.queue.spawn(self.arena.allocate(ready(ready_op)));
   }
 
@@ -135,6 +139,7 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
     map: impl FnOnce(R) -> PendingOp<C> + 'static,
   ) {
     self.ensure_task();
+    self.len.set(self.len.get() + 1);
     self.queue.spawn(self.arena.allocate(task.map(map)));
   }
 
@@ -269,12 +274,13 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
     }
     let item = ops.pop_front().unwrap();
     let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) = item;
+    self.len.set(self.len.get() - 1);
     Poll::Ready((promise_id, op_id, metrics_event, resp))
   }
 
   #[inline(always)]
   fn len(&self) -> usize {
-    self.queue.len()
+    self.len.get()
   }
 }
 
@@ -333,10 +339,6 @@ impl<F: SubmissionQueueFutures> SubmissionQueue<F> {
   pub fn spawn(&self, f: F::Future) {
     self.queue.queue.borrow_mut().spawn(f);
     self.queue.item_waker.wake_by_ref();
-  }
-
-  pub fn len(&self) -> usize {
-    self.queue.queue.borrow().len()
   }
 }
 

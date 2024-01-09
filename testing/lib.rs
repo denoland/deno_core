@@ -47,6 +47,7 @@ unit_test!(
 // These files are loaded from the system/ dir.
 integration_test!(
   dyn_import_circular,
+  dyn_import_op,
   error_async_stack,
   error_rejection_catch,
   error_rejection_order,
