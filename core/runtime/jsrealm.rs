@@ -4,7 +4,7 @@ use super::exception_state::ExceptionState;
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
@@ -227,7 +227,7 @@ impl JsRealm {
 
   fn string_from_code<'a>(
     scope: &mut HandleScope<'a>,
-    code: &ModuleCode,
+    code: &ModuleCodeString,
   ) -> Option<Local<'a, v8::String>> {
     if let Some(code) = code.try_static_ascii() {
       v8::String::new_external_onebyte_static(scope, code)
@@ -261,7 +261,11 @@ impl JsRealm {
     name: &'static str,
     source_code: &'static str,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    self.execute_script(isolate, name, ModuleCode::from_static(source_code))
+    self.execute_script(
+      isolate,
+      name,
+      ModuleCodeString::from_static(source_code),
+    )
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules) in the
@@ -282,7 +286,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     name: &'static str,
-    source_code: ModuleCode,
+    source_code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let scope = &mut self.0.handle_scope(isolate);
 
@@ -358,7 +362,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
@@ -415,7 +419,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
@@ -472,7 +476,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     module_specifier: &str,
-    code: ModuleCode,
+    code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);

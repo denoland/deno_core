@@ -3,7 +3,7 @@ use crate::error::generic_error;
 use crate::error::AnyError;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleSource;
 use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
@@ -106,7 +106,7 @@ impl ModuleLoader for NoopModuleLoader {
 /// Function that can be passed to the `ExtModuleLoader` that allows to
 /// transpile sources before passing to V8.
 pub type ExtModuleLoaderCb =
-  Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCode, Error>>;
+  Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCodeString, Error>>;
 
 pub(crate) struct ExtModuleLoader {
   sources: RefCell<HashMap<String, ExtensionFileSource>>,
@@ -308,7 +308,7 @@ impl ModuleLoader for FsModuleLoader {
       })?;
       let module = ModuleSource::new(
         module_type,
-        ModuleSourceCode::Bytes(code),
+        ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
         module_specifier,
       );
       Ok(module)
@@ -321,13 +321,13 @@ impl ModuleLoader for FsModuleLoader {
 /// A module loader that you can pre-load a number of modules into and resolve from. Useful for testing and
 /// embedding situations where the filesystem and snapshot systems are not usable or a good fit.
 pub struct StaticModuleLoader {
-  map: HashMap<ModuleSpecifier, ModuleCode>,
+  map: HashMap<ModuleSpecifier, ModuleCodeString>,
 }
 
 impl StaticModuleLoader {
   /// Create a new [`StaticModuleLoader`] from an `Iterator` of specifiers and code.
   pub fn new(
-    from: impl IntoIterator<Item = (ModuleSpecifier, ModuleCode)>,
+    from: impl IntoIterator<Item = (ModuleSpecifier, ModuleCodeString)>,
   ) -> Self {
     Self {
       map: HashMap::from_iter(
@@ -339,7 +339,7 @@ impl StaticModuleLoader {
   }
 
   /// Create a new [`StaticModuleLoader`] from a single code item.
-  pub fn with(specifier: ModuleSpecifier, code: ModuleCode) -> Self {
+  pub fn with(specifier: ModuleSpecifier, code: ModuleCodeString) -> Self {
     Self::new([(specifier, code)])
   }
 }
