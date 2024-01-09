@@ -1,4 +1,3 @@
-use super::SnapshottedData;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::bindings::watch_promise;
@@ -6,6 +5,7 @@ use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
 use super::snapshot_util;
+use super::SnapshottedData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
