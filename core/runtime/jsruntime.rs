@@ -678,7 +678,7 @@ impl JsRuntime {
         options
           .op_metrics_factory_fn
           .as_ref()
-          .and_then(|f| (f)(id as _, count, &decl))
+          .and_then(|f| (f)(id as _, count, decl))
       })
       .collect::<Vec<_>>();
     let ops_with_metrics = op_metrics_fns
