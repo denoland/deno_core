@@ -171,9 +171,11 @@ fn data_error_to_panic(err: v8::DataError) -> ! {
 pub(crate) struct SnapshottedData {
   pub module_map_data: v8::Global<v8::Array>,
   pub module_handles: Vec<v8::Global<v8::Module>>,
+  pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
 }
 
 static MODULE_MAP_CONTEXT_DATA_INDEX: usize = 0;
+static JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX: usize = 1;
 
 pub(crate) fn get_snapshotted_data(
   scope: &mut v8::HandleScope<()>,
@@ -199,9 +201,24 @@ pub(crate) fn get_snapshotted_data(
     info_data.length()
   };
 
+  let js_handled_promise_rejection_cb = match scope
+    .get_context_data_from_snapshot_once::<v8::Value>(
+      JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX,
+    ) {
+    Ok(val) => {
+      if val.is_undefined() {
+        None
+      } else {
+        let fn_: v8::Local<v8::Function> = val.try_into().unwrap();
+        Some(v8::Global::new(&mut scope, fn_))
+      }
+    }
+    Err(err) => data_error_to_panic(err),
+  };
+
   // Over allocate so executing a few scripts doesn't have to resize this vec.
   let mut module_handles = Vec::with_capacity(next_module_id as usize + 16);
-  for i in 1..=next_module_id {
+  for i in 2..=next_module_id + 1 {
     match scope.get_context_data_from_snapshot_once::<v8::Module>(i as usize) {
       Ok(val) => {
         let module_global = v8::Global::new(&mut scope, val);
@@ -214,6 +231,7 @@ pub(crate) fn get_snapshotted_data(
   SnapshottedData {
     module_map_data: v8::Global::new(&mut scope, val),
     module_handles,
+    js_handled_promise_rejection_cb,
   }
 }
 
@@ -227,11 +245,23 @@ pub(crate) fn set_snapshotted_data(
   let offset = scope.add_context_data(local_context, local_data);
   assert_eq!(offset, MODULE_MAP_CONTEXT_DATA_INDEX);
 
+  let local_handled_promise_rejection_cb: v8::Local<v8::Value> =
+    if let Some(handled_promise_rejection_cb) =
+      snapshotted_data.js_handled_promise_rejection_cb
+    {
+      v8::Local::new(scope, handled_promise_rejection_cb).into()
+    } else {
+      v8::undefined(scope).into()
+    };
+  let offset =
+    scope.add_context_data(local_context, local_handled_promise_rejection_cb);
+  assert_eq!(offset, JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX);
+
   for (index, handle) in snapshotted_data.module_handles.into_iter().enumerate()
   {
     let module_handle = v8::Local::new(scope, handle);
     let offset = scope.add_context_data(local_context, module_handle);
-    assert_eq!(offset, index + 1);
+    assert_eq!(offset, index + 2);
   }
 }
 
