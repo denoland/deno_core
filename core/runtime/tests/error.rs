@@ -124,7 +124,9 @@ async fn aggregate_error() {
   await Promise.any([]);
 })()
 "#;
-  let value_global = runtime.execute_script_static("test_aggregate_error.js", src).unwrap();
+  let value_global = runtime
+    .execute_script_static("test_aggregate_error.js", src)
+    .unwrap();
   let resolve = runtime.resolve(value_global);
   let e = runtime
     .with_event_loop_promise(resolve, PollEventLoopOptions::default())
@@ -147,7 +149,9 @@ async fn aggregate_error_destructure() {
   }
 })()
 "#;
-  let value_global = runtime.execute_script_static("test_aggregate_error_destructure.js", src).unwrap();
+  let value_global = runtime
+    .execute_script_static("test_aggregate_error_destructure.js", src)
+    .unwrap();
   let resolve = runtime.resolve(value_global);
   let out = runtime
     .with_event_loop_promise(resolve, PollEventLoopOptions::default())
