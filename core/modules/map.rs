@@ -20,7 +20,6 @@ use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
-use crate::runtime::SnapshottedData;
 use crate::ExtensionFileSource;
 use crate::JsRuntime;
 use crate::ModuleSource;
@@ -48,6 +47,7 @@ use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
+use super::module_map_data::ModuleMapSnapshottedData;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
 
@@ -177,7 +177,7 @@ impl ModuleMap {
     exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
     scope: &mut v8::HandleScope,
-    data: SnapshottedData,
+    data: ModuleMapSnapshottedData,
   ) -> Self {
     let new = Self::new(loader, exception_state, import_meta_resolve_cb);
     new
@@ -232,7 +232,7 @@ impl ModuleMap {
   pub(crate) fn serialize_for_snapshotting(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> SnapshottedData {
+  ) -> ModuleMapSnapshottedData {
     self.data.borrow().serialize_for_snapshotting(scope)
   }
 
