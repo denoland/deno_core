@@ -1,3 +1,4 @@
+use super::SnapshottedData;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::bindings::watch_promise;
@@ -22,6 +23,7 @@ use crate::modules::ModuleCode;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::ModuleMapSnapshottedData;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
@@ -812,12 +814,18 @@ impl JsRuntime {
 
     let exception_state = context_state.exception_state.clone();
     let module_map = if let Some(snapshotted_data) = snapshotted_data {
+      *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
+        snapshotted_data.js_handled_promise_rejection_cb;
+      let module_map_snapshotted_data = ModuleMapSnapshottedData {
+        module_map_data: snapshotted_data.module_map_data,
+        module_handles: snapshotted_data.module_handles,
+      };
       Rc::new(ModuleMap::new_from_snapshotted_data(
         loader,
         exception_state,
         import_meta_resolve_cb,
         scope,
-        snapshotted_data,
+        module_map_snapshotted_data,
       ))
     } else {
       Rc::new(ModuleMap::new(
@@ -1851,11 +1859,25 @@ impl JsRuntimeForSnapshot {
 
     // Serialize the module map and store its data in the snapshot.
     {
-      let snapshotted_data = {
+      let module_map_snapshotted_data = {
         let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
         )
+      };
+      let maybe_js_handled_promise_rejection_cb = {
+        let context_state = &realm.0.context_state;
+        let exception_state = &context_state.exception_state;
+        exception_state
+          .js_handled_promise_rejection_cb
+          .borrow()
+          .clone()
+      };
+
+      let snapshotted_data = SnapshottedData {
+        module_map_data: module_map_snapshotted_data.module_map_data,
+        module_handles: module_map_snapshotted_data.module_handles,
+        js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());

@@ -7,7 +7,6 @@ use crate::modules::ModuleLoadId;
 use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
-use crate::runtime::SnapshottedData;
 use crate::ExtensionFileSource;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -111,6 +110,11 @@ impl<T> ModuleNameTypeMap<T> {
       }
     }
   }
+}
+
+pub(crate) struct ModuleMapSnapshottedData {
+  pub module_map_data: v8::Global<v8::Array>,
+  pub module_handles: Vec<v8::Global<v8::Module>>,
 }
 
 #[derive(Default)]
@@ -262,7 +266,7 @@ impl ModuleMapData {
   pub fn serialize_for_snapshotting(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> SnapshottedData {
+  ) -> ModuleMapSnapshottedData {
     let data = self;
     let array = v8::Array::new(scope, 3);
 
@@ -340,7 +344,7 @@ impl ModuleMapData {
     let array_global = v8::Global::new(scope, array);
 
     let handles = data.handles.clone();
-    SnapshottedData {
+    ModuleMapSnapshottedData {
       module_map_data: array_global,
       module_handles: handles,
     }
@@ -349,7 +353,7 @@ impl ModuleMapData {
   pub fn update_with_snapshotted_data(
     &mut self,
     scope: &mut v8::HandleScope,
-    snapshotted_data: SnapshottedData,
+    snapshotted_data: ModuleMapSnapshottedData,
   ) {
     let local_data: v8::Local<v8::Array> =
       v8::Local::new(scope, snapshotted_data.module_map_data);

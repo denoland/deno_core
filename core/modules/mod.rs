@@ -32,6 +32,7 @@ pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
+pub(crate) use module_map_data::ModuleMapSnapshottedData;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
