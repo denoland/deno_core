@@ -137,7 +137,7 @@ mod tests {
     fn map_error(
       _context: &mut Self::Context,
       err: Error,
-      get_error_class_fn: GetErrorClassFn,
+      _get_error_class_fn: GetErrorClassFn,
     ) -> UnmappedResult<'s, Self> {
       Ok(format!("{err:?}"))
     }
