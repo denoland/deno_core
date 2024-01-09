@@ -21,7 +21,7 @@ use super::op_driver::V8RetValMapper;
 /// so this is a limited resource!
 pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
 
-fn op_scheduing(lazy: bool, deferred: bool) -> OpScheduling {
+fn op_scheduling(lazy: bool, deferred: bool) -> OpScheduling {
   if lazy {
     OpScheduling::Lazy
   } else if deferred {
@@ -42,7 +42,7 @@ pub fn map_async_op_infallible<R: 'static>(
 ) -> Option<R> {
   let pending_ops = &ctx.context_state().pending_ops;
   pending_ops.submit_op_infallible_scheduling(
-    op_scheduing(lazy, deferred),
+    op_scheduling(lazy, deferred),
     ctx.id,
     ctx.metrics_enabled(),
     promise_id,
@@ -62,7 +62,7 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
 ) -> Option<Result<R, E>> {
   let pending_ops = &ctx.context_state().pending_ops;
   pending_ops.submit_op_fallible_scheduling(
-    op_scheduing(lazy, deferred),
+    op_scheduling(lazy, deferred),
     ctx.id,
     ctx.metrics_enabled(),
     ctx.get_error_class_fn,
