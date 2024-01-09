@@ -670,10 +670,26 @@ impl JsRuntime {
       waker,
     });
 
-    let context_state = Rc::new(ContextState {
-      isolate: Some(isolate_ptr),
-      ..Default::default()
-    });
+    let count = ops.len();
+    let op_metrics_fns = ops
+      .iter()
+      .enumerate()
+      .map(|(id, decl)| {
+        options
+          .op_metrics_factory_fn
+          .as_ref()
+          .and_then(|f| (f)(id as _, count, &decl))
+      })
+      .collect::<Vec<_>>();
+    let ops_with_metrics = op_metrics_fns
+      .iter()
+      .map(|o| o.is_some())
+      .collect::<Vec<_>>();
+    let context_state = Rc::new(ContextState::new(
+      isolate_ptr,
+      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      ops_with_metrics,
+    ));
 
     // Add the task spawners to the OpState
     let spawner = context_state
@@ -687,7 +703,6 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    let count = ops.len();
     let mut op_ctxs = ops
       .into_iter()
       .enumerate()
@@ -2126,15 +2141,15 @@ impl JsRuntime {
         break;
       }
 
-      let Poll::Ready((promise_id, op_id, metrics_event, res)) =
+      let Poll::Ready((promise_id, op_id, res)) =
         context_state.pending_ops.poll_ready(cx)
       else {
         break;
       };
 
-      let res = res.unwrap(scope);
+      let res = res.unwrap(scope, context_state.get_error_class_fn);
 
-      if metrics_event {
+      if context_state.ops_with_metrics[op_id as usize] {
         if res.is_ok() {
           dispatch_metrics_async(
             &context_state.op_ctxs.borrow()[op_id as usize],

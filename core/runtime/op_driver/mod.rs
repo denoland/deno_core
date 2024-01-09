@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
@@ -44,7 +43,6 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   fn submit_op_infallible<R: 'static, const LAZY: bool, const DEFERRED: bool>(
     &self,
     op_id: OpId,
-    metrics_enabled: bool,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
     rv_map: C::MappingFn<R>,
@@ -56,33 +54,17 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
-    metrics_enabled: bool,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<R> {
     match scheduling {
-      OpScheduling::Eager => self.submit_op_infallible::<R, false, false>(
-        op_id,
-        metrics_enabled,
-        promise_id,
-        op,
-        rv_map,
-      ),
-      OpScheduling::Lazy => self.submit_op_infallible::<R, true, false>(
-        op_id,
-        metrics_enabled,
-        promise_id,
-        op,
-        rv_map,
-      ),
-      OpScheduling::Deferred => self.submit_op_infallible::<R, false, true>(
-        op_id,
-        metrics_enabled,
-        promise_id,
-        op,
-        rv_map,
-      ),
+      OpScheduling::Eager => self
+        .submit_op_infallible::<R, false, false>(op_id, promise_id, op, rv_map),
+      OpScheduling::Lazy => self
+        .submit_op_infallible::<R, true, false>(op_id, promise_id, op, rv_map),
+      OpScheduling::Deferred => self
+        .submit_op_infallible::<R, false, true>(op_id, promise_id, op, rv_map),
     }
   }
 
@@ -98,8 +80,6 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   >(
     &self,
     op_id: OpId,
-    metrics_enabled: bool,
-    get_class: GetErrorClassFn,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: C::MappingFn<R>,
@@ -112,37 +92,18 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
-    metrics_enabled: bool,
-    get_class: GetErrorClassFn,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>> {
     match scheduling {
       OpScheduling::Eager => self.submit_op_fallible::<R, E, false, false>(
-        op_id,
-        metrics_enabled,
-        get_class,
-        promise_id,
-        op,
-        rv_map,
+        op_id, promise_id, op, rv_map,
       ),
-      OpScheduling::Lazy => self.submit_op_fallible::<R, E, true, false>(
-        op_id,
-        metrics_enabled,
-        get_class,
-        promise_id,
-        op,
-        rv_map,
-      ),
-      OpScheduling::Deferred => self.submit_op_fallible::<R, E, false, true>(
-        op_id,
-        metrics_enabled,
-        get_class,
-        promise_id,
-        op,
-        rv_map,
-      ),
+      OpScheduling::Lazy => self
+        .submit_op_fallible::<R, E, true, false>(op_id, promise_id, op, rv_map),
+      OpScheduling::Deferred => self
+        .submit_op_fallible::<R, E, false, true>(op_id, promise_id, op, rv_map),
     }
   }
 
@@ -151,7 +112,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   fn poll_ready(
     &self,
     cx: &mut Context,
-  ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)>;
+  ) -> Poll<(PromiseId, OpId, OpResult<C>)>;
 
   /// Return the number of futures currently being polled.
   fn len(&self) -> usize;
@@ -159,6 +120,8 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
 
 #[cfg(test)]
 mod tests {
+  use crate::GetErrorClassFn;
+
   use super::op_results::*;
   use super::*;
   use bit_set::BitSet;
@@ -173,7 +136,8 @@ mod tests {
 
     fn map_error(
       _context: &mut Self::Context,
-      err: op_results::OpError,
+      err: Error,
+      get_error_class_fn: GetErrorClassFn,
     ) -> UnmappedResult<'s, Self> {
       Ok(format!("{err:?}"))
     }
@@ -212,7 +176,6 @@ mod tests {
       driver.submit_op_infallible_scheduling(
         scheduling,
         1234,
-        false,
         id as _,
         op,
         |r| { Ok(format!("{r}")) }
@@ -231,7 +194,6 @@ mod tests {
       driver.submit_op_infallible_scheduling(
         OpScheduling::Eager,
         1234,
-        false,
         id as _,
         op,
         |r| { Ok(format!("{r}")) }
@@ -244,12 +206,10 @@ mod tests {
     bitset: &mut BitSet,
     expected: &str,
   ) {
-    let (promise_id, op_id, metrics, result) =
-      poll_fn(|cx| driver.poll_ready(cx)).await;
+    let (promise_id, op_id, result) = poll_fn(|cx| driver.poll_ready(cx)).await;
     assert!(bitset.insert(promise_id as usize));
     assert_eq!(1234, op_id);
-    assert!(!metrics);
-    assert_eq!(expected, &(result.unwrap(&mut ()).unwrap()));
+    assert_eq!(expected, &(result.unwrap(&mut (), &|_| "Error").unwrap()));
   }
 
   #[rstest]

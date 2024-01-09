@@ -44,7 +44,6 @@ pub fn map_async_op_infallible<R: 'static>(
   pending_ops.submit_op_infallible_scheduling(
     op_scheduling(lazy, deferred),
     ctx.id,
-    ctx.metrics_enabled(),
     promise_id,
     op,
     rv_map,
@@ -64,8 +63,6 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   pending_ops.submit_op_fallible_scheduling(
     op_scheduling(lazy, deferred),
     ctx.id,
-    ctx.metrics_enabled(),
-    ctx.get_error_class_fn,
     promise_id,
     op,
     rv_map,

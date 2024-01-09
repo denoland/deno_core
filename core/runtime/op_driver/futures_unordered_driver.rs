@@ -3,7 +3,6 @@ use super::future_arena::FutureAllocation;
 use super::future_arena::FutureArena;
 use super::op_results::*;
 use super::OpDriver;
-use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
@@ -155,22 +154,20 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
   #[inline(always)]
   fn pending_op_failure<E: Into<Error> + 'static>(
     info: PendingOpInfo,
-    get_class: GetErrorClassFn,
     err: E,
   ) -> PendingOp<C> {
-    PendingOp(info, OpResult::Err(OpError::new(get_class, err.into())))
+    PendingOp(info, OpResult::Err(err.into()))
   }
 
   #[inline(always)]
   fn pending_op_result<R: 'static, E: Into<Error> + 'static>(
     info: PendingOpInfo,
     rv_map: C::MappingFn<R>,
-    get_class: GetErrorClassFn,
     result: Result<R, E>,
   ) -> PendingOp<C> {
     match result {
       Ok(r) => Self::pending_op_success(info, rv_map, r),
-      Err(err) => Self::pending_op_failure(info, get_class, err),
+      Err(err) => Self::pending_op_failure(info, err),
     }
   }
 }
@@ -184,18 +181,16 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   >(
     &self,
     op_id: OpId,
-    metrics_enabled: bool,
-    get_class: GetErrorClassFn,
     promise_id: i32,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>> {
     {
-      let info = PendingOpInfo(promise_id, op_id, metrics_enabled);
+      let info = PendingOpInfo(promise_id, op_id);
 
       if LAZY {
         self.spawn_unpolled(op, move |r| {
-          Self::pending_op_result(info, rv_map, get_class, r)
+          Self::pending_op_result(info, rv_map, r)
         });
         return None;
       }
@@ -205,13 +200,11 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
       let mut pinned = self.arena.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => self.spawn_polled(pinned, move |r| {
-          Self::pending_op_result(info, rv_map, get_class, r)
+          Self::pending_op_result(info, rv_map, r)
         }),
         Poll::Ready(res) => {
           if DEFERRED {
-            self.spawn_ready(Self::pending_op_result(
-              info, rv_map, get_class, res,
-            ))
+            self.spawn_ready(Self::pending_op_result(info, rv_map, res))
           } else {
             return Some(res);
           }
@@ -228,13 +221,12 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   >(
     &self,
     op_id: OpId,
-    metrics_enabled: bool,
     promise_id: i32,
     op: impl Future<Output = R> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<R> {
     {
-      let info = PendingOpInfo(promise_id, op_id, metrics_enabled);
+      let info = PendingOpInfo(promise_id, op_id);
       if LAZY {
         self.spawn_unpolled(op, move |r| {
           Self::pending_op_success(info, rv_map, r)
@@ -266,16 +258,16 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   fn poll_ready(
     &self,
     cx: &mut Context,
-  ) -> Poll<(PromiseId, OpId, bool, OpResult<C>)> {
+  ) -> Poll<(PromiseId, OpId, OpResult<C>)> {
     let mut ops = self.completed_ops.borrow_mut();
     if ops.is_empty() {
       self.completed_waker.register(cx.waker());
       return Poll::Pending;
     }
     let item = ops.pop_front().unwrap();
-    let PendingOp(PendingOpInfo(promise_id, op_id, metrics_event), resp) = item;
+    let PendingOp(PendingOpInfo(promise_id, op_id), resp) = item;
     self.len.set(self.len.get() - 1);
-    Poll::Ready((promise_id, op_id, metrics_event, resp))
+    Poll::Ready((promise_id, op_id, resp))
   }
 
   #[inline(always)]

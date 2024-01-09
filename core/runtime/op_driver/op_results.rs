@@ -24,7 +24,8 @@ pub trait OpMappingContextLifetime<'s> {
 
   fn map_error(
     context: &mut Self::Context,
-    err: OpError,
+    err: Error,
+    get_error_class_fn: GetErrorClassFn,
   ) -> UnmappedResult<'s, Self>;
   fn map_mapping_error(
     context: &mut Self::Context,
@@ -65,9 +66,10 @@ impl<'s> OpMappingContextLifetime<'s> for V8OpMappingContext {
   #[inline(always)]
   fn map_error(
     scope: &mut v8::HandleScope<'s>,
-    err: OpError,
+    err: Error,
+    get_error_class_fn: GetErrorClassFn,
   ) -> UnmappedResult<'s, Self> {
-    serde_v8::to_v8(scope, err)
+    serde_v8::to_v8(scope, OpError::new(get_error_class_fn, err))
   }
 
   fn map_mapping_error(
@@ -98,7 +100,7 @@ impl OpMappingContext for V8OpMappingContext {
 
 pub struct PendingOp<C: OpMappingContext>(pub PendingOpInfo, pub OpResult<C>);
 
-pub struct PendingOpInfo(pub PromiseId, pub OpId, pub bool);
+pub struct PendingOpInfo(pub PromiseId, pub OpId);
 
 type MapRawFn<C> = for<'a> fn(
   _lifetime: &'a (),
@@ -150,7 +152,7 @@ impl<C: OpMappingContext, R> ValueLargeFn<C> for ValueLarge<C, R> {
 
 pub enum OpResult<C: OpMappingContext> {
   /// Errors.
-  Err(OpError),
+  Err(Error),
   /// For small ops, we include them in an erased type container.
   Value(OpValue<C>),
   /// For ops that return "large" results (> MAX_RESULT_SIZE bytes) we just box a function
@@ -170,9 +172,10 @@ impl<C: OpMappingContext> OpResult<C> {
   pub fn unwrap<'a>(
     self,
     context: &mut <C as OpMappingContextLifetime<'a>>::Context,
+    get_error_class_fn: GetErrorClassFn,
   ) -> MappedResult<'a, C> {
     let (success, res) = match self {
-      Self::Err(err) => (false, C::map_error(context, err)),
+      Self::Err(err) => (false, C::map_error(context, err, get_error_class_fn)),
       Self::Value(f) => (true, (f.map_fn)(&(), context, f.rv_map, f.value)),
       Self::ValueLarge(f) => (true, f.unwrap(context)),
     };
