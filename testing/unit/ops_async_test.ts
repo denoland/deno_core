@@ -15,7 +15,7 @@ test(async function testAsyncOp() {
 test(async function testAsyncBarrier() {
   const count = 1e6;
   op_async_barrier_create("barrier", count);
-  let promises = [];
+  const promises = [];
   for (let i = 0; i < count; i++) {
     promises.push(op_async_barrier_await("barrier"));
   }
