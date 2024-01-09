@@ -18,16 +18,18 @@ repository = "https://github.com/denoland/deno_core"
 
 [workspace.dependencies]
 # Local dependencies
-deno_core = { version = "0.240.0", path = "./core" }
-deno_ops = { version = "0.116.0", path = "./ops" }
-serde_v8 = { version = "0.149.0", path = "./serde_v8" }
+deno_core = { version = "0.244.0", path = "./core" }
+deno_ops = { version = "0.120.0", path = "./ops" }
+serde_v8 = { version = "0.153.0", path = "./serde_v8" }
 
 v8 = { version = "0.82.0", default-features = false }
-deno_ast = { version = "0.31.2", features = ["transpiling"] }
-deno_unsync = "0.3.0"
+deno_ast = { version = "1.0.0", features = ["transpiling"] }
+deno_unsync = "0.3.2"
 
 anyhow = "1"
 bencher = "0.1"
+bit-set = "0"
+bit-vec = "0"
 bytes = "1.4.0"
 cooked-waker = "5"
 derive_more = "0.99.17"
@@ -35,6 +37,7 @@ fastrand = "2"
 futures = "0.3.21"
 libc = "0.2.126"
 log = "0.4.17"
+memoffset = ">=0.9"
 num-bigint = { version = "0.4", features = ["rand"] }
 parking_lot = "0.12.0"
 pin-project = "1"

@@ -33,6 +33,7 @@ pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
+pub(crate) use module_map_data::ModuleMapSnapshottedData;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
@@ -45,6 +46,9 @@ pub enum ModuleSourceCode {
   String(ModuleCodeString),
   Bytes(ModuleCodeBytes),
 }
+
+pub type ModuleCodeString = FastString;
+pub type ModuleName = FastString;
 
 #[derive(Debug)]
 pub enum ModuleCodeBytes {
@@ -94,9 +98,6 @@ impl From<&'static [u8]> for ModuleCodeBytes {
     Self::Static(value)
   }
 }
-
-pub type ModuleCodeString = FastString;
-pub type ModuleName = FastString;
 
 /// Callback to customize value of `import.meta.resolve("./foo.ts")`.
 pub type ImportMetaResolveCallback = Box<

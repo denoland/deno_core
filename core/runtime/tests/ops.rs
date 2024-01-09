@@ -52,7 +52,7 @@ async fn test_async_opstate_borrow() {
   runtime
     .execute_script_static(
       "op_async_borrow.js",
-      "Deno.core.opAsync(\"op_async_borrow\")",
+      "const { op_async_borrow } = Deno.core.ensureFastOps(); op_async_borrow();",
     )
     .unwrap();
   runtime.run_event_loop(Default::default()).await.unwrap();
@@ -126,18 +126,18 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
     .execute_script_static(
       "op_async_serialize_object_with_numbers_as_keys.js",
       r#"
-
-Deno.core.opAsync("op_async_serialize_object_with_numbers_as_keys", {
-lines: {
-  100: {
-    unit: "m"
-  },
-  200: {
-    unit: "cm"
-  }
-}
-})
-"#,
+        const { op_async_serialize_object_with_numbers_as_keys } = Deno.core.ensureFastOps();
+        op_async_serialize_object_with_numbers_as_keys({
+          lines: {
+            100: {
+              unit: "m"
+            },
+            200: {
+              unit: "cm"
+            }
+          }
+        });
+      "#,
     )
     .unwrap();
   runtime.run_event_loop(Default::default()).await.unwrap();
@@ -396,10 +396,9 @@ async fn test_ref_unref_ops() {
     .execute_script_static(
       "filename.js",
       r#"
-
-      var promiseIdSymbol = Symbol.for("Deno.core.internalPromiseId");
-      var p1 = Deno.core.opAsync("op_test", 42);
-      var p2 = Deno.core.opAsync("op_test", 42);
+      const { op_test } = Deno.core.ensureFastOps();
+      var p1 = op_test(42);
+      var p2 = op_test(42);
       "#,
     )
     .unwrap();
@@ -412,8 +411,8 @@ async fn test_ref_unref_ops() {
     .execute_script_static(
       "filename.js",
       r#"
-      Deno.core.ops.op_unref_op(p1[promiseIdSymbol]);
-      Deno.core.ops.op_unref_op(p2[promiseIdSymbol]);
+      Deno.core.unrefOpPromise(p1);
+      Deno.core.unrefOpPromise(p2);
       "#,
     )
     .unwrap();
@@ -426,8 +425,8 @@ async fn test_ref_unref_ops() {
     .execute_script_static(
       "filename.js",
       r#"
-      Deno.core.ops.op_ref_op(p1[promiseIdSymbol]);
-      Deno.core.ops.op_ref_op(p2[promiseIdSymbol]);
+      Deno.core.refOpPromise(p1);
+      Deno.core.refOpPromise(p2);
       "#,
     )
     .unwrap();
@@ -446,10 +445,10 @@ fn test_dispatch() {
       "filename.js",
       r#"
       let control = 42;
-
-      Deno.core.opAsync("op_test", control);
+      const { op_test } = Deno.core.ensureFastOps();
+      op_test(control);
       async function main() {
-        Deno.core.opAsync("op_test", control);
+        op_test(control);
       }
       main();
       "#,
@@ -465,8 +464,8 @@ fn test_dispatch_no_zero_copy_buf() {
     .execute_script_static(
       "filename.js",
       r#"
-
-      Deno.core.opAsync("op_test", 0);
+      const { op_test } = Deno.core.ensureFastOps();
+      op_test(0);
       "#,
     )
     .unwrap();

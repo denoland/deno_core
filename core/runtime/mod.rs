@@ -3,6 +3,7 @@ pub(crate) mod bindings;
 pub(crate) mod exception_state;
 mod jsrealm;
 mod jsruntime;
+pub mod op_driver;
 #[doc(hidden)]
 pub mod ops;
 pub mod ops_rust_to_v8;

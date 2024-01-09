@@ -37,7 +37,7 @@ pub fn v8_intermediate_to_global_arg(
   let arg = match arg {
     Arg::V8Global(_) => quote!(deno_core::v8::Global::new(&mut #isolate, #i)),
     Arg::OptionV8Global(_) => {
-      quote!(deno_core::v8::Global::new(&mut #isolate, #i))
+      quote!(match #i { None => None, Some(v) => Some(deno_core::v8::Global::new(&mut #isolate, v)) })
     }
     _ => unreachable!("Not a v8 global arg: {arg:?}"),
   };

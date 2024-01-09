@@ -10,20 +10,6 @@ declare namespace Deno {
     /** Returns a proxy that generates the fast versions of sync and async ops. */
     function ensureFastOps(): any;
 
-    /** Call an op in Rust, and asynchronously receive the result. */
-    function opAsync(
-      opName: string,
-      ...args: any[]
-    ): Promise<any>;
-
-    /** Mark following promise as "ref", ie. event loop won't exit
-     * until all "ref" promises are resolved. All async ops are "ref" by default. */
-    function refOp(promiseId: number): void;
-
-    /** Mark following promise as "unref", ie. event loop will exit
-     * if there are only "unref" promises left. */
-    function unrefOp(promiseId: number): void;
-
     /** Mark following promise as "ref", ie. event loop won't exit
      * until all "ref" promises are resolved. All async ops are "ref" by default. */
     function refOpPromise<T>(promise: Promise<T>): void;
@@ -100,6 +86,9 @@ declare namespace Deno {
     /** Encode a string to its Uint8Array representation. */
     function encode(input: string): Uint8Array;
 
+    /** Decode a string from its Uint8Array representation. */
+    function decode(input: Uint8Array): string;
+
     /**
      * Set a callback that will be called when the WebAssembly streaming APIs
      * (`WebAssembly.compileStreaming` and `WebAssembly.instantiateStreaming`)
@@ -175,6 +164,18 @@ declare namespace Deno {
       promise: Promise<unknown>,
       reason: any,
     ) => boolean;
+
+    /**
+     * Sets the handled promise rejection handler.
+     */
+    function setHandledPromiseRejectionHandler(
+      cb: PromiseHandledCallback,
+    ): PromiseHandledCallback;
+
+    export type PromiseHandledCallback = (
+      promise: Promise<unknown>,
+      reason: any,
+    ) => void;
 
     /**
      * Report an exception that was not handled by any runtime handler, and escaped to the

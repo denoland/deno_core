@@ -3,7 +3,9 @@ use super::bindings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
+use super::op_driver::OpDriver;
 use super::snapshot_util;
+use super::SnapshottedData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
@@ -22,11 +24,11 @@ use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::ModuleMapSnapshottedData;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
-use crate::ops_metrics::OpMetricsEvent;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
@@ -36,12 +38,13 @@ use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
+use crate::OpMetricsEvent;
 use crate::OpMiddlewareFn;
-use crate::OpResult;
 use crate::OpState;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::future::poll_fn;
@@ -817,12 +820,18 @@ impl JsRuntime {
 
     let exception_state = context_state.exception_state.clone();
     let module_map = if let Some(snapshotted_data) = snapshotted_data {
+      *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
+        snapshotted_data.js_handled_promise_rejection_cb;
+      let module_map_snapshotted_data = ModuleMapSnapshottedData {
+        module_map_data: snapshotted_data.module_map_data,
+        module_handles: snapshotted_data.module_handles,
+      };
       Rc::new(ModuleMap::new_from_snapshotted_data(
         loader,
         exception_state,
         import_meta_resolve_cb,
         scope,
-        snapshotted_data,
+        module_map_snapshotted_data,
       ))
     } else {
       Rc::new(ModuleMap::new(
@@ -863,7 +872,9 @@ impl JsRuntime {
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
-    js_runtime.init_extension_js().unwrap();
+    js_runtime
+      .init_extension_js()
+      .expect("Failed to evaluate extension JS");
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
@@ -1019,12 +1030,10 @@ impl JsRuntime {
       }
 
       for specifier in esm_entrypoints {
-        let mod_id = {
-          module_map
-            .get_id(specifier, RequestedModuleType::None)
-            .unwrap_or_else(|| {
-              panic!("{} not present in the module map", specifier)
-            })
+        let Some(mod_id) =
+          module_map.get_id(specifier, RequestedModuleType::None)
+        else {
+          bail!("{} not present in the module map", specifier);
         };
 
         let mut receiver = {
@@ -1043,21 +1052,14 @@ impl JsRuntime {
               .with_context(|| format!("Couldn't execute '{specifier}'"))?;
           }
           Poll::Pending => {
-            // Find the TLA location to display it on the panic.
-            let location = {
-              let scope = &mut realm.handle_scope(self.v8_isolate());
-              let messages = module_map.find_stalled_top_level_await(scope);
-              assert!(!messages.is_empty());
-              let msg = v8::Local::new(scope, &messages[0]);
-              let js_error = JsError::from_v8_message(scope, msg);
-              js_error
-                .frames
-                .first()
-                .unwrap()
-                .maybe_format_location()
-                .unwrap()
-            };
-            panic!("Top-level await is not allowed in extensions ({location})");
+            // Find the TLA location and return it as an error
+            let scope = &mut realm.handle_scope(self.v8_isolate());
+            let messages = module_map.find_stalled_top_level_await(scope);
+            assert!(!messages.is_empty());
+            let msg = v8::Local::new(scope, &messages[0]);
+            let js_error = JsError::from_v8_message(scope, msg);
+            return Err(Error::from(js_error))
+              .with_context(|| "Top-level await is not allowed in extensions");
           }
         }
       }
@@ -1065,7 +1067,7 @@ impl JsRuntime {
       #[cfg(debug_assertions)]
       {
         let mut scope = realm.handle_scope(self.v8_isolate());
-        module_map.assert_all_modules_evaluated(&mut scope);
+        module_map.check_all_modules_evaluated(&mut scope)?;
       }
 
       Ok::<_, anyhow::Error>(())
@@ -1736,7 +1738,7 @@ impl JsRuntime {
     {
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
-        || pending_state.has_pending_promise_rejections
+        || pending_state.has_pending_promise_events
       {
         self.inner.state.waker.wake();
       } else
@@ -1863,11 +1865,25 @@ impl JsRuntimeForSnapshot {
 
     // Serialize the module map and store its data in the snapshot.
     {
-      let snapshotted_data = {
+      let module_map_snapshotted_data = {
         let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
         )
+      };
+      let maybe_js_handled_promise_rejection_cb = {
+        let context_state = &realm.0.context_state;
+        let exception_state = &context_state.exception_state;
+        exception_state
+          .js_handled_promise_rejection_cb
+          .borrow()
+          .clone()
+      };
+
+      let snapshotted_data = SnapshottedData {
+        module_map_data: module_map_snapshotted_data.module_map_data,
+        module_handles: module_map_snapshotted_data.module_handles,
+        js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());
@@ -1897,7 +1913,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_module_evaluation: bool,
   has_pending_background_tasks: bool,
   has_tick_scheduled: bool,
-  has_pending_promise_rejections: bool,
+  has_pending_promise_events: bool,
 }
 
 impl EventLoopPendingState {
@@ -1908,18 +1924,23 @@ impl EventLoopPendingState {
     modules: &ModuleMap,
   ) -> Self {
     let num_unrefed_ops = state.unrefed_ops.borrow().len();
-    let num_pending_ops = state.pending_ops.borrow().len();
+    let num_pending_ops = state.pending_ops.len();
     let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
     let has_pending_timers = state.timers.has_pending_timers();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
     let has_pending_module_evaluation = modules.has_pending_module_evaluation();
-    let has_pending_promise_rejections = !state
+    let has_pending_promise_events = !state
       .exception_state
       .pending_promise_rejections
       .borrow()
-      .is_empty();
+      .is_empty()
+      || !state
+        .exception_state
+        .pending_handled_promise_rejections
+        .borrow()
+        .is_empty();
     EventLoopPendingState {
       has_pending_refed_ops: has_pending_tasks
         || has_pending_timers
@@ -1929,7 +1950,7 @@ impl EventLoopPendingState {
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
       has_tick_scheduled: state.has_next_tick_scheduled.get(),
-      has_pending_promise_rejections,
+      has_pending_promise_events,
     }
   }
 
@@ -1947,7 +1968,7 @@ impl EventLoopPendingState {
       || self.has_pending_module_evaluation
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
-      || self.has_pending_promise_rejections
+      || self.has_pending_promise_events
   }
 }
 
@@ -2126,20 +2147,14 @@ impl JsRuntime {
       SmallVec::with_capacity(32);
 
     loop {
-      let Poll::Ready(item) =
-        context_state.pending_ops.borrow_mut().poll_join_next(cx)
+      let Poll::Ready((promise_id, op_id, metrics_event, res)) =
+        context_state.pending_ops.poll_ready(cx, scope)
       else {
         break;
       };
-      // TODO(mmastrac): If this task is really errored, things could be pretty bad
-      let PendingOp(promise_id, op_id, resp, metrics_event) = item.unwrap();
-      context_state.unrefed_ops.borrow_mut().remove(&promise_id);
-      dispatched_ops |= true;
-      args.push(v8::Integer::new(scope, promise_id).into());
-      let was_error = matches!(resp, OpResult::Err(_));
-      let res = resp.to_v8(scope);
+
       if metrics_event {
-        if res.is_ok() && !was_error {
+        if res.is_ok() {
           dispatch_metrics_async(
             &context_state.op_ctxs.borrow()[op_id as usize],
             OpMetricsEvent::CompletedAsync,
@@ -2151,17 +2166,36 @@ impl JsRuntime {
           );
         }
       }
-      args.push(match res {
-        Ok(v) => v,
-        Err(e) => OpResult::Err(OpError::new(&|_| "TypeError", e.into()))
-          .to_v8(scope)
-          .unwrap(),
-      });
+
+      context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+      dispatched_ops |= true;
+      args.push(v8::Integer::new(scope, promise_id).into());
+      args.push(res.unwrap_or_else(std::convert::identity));
     }
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
     dispatched_ops |= has_tick_scheduled;
+
+    while let Some((promise, result)) = exception_state
+      .pending_handled_promise_rejections
+      .borrow_mut()
+      .pop_front()
+    {
+      if let Some(handler) = exception_state
+        .js_handled_promise_rejection_cb
+        .borrow()
+        .as_ref()
+      {
+        let function = handler.open(scope);
+
+        let args = [
+          v8::Local::new(scope, promise).into(),
+          v8::Local::new(scope, result),
+        ];
+        function.call(scope, undefined, &args);
+      }
+    }
 
     let rejections = if !exception_state
       .pending_promise_rejections

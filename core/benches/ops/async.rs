@@ -3,6 +3,7 @@ use bencher::*;
 use deno_core::error::generic_error;
 use deno_core::*;
 use std::ffi::c_void;
+use tokio::runtime::Runtime;
 
 deno_core::extension!(
   testing,
@@ -150,16 +151,23 @@ fn bench_op(
   let bench = v8::Global::new(&mut scope, bench);
   drop(scope);
   drop(guard);
-  b.iter(move || {
-    tokio.block_on(async {
-      let guard = tokio.enter();
-      let call = runtime.call(&bench);
-      runtime
-        .with_event_loop_promise(call, PollEventLoopOptions::default())
-        .await
-        .unwrap();
-      drop(guard);
-    });
+  b.iter(move || do_benchmark(&bench, &tokio, &mut runtime));
+}
+
+#[inline(never)]
+fn do_benchmark(
+  bench: &v8::Global<v8::Function>,
+  tokio: &Runtime,
+  runtime: &mut JsRuntime,
+) {
+  tokio.block_on(async {
+    let guard = tokio.enter();
+    let call = runtime.call(bench);
+    runtime
+      .with_event_loop_promise(call, PollEventLoopOptions::default())
+      .await
+      .unwrap();
+    drop(guard);
   });
 }
 
@@ -178,6 +186,17 @@ fn baseline_promise(b: &mut Bencher) {
     "op_async_void",
     0,
     "await Promise.resolve(null);",
+  );
+}
+
+/// Tests the overhead of execute_script with a promise.
+fn baseline_promise_with_resolver(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_async_void",
+    0,
+    "{ let { promise, resolve } = Promise.withResolvers(); resolve(null); await promise; }",
   );
 }
 
@@ -212,17 +231,6 @@ fn bench_op_async_void_deferred_return(b: &mut Bencher) {
     "op_async_void_deferred_return",
     0,
     "accum += await op_async_void_deferred_return();",
-  );
-}
-
-/// Tests the overhead of opAsync.
-fn bench_op_async_void_indirect(b: &mut Bencher) {
-  bench_op(
-    b,
-    BENCH_COUNT,
-    "op_async_void",
-    0,
-    "accum += await opAsync('op_async_void');",
   );
 }
 
@@ -262,6 +270,7 @@ benchmark_group!(
   benches,
   baseline,
   baseline_promise,
+  baseline_promise_with_resolver,
   baseline_op_promise_resolver,
   baseline_op_promise,
   baseline_sync,
@@ -270,7 +279,6 @@ benchmark_group!(
   bench_op_async_yield_lazy_nofast,
   bench_op_async_yield_deferred,
   bench_op_async_yield_deferred_nofast,
-  bench_op_async_void_indirect,
   bench_op_async_void,
   bench_op_async_void_lazy,
   bench_op_async_void_lazy_nofast,

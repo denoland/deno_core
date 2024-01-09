@@ -731,8 +731,8 @@ async fn dyn_import_op() {
   );
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([
-    (Url::parse("file:///main.js").unwrap(), ascii_str!("(async () => { await import('./dynamic.js'); await Deno.core.opAsync('op_wait'); })();")),
-    (Url::parse("file:///dynamic.js").unwrap(), ascii_str!("await Deno.core.opAsync('op_test');")),
+    (Url::parse("file:///main.js").unwrap(), ascii_str!("const { op_wait } = Deno.core.ensureFastOps(); (async () => { await import('./dynamic.js'); await op_wait(); })();")),
+    (Url::parse("file:///dynamic.js").unwrap(), ascii_str!("const { op_test } = Deno.core.ensureFastOps(); await op_test();")),
   ])));
   let barrier = Barrier::new(2);
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -744,7 +744,7 @@ async fn dyn_import_op() {
     .load_main_module(
       &Url::parse("file:///root.js").unwrap(),
       Some(ascii_str!(
-        "import 'file:///main.js'; await Deno.core.opAsync('op_wait');"
+        "import 'file:///main.js'; const { op_wait } = Deno.core.ensureFastOps(); await op_wait();"
       )),
     )
     .await

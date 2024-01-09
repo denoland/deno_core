@@ -9,7 +9,6 @@ async function run() {
   const LARGE_STRING_UTF8_1000 = "\u1000".repeat(1000);
   const BUFFER = new Uint8Array(1024);
   const ARRAYBUFFER = new ArrayBuffer(1024);
-  const opAsync = Deno.core.opAsync;
   const { __OP__: op } = Deno.core.ensureFastOps();
   const { op_make_external } = Deno.core.ensureFastOps();
   const EXTERNAL = op_make_external();

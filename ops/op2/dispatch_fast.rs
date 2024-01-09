@@ -730,13 +730,21 @@ fn map_arg_to_v8_fastcall_type(
       BufferType::JsBuffer | BufferType::V8Slice(..),
       _,
       BufferSource::TypedArray,
-    ) => V8FastCallType::V8Value,
+      // This cannot be fast at this time as we have no way of accessing
+      // the shared pointer to the backing store in a fastcall.
+      // https://github.com/denoland/deno_core/issues/417
+      // ) => V8FastCallType::V8Value,
+    ) => return Ok(None),
     Arg::Buffer(
       BufferType::Slice(.., NumericArg::u8)
       | BufferType::Ptr(.., NumericArg::u8),
       _,
       BufferSource::Any,
-    ) => V8FastCallType::AnyArray,
+      // This cannot be fast at this time as we have no way of accessing
+      // the shared pointer to the backing store in a fastcall.
+      // https://github.com/denoland/deno_core/issues/417
+      // ) => V8FastCallType::AnyArray,
+    ) => return Ok(None),
     // TODO(mmastrac): implement fast for any Any-typed buffer
     Arg::Buffer(_, _, BufferSource::Any) => return Ok(None),
     Arg::Buffer(_, _, BufferSource::ArrayBuffer) => V8FastCallType::ArrayBuffer,
@@ -775,7 +783,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::SerdeV8(_)
     | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
-    Arg::V8Global(_) => return Ok(None),
+    Arg::V8Global(_) | Arg::OptionV8Global(_) => return Ok(None),
     // We do support v8 type arguments (including Option<...>)
     Arg::V8Ref(RefType::Ref, _)
     | Arg::V8Local(_)
@@ -853,6 +861,7 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::V8Global(_)
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
+    | Arg::OptionV8Global(_)
     | Arg::OptionV8Ref(..) => return Ok(None),
     Arg::Buffer(..) | Arg::OptionBuffer(..) => return Ok(None),
     Arg::External(..) => V8FastCallType::Pointer,

@@ -121,7 +121,7 @@ async fn test_wakers_for_async_ops() {
     .execute_script(
       "",
       FastString::from_static(
-        "(async () => { await Deno.core.opAsync('op_async_sleep'); })()",
+        "const { op_async_sleep } = Deno.core.ensureFastOps(); (async () => { await op_async_sleep(); })()",
       ),
     )
     .unwrap();
@@ -662,7 +662,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
     .execute_script_static(
       "macrotasks_and_nextticks.js",
       r#"
-
+      const { op_async_sleep } = Deno.core.ensureFastOps();
       (async function () {
         const results = [];
         Deno.core.setMacrotaskCallback(() => {
@@ -671,10 +671,10 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
         });
         Deno.core.setNextTickCallback(() => {
           results.push("nextTick");
-          Deno.core.ops.op_set_has_tick_scheduled(false);
+          Deno.core.setHasTickScheduled(false);
         });
-        Deno.core.ops.op_set_has_tick_scheduled(true);
-        await Deno.core.opAsync('op_async_sleep');
+        Deno.core.setHasTickScheduled(true);
+        await op_async_sleep();
         if (results[0] != "nextTick") {
           throw new Error(`expected nextTick, got: ${results[0]}`);
         }
@@ -722,7 +722,7 @@ fn test_has_tick_scheduled() {
           return true; // We're done.
         });
         Deno.core.setNextTickCallback(() => Deno.core.ops.op_next_tick());
-        Deno.core.ops.op_set_has_tick_scheduled(true);
+        Deno.core.setHasTickScheduled(true);
         "#,
     )
     .unwrap();
@@ -826,6 +826,7 @@ async fn test_promise_rejection_handler_generic(
     function throwError() {
       throw new Error("boom");
     }
+    const { op_void_async, op_void_async_deferred } = Deno.core.ensureFastOps();
     if (test != "no_handler") {
       Deno.core.setUnhandledPromiseRejectionHandler((promise, rejection) => {
         if (test.startsWith("exception_")) {
@@ -840,9 +841,9 @@ async fn test_promise_rejection_handler_generic(
     }
     if (test != "no_reject") {
       if (test.startsWith("async_op_eager_")) {
-        Deno.core.opAsync("op_void_async").then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
+        op_void_async().then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
       } else if (test.startsWith("async_op_deferred_")) {
-        Deno.core.opAsync("op_void_async_deferred").then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
+        op_void_async_deferred().then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
       } else if (test.startsWith("throw_")) {
         Deno.core.ops.op_breakpoint();
         throw new Error("fail");
@@ -979,7 +980,7 @@ async fn test_dynamic_import_module_error_stack() {
     ),
     (
       Url::parse("file:///import.js").unwrap(),
-      ascii_str!("await Deno.core.opAsync(\"op_async_error\");"),
+      ascii_str!("const { op_async_error } = Deno.core.ensureFastOps(); await op_async_error();"),
     ),
   ]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -1003,13 +1004,17 @@ async fn test_dynamic_import_module_error_stack() {
   assert_eq!(
     js_error.to_string(),
     "Error: foo
-    at async file:///import.js:1:1"
+    at async file:///import.js:1:55"
   );
 }
 
 #[tokio::test]
 #[should_panic(
-  expected = "Top-level await is not allowed in extensions (mod:tla:2:1)"
+  expected = r#"Failed to evaluate extension JS: Top-level await is not allowed in extensions
+
+Caused by:
+    Top-level await promise never resolved
+        at mod:tla:3:13"#
 )]
 async fn tla_in_esm_extensions_panics() {
   #[op2(async)]
@@ -1025,14 +1030,59 @@ async fn tla_in_esm_extensions_panics() {
         specifier: "mod:tla",
         code: ExtensionFileSourceCode::IncludedInBinary(
           r#"
-await Deno.core.opAsync('op_wait', 0);
-export const TEST = "foo";
+            const { op_wait } = Deno.core.ensureFastOps();
+            await op_wait(0);
+            export const TEST = "foo";
         "#,
         ),
       },
       ExtensionFileSource {
         specifier: "mod:test",
         code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:tla';"),
+      },
+    ]),
+    esm_entry_point: Some("mod:test"),
+    ..Default::default()
+  };
+
+  // Panics
+  let _runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
+    extensions: vec![extension],
+    ..Default::default()
+  });
+}
+
+// TODO(mmastrac): This is only fired in debug mode
+#[cfg(debug_assertions)]
+#[tokio::test]
+#[should_panic(
+  expected = r#"Failed to evaluate extension JS: Error: This fails
+    at a (mod:error:2:34)
+    at mod:error:3:13"#
+)]
+async fn esm_extensions_throws() {
+  #[op2(async)]
+  async fn op_wait(#[number] ms: usize) {
+    tokio::time::sleep(Duration::from_millis(ms as u64)).await
+  }
+
+  let extension = Extension {
+    name: "test_ext",
+    ops: Cow::Borrowed(&[op_wait::DECL]),
+    esm_files: Cow::Borrowed(&[
+      ExtensionFileSource {
+        specifier: "mod:error",
+        code: ExtensionFileSourceCode::IncludedInBinary(
+          r#"
+            function a() { throw new Error("This fails") };
+            a();
+          "#,
+        ),
+      },
+      ExtensionFileSource {
+        specifier: "mod:test",
+        code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:error';"),
       },
     ]),
     esm_entry_point: Some("mod:test"),
