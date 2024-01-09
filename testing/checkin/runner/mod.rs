@@ -40,6 +40,7 @@ deno_core::extension!(
   esm = [
     dir "checkin/runtime",
     "__init.js",
+    "async.ts" with_specifier "checkin:async",
     "console.ts" with_specifier "checkin:console",
     "testing.ts" with_specifier "checkin:testing",
     "timers.ts" with_specifier "checkin:timers",

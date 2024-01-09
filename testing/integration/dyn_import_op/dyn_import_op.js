@@ -1,3 +1,5 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 import "./main.js";
-const { op_async_barrier_await } = Deno.core.ensureFastOps();
-await op_async_barrier_await("barrier");
+import { barrierAwait } from "checkin:async";
+await barrierAwait("barrier");
+console.log("done");
