@@ -41,6 +41,7 @@ use crate::OpState;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::future::poll_fn;
@@ -857,7 +858,9 @@ impl JsRuntime {
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
-    js_runtime.init_extension_js().unwrap();
+    js_runtime
+      .init_extension_js()
+      .expect("Failed to evaluate extension JS");
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
@@ -1013,12 +1016,10 @@ impl JsRuntime {
       }
 
       for specifier in esm_entrypoints {
-        let mod_id = {
-          module_map
-            .get_id(specifier, RequestedModuleType::None)
-            .unwrap_or_else(|| {
-              panic!("{} not present in the module map", specifier)
-            })
+        let Some(mod_id) =
+          module_map.get_id(specifier, RequestedModuleType::None)
+        else {
+          bail!("{} not present in the module map", specifier);
         };
 
         let mut receiver = {
@@ -1037,21 +1038,14 @@ impl JsRuntime {
               .with_context(|| format!("Couldn't execute '{specifier}'"))?;
           }
           Poll::Pending => {
-            // Find the TLA location to display it on the panic.
-            let location = {
-              let scope = &mut realm.handle_scope(self.v8_isolate());
-              let messages = module_map.find_stalled_top_level_await(scope);
-              assert!(!messages.is_empty());
-              let msg = v8::Local::new(scope, &messages[0]);
-              let js_error = JsError::from_v8_message(scope, msg);
-              js_error
-                .frames
-                .first()
-                .unwrap()
-                .maybe_format_location()
-                .unwrap()
-            };
-            panic!("Top-level await is not allowed in extensions ({location})");
+            // Find the TLA location and return it as an error
+            let scope = &mut realm.handle_scope(self.v8_isolate());
+            let messages = module_map.find_stalled_top_level_await(scope);
+            assert!(!messages.is_empty());
+            let msg = v8::Local::new(scope, &messages[0]);
+            let js_error = JsError::from_v8_message(scope, msg);
+            return Err(Error::from(js_error))
+              .with_context(|| "Top-level await is not allowed in extensions");
           }
         }
       }
@@ -1059,7 +1053,7 @@ impl JsRuntime {
       #[cfg(debug_assertions)]
       {
         let mut scope = realm.handle_scope(self.v8_isolate());
-        module_map.assert_all_modules_evaluated(&mut scope);
+        module_map.check_all_modules_evaluated(&mut scope)?;
       }
 
       Ok::<_, anyhow::Error>(())

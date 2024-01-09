@@ -116,27 +116,37 @@ impl ModuleMap {
   }
 
   #[cfg(debug_assertions)]
-  pub(crate) fn assert_all_modules_evaluated(
+  pub(crate) fn check_all_modules_evaluated(
     &self,
     scope: &mut v8::HandleScope,
-  ) {
+  ) -> Result<(), Error> {
     let mut not_evaluated = vec![];
     let data = self.data.borrow();
 
     for (handle, i) in data.handles_inverted.iter() {
       let module = v8::Local::new(scope, handle);
-      if !matches!(module.get_status(), v8::ModuleStatus::Evaluated) {
-        not_evaluated.push(data.info[*i].name.as_str().to_string());
+      match module.get_status() {
+        v8::ModuleStatus::Errored => {
+          return Err(
+            JsError::from_v8_exception(scope, module.get_exception()).into(),
+          );
+        }
+        v8::ModuleStatus::Evaluated => {}
+        _ => {
+          not_evaluated.push(data.info[*i].name.as_str().to_string());
+        }
       }
     }
 
     if !not_evaluated.is_empty() {
-      let mut msg = "Following modules were not evaluated; make sure they are imported from other code:\n".to_string();
+      let mut msg = String::new();
       for m in not_evaluated {
         msg.push_str(&format!("  - {}\n", m));
       }
-      panic!("{}", msg);
+      bail!("Following modules were not evaluated; make sure they are imported from other code:\n {}", msg);
     }
+
+    Ok(())
   }
 
   pub(crate) fn new(
