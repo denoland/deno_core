@@ -591,7 +591,6 @@ impl Extension {
     // TODO(bartlomieju): checking for files beings empty is a bit error
     // prone, but we don't store information if we're snapshotting or not
     // in extension.
-    eprintln!("get ops virtual module {:#?}", self.name);
     if self.name == "core"
       || self.ops.is_empty()
       || (self.js_files.is_empty()
