@@ -34,6 +34,10 @@ pub enum OpScheduling {
 /// This trait defines methods for submitting ops and polling readiness inside of the
 /// event loop.
 ///
+/// Ops are always submitted with a mapping function that can convert the output of the
+/// op to the underlying [`OpMappingContext`] output type. In the case of V8, this is a
+/// function that creates [`v8::Local`] values.
+///
 /// The driver takes an optional [`OpMappingContext`] implementation, which defaults to
 /// one compatible with v8. This is used solely for testing purposes.
 pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:

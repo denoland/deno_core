@@ -706,11 +706,8 @@ impl JsRuntime {
     let mut op_ctxs = ops
       .into_iter()
       .enumerate()
-      .map(|(id, decl)| {
-        let metrics_fn = options
-          .op_metrics_factory_fn
-          .as_ref()
-          .and_then(|f| (f)(id as _, count, &decl));
+      .zip(op_metrics_fns)
+      .map(|((id, decl), metrics_fn)| {
         OpCtx::new(
           id as _,
           std::ptr::null_mut(),
