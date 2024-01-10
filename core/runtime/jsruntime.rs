@@ -672,10 +672,26 @@ impl JsRuntime {
       waker,
     });
 
-    let context_state = Rc::new(ContextState {
-      isolate: Some(isolate_ptr),
-      ..Default::default()
-    });
+    let count = ops.len();
+    let op_metrics_fns = ops
+      .iter()
+      .enumerate()
+      .map(|(id, decl)| {
+        options
+          .op_metrics_factory_fn
+          .as_ref()
+          .and_then(|f| (f)(id as _, count, decl))
+      })
+      .collect::<Vec<_>>();
+    let ops_with_metrics = op_metrics_fns
+      .iter()
+      .map(|o| o.is_some())
+      .collect::<Vec<_>>();
+    let context_state = Rc::new(ContextState::new(
+      isolate_ptr,
+      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      ops_with_metrics,
+    ));
 
     // Add the task spawners to the OpState
     let spawner = context_state
@@ -689,15 +705,11 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    let count = ops.len();
     let mut op_ctxs = ops
       .into_iter()
       .enumerate()
-      .map(|(id, decl)| {
-        let metrics_fn = options
-          .op_metrics_factory_fn
-          .as_ref()
-          .and_then(|f| (f)(id as _, count, &decl));
+      .zip(op_metrics_fns)
+      .map(|((id, decl), metrics_fn)| {
         OpCtx::new(
           id as _,
           std::ptr::null_mut(),
@@ -2127,27 +2139,36 @@ impl JsRuntime {
       }
     }
 
-    // We return async responses to JS in unbounded batches (may change),
+    // We return async responses to JS in bounded batches. Note that because
+    // we're passing these to JS as arguments, it is possible to overflow the
+    // JS stack by just passing too many.
+    const MAX_VEC_SIZE_FOR_OPS: usize = 1024;
+
     // each batch is a flat vector of tuples:
     // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
     // promise_id is a simple integer, op_result is an ops::OpResult
     // which contains a value OR an error, encoded as a tuple.
     // This batch is received in JS via the special `arguments` variable
     // and then each tuple is used to resolve or reject promises
-    //
-    // This can handle 15 promises futures in a single batch without heap
-    // allocations.
     let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
       SmallVec::with_capacity(32);
 
     loop {
-      let Poll::Ready((promise_id, op_id, metrics_event, res)) =
-        context_state.pending_ops.poll_ready(cx, scope)
+      if args.len() >= MAX_VEC_SIZE_FOR_OPS {
+        // We have too many, bail for now but re-wake the waker
+        cx.waker().wake_by_ref();
+        break;
+      }
+
+      let Poll::Ready((promise_id, op_id, res)) =
+        context_state.pending_ops.poll_ready(cx)
       else {
         break;
       };
 
-      if metrics_event {
+      let res = res.unwrap(scope, context_state.get_error_class_fn);
+
+      if context_state.ops_with_metrics[op_id as usize] {
         if res.is_ok() {
           dispatch_metrics_async(
             &context_state.op_ctxs.borrow()[op_id as usize],
