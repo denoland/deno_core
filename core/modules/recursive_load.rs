@@ -53,7 +53,6 @@ pub(crate) struct RecursiveModuleLoad {
   pub id: ModuleLoadId,
   pub root_module_id: Option<ModuleId>,
   init: LoadInit,
-  root_asserted_module_type: Option<RequestedModuleType>,
   state: LoadState,
   module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
@@ -106,7 +105,6 @@ impl RecursiveModuleLoad {
     let mut load = Self {
       id,
       root_module_id: None,
-      root_asserted_module_type: None,
       init,
       state: LoadState::Init,
       module_map_rc: module_map_rc.clone(),
@@ -122,7 +120,6 @@ impl RecursiveModuleLoad {
         module_map_rc.get_id(root_specifier, &requested_module_type)
       {
         load.root_module_id = Some(module_id);
-        load.root_asserted_module_type = Some(requested_module_type);
       }
     }
     load
@@ -215,7 +212,6 @@ impl RecursiveModuleLoad {
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
       self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(requested_module_type);
       self.state = LoadState::LoadingImports;
     }
     if self.pending.is_empty() {
