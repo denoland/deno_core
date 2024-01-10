@@ -141,35 +141,6 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
     self.len.set(self.len.get() + 1);
     self.queue.spawn(self.arena.allocate(task.map(map)));
   }
-
-  #[inline(always)]
-  fn pending_op_success<R: 'static>(
-    info: PendingOpInfo,
-    rv_map: C::MappingFn<R>,
-    v: R,
-  ) -> PendingOp<C> {
-    PendingOp(info, OpResult::new_value(v, rv_map))
-  }
-
-  #[inline(always)]
-  fn pending_op_failure<E: Into<Error> + 'static>(
-    info: PendingOpInfo,
-    err: E,
-  ) -> PendingOp<C> {
-    PendingOp(info, OpResult::Err(err.into()))
-  }
-
-  #[inline(always)]
-  fn pending_op_result<R: 'static, E: Into<Error> + 'static>(
-    info: PendingOpInfo,
-    rv_map: C::MappingFn<R>,
-    result: Result<R, E>,
-  ) -> PendingOp<C> {
-    match result {
-      Ok(r) => Self::pending_op_success(info, rv_map, r),
-      Err(err) => Self::pending_op_failure(info, err),
-    }
-  }
 }
 
 impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
@@ -189,9 +160,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
       let info = PendingOpInfo(promise_id, op_id);
 
       if LAZY {
-        self.spawn_unpolled(op, move |r| {
-          Self::pending_op_result(info, rv_map, r)
-        });
+        self.spawn_unpolled(op, move |r| PendingOp::new(info, rv_map, r));
         return None;
       }
 
@@ -199,12 +168,12 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
       // spin the event loop to get it.
       let mut pinned = self.arena.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-        Poll::Pending => self.spawn_polled(pinned, move |r| {
-          Self::pending_op_result(info, rv_map, r)
-        }),
+        Poll::Pending => {
+          self.spawn_polled(pinned, move |r| PendingOp::new(info, rv_map, r))
+        }
         Poll::Ready(res) => {
           if DEFERRED {
-            self.spawn_ready(Self::pending_op_result(info, rv_map, res))
+            self.spawn_ready(PendingOp::new(info, rv_map, res))
           } else {
             return Some(res);
           }
@@ -228,9 +197,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
     {
       let info = PendingOpInfo(promise_id, op_id);
       if LAZY {
-        self.spawn_unpolled(op, move |r| {
-          Self::pending_op_success(info, rv_map, r)
-        });
+        self.spawn_unpolled(op, move |r| PendingOp::ok(info, rv_map, r));
         return None;
       }
 
@@ -238,12 +205,12 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
       // spin the event loop to get it.
       let mut pinned = self.arena.allocate(op);
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-        Poll::Pending => self.spawn_polled(pinned, move |res| {
-          Self::pending_op_success(info, rv_map, res)
-        }),
+        Poll::Pending => {
+          self.spawn_polled(pinned, move |res| PendingOp::ok(info, rv_map, res))
+        }
         Poll::Ready(res) => {
           if DEFERRED {
-            self.spawn_ready(Self::pending_op_success(info, rv_map, res))
+            self.spawn_ready(PendingOp::ok(info, rv_map, res))
           } else {
             return Some(res);
           }

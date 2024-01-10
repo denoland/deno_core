@@ -98,7 +98,32 @@ impl OpMappingContext for V8OpMappingContext {
   }
 }
 
+/// [`PendingOp`] holds the metadata and result (success or failure) of a submitted
+/// and completed op.
 pub struct PendingOp<C: OpMappingContext>(pub PendingOpInfo, pub OpResult<C>);
+
+impl<C: OpMappingContext> PendingOp<C> {
+  #[inline(always)]
+  pub fn new<R: 'static, E: Into<Error> + 'static>(
+    info: PendingOpInfo,
+    rv_map: C::MappingFn<R>,
+    result: Result<R, E>,
+  ) -> Self {
+    match result {
+      Ok(r) => PendingOp(info, OpResult::new_value(r, rv_map)),
+      Err(err) => PendingOp(info, OpResult::Err(err.into())),
+    }
+  }
+
+  #[inline(always)]
+  pub fn ok<R: 'static>(
+    info: PendingOpInfo,
+    rv_map: C::MappingFn<R>,
+    r: R,
+  ) -> Self {
+    PendingOp(info, OpResult::new_value(r, rv_map))
+  }
+}
 
 pub struct PendingOpInfo(pub PromiseId, pub OpId);
 
