@@ -586,6 +586,32 @@ impl Extension {
     self.esm_entry_point
   }
 
+  pub fn get_ops_virtual_module(&self) -> Option<ExtensionFileSource> {
+    let op_names: Vec<_> = self.ops.iter().map(|o| o.name).collect();
+
+    let mut output = Vec::with_capacity(op_names.len() * 2 + 4);
+    output.push("const {".to_string());
+
+    for op_name in &op_names {
+      output.push(format!("  {},", op_name));
+    }
+
+    output.push("} = Deno.core.ensureFastOps();".to_string());
+    output.push("export {".to_string());
+
+    for op_name in &op_names {
+      output.push(format!("  {},", op_name));
+    }
+
+    output.push("};".to_string());
+
+    let specifier = format!("ext:{}/ops", self.name).leak();
+    Some(ExtensionFileSource {
+      specifier,
+      code: ExtensionFileSourceCode::Computed(output.join("\n").into()),
+    })
+  }
+
   /// Called at JsRuntime startup to initialize ops in the isolate.
   pub fn init_ops(&mut self) -> &[OpDecl] {
     if !self.enabled {

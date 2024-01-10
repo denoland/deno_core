@@ -1000,6 +1000,16 @@ impl JsRuntime {
 
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
+        if let Some(file_source) = extension.get_ops_virtual_module() {
+          realm
+            .load_side_module(
+              self.v8_isolate(),
+              &ModuleSpecifier::parse(file_source.specifier)?,
+              None,
+            )
+            .await?;
+        }
+
         for file_source in extension.get_esm_sources() {
           realm
             .load_side_module(

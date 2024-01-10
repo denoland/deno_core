@@ -119,6 +119,12 @@ impl ExtModuleLoader {
     sources.extend(
       extensions
         .iter()
+        .flat_map(|e| e.get_ops_virtual_module())
+        .map(|s| (s.specifier.to_string(), s.clone())),
+    );
+    sources.extend(
+      extensions
+        .iter()
         .flat_map(|e| e.get_esm_sources())
         .map(|s| (s.specifier.to_string(), s.clone())),
     );
