@@ -19,6 +19,7 @@ use crate::checkin::runner::testing::TestData;
 use self::testing::TestFunctions;
 
 mod ops;
+mod ops_async;
 mod ops_buffer;
 mod testing;
 mod ts_module_loader;
@@ -29,6 +30,9 @@ deno_core::extension!(
     ops::op_log_debug,
     ops::op_log_info,
     ops::op_test_register,
+    ops_async::op_async_yield,
+    ops_async::op_async_barrier_create,
+    ops_async::op_async_barrier_await,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
   ],
@@ -36,6 +40,7 @@ deno_core::extension!(
   esm = [
     dir "checkin/runtime",
     "__init.js",
+    "async.ts" with_specifier "checkin:async",
     "console.ts" with_specifier "checkin:console",
     "testing.ts" with_specifier "checkin:testing",
     "timers.ts" with_specifier "checkin:timers",
