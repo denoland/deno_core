@@ -559,6 +559,7 @@ impl ModuleMap {
     if specifier.starts_with("ext:")
       && !referrer.starts_with("ext:")
       && !referrer.starts_with("node:")
+      && !referrer.starts_with("checkin:")
       && referrer != "."
       && kind != ResolutionKind::MainModule
     {

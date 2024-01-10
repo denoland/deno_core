@@ -587,7 +587,26 @@ impl Extension {
   }
 
   pub fn get_ops_virtual_module(&self) -> Option<ExtensionFileSource> {
-    let op_names: Vec<_> = self.ops.iter().map(|o| o.name).collect();
+    // TODO(bartlomieju): not great to hardcode `core` here.
+    // TODO(bartlomieju): checking for files beings empty is a bit error
+    // prone, but we don't store information if we're snapshotting or not
+    // in extension.
+    eprintln!("get ops virtual module {:#?}", self.name);
+    if self.name == "core"
+      || self.ops.is_empty()
+      || (self.js_files.is_empty()
+        && self.esm_files.is_empty()
+        && self.esm_entry_point.is_none())
+    {
+      return None;
+    }
+
+    let op_names: Vec<_> = self
+      .ops
+      .iter()
+      .filter(|o| o.enabled)
+      .map(|o| o.name)
+      .collect();
 
     let mut output = Vec::with_capacity(op_names.len() * 2 + 4);
     output.push("const {".to_string());
@@ -596,7 +615,7 @@ impl Extension {
       output.push(format!("  {},", op_name));
     }
 
-    output.push("} = Deno.core.ensureFastOps();".to_string());
+    output.push("} = Deno.core.ensureFastOps(true);".to_string());
     output.push("export {".to_string());
 
     for op_name in &op_names {

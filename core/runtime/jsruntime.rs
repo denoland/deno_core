@@ -971,6 +971,7 @@ impl JsRuntime {
     *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
+    let mut ops_virtual_modules = vec![];
 
     futures::executor::block_on(async {
       if self.init_mode == InitMode::New {
@@ -1008,6 +1009,7 @@ impl JsRuntime {
               None,
             )
             .await?;
+          ops_virtual_modules.push(file_source.specifier);
         }
 
         for file_source in extension.get_esm_sources() {
@@ -1033,6 +1035,32 @@ impl JsRuntime {
         }
       }
 
+      // Execute ops virtual modules first...
+      for specifier in ops_virtual_modules {
+        let Some(mod_id) =
+          module_map.get_id(specifier, RequestedModuleType::None)
+        else {
+          bail!("{} not present in the module map", specifier);
+        };
+
+        let mut receiver = {
+          let isolate = self.v8_isolate();
+          let scope = &mut realm.handle_scope(isolate);
+          module_map.mod_evaluate(scope, mod_id)
+        };
+
+        let Poll::Ready(result) =
+          receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+        else {
+          panic!(
+            "Virtual op module {} didn't execute synchronously",
+            specifier
+          );
+        };
+        result.with_context(|| format!("Couldn't execute '{specifier}'"))?;
+      }
+
+      // ...then execute all entry points
       for specifier in esm_entrypoints {
         let Some(mod_id) =
           module_map.get_id(specifier, RequestedModuleType::None)

@@ -1,9 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-const {
-  op_log_debug,
-  op_log_info,
-} = Deno.core.ensureFastOps();
+import { op_log_debug, op_log_info } from "ext:checkin_runtime/ops";
 
 export const console = {
   debug(...args: string[]) {
