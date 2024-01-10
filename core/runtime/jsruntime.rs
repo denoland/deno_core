@@ -381,7 +381,6 @@ fn v8_init(
     " --harmony-import-attributes",
     " --no-validate-asm",
     " --turbo_fast_api_calls",
-    " --harmony-change-array-by-copy",
     " --harmony-array-from_async",
     " --harmony-iterator-helpers",
   );
