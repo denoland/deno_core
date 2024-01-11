@@ -22,7 +22,7 @@ deno_core = { version = "0.245.0", path = "./core" }
 deno_ops = { version = "0.121.0", path = "./ops" }
 serde_v8 = { version = "0.154.0", path = "./serde_v8" }
 
-v8 = { version = "0.82.0", default-features = false }
+v8 = { version = "0.83.1", default-features = false }
 deno_ast = { version = "1.0.0", features = ["transpiling"] }
 deno_unsync = "0.3.2"
 
