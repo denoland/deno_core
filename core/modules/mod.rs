@@ -122,6 +122,17 @@ pub(crate) fn default_import_meta_resolve_cb(
 pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
 
+/// Callback to validate import attributes. If the validation fails and exception
+/// should be thrown using `scope.throw_exception()`.
+pub type CustomModuleEvaluationCb = Box<
+  dyn Fn(
+    &mut v8::HandleScope,
+    Cow<'_, str>,
+    &FastString,
+    ModuleSourceCode,
+  ) -> Result<v8::Global<v8::Value>, AnyError>,
+>;
+
 #[derive(Debug)]
 pub(crate) enum ImportAttributesKind {
   StaticImport,
@@ -178,15 +189,15 @@ pub(crate) fn get_requested_module_type_from_attributes(
 
 /// A type of module to be executed.
 ///
-/// For non-`JavaScript` modules, this value doesn't tell
-/// how to interpret the module; it is only used to validate
-/// the module against an import assertion (if one is present
-/// in the import statement).
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+/// `deno_core` supports loading and executing JavaScript and JSON modules,
+/// by default, but embedders can customize it further by providing
+/// [`CustomModuleEvaluationCb`].
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum ModuleType {
   JavaScript,
   Json,
+  Other(Cow<'static, str>),
 }
 
 impl std::fmt::Display for ModuleType {
@@ -194,6 +205,7 @@ impl std::fmt::Display for ModuleType {
     match self {
       Self::JavaScript => write!(f, "JavaScript"),
       Self::Json => write!(f, "JSON"),
+      Self::Other(ty) => write!(f, "{}", ty),
     }
   }
 }
@@ -380,11 +392,13 @@ impl AsRef<RequestedModuleType> for RequestedModuleType {
   }
 }
 
+// TODO(bartlomieju): this is questionable. I think we should remove it.
 impl PartialEq<ModuleType> for RequestedModuleType {
   fn eq(&self, other: &ModuleType) -> bool {
     match other {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
+      ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
 }
@@ -394,6 +408,7 @@ impl From<ModuleType> for RequestedModuleType {
     match module_type {
       ModuleType::JavaScript => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
+      ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
   }
 }

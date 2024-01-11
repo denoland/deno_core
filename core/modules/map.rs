@@ -271,7 +271,7 @@ impl ModuleMap {
         module_url_found.into_cheap_copy();
       self.data.borrow_mut().alias(
         module_url_specified,
-        &module_type.into(),
+        &module_type.clone().into(),
         module_url_found1,
       );
       module_url_found2
@@ -279,7 +279,7 @@ impl ModuleMap {
       module_url_specified
     };
 
-    let requested_module_type = RequestedModuleType::from(module_type);
+    let requested_module_type = RequestedModuleType::from(module_type.clone());
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
@@ -290,14 +290,45 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let code = ModuleSource::get_string_source(module_url_found.as_str(), code)
-      .map_err(ModuleError::Other)?;
-    let module_id = match module_type {
+    let module_id = match module_type.clone() {
       ModuleType::JavaScript => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_es_module(scope, main, module_url_found, code, dynamic)?
       }
       ModuleType::Json => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_json_module(scope, module_url_found, code)?
+      }
+      ModuleType::Other(module_type) => {
+        let state = JsRuntime::state_from(scope);
+        let custom_module_evaluation_cb =
+          state.custom_module_evaluation_cb.as_ref();
+
+        let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
+          return Err(ModuleError::Other(generic_error(format!(
+            "Importing '{}' modules is not supported",
+            module_type
+          ))));
+        };
+
+        let value_global = custom_evaluation_cb(
+          scope,
+          module_type.clone(),
+          &module_url_found,
+          code,
+        )
+        .map_err(ModuleError::Other)?;
+        let value = v8::Local::new(scope, value_global);
+        self.new_synthetic_module(
+          scope,
+          module_url_found,
+          ModuleType::Other(module_type.clone()),
+          value,
+        )?
       }
     };
     Ok(module_id)
