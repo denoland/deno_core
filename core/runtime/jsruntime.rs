@@ -351,10 +351,7 @@ pub struct JsRuntimeState {
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
   wait_for_inspector_disconnect_callback:
     Option<WaitForInspectorDisconnectCallback>,
-  /// The error that was passed to a `reportUnhandledException` call.
-  /// It will be retrieved by `exception_to_err_result` and used as an error
-  /// instead of any other exceptions.
-  pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
+  pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -484,8 +481,13 @@ pub struct RuntimeOptions {
   pub feature_checker: Option<Arc<FeatureChecker>>,
 
   /// A callback that can be used to validate import attributes received at
-  /// the import site. If no callback is provided, a default one is used. The
-  /// default callback only allows `"type"` attribute, with a value of `"json"`.
+  /// the import site. If no callback is provided, all attributes are allowed.
+  ///
+  /// Embedders might use this callback to eg. validate value of "type"
+  /// attribute, not allowing other types than "JSON".
+  ///
+  /// To signal validation failure, users should throw an V8 exception inside
+  /// the callback.
   pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
 
   /// A callback that can be used to customize behavior of
@@ -651,10 +653,6 @@ impl JsRuntime {
       // SAFETY: we just asserted that layout has non-0 size.
       unsafe { std::alloc::alloc(layout) as *mut _ };
 
-    let validate_import_attributes_cb = options
-      .validate_import_attributes_cb
-      .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
-
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
@@ -668,7 +666,7 @@ impl JsRuntime {
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
       has_inspector: false.into(),
-      validate_import_attributes_cb,
+      validate_import_attributes_cb: options.validate_import_attributes_cb,
       waker,
     });
 

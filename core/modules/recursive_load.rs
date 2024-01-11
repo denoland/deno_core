@@ -117,7 +117,7 @@ impl RecursiveModuleLoad {
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
     if let Ok(root_specifier) = load.resolve_root() {
       if let Some(module_id) =
-        module_map_rc.get_id(root_specifier, &requested_module_type)
+        module_map_rc.get_id(root_specifier, requested_module_type)
       {
         load.root_module_id = Some(module_id);
       }
