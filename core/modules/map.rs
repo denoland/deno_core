@@ -295,7 +295,14 @@ impl ModuleMap {
         let code =
           ModuleSource::get_string_source(module_url_found.as_str(), code)
             .map_err(ModuleError::Other)?;
-        self.new_es_module(scope, main, module_url_found, code, dynamic)?
+        self.new_module_from_js_source(
+          scope,
+          main,
+          ModuleType::JavaScript,
+          module_url_found,
+          code,
+          dynamic,
+        )?
       }
       ModuleType::Json => {
         let code =
@@ -372,6 +379,7 @@ impl ModuleMap {
     Ok(id)
   }
 
+  // TODO(bartlomieju): remove this method or rename it to `new_js_module`.
   /// Create and compile an ES module.
   pub(crate) fn new_es_module(
     &self,
@@ -381,111 +389,33 @@ impl ModuleMap {
     source: ModuleCodeString,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
-    let source_str = source.v8(scope);
-
-    let origin = module_origin(scope, name_str);
-    let source = v8::script_compiler::Source::new(source_str, Some(&origin));
-
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let maybe_module = v8::script_compiler::compile_module(tc_scope, source);
-
-    if tc_scope.has_caught() {
-      assert!(maybe_module.is_none());
-      let exception = tc_scope.exception().unwrap();
-      let exception = v8::Global::new(tc_scope, exception);
-      return Err(ModuleError::Exception(exception));
-    }
-
-    let module = maybe_module.unwrap();
-
-    let mut requests: Vec<ModuleRequest> = vec![];
-    let module_requests = module.get_module_requests();
-    for i in 0..module_requests.length() {
-      let module_request = v8::Local::<v8::ModuleRequest>::try_from(
-        module_requests.get(tc_scope, i).unwrap(),
-      )
-      .unwrap();
-      let import_specifier = module_request
-        .get_specifier()
-        .to_rust_string_lossy(tc_scope);
-
-      let import_attributes = module_request.get_import_assertions();
-
-      let attributes = parse_import_attributes(
-        tc_scope,
-        import_attributes,
-        ImportAttributesKind::StaticImport,
-      );
-
-      // FIXME(bartomieju): there are no stack frames if exception
-      // is thrown here
-      {
-        let state = JsRuntime::state_from(tc_scope);
-        if let Some(validate_import_attributes_cb) =
-          &state.validate_import_attributes_cb
-        {
-          (validate_import_attributes_cb)(tc_scope, &attributes);
-        }
-      }
-
-      if tc_scope.has_caught() {
-        let exception = tc_scope.exception().unwrap();
-        let exception = v8::Global::new(tc_scope, exception);
-        return Err(ModuleError::Exception(exception));
-      }
-
-      let module_specifier = match self.resolve(
-        &import_specifier,
-        name.as_ref(),
-        if is_dynamic_import {
-          ResolutionKind::DynamicImport
-        } else {
-          ResolutionKind::Import
-        },
-      ) {
-        Ok(s) => s,
-        Err(e) => return Err(ModuleError::Other(e)),
-      };
-      let requested_module_type =
-        get_requested_module_type_from_attributes(&attributes);
-      let request = ModuleRequest {
-        specifier: module_specifier.to_string(),
-        requested_module_type,
-      };
-      requests.push(request);
-    }
-
-    if main {
-      let data = self.data.borrow();
-      if let Some(main_module) = data.main_module_id {
-        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
-        return Err(ModuleError::Other(generic_error(
-          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name.as_ref(),
-          main_name,
-        ))));
-      }
-    }
-
-    let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-    let id = self.data.borrow_mut().create_module_info(
-      name,
-      ModuleType::JavaScript,
-      handle,
+    self.new_module_from_js_source(
+      scope,
       main,
-      requests,
-    );
-
-    Ok(id)
+      ModuleType::JavaScript,
+      name,
+      source,
+      is_dynamic_import,
+    )
   }
 
-  /// Create and compile an ES module.
-  pub(crate) fn new_new_module(
+  /// Provided given JavaScript source code, compile and create a module of given
+  /// type.
+  ///
+  /// Passed type doesn't have to be [`ModuleType::JavaScript`]! This method
+  /// can be used to create "shim" modules, that execute some JS and act as a
+  /// proxy to the actual underlying module (eg. you might create a "shim" for
+  /// WASM module).
+  ///
+  /// Imports in the executed code are parsed (along their import attributes)
+  /// and attached to associated [`ModuleInfo`].
+  ///
+  /// Returns an ID of newly created module.
+  pub(crate) fn new_module_from_js_source(
     &self,
     scope: &mut v8::HandleScope,
     main: bool,
+    module_type: ModuleType,
     name: ModuleName,
     source: ModuleCodeString,
     is_dynamic_import: bool,
@@ -516,13 +446,16 @@ impl ModuleMap {
       assert!(maybe_module.is_none());
       let exception = tc_scope.exception().unwrap();
       let exception = v8::Global::new(tc_scope, exception);
+      // TODO(bartlomieju): add a more concrete variant - like `ModuleError::CompileError`?
       return Err(ModuleError::Exception(exception));
     }
 
     let module = maybe_module.unwrap();
 
-    let mut requests: Vec<ModuleRequest> = vec![];
+    // TODO(bartlomieju): maybe move to a helper function?
     let module_requests = module.get_module_requests();
+    let requests_len = module_requests.length();
+    let mut requests = Vec::with_capacity(requests_len);
     for i in 0..module_requests.length() {
       let module_request = v8::Local::<v8::ModuleRequest>::try_from(
         module_requests.get(tc_scope, i).unwrap(),
@@ -581,7 +514,7 @@ impl ModuleMap {
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
     let id = self.data.borrow_mut().create_module_info(
       name,
-      ModuleType::JavaScript,
+      module_type,
       handle,
       main,
       requests,
