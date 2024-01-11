@@ -17,6 +17,7 @@ use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
+use crate::modules::CustomModuleEvaluationCb;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
 use crate::modules::ModuleCodeString;
@@ -352,6 +353,7 @@ pub struct JsRuntimeState {
   wait_for_inspector_disconnect_callback:
     Option<WaitForInspectorDisconnectCallback>,
   pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
+  pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -503,6 +505,10 @@ pub struct RuntimeOptions {
   /// more work can be scheduled from the DevTools.
   pub wait_for_inspector_disconnect_callback:
     Option<WaitForInspectorDisconnectCallback>,
+
+  /// A callback that allows to evaluate a custom type of a module - eg.
+  /// embedders might implement loading WASM or test modules.
+  pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
 }
 
 impl RuntimeOptions {
@@ -666,6 +672,7 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       validate_import_attributes_cb: options.validate_import_attributes_cb,
+      custom_module_evaluation_cb: options.custom_module_evaluation_cb,
       waker,
     });
 
