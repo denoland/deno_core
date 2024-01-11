@@ -188,15 +188,14 @@ pub(crate) fn get_requested_module_type_from_attributes(
 
 /// A type of module to be executed.
 ///
-/// For non-`JavaScript` modules, this value suggests
-/// how to interpret the module. For JSON modules it's used to validate
-/// against actually discovered MIME type.
+/// `deno_core` supports loading and executing JavaScript and JSON modules,
+/// by default, but embedders can customize it further by providing
+/// [`CustomModuleEvaluationCb`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum ModuleType {
   JavaScript,
   Json,
-  /// Non-well-known module type.
   Other(Cow<'static, str>),
 }
 
@@ -392,6 +391,7 @@ impl AsRef<RequestedModuleType> for RequestedModuleType {
   }
 }
 
+// TODO(bartlomieju): this is questionable. I think we should remove it.
 impl PartialEq<ModuleType> for RequestedModuleType {
   fn eq(&self, other: &ModuleType) -> bool {
     match other {

@@ -1,9 +1,11 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
+use crate::error::generic_error;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
+use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
@@ -13,7 +15,6 @@ use crate::resolve_url;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
 use crate::FastString;
-use crate::ModuleCodeBytes;
 use crate::ModuleCodeString;
 use crate::ModuleSource;
 use crate::ModuleSourceFuture;
@@ -28,6 +29,7 @@ use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -707,18 +709,10 @@ fn test_validate_import_attributes_callback2() {
 }
 
 #[test]
-fn test_custom_module_type() {
-  fn validate_import_attrs(
-    _scope: &mut v8::HandleScope,
-    _attrs: &HashMap<String, String>,
-  ) {
-    // pass, allow all
-  }
-
+fn test_custom_module_type_default() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
-    validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
     ..Default::default()
   });
 
@@ -750,6 +744,87 @@ fn test_custom_module_type() {
       );
     }
     _ => unreachable!(),
+  };
+}
+
+#[test]
+fn test_custom_module_type_callback() {
+  fn custom_eval_cb(
+    scope: &mut v8::HandleScope,
+    module_type: Cow<'_, str>,
+    _module_name: &FastString,
+    module_code: ModuleSourceCode,
+  ) -> Result<v8::Global<v8::Value>, Error> {
+    if module_type != "bytes" {
+      return Err(generic_error(format!(
+        "Can't load '{}' module",
+        module_type
+      )));
+    }
+
+    let buf = match module_code {
+      ModuleSourceCode::Bytes(buf) => buf.to_vec(),
+      ModuleSourceCode::String(str_) => str_.as_bytes().to_vec(),
+    };
+    let buf_len: usize = buf.len();
+    let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(buf);
+    let backing_store_shared = backing_store.make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+    let value: v8::Local<v8::Value> = uint8_array.into();
+    Ok(v8::Global::new(scope, value))
+  }
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
+    ..Default::default()
+  });
+
+  let module_map = runtime.module_map().clone();
+
+  let err = {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.png");
+    module_map
+      .new_module(
+        scope,
+        true,
+        false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("foo".into()),
+        },
+      )
+      .unwrap_err()
+  };
+
+  match err {
+    ModuleError::Other(err) => {
+      assert_eq!(err.to_string(), "Can't load 'foo' module");
+    }
+    _ => unreachable!(),
+  };
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///b.png");
+    module_map
+      .new_module(
+        scope,
+        true,
+        false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("bytes".into()),
+        },
+      )
+      .unwrap()
   };
 }
 
