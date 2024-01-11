@@ -291,7 +291,11 @@ pub fn host_import_module_dynamically_callback<'s>(
     let tc_scope = &mut v8::TryCatch::new(scope);
     {
       let state = JsRuntime::state_from(tc_scope);
-      (state.validate_import_attributes_cb)(tc_scope, &assertions);
+      if let Some(validate_import_attributes_cb) =
+        &state.validate_import_attributes_cb
+      {
+        (validate_import_attributes_cb)(tc_scope, &assertions);
+      }
     }
 
     if tc_scope.has_caught() {

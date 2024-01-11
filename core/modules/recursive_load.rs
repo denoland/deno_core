@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::error::generic_error;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::map::ModuleMap;
 use crate::modules::ModuleError;
@@ -53,7 +52,6 @@ pub(crate) struct RecursiveModuleLoad {
   pub id: ModuleLoadId,
   pub root_module_id: Option<ModuleId>,
   init: LoadInit,
-  root_asserted_module_type: Option<RequestedModuleType>,
   state: LoadState,
   module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
@@ -106,7 +104,6 @@ impl RecursiveModuleLoad {
     let mut load = Self {
       id,
       root_module_id: None,
-      root_asserted_module_type: None,
       init,
       state: LoadState::Init,
       module_map_rc: module_map_rc.clone(),
@@ -119,10 +116,9 @@ impl RecursiveModuleLoad {
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
     if let Ok(root_specifier) = load.resolve_root() {
       if let Some(module_id) =
-        module_map_rc.get_id(root_specifier, &requested_module_type)
+        module_map_rc.get_id(root_specifier, requested_module_type)
       {
         load.root_module_id = Some(module_id);
-        load.root_asserted_module_type = Some(requested_module_type);
       }
     }
     load
@@ -195,14 +191,6 @@ impl RecursiveModuleLoad {
     module_request: &ModuleRequest,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let requested_module_type = module_request.requested_module_type.clone();
-    if requested_module_type != module_source.module_type {
-      return Err(ModuleError::Other(generic_error(format!(
-        "Expected a \"{}\" module but loaded a \"{}\" module.",
-        requested_module_type, module_source.module_type,
-      ))));
-    }
-
     let module_id = self.module_map_rc.new_module(
       scope,
       self.is_currently_loading_main_module(),
@@ -215,7 +203,6 @@ impl RecursiveModuleLoad {
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
       self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(requested_module_type);
       self.state = LoadState::LoadingImports;
     }
     if self.pending.is_empty() {

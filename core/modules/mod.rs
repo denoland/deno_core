@@ -121,34 +121,6 @@ pub(crate) fn default_import_meta_resolve_cb(
 pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
 
-const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
-
-/// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
-/// all other attributes.
-pub(crate) fn validate_import_attributes(
-  scope: &mut v8::HandleScope,
-  assertions: &HashMap<String, String>,
-) {
-  for (key, value) in assertions {
-    let msg = if key != "type" {
-      Some(format!("\"{key}\" attribute is not supported."))
-    } else if !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
-      Some(format!("\"{value}\" is not a valid module type."))
-    } else {
-      None
-    };
-
-    let Some(msg) = msg else {
-      continue;
-    };
-
-    let message = v8::String::new(scope, &msg).unwrap();
-    let exception = v8::Exception::type_error(scope, message);
-    scope.throw_exception(exception);
-    return;
-  }
-}
-
 #[derive(Debug)]
 pub(crate) enum ImportAttributesKind {
   StaticImport,
