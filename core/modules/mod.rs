@@ -340,17 +340,41 @@ pub enum ResolutionKind {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum RequestedModuleType {
+pub enum RequestedModuleType {
   /// There was no attribute specified in the import statement.
+  ///
+  /// Example:
+  /// ```ignore
+  /// import foo from "./foo.js";
+  ///
+  /// const bar = await import("bar");
+  /// ```
   None,
 
-  /// `type` attribute had value `json`. This is the only known module type
-  /// in `deno_core`. Embedders should use `Other` variant for custom module
+  /// The `type` attribute had value `json`. This is the only known module type
+  /// in `deno_core`.
+  ///
+  /// Embedders should use `Other` variant for custom module
   /// types like `wasm`, `bytes` or `text`.
+  ///
+  /// Example:
+  /// ```ignore
+  /// import jsonData from "./data.json" with { type: "json" };
+  ///
+  /// const jsonData2 = await import"./data2.json", { with { type: "json" } });
+  /// ```
   Json,
 
-  // IMPORTANT: If you add any additional enum values here, you must update `to_v8`` below!
-  /// Non-well-known module type.
+  /// An arbitrary module type. It is up to the embedder to handle (or deny) it.
+  /// If [`CustomModuleEvaluationCb`] was not passed when creating a runtime,
+  /// then all "other" module types cause an error to be returned.
+  ///
+  /// Example:
+  /// ```ignore
+  /// import text from "./log.txt" with { type: "text" };
+  ///
+  /// const imgData = await import(`./images/${name}.png`, { with: { type: "bytes" }});
+  /// ```
   Other(Cow<'static, str>),
 }
 

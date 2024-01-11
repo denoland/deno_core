@@ -239,6 +239,7 @@ impl ModuleLoader for MockLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let mut loads = self.loads.lock();
     loads.push(module_specifier.to_string());
@@ -1438,6 +1439,7 @@ async fn no_duplicate_loads() {
       module_specifier: &ModuleSpecifier,
       _maybe_referrer: Option<&ModuleSpecifier>,
       _is_dyn_import: bool,
+      _requested_module_type: RequestedModuleType,
     ) -> Pin<Box<ModuleSourceFuture>> {
       let found_specifier =
         if module_specifier.as_str() == "https://example.com/foo.js" {

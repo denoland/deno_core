@@ -24,6 +24,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
+use super::RequestedModuleType;
+
 pub trait ModuleLoader {
   /// Returns an absolute URL.
   /// When implementing an spec-complaint VM, this should be exactly the
@@ -51,6 +53,7 @@ pub trait ModuleLoader {
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
     is_dyn_import: bool,
+    requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>>;
 
   /// This hook can be used by implementors to do some preparation
@@ -90,6 +93,7 @@ impl ModuleLoader for NoopModuleLoader {
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let maybe_referrer = maybe_referrer
       .map(|s| s.as_str())
@@ -144,6 +148,7 @@ impl ModuleLoader for ExtModuleLoader {
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let sources = self.sources.borrow();
     let source = match sources.get(specifier.as_str()) {
@@ -208,6 +213,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let sources = self.sources.borrow();
     let source = match sources.get(specifier.as_str()) {
@@ -283,6 +289,7 @@ impl ModuleLoader for FsModuleLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dynamic: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     fn load(
       module_specifier: &ModuleSpecifier,
@@ -359,6 +366,7 @@ impl ModuleLoader for StaticModuleLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let res = if let Some(code) = self.map.get(module_specifier) {
       Ok(ModuleSource::new(
@@ -439,12 +447,16 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
     is_dyn_import: bool,
+    requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
-    self
-      .loader
-      .load(module_specifier, maybe_referrer, is_dyn_import)
+    self.loader.load(
+      module_specifier,
+      maybe_referrer,
+      is_dyn_import,
+      requested_module_type,
+    )
   }
 }
 
