@@ -192,14 +192,6 @@ impl RecursiveModuleLoad {
     module_request: &ModuleRequest,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let requested_module_type = module_request.requested_module_type.clone();
-    if requested_module_type != module_source.module_type {
-      return Err(ModuleError::Other(generic_error(format!(
-        "Expected a \"{}\" module but loaded a \"{}\" module.",
-        requested_module_type, module_source.module_type,
-      ))));
-    }
-
     let module_id = self.module_map_rc.new_module(
       scope,
       self.is_currently_loading_main_module(),
