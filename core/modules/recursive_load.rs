@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::error::generic_error;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::map::ModuleMap;
 use crate::modules::ModuleError;
