@@ -1312,14 +1312,7 @@ impl ModuleMap {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
       .new_es_module(scope, false, specifier.into(), source_code, false)
-      .map_err(|e| match e {
-        ModuleError::Exception(exception) => {
-          let exception = v8::Local::new(scope, exception);
-          exception_to_err_result::<()>(scope, exception, false, true)
-            .unwrap_err()
-        }
-        ModuleError::Other(error) => error,
-      })?;
+      .map_err(|e| e.into_any_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);

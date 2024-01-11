@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
@@ -431,4 +432,22 @@ pub(crate) struct ModuleInfo {
 pub(crate) enum ModuleError {
   Exception(v8::Global<v8::Value>),
   Other(Error),
+}
+
+impl ModuleError {
+  pub fn into_any_error(
+    self,
+    scope: &mut v8::HandleScope,
+    in_promise: bool,
+    clear_error: bool,
+  ) -> AnyError {
+    match self {
+      ModuleError::Exception(exception) => {
+        let exception = v8::Local::new(scope, exception);
+        exception_to_err_result::<()>(scope, exception, in_promise, clear_error)
+          .unwrap_err()
+      }
+      ModuleError::Other(error) => error,
+    }
+  }
 }
