@@ -5,7 +5,6 @@ use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCodeString;
-use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
@@ -402,14 +401,7 @@ impl JsRealm {
       // true for main module
       module_map_rc
         .new_es_module(scope, true, specifier, code, false)
-        .map_err(|e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        })?;
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let mut load =
@@ -418,16 +410,9 @@ impl JsRealm {
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
       let scope = &mut self.handle_scope(isolate);
-      load.register_and_recurse(scope, &request, info).map_err(
-        |e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        },
-      )?;
+      load
+        .register_and_recurse(scope, &request, info)
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -459,14 +444,7 @@ impl JsRealm {
       // false for side module (not main module)
       module_map_rc
         .new_es_module(scope, false, specifier, code, false)
-        .map_err(|e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        })?;
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let mut load =
@@ -475,16 +453,9 @@ impl JsRealm {
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
       let scope = &mut self.handle_scope(isolate);
-      load.register_and_recurse(scope, &request, info).map_err(
-        |e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        },
-      )?;
+      load
+        .register_and_recurse(scope, &request, info)
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
