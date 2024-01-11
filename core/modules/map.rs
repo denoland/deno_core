@@ -458,7 +458,11 @@ export default result;
       // is thrown here
       {
         let state = JsRuntime::state_from(tc_scope);
-        (state.validate_import_attributes_cb)(tc_scope, &attributes);
+        if let Some(validate_import_attributes_cb) =
+          &state.validate_import_attributes_cb
+        {
+          (validate_import_attributes_cb)(tc_scope, &attributes);
+        }
       }
 
       if tc_scope.has_caught() {
@@ -563,7 +567,11 @@ export default result;
       // is thrown here
       {
         let state = JsRuntime::state_from(tc_scope);
-        (state.validate_import_attributes_cb)(tc_scope, &attributes);
+        if let Some(validate_import_attributes_cb) =
+          &state.validate_import_attributes_cb
+        {
+          (validate_import_attributes_cb)(tc_scope, &attributes);
+        }
       }
 
       if tc_scope.has_caught() {

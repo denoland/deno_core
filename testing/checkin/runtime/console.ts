@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
 const {
   op_log_debug,
   op_log_info,

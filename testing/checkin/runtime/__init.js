@@ -1,9 +1,10 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+import * as async from "checkin:async";
 import * as testing from "checkin:testing";
 import * as console from "checkin:console";
 import * as timers from "checkin:timers";
-
 testing;
+async;
 
 globalThis.console = console.console;
 globalThis.setTimeout = timers.setTimeout;
