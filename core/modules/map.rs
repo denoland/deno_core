@@ -295,7 +295,14 @@ impl ModuleMap {
         let code =
           ModuleSource::get_string_source(module_url_found.as_str(), code)
             .map_err(ModuleError::Other)?;
-        self.new_es_module(scope, main, module_url_found, code, dynamic)?
+        self.new_module_from_js_source(
+          scope,
+          main,
+          ModuleType::JavaScript,
+          module_url_found,
+          code,
+          dynamic,
+        )?
       }
       ModuleType::Json => {
         let code =
@@ -407,6 +414,7 @@ export default result;
     Ok(id)
   }
 
+  // TODO(bartlomieju): remove this method or rename it to `new_js_module`.
   /// Create and compile an ES module.
   pub(crate) fn new_es_module(
     &self,
@@ -416,6 +424,49 @@ export default result;
     source: ModuleCodeString,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
+    self.new_module_from_js_source(
+      scope,
+      main,
+      ModuleType::JavaScript,
+      name,
+      source,
+      is_dynamic_import,
+    )
+  }
+
+  /// Provided given JavaScript source code, compile and create a module of given
+  /// type.
+  ///
+  /// Passed type doesn't have to be [`ModuleType::JavaScript`]! This method
+  /// can be used to create "shim" modules, that execute some JS and act as a
+  /// proxy to the actual underlying module (eg. you might create a "shim" for
+  /// WASM module).
+  ///
+  /// Imports in the executed code are parsed (along their import attributes)
+  /// and attached to associated [`ModuleInfo`].
+  ///
+  /// Returns an ID of newly created module.
+  pub(crate) fn new_module_from_js_source(
+    &self,
+    scope: &mut v8::HandleScope,
+    main: bool,
+    module_type: ModuleType,
+    name: ModuleName,
+    source: ModuleCodeString,
+    is_dynamic_import: bool,
+  ) -> Result<ModuleId, ModuleError> {
+    if main {
+      let data = self.data.borrow();
+      if let Some(main_module) = data.main_module_id {
+        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
+        return Err(ModuleError::Other(generic_error(
+          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
+          name.as_ref(),
+          main_name,
+        ))));
+      }
+    }
+
     let name_str = name.v8(scope);
     let source_str = source.v8(scope);
 
@@ -430,13 +481,16 @@ export default result;
       assert!(maybe_module.is_none());
       let exception = tc_scope.exception().unwrap();
       let exception = v8::Global::new(tc_scope, exception);
+      // TODO(bartlomieju): add a more concrete variant - like `ModuleError::CompileError`?
       return Err(ModuleError::Exception(exception));
     }
 
     let module = maybe_module.unwrap();
 
-    let mut requests: Vec<ModuleRequest> = vec![];
+    // TODO(bartlomieju): maybe move to a helper function?
     let module_requests = module.get_module_requests();
+    let requests_len = module_requests.length();
+    let mut requests = Vec::with_capacity(requests_len);
     for i in 0..module_requests.length() {
       let module_request = v8::Local::<v8::ModuleRequest>::try_from(
         module_requests.get(tc_scope, i).unwrap(),
@@ -492,22 +546,10 @@ export default result;
       requests.push(request);
     }
 
-    if main {
-      let data = self.data.borrow();
-      if let Some(main_module) = data.main_module_id {
-        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
-        return Err(ModuleError::Other(generic_error(
-          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name.as_ref(),
-          main_name,
-        ))));
-      }
-    }
-
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
     let id = self.data.borrow_mut().create_module_info(
       name,
-      ModuleType::JavaScript,
+      module_type,
       handle,
       main,
       requests,
@@ -1487,14 +1529,7 @@ export default result;
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
       .new_es_module(scope, false, specifier.into(), source_code, false)
-      .map_err(|e| match e {
-        ModuleError::Exception(exception) => {
-          let exception = v8::Local::new(scope, exception);
-          exception_to_err_result::<()>(scope, exception, false, true)
-            .unwrap_err()
-        }
-        ModuleError::Other(error) => error,
-      })?;
+      .map_err(|e| e.into_any_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
