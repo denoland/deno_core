@@ -1,0 +1,30 @@
+{
+    "typescript": {
+      "deno": true
+    },
+    "markdown": {
+      "deno": true
+    },
+    "json": {
+      "deno": true
+    },
+    "exec": {
+      "commands": [{
+        "command": "rustfmt --config imports_granularity=item",
+        "exts": ["rs"]
+      }]
+    },
+    "excludes": [
+      ".cargo_home",
+      ".git",
+      "target"
+    ],
+    "plugins": [
+      "https://plugins.dprint.dev/typescript-0.88.7.wasm",
+      "https://plugins.dprint.dev/json-0.19.1.wasm",
+      "https://plugins.dprint.dev/markdown-0.16.3.wasm",
+      "https://plugins.dprint.dev/toml-0.5.4.wasm",
+      "https://plugins.dprint.dev/exec-0.4.4.json@c207bf9b9a4ee1f0ecb75c594f774924baf62e8e53a2ce9d873816a408cecbf7"
+    ]
+  }
+  
