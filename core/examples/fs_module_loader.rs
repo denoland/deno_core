@@ -10,7 +10,6 @@ use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 fn custom_module_evaluation_cb(

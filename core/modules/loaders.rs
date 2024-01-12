@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::generic_error;
-use crate::error::AnyError;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCodeString;
@@ -290,10 +289,8 @@ impl ModuleLoader for FsModuleLoader {
     _is_dynamic: bool,
     requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
-    fn load(
-      module_specifier: &ModuleSpecifier,
-      requested_module_type: RequestedModuleType,
-    ) -> Result<ModuleSource, AnyError> {
+    let module_specifier = module_specifier.clone();
+    async move {
       let path = module_specifier.to_file_path().map_err(|_| {
         generic_error(format!(
           "Provided module specifier \"{module_specifier}\" is not a file URL."
@@ -307,7 +304,7 @@ impl ModuleLoader for FsModuleLoader {
         if ext == "json" {
           ModuleType::Json
         } else {
-          match requested_module_type {
+          match &requested_module_type {
             RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
             _ => ModuleType::JavaScript,
           }
@@ -316,19 +313,25 @@ impl ModuleLoader for FsModuleLoader {
         ModuleType::JavaScript
       };
 
+      // If we loaded a JSON file, but the "requested_module_type" (that is computed from
+      // import attributes) is not JSON we need to fail.
+      if module_type == ModuleType::Json
+        && requested_module_type != RequestedModuleType::Json
+      {
+        return Err(generic_error("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."));
+      }
+
       let code = std::fs::read(path).with_context(|| {
         format!("Failed to load {}", module_specifier.as_str())
       })?;
       let module = ModuleSource::new(
         module_type,
         ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
-        module_specifier,
+        &module_specifier,
       );
       Ok(module)
     }
-
-    futures::future::ready(load(module_specifier, requested_module_type))
-      .boxed_local()
+    .boxed_local()
   }
 }
 
