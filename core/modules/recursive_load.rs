@@ -257,6 +257,7 @@ impl RecursiveModuleLoad {
             let requested_module_type = request.requested_module_type.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
+            let requested_module_type = request.requested_module_type.clone();
             let fut = async move {
               // `visited_as_alias` unlike `visited` is checked as late as
               // possible because it can only be populated after completed
@@ -269,8 +270,8 @@ impl RecursiveModuleLoad {
                 .load(
                   &specifier,
                   Some(&referrer),
-                  requested_module_type,
                   is_dynamic_import,
+                  requested_module_type,
                 )
                 .await;
               if let Ok(source) = &load_result {
@@ -343,6 +344,7 @@ impl Stream for RecursiveModuleLoad {
                 maybe_referrer.as_ref(),
                 requested_module_type,
                 is_dynamic_import,
+                requested_module_type,
               )
               .await;
             result.map(|s| Some((module_request, s)))
