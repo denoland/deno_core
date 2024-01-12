@@ -744,7 +744,6 @@
     op_read_all: readAll,
     op_write: write,
     op_write_all: writeAll,
-    op_write_type_error: writeTypeError,
     op_read_sync: readSync,
     op_write_sync: writeSync,
     op_shutdown: shutdown,

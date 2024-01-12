@@ -1,16 +1,15 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::buffer_strategy::AdaptiveBufferStrategy;
+use crate::error::bad_resource;
 use crate::error::format_file_name;
-use crate::error::type_error;
-use crate::io::BufMutView;
+use crate::io::BufMutViewWhole;
 use crate::io::BufView;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
-use crate::resources::ResourceId;
 use crate::JsBuffer;
 use crate::OpState;
 use crate::Resource;
+use crate::ResourceId;
 use anyhow::Error;
 use bytes::BytesMut;
 use std::cell::RefCell;
@@ -41,7 +40,6 @@ deno_core::extension!(
     op_read_sync,
     op_write_sync,
     op_write_all,
-    op_write_type_error,
     op_shutdown,
     op_format_file_name,
     op_str_byte_length,
@@ -165,7 +163,9 @@ pub fn op_close(
   #[smi] rid: ResourceId,
 ) -> Result<(), Error> {
   let resource = state.borrow_mut().resource_table.take_any(rid)?;
-  resource.close();
+  Rc::try_unwrap(resource)
+    .map_err(|_| bad_resource("resource locked"))?
+    .close();
   Ok(())
 }
 
@@ -174,7 +174,9 @@ pub fn op_close(
 #[op2(fast)]
 pub fn op_try_close(state: Rc<RefCell<OpState>>, #[smi] rid: ResourceId) {
   if let Ok(resource) = state.borrow_mut().resource_table.take_any(rid) {
-    resource.close();
+    if let Ok(resource) = Rc::try_unwrap(resource) {
+      resource.close();
+    }
   }
 }
 
@@ -194,15 +196,8 @@ pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error> {
 pub struct WasmStreamingResource(pub(crate) RefCell<v8::WasmStreaming>);
 
 impl Resource for WasmStreamingResource {
-  fn close(self: Rc<Self>) {
-    // At this point there are no clones of Rc<WasmStreamingResource> on the
-    // resource table, and no one should own a reference outside of the stack.
-    // Therefore, we can be sure `self` is the only reference.
-    if let Ok(wsr) = Rc::try_unwrap(self) {
-      wsr.0.into_inner().finish();
-    } else {
-      panic!("Couldn't consume WasmStreamingResource.");
-    }
+  fn close(self) {
+    self.0.into_inner().finish();
   }
 }
 
@@ -244,8 +239,8 @@ async fn op_read(
   #[buffer] buf: JsBuffer,
 ) -> Result<u32, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
-  let view = BufMutView::from(buf);
-  resource.read_byob(view).await.map(|(n, _)| n as u32)
+  let mut view = BufMutViewWhole::from(buf);
+  resource.read(&mut view).await.map(|n| n as u32)
 }
 
 #[op2(async)]
@@ -255,32 +250,7 @@ async fn op_read_all(
   #[smi] rid: ResourceId,
 ) -> Result<BytesMut, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
-
-  let (min, maybe_max) = resource.size_hint();
-  let mut buffer_strategy =
-    AdaptiveBufferStrategy::new_from_hint_u64(min, maybe_max);
-  let mut buf = BufMutView::new(buffer_strategy.buffer_size());
-
-  loop {
-    #[allow(deprecated)]
-    buf.maybe_grow(buffer_strategy.buffer_size()).unwrap();
-
-    let (n, new_buf) = resource.clone().read_byob(buf).await?;
-    buf = new_buf;
-    buf.advance_cursor(n);
-    if n == 0 {
-      break;
-    }
-
-    buffer_strategy.notify_read(n);
-  }
-
-  let nread = buf.reset_cursor();
-  // If the buffer is larger than the amount of data read, shrink it to the
-  // amount of data read.
-  buf.truncate(nread);
-
-  Ok(buf.maybe_unwrap_bytes().unwrap())
+  resource.read_all().await
 }
 
 #[op2(async)]
@@ -291,28 +261,27 @@ async fn op_write(
 ) -> Result<u32, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufView::from(buf);
-  let resp = resource.write(view).await?;
-  Ok(resp.nwritten() as u32)
+  resource.write(view).await.map(|n| n as u32)
 }
 
-#[op2(fast)]
+#[op2]
 fn op_read_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-  #[buffer] data: &mut [u8],
+  #[buffer] buf: JsBuffer,
 ) -> Result<u32, Error> {
   let resource = state.borrow_mut().resource_table.get_any(rid)?;
-  resource.read_byob_sync(data).map(|n| n as u32)
+  resource.read_sync(buf.into()).map(|n| n as u32)
 }
 
-#[op2(fast)]
+#[op2]
 fn op_write_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-  #[buffer] data: &[u8],
+  #[buffer] buf: JsBuffer,
 ) -> Result<u32, Error> {
   let resource = state.borrow_mut().resource_table.get_any(rid)?;
-  let nwritten = resource.write_sync(data)?;
+  let nwritten = resource.write_sync(buf.into())?;
   Ok(nwritten as u32)
 }
 
@@ -323,19 +292,7 @@ async fn op_write_all(
   #[buffer] buf: JsBuffer,
 ) -> Result<(), Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
-  let view = BufView::from(buf);
-  resource.write_all(view).await?;
-  Ok(())
-}
-
-#[op2(async)]
-async fn op_write_type_error(
-  state: Rc<RefCell<OpState>>,
-  #[smi] rid: ResourceId,
-  #[string] error: String,
-) -> Result<(), Error> {
-  let resource = state.borrow().resource_table.get_any(rid)?;
-  resource.write_error(type_error(error)).await?;
+  resource.write_all(buf.into()).await?;
   Ok(())
 }
 
