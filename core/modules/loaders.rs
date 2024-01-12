@@ -25,8 +25,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
-use super::RequestedModuleType;
-
 pub trait ModuleLoader {
   /// Returns an absolute URL.
   /// When implementing an spec-complaint VM, this should be exactly the
@@ -53,7 +51,6 @@ pub trait ModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
-    requested_module_type: RequestedModuleType,
     is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>>;
@@ -94,7 +91,6 @@ impl ModuleLoader for NoopModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
-    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
@@ -150,7 +146,6 @@ impl ModuleLoader for ExtModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
@@ -216,7 +211,6 @@ impl ModuleLoader for LazyEsmModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
@@ -293,9 +287,8 @@ impl ModuleLoader for FsModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    requested_module_type: RequestedModuleType,
     _is_dynamic: bool,
-    _requested_module_type: RequestedModuleType,
+    requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     fn load(
       module_specifier: &ModuleSpecifier,
@@ -379,7 +372,6 @@ impl ModuleLoader for StaticModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
@@ -461,7 +453,6 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
-    requested_module_type: RequestedModuleType,
     is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {

@@ -63,7 +63,6 @@ impl ModuleLoader for TypescriptModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _requested_module_type: RequestedModuleType,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {

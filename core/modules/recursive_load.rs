@@ -254,7 +254,6 @@ impl RecursiveModuleLoad {
               ModuleSpecifier::parse(&module_request.specifier).unwrap();
             let visited_as_alias = self.visited_as_alias.clone();
             let referrer = referrer.clone();
-            let requested_module_type = request.requested_module_type.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
             let requested_module_type = request.requested_module_type.clone();
@@ -342,7 +341,6 @@ impl Stream for RecursiveModuleLoad {
               .load(
                 &module_specifier,
                 maybe_referrer.as_ref(),
-                requested_module_type,
                 is_dynamic_import,
                 requested_module_type,
               )
