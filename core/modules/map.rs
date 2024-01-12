@@ -279,6 +279,12 @@ impl ModuleMap {
       module_url_specified
     };
 
+    // TODO(bartlomieju): I have a hunch that this is wrong - write a test
+    // that tries to "confuse" the type system, by first requesting a module
+    // with type `RequestedModuleType::Other("foo".into)``, and then the loader
+    // actually returns `ModuleType::Other("bar".into())`. See if it leads to
+    // unexpected result in how `ModuleMap` is structured and verify how
+    // querying the module map works (`ModuleMap::get_by_id`, `ModuleMap::get_by_name`).
     let requested_module_type = RequestedModuleType::from(module_type.clone());
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
@@ -1459,7 +1465,9 @@ impl ModuleMap {
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let source = futures::executor::block_on(async {
-      loader.load(&specifier, None, false).await
+      loader
+        .load(&specifier, None, false, RequestedModuleType::None)
+        .await
     })?;
 
     self.lazy_load_es_module_from_code(
