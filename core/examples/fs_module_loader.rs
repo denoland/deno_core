@@ -10,6 +10,7 @@ use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
+use deno_core::ModuleType;
 use deno_core::RuntimeOptions;
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -24,7 +25,7 @@ fn custom_module_evaluation_cb(
   match &*module_type {
     "bytes" => Ok(bytes_module(scope, code)),
     "text" => text_module(scope, module_name, code),
-    "wasm-module" => wasm_module(scope, module_name, code),
+    "wasm2" => wasm_module(scope, module_name, code),
     _ => Err(anyhow!(
       "Can't import {:?} because of unknown module type {}",
       module_name,
@@ -90,17 +91,22 @@ fn wasm_module(
   // TODO(bartlomieju): this is effectively what we have to execute as an
   // auxiliary module
   // Get imports and exports of the WASM module
-  {
+  let js_wasm_module_source = {
     let wasm_module_analysis = analyze_wasm_module(scope, wasm_module_value);
     eprintln!("WasmModuleAnalysis {:#?}", wasm_module_analysis);
     let js_wasm_module_source =
       render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
     eprintln!("rendered module\n\n{}\n\n", js_wasm_module_source);
-  }
+    js_wasm_module_source
+  };
 
   let wasm_module_value_global = v8::Global::new(scope, wasm_module_value);
-  Ok(CustomModuleEvaluationKind::Synthetic(
+  let synthetic_module_type = ModuleType::Other("wasm-module".into());
+
+  Ok(CustomModuleEvaluationKind::ComputedAndSynthetic(
+    js_wasm_module_source,
     wasm_module_value_global,
+    synthetic_module_type,
   ))
 }
 

@@ -1,4 +1,5 @@
-import { exported_add } from "./new_shim.js";
+import { exported_add } from "./import.wasm" with { type: "wasm2" };
+// import { exported_add } from "./new_shim.js";
 
 console.log(`hey ${exported_add(4, 5)}`);
 

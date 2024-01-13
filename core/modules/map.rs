@@ -386,8 +386,28 @@ export default result;
                 value,
               )?
             }
-            CustomModuleEvaluationKind::ComputedAndSynthetic() => {
-              todo!()
+            CustomModuleEvaluationKind::ComputedAndSynthetic(
+              computed_src,
+              synthetic_value,
+              synthetic_module_type,
+            ) => {
+              let (url1, url2) = module_url_found.into_cheap_copy();
+              let value = v8::Local::new(scope, synthetic_value);
+              eprintln!("new synth module {}", synthetic_module_type);
+              let _synthetic_mod_id = self.new_synthetic_module(
+                scope,
+                url1,
+                synthetic_module_type,
+                value,
+              )?;
+              self.new_module_from_js_source(
+                scope,
+                main,
+                ModuleType::Other(module_type.clone()),
+                url2,
+                computed_src.into(),
+                dynamic,
+              )?
             }
           }
         }

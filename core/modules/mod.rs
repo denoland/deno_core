@@ -143,7 +143,14 @@ pub enum CustomModuleEvaluationKind {
   ///    [`new_module`] call.
   ///  - a "synthetic" module - a kind of a helper module that abstracts
   ///    the source of JS objects - this module is set up first.
-  ComputedAndSynthetic(),
+  ComputedAndSynthetic(
+    // Source code of computed module,
+    String,
+    // Synthetic module value
+    v8::Global<v8::Value>,
+    // Synthetic module type
+    ModuleType,
+  ),
 }
 
 #[derive(Debug)]
