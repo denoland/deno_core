@@ -1,5 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use super::resource::OpaqueReadFuture;
 use super::resource::ReadContext;
 use super::resource::ReadResult;
 use super::BufMutViewWhole;
@@ -10,7 +9,8 @@ use crate::io::BufView;
 use crate::AsyncRefCell;
 use crate::Resource;
 use crate::ResourceHandle;
-use crate::io::resource;
+use crate::io::resource::OpaqueReadFuture;
+use crate::io::resource::ReadResult2;
 use anyhow::bail;
 use anyhow::Error;
 use bytes::Buf;
@@ -90,45 +90,47 @@ impl<T: Resource + ?Sized> ResourceObject<T> {
           return Ok(len);
         }
       }
-      let read_context = &ReadContext {  };
-      let mut maybe_future: Option<OpaqueReadFuture> = read_context.x();
-      let mut read_buf = read_context.y(buf);
 
-      fn do_poll<'a, 'b, 'c, T: Resource + ?Sized>(cx: &mut Context, resource: &T, read_context: &'a ReadContext, maybe_future: &'c mut Option<OpaqueReadFuture<'a>>, read_buf: &mut ReadBuf<'b>) -> Poll<ReadResult<'a>> {
+      let mut read_context = ReadContext::new(buf);
+
+      fn do_poll<'a, 'b, 'c, T: Resource + ?Sized>(cx: &mut Context, resource: &T, read_context: &mut ReadContext<'a>, maybe_future: &mut Option<OpaqueReadFuture<'a>>) -> Poll<ReadResult2> {
         loop {
-          let res: ReadResult<'a> = ready!(if let Some(future) = maybe_future.as_ref() {
-            future.poll_read(cx, read_context, read_buf)
+          let res: ReadResult<'a> = ready!(if let Some(future) = maybe_future {
+            future.poll_read(cx)
           } else {
             resource.poll_read(
               cx,
-              &read_context,
-              read_buf
+              read_context,
             )
           });
 
-          break match res {
+          break Poll::Ready(match res {
             ReadResult::PollAgain => { continue; },
             ReadResult::Future(future) => {
               *maybe_future = Some(future);
               continue;
             },
-            res => Poll::Ready(res),
-          };
+            ReadResult::Ready => ReadResult2::Ready(read_context.preferred_buffer().filled().len()),
+            ReadResult::Err(err) => ReadResult2::Err(err),
+            ReadResult::EOF => ReadResult2::EOF,
+            ReadResult::ReadyBuf(buf) => ReadResult2::ReadyBuf(buf),
+            ReadResult::ReadyBufMut(buf) => ReadResult2::ReadyBufMut(buf),
+          });
         }
       }
 
+      let mut future = None;
       let res = poll_fn(|cx| {
-        do_poll(cx, self.resource.as_ref(), read_context, &mut maybe_future, &mut read_buf)
+        do_poll(cx, self.resource.as_ref(), &mut read_context, &mut future)
       }).await;
-      drop(maybe_future);
+      read_context.take(future);
       match res {
-        ReadResult::EOF => Ok(0),
-        ReadResult::Ready => Ok(read_buf.filled().len()),
-        ReadResult::Err(err) => Err(err),
-        ReadResult::ReadyBuf(mut retbuf) => {
-          drop(read_buf);
+        ReadResult2::EOF => Ok(0),
+        ReadResult2::Ready(n) => Ok(n),
+        ReadResult2::Err(err) => Err(err),
+        ReadResult2::ReadyBuf(mut retbuf) => {
           let len = retbuf.len();
-          retbuf.copy_to_slice(buf);
+          retbuf.copy_to_slice(buf.as_mut());
           if len > buf.len() {
             read_state.partial =
               Some(retbuf.split_off(buf.len()));
@@ -137,9 +139,9 @@ impl<T: Resource + ?Sized> ResourceObject<T> {
             Ok(len)
           }
         }
-        ReadResult::ReadyBufMut(mut retbuf) => {
+        ReadResult2::ReadyBufMut(mut retbuf) => {
           let len = retbuf.len();
-          retbuf.copy_to_slice(buf);
+          retbuf.copy_to_slice(buf.as_mut());
           if len > buf.len() {
             read_state.partial =
               Some(retbuf.split_off(buf.len()).into_view());
@@ -341,11 +343,10 @@ mod tests {
     fn poll_read<'a>(
       &self,
       cx: &mut std::task::Context,
-      _read_context: &'a ReadContext,
-      preferred_buffer: &mut ReadBuf,
+      read_context: &mut ReadContext<'a>,
     ) -> Poll<ReadResult<'a>> {
       match ready!(
-        Pin::new(&mut *self.0.borrow_mut()).poll_read(cx, preferred_buffer)
+        Pin::new(&mut *self.0.borrow_mut()).poll_read(cx, &mut read_context.preferred_buffer())
       ) {
         Ok(_) => Poll::Ready(ReadResult::Ready),
         Err(err) => Poll::Ready(ReadResult::Err(err.into())),
@@ -358,10 +359,10 @@ mod tests {
     fn poll_read<'a>(
       &self,
       cx: &mut std::task::Context,
-      _read_context: &'a ReadContext,
-      preferred_buffer: &mut ReadBuf,
+      read_context: &mut ReadContext<'a>,
     ) -> Poll<ReadResult<'a>> {
       // Copy the incoming capacity
+      let preferred_buffer = read_context.preferred_buffer();
       let mut buf = BufMutView::new(preferred_buffer.capacity());
       let mut read_buf = ReadBuf::new(&mut buf);
       match ready!(
@@ -383,8 +384,7 @@ mod tests {
     fn poll_read<'a>(
       &self,
       cx: &mut std::task::Context,
-      read_context: &'a ReadContext,
-      preferred_buffer: &mut ReadBuf,
+      read_context: &mut ReadContext<'a>,
     ) -> Poll<ReadResult<'a>> {
       let f = self.0.clone();
       read_context.read_future(|mut buf| async move {

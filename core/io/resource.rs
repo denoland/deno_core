@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::BufMutViewWhole;
 use super::ResourceHandle;
 use crate::error::not_supported;
 use crate::io::BufMutView;
@@ -6,11 +7,13 @@ use crate::io::BufView;
 use crate::AsyncResult;
 use anyhow::Error;
 use futures::Future;
+use futures::FutureExt;
 use tokio::io::AsyncRead;
 use std::any::type_name;
 use std::any::Any;
 use std::any::TypeId;
 use std::borrow::Cow;
+use std::io::BufRead;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
@@ -54,9 +57,8 @@ pub trait Resource: Any + 'static {
   /// that future resolves.
   fn poll_read<'a, 'b>(
     &self,
-    cx: &mut Context,
-    read_context: &'a ReadContext,
-    preferred_buffer: &mut ReadBuf<'b>,
+    _cx: &mut Context,
+    _read_context: &mut ReadContext<'a>,
   ) -> Poll<ReadResult<'a>> {
     Poll::Ready(ReadResult::Err(not_supported()))
   }
@@ -122,23 +124,29 @@ pub enum ReadResult<'a> {
   Future(OpaqueReadFuture<'a>),
 }
 
+pub enum ReadResult2 {
+  Err(Error),
+  EOF,
+  Ready(usize),
+  ReadyBufMut(BufMutView),
+  ReadyBuf(BufView),
+}
+
 pub enum WriteResult {
   ReadySync(Result<usize, Error>),
   Future(OpaqueWriteFuture),
 }
 
 pub struct OpaqueReadFuture<'a> {
-  f: Pin<Box<dyn Future<Output = ReadResult<'a>>>>
+  f: Pin<Box<dyn Future<Output = ReadResult<'a>> + 'a>>
 }
 
 impl <'a> OpaqueReadFuture<'a> {
   pub(crate) fn poll_read<'b>(
-    &self,
+    &mut self,
     cx: &mut Context,
-    read_context: &'a ReadContext,
-    preferred_buffer: &mut ReadBuf<'b>,
   ) -> Poll<ReadResult<'a>> {
-    Poll::Ready(ReadResult::Err(not_supported()))
+    self.f.poll_unpin(cx)
   }
 }
 
@@ -146,36 +154,63 @@ pub struct OpaqueWriteFuture {}
 
 impl OpaqueWriteFuture {}
 
-pub struct ReadContext {
+pub enum ReadContextBuf<'a> {
+  Buf(&'a mut [u8]),
+  BufRead(ReadBuf<'a>),
+  Empty,
 }
 
-impl ReadContext {
-  pub fn read_future<'a, F: Future<Output = ReadResult<'a>> + 'a>(&'a self, f: impl (FnOnce(ReadBufHolder<'a>) -> F) + 'a) -> Poll<ReadResult<'a>> {
-    unimplemented!()
+pub struct ReadContext<'a> {
+  pub(crate) buf: ReadContextBuf<'a>,
+}
+
+impl <'a> ReadContext<'a> {
+  pub fn new(buf: &'a mut BufMutViewWhole) -> Self {
+    Self {
+      buf: ReadContextBuf::Buf(buf.as_mut()),
+    }
   }
 
-  pub(crate) fn x<'a>(&'a self) -> Option<OpaqueReadFuture<'a>> {
-    unimplemented!()
+  pub fn read_future<F: Future<Output = ReadResult<'a>> + 'a>(&mut self, f: impl (FnOnce(ReadBufHolder<'a>) -> F) + 'a) -> Poll<ReadResult<'a>> {
+    let buffer = ReadContext { buf: std::mem::replace(&mut self.buf, ReadContextBuf::Empty) };
+    Poll::Ready(ReadResult::Future(OpaqueReadFuture {
+      f: Box::pin((f)(ReadBufHolder { buffer }))
+    }))
   }
 
-  pub(crate) fn y<'a>(&'a self, buf: &'a mut [u8]) -> ReadBuf {
-    ReadBuf::new(buf)
+  pub fn preferred_buffer(&mut self) -> &mut ReadBuf<'a> {
+    let buf_ptr = &mut self.buf;
+    if let ReadContextBuf::BufRead(buf) = buf_ptr {
+      return buf;
+    };
+    let buf = std::mem::replace(buf_ptr, ReadContextBuf::Empty);
+    if let ReadContextBuf::Buf(buf) = buf {
+      _ = std::mem::replace(buf_ptr, ReadContextBuf::BufRead(ReadBuf::new(buf)));
+    }
+    if let ReadContextBuf::BufRead(buf) = buf_ptr {
+      return buf;
+    };
+    unreachable!()
   }
+
+  pub(crate) fn take(self, _future: Option<OpaqueReadFuture<'a>>) {
+  }
+
 }
 
 pub struct ReadBufHolder<'a> {
-  buffer: ReadBuf<'a>,
+  buffer: ReadContext<'a>,
 }
 
 impl <'a> ReadBufHolder<'a> {
   /// Use this buffer for some other purpose.
   pub(crate) fn with_buf<T>(&mut self, f: impl Fn(&mut ReadBuf<'a>) -> T) -> T {
-    f(&mut self.buffer)
+    f(&mut self.buffer.preferred_buffer())
   } 
 
   /// Use this buffer holder to poll a reader.
-  pub(crate) fn poll_reader<R: AsyncRead + Unpin>(&mut self, cx: &mut Context, r: &mut R) -> Poll<std::io::Result<usize>>{
-    Poll::Ready(ready!(Pin::new(r).poll_read(cx, &mut self.buffer)).map(|_| self.buffer.filled().len()))
+  pub(crate) fn poll_reader<R: AsyncRead + Unpin>(&mut self, cx: &mut Context, r: &mut R) -> Poll<std::io::Result<()>>{
+    Poll::Ready(ready!(Pin::new(r).poll_read(cx, &mut self.buffer.preferred_buffer())))
   }
 }
 
