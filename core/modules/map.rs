@@ -48,6 +48,7 @@ use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
 use super::module_map_data::ModuleMapSnapshottedData;
+use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
 
@@ -365,7 +366,9 @@ export default result;
             ))));
           };
 
-          let value_global = custom_evaluation_cb(
+          // TODO(bartlomieju): creating a global just to create a local from it
+          // seems superfluous.
+          let module_evaluation_kind = custom_evaluation_cb(
             self,
             scope,
             module_type.clone(),
@@ -373,13 +376,21 @@ export default result;
             code,
           )
           .map_err(ModuleError::Other)?;
-          let value = v8::Local::new(scope, value_global);
-          self.new_synthetic_module(
-            scope,
-            module_url_found,
-            ModuleType::Other(module_type.clone()),
-            value,
-          )?
+
+          match module_evaluation_kind {
+            CustomModuleEvaluationKind::Synthetic(value_global) => {
+              let value = v8::Local::new(scope, value_global);
+              self.new_synthetic_module(
+                scope,
+                module_url_found,
+                ModuleType::Other(module_type.clone()),
+                value,
+              )?
+            }
+            CustomModuleEvaluationKind::ComputedAndSynthetic() => {
+              todo!()
+            }
+          }
         }
       }
     };

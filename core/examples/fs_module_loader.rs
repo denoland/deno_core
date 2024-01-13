@@ -5,6 +5,7 @@ use anyhow::Context;
 use deno_core::anyhow::Error;
 use deno_core::error::generic_error;
 use deno_core::v8;
+use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
@@ -21,7 +22,7 @@ fn custom_module_evaluation_cb(
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<v8::Global<v8::Value>, Error> {
+) -> Result<CustomModuleEvaluationKind, Error> {
   match &*module_type {
     "bytes" => Ok(bytes_module(scope, code)),
     "text" => text_module(scope, module_name, code),
@@ -37,7 +38,7 @@ fn custom_module_evaluation_cb(
 fn bytes_module(
   scope: &mut v8::HandleScope,
   code: ModuleSourceCode,
-) -> v8::Global<v8::Value> {
+) -> CustomModuleEvaluationKind {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -49,7 +50,7 @@ fn bytes_module(
   let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
   let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
   let value: v8::Local<v8::Value> = uint8_array.into();
-  v8::Global::new(scope, value)
+  CustomModuleEvaluationKind::Synthetic(v8::Global::new(scope, value))
 }
 
 #[derive(Debug)]
@@ -74,7 +75,7 @@ fn wasm_module(
   scope: &mut v8::HandleScope,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<v8::Global<v8::Value>, Error> {
+) -> Result<CustomModuleEvaluationKind, Error> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -99,7 +100,10 @@ fn wasm_module(
     eprintln!("rendered module\n\n{}\n\n", js_wasm_module_source);
   }
 
-  Ok(v8::Global::new(scope, wasm_module_value))
+  let wasm_module_value_global = v8::Global::new(scope, wasm_module_value);
+  Ok(CustomModuleEvaluationKind::Synthetic(
+    wasm_module_value_global,
+  ))
 }
 
 fn analyze_wasm_module(
@@ -222,7 +226,7 @@ fn text_module(
   scope: &mut v8::HandleScope,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<v8::Global<v8::Value>, Error> {
+) -> Result<CustomModuleEvaluationKind, Error> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -233,7 +237,9 @@ fn text_module(
   })?;
   let str_ = v8::String::new(scope, code).unwrap();
   let value: v8::Local<v8::Value> = str_.into();
-  Ok(v8::Global::new(scope, value))
+  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
+    scope, value,
+  )))
 }
 
 fn main() -> Result<(), Error> {
