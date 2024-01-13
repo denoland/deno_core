@@ -7,6 +7,7 @@ use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
 use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
+use crate::modules::ModuleMap;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
 use crate::modules::RequestedModuleType;
@@ -750,6 +751,7 @@ fn test_custom_module_type_default() {
 #[test]
 fn test_custom_module_type_callback() {
   fn custom_eval_cb(
+    module_map: &ModuleMap,
     scope: &mut v8::HandleScope,
     module_type: Cow<'_, str>,
     _module_name: &FastString,
