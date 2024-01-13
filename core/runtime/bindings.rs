@@ -3,6 +3,8 @@ use log::debug;
 use std::fmt::Write;
 use std::option::Option;
 use std::os::raw::c_void;
+use std::path::Path;
+use std::path::PathBuf;
 use url::Url;
 use v8::MapFnTo;
 
@@ -383,11 +385,14 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     let dirname_key =
       v8::String::new_external_onebyte_static(scope, b"dirname").unwrap();
     // Use display() here so that Rust takes care of proper forward/backward slash
-    // formatting depending on the Os.
+    // formatting depending on the OS.
     let filename_val =
       v8::String::new(scope, &file_path.display().to_string()).unwrap();
 
-    let dir_path = file_path.parent().unwrap();
+    let dir_path = file_path
+      .parent()
+      .map(|p| p.to_owned())
+      .unwrap_or_else(|| PathBuf::from("/"));
 
     let dirname_val =
       v8::String::new(scope, &dir_path.display().to_string()).unwrap();
