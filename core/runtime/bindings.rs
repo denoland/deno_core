@@ -363,11 +363,11 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     let dirname_key =
       v8::String::new_external_onebyte_static(scope, b"dirname").unwrap();
     let filename_val =
-      v8::String::new(scope, &name.strip_prefix("file://").unwrap()).unwrap();
+      v8::String::new(scope, name.strip_prefix("file://").unwrap()).unwrap();
     let dirname = name
       .strip_prefix("file://")
       .unwrap()
-      .rsplit_once("/")
+      .rsplit_once('/')
       .map(
         |(dirname, _)| {
           if dirname.is_empty() {
@@ -379,7 +379,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
       )
       .unwrap_or(&name);
 
-    let dirname_val = v8::String::new(scope, &dirname).unwrap();
+    let dirname_val = v8::String::new(scope, dirname).unwrap();
     meta.create_data_property(scope, filename_key.into(), filename_val.into());
     meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
   }
