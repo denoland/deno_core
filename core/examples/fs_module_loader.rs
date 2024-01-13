@@ -9,7 +9,6 @@ use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
-use deno_core::ModuleMap;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
 use serde::Deserialize;
@@ -17,7 +16,6 @@ use std::borrow::Cow;
 use std::rc::Rc;
 
 fn custom_module_evaluation_cb(
-  module_map: &ModuleMap,
   scope: &mut v8::HandleScope,
   module_type: Cow<'_, str>,
   module_name: &FastString,

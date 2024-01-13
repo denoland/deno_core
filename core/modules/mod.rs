@@ -126,7 +126,6 @@ pub type ValidateImportAttributesCb =
 /// should be thrown using `scope.throw_exception()`.
 pub type CustomModuleEvaluationCb = Box<
   dyn Fn(
-    &ModuleMap,
     &mut v8::HandleScope,
     Cow<'_, str>,
     &FastString,

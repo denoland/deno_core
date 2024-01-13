@@ -97,7 +97,6 @@ pub use crate::modules::ModuleCodeBytes;
 pub use crate::modules::ModuleCodeString;
 pub use crate::modules::ModuleId;
 pub use crate::modules::ModuleLoader;
-pub use crate::modules::ModuleMap;
 pub use crate::modules::ModuleSource;
 pub use crate::modules::ModuleSourceCode;
 pub use crate::modules::ModuleSourceFuture;

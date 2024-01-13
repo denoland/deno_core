@@ -369,7 +369,6 @@ export default result;
           // TODO(bartlomieju): creating a global just to create a local from it
           // seems superfluous.
           let module_evaluation_kind = custom_evaluation_cb(
-            self,
             scope,
             module_type.clone(),
             &module_url_found,
