@@ -66,6 +66,8 @@ if (b() != 'b') throw Error();
 if (c() != 'c') throw Error();
 if (!import.meta.main) throw Error();
 if (import.meta.url != 'file:///a.js') throw Error();
+if (import.meta.filename != '/a.js') throw Error();
+if (import.meta.dirname != '/') throw Error();
 "#;
 
   const B_SRC: &str = r#"
@@ -74,6 +76,8 @@ if (c() != 'c') throw Error();
 export function b() { return 'b'; }
 if (import.meta.main) throw Error();
 if (import.meta.url != 'file:///b.js') throw Error();
+if (import.meta.filename != '/b.js') throw Error();
+if (import.meta.dirname != '/') throw Error();
 "#;
 
   const C_SRC: &str = r#"
@@ -82,12 +86,16 @@ export function c() { return 'c'; }
 if (d() != 'd') throw Error();
 if (import.meta.main) throw Error();
 if (import.meta.url != 'file:///c.js') throw Error();
+if (import.meta.filename != '/c.js') throw Error();
+if (import.meta.dirname != '/') throw Error();
 "#;
 
   const D_SRC: &str = r#"
 export function d() { return 'd'; }
 if (import.meta.main) throw Error();
 if (import.meta.url != 'file:///d.js') throw Error();
+if (import.meta.filename != '/d.js') throw Error();
+if (import.meta.dirname != '/') throw Error();
 "#;
 
   const CIRCULAR1_SRC: &str = r#"
@@ -1167,6 +1175,8 @@ if (b() != 'b') throw Error();
 if (c() != 'c') throw Error();
 if (!import.meta.main) throw Error();
 if (import.meta.url != 'file:///main_with_code.js') throw Error();
+if (import.meta.filename != '/main_with_code.js') throw Error();
+if (import.meta.dirname != '/') throw Error();
 "#
   );
 
