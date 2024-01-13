@@ -33,7 +33,7 @@ pub(crate) use loaders::LazyEsmModuleLoader;
 pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
-pub(crate) use map::ModuleMap;
+pub use map::ModuleMap;
 pub(crate) use module_map_data::ModuleMapSnapshottedData;
 
 pub type ModuleId = usize;
@@ -126,6 +126,7 @@ pub type ValidateImportAttributesCb =
 /// should be thrown using `scope.throw_exception()`.
 pub type CustomModuleEvaluationCb = Box<
   dyn Fn(
+    &ModuleMap,
     &mut v8::HandleScope,
     Cow<'_, str>,
     &FastString,

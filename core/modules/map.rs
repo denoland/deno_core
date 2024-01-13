@@ -80,7 +80,7 @@ struct DynImportModEvaluate {
 }
 
 /// A collection of JS modules.
-pub(crate) struct ModuleMap {
+pub struct ModuleMap {
   // Handling of futures for loading module sources
   // TODO(mmastrac): we should not be swapping this loader out
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
@@ -366,6 +366,7 @@ export default result;
           };
 
           let value_global = custom_evaluation_cb(
+            self,
             scope,
             module_type.clone(),
             &module_url_found,
