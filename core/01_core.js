@@ -923,7 +923,6 @@
     readAll,
     write,
     writeAll,
-    writeTypeError,
     readSync,
     writeSync,
     shutdown,

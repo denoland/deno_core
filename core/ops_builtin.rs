@@ -260,8 +260,8 @@ async fn op_write(
   #[buffer] buf: JsBuffer,
 ) -> Result<u32, Error> {
   let resource = state.borrow().resource_table.get_any(rid)?;
-  let view = BufView::from(buf);
-  resource.write(view).await.map(|n| n as u32)
+  let mut view = BufView::from(buf);
+  resource.write(&mut view).await.map(|n| n as u32)
 }
 
 #[op2]

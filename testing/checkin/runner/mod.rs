@@ -34,6 +34,7 @@ deno_core::extension!(
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,
+    ops_io::op_pipe_create,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
   ],

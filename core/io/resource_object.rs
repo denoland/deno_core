@@ -1,16 +1,19 @@
+use super::resource::OpaqueWriteFuture;
+use super::WriteContext;
+use super::WriteResult;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::resource::ReadContext;
 use super::resource::ReadResult;
 use super::BufMutViewWhole;
 use crate::buffer_strategy::AdaptiveBufferStrategy;
 use crate::error::not_supported;
+use crate::io::resource::OpaqueReadFuture;
+use crate::io::resource::ReadResult2;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::AsyncRefCell;
 use crate::Resource;
 use crate::ResourceHandle;
-use crate::io::resource::OpaqueReadFuture;
-use crate::io::resource::ReadResult2;
 use anyhow::bail;
 use anyhow::Error;
 use bytes::Buf;
@@ -27,14 +30,34 @@ use std::os::fd::FromRawFd;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::task::Context;
 use std::task::ready;
+use std::task::Context;
 use std::task::Poll;
+use tokio::io::AsyncWrite;
 use tokio::io::ReadBuf;
 
 #[derive(Default)]
 struct ReadState {
   partial: Option<BufView>,
+}
+
+impl ReadState {
+  pub(crate) fn write(
+    &mut self,
+    slice: &mut [u8],
+    mut buf: BufView,
+  ) -> Result<usize, Error> {
+    let buf_len = buf.len();
+    let slice_len = slice.len();
+    if buf_len > slice_len {
+      buf.copy_to_slice(slice);
+      self.partial = Some(buf);
+      return Ok(slice_len);
+    } else {
+      buf.copy_to_slice(&mut slice[..buf_len]);
+      return Ok(buf_len);
+    }
+  }
 }
 
 pub struct ResourceObject<T: Resource + ?Sized> {
@@ -64,8 +87,43 @@ impl<T: Resource + ?Sized> ResourceObject<T> {
     (self.close_fn)(self.resource)
   }
 
-  pub async fn write(&self, buf: BufView) -> Result<usize, Error> {
-    unimplemented!()
+  pub async fn write(&self, buf: &mut BufView) -> Result<usize, Error> {
+    let mut write_state = self.write_lock.borrow_mut().await;
+    if let Some(mut w) = self.async_write {
+      let res = poll_fn(|cx| unsafe {
+        let res = ready!(Pin::new_unchecked(w.as_mut()).poll_write(cx, &buf));
+        Poll::Ready(res)
+      })
+      .await;
+      res.map_err(|e| e.into())
+    } else {
+      let mut write_context = WriteContext::new(buf);
+      let res = poll_fn(|cx| {
+        let mut maybe_future: Option<OpaqueWriteFuture> = None;
+        loop {
+          let res = ready!(if let Some(future) = &mut maybe_future {
+            future.poll_write(cx)
+          } else {
+            self.resource.poll_write(cx, &mut write_context)
+          });
+
+          break Poll::Ready(match res {
+            WriteResult::PollAgain => {
+              continue;
+            }
+            WriteResult::EOF => Ok(0),
+            WriteResult::Ready(n) => Ok(n),
+            WriteResult::Err(err) => Err(err),
+            WriteResult::Future(future) => {
+              maybe_future = Some(future);
+              continue;
+            }
+          });
+        }
+      })
+      .await;
+      res
+    }
   }
 
   pub async fn read(&self, buf: &mut BufMutViewWhole) -> Result<usize, Error> {
@@ -80,37 +138,37 @@ impl<T: Resource + ?Sized> ResourceObject<T> {
       .await;
       res.map_err(|e| e.into())
     } else {
-      if let Some(mut retbuf) = read_state.partial.take() {
-        let len = retbuf.len();
-        retbuf.copy_to_slice(buf);
-        if len > buf.len() {
-          read_state.partial = Some(retbuf.split_off(buf.len()));
-          return Ok(buf.len());
-        } else {
-          return Ok(len);
-        }
+      if let Some(retbuf) = read_state.partial.take() {
+        return read_state.write(buf.as_mut(), retbuf);
       }
 
       let mut read_context = ReadContext::new(buf);
 
-      fn do_poll<'a, 'b, 'c, T: Resource + ?Sized>(cx: &mut Context, resource: &T, read_context: &mut ReadContext<'a>, maybe_future: &mut Option<OpaqueReadFuture<'a>>) -> Poll<ReadResult2> {
+      fn do_poll<'a, 'b, 'c, T: Resource + ?Sized>(
+        cx: &mut Context,
+        resource: &T,
+        read_context: &mut ReadContext<'a>,
+        maybe_future: &mut Option<OpaqueReadFuture<'a>>,
+      ) -> Poll<ReadResult2> {
         loop {
-          let res: ReadResult<'a> = ready!(if let Some(future) = maybe_future {
-            future.poll_read(cx)
-          } else {
-            resource.poll_read(
-              cx,
-              read_context,
-            )
-          });
+          let res: ReadResult<'a> =
+            ready!(if let Some(future) = maybe_future {
+              future.poll_read(cx)
+            } else {
+              resource.poll_read(cx, read_context)
+            });
 
           break Poll::Ready(match res {
-            ReadResult::PollAgain => { continue; },
+            ReadResult::PollAgain => {
+              continue;
+            }
             ReadResult::Future(future) => {
               *maybe_future = Some(future);
               continue;
-            },
-            ReadResult::Ready => ReadResult2::Ready(read_context.preferred_buffer().filled().len()),
+            }
+            ReadResult::Ready => {
+              ReadResult2::Ready(read_context.preferred_buffer().filled().len())
+            }
             ReadResult::Err(err) => ReadResult2::Err(err),
             ReadResult::EOF => ReadResult2::EOF,
             ReadResult::ReadyBuf(buf) => ReadResult2::ReadyBuf(buf),
@@ -122,35 +180,18 @@ impl<T: Resource + ?Sized> ResourceObject<T> {
       let mut future = None;
       let res = poll_fn(|cx| {
         do_poll(cx, self.resource.as_ref(), &mut read_context, &mut future)
-      }).await;
+      })
+      .await;
       read_context.take(future);
       match res {
         ReadResult2::EOF => Ok(0),
         ReadResult2::Ready(n) => Ok(n),
         ReadResult2::Err(err) => Err(err),
-        ReadResult2::ReadyBuf(mut retbuf) => {
-          let len = retbuf.len();
-          retbuf.copy_to_slice(buf.as_mut());
-          if len > buf.len() {
-            read_state.partial =
-              Some(retbuf.split_off(buf.len()));
-            Ok(buf.len())
-          } else {
-            Ok(len)
-          }
+        ReadResult2::ReadyBuf(retbuf) => read_state.write(buf.as_mut(), retbuf),
+        ReadResult2::ReadyBufMut(retbuf) => {
+          read_state.write(buf.as_mut(), retbuf.into_view())
         }
-        ReadResult2::ReadyBufMut(mut retbuf) => {
-          let len = retbuf.len();
-          retbuf.copy_to_slice(buf.as_mut());
-          if len > buf.len() {
-            read_state.partial =
-              Some(retbuf.split_off(buf.len()).into_view());
-            Ok(buf.len())
-          } else {
-            Ok(len)
-          }
-        },
-        _ => unreachable!()
+        _ => unreachable!(),
       }
     }
   }
@@ -345,9 +386,9 @@ mod tests {
       cx: &mut std::task::Context,
       read_context: &mut ReadContext<'a>,
     ) -> Poll<ReadResult<'a>> {
-      match ready!(
-        Pin::new(&mut *self.0.borrow_mut()).poll_read(cx, &mut read_context.preferred_buffer())
-      ) {
+      match ready!(Pin::new(&mut *self.0.borrow_mut())
+        .poll_read(cx, &mut read_context.preferred_buffer()))
+      {
         Ok(_) => Poll::Ready(ReadResult::Ready),
         Err(err) => Poll::Ready(ReadResult::Err(err.into())),
       }
@@ -373,7 +414,7 @@ mod tests {
           buf.reset_cursor();
           buf.truncate(n);
           Poll::Ready(ReadResult::ReadyBufMut(buf))
-        },
+        }
         Err(err) => Poll::Ready(ReadResult::Err(err.into())),
       }
     }
@@ -389,9 +430,7 @@ mod tests {
       let f = self.0.clone();
       read_context.read_future(|mut buf| async move {
         let mut f = f.borrow_mut();
-        let res = poll_fn(|cx| {
-          buf.poll_reader(cx, f.deref_mut())
-        }).await;
+        let res = poll_fn(|cx| buf.poll_reader(cx, f.deref_mut())).await;
         ReadResult::Ready
       })
     }
@@ -441,9 +480,9 @@ mod tests {
       .read_exact(&mut expected)
       .unwrap();
 
-    let resource = FileResourcePollOwnBuf(RefCell::new(tokio::fs::File::from_std(
-      File::open("Cargo.toml").unwrap(),
-    )));
+    let resource = FileResourcePollOwnBuf(RefCell::new(
+      tokio::fs::File::from_std(File::open("Cargo.toml").unwrap()),
+    ));
     let resource = ResourceObject::new(resource);
 
     let mut buf = BufMutViewWhole::new(expected.len());

@@ -5,7 +5,6 @@ use serde_v8::JsBuffer;
 use serde_v8::V8Slice;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use tokio::io::ReadBuf;
 
 /// BufView is a wrapper around an underlying contiguous chunk of bytes. It can
 /// be created from a [JsBuffer], [bytes::Bytes], or [Vec<u8>] and implements
@@ -542,20 +541,6 @@ impl From<JsBuffer> for BufMutViewWhole {
 impl From<BytesMut> for BufMutViewWhole {
   fn from(buf: BytesMut) -> Self {
     Self::from_inner(BufMutViewInner::Bytes(buf))
-  }
-}
-
-pub enum WriteOutcome {
-  Partial { nwritten: usize, view: BufView },
-  Full { nwritten: usize },
-}
-
-impl WriteOutcome {
-  pub fn nwritten(&self) -> usize {
-    match self {
-      WriteOutcome::Partial { nwritten, .. } => *nwritten,
-      WriteOutcome::Full { nwritten } => *nwritten,
-    }
   }
 }
 

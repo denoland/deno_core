@@ -8,16 +8,15 @@ use crate::AsyncResult;
 use anyhow::Error;
 use futures::Future;
 use futures::FutureExt;
-use tokio::io::AsyncRead;
 use std::any::type_name;
 use std::any::Any;
 use std::any::TypeId;
 use std::borrow::Cow;
-use std::io::BufRead;
 use std::pin::Pin;
+use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
-use std::task::ready;
+use tokio::io::AsyncRead;
 use tokio::io::ReadBuf;
 
 /// Resources are Rust objects that are attached to a [deno_core::JsRuntime].
@@ -32,8 +31,8 @@ use tokio::io::ReadBuf;
 /// table, the reference count is at least 1.
 ///
 /// ### Readable
-/// 
-/// 
+///
+///
 /// ### Writable
 ///
 /// Writable resources are resources that can have data written to. Examples of
@@ -55,7 +54,7 @@ pub trait Resource: Any + 'static {
   /// Poll this resource for a read operation. Only one read operation will be issued on this resource
   /// at a time, and should this resource return a future, no read operations will be performed until
   /// that future resolves.
-  fn poll_read<'a, 'b>(
+  fn poll_read<'a>(
     &self,
     _cx: &mut Context,
     _read_context: &mut ReadContext<'a>,
@@ -66,13 +65,12 @@ pub trait Resource: Any + 'static {
   /// Poll this resource for a write operation. Only one write operation will be issued on this resource
   /// at a time, and should this resource return a future, no write operations will be performed until
   /// that future resolves.
-  fn poll_write(
+  fn poll_write<'a>(
     &self,
-    cx: &mut Context,
-    write_context: &WriteContext,
-    buffer: BufView,
-  ) -> Poll<WriteResult> {
-    Poll::Ready(WriteResult::ReadySync(Err(not_supported())))
+    _cx: &mut Context,
+    _write_context: &mut WriteContext<'a>,
+  ) -> Poll<WriteResult<'a>> {
+    Poll::Ready(WriteResult::Err(not_supported()))
   }
 
   /// The shutdown method can be used to asynchronously close the resource. It
@@ -124,7 +122,7 @@ pub enum ReadResult<'a> {
   Future(OpaqueReadFuture<'a>),
 }
 
-pub enum ReadResult2 {
+pub(crate) enum ReadResult2 {
   Err(Error),
   EOF,
   Ready(usize),
@@ -132,27 +130,59 @@ pub enum ReadResult2 {
   ReadyBuf(BufView),
 }
 
-pub enum WriteResult {
-  ReadySync(Result<usize, Error>),
-  Future(OpaqueWriteFuture),
+pub enum WriteResult<'a> {
+  /// The write operation returned an error.
+  Err(Error),
+  /// The write operation could not complete, but is requesting a re-poll at a later time
+  /// (potentially even right away). This is useful in certain cases where there may be internal
+  /// buffering and it is simply easier to retry to write.
+  PollAgain,
+  EOF,
+  Ready(usize),
+  Future(OpaqueWriteFuture<'a>),
 }
 
 pub struct OpaqueReadFuture<'a> {
-  f: Pin<Box<dyn Future<Output = ReadResult<'a>> + 'a>>
+  f: Pin<Box<dyn Future<Output = ReadResult<'a>> + 'a>>,
 }
 
-impl <'a> OpaqueReadFuture<'a> {
-  pub(crate) fn poll_read<'b>(
-    &mut self,
-    cx: &mut Context,
-  ) -> Poll<ReadResult<'a>> {
+impl<'a> OpaqueReadFuture<'a> {
+  pub(crate) fn poll_read(&mut self, cx: &mut Context) -> Poll<ReadResult<'a>> {
     self.f.poll_unpin(cx)
   }
 }
 
-pub struct OpaqueWriteFuture {}
+pub struct OpaqueWriteFuture<'a> {
+  f: Pin<Box<dyn Future<Output = WriteResult<'a>> + 'a>>,
+}
 
-impl OpaqueWriteFuture {}
+impl<'a> OpaqueWriteFuture<'a> {
+  pub(crate) fn poll_write(
+    &mut self,
+    cx: &mut Context,
+  ) -> Poll<WriteResult<'a>> {
+    self.f.poll_unpin(cx)
+  }
+}
+
+pub struct WriteContext<'a> {
+  buf: &'a mut BufView,
+}
+
+impl<'a> WriteContext<'a> {
+  pub(crate) fn new(buf: &'a mut BufView) -> Self {
+    Self { buf }
+  }
+
+  pub fn buf_copy(&mut self) -> BufView {
+    // self.buf.clone()
+    unimplemented!()
+  }
+
+  pub fn buf_owned(&mut self) -> BufView {
+    self.buf.split_off(0)
+  }
+}
 
 pub enum ReadContextBuf<'a> {
   Buf(&'a mut [u8]),
@@ -164,17 +194,22 @@ pub struct ReadContext<'a> {
   pub(crate) buf: ReadContextBuf<'a>,
 }
 
-impl <'a> ReadContext<'a> {
+impl<'a> ReadContext<'a> {
   pub fn new(buf: &'a mut BufMutViewWhole) -> Self {
     Self {
       buf: ReadContextBuf::Buf(buf.as_mut()),
     }
   }
 
-  pub fn read_future<F: Future<Output = ReadResult<'a>> + 'a>(&mut self, f: impl (FnOnce(ReadBufHolder<'a>) -> F) + 'a) -> Poll<ReadResult<'a>> {
-    let buffer = ReadContext { buf: std::mem::replace(&mut self.buf, ReadContextBuf::Empty) };
+  pub fn read_future<F: Future<Output = ReadResult<'a>> + 'a>(
+    &mut self,
+    f: impl (FnOnce(ReadBufHolder<'a>) -> F) + 'a,
+  ) -> Poll<ReadResult<'a>> {
+    let buffer = ReadContext {
+      buf: std::mem::replace(&mut self.buf, ReadContextBuf::Empty),
+    };
     Poll::Ready(ReadResult::Future(OpaqueReadFuture {
-      f: Box::pin((f)(ReadBufHolder { buffer }))
+      f: Box::pin((f)(ReadBufHolder { buffer })),
     }))
   }
 
@@ -185,7 +220,8 @@ impl <'a> ReadContext<'a> {
     };
     let buf = std::mem::replace(buf_ptr, ReadContextBuf::Empty);
     if let ReadContextBuf::Buf(buf) = buf {
-      _ = std::mem::replace(buf_ptr, ReadContextBuf::BufRead(ReadBuf::new(buf)));
+      _ =
+        std::mem::replace(buf_ptr, ReadContextBuf::BufRead(ReadBuf::new(buf)));
     }
     if let ReadContextBuf::BufRead(buf) = buf_ptr {
       return buf;
@@ -193,28 +229,30 @@ impl <'a> ReadContext<'a> {
     unreachable!()
   }
 
-  pub(crate) fn take(self, _future: Option<OpaqueReadFuture<'a>>) {
-  }
-
+  pub(crate) fn take(self, _future: Option<OpaqueReadFuture<'a>>) {}
 }
 
 pub struct ReadBufHolder<'a> {
   buffer: ReadContext<'a>,
 }
 
-impl <'a> ReadBufHolder<'a> {
+impl<'a> ReadBufHolder<'a> {
   /// Use this buffer for some other purpose.
   pub(crate) fn with_buf<T>(&mut self, f: impl Fn(&mut ReadBuf<'a>) -> T) -> T {
     f(&mut self.buffer.preferred_buffer())
-  } 
+  }
 
   /// Use this buffer holder to poll a reader.
-  pub(crate) fn poll_reader<R: AsyncRead + Unpin>(&mut self, cx: &mut Context, r: &mut R) -> Poll<std::io::Result<()>>{
-    Poll::Ready(ready!(Pin::new(r).poll_read(cx, &mut self.buffer.preferred_buffer())))
+  pub(crate) fn poll_reader<R: AsyncRead + Unpin>(
+    &mut self,
+    cx: &mut Context,
+    r: &mut R,
+  ) -> Poll<std::io::Result<()>> {
+    Poll::Ready(ready!(
+      Pin::new(r).poll_read(cx, &mut self.buffer.preferred_buffer())
+    ))
   }
 }
-
-pub struct WriteContext {}
 
 impl dyn Resource {
   #[inline(always)]
