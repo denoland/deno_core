@@ -74,6 +74,7 @@ deno_core::extension!(
     ops_builtin_types::op_is_typed_array,
     ops_builtin_types::op_is_weak_map,
     ops_builtin_types::op_is_weak_set,
+    ops_builtin_types::op_is_wasm_module_object,
     ops_builtin_v8::op_set_handled_promise_rejection_handler,
     ops_builtin_v8::op_timer_queue,
     ops_builtin_v8::op_timer_cancel,

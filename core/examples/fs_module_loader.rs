@@ -52,6 +52,11 @@ fn bytes_module(
   v8::Global::new(scope, value)
 }
 
+#[derive(Debug)]
+struct WasmModuleAnalysis {
+  pub imports: Vec<WebAssemblyImportDescriptor>,
+  pub exports: Vec<WebAssemblyExportDescriptor>,
+}
 #[derive(Debug, Deserialize)]
 struct WebAssemblyImportDescriptor {
   pub module: String,
@@ -74,7 +79,6 @@ fn wasm_module(
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
   };
-  // TODO(bartlomieju): remove this unwrap
   let Some(wasm_module) = v8::WasmModuleObject::compile(scope, buf.as_bytes())
   else {
     return Err(generic_error(format!(
@@ -82,73 +86,79 @@ fn wasm_module(
       module_name.as_str()
     )));
   };
-  let value: v8::Local<v8::Value> = wasm_module.into();
+  let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
 
+  // TODO(bartlomieju): this is effectively what we have to execute as an
+  // auxiliary module
   // Get imports and exports of the WASM module
   {
-    // TODO(bartlomieju): these should be stored on startup so users can't
-    // tamper with them
-    let context = scope.get_current_context();
-    let global = context.global(scope);
-    let web_assembly_key =
-      v8::String::new_external_onebyte_static(scope, b"WebAssembly").unwrap();
-    let web_assembly_module_key =
-      v8::String::new_external_onebyte_static(scope, b"Module").unwrap();
-    let web_assembly_module_imports_key =
-      v8::String::new_external_onebyte_static(scope, b"imports").unwrap();
-    let web_assembly_module_exports_key =
-      v8::String::new_external_onebyte_static(scope, b"exports").unwrap();
-
-    let web_assembly_object: v8::Local<v8::Object> = global
-      .get(scope, web_assembly_key.into())
-      .unwrap()
-      .try_into()
-      .unwrap();
-    let web_assembly_module_object: v8::Local<v8::Object> = web_assembly_object
-      .get(scope, web_assembly_module_key.into())
-      .unwrap()
-      .try_into()
-      .unwrap();
-    let web_assembly_module_imports_fn: v8::Local<v8::Function> =
-      web_assembly_module_object
-        .get(scope, web_assembly_module_imports_key.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-    let web_assembly_module_exports_fn: v8::Local<v8::Function> =
-      web_assembly_module_object
-        .get(scope, web_assembly_module_exports_key.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-    let receiver = v8::undefined(scope);
-    let import_result = web_assembly_module_imports_fn
-      .call(scope, receiver.into(), &[value])
-      .unwrap();
-    let import_result_arr: Vec<WebAssemblyImportDescriptor> =
-      serde_v8::from_v8(scope, import_result).unwrap();
-    let export_result = web_assembly_module_exports_fn
-      .call(scope, receiver.into(), &[value])
-      .unwrap();
-    let export_result_arr: Vec<WebAssemblyExportDescriptor> =
-      serde_v8::from_v8(scope, export_result).unwrap();
-    eprintln!("import result arr {:#?}", import_result_arr);
-    eprintln!("export result arr {:#?}", export_result_arr);
-    let mod_ = render_js_wasm_module(
-      module_name.as_str(),
-      import_result_arr,
-      export_result_arr,
-    );
-    eprintln!("rendered module\n\n{}\n\n", mod_);
+    let wasm_module_analysis = analyze_wasm_module(scope, wasm_module_value);
+    eprintln!("WasmModuleAnalysis {:#?}", wasm_module_analysis);
+    let js_wasm_module_source =
+      render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
+    eprintln!("rendered module\n\n{}\n\n", js_wasm_module_source);
   }
 
-  Ok(v8::Global::new(scope, value))
+  Ok(v8::Global::new(scope, wasm_module_value))
+}
+
+fn analyze_wasm_module(
+  scope: &mut v8::HandleScope,
+  value: v8::Local<v8::Value>,
+) -> WasmModuleAnalysis {
+  // TODO(bartlomieju): these should be stored on JsRuntime startup and called
+  // from JsRuntime - so that users can't tamper with these globals
+  let context = scope.get_current_context();
+  let global = context.global(scope);
+  let web_assembly_key =
+    v8::String::new_external_onebyte_static(scope, b"WebAssembly").unwrap();
+  let web_assembly_module_key =
+    v8::String::new_external_onebyte_static(scope, b"Module").unwrap();
+  let web_assembly_module_imports_key =
+    v8::String::new_external_onebyte_static(scope, b"imports").unwrap();
+  let web_assembly_module_exports_key =
+    v8::String::new_external_onebyte_static(scope, b"exports").unwrap();
+
+  let web_assembly_object: v8::Local<v8::Object> = global
+    .get(scope, web_assembly_key.into())
+    .unwrap()
+    .try_into()
+    .unwrap();
+  let web_assembly_module_object: v8::Local<v8::Object> = web_assembly_object
+    .get(scope, web_assembly_module_key.into())
+    .unwrap()
+    .try_into()
+    .unwrap();
+  let web_assembly_module_imports_fn: v8::Local<v8::Function> =
+    web_assembly_module_object
+      .get(scope, web_assembly_module_imports_key.into())
+      .unwrap()
+      .try_into()
+      .unwrap();
+  let web_assembly_module_exports_fn: v8::Local<v8::Function> =
+    web_assembly_module_object
+      .get(scope, web_assembly_module_exports_key.into())
+      .unwrap()
+      .try_into()
+      .unwrap();
+  let receiver = v8::undefined(scope);
+  let import_result = web_assembly_module_imports_fn
+    .call(scope, receiver.into(), &[value])
+    .unwrap();
+  let imports: Vec<WebAssemblyImportDescriptor> =
+    serde_v8::from_v8(scope, import_result).unwrap();
+  let export_result = web_assembly_module_exports_fn
+    .call(scope, receiver.into(), &[value])
+    .unwrap();
+  let exports: Vec<WebAssemblyExportDescriptor> =
+    serde_v8::from_v8(scope, export_result).unwrap();
+
+  WasmModuleAnalysis { imports, exports }
 }
 
 fn render_js_wasm_module(
   specifier: &str,
-  imports: Vec<WebAssemblyImportDescriptor>,
-  exports: Vec<WebAssemblyExportDescriptor>,
+  wasm_module_analysis: WasmModuleAnalysis,
 ) -> String {
   // TODO:
   let mut src = Vec::with_capacity(1024);
@@ -159,8 +169,8 @@ fn render_js_wasm_module(
   ));
 
   // TODO(bartlomieju): handle imports collisions?
-  if !imports.is_empty() {
-    for import_desc in &imports {
+  if !wasm_module_analysis.imports.is_empty() {
+    for import_desc in &wasm_module_analysis.imports {
       src.push(format!(
         r#"import {{ {} }} from "{}";"#,
         import_desc.name, import_desc.module
@@ -169,7 +179,7 @@ fn render_js_wasm_module(
 
     src.push("const importsObject = {};".to_string());
 
-    for import_desc in imports {
+    for import_desc in &wasm_module_analysis.imports {
       src.push(format!(
         r#"importsObject["{}"] ??= {{}};
 importsObject["{}"]["{}"] = {};"#,
@@ -189,8 +199,8 @@ importsObject["{}"]["{}"] = {};"#,
     )
   }
 
-  if !exports.is_empty() {
-    for export_desc in exports {
+  if !wasm_module_analysis.exports.is_empty() {
+    for export_desc in &wasm_module_analysis.exports {
       if export_desc.name == "default" {
         src.push(format!(
           "export default modInstance.exports.{};",
