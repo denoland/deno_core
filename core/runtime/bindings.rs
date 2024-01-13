@@ -3,7 +3,6 @@ use log::debug;
 use std::fmt::Write;
 use std::option::Option;
 use std::os::raw::c_void;
-use std::path::Path;
 use std::path::PathBuf;
 use url::Url;
 use v8::MapFnTo;
