@@ -3,6 +3,7 @@ use log::debug;
 use std::fmt::Write;
 use std::option::Option;
 use std::os::raw::c_void;
+use url::Url;
 use v8::MapFnTo;
 
 use crate::error::has_call_site;
@@ -356,34 +357,6 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let url_val = v8::String::new(scope, &name).unwrap();
   meta.create_data_property(scope, url_key.into(), url_val.into());
 
-  // For `file:` URL we provide additional `filename` and `dirname` values
-  if name.starts_with("file:") {
-    let filename_key =
-      v8::String::new_external_onebyte_static(scope, b"filename").unwrap();
-    let dirname_key =
-      v8::String::new_external_onebyte_static(scope, b"dirname").unwrap();
-    let filename_val =
-      v8::String::new(scope, name.strip_prefix("file://").unwrap()).unwrap();
-    let dirname = name
-      .strip_prefix("file://")
-      .unwrap()
-      .rsplit_once('/')
-      .map(
-        |(dirname, _)| {
-          if dirname.is_empty() {
-            "/"
-          } else {
-            dirname
-          }
-        },
-      )
-      .unwrap_or(&name);
-
-    let dirname_val = v8::String::new(scope, dirname).unwrap();
-    meta.create_data_property(scope, filename_key.into(), filename_val.into());
-    meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
-  }
-
   let main_key =
     v8::String::new_external_onebyte_static(scope, b"main").unwrap();
   let main = module_map.is_main_module(&module_global);
@@ -396,6 +369,31 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let resolve_key =
     v8::String::new_external_onebyte_static(scope, b"resolve").unwrap();
   meta.set(scope, resolve_key.into(), val.into());
+
+  // For `file:` URL we provide additional `filename` and `dirname` values
+  let Ok(name_url) = Url::parse(&name) else {
+    return;
+  };
+
+  if name_url.scheme() == "file" {
+    let file_path = name_url.to_file_path().unwrap();
+
+    let filename_key =
+      v8::String::new_external_onebyte_static(scope, b"filename").unwrap();
+    let dirname_key =
+      v8::String::new_external_onebyte_static(scope, b"dirname").unwrap();
+    // Use display() here so that Rust takes care of proper forward/backward slash
+    // formatting depending on the Os.
+    let filename_val =
+      v8::String::new(scope, &file_path.display().to_string()).unwrap();
+
+    let dir_path = file_path.parent().unwrap();
+
+    let dirname_val =
+      v8::String::new(scope, &dir_path.display().to_string()).unwrap();
+    meta.create_data_property(scope, filename_key.into(), filename_val.into());
+    meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
+  }
 }
 
 fn import_meta_resolve(
