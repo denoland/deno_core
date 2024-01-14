@@ -101,7 +101,7 @@ fn wasm_module(
   let synthetic_module_type = ModuleType::Other("wasm-module".into());
 
   Ok(CustomModuleEvaluationKind::ComputedAndSynthetic(
-    js_wasm_module_source,
+    js_wasm_module_source.into(),
     wasm_module_value_global,
     synthetic_module_type,
   ))

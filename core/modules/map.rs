@@ -247,6 +247,11 @@ impl ModuleMap {
   }
 
   #[cfg(test)]
+  pub fn get_data(&self) -> &RefCell<ModuleMapData> {
+    &self.data
+  }
+
+  #[cfg(test)]
   pub fn assert_module_map(&self, modules: &Vec<super::ModuleInfo>) {
     self.data.borrow().assert_module_map(modules);
   }
@@ -374,7 +379,7 @@ impl ModuleMap {
               main,
               ModuleType::Other(module_type.clone()),
               url2,
-              computed_src.into(),
+              computed_src,
               dynamic,
             )?
           }

@@ -145,7 +145,7 @@ pub enum CustomModuleEvaluationKind {
   ///    the source of JS objects - this module is set up first.
   ComputedAndSynthetic(
     // Source code of computed module,
-    String,
+    FastString,
     // Synthetic module value
     v8::Global<v8::Value>,
     // Synthetic module type
