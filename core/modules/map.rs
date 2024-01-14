@@ -81,7 +81,7 @@ struct DynImportModEvaluate {
 }
 
 /// A collection of JS modules.
-pub struct ModuleMap {
+pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
   // TODO(mmastrac): we should not be swapping this loader out
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
