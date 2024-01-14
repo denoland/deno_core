@@ -48,6 +48,7 @@ use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
 use super::module_map_data::ModuleMapSnapshottedData;
+use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
 
@@ -296,7 +297,7 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let module_id = match module_type.clone() {
+    let module_id = match module_type {
       ModuleType::JavaScript => {
         let code =
           ModuleSource::get_string_source(module_url_found.as_str(), code)
@@ -328,20 +329,56 @@ impl ModuleMap {
           ))));
         };
 
-        let value_global = custom_evaluation_cb(
+        // TODO(bartlomieju): creating a global just to create a local from it
+        // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
+        // a lifetime will have a viral effect and required `JsRuntimeOptions`
+        // to have a callback as well as `JsRuntime`.
+        let module_evaluation_kind = custom_evaluation_cb(
           scope,
           module_type.clone(),
           &module_url_found,
           code,
         )
         .map_err(ModuleError::Other)?;
-        let value = v8::Local::new(scope, value_global);
-        self.new_synthetic_module(
-          scope,
-          module_url_found,
-          ModuleType::Other(module_type.clone()),
-          value,
-        )?
+
+        match module_evaluation_kind {
+          // Simple case, we just got a single value so we create a regular
+          // synthetic module.
+          CustomModuleEvaluationKind::Synthetic(value_global) => {
+            let value = v8::Local::new(scope, value_global);
+            self.new_synthetic_module(
+              scope,
+              module_url_found,
+              ModuleType::Other(module_type.clone()),
+              value,
+            )?
+          }
+
+          // Complex case - besides a synthetic module, we will create a new
+          // module from JS code.
+          CustomModuleEvaluationKind::ComputedAndSynthetic(
+            computed_src,
+            synthetic_value,
+            synthetic_module_type,
+          ) => {
+            let (url1, url2) = module_url_found.into_cheap_copy();
+            let value = v8::Local::new(scope, synthetic_value);
+            let _synthetic_mod_id = self.new_synthetic_module(
+              scope,
+              url1,
+              synthetic_module_type,
+              value,
+            )?;
+            self.new_module_from_js_source(
+              scope,
+              main,
+              ModuleType::Other(module_type.clone()),
+              url2,
+              computed_src.into(),
+              dynamic,
+            )?
+          }
+        }
       }
     };
     Ok(module_id)

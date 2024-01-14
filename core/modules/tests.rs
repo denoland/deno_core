@@ -5,6 +5,7 @@ use crate::error::generic_error;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
+use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
 use crate::modules::ModuleRequest;
@@ -754,7 +755,7 @@ fn test_custom_module_type_callback() {
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<CustomModuleEvaluationKind, Error> {
     if module_type != "bytes" {
       return Err(generic_error(format!(
         "Can't load '{}' module",
@@ -772,7 +773,8 @@ fn test_custom_module_type_callback() {
     let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
     let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
     let value: v8::Local<v8::Value> = uint8_array.into();
-    Ok(v8::Global::new(scope, value))
+    let value_global = v8::Global::new(scope, value);
+    Ok(CustomModuleEvaluationKind::Synthetic(value_global))
   }
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
