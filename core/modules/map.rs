@@ -318,97 +318,59 @@ impl ModuleMap {
         self.new_json_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
-        // TODO(bartlomieju): this needs to be abstracted away and assumes
-        // "bytes" import support
-        if module_type == "wasm" {
-          let source = format!(
-            r#"
-import wasmBytes from "{}" with {{ type: "bytes" }};
-const wasmMod = await WebAssembly.compile(wasmBytes);
-const requestedImports = WebAssembly.Module.imports(wasmMod);
-const importedModules = await Promise.all(
-  requestedImports.map((i) => i.module).map((m) => import(m)),
-);
-const importsObject = {{}};
-for (let i = 0; i < requestedImports.length; i++) {{
-  const importedModule = importedModules[i];
-  const requestedImport = requestedImports[i];
-  if (typeof importsObject[requestedImport.module] === "undefined") {{
-    importsObject[requestedImport.module] = {{}};
-  }}
-  const import_ = importedModule[requestedImport.name];
-  importsObject[requestedImport.module][requestedImport.name] = import_;
-}}
-const result = await WebAssembly.instantiate(wasmMod, importsObject);
-export default result;
-          "#,
-            module_url_found.as_str()
-          );
-          // Ha! This is cool - we're saying this is a "WASM" module type, even
-          // though it's really a JS module that pulls WASM byte source.
-          self.new_module_from_js_source(
-            scope,
-            main,
-            ModuleType::Other("wasm".into()),
-            module_url_found,
-            source.into(),
-            dynamic,
-          )?
-        } else {
-          let state = JsRuntime::state_from(scope);
-          let custom_module_evaluation_cb =
-            state.custom_module_evaluation_cb.as_ref();
+        let state = JsRuntime::state_from(scope);
+        let custom_module_evaluation_cb =
+          state.custom_module_evaluation_cb.as_ref();
 
-          let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
-            return Err(ModuleError::Other(generic_error(format!(
-              "Importing '{}' modules is not supported",
-              module_type
-            ))));
-          };
+        let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
+          return Err(ModuleError::Other(generic_error(format!(
+            "Importing '{}' modules is not supported",
+            module_type
+          ))));
+        };
 
-          // TODO(bartlomieju): creating a global just to create a local from it
-          // seems superfluous.
-          let module_evaluation_kind = custom_evaluation_cb(
-            scope,
-            module_type.clone(),
-            &module_url_found,
-            code,
-          )
-          .map_err(ModuleError::Other)?;
+        // TODO(bartlomieju): creating a global just to create a local from it
+        // seems superfluous.
+        let module_evaluation_kind = custom_evaluation_cb(
+          scope,
+          module_type.clone(),
+          &module_url_found,
+          code,
+        )
+        .map_err(ModuleError::Other)?;
 
-          match module_evaluation_kind {
-            CustomModuleEvaluationKind::Synthetic(value_global) => {
-              let value = v8::Local::new(scope, value_global);
-              self.new_synthetic_module(
-                scope,
-                module_url_found,
-                ModuleType::Other(module_type.clone()),
-                value,
-              )?
-            }
-            CustomModuleEvaluationKind::ComputedAndSynthetic(
-              computed_src,
-              synthetic_value,
+        match module_evaluation_kind {
+          CustomModuleEvaluationKind::Synthetic(value_global) => {
+            let value = v8::Local::new(scope, value_global);
+            self.new_synthetic_module(
+              scope,
+              module_url_found,
+              ModuleType::Other(module_type.clone()),
+              value,
+            )?
+          }
+          CustomModuleEvaluationKind::ComputedAndSynthetic(
+            computed_src,
+            synthetic_value,
+            synthetic_module_type,
+          ) => {
+            let (url1, url2) = module_url_found.into_cheap_copy();
+            let value = v8::Local::new(scope, synthetic_value);
+            eprintln!("new synth module {}", synthetic_module_type);
+            let _synthetic_mod_id = self.new_synthetic_module(
+              scope,
+              url1,
               synthetic_module_type,
-            ) => {
-              let (url1, url2) = module_url_found.into_cheap_copy();
-              let value = v8::Local::new(scope, synthetic_value);
-              eprintln!("new synth module {}", synthetic_module_type);
-              let _synthetic_mod_id = self.new_synthetic_module(
-                scope,
-                url1,
-                synthetic_module_type,
-                value,
-              )?;
-              self.new_module_from_js_source(
-                scope,
-                main,
-                ModuleType::Other(module_type.clone()),
-                url2,
-                computed_src.into(),
-                dynamic,
-              )?
-            }
+              value,
+            )?;
+            self.new_module_from_js_source(
+              scope,
+              main,
+              ModuleType::Other(module_type.clone()),
+              url2,
+              computed_src.into(),
+              dynamic,
+            )?
           }
         }
       }
