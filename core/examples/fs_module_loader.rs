@@ -23,7 +23,7 @@ fn custom_module_evaluation_cb(
   code: ModuleSourceCode,
 ) -> Result<CustomModuleEvaluationKind, Error> {
   match &*module_type {
-    "bytes" => Ok(bytes_module(scope, code)),
+    "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
     "wasm" => wasm_module(scope, module_name, code),
     _ => Err(anyhow!(
@@ -37,7 +37,7 @@ fn custom_module_evaluation_cb(
 fn bytes_module(
   scope: &mut v8::HandleScope,
   code: ModuleSourceCode,
-) -> CustomModuleEvaluationKind {
+) -> Result<CustomModuleEvaluationKind, Error> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -49,7 +49,9 @@ fn bytes_module(
   let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
   let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
   let value: v8::Local<v8::Value> = uint8_array.into();
-  CustomModuleEvaluationKind::Synthetic(v8::Global::new(scope, value))
+  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
+    scope, value,
+  )))
 }
 
 #[derive(Debug)]
