@@ -1,6 +1,10 @@
-import wasmBytes from "./import.wasm" with { type: "bytes" };
-import { wasmShim } from "./test.js";
+import { exported_add } from "./import.wasm" with { type: "wasm" };
 
-const wasmMod = await wasmShim(wasmBytes);
-console.log(`hey ${wasmMod.exports.exported_add}`);
-console.log(`${wasmMod.exports.exported_add()}`);
+console.log(`exported_add: ${exported_add(4, 5)}`);
+
+import * as dprint from "./plugin.wasm" with { type: "wasm" };
+console.log("dprint plugin version:", dprint.get_plugin_schema_version());
+console.log(
+  "dprint plugin get_wasm_memory_buffer_size:",
+  dprint.get_wasm_memory_buffer_size(),
+);

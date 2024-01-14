@@ -25,7 +25,7 @@ fn custom_module_evaluation_cb(
   match &*module_type {
     "bytes" => Ok(bytes_module(scope, code)),
     "text" => text_module(scope, module_name, code),
-    "wasm2" => wasm_module(scope, module_name, code),
+    "wasm" => wasm_module(scope, module_name, code),
     _ => Err(anyhow!(
       "Can't import {:?} because of unknown module type {}",
       module_name,
@@ -88,15 +88,12 @@ fn wasm_module(
   };
   let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
 
-  // TODO(bartlomieju): this is effectively what we have to execute as an
-  // auxiliary module
-  // Get imports and exports of the WASM module
+  // Get imports and exports of the WASM module, then rendered a shim JS module
+  // that will be the actual module evaluated.
   let js_wasm_module_source = {
     let wasm_module_analysis = analyze_wasm_module(scope, wasm_module_value);
-    eprintln!("WasmModuleAnalysis {:#?}", wasm_module_analysis);
     let js_wasm_module_source =
       render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
-    eprintln!("rendered module\n\n{}\n\n", js_wasm_module_source);
     js_wasm_module_source
   };
 
