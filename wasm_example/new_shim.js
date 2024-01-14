@@ -1,7 +1,4 @@
 import wasmMod from "./import.wasm" with { type: "wasm-module" };
-
-console.log("isWasmModuleObject", Deno.core.isWasmModuleObject(wasmMod));
-
 import { add } from "./import_inner.mjs";
 const importsObject = {};
 importsObject["./import_inner.mjs"] ??= {};

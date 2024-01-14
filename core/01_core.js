@@ -895,7 +895,6 @@
     op_is_typed_array,
     op_is_weak_map,
     op_is_weak_set,
-    op_is_wasm_module_object,
   } = ensureFastOps();
 
   // Extra Deno.core.* exports
@@ -978,7 +977,6 @@
     isTypedArray: (value) => op_is_typed_array(value),
     isWeakMap: (value) => op_is_weak_map(value),
     isWeakSet: (value) => op_is_weak_set(value),
-    isWasmModuleObject: (value) => op_is_wasm_module_object(value),
     memoryUsage: () => op_memory_usage(),
     setWasmStreamingCallback: (fn) => op_set_wasm_streaming_callback(fn),
     abortWasmStreaming: (

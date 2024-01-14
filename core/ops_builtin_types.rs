@@ -144,8 +144,3 @@ pub fn op_is_weak_map(value: &v8::Value) -> bool {
 pub fn op_is_weak_set(value: &v8::Value) -> bool {
   value.is_weak_set()
 }
-
-#[op2(fast)]
-pub fn op_is_wasm_module_object(value: &v8::Value) -> bool {
-  value.is_wasm_module_object()
-}
