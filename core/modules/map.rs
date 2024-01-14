@@ -247,6 +247,11 @@ impl ModuleMap {
   }
 
   #[cfg(test)]
+  pub fn get_data(&self) -> &RefCell<ModuleMapData> {
+    &self.data
+  }
+
+  #[cfg(test)]
   pub fn assert_module_map(&self, modules: &Vec<super::ModuleInfo>) {
     self.data.borrow().assert_module_map(modules);
   }
