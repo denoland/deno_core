@@ -330,7 +330,9 @@ impl ModuleMap {
         };
 
         // TODO(bartlomieju): creating a global just to create a local from it
-        // seems superfluous.
+        // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
+        // a lifetime will have a viral effect and required `JsRuntimeOptions`
+        // to have a callback as well as `JsRuntime`.
         let module_evaluation_kind = custom_evaluation_cb(
           scope,
           module_type.clone(),
@@ -340,6 +342,8 @@ impl ModuleMap {
         .map_err(ModuleError::Other)?;
 
         match module_evaluation_kind {
+          // Simple case, we just got a single value so we create a regular
+          // synthetic module.
           CustomModuleEvaluationKind::Synthetic(value_global) => {
             let value = v8::Local::new(scope, value_global);
             self.new_synthetic_module(
@@ -349,6 +353,9 @@ impl ModuleMap {
               value,
             )?
           }
+
+          // Complex case - besides a synthetic module, we will create a new
+          // module from JS code.
           CustomModuleEvaluationKind::ComputedAndSynthetic(
             computed_src,
             synthetic_value,
@@ -356,7 +363,6 @@ impl ModuleMap {
           ) => {
             let (url1, url2) = module_url_found.into_cheap_copy();
             let value = v8::Local::new(scope, synthetic_value);
-            eprintln!("new synth module {}", synthetic_module_type);
             let _synthetic_mod_id = self.new_synthetic_module(
               scope,
               url1,
