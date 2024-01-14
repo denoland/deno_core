@@ -379,7 +379,7 @@ impl ModuleMap {
               main,
               ModuleType::Other(module_type.clone()),
               url2,
-              computed_src.into(),
+              computed_src,
               dynamic,
             )?
           }
