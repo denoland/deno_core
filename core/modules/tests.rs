@@ -1,10 +1,14 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
+use crate::error::generic_error;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
+use crate::modules::CustomModuleEvaluationKind;
+use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
+use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
 use crate::modules::RequestedModuleType;
@@ -27,6 +31,7 @@ use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -236,6 +241,7 @@ impl ModuleLoader for MockLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let mut loads = self.loads.lock();
     loads.push(module_specifier.to_string());
@@ -542,7 +548,128 @@ fn test_json_module() {
 }
 
 #[test]
-fn test_validate_import_attributes() {
+fn test_validate_import_attributes_default() {
+  // Verify that unless `validate_import_attributes_cb` is passed all import
+  // are allowed and don't have any problem executing "invalid" code.
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  let module_map_rc = runtime.module_map().clone();
+  let scope = &mut runtime.handle_scope();
+  module_map_rc
+    .new_es_module(
+      scope,
+      false,
+      ascii_str!("file:///a.js"),
+      ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
+      false,
+    )
+    .unwrap();
+
+  module_map_rc
+    .new_es_module(
+      scope,
+      true,
+      ascii_str!("file:///a.js"),
+      ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#),
+      false,
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_validate_import_attributes_callback() {
+  // Verify that `validate_import_attributes_cb` is called and can deny
+  // attributes.
+
+  fn validate_import_attributes(
+    scope: &mut v8::HandleScope,
+    assertions: &HashMap<String, String>,
+  ) {
+    for (key, value) in assertions {
+      let msg = if key != "type" {
+        Some(format!("\"{key}\" attribute is not supported."))
+      } else if value != "json" {
+        Some(format!("\"{value}\" is not a valid module type."))
+      } else {
+        None
+      };
+
+      let Some(msg) = msg else {
+        continue;
+      };
+
+      let message = v8::String::new(scope, &msg).unwrap();
+      let exception = v8::Exception::type_error(scope, message);
+      scope.throw_exception(exception);
+      return;
+    }
+  }
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    validate_import_attributes_cb: Some(Box::new(validate_import_attributes)),
+    ..Default::default()
+  });
+
+  let module_map_rc = runtime.module_map().clone();
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let module_err = module_map_rc
+      .new_es_module(
+        scope,
+        true,
+        ascii_str!("file:///a.js"),
+        ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err =
+      exception_to_err_result::<()>(scope, exception, false, true).unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "Uncaught TypeError: \"foo\" attribute is not supported."
+    );
+  }
+
+  {
+    let scope = &mut runtime.handle_scope();
+    let module_err = module_map_rc
+      .new_es_module(
+        scope,
+        true,
+        ascii_str!("file:///a.js"),
+        ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#),
+        false,
+      )
+      .unwrap_err();
+
+    let ModuleError::Exception(exc) = module_err else {
+      unreachable!();
+    };
+    let exception = v8::Local::new(scope, exc);
+    let err =
+      exception_to_err_result::<()>(scope, exception, false, true).unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "Uncaught TypeError: \"bar\" is not a valid module type."
+    );
+  }
+}
+
+#[test]
+fn test_validate_import_attributes_callback2() {
   fn validate_import_attrs(
     scope: &mut v8::HandleScope,
     _attrs: &HashMap<String, String>,
@@ -563,17 +690,12 @@ fn test_validate_import_attributes() {
 
   {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.js");
     let module_err = module_map
       .new_es_module(
         scope,
         true,
-        specifier_a,
-        ascii_str!(
-          r#"
-          import jsonData from './c.json' with {foo: "bar"};
-        "#
-        ),
+        ascii_str!("file:///a.js"),
+        ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
         false,
       )
       .unwrap_err();
@@ -589,72 +711,224 @@ fn test_validate_import_attributes() {
 }
 
 #[test]
-fn test_validate_import_attributes_default() {
+fn test_custom_module_type_default() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
 
-  let module_map_rc = runtime.module_map().clone();
+  let module_map = runtime.module_map().clone();
+
+  let err = {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.png");
+    module_map
+      .new_module(
+        scope,
+        true,
+        false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("bytes".into()),
+        },
+      )
+      .unwrap_err()
+  };
+
+  match err {
+    ModuleError::Other(err) => {
+      assert_eq!(
+        err.to_string(),
+        "Importing 'bytes' modules is not supported"
+      );
+    }
+    _ => unreachable!(),
+  };
+}
+
+#[test]
+fn test_custom_module_type_callback_synthetic() {
+  fn custom_eval_cb(
+    scope: &mut v8::HandleScope,
+    module_type: Cow<'_, str>,
+    _module_name: &FastString,
+    module_code: ModuleSourceCode,
+  ) -> Result<CustomModuleEvaluationKind, Error> {
+    if module_type != "bytes" {
+      return Err(generic_error(format!(
+        "Can't load '{}' module",
+        module_type
+      )));
+    }
+
+    let buf = match module_code {
+      ModuleSourceCode::Bytes(buf) => buf.to_vec(),
+      ModuleSourceCode::String(str_) => str_.as_bytes().to_vec(),
+    };
+    let buf_len: usize = buf.len();
+    let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(buf);
+    let backing_store_shared = backing_store.make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+    let value: v8::Local<v8::Value> = uint8_array.into();
+    let value_global = v8::Global::new(scope, value);
+    Ok(CustomModuleEvaluationKind::Synthetic(value_global))
+  }
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
+    ..Default::default()
+  });
+
+  let module_map = runtime.module_map().clone();
+
+  let err = {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///a.png");
+    module_map
+      .new_module(
+        scope,
+        true,
+        false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("foo".into()),
+        },
+      )
+      .unwrap_err()
+  };
+
+  match err {
+    ModuleError::Other(err) => {
+      assert_eq!(err.to_string(), "Can't load 'foo' module");
+    }
+    _ => unreachable!(),
+  };
 
   {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.js");
-    let module_err = module_map_rc
-      .new_es_module(
+    let specifier_a = ascii_str!("file:///b.png");
+    module_map
+      .new_module(
         scope,
         true,
-        specifier_a,
-        ascii_str!(
-          r#"
-          import jsonData from './c.json' with {foo: "bar"};
-        "#
-        ),
         false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("bytes".into()),
+        },
       )
-      .unwrap_err();
+      .unwrap()
+  };
+}
 
-    let ModuleError::Exception(exc) = module_err else {
-      unreachable!();
+#[test]
+fn test_custom_module_type_callback_computed() {
+  fn custom_eval_cb(
+    scope: &mut v8::HandleScope,
+    module_type: Cow<'_, str>,
+    module_name: &FastString,
+    module_code: ModuleSourceCode,
+  ) -> Result<CustomModuleEvaluationKind, Error> {
+    if module_type != "foobar" {
+      return Err(generic_error(format!(
+        "Can't load '{}' module",
+        module_type
+      )));
+    }
+
+    let buf = match module_code {
+      ModuleSourceCode::Bytes(buf) => buf.to_vec(),
+      ModuleSourceCode::String(str_) => str_.as_bytes().to_vec(),
     };
-    let exception = v8::Local::new(scope, exc);
-    let err =
-      exception_to_err_result::<()>(scope, exception, false, true).unwrap_err();
-    assert_eq!(
-      err.to_string(),
-      "Uncaught TypeError: \"foo\" attribute is not supported."
+    let buf_len: usize = buf.len();
+    let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(buf);
+    let backing_store_shared = backing_store.make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+    let value: v8::Local<v8::Value> = uint8_array.into();
+    let value_global = v8::Global::new(scope, value);
+
+    let computed_src = format!(
+      r#"
+import bytes from "{}" with {{ type: "foobar-synth" }};
+
+export const foo = bytes;
+    "#,
+      module_name.as_str()
     );
+    Ok(CustomModuleEvaluationKind::ComputedAndSynthetic(
+      computed_src.into(),
+      value_global,
+      ModuleType::Other("foobar-synth".into()),
+    ))
   }
 
-  {
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
+    ..Default::default()
+  });
+
+  let module_map = runtime.module_map().clone();
+
+  let mod_id = {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.js");
-    let module_err = module_map_rc
-      .new_es_module(
+    let specifier_a = ascii_str!("file:///b.png");
+    module_map
+      .new_module(
         scope,
         true,
-        specifier_a,
-        ascii_str!(
-          r#"
-          import jsonData from './c.json' with {type: "bar"};
-        "#
-        ),
         false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("foobar".into()),
+        },
       )
-      .unwrap_err();
+      .unwrap()
+  };
 
-    let ModuleError::Exception(exc) = module_err else {
-      unreachable!();
-    };
-    let exception = v8::Local::new(scope, exc);
-    let err =
-      exception_to_err_result::<()>(scope, exception, false, true).unwrap_err();
-    assert_eq!(
-      err.to_string(),
-      "Uncaught TypeError: \"bar\" is not a valid module type."
-    );
-  }
+  let data = module_map.get_data();
+  let data = data.borrow();
+  let info = data.info.get(mod_id).unwrap();
+  assert_eq!(
+    info,
+    &ModuleInfo {
+      id: mod_id,
+      main: true,
+      name: ascii_str!("file:///b.png"),
+      requests: vec![ModuleRequest {
+        specifier: "file:///b.png".to_string(),
+        requested_module_type: RequestedModuleType::Other(
+          "foobar-synth".into()
+        )
+      }],
+      module_type: RequestedModuleType::Other("foobar".into()),
+    }
+  );
+  let info = data.info.get(mod_id - 1).unwrap();
+  assert_eq!(
+    info,
+    &ModuleInfo {
+      id: mod_id - 1,
+      main: false,
+      name: ascii_str!("file:///b.png"),
+      requests: vec![],
+      module_type: RequestedModuleType::Other("foobar-synth".into()),
+    }
+  );
 }
 
 #[tokio::test]
@@ -1268,6 +1542,7 @@ async fn no_duplicate_loads() {
       module_specifier: &ModuleSpecifier,
       _maybe_referrer: Option<&ModuleSpecifier>,
       _is_dyn_import: bool,
+      _requested_module_type: RequestedModuleType,
     ) -> Pin<Box<ModuleSourceFuture>> {
       let found_specifier =
         if module_specifier.as_str() == "https://example.com/foo.js" {

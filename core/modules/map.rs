@@ -48,6 +48,7 @@ use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
 use super::module_map_data::ModuleMapSnapshottedData;
+use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
 
@@ -246,6 +247,11 @@ impl ModuleMap {
   }
 
   #[cfg(test)]
+  pub fn get_data(&self) -> &RefCell<ModuleMapData> {
+    &self.data
+  }
+
+  #[cfg(test)]
   pub fn assert_module_map(&self, modules: &Vec<super::ModuleInfo>) {
     self.data.borrow().assert_module_map(modules);
   }
@@ -271,7 +277,7 @@ impl ModuleMap {
         module_url_found.into_cheap_copy();
       self.data.borrow_mut().alias(
         module_url_specified,
-        &module_type.into(),
+        &module_type.clone().into(),
         module_url_found1,
       );
       module_url_found2
@@ -279,7 +285,13 @@ impl ModuleMap {
       module_url_specified
     };
 
-    let requested_module_type = RequestedModuleType::from(module_type);
+    // TODO(bartlomieju): I have a hunch that this is wrong - write a test
+    // that tries to "confuse" the type system, by first requesting a module
+    // with type `RequestedModuleType::Other("foo".into)``, and then the loader
+    // actually returns `ModuleType::Other("bar".into())`. See if it leads to
+    // unexpected result in how `ModuleMap` is structured and verify how
+    // querying the module map works (`ModuleMap::get_by_id`, `ModuleMap::get_by_name`).
+    let requested_module_type = RequestedModuleType::from(module_type.clone());
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
@@ -290,14 +302,88 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let code = ModuleSource::get_string_source(module_url_found.as_str(), code)
-      .map_err(ModuleError::Other)?;
     let module_id = match module_type {
       ModuleType::JavaScript => {
-        self.new_es_module(scope, main, module_url_found, code, dynamic)?
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
+        self.new_module_from_js_source(
+          scope,
+          main,
+          ModuleType::JavaScript,
+          module_url_found,
+          code,
+          dynamic,
+        )?
       }
       ModuleType::Json => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_json_module(scope, module_url_found, code)?
+      }
+      ModuleType::Other(module_type) => {
+        let state = JsRuntime::state_from(scope);
+        let custom_module_evaluation_cb =
+          state.custom_module_evaluation_cb.as_ref();
+
+        let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
+          return Err(ModuleError::Other(generic_error(format!(
+            "Importing '{}' modules is not supported",
+            module_type
+          ))));
+        };
+
+        // TODO(bartlomieju): creating a global just to create a local from it
+        // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
+        // a lifetime will have a viral effect and required `JsRuntimeOptions`
+        // to have a callback as well as `JsRuntime`.
+        let module_evaluation_kind = custom_evaluation_cb(
+          scope,
+          module_type.clone(),
+          &module_url_found,
+          code,
+        )
+        .map_err(ModuleError::Other)?;
+
+        match module_evaluation_kind {
+          // Simple case, we just got a single value so we create a regular
+          // synthetic module.
+          CustomModuleEvaluationKind::Synthetic(value_global) => {
+            let value = v8::Local::new(scope, value_global);
+            self.new_synthetic_module(
+              scope,
+              module_url_found,
+              ModuleType::Other(module_type.clone()),
+              value,
+            )?
+          }
+
+          // Complex case - besides a synthetic module, we will create a new
+          // module from JS code.
+          CustomModuleEvaluationKind::ComputedAndSynthetic(
+            computed_src,
+            synthetic_value,
+            synthetic_module_type,
+          ) => {
+            let (url1, url2) = module_url_found.into_cheap_copy();
+            let value = v8::Local::new(scope, synthetic_value);
+            let _synthetic_mod_id = self.new_synthetic_module(
+              scope,
+              url1,
+              synthetic_module_type,
+              value,
+            )?;
+            self.new_module_from_js_source(
+              scope,
+              main,
+              ModuleType::Other(module_type.clone()),
+              url2,
+              computed_src,
+              dynamic,
+            )?
+          }
+        }
       }
     };
     Ok(module_id)
@@ -341,6 +427,7 @@ impl ModuleMap {
     Ok(id)
   }
 
+  // TODO(bartlomieju): remove this method or rename it to `new_js_module`.
   /// Create and compile an ES module.
   pub(crate) fn new_es_module(
     &self,
@@ -350,6 +437,49 @@ impl ModuleMap {
     source: ModuleCodeString,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
+    self.new_module_from_js_source(
+      scope,
+      main,
+      ModuleType::JavaScript,
+      name,
+      source,
+      is_dynamic_import,
+    )
+  }
+
+  /// Provided given JavaScript source code, compile and create a module of given
+  /// type.
+  ///
+  /// Passed type doesn't have to be [`ModuleType::JavaScript`]! This method
+  /// can be used to create "shim" modules, that execute some JS and act as a
+  /// proxy to the actual underlying module (eg. you might create a "shim" for
+  /// WASM module).
+  ///
+  /// Imports in the executed code are parsed (along their import attributes)
+  /// and attached to associated [`ModuleInfo`].
+  ///
+  /// Returns an ID of newly created module.
+  pub(crate) fn new_module_from_js_source(
+    &self,
+    scope: &mut v8::HandleScope,
+    main: bool,
+    module_type: ModuleType,
+    name: ModuleName,
+    source: ModuleCodeString,
+    is_dynamic_import: bool,
+  ) -> Result<ModuleId, ModuleError> {
+    if main {
+      let data = self.data.borrow();
+      if let Some(main_module) = data.main_module_id {
+        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
+        return Err(ModuleError::Other(generic_error(
+          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
+          name.as_ref(),
+          main_name,
+        ))));
+      }
+    }
+
     let name_str = name.v8(scope);
     let source_str = source.v8(scope);
 
@@ -364,13 +494,16 @@ impl ModuleMap {
       assert!(maybe_module.is_none());
       let exception = tc_scope.exception().unwrap();
       let exception = v8::Global::new(tc_scope, exception);
+      // TODO(bartlomieju): add a more concrete variant - like `ModuleError::CompileError`?
       return Err(ModuleError::Exception(exception));
     }
 
     let module = maybe_module.unwrap();
 
-    let mut requests: Vec<ModuleRequest> = vec![];
+    // TODO(bartlomieju): maybe move to a helper function?
     let module_requests = module.get_module_requests();
+    let requests_len = module_requests.length();
+    let mut requests = Vec::with_capacity(requests_len);
     for i in 0..module_requests.length() {
       let module_request = v8::Local::<v8::ModuleRequest>::try_from(
         module_requests.get(tc_scope, i).unwrap(),
@@ -392,7 +525,11 @@ impl ModuleMap {
       // is thrown here
       {
         let state = JsRuntime::state_from(tc_scope);
-        (state.validate_import_attributes_cb)(tc_scope, &attributes);
+        if let Some(validate_import_attributes_cb) =
+          &state.validate_import_attributes_cb
+        {
+          (validate_import_attributes_cb)(tc_scope, &attributes);
+        }
       }
 
       if tc_scope.has_caught() {
@@ -422,22 +559,10 @@ impl ModuleMap {
       requests.push(request);
     }
 
-    if main {
-      let data = self.data.borrow();
-      if let Some(main_module) = data.main_module_id {
-        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
-        return Err(ModuleError::Other(generic_error(
-          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name.as_ref(),
-          main_name,
-        ))));
-      }
-    }
-
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
     let id = self.data.borrow_mut().create_module_info(
       name,
-      ModuleType::JavaScript,
+      module_type,
       handle,
       main,
       requests,
@@ -1309,14 +1434,7 @@ impl ModuleMap {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
       .new_es_module(scope, false, specifier.into(), source_code, false)
-      .map_err(|e| match e {
-        ModuleError::Exception(exception) => {
-          let exception = v8::Local::new(scope, exception);
-          exception_to_err_result::<()>(scope, exception, false, true)
-            .unwrap_err()
-        }
-        ModuleError::Other(error) => error,
-      })?;
+      .map_err(|e| e.into_any_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
@@ -1390,7 +1508,9 @@ impl ModuleMap {
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let source = futures::executor::block_on(async {
-      loader.load(&specifier, None, false).await
+      loader
+        .load(&specifier, None, false, RequestedModuleType::None)
+        .await
     })?;
 
     self.lazy_load_es_module_from_code(
