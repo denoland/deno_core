@@ -1,3 +1,4 @@
+use crate::CustomModuleEvaluationCtx;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -338,8 +339,10 @@ impl ModuleMap {
         // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
         // a lifetime will have a viral effect and required `JsRuntimeOptions`
         // to have a callback as well as `JsRuntime`.
+        let ctx = CustomModuleEvaluationCtx;
         let module_evaluation_kind = custom_evaluation_cb(
           scope,
+          ctx,
           module_type.clone(),
           &module_url_found,
           code,
