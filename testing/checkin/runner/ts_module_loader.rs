@@ -21,6 +21,7 @@ use deno_core::ModuleSourceCode;
 use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
+use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::SourceMapGetter;
 
@@ -63,6 +64,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
     let source_maps = self.source_maps.clone();
     fn load(

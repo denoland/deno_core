@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.243.0"
+version = "0.246.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.119.0"
+version = "0.122.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -1227,7 +1227,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.152.0"
+version = "0.155.0"
 dependencies = [
  "bencher",
  "bytes",
@@ -1973,9 +1973,9 @@ checksum = "5e395fcf16a7a3d8127ec99782007af141946b4795001f876d54fb0d55978560"
 
 [[package]]
 name = "v8"
-version = "0.83.0"
+version = "0.83.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e75d086d61663d00e3985fead069245600fddcc0b1318d36b2950a358e3c88"
+checksum = "546dcbb978f58aea3ad9286bd1df553f4ab7bbdc2e191cd4ae6c9a98fa95d1cd"
 dependencies = [
  "bitflags 2.4.1",
  "fslock",

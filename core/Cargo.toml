@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.243.0"
+version = "0.246.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,13 +14,16 @@ description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and T
 path = "lib.rs"
 
 [features]
-default = ["include_icu_data", "v8_use_custom_libcxx", "op_driver_joinset"]
+default = ["include_icu_data", "v8_use_custom_libcxx", "op_driver_futuresunordered"]
 include_icu_data = []
 v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 
+# Use the old, slower (but better tested) JoinSet driver
 op_driver_joinset = []
+# Use the new, faster FuturesUnordered driver
+op_driver_futuresunordered = []
 
 [dependencies]
 anyhow.workspace = true
