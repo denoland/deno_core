@@ -13,13 +13,13 @@ use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleType;
 use deno_core::RuntimeOptions;
-use serde::Deserialize;
+use deno_core::WasmModuleAnalysis;
 use std::borrow::Cow;
 use std::rc::Rc;
 
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
-  _ctx: CustomModuleEvaluationCtx,
+  ctx: CustomModuleEvaluationCtx,
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,
@@ -27,7 +27,7 @@ fn custom_module_evaluation_cb(
   match &*module_type {
     "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
-    "wasm" => wasm_module(scope, module_name, code),
+    "wasm" => wasm_module(scope, ctx, module_name, code),
     _ => Err(anyhow!(
       "Can't import {:?} because of unknown module type {}",
       module_name,
@@ -56,26 +56,9 @@ fn bytes_module(
   )))
 }
 
-#[derive(Debug)]
-struct WasmModuleAnalysis {
-  pub imports: Vec<WebAssemblyImportDescriptor>,
-  pub exports: Vec<WebAssemblyExportDescriptor>,
-}
-#[derive(Debug, Deserialize)]
-struct WebAssemblyImportDescriptor {
-  pub module: String,
-  pub name: String,
-  pub kind: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct WebAssemblyExportDescriptor {
-  pub name: String,
-  pub kind: String,
-}
-
 fn wasm_module(
   scope: &mut v8::HandleScope,
+  ctx: CustomModuleEvaluationCtx,
   module_name: &FastString,
   code: ModuleSourceCode,
 ) -> Result<CustomModuleEvaluationKind, Error> {
@@ -95,7 +78,8 @@ fn wasm_module(
   // Get imports and exports of the WASM module, then rendered a shim JS module
   // that will be the actual module evaluated.
   let js_wasm_module_source = {
-    let wasm_module_analysis = analyze_wasm_module(scope, wasm_module_value);
+    let wasm_module_analysis =
+      ctx.analyze_wasm_module(scope, wasm_module_value);
     let js_wasm_module_source =
       render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
     js_wasm_module_source
@@ -109,60 +93,6 @@ fn wasm_module(
     wasm_module_value_global,
     synthetic_module_type,
   ))
-}
-
-fn analyze_wasm_module(
-  scope: &mut v8::HandleScope,
-  value: v8::Local<v8::Value>,
-) -> WasmModuleAnalysis {
-  // TODO(bartlomieju): these should be stored on JsRuntime startup and called
-  // from JsRuntime - so that users can't tamper with these globals
-  let context = scope.get_current_context();
-  let global = context.global(scope);
-  let web_assembly_key =
-    v8::String::new_external_onebyte_static(scope, b"WebAssembly").unwrap();
-  let web_assembly_module_key =
-    v8::String::new_external_onebyte_static(scope, b"Module").unwrap();
-  let web_assembly_module_imports_key =
-    v8::String::new_external_onebyte_static(scope, b"imports").unwrap();
-  let web_assembly_module_exports_key =
-    v8::String::new_external_onebyte_static(scope, b"exports").unwrap();
-
-  let web_assembly_object: v8::Local<v8::Object> = global
-    .get(scope, web_assembly_key.into())
-    .unwrap()
-    .try_into()
-    .unwrap();
-  let web_assembly_module_object: v8::Local<v8::Object> = web_assembly_object
-    .get(scope, web_assembly_module_key.into())
-    .unwrap()
-    .try_into()
-    .unwrap();
-  let web_assembly_module_imports_fn: v8::Local<v8::Function> =
-    web_assembly_module_object
-      .get(scope, web_assembly_module_imports_key.into())
-      .unwrap()
-      .try_into()
-      .unwrap();
-  let web_assembly_module_exports_fn: v8::Local<v8::Function> =
-    web_assembly_module_object
-      .get(scope, web_assembly_module_exports_key.into())
-      .unwrap()
-      .try_into()
-      .unwrap();
-  let receiver = v8::undefined(scope);
-  let import_result = web_assembly_module_imports_fn
-    .call(scope, receiver.into(), &[value])
-    .unwrap();
-  let imports: Vec<WebAssemblyImportDescriptor> =
-    serde_v8::from_v8(scope, import_result).unwrap();
-  let export_result = web_assembly_module_exports_fn
-    .call(scope, receiver.into(), &[value])
-    .unwrap();
-  let exports: Vec<WebAssemblyExportDescriptor> =
-    serde_v8::from_v8(scope, export_result).unwrap();
-
-  WasmModuleAnalysis { imports, exports }
 }
 
 fn render_js_wasm_module(

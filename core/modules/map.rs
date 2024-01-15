@@ -335,11 +335,28 @@ impl ModuleMap {
           ))));
         };
 
+        let ctx = {
+          let ctx_state = JsRealm::state_from_scope(scope);
+          let web_assembly_module_imports_fn = ctx_state
+            .web_assembly_module_imports_fn
+            .borrow()
+            .clone()
+            .unwrap();
+          let web_assembly_module_exports_fn = ctx_state
+            .web_assembly_module_exports_fn
+            .borrow()
+            .clone()
+            .unwrap();
+          CustomModuleEvaluationCtx {
+            web_assembly_module_imports_fn,
+            web_assembly_module_exports_fn,
+          }
+        };
         // TODO(bartlomieju): creating a global just to create a local from it
         // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
         // a lifetime will have a viral effect and required `JsRuntimeOptions`
         // to have a callback as well as `JsRuntime`.
-        let ctx = CustomModuleEvaluationCtx;
+
         let module_evaluation_kind = custom_evaluation_cb(
           scope,
           ctx,

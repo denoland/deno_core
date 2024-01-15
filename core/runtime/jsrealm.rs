@@ -62,6 +62,10 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) js_wasm_streaming_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) web_assembly_module_imports_fn:
+    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) web_assembly_module_exports_fn:
+    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
   pub(crate) pending_ops: OpDriverImpl,
@@ -89,6 +93,8 @@ impl<O: OpDriver> ContextState<O> {
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
+      web_assembly_module_imports_fn: Default::default(),
+      web_assembly_module_exports_fn: Default::default(),
       op_ctxs: Default::default(),
       pending_ops: Default::default(),
       task_spawner_factory: Default::default(),

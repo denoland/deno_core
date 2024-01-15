@@ -1184,7 +1184,12 @@ impl JsRuntime {
 
   /// Grabs a reference to core.js' eventLoopTick & buildCustomError
   fn init_cbs(&mut self, realm: &JsRealm) {
-    let (event_loop_tick_cb, build_custom_error_cb) = {
+    let (
+      event_loop_tick_cb,
+      build_custom_error_cb,
+      web_assembly_module_imports_fn,
+      web_assembly_module_exports_fn,
+    ) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1199,6 +1204,14 @@ impl JsRuntime {
       let build_custom_error_str =
         v8::String::new_external_onebyte_static(scope, b"buildCustomError")
           .unwrap();
+      let web_assembly_key =
+        v8::String::new_external_onebyte_static(scope, b"WebAssembly").unwrap();
+      let web_assembly_module_key =
+        v8::String::new_external_onebyte_static(scope, b"Module").unwrap();
+      let web_assembly_module_imports_key =
+        v8::String::new_external_onebyte_static(scope, b"imports").unwrap();
+      let web_assembly_module_exports_key =
+        v8::String::new_external_onebyte_static(scope, b"exports").unwrap();
 
       let deno_obj: v8::Local<v8::Object> = global
         .get(scope, deno_str.into())
@@ -1221,9 +1234,34 @@ impl JsRuntime {
         .unwrap()
         .try_into()
         .unwrap();
+      let web_assembly_object: v8::Local<v8::Object> = global
+        .get(scope, web_assembly_key.into())
+        .unwrap()
+        .try_into()
+        .unwrap();
+      let web_assembly_module_object: v8::Local<v8::Object> =
+        web_assembly_object
+          .get(scope, web_assembly_module_key.into())
+          .unwrap()
+          .try_into()
+          .unwrap();
+      let web_assembly_module_imports_fn: v8::Local<v8::Function> =
+        web_assembly_module_object
+          .get(scope, web_assembly_module_imports_key.into())
+          .unwrap()
+          .try_into()
+          .unwrap();
+      let web_assembly_module_exports_fn: v8::Local<v8::Function> =
+        web_assembly_module_object
+          .get(scope, web_assembly_module_exports_key.into())
+          .unwrap()
+          .try_into()
+          .unwrap();
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
+        v8::Global::new(scope, web_assembly_module_imports_fn),
+        v8::Global::new(scope, web_assembly_module_exports_fn),
       )
     };
 
@@ -1238,6 +1276,14 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
+    state_rc
+      .web_assembly_module_imports_fn
+      .borrow_mut()
+      .replace(Rc::new(web_assembly_module_imports_fn));
+    state_rc
+      .web_assembly_module_exports_fn
+      .borrow_mut()
+      .replace(Rc::new(web_assembly_module_exports_fn));
   }
 
   /// Returns the runtime's op state, which can be used to maintain ops
