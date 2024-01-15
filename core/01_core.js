@@ -31,13 +31,17 @@
     SafeArrayIterator,
     SafeMap,
     SafePromisePrototypeFinally,
+    setQueueMicrotask,
     StringPrototypeSlice,
     StringPrototypeSplit,
     SymbolFor,
     SyntaxError,
+    TypedArrayPrototypeGetLength,
+    TypedArrayPrototypeJoin,
+    TypedArrayPrototypeSlice,
+    TypedArrayPrototypeSymbolToStringTag,
     TypeError,
     URIError,
-    setQueueMicrotask,
   } = window.__bootstrap.primordials;
   const { ops, asyncOps } = window.Deno.core;
 
