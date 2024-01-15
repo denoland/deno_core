@@ -804,8 +804,10 @@
         typeof arg === "number" || arg === null || arg === undefined
       ) {
         return arg;
-      } else if (arg instanceof Uint8Array) {
-        `Uint8Array(${arg.length}) [${arg.slice(0, 10).join(", ")}]`;
+      } else if (TypedArrayPrototypeSymbolToStringTag(arg) === "Uint8Array") {
+        `Uint8Array(${TypedArrayPrototypeGetLength(arg)}) [${
+          TypedArrayPrototypeJoin(TypedArrayPrototypeSlice(arg, 0, 10), ", ")
+        }]`;
       }
       return JSON.stringify(arg, undefined, 2);
     };
