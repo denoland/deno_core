@@ -5,6 +5,7 @@ use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
 use super::snapshot_util;
+use super::SnapshottedData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
@@ -16,12 +17,14 @@ use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
+use crate::modules::CustomModuleEvaluationCb;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::ModuleMapSnapshottedData;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
@@ -41,6 +44,7 @@ use crate::OpState;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::future::poll_fn;
@@ -351,10 +355,8 @@ pub struct JsRuntimeState {
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
   wait_for_inspector_disconnect_callback:
     Option<WaitForInspectorDisconnectCallback>,
-  /// The error that was passed to a `reportUnhandledException` call.
-  /// It will be retrieved by `exception_to_err_result` and used as an error
-  /// instead of any other exceptions.
-  pub(crate) validate_import_attributes_cb: ValidateImportAttributesCb,
+  pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
+  pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -381,7 +383,6 @@ fn v8_init(
     " --harmony-import-attributes",
     " --no-validate-asm",
     " --turbo_fast_api_calls",
-    " --harmony-change-array-by-copy",
     " --harmony-array-from_async",
     " --harmony-iterator-helpers",
   );
@@ -486,8 +487,13 @@ pub struct RuntimeOptions {
   pub feature_checker: Option<Arc<FeatureChecker>>,
 
   /// A callback that can be used to validate import attributes received at
-  /// the import site. If no callback is provided, a default one is used. The
-  /// default callback only allows `"type"` attribute, with a value of `"json"`.
+  /// the import site. If no callback is provided, all attributes are allowed.
+  ///
+  /// Embedders might use this callback to eg. validate value of "type"
+  /// attribute, not allowing other types than "JSON".
+  ///
+  /// To signal validation failure, users should throw an V8 exception inside
+  /// the callback.
   pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
 
   /// A callback that can be used to customize behavior of
@@ -504,6 +510,10 @@ pub struct RuntimeOptions {
   /// more work can be scheduled from the DevTools.
   pub wait_for_inspector_disconnect_callback:
     Option<WaitForInspectorDisconnectCallback>,
+
+  /// A callback that allows to evaluate a custom type of a module - eg.
+  /// embedders might implement loading WASM or test modules.
+  pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
 }
 
 impl RuntimeOptions {
@@ -667,10 +677,6 @@ impl JsRuntime {
       // SAFETY: we just asserted that layout has non-0 size.
       unsafe { std::alloc::alloc(layout) as *mut _ };
 
-    let validate_import_attributes_cb = options
-      .validate_import_attributes_cb
-      .unwrap_or_else(|| Box::new(crate::modules::validate_import_attributes));
-
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
@@ -684,14 +690,31 @@ impl JsRuntime {
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
       has_inspector: false.into(),
-      validate_import_attributes_cb,
+      validate_import_attributes_cb: options.validate_import_attributes_cb,
+      custom_module_evaluation_cb: options.custom_module_evaluation_cb,
       waker,
     });
 
-    let context_state = Rc::new(ContextState {
-      isolate: Some(isolate_ptr),
-      ..Default::default()
-    });
+    let count = ops.len();
+    let op_metrics_fns = ops
+      .iter()
+      .enumerate()
+      .map(|(id, decl)| {
+        options
+          .op_metrics_factory_fn
+          .as_ref()
+          .and_then(|f| (f)(id as _, count, decl))
+      })
+      .collect::<Vec<_>>();
+    let ops_with_metrics = op_metrics_fns
+      .iter()
+      .map(|o| o.is_some())
+      .collect::<Vec<_>>();
+    let context_state = Rc::new(ContextState::new(
+      isolate_ptr,
+      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      ops_with_metrics,
+    ));
 
     // Add the task spawners to the OpState
     let spawner = context_state
@@ -705,15 +728,11 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    let count = ops.len();
     let mut op_ctxs = ops
       .into_iter()
       .enumerate()
-      .map(|(id, decl)| {
-        let metrics_fn = options
-          .op_metrics_factory_fn
-          .as_ref()
-          .and_then(|f| (f)(id as _, count, &decl));
+      .zip(op_metrics_fns)
+      .map(|((id, decl), metrics_fn)| {
         OpCtx::new(
           id as _,
           std::ptr::null_mut(),
@@ -832,12 +851,18 @@ impl JsRuntime {
 
     let exception_state = context_state.exception_state.clone();
     let module_map = if let Some(snapshotted_data) = snapshotted_data {
+      *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
+        snapshotted_data.js_handled_promise_rejection_cb;
+      let module_map_snapshotted_data = ModuleMapSnapshottedData {
+        module_map_data: snapshotted_data.module_map_data,
+        module_handles: snapshotted_data.module_handles,
+      };
       Rc::new(ModuleMap::new_from_snapshotted_data(
         loader,
         exception_state,
         import_meta_resolve_cb,
         scope,
-        snapshotted_data,
+        module_map_snapshotted_data,
       ))
     } else {
       Rc::new(ModuleMap::new(
@@ -879,7 +904,9 @@ impl JsRuntime {
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
-    js_runtime.init_extension_js().unwrap();
+    js_runtime
+      .init_extension_js()
+      .expect("Failed to evaluate extension JS");
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
@@ -1035,12 +1062,10 @@ impl JsRuntime {
       }
 
       for specifier in esm_entrypoints {
-        let mod_id = {
-          module_map
-            .get_id(specifier, RequestedModuleType::None)
-            .unwrap_or_else(|| {
-              panic!("{} not present in the module map", specifier)
-            })
+        let Some(mod_id) =
+          module_map.get_id(specifier, RequestedModuleType::None)
+        else {
+          bail!("{} not present in the module map", specifier);
         };
 
         let mut receiver = {
@@ -1059,21 +1084,14 @@ impl JsRuntime {
               .with_context(|| format!("Couldn't execute '{specifier}'"))?;
           }
           Poll::Pending => {
-            // Find the TLA location to display it on the panic.
-            let location = {
-              let scope = &mut realm.handle_scope(self.v8_isolate());
-              let messages = module_map.find_stalled_top_level_await(scope);
-              assert!(!messages.is_empty());
-              let msg = v8::Local::new(scope, &messages[0]);
-              let js_error = JsError::from_v8_message(scope, msg);
-              js_error
-                .frames
-                .first()
-                .unwrap()
-                .maybe_format_location()
-                .unwrap()
-            };
-            panic!("Top-level await is not allowed in extensions ({location})");
+            // Find the TLA location and return it as an error
+            let scope = &mut realm.handle_scope(self.v8_isolate());
+            let messages = module_map.find_stalled_top_level_await(scope);
+            assert!(!messages.is_empty());
+            let msg = v8::Local::new(scope, &messages[0]);
+            let js_error = JsError::from_v8_message(scope, msg);
+            return Err(Error::from(js_error))
+              .with_context(|| "Top-level await is not allowed in extensions");
           }
         }
       }
@@ -1081,7 +1099,7 @@ impl JsRuntime {
       #[cfg(debug_assertions)]
       {
         let mut scope = realm.handle_scope(self.v8_isolate());
-        module_map.assert_all_modules_evaluated(&mut scope);
+        module_map.check_all_modules_evaluated(&mut scope)?;
       }
 
       Ok::<_, anyhow::Error>(())
@@ -1275,7 +1293,7 @@ impl JsRuntime {
   pub fn execute_script(
     &mut self,
     name: &'static str,
-    source_code: ModuleCode,
+    source_code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
@@ -1307,7 +1325,7 @@ impl JsRuntime {
     self.inner.main_realm.execute_script(
       isolate,
       name,
-      ModuleCode::from_static(source_code),
+      ModuleCodeString::from_static(source_code),
     )
   }
 
@@ -1879,11 +1897,25 @@ impl JsRuntimeForSnapshot {
 
     // Serialize the module map and store its data in the snapshot.
     {
-      let snapshotted_data = {
+      let module_map_snapshotted_data = {
         let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
         )
+      };
+      let maybe_js_handled_promise_rejection_cb = {
+        let context_state = &realm.0.context_state;
+        let exception_state = &context_state.exception_state;
+        exception_state
+          .js_handled_promise_rejection_cb
+          .borrow()
+          .clone()
+      };
+
+      let snapshotted_data = SnapshottedData {
+        module_map_data: module_map_snapshotted_data.module_map_data,
+        module_handles: module_map_snapshotted_data.module_handles,
+        js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());
@@ -2065,7 +2097,7 @@ impl JsRuntime {
   pub async fn load_main_module(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
@@ -2085,7 +2117,7 @@ impl JsRuntime {
   pub async fn load_side_module(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
@@ -2105,7 +2137,7 @@ impl JsRuntime {
   pub fn lazy_load_es_module_from_code(
     &mut self,
     specifier: &str,
-    code: ModuleCode,
+    code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
@@ -2133,27 +2165,36 @@ impl JsRuntime {
       }
     }
 
-    // We return async responses to JS in unbounded batches (may change),
+    // We return async responses to JS in bounded batches. Note that because
+    // we're passing these to JS as arguments, it is possible to overflow the
+    // JS stack by just passing too many.
+    const MAX_VEC_SIZE_FOR_OPS: usize = 1024;
+
     // each batch is a flat vector of tuples:
     // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
     // promise_id is a simple integer, op_result is an ops::OpResult
     // which contains a value OR an error, encoded as a tuple.
     // This batch is received in JS via the special `arguments` variable
     // and then each tuple is used to resolve or reject promises
-    //
-    // This can handle 15 promises futures in a single batch without heap
-    // allocations.
     let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
       SmallVec::with_capacity(32);
 
     loop {
-      let Poll::Ready((promise_id, op_id, metrics_event, res)) =
-        context_state.pending_ops.poll_ready(cx, scope)
+      if args.len() >= MAX_VEC_SIZE_FOR_OPS {
+        // We have too many, bail for now but re-wake the waker
+        cx.waker().wake_by_ref();
+        break;
+      }
+
+      let Poll::Ready((promise_id, op_id, res)) =
+        context_state.pending_ops.poll_ready(cx)
       else {
         break;
       };
 
-      if metrics_event {
+      let res = res.unwrap(scope, context_state.get_error_class_fn);
+
+      if context_state.ops_with_metrics[op_id as usize] {
         if res.is_ok() {
           dispatch_metrics_async(
             &context_state.op_ctxs.borrow()[op_id as usize],

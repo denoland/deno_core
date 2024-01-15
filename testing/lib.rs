@@ -35,6 +35,7 @@ macro_rules! integration_test {
 unit_test!(
   encode_decode_test,
   microtask_test,
+  ops_async_test,
   ops_buffer_test,
   serialize_deserialize_test,
   tc39_test,
@@ -46,6 +47,7 @@ unit_test!(
 // These files are loaded from the system/ dir.
 integration_test!(
   dyn_import_circular,
+  dyn_import_op,
   error_async_stack,
   error_rejection_catch,
   error_rejection_order,

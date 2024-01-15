@@ -13,12 +13,23 @@ use std::ptr::NonNull;
 use v8::WriteOptions;
 
 use super::op_driver::OpDriver;
-use super::op_driver::RetValMapper;
+use super::op_driver::OpScheduling;
+use super::op_driver::V8RetValMapper;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
 /// so this is a limited resource!
 pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
+
+fn op_scheduling(lazy: bool, deferred: bool) -> OpScheduling {
+  if lazy {
+    OpScheduling::Lazy
+  } else if deferred {
+    OpScheduling::Deferred
+  } else {
+    OpScheduling::Eager
+  }
+}
 
 #[inline(always)]
 pub fn map_async_op_infallible<R: 'static>(
@@ -27,19 +38,16 @@ pub fn map_async_op_infallible<R: 'static>(
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
-  rv_map: RetValMapper<R>,
+  rv_map: V8RetValMapper<R>,
 ) -> Option<R> {
   let pending_ops = &ctx.context_state().pending_ops;
-  if lazy {
-    pending_ops
-      .submit_op_infallible::<_, true, false>(ctx, promise_id, op, rv_map)
-  } else if deferred {
-    pending_ops
-      .submit_op_infallible::<_, false, true>(ctx, promise_id, op, rv_map)
-  } else {
-    pending_ops
-      .submit_op_infallible::<_, false, false>(ctx, promise_id, op, rv_map)
-  }
+  pending_ops.submit_op_infallible_scheduling(
+    op_scheduling(lazy, deferred),
+    ctx.id,
+    promise_id,
+    op,
+    rv_map,
+  )
 }
 
 #[inline(always)]
@@ -49,19 +57,16 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
-  rv_map: RetValMapper<R>,
+  rv_map: V8RetValMapper<R>,
 ) -> Option<Result<R, E>> {
   let pending_ops = &ctx.context_state().pending_ops;
-  if lazy {
-    pending_ops
-      .submit_op_fallible::<_, _, true, false>(ctx, promise_id, op, rv_map)
-  } else if deferred {
-    pending_ops
-      .submit_op_fallible::<_, _, false, true>(ctx, promise_id, op, rv_map)
-  } else {
-    pending_ops
-      .submit_op_fallible::<_, _, false, false>(ctx, promise_id, op, rv_map)
-  }
+  pending_ops.submit_op_fallible_scheduling(
+    op_scheduling(lazy, deferred),
+    ctx.id,
+    promise_id,
+    op,
+    rv_map,
+  )
 }
 
 macro_rules! try_number_some {
@@ -1606,7 +1611,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op2]
   pub fn op_buffer_jsbuffer(
     #[buffer] input: JsBuffer,
     #[number] inlen: usize,
@@ -1637,7 +1642,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op2]
   pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
     let mut sum: u32 = 0;
     for i in buffer {
@@ -1691,7 +1696,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op2]
   pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
     buffer.len() as _
   }

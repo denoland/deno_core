@@ -4,13 +4,13 @@ use super::exception_state::ExceptionState;
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::ModuleCode;
-use crate::modules::ModuleError;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
+use crate::GetErrorClassFn;
 use anyhow::Error;
 use futures::stream::StreamExt;
 use std::cell::Cell;
@@ -49,7 +49,12 @@ impl Hasher for IdentityHasher {
 #[cfg(feature = "op_driver_joinset")]
 type DefaultOpDriver = super::op_driver::JoinSetDriver;
 
-#[derive(Default)]
+#[cfg(all(
+  feature = "op_driver_futuresunordered",
+  not(feature = "op_driver_joinset")
+))]
+type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
+
 pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
@@ -66,6 +71,31 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
+  pub(crate) get_error_class_fn: GetErrorClassFn,
+  pub(crate) ops_with_metrics: Vec<bool>,
+}
+
+impl<O: OpDriver> ContextState<O> {
+  pub(crate) fn new(
+    isolate_ptr: *mut v8::OwnedIsolate,
+    get_error_class_fn: GetErrorClassFn,
+    ops_with_metrics: Vec<bool>,
+  ) -> Self {
+    Self {
+      isolate: Some(isolate_ptr),
+      get_error_class_fn,
+      ops_with_metrics,
+      exception_state: Default::default(),
+      has_next_tick_scheduled: Default::default(),
+      js_event_loop_tick_cb: Default::default(),
+      js_wasm_streaming_cb: Default::default(),
+      op_ctxs: Default::default(),
+      pending_ops: Default::default(),
+      task_spawner_factory: Default::default(),
+      timers: Default::default(),
+      unrefed_ops: Default::default(),
+    }
+  }
 }
 
 /// A representation of a JavaScript realm tied to a [`JsRuntime`], that allows
@@ -227,7 +257,7 @@ impl JsRealm {
 
   fn string_from_code<'a>(
     scope: &mut HandleScope<'a>,
-    code: &ModuleCode,
+    code: &ModuleCodeString,
   ) -> Option<Local<'a, v8::String>> {
     if let Some(code) = code.try_static_ascii() {
       v8::String::new_external_onebyte_static(scope, code)
@@ -261,7 +291,11 @@ impl JsRealm {
     name: &'static str,
     source_code: &'static str,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    self.execute_script(isolate, name, ModuleCode::from_static(source_code))
+    self.execute_script(
+      isolate,
+      name,
+      ModuleCodeString::from_static(source_code),
+    )
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules) in the
@@ -282,7 +316,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     name: &'static str,
-    source_code: ModuleCode,
+    source_code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let scope = &mut self.0.handle_scope(isolate);
 
@@ -358,7 +392,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
@@ -367,14 +401,7 @@ impl JsRealm {
       // true for main module
       module_map_rc
         .new_es_module(scope, true, specifier, code, false)
-        .map_err(|e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        })?;
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let mut load =
@@ -383,16 +410,9 @@ impl JsRealm {
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
       let scope = &mut self.handle_scope(isolate);
-      load.register_and_recurse(scope, &request, info).map_err(
-        |e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        },
-      )?;
+      load
+        .register_and_recurse(scope, &request, info)
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -415,7 +435,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCode>,
+    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
@@ -424,14 +444,7 @@ impl JsRealm {
       // false for side module (not main module)
       module_map_rc
         .new_es_module(scope, false, specifier, code, false)
-        .map_err(|e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        })?;
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let mut load =
@@ -440,16 +453,9 @@ impl JsRealm {
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
       let scope = &mut self.handle_scope(isolate);
-      load.register_and_recurse(scope, &request, info).map_err(
-        |e| match e {
-          ModuleError::Exception(exception) => {
-            let exception = v8::Local::new(scope, exception);
-            exception_to_err_result::<()>(scope, exception, false, false)
-              .unwrap_err()
-          }
-          ModuleError::Other(error) => error,
-        },
-      )?;
+      load
+        .register_and_recurse(scope, &request, info)
+        .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -472,7 +478,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     module_specifier: &str,
-    code: ModuleCode,
+    code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);

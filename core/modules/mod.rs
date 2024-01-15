@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
@@ -10,6 +11,7 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::Arc;
 
 mod loaders;
 mod map;
@@ -32,6 +34,7 @@ pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::ModuleMap;
+pub(crate) use module_map_data::ModuleMapSnapshottedData;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
@@ -41,14 +44,61 @@ pub(crate) type ModuleLoadId = i32;
 /// converted to a string or not.
 #[derive(Debug)]
 pub enum ModuleSourceCode {
-  String(ModuleCode),
-  Bytes(Vec<u8>),
+  String(ModuleCodeString),
+  Bytes(ModuleCodeBytes),
 }
 
-// TODO(bartlomieju): maybe remove it? It might be confusing between `ModuleSourceCode`
-// and `ModuleCode`.
-pub type ModuleCode = FastString;
+pub type ModuleCodeString = FastString;
 pub type ModuleName = FastString;
+
+#[derive(Debug)]
+pub enum ModuleCodeBytes {
+  /// Created from static data.
+  Static(&'static [u8]),
+
+  /// An owned chunk of data. Note that we use `Box` rather than `Vec` to avoid
+  /// the storage overhead.
+  Boxed(Box<[u8]>),
+
+  /// Code loaded from the `deno_graph` infrastructure.
+  Arc(Arc<[u8]>),
+}
+
+impl ModuleCodeBytes {
+  pub fn as_bytes(&self) -> &[u8] {
+    match self {
+      ModuleCodeBytes::Static(s) => s,
+      ModuleCodeBytes::Boxed(s) => s,
+      ModuleCodeBytes::Arc(s) => s,
+    }
+  }
+
+  pub fn to_vec(&self) -> Vec<u8> {
+    match self {
+      ModuleCodeBytes::Static(s) => s.to_vec(),
+      ModuleCodeBytes::Boxed(s) => s.to_vec(),
+      ModuleCodeBytes::Arc(s) => s.to_vec(),
+    }
+  }
+}
+
+impl From<Arc<[u8]>> for ModuleCodeBytes {
+  fn from(value: Arc<[u8]>) -> Self {
+    Self::Arc(value)
+  }
+}
+
+impl From<Box<[u8]>> for ModuleCodeBytes {
+  fn from(value: Box<[u8]>) -> Self {
+    Self::Boxed(value)
+  }
+}
+
+impl From<&'static [u8]> for ModuleCodeBytes {
+  fn from(value: &'static [u8]) -> Self {
+    Self::Static(value)
+  }
+}
 
 /// Callback to customize value of `import.meta.resolve("./foo.ts")`.
 pub type ImportMetaResolveCallback = Box<
@@ -72,32 +122,35 @@ pub(crate) fn default_import_meta_resolve_cb(
 pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
 
-const SUPPORTED_TYPE_ASSERTIONS: &[&str] = &["json"];
+/// Callback to validate import attributes. If the validation fails and exception
+/// should be thrown using `scope.throw_exception()`.
+pub type CustomModuleEvaluationCb = Box<
+  dyn Fn(
+    &mut v8::HandleScope,
+    Cow<'_, str>,
+    &FastString,
+    ModuleSourceCode,
+  ) -> Result<CustomModuleEvaluationKind, AnyError>,
+>;
 
-/// Throws a `TypeError` if `type` attribute is not equal to "json". Allows
-/// all other attributes.
-pub(crate) fn validate_import_attributes(
-  scope: &mut v8::HandleScope,
-  assertions: &HashMap<String, String>,
-) {
-  for (key, value) in assertions {
-    let msg = if key != "type" {
-      Some(format!("\"{key}\" attribute is not supported."))
-    } else if !SUPPORTED_TYPE_ASSERTIONS.contains(&value.as_str()) {
-      Some(format!("\"{value}\" is not a valid module type."))
-    } else {
-      None
-    };
+pub enum CustomModuleEvaluationKind {
+  /// This evaluation results in a single, "synthetic" module.
+  Synthetic(v8::Global<v8::Value>),
 
-    let Some(msg) = msg else {
-      continue;
-    };
-
-    let message = v8::String::new(scope, &msg).unwrap();
-    let exception = v8::Exception::type_error(scope, message);
-    scope.throw_exception(exception);
-    return;
-  }
+  /// This evaluation results in creation of two modules:
+  ///  - a "computed" module - some JavaScript that most likely is rendered and
+  ///    uses the "synthetic" module - this module's ID is returned from
+  ///    [`new_module`] call.
+  ///  - a "synthetic" module - a kind of a helper module that abstracts
+  ///    the source of JS objects - this module is set up first.
+  ComputedAndSynthetic(
+    // Source code of computed module,
+    FastString,
+    // Synthetic module value
+    v8::Global<v8::Value>,
+    // Synthetic module type
+    ModuleType,
+  ),
 }
 
 #[derive(Debug)]
@@ -156,15 +209,15 @@ pub(crate) fn get_requested_module_type_from_attributes(
 
 /// A type of module to be executed.
 ///
-/// For non-`JavaScript` modules, this value doesn't tell
-/// how to interpret the module; it is only used to validate
-/// the module against an import assertion (if one is present
-/// in the import statement).
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+/// `deno_core` supports loading and executing JavaScript and JSON modules,
+/// by default, but embedders can customize it further by providing
+/// [`CustomModuleEvaluationCb`].
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum ModuleType {
   JavaScript,
   Json,
+  Other(Cow<'static, str>),
 }
 
 impl std::fmt::Display for ModuleType {
@@ -172,6 +225,7 @@ impl std::fmt::Display for ModuleType {
     match self {
       Self::JavaScript => write!(f, "JavaScript"),
       Self::Json => write!(f, "JSON"),
+      Self::Other(ty) => write!(f, "{}", ty),
     }
   }
 }
@@ -274,14 +328,14 @@ impl ModuleSource {
   pub fn get_string_source(
     specifier: &str,
     code: ModuleSourceCode,
-  ) -> Result<ModuleCode, AnyError> {
+  ) -> Result<ModuleCodeString, AnyError> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes).with_context(|| {
+        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
           format!("Can't convert source code to string for {}", specifier)
         })?;
-        Ok(ModuleCode::from(str_))
+        Ok(ModuleCodeString::from(str_))
       }
     }
   }
@@ -306,17 +360,41 @@ pub enum ResolutionKind {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum RequestedModuleType {
+pub enum RequestedModuleType {
   /// There was no attribute specified in the import statement.
+  ///
+  /// Example:
+  /// ```ignore
+  /// import foo from "./foo.js";
+  ///
+  /// const bar = await import("bar");
+  /// ```
   None,
 
-  /// `type` attribute had value `json`. This is the only known module type
-  /// in `deno_core`. Embedders should use `Other` variant for custom module
+  /// The `type` attribute had value `json`. This is the only known module type
+  /// in `deno_core`.
+  ///
+  /// Embedders should use `Other` variant for custom module
   /// types like `wasm`, `bytes` or `text`.
+  ///
+  /// Example:
+  /// ```ignore
+  /// import jsonData from "./data.json" with { type: "json" };
+  ///
+  /// const jsonData2 = await import"./data2.json", { with { type: "json" } });
+  /// ```
   Json,
 
-  // IMPORTANT: If you add any additional enum values here, you must update `to_v8`` below!
-  /// Non-well-known module type.
+  /// An arbitrary module type. It is up to the embedder to handle (or deny) it.
+  /// If [`CustomModuleEvaluationCb`] was not passed when creating a runtime,
+  /// then all "other" module types cause an error to be returned.
+  ///
+  /// Example:
+  /// ```ignore
+  /// import text from "./log.txt" with { type: "text" };
+  ///
+  /// const imgData = await import(`./images/${name}.png`, { with: { type: "bytes" }});
+  /// ```
   Other(Cow<'static, str>),
 }
 
@@ -358,11 +436,13 @@ impl AsRef<RequestedModuleType> for RequestedModuleType {
   }
 }
 
+// TODO(bartlomieju): this is questionable. I think we should remove it.
 impl PartialEq<ModuleType> for RequestedModuleType {
   fn eq(&self, other: &ModuleType) -> bool {
     match other {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
+      ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
 }
@@ -372,6 +452,7 @@ impl From<ModuleType> for RequestedModuleType {
     match module_type {
       ModuleType::JavaScript => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
+      ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
   }
 }
@@ -410,4 +491,22 @@ pub(crate) struct ModuleInfo {
 pub(crate) enum ModuleError {
   Exception(v8::Global<v8::Value>),
   Other(Error),
+}
+
+impl ModuleError {
+  pub fn into_any_error(
+    self,
+    scope: &mut v8::HandleScope,
+    in_promise: bool,
+    clear_error: bool,
+  ) -> AnyError {
+    match self {
+      ModuleError::Exception(exception) => {
+        let exception = v8::Local::new(scope, exception);
+        exception_to_err_result::<()>(scope, exception, in_promise, clear_error)
+          .unwrap_err()
+      }
+      ModuleError::Other(error) => error,
+    }
+  }
 }

@@ -3,6 +3,7 @@
     "target": "ES2022",
     "baseUrl": ".",
     "paths": {
+      "checkin:async": ["checkin/runtime/async.ts"],
       "checkin:console": ["checkin/runtime/console.ts"],
       "checkin:testing": ["checkin/runtime/testing.ts"]
     },
