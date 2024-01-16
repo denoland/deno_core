@@ -93,7 +93,7 @@ impl Resource for CancelHandle {
     "cancellation".into()
   }
 
-  fn close(self: Rc<Self>) {
+  fn close(self) {
     self.cancel();
   }
 }

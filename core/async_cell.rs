@@ -240,9 +240,12 @@ impl<T: 'static> RcLike<T> for &Rc<T> {}
 impl<T: 'static> RcLike<T> for &RcRef<T> {}
 
 mod internal {
+  use crate::BufView;
+
   use super::AsyncRefCell;
   use super::RcLike;
   use super::RcRef;
+  use anyhow::Error;
   use futures::future::Future;
   use futures::ready;
   use futures::task::Context;

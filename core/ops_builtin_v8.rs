@@ -809,7 +809,7 @@ pub fn op_abort_wasm_streaming(
   // resource table, and no one should own a reference because we're never
   // cloning them. So we can be sure `wasm_streaming` is the only reference.
   if let Ok(wsr) = std::rc::Rc::try_unwrap(wasm_streaming) {
-    wsr.0.into_inner().abort(Some(error));
+    wsr.into_inner().0.into_inner().abort(Some(error));
   } else {
     panic!("Couldn't consume WasmStreamingResource.");
   }
