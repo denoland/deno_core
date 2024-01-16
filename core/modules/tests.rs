@@ -5,8 +5,10 @@ use crate::error::generic_error;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
+use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
+use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
 use crate::modules::RequestedModuleType;
@@ -756,13 +758,13 @@ fn test_custom_module_type_default() {
 }
 
 #[test]
-fn test_custom_module_type_callback() {
+fn test_custom_module_type_callback_synthetic() {
   fn custom_eval_cb(
     scope: &mut v8::HandleScope,
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<CustomModuleEvaluationKind, Error> {
     if module_type != "bytes" {
       return Err(generic_error(format!(
         "Can't load '{}' module",
@@ -780,7 +782,8 @@ fn test_custom_module_type_callback() {
     let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
     let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
     let value: v8::Local<v8::Value> = uint8_array.into();
-    Ok(v8::Global::new(scope, value))
+    let value_global = v8::Global::new(scope, value);
+    Ok(CustomModuleEvaluationKind::Synthetic(value_global))
   }
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
@@ -834,6 +837,106 @@ fn test_custom_module_type_callback() {
       )
       .unwrap()
   };
+}
+
+#[test]
+fn test_custom_module_type_callback_computed() {
+  fn custom_eval_cb(
+    scope: &mut v8::HandleScope,
+    module_type: Cow<'_, str>,
+    module_name: &FastString,
+    module_code: ModuleSourceCode,
+  ) -> Result<CustomModuleEvaluationKind, Error> {
+    if module_type != "foobar" {
+      return Err(generic_error(format!(
+        "Can't load '{}' module",
+        module_type
+      )));
+    }
+
+    let buf = match module_code {
+      ModuleSourceCode::Bytes(buf) => buf.to_vec(),
+      ModuleSourceCode::String(str_) => str_.as_bytes().to_vec(),
+    };
+    let buf_len: usize = buf.len();
+    let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(buf);
+    let backing_store_shared = backing_store.make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+    let value: v8::Local<v8::Value> = uint8_array.into();
+    let value_global = v8::Global::new(scope, value);
+
+    let computed_src = format!(
+      r#"
+import bytes from "{}" with {{ type: "foobar-synth" }};
+
+export const foo = bytes;
+    "#,
+      module_name.as_str()
+    );
+    Ok(CustomModuleEvaluationKind::ComputedAndSynthetic(
+      computed_src.into(),
+      value_global,
+      ModuleType::Other("foobar-synth".into()),
+    ))
+  }
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
+    ..Default::default()
+  });
+
+  let module_map = runtime.module_map().clone();
+
+  let mod_id = {
+    let scope = &mut runtime.handle_scope();
+    let specifier_a = ascii_str!("file:///b.png");
+    module_map
+      .new_module(
+        scope,
+        true,
+        false,
+        ModuleSource {
+          code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+          module_url_found: None,
+          module_url_specified: specifier_a,
+          module_type: ModuleType::Other("foobar".into()),
+        },
+      )
+      .unwrap()
+  };
+
+  let data = module_map.get_data();
+  let data = data.borrow();
+  let info = data.info.get(mod_id).unwrap();
+  assert_eq!(
+    info,
+    &ModuleInfo {
+      id: mod_id,
+      main: true,
+      name: ascii_str!("file:///b.png"),
+      requests: vec![ModuleRequest {
+        specifier: "file:///b.png".to_string(),
+        requested_module_type: RequestedModuleType::Other(
+          "foobar-synth".into()
+        )
+      }],
+      module_type: RequestedModuleType::Other("foobar".into()),
+    }
+  );
+  let info = data.info.get(mod_id - 1).unwrap();
+  assert_eq!(
+    info,
+    &ModuleInfo {
+      id: mod_id - 1,
+      main: false,
+      name: ascii_str!("file:///b.png"),
+      requests: vec![],
+      module_type: RequestedModuleType::Other("foobar-synth".into()),
+    }
+  );
 }
 
 #[tokio::test]

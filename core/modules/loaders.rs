@@ -1,12 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::generic_error;
-use crate::error::AnyError;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleSource;
 use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
+use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
@@ -23,8 +23,6 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-
-use super::RequestedModuleType;
 
 pub trait ModuleLoader {
   /// Returns an absolute URL.
@@ -289,11 +287,10 @@ impl ModuleLoader for FsModuleLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dynamic: bool,
-    _requested_module_type: RequestedModuleType,
+    requested_module_type: RequestedModuleType,
   ) -> Pin<Box<ModuleSourceFuture>> {
-    fn load(
-      module_specifier: &ModuleSpecifier,
-    ) -> Result<ModuleSource, AnyError> {
+    let module_specifier = module_specifier.clone();
+    async move {
       let path = module_specifier.to_file_path().map_err(|_| {
         generic_error(format!(
           "Provided module specifier \"{module_specifier}\" is not a file URL."
@@ -301,14 +298,28 @@ impl ModuleLoader for FsModuleLoader {
       })?;
       let module_type = if let Some(extension) = path.extension() {
         let ext = extension.to_string_lossy().to_lowercase();
+        // We only return JSON modules if extension was actually `.json`.
+        // In other cases we defer to actual requested module type, so runtime
+        // can decide what to do with it.
         if ext == "json" {
           ModuleType::Json
         } else {
-          ModuleType::JavaScript
+          match &requested_module_type {
+            RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
+            _ => ModuleType::JavaScript,
+          }
         }
       } else {
         ModuleType::JavaScript
       };
+
+      // If we loaded a JSON file, but the "requested_module_type" (that is computed from
+      // import attributes) is not JSON we need to fail.
+      if module_type == ModuleType::Json
+        && requested_module_type != RequestedModuleType::Json
+      {
+        return Err(generic_error("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."));
+      }
 
       let code = std::fs::read(path).with_context(|| {
         format!("Failed to load {}", module_specifier.as_str())
@@ -316,12 +327,11 @@ impl ModuleLoader for FsModuleLoader {
       let module = ModuleSource::new(
         module_type,
         ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
-        module_specifier,
+        &module_specifier,
       );
       Ok(module)
     }
-
-    futures::future::ready(load(module_specifier)).boxed_local()
+    .boxed_local()
   }
 }
 

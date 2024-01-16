@@ -130,8 +130,28 @@ pub type CustomModuleEvaluationCb = Box<
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
-  ) -> Result<v8::Global<v8::Value>, AnyError>,
+  ) -> Result<CustomModuleEvaluationKind, AnyError>,
 >;
+
+pub enum CustomModuleEvaluationKind {
+  /// This evaluation results in a single, "synthetic" module.
+  Synthetic(v8::Global<v8::Value>),
+
+  /// This evaluation results in creation of two modules:
+  ///  - a "computed" module - some JavaScript that most likely is rendered and
+  ///    uses the "synthetic" module - this module's ID is returned from
+  ///    [`new_module`] call.
+  ///  - a "synthetic" module - a kind of a helper module that abstracts
+  ///    the source of JS objects - this module is set up first.
+  ComputedAndSynthetic(
+    // Source code of computed module,
+    FastString,
+    // Synthetic module value
+    v8::Global<v8::Value>,
+    // Synthetic module type
+    ModuleType,
+  ),
+}
 
 #[derive(Debug)]
 pub(crate) enum ImportAttributesKind {
