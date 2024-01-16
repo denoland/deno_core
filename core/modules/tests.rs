@@ -1270,6 +1270,7 @@ async fn loader_disappears_after_error() {
 
 #[test]
 fn recursive_load_main_with_code() {
+  #[cfg(not(target_os = "windows"))]
   const MAIN_WITH_CODE_SRC: FastString = ascii_str!(
     r#"
 import { b } from "/b.js";
@@ -1283,6 +1284,20 @@ if (import.meta.dirname != '/') throw Error();
 "#
   );
 
+  #[cfg(target_os = "windows")]
+  const MAIN_WITH_CODE_SRC: FastString = ascii_str!(
+    r#"
+import { b } from "/b.js";
+import { c } from "/c.js";
+if (b() != 'b') throw Error();
+if (c() != 'c') throw Error();
+if (!import.meta.main) throw Error();
+if (import.meta.url != 'file://C:/main_with_code.js') throw Error();
+if (import.meta.filename != 'C:\main_with_code.js') throw Error();
+if (import.meta.dirname != 'C:\') throw Error();
+"#
+  );
+
   let loader = MockLoader::new();
   let loads = loader.loads.clone();
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -1292,7 +1307,10 @@ if (import.meta.dirname != '/') throw Error();
   // In default resolution code should be empty.
   // Instead we explicitly pass in our own code.
   // The behavior should be very similar to /a.js.
+  #[cfg(not(target_os = "windows"))]
   let spec = resolve_url("file:///main_with_code.js").unwrap();
+  #[cfg(target_os = "windows")]
+  let spec = resolve_url("file://C:/main_with_code.js").unwrap();
   let main_id_fut = runtime
     .load_main_module(&spec, Some(MAIN_WITH_CODE_SRC))
     .boxed_local();
