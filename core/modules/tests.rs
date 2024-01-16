@@ -1284,7 +1284,7 @@ import { c } from "/c.js";
 if (b() != 'b') throw Error();
 if (c() != 'c') throw Error();
 if (!import.meta.main) throw Error();
-if (import.meta.url != 'file://C:/main_with_code.js') throw Error();
+if (import.meta.url != 'file:///C:/main_with_code.js') throw Error();
 if (import.meta.filename != 'C:\\main_with_code.js') throw Error();
 if (import.meta.dirname != 'C:\\') throw Error();
 "#
@@ -1302,7 +1302,7 @@ if (import.meta.dirname != 'C:\\') throw Error();
   #[cfg(not(target_os = "windows"))]
   let spec = resolve_url("file:///main_with_code.js").unwrap();
   #[cfg(target_os = "windows")]
-  let spec = resolve_url("file://C:/main_with_code.js").unwrap();
+  let spec = resolve_url("file:///C:/main_with_code.js").unwrap();
   let main_id_fut = runtime
     .load_main_module(&spec, Some(MAIN_WITH_CODE_SRC))
     .boxed_local();
