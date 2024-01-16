@@ -371,8 +371,16 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     v8::String::new_external_onebyte_static(scope, b"resolve").unwrap();
   meta.set(scope, resolve_key.into(), val.into());
 
+  maybe_add_import_meta_filename_dirname(scope, meta, &name);
+}
+
+fn maybe_add_import_meta_filename_dirname(
+  scope: &mut v8::HandleScope,
+  meta: v8::Local<v8::Object>,
+  name: &str,
+) {
   // For `file:` URL we provide additional `filename` and `dirname` values
-  let Ok(name_url) = Url::parse(&name) else {
+  let Ok(name_url) = Url::parse(name) else {
     return;
   };
 
