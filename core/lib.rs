@@ -89,6 +89,7 @@ pub use crate::io::Resource;
 pub use crate::io::ResourceHandle;
 pub use crate::io::ResourceHandleFd;
 pub use crate::io::ResourceHandleSocket;
+pub use crate::io::ResourceObject;
 pub use crate::io::ResourceId;
 pub use crate::io::ResourceTable;
 pub use crate::io::WriteContext;

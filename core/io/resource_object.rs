@@ -1,7 +1,7 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::resource::OpaqueWriteFuture;
 use super::WriteContext;
 use super::WriteResult;
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::resource::ReadContext;
 use super::resource::ReadResult;
 use super::BufMutViewWhole;
@@ -20,6 +20,7 @@ use bytes::Buf;
 use bytes::BytesMut;
 use cooked_waker::ViaRawPointer;
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::fs::File;
 use std::future::poll_fn;
 use std::io::ErrorKind;
@@ -69,6 +70,12 @@ pub struct ResourceObject<T: Resource + ?Sized> {
   read_lock: Rc<AsyncRefCell<ReadState>>,
   write_lock: Rc<AsyncRefCell<()>>,
   _type: PhantomData<T>,
+}
+
+impl<T: Resource> Debug for ResourceObject<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    format_args!("ResourceObject {{ }}").fmt(f)
+  }
 }
 
 impl<T: Resource + ?Sized> ResourceObject<T> {

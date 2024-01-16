@@ -17,6 +17,7 @@ use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
 use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 use tokio::io::ReadBuf;
 
 /// Resources are Rust objects that are attached to a [deno_core::JsRuntime].
@@ -103,6 +104,8 @@ pub trait Resource: Any + 'static {
   }
 }
 
+// We don't want `OpaqueReadFuture` leaking.
+#[allow(private_interfaces)]
 pub enum ReadResult<'a> {
   /// The read operation returned an error.
   Err(Error),
@@ -130,6 +133,8 @@ pub(crate) enum ReadResult2 {
   ReadyBuf(BufView),
 }
 
+// We don't want `OpaqueWriteFuture` leaking.
+#[allow(private_interfaces)]
 pub enum WriteResult<'a> {
   /// The write operation returned an error.
   Err(Error),
@@ -142,7 +147,7 @@ pub enum WriteResult<'a> {
   Future(OpaqueWriteFuture<'a>),
 }
 
-pub struct OpaqueReadFuture<'a> {
+pub(crate) struct OpaqueReadFuture<'a> {
   f: Pin<Box<dyn Future<Output = ReadResult<'a>> + 'a>>,
 }
 
@@ -152,7 +157,7 @@ impl<'a> OpaqueReadFuture<'a> {
   }
 }
 
-pub struct OpaqueWriteFuture<'a> {
+pub(crate) struct OpaqueWriteFuture<'a> {
   f: Pin<Box<dyn Future<Output = WriteResult<'a>> + 'a>>,
 }
 
@@ -182,6 +187,13 @@ impl<'a> WriteContext<'a> {
   pub fn buf_owned(&mut self) -> BufView {
     self.buf.split_off(0)
   }
+
+  pub fn poll_writer<W: AsyncWrite + Unpin>(&self, cx: &mut Context<'_>, w: &mut W) -> Poll<WriteResult<'a>> {
+    Poll::Ready(match ready!(Pin::new(w).poll_write(cx, &self.buf)) {
+      Err(err) => WriteResult::Err(err.into()),
+      Ok(n) => WriteResult::Ready(n),
+    })
+  }
 }
 
 pub enum ReadContextBuf<'a> {
@@ -199,6 +211,19 @@ impl<'a> ReadContext<'a> {
     Self {
       buf: ReadContextBuf::Buf(buf.as_mut()),
     }
+  }
+  /// Use this buffer holder to poll a reader.
+  pub fn poll_reader<R: AsyncRead + Unpin>(
+    &mut self,
+    cx: &mut Context,
+    r: &mut R,
+  ) -> Poll<ReadResult<'a>> {
+    let buf = self.preferred_buffer();
+    Poll::Ready(match ready!(Pin::new(r).poll_read(cx, buf)) {
+      Err(err) => ReadResult::Err(err.into()),
+      Ok(_) if buf.filled().len() == 0 => ReadResult::EOF,
+      Ok(_) => ReadResult::Ready,
+    })
   }
 
   pub fn read_future<F: Future<Output = ReadResult<'a>> + 'a>(

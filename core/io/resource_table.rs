@@ -4,12 +4,15 @@ use super::ResourceHandle;
 use super::ResourceHandleFd;
 use super::ResourceHandleSocket;
 use super::ResourceObject;
+use crate::RcLike;
+use crate::RcRef;
 use crate::error::bad_resource_id;
 use crate::error::custom_error;
 use anyhow::Error;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::iter::Iterator;
+use std::ops::Deref;
 use std::rc::Rc;
 
 /// A `ResourceId` is an integer value referencing a resource. It could be
@@ -87,6 +90,22 @@ impl ResourceTable {
       .and_then(|rc| rc.downcast_rc::<T>())
       .map(Clone::clone)
       .ok_or_else(bad_resource_id)
+  }
+
+  /// Returns a reference counted pointer to the resource of type `T` with the
+  /// given `rid`. If `rid` is not present or has a type different than `T`,
+  /// this function returns `None`.
+  pub fn get_inner<T: Resource>(
+    &self,
+    rid: ResourceId,
+  ) -> Result<impl RcLike<T>, Error> {
+    let rc = self
+      .index
+      .get(&rid)
+      .and_then(|rc| rc.downcast_rc::<T>())
+      .map(Clone::clone)
+      .ok_or_else(bad_resource_id)?;
+    Ok(RcRef::map( &rc, |rc| rc.deref()))
   }
 
   pub fn get_any(
