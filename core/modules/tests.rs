@@ -61,6 +61,7 @@ impl MockLoader {
 }
 
 fn mock_source_code(url: &str) -> Option<(&'static str, &'static str)> {
+  #[cfg(not(target_os = "windows"))]
   const A_SRC: &str = r#"
 import { b } from "/b.js";
 import { c } from "/c.js";
@@ -72,6 +73,19 @@ if (import.meta.filename != '/a.js') throw Error();
 if (import.meta.dirname != '/') throw Error();
 "#;
 
+  #[cfg(target_os = "windows")]
+  const A_SRC: &str = r#"
+import { b } from "/b.js";
+import { c } from "/c.js";
+if (b() != 'b') throw Error();
+if (c() != 'c') throw Error();
+if (!import.meta.main) throw Error();
+if (import.meta.url != 'file://c:/a.js') throw Error();
+if (import.meta.filename != 'c:\a.js') throw Error();
+if (import.meta.dirname != 'c:\') throw Error();
+"#;
+
+  #[cfg(not(target_os = "windows"))]
   const B_SRC: &str = r#"
 import { c } from "/c.js";
 if (c() != 'c') throw Error();
@@ -82,6 +96,18 @@ if (import.meta.filename != '/b.js') throw Error();
 if (import.meta.dirname != '/') throw Error();
 "#;
 
+  #[cfg(target_os = "windows")]
+  const B_SRC: &str = r#"
+import { c } from "/c.js";
+if (c() != 'c') throw Error();
+export function b() { return 'b'; }
+if (import.meta.main) throw Error();
+if (import.meta.url != 'file://c:/b.js') throw Error();
+if (import.meta.filename != 'c:\b.js') throw Error();
+if (import.meta.dirname != 'c:\') throw Error();
+"#;
+
+  #[cfg(not(target_os = "windows"))]
   const C_SRC: &str = r#"
 import { d } from "/d.js";
 export function c() { return 'c'; }
@@ -92,12 +118,33 @@ if (import.meta.filename != '/c.js') throw Error();
 if (import.meta.dirname != '/') throw Error();
 "#;
 
+  #[cfg(target_os = "windows")]
+  const C_SRC: &str = r#"
+import { d } from "/d.js";
+export function c() { return 'c'; }
+if (d() != 'd') throw Error();
+if (import.meta.main) throw Error();
+if (import.meta.url != 'file://c:/c.js') throw Error();
+if (import.meta.filename != 'c:\c.js') throw Error();
+if (import.meta.dirname != 'c:\') throw Error();
+"#;
+
+  #[cfg(not(target_os = "windows"))]
   const D_SRC: &str = r#"
 export function d() { return 'd'; }
 if (import.meta.main) throw Error();
 if (import.meta.url != 'file:///d.js') throw Error();
 if (import.meta.filename != '/d.js') throw Error();
 if (import.meta.dirname != '/') throw Error();
+"#;
+
+  #[cfg(target_os = "windows")]
+  const D_SRC: &str = r#"
+export function d() { return 'd'; }
+if (import.meta.main) throw Error();
+if (import.meta.url != 'file://c:/d.js') throw Error();
+if (import.meta.filename != 'c:\d.js') throw Error();
+if (import.meta.dirname != 'c:\') throw Error();
 "#;
 
   const CIRCULAR1_SRC: &str = r#"
@@ -145,7 +192,10 @@ import "/a.js";
   const BAD_IMPORT_SRC: &str = r#"import "foo";"#;
 
   // (code, real_module_name)
+  #[cfg(not(target_os = "windows"))]
   let spec: Vec<&str> = url.split("file://").collect();
+  #[cfg(target_os = "windows")]
+  let spec: Vec<&str> = url.split("file://c:/").collect();
   match spec[1] {
     "/a.js" => Some((A_SRC, "file:///a.js")),
     "/b.js" => Some((B_SRC, "file:///b.js")),
