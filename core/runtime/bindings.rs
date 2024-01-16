@@ -406,7 +406,7 @@ fn maybe_add_import_meta_filename_dirname(
   let dir_path = file_path
     .parent()
     .map(|p| p.to_owned())
-    .unwrap_or_else(|| file_path.ancestors().nth(0).unwrap().to_owned());
+    .unwrap_or_else(|| PathBuf::from("/"));
 
   let dirname_val =
     v8::String::new(scope, &dir_path.display().to_string()).unwrap();
