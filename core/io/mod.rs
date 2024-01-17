@@ -10,6 +10,7 @@ use anyhow::Error;
 use futures::Future;
 use std::pin::Pin;
 
+mod buffer_channel;
 mod buffers;
 mod resource;
 mod resource_handle;
@@ -19,6 +20,7 @@ mod resource_table;
 pub use buffers::BufMutView;
 pub use buffers::BufMutViewWhole;
 pub use buffers::BufView;
+pub use buffer_channel::BoundedBufferChannel;
 pub use resource::ReadContext;
 pub use resource::ReadResult;
 pub use resource::Resource;
