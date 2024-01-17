@@ -206,12 +206,6 @@
     };
   }
 
-  // This function is called once per async stub
-  function asyncStub(opName, args) {
-    setUpAsyncStub(opName);
-    return ReflectApply(ops[opName], undefined, args);
-  }
-
   function setUpAsyncStub(opName) {
     // console.log("setUpAsyncStub", opName);
     const originalOp = uninitializedAsyncOps[opName];
@@ -468,7 +462,6 @@
     isOpCallTracingEnabled,
     opCallTraces,
     handleOpCallTracing,
-    asyncStub,
     setUpAsyncStub,
     getPromise,
     hasPromise,
