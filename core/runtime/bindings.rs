@@ -208,7 +208,6 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   global.set(scope, deno_str.into(), deno_obj.into());
 }
 
-// TODO(bartlomieju): don't return a value - we are mutating `context` arg
 pub(crate) fn initialize_context<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
@@ -222,7 +221,7 @@ pub(crate) fn initialize_context<'s>(
       skip_op_registration: true
     }
   ) {
-    return context;
+    return;
   }
 
   let global = context.global(scope);
@@ -268,8 +267,6 @@ pub(crate) fn initialize_context<'s>(
 
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
   }
-
-  context
 }
 
 fn op_ctx_function<'s>(
