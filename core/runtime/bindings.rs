@@ -214,7 +214,7 @@ pub(crate) fn initialize_context<'s>(
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   init_mode: InitMode,
-) -> v8::Local<'s, v8::Context> {
+) {
   // Fast path.
   if matches!(
     init_mode,
