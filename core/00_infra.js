@@ -211,7 +211,7 @@
     };
   }
 
-  function setUpAsyncStubInner(opName, originalOp) {
+  function setUpAsyncStub(opName, originalOp) {
     let fn;
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {
@@ -454,13 +454,6 @@
     return fn;
   }
 
-  function setUpAsyncStub(opName) {
-    const originalOp = asyncOps[opName];
-    const fn = setUpAsyncStubInner(opName, originalOp);
-    ops[opName] = fn;
-    return fn;
-  }
-
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     build,
@@ -473,7 +466,6 @@
     opCallTraces,
     handleOpCallTracing,
     setUpAsyncStub,
-    setUpAsyncStubInner,
     getPromise,
     hasPromise,
     promiseIdSymbol,

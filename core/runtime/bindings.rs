@@ -246,11 +246,11 @@ pub(crate) fn initialize_context<'s>(
   let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
   let deno_core_ops_obj: v8::Local<v8::Object> =
     get(scope, deno_core_obj, b"ops", "Deno.core.ops");
-  let set_up_async_stub_inner_fn: v8::Local<v8::Function> = get(
+  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
-    b"setUpAsyncStubInner",
-    "Deno.core.setUpAsyncStubInner",
+    b"setUpAsyncStub",
+    "Deno.core.setUpAsyncStub",
   );
 
   let undefined = v8::undefined(scope);
@@ -268,9 +268,11 @@ pub(crate) fn initialize_context<'s>(
     )
     .unwrap();
 
-    // For async ops we need to set them up
+    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+    // this call will generate an optimized function that binds to the provided
+    // op, while keeping track of promises and error remapping.
     if op_ctx.decl.is_async {
-      let result = set_up_async_stub_inner_fn
+      let result = set_up_async_stub_fn
         .call(scope, undefined.into(), &[key.into(), op_fn.into()])
         .unwrap();
       op_fn = result.try_into().unwrap()
