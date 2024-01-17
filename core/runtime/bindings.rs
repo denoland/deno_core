@@ -227,6 +227,9 @@ pub(crate) fn initialize_context<'s>(
 
   let global = context.global(scope);
 
+  // Set up JavaScript bindings for the defined op - this will insert proper
+  // `v8::Function` into `Deno.core.ops` object. For async ops, there a bit
+  // more machinery involved, see comment below.
   let deno_obj = get(scope, global, b"Deno", "Deno");
   let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
   let deno_core_ops_obj: v8::Local<v8::Object> =
