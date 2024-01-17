@@ -30,6 +30,8 @@
     TypeError,
     URIError,
   } = window.__bootstrap.primordials;
+  // TODO(bartlomieju): not ideal - effectively we have circular dependency between
+  // 00_infra.js and 01_core.js. Figure out how to fix it.
   const core_ = window.Deno.core;
   const { ops, asyncOps } = window.Deno.core;
 
