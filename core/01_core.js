@@ -20,7 +20,7 @@
   } = window.__bootstrap.primordials;
   const {
     ops,
-    uninitializedAsyncOps,
+    asyncOps,
     setUpAsyncStub,
     getPromise,
     hasPromise,
