@@ -33,3 +33,18 @@ pub use resource_table::ResourceTable;
 
 /// Returned by resource shutdown methods
 pub type AsyncResult<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
+
+pub enum WriteOutcome {
+    Partial { nwritten: usize, view: BufView },
+    Full { nwritten: usize },
+  }
+  
+  impl WriteOutcome {
+    pub fn nwritten(&self) -> usize {
+      match self {
+        WriteOutcome::Partial { nwritten, .. } => *nwritten,
+        WriteOutcome::Full { nwritten } => *nwritten,
+      }
+    }
+  }
+  

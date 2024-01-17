@@ -94,6 +94,7 @@ pub use crate::io::ResourceId;
 pub use crate::io::ResourceTable;
 pub use crate::io::WriteContext;
 pub use crate::io::WriteResult;
+pub use crate::io::WriteOutcome;
 pub use crate::module_specifier::resolve_import;
 pub use crate::module_specifier::resolve_path;
 pub use crate::module_specifier::resolve_url;

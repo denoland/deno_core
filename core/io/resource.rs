@@ -6,6 +6,7 @@ use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::AsyncResult;
 use anyhow::Error;
+use bytes::BufMut;
 use futures::Future;
 use futures::FutureExt;
 use std::any::type_name;
@@ -238,6 +239,14 @@ impl<'a> ReadContext<'a> {
     }))
   }
 
+  pub fn read_length_hint(&self) -> usize {
+    match &self.buf {
+      ReadContextBuf::Buf(buf) => buf.len(),
+      ReadContextBuf::BufRead(buf) => buf.remaining_mut(),
+      ReadContextBuf::Empty => panic!("ReadContext is no longer valid")
+    }
+  }
+
   pub fn preferred_buffer(&mut self) -> &mut ReadBuf<'a> {
     let buf_ptr = &mut self.buf;
     if let ReadContextBuf::BufRead(buf) = buf_ptr {
@@ -251,7 +260,7 @@ impl<'a> ReadContext<'a> {
     if let ReadContextBuf::BufRead(buf) = buf_ptr {
       return buf;
     };
-    unreachable!()
+    panic!("ReadContext is no longer valid")
   }
 
   pub(crate) fn take(self, _future: Option<OpaqueReadFuture<'a>>) {}
@@ -262,13 +271,17 @@ pub struct ReadBufHolder<'a> {
 }
 
 impl<'a> ReadBufHolder<'a> {
+  pub fn read_length_hint(&self) -> usize {
+    self.buffer.read_length_hint()
+  }
+
   /// Use this buffer for some other purpose.
-  pub(crate) fn with_buf<T>(&mut self, f: impl Fn(&mut ReadBuf<'a>) -> T) -> T {
+  pub fn with_buf<T>(&mut self, f: impl Fn(&mut ReadBuf<'a>) -> T) -> T {
     f(&mut self.buffer.preferred_buffer())
   }
 
   /// Use this buffer holder to poll a reader.
-  pub(crate) fn poll_reader<R: AsyncRead + Unpin>(
+  pub fn poll_reader<R: AsyncRead + Unpin>(
     &mut self,
     cx: &mut Context,
     r: &mut R,

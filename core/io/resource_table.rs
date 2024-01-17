@@ -8,6 +8,7 @@ use crate::RcLike;
 use crate::RcRef;
 use crate::error::bad_resource_id;
 use crate::error::custom_error;
+use crate::error::resource_unavailable;
 use anyhow::Error;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -146,6 +147,42 @@ impl ResourceTable {
     let resource = self.get::<T>(rid)?;
     self.index.remove(&rid);
     Ok(resource)
+  }
+
+  pub fn take_last_any(
+    &mut self,
+    rid: ResourceId,
+  ) -> Result<ResourceObject<dyn Resource>, Error> {
+    let resource = self.index.remove(&rid).ok_or_else(bad_resource_id)?;
+    match Rc::try_unwrap(resource) {
+      Ok(res) => Ok(res),
+      Err(res) => {
+        // Unlikely case: re-insert and return error
+        self.index.insert(rid, res);
+        Err(resource_unavailable())
+      }
+    }
+  }
+
+  pub fn take_last<T: Resource>(
+    &mut self,
+    rid: ResourceId,
+  ) -> Result<ResourceObject<T>, Error> {
+    let resource = self.index.remove(&rid).ok_or_else(bad_resource_id)?;
+    match Rc::try_unwrap(resource) {
+      Ok(res) => match res.downcast() {
+        Ok(res) => Ok(res),
+        Err(res) => {
+          self.index.insert(rid, Rc::new(res));
+          Err(bad_resource_id())
+        }
+      },
+      Err(res) => {
+        // Unlikely case: re-insert and return error
+        self.index.insert(rid, res);
+        Err(resource_unavailable())
+      }
+    }
   }
 
   /// Removes a resource from the resource table and returns it. Note that the

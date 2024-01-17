@@ -90,6 +90,10 @@ impl<T: Resource + ?Sized> ResourceObject<T> {
     self.resource.name()
   }
 
+  pub fn size_hint(&self) -> (u64, Option<u64>) {
+    self.resource.size_hint()
+  }
+
   pub fn close(self) {
     (self.close_fn)(self.resource)
   }
@@ -347,6 +351,10 @@ impl<T: Resource> ResourceObject<T> {
   pub fn as_rc_dyn(self: Rc<Self>) -> Rc<ResourceObject<dyn Resource>> {
     // SAFETY: We can safely transmute to a `dyn Resource` because it has the same representation
     unsafe { Rc::from_raw(self.into_raw() as _) }
+  }
+
+  pub fn try_close(self: Rc<Self>) -> Result<(), Rc<Self>> {
+    unimplemented!()
   }
 }
 
