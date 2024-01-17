@@ -808,12 +808,43 @@ impl JsRuntime {
     let context = v8::Local::new(scope, &main_context);
 
     bindings::initialize_deno_core_namespace(scope, context, init_mode);
-    bindings::initialize_context(
-      scope,
-      context,
-      &context_state.op_ctxs.borrow(),
-      init_mode,
-    );
+
+    // TODO(bartlomieju): move it to some other place
+    if init_mode == InitMode::New {
+      for (i, file_source) in BUILTIN_SOURCES.iter().enumerate() {
+        // Execute only 00_primordials.js and 00_infra.js
+        let code = file_source.load().unwrap();
+        let source = v8::String::new_external_onebyte_static(
+          scope,
+          code.try_static_ascii().unwrap(),
+        )
+        .unwrap();
+        let name = v8::String::new_external_onebyte_static(
+          scope,
+          file_source.specifier.as_bytes(),
+        )
+        .unwrap();
+        let origin = bindings::script_origin(scope, name);
+        let script = match v8::Script::compile(scope, source, Some(&origin)) {
+          Some(script) => script,
+          None => {
+            unreachable!();
+            // let exception = tc_scope.exception().unwrap();
+            // return exception_to_err_result(tc_scope, exception, false, false);
+          }
+        };
+        match script.run(scope) {
+          Some(_) => {}
+          None => {
+            unreachable!()
+          }
+        };
+
+        if i == 1 {
+          break;
+        }
+      }
+    }
 
     context.set_slot(scope, context_state.clone());
 
@@ -857,13 +888,25 @@ impl JsRuntime {
     context.set_slot(scope, module_map.clone());
 
     let main_realm = {
-      let main_realm =
-        JsRealmInner::new(context_state, main_context, module_map.clone());
+      let main_realm = JsRealmInner::new(
+        context_state.clone(),
+        main_context,
+        module_map.clone(),
+      );
       state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
       main_realm
     };
     let main_realm = JsRealm::new(main_realm);
+
+    // TODO(bartlomieju): this is moved out of places temporarily
+    bindings::initialize_context(
+      scope,
+      context,
+      &context_state.op_ctxs.borrow(),
+      init_mode,
+    );
+
     scope.set_data(
       STATE_DATA_OFFSET,
       Rc::into_raw(state_rc.clone()) as *mut c_void,
@@ -1005,7 +1048,11 @@ impl JsRuntime {
 
         // Execute mod.js
 
-        for file_source in &BUILTIN_SOURCES {
+        for (i, file_source) in BUILTIN_SOURCES.iter().enumerate() {
+          // Skip 00_primordials.js and 00_infra.js
+          if i < 2 {
+            continue;
+          }
           realm.execute_script(
             self.v8_isolate(),
             file_source.specifier,

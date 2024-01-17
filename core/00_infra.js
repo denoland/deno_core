@@ -468,6 +468,7 @@
     opCallTraces,
     handleOpCallTracing,
     setUpAsyncStub,
+    setUpAsyncStubInner,
     getPromise,
     hasPromise,
     promiseIdSymbol,

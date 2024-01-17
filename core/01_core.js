@@ -275,11 +275,11 @@
   }
 
   // Eagerly initialize ops for snapshot purposes
-  for (
-    const opName of new SafeArrayIterator(ObjectKeys(uninitializedAsyncOps))
-  ) {
-    setUpAsyncStub(opName);
-  }
+  // for (
+  //   const opName of new SafeArrayIterator(ObjectKeys(uninitializedAsyncOps))
+  // ) {
+  //   setUpAsyncStub(opName);
+  // }
 
   function ensureFastOps(keep) {
     return new Proxy({}, {

@@ -9,7 +9,8 @@ Deno.__op__registerOp = function (isAsync, op, opName) {
     if (core.ops[opName] !== undefined) {
       return;
     }
-    core.uninitializedAsyncOps[opName] = op;
+    const fn = core.setUpAsyncStubInner(opName, op);
+    core.ops[opName] = fn;
   } else {
     core.ops[opName] = op;
   }
