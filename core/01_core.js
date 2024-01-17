@@ -275,9 +275,7 @@
   }
 
   // Eagerly initialize ops for snapshot purposes
-  for (
-    const opName of new SafeArrayIterator(ObjectKeys(asyncOps))
-  ) {
+  for (const opName of new SafeArrayIterator(ObjectKeys(asyncOps))) {
     setUpAsyncStub(opName);
   }
 
