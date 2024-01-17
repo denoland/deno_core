@@ -119,7 +119,6 @@ pub mod v8_static_strings {
   pub static DENO: &[u8] = b"Deno";
   pub static CORE: &[u8] = b"core";
   pub static OPS: &[u8] = b"ops";
-  pub static ASYNC_OPS: &[u8] = b"asyncOps";
   pub static URL: &[u8] = b"url";
   pub static MAIN: &[u8] = b"main";
   pub static RESOLVE: &[u8] = b"resolve";
@@ -137,7 +136,6 @@ pub mod v8_static_strings {
 /// globalThis.Deno = {
 ///   core: {
 ///     ops: {},
-///     asyncOps: {},
 ///   },
 ///   // console from V8
 ///   console,
@@ -168,28 +166,15 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   let deno_core_key =
     v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
       .unwrap();
+  // Set up `Deno.core.ops` object
   let deno_core_ops_obj = v8::Object::new(scope);
   let deno_core_ops_key =
     v8::String::new_external_onebyte_static(scope, v8_static_strings::OPS)
       .unwrap();
 
-  let deno_core_async_ops_obj = v8::Object::new(scope);
-  let deno_core_async_ops_key = v8::String::new_external_onebyte_static(
-    scope,
-    v8_static_strings::ASYNC_OPS,
-  )
-  .unwrap();
-
   let deno_core_obj = v8::Object::new(scope);
   deno_core_obj
     .set(scope, deno_core_ops_key.into(), deno_core_ops_obj.into())
-    .unwrap();
-  deno_core_obj
-    .set(
-      scope,
-      deno_core_async_ops_key.into(),
-      deno_core_async_ops_obj.into(),
-    )
     .unwrap();
 
   // If we're initializing fresh context set up the console

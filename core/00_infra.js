@@ -38,7 +38,6 @@
   //  2. Add `captureStackTrace` function that will perform stack trace capturing
   //     and can define which function should the trace hide.
   const core_ = window.Deno.core;
-  const { ops, asyncOps } = window.Deno.core;
 
   let nextPromiseId = 0;
   const promiseMap = new SafeMap();
