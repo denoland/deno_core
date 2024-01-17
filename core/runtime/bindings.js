@@ -9,7 +9,7 @@ Deno.__op__registerOp = function (isAsync, op, opName) {
     if (core.ops[opName] !== undefined) {
       return;
     }
-    core.uninitializedAsyncOps[opName] = op;
+    core.asyncOps[opName] = op;
   } else {
     core.ops[opName] = op;
   }
@@ -17,7 +17,7 @@ Deno.__op__registerOp = function (isAsync, op, opName) {
 
 Deno.__op__unregisterOp = function (isAsync, opName) {
   if (isAsync) {
-    delete Deno.core.uninitializedAsyncOps[opName];
+    delete Deno.core.asyncOps[opName];
   }
   delete Deno.core.ops[opName];
 };
