@@ -1,6 +1,6 @@
-use anyhow::{bail, Error};
-use deno_core::error::{type_error, JsError};
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use anyhow::Error;
+use deno_core::error::type_error;
 use deno_core::op2;
 use std::future::Future;
 use std::rc::Rc;
