@@ -32,6 +32,12 @@
   } = window.__bootstrap.primordials;
   // TODO(bartlomieju): not ideal - effectively we have circular dependency between
   // 00_infra.js and 01_core.js. Figure out how to fix it.
+  // We have two proposals:
+  //  1. Move `eventLoopTick` function to this file and add `setUpEventLoopTick`
+  //     that would be called by `01_core.js` and forward `op_run_microtasks`
+  //     and `op_dispatch_exception` so we can save references to them.
+  //  2. Add `captureStackTrace` function that will perform stack trace capturing
+  //     and can define which function should the trace hide.
   const core_ = window.Deno.core;
   const { ops, asyncOps } = window.Deno.core;
 
