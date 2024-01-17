@@ -13,7 +13,6 @@
     ObjectKeys,
     ObjectHasOwn,
     Proxy,
-    SafeArrayIterator,
     SymbolFor,
     TypeError,
     setQueueMicrotask,
@@ -274,13 +273,6 @@
     );
   }
 
-  // Eagerly initialize ops for snapshot purposes
-  // for (
-  //   const opName of new SafeArrayIterator(ObjectKeys(uninitializedAsyncOps))
-  // ) {
-  //   setUpAsyncStub(opName);
-  // }
-
   function ensureFastOps(keep) {
     return new Proxy({}, {
       get(_target, opName) {
@@ -288,10 +280,10 @@
           op_panic(`Unknown or disabled op '${opName}'`);
         }
         let op;
-        if (uninitializedAsyncOps[opName] !== undefined) {
+        if (asyncOps[opName] !== undefined) {
           op = setUpAsyncStub(opName);
           if (keep !== true) {
-            delete uninitializedAsyncOps[opName];
+            delete asyncOps[opName];
           }
         } else {
           op = ops[opName];
