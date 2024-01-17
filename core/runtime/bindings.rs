@@ -140,6 +140,10 @@ pub mod v8_static_strings {
 ///     ops: {},
 ///     asyncOps: {},
 ///   },
+///   // console from V8
+///   console,
+///   // wrapper fn to forward message to V8 console
+///   callConsole,
 /// };
 /// ```
 pub(crate) fn initialize_deno_core_namespace<'s>(
@@ -154,6 +158,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 
   let maybe_deno_obj_val = global.get(scope, deno_str.into());
 
+  // If `Deno.core` is already set up, let's exit early.
   if let Some(deno_obj_val) = maybe_deno_obj_val {
     if !deno_obj_val.is_undefined() {
       return;
