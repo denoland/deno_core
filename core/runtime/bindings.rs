@@ -116,6 +116,115 @@ where
     .unwrap_or_else(|_| panic!("unable to convert"))
 }
 
+pub mod v8_static_strings {
+  pub static DENO: &[u8] = b"Deno";
+  pub static CORE: &[u8] = b"core";
+  pub static OPS: &[u8] = b"ops";
+  pub static ASYNC_OPS: &[u8] = b"asyncOps";
+  pub static URL: &[u8] = b"url";
+  pub static MAIN: &[u8] = b"main";
+  pub static RESOLVE: &[u8] = b"resolve";
+  pub static MESSAGE: &[u8] = b"message";
+  pub static CODE: &[u8] = b"code";
+  pub static ERR_MODULE_NOT_FOUND: &[u8] = b"ERR_MODULE_NOT_FOUND";
+  pub static EVENT_LOOP_TICK: &[u8] = b"eventLoopTick";
+  pub static BUILD_CUSTOM_ERROR: &[u8] = b"buildCustomError";
+  pub static CONSOLE: &[u8] = b"console";
+  pub static CALL_CONSOLE: &[u8] = b"callConsole";
+}
+
+/// Create an object on the `globalThis` that looks like this:
+/// ```ignore
+/// globalThis.Deno = {
+///   core: {
+///     ops: {},
+///     asyncOps: {},
+///   },
+///   // console from V8
+///   console,
+///   // wrapper fn to forward message to V8 console
+///   callConsole,
+/// };
+/// ```
+pub(crate) fn initialize_deno_core_namespace<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  context: v8::Local<'s, v8::Context>,
+  init_mode: InitMode,
+) {
+  let global = context.global(scope);
+  let deno_str =
+    v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
+      .unwrap();
+
+  let maybe_deno_obj_val = global.get(scope, deno_str.into());
+
+  // If `Deno.core` is already set up, let's exit early.
+  if let Some(deno_obj_val) = maybe_deno_obj_val {
+    if !deno_obj_val.is_undefined() {
+      return;
+    }
+  }
+
+  let deno_obj = v8::Object::new(scope);
+  let deno_core_key =
+    v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
+      .unwrap();
+  let deno_core_ops_obj = v8::Object::new(scope);
+  let deno_core_ops_key =
+    v8::String::new_external_onebyte_static(scope, v8_static_strings::OPS)
+      .unwrap();
+
+  let deno_core_async_ops_obj = v8::Object::new(scope);
+  let deno_core_async_ops_key = v8::String::new_external_onebyte_static(
+    scope,
+    v8_static_strings::ASYNC_OPS,
+  )
+  .unwrap();
+
+  let deno_core_obj = v8::Object::new(scope);
+  deno_core_obj
+    .set(scope, deno_core_ops_key.into(), deno_core_ops_obj.into())
+    .unwrap();
+  deno_core_obj
+    .set(
+      scope,
+      deno_core_async_ops_key.into(),
+      deno_core_async_ops_obj.into(),
+    )
+    .unwrap();
+
+  // If we're initializing fresh context set up the console
+  if init_mode == InitMode::New {
+    // Bind `call_console` to Deno.core.callConsole
+    let call_console_fn = v8::Function::new(scope, call_console).unwrap();
+    let call_console_key = v8::String::new_external_onebyte_static(
+      scope,
+      v8_static_strings::CALL_CONSOLE,
+    )
+    .unwrap();
+    deno_core_obj.set(scope, call_console_key.into(), call_console_fn.into());
+
+    // Bind v8 console object to Deno.core.console
+    let extra_binding_obj = context.get_extras_binding_object(scope);
+    let console_obj: v8::Local<v8::Object> = get(
+      scope,
+      extra_binding_obj,
+      b"console",
+      "ExtrasBindingObject.console",
+    );
+    let console_key = v8::String::new_external_onebyte_static(
+      scope,
+      v8_static_strings::CONSOLE,
+    )
+    .unwrap();
+    deno_core_obj.set(scope, console_key.into(), console_obj.into());
+  }
+
+  deno_obj.set(scope, deno_core_key.into(), deno_core_obj.into());
+  global.set(scope, deno_str.into(), deno_obj.into());
+}
+
+// TODO(bartlomieju): don't return a value - we are mutating `context` arg
 pub(crate) fn initialize_context<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
@@ -136,13 +245,7 @@ pub(crate) fn initialize_context<'s>(
 
   let mut codegen = String::with_capacity(op_ctxs.len() * 200);
   codegen.push_str(include_str!("bindings.js"));
-  _ = writeln!(
-    codegen,
-    "Deno.__op__ = function(opFns, callConsole, console) {{"
-  );
-  if init_mode == InitMode::New {
-    _ = writeln!(codegen, "Deno.__op__console(callConsole, console);");
-  }
+  _ = writeln!(codegen, "Deno.__op__ = function(opFns) {{");
   for op_ctx in op_ctxs {
     if op_ctx.decl.enabled {
       _ = writeln!(
@@ -179,27 +282,8 @@ pub(crate) fn initialize_context<'s>(
     let op_fn = op_ctx_function(scope, op_ctx);
     op_fns.set_index(scope, op_ctx.id as u32, op_fn.into());
   }
-  if init_mode.is_from_snapshot() {
-    op_fn.call(scope, recv.into(), &[op_fns.into()]);
-  } else {
-    // Bind functions to Deno.core.*
-    let call_console_fn = v8::Function::new(scope, call_console).unwrap();
 
-    // Bind v8 console object to Deno.core.console
-    let extra_binding_obj = context.get_extras_binding_object(scope);
-    let console_obj: v8::Local<v8::Object> = get(
-      scope,
-      extra_binding_obj,
-      b"console",
-      "ExtrasBindingObject.console",
-    );
-
-    op_fn.call(
-      scope,
-      recv.into(),
-      &[op_fns.into(), call_console_fn.into(), console_obj.into()],
-    );
-  }
+  op_fn.call(scope, recv.into(), &[op_fns.into()]);
 
   context
 }
@@ -352,12 +436,15 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     .get_name_by_module(&module_global)
     .expect("Module not found");
 
-  let url_key = v8::String::new_external_onebyte_static(scope, b"url").unwrap();
+  let url_key =
+    v8::String::new_external_onebyte_static(scope, v8_static_strings::URL)
+      .unwrap();
   let url_val = v8::String::new(scope, &name).unwrap();
   meta.create_data_property(scope, url_key.into(), url_val.into());
 
   let main_key =
-    v8::String::new_external_onebyte_static(scope, b"main").unwrap();
+    v8::String::new_external_onebyte_static(scope, v8_static_strings::MAIN)
+      .unwrap();
   let main = module_map.is_main_module(&module_global);
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
@@ -366,7 +453,8 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     v8::FunctionBuilder::new(import_meta_resolve).data(url_val.into());
   let val = v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
   let resolve_key =
-    v8::String::new_external_onebyte_static(scope, b"resolve").unwrap();
+    v8::String::new_external_onebyte_static(scope, v8_static_strings::RESOLVE)
+      .unwrap();
   meta.set(scope, resolve_key.into(), val.into());
 }
 
@@ -437,8 +525,11 @@ fn catch_dynamic_import_promise_error(
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
-      let message_key =
-        v8::String::new_external_onebyte_static(scope, b"message").unwrap();
+      let message_key = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::MESSAGE,
+      )
+      .unwrap();
       let message = arg.get(scope, message_key.into()).unwrap();
       let mut message: v8::Local<v8::String> = message.try_into().unwrap();
       if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
@@ -456,10 +547,13 @@ fn catch_dynamic_import_promise_error(
         _ => v8::Exception::error(scope, message),
       };
       let code_key =
-        v8::String::new_external_onebyte_static(scope, b"code").unwrap();
-      let code_value =
-        v8::String::new_external_onebyte_static(scope, b"ERR_MODULE_NOT_FOUND")
+        v8::String::new_external_onebyte_static(scope, v8_static_strings::CODE)
           .unwrap();
+      let code_value = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::ERR_MODULE_NOT_FOUND,
+      )
+      .unwrap();
       let exception_obj = exception.to_object(scope).unwrap();
       exception_obj.set(scope, code_key.into(), code_value.into());
       scope.throw_exception(exception);

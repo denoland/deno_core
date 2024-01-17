@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
+use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
@@ -805,6 +806,7 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
+    bindings::initialize_deno_core_namespace(scope, context, init_mode);
     bindings::initialize_context(
       scope,
       context,
@@ -1189,16 +1191,24 @@ impl JsRuntime {
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
+      // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
+      // look up them again?
       let deno_str =
-        v8::String::new_external_onebyte_static(scope, b"Deno").unwrap();
+        v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
+          .unwrap();
       let core_str =
-        v8::String::new_external_onebyte_static(scope, b"core").unwrap();
-      let event_loop_tick_str =
-        v8::String::new_external_onebyte_static(scope, b"eventLoopTick")
+        v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
           .unwrap();
-      let build_custom_error_str =
-        v8::String::new_external_onebyte_static(scope, b"buildCustomError")
-          .unwrap();
+      let event_loop_tick_str = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::EVENT_LOOP_TICK,
+      )
+      .unwrap();
+      let build_custom_error_str = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::BUILD_CUSTOM_ERROR,
+      )
+      .unwrap();
 
       let deno_obj: v8::Local<v8::Object> = global
         .get(scope, deno_str.into())
