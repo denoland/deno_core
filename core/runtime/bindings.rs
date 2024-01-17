@@ -117,20 +117,20 @@ where
 }
 
 pub mod v8_static_strings {
-  pub static DENO: &'static [u8] = b"Deno";
-  pub static CORE: &'static [u8] = b"core";
-  pub static OPS: &'static [u8] = b"ops";
-  pub static ASYNC_OPS: &'static [u8] = b"asyncOps";
-  pub static URL: &'static [u8] = b"url";
-  pub static MAIN: &'static [u8] = b"main";
-  pub static RESOLVE: &'static [u8] = b"resolve";
-  pub static MESSAGE: &'static [u8] = b"message";
-  pub static CODE: &'static [u8] = b"code";
-  pub static ERR_MODULE_NOT_FOUND: &'static [u8] = b"ERR_MODULE_NOT_FOUND";
-  pub static EVENT_LOOP_TICK: &'static [u8] = b"eventLoopTick";
-  pub static BUILD_CUSTOM_ERROR: &'static [u8] = b"buildCustomError";
-  pub static CONSOLE: &'static [u8] = b"console";
-  pub static CALL_CONSOLE: &'static [u8] = b"callConsole";
+  pub static DENO: &[u8] = b"Deno";
+  pub static CORE: &[u8] = b"core";
+  pub static OPS: &[u8] = b"ops";
+  pub static ASYNC_OPS: &[u8] = b"asyncOps";
+  pub static URL: &[u8] = b"url";
+  pub static MAIN: &[u8] = b"main";
+  pub static RESOLVE: &[u8] = b"resolve";
+  pub static MESSAGE: &[u8] = b"message";
+  pub static CODE: &[u8] = b"code";
+  pub static ERR_MODULE_NOT_FOUND: &[u8] = b"ERR_MODULE_NOT_FOUND";
+  pub static EVENT_LOOP_TICK: &[u8] = b"eventLoopTick";
+  pub static BUILD_CUSTOM_ERROR: &[u8] = b"buildCustomError";
+  pub static CONSOLE: &[u8] = b"console";
+  pub static CALL_CONSOLE: &[u8] = b"callConsole";
 }
 
 /// Create an object on the `globalThis` that looks like this:
