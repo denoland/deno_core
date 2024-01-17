@@ -254,9 +254,10 @@ impl Future for RcPromiseFuture {
   }
 }
 
-pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 3] = include_js_files!(
+pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 4] = include_js_files!(
   core
   "00_primordials.js",
+  "00_infra.js",
   "01_core.js",
   "02_error.js",
 );
