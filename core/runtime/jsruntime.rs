@@ -993,18 +993,6 @@ impl JsRuntime {
 
     futures::executor::block_on(async {
       if self.init_mode == InitMode::New {
-        // Execute 00_primordials.js
-
-        // Execute 00_infra.js
-
-        // for each ext - execute "ext:<name>/ops"
-
-        // Execute 01_core.js
-
-        // Execute 02_error.js - probably can be merged into 01_core.js
-
-        // Execute mod.js
-
         for file_source in &BUILTIN_SOURCES {
           realm.execute_script(
             self.v8_isolate(),

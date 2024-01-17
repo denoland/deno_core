@@ -20,7 +20,6 @@
     PromisePrototypeThen,
     RangeError,
     ReferenceError,
-    ReflectApply,
     SafeMap,
     SafePromisePrototypeFinally,
     StringPrototypeSlice,
