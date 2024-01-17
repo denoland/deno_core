@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use log::debug;
-use std::fmt::Write;
 use std::option::Option;
 use std::os::raw::c_void;
 use v8::MapFnTo;
@@ -243,47 +242,42 @@ pub(crate) fn initialize_context<'s>(
 
   let global = context.global(scope);
 
-  let mut codegen = String::with_capacity(op_ctxs.len() * 200);
-  codegen.push_str(include_str!("bindings.js"));
-  _ = writeln!(codegen, "Deno.__op__ = function(opFns) {{");
-  for op_ctx in op_ctxs {
-    if op_ctx.decl.enabled {
-      _ = writeln!(
-        codegen,
-        "Deno.__op__registerOp({}, opFns[{}], \"{}\");",
-        op_ctx.decl.is_async, op_ctx.id, op_ctx.decl.name
-      );
-    } else {
-      _ = writeln!(
-        codegen,
-        "Deno.__op__unregisterOp({}, \"{}\");",
-        op_ctx.decl.is_async, op_ctx.decl.name
-      );
-    }
-  }
-  codegen.push_str("Deno.__op__cleanup();");
-  _ = writeln!(codegen, "}}");
-
-  let script = v8::String::new_from_one_byte(
+  let deno_obj = get(scope, global, b"Deno", "Deno");
+  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
+  let deno_core_ops_obj: v8::Local<v8::Object> =
+    get(scope, deno_core_obj, b"ops", "Deno.core.ops");
+  let set_up_async_stub_inner_fn: v8::Local<v8::Function> = get(
     scope,
-    codegen.as_bytes(),
-    v8::NewStringType::Normal,
-  )
-  .unwrap();
-  let script = v8::Script::compile(scope, script, None).unwrap();
-  script.run(scope);
+    deno_core_obj,
+    b"setUpAsyncStubInner",
+    "Deno.core.setUpAsyncStubInner",
+  );
 
-  let deno = get(scope, global, b"Deno", "Deno");
-  let op_fn: v8::Local<v8::Function> =
-    get(scope, deno, b"__op__", "Deno.__op__");
-  let recv = v8::undefined(scope);
-  let op_fns = v8::Array::new(scope, op_ctxs.len() as i32);
+  let undefined = v8::undefined(scope);
   for op_ctx in op_ctxs {
-    let op_fn = op_ctx_function(scope, op_ctx);
-    op_fns.set_index(scope, op_ctx.id as u32, op_fn.into());
-  }
+    // TODO(bartlomieju): https://github.com/denoland/deno_core/issues/447
+    // Do not register disabled ops.
+    if !op_ctx.decl.enabled {
+      continue;
+    }
 
-  op_fn.call(scope, recv.into(), &[op_fns.into()]);
+    let mut op_fn = op_ctx_function(scope, op_ctx);
+    let key = v8::String::new_external_onebyte_static(
+      scope,
+      op_ctx.decl.name.as_bytes(),
+    )
+    .unwrap();
+
+    // For async ops we need to set them up
+    if op_ctx.decl.is_async {
+      let result = set_up_async_stub_inner_fn
+        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
+        .unwrap();
+      op_fn = result.try_into().unwrap()
+    }
+
+    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
+  }
 
   context
 }
