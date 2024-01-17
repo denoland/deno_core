@@ -3,7 +3,6 @@ use log::debug;
 use std::fmt::Write;
 use std::option::Option;
 use std::os::raw::c_void;
-use std::path::PathBuf;
 use url::Url;
 use v8::MapFnTo;
 
@@ -390,7 +389,7 @@ fn maybe_add_import_meta_filename_dirname(
 
   // If something goes wrong acquiring a filepath, let skip instead of crashing
   // (mostly concerned about file paths on Windows).
-  let Ok(file_path) = name_url.to_file_path() else {
+  let Ok(mut file_path) = name_url.to_file_path() else {
     return;
   };
 
@@ -403,11 +402,8 @@ fn maybe_add_import_meta_filename_dirname(
   let filename_val =
     v8::String::new(scope, &file_path.display().to_string()).unwrap();
 
-  let dir_path = file_path
-    .parent()
-    .map(|p| p.to_owned())
-    .unwrap_or_else(|| PathBuf::from("/"));
-
+  assert!(file_path.pop());
+  let dir_path = file_path;
   let dirname_val =
     v8::String::new(scope, &dir_path.display().to_string()).unwrap();
   meta.create_data_property(scope, filename_key.into(), filename_val.into());
