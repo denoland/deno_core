@@ -811,38 +811,12 @@ impl JsRuntime {
     let context = v8::Local::new(scope, &main_context);
 
     bindings::initialize_deno_core_namespace(scope, context, init_mode);
-
-    // TODO(bartlomieju): move it to some other place
-    if init_mode == InitMode::New {
-      for file_source in CONTEXT_SETUP_SOURCES {
-        let code = file_source.load().unwrap();
-        let source = v8::String::new_external_onebyte_static(
-          scope,
-          code.try_static_ascii().unwrap(),
-        )
-        .unwrap();
-        let name = v8::String::new_external_onebyte_static(
-          scope,
-          file_source.specifier.as_bytes(),
-        )
-        .unwrap();
-        let origin = bindings::script_origin(scope, name);
-        let script = match v8::Script::compile(scope, source, Some(&origin)) {
-          Some(script) => script,
-          None => {
-            unreachable!();
-            // let exception = tc_scope.exception().unwrap();
-            // return exception_to_err_result(tc_scope, exception, false, false);
-          }
-        };
-        match script.run(scope) {
-          Some(_) => {}
-          None => {
-            unreachable!()
-          }
-        };
-      }
-    }
+    bindings::initialize_context(
+      scope,
+      context,
+      &context_state.op_ctxs.borrow(),
+      init_mode,
+    );
 
     context.set_slot(scope, context_state.clone());
 
@@ -896,14 +870,6 @@ impl JsRuntime {
       main_realm
     };
     let main_realm = JsRealm::new(main_realm);
-
-    // TODO(bartlomieju): this is moved out of places temporarily
-    bindings::initialize_context(
-      scope,
-      context,
-      &context_state.op_ctxs.borrow(),
-      init_mode,
-    );
 
     scope.set_data(
       STATE_DATA_OFFSET,

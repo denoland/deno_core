@@ -4,6 +4,7 @@ use std::option::Option;
 use std::os::raw::c_void;
 use v8::MapFnTo;
 
+use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -208,13 +209,36 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   global.set(scope, deno_str.into(), deno_obj.into());
 }
 
+/// If required, execute required JavaScript for `deno_core` to function and
+/// set up JavaScript bindings for ops.
 pub(crate) fn initialize_context<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   init_mode: InitMode,
 ) {
-  // Fast path.
+  // Execute `00_primordials.js` and `00_infra.js`
+  if init_mode == InitMode::New {
+    for file_source in CONTEXT_SETUP_SOURCES {
+      let code = file_source.load().unwrap();
+      let source = v8::String::new_external_onebyte_static(
+        scope,
+        code.try_static_ascii().unwrap(),
+      )
+      .unwrap();
+      let name = v8::String::new_external_onebyte_static(
+        scope,
+        file_source.specifier.as_bytes(),
+      )
+      .unwrap();
+      let origin = script_origin(scope, name);
+      // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+      let script = v8::Script::compile(scope, source, Some(&origin)).unwrap();
+      script.run(scope).unwrap();
+    }
+  }
+
+  // Fast path - if all the ops have been registered already, bail out.
   if matches!(
     init_mode,
     InitMode::FromSnapshot {
