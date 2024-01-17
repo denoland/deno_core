@@ -254,10 +254,13 @@ impl Future for RcPromiseFuture {
   }
 }
 
-pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 4] = include_js_files!(
+pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
   core
   "00_primordials.js",
   "00_infra.js",
+);
+pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
+  core
   "01_core.js",
   "02_error.js",
 );
@@ -811,8 +814,7 @@ impl JsRuntime {
 
     // TODO(bartlomieju): move it to some other place
     if init_mode == InitMode::New {
-      for (i, file_source) in BUILTIN_SOURCES.iter().enumerate() {
-        // Execute only 00_primordials.js and 00_infra.js
+      for file_source in CONTEXT_SETUP_SOURCES {
         let code = file_source.load().unwrap();
         let source = v8::String::new_external_onebyte_static(
           scope,
@@ -839,10 +841,6 @@ impl JsRuntime {
             unreachable!()
           }
         };
-
-        if i == 1 {
-          break;
-        }
       }
     }
 
@@ -1048,11 +1046,7 @@ impl JsRuntime {
 
         // Execute mod.js
 
-        for (i, file_source) in BUILTIN_SOURCES.iter().enumerate() {
-          // Skip 00_primordials.js and 00_infra.js
-          if i < 2 {
-            continue;
-          }
+        for file_source in &BUILTIN_SOURCES {
           realm.execute_script(
             self.v8_isolate(),
             file_source.specifier,
