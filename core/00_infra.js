@@ -206,9 +206,7 @@
     };
   }
 
-  function setUpAsyncStub(opName) {
-    // console.log("setUpAsyncStub", opName);
-    const originalOp = uninitializedAsyncOps[opName];
+  function setUpAsyncStubInner(opName, originalOp) {
     let fn;
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {
@@ -448,7 +446,14 @@
       configurable: false,
       writable: false,
     });
-    return (ops[opName] = fn);
+    return fn;
+  }
+
+  function setUpAsyncStub(opName) {
+    const originalOp = uninitializedAsyncOps[opName];
+    const fn = setUpAsyncStubInner(opName, originalOp);
+    ops[opName] = fn;
+    return fn;
   }
 
   // Extra Deno.core.* exports
