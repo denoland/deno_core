@@ -31,7 +31,6 @@ Deno.__op__unregisterOp = function (isAsync, opName) {
 };
 
 Deno.__op__cleanup = function () {
-  delete Deno.__op__console;
   delete Deno.__op__registerOp;
   delete Deno.__op__unregisterOp;
   delete Deno.__op__cleanup;
