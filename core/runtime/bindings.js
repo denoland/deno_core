@@ -1,12 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-if (!globalThis.Deno) {
-  globalThis.Deno = {
-    core: {
-      ops: {},
-      asyncOps: {},
-    },
-  };
-}
 
 Deno.__op__console = function (callConsole, console) {
   Deno.core.callConsole = callConsole;

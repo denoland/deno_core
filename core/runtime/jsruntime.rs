@@ -805,6 +805,7 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
+    bindings::initialize_deno_core_namespace(scope, context);
     bindings::initialize_context(
       scope,
       context,

@@ -116,6 +116,59 @@ where
     .unwrap_or_else(|_| panic!("unable to convert"))
 }
 
+/// Create an object on the `globalThis` that looks like this:
+/// ```
+/// globalThis.Deno = {
+///   core: {
+///     ops: {},
+///     asyncOps: {},
+///   },
+/// };
+/// ```
+pub(crate) fn initialize_deno_core_namespace<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  context: v8::Local<'s, v8::Context>,
+) {
+  let global = context.global(scope);
+  let deno_str =
+    v8::String::new_external_onebyte_static(scope, b"Deno").unwrap();
+
+  let maybe_deno_obj_val = global.get(scope, deno_str.into());
+
+  if let Some(deno_obj_val) = maybe_deno_obj_val {
+    if !deno_obj_val.is_undefined() {
+      return;
+    }
+  }
+
+  let deno_obj = v8::Object::new(scope);
+  let deno_core_key =
+    v8::String::new_external_onebyte_static(scope, b"core").unwrap();
+  let deno_core_ops_obj = v8::Object::new(scope);
+  let deno_core_ops_key =
+    v8::String::new_external_onebyte_static(scope, b"ops").unwrap();
+
+  let deno_core_async_ops_obj = v8::Object::new(scope);
+  let deno_core_async_ops_key =
+    v8::String::new_external_onebyte_static(scope, b"asyncOps").unwrap();
+
+  let deno_core_obj = v8::Object::new(scope);
+  deno_core_obj
+    .set(scope, deno_core_ops_key.into(), deno_core_ops_obj.into())
+    .unwrap();
+  deno_core_obj
+    .set(
+      scope,
+      deno_core_async_ops_key.into(),
+      deno_core_async_ops_obj.into(),
+    )
+    .unwrap();
+
+  deno_obj.set(scope, deno_core_key.into(), deno_core_obj.into());
+  global.set(scope, deno_str.into(), deno_obj.into());
+}
+
+// TODO(bartlomieju): don't return a value - we are mutating `context` arg
 pub(crate) fn initialize_context<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
