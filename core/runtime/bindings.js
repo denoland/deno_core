@@ -1,10 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-Deno.__op__console = function (callConsole, console) {
-  Deno.core.callConsole = callConsole;
-  Deno.core.console = console;
-};
-
 Deno.__op__registerOp = function (isAsync, op, opName) {
   const core = Deno.core;
   if (isAsync) {

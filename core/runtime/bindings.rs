@@ -129,6 +129,8 @@ pub mod v8_static_strings {
   pub static ERR_MODULE_NOT_FOUND: &'static [u8] = b"ERR_MODULE_NOT_FOUND";
   pub static EVENT_LOOP_TICK: &'static [u8] = b"eventLoopTick";
   pub static BUILD_CUSTOM_ERROR: &'static [u8] = b"buildCustomError";
+  pub static CONSOLE: &'static [u8] = b"console";
+  pub static CALL_CONSOLE: &'static [u8] = b"callConsole";
 }
 
 /// Create an object on the `globalThis` that looks like this:
@@ -143,6 +145,7 @@ pub mod v8_static_strings {
 pub(crate) fn initialize_deno_core_namespace<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
+  init_mode: InitMode,
 ) {
   let global = context.global(scope);
   let deno_str =
@@ -185,6 +188,33 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
     )
     .unwrap();
 
+  // If we're initializing fresh context set up the console
+  if init_mode == InitMode::New {
+    // Bind `call_console` to Deno.core.callConsole
+    let call_console_fn = v8::Function::new(scope, call_console).unwrap();
+    let call_console_key = v8::String::new_external_onebyte_static(
+      scope,
+      v8_static_strings::CALL_CONSOLE,
+    )
+    .unwrap();
+    deno_core_obj.set(scope, call_console_key.into(), call_console_fn.into());
+
+    // Bind v8 console object to Deno.core.console
+    let extra_binding_obj = context.get_extras_binding_object(scope);
+    let console_obj: v8::Local<v8::Object> = get(
+      scope,
+      extra_binding_obj,
+      b"console",
+      "ExtrasBindingObject.console",
+    );
+    let console_key = v8::String::new_external_onebyte_static(
+      scope,
+      v8_static_strings::CONSOLE,
+    )
+    .unwrap();
+    deno_core_obj.set(scope, console_key.into(), console_obj.into());
+  }
+
   deno_obj.set(scope, deno_core_key.into(), deno_core_obj.into());
   global.set(scope, deno_str.into(), deno_obj.into());
 }
@@ -210,13 +240,7 @@ pub(crate) fn initialize_context<'s>(
 
   let mut codegen = String::with_capacity(op_ctxs.len() * 200);
   codegen.push_str(include_str!("bindings.js"));
-  _ = writeln!(
-    codegen,
-    "Deno.__op__ = function(opFns, callConsole, console) {{"
-  );
-  if init_mode == InitMode::New {
-    _ = writeln!(codegen, "Deno.__op__console(callConsole, console);");
-  }
+  _ = writeln!(codegen, "Deno.__op__ = function(opFns) {{");
   for op_ctx in op_ctxs {
     if op_ctx.decl.enabled {
       _ = writeln!(
@@ -253,27 +277,8 @@ pub(crate) fn initialize_context<'s>(
     let op_fn = op_ctx_function(scope, op_ctx);
     op_fns.set_index(scope, op_ctx.id as u32, op_fn.into());
   }
-  if init_mode.is_from_snapshot() {
-    op_fn.call(scope, recv.into(), &[op_fns.into()]);
-  } else {
-    // Bind functions to Deno.core.*
-    let call_console_fn = v8::Function::new(scope, call_console).unwrap();
 
-    // Bind v8 console object to Deno.core.console
-    let extra_binding_obj = context.get_extras_binding_object(scope);
-    let console_obj: v8::Local<v8::Object> = get(
-      scope,
-      extra_binding_obj,
-      b"console",
-      "ExtrasBindingObject.console",
-    );
-
-    op_fn.call(
-      scope,
-      recv.into(),
-      &[op_fns.into(), call_console_fn.into(), console_obj.into()],
-    );
-  }
+  op_fn.call(scope, recv.into(), &[op_fns.into()]);
 
   context
 }
