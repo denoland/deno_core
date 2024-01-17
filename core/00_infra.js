@@ -33,7 +33,7 @@
   // TODO(bartlomieju): not ideal - effectively we have circular dependency between
   // 00_infra.js and 01_core.js. Figure out how to fix it.
   const core_ = window.Deno.core;
-  const { ops, asyncOps } = window.Deno.core;
+  const { ops, uninitializedAsyncOps } = window.Deno.core;
 
   let nextPromiseId = 0;
   const promiseMap = new SafeMap();
@@ -213,7 +213,8 @@
   }
 
   function setUpAsyncStub(opName) {
-    const originalOp = asyncOps[opName];
+    // console.log("setUpAsyncStub", opName);
+    const originalOp = uninitializedAsyncOps[opName];
     let fn;
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {

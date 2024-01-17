@@ -3,21 +3,13 @@
 Deno.__op__registerOp = function (isAsync, op, opName) {
   const core = Deno.core;
   if (isAsync) {
+    // TODO(bartlomieju): this is fishy and suggest an op can be registered
+    // more than once. Maybe it should be an assertion? And also why is it
+    // only for async ops?
     if (core.ops[opName] !== undefined) {
       return;
     }
-    core.asyncOps[opName] = op;
-    const fn = function (...args) {
-      if (this !== core.ops) {
-        // deno-lint-ignore prefer-primordials
-        throw new Error(
-          "An async stub cannot be separated from Deno.core.ops. Use ???",
-        );
-      }
-      return core.asyncStub(opName, args);
-    };
-    fn.name = opName;
-    core.ops[opName] = fn;
+    core.uninitializedAsyncOps[opName] = op;
   } else {
     core.ops[opName] = op;
   }
@@ -25,7 +17,7 @@ Deno.__op__registerOp = function (isAsync, op, opName) {
 
 Deno.__op__unregisterOp = function (isAsync, opName) {
   if (isAsync) {
-    delete Deno.core.asyncOps[opName];
+    delete Deno.core.uninitializedAsyncOps[opName];
   }
   delete Deno.core.ops[opName];
 };

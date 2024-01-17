@@ -20,7 +20,7 @@
   } = window.__bootstrap.primordials;
   const {
     ops,
-    asyncOps,
+    uninitializedAsyncOps,
     setUpAsyncStub,
     getPromise,
     hasPromise,
@@ -275,7 +275,9 @@
   }
 
   // Eagerly initialize ops for snapshot purposes
-  for (const opName of new SafeArrayIterator(ObjectKeys(asyncOps))) {
+  for (
+    const opName of new SafeArrayIterator(ObjectKeys(uninitializedAsyncOps))
+  ) {
     setUpAsyncStub(opName);
   }
 
@@ -286,10 +288,10 @@
           op_panic(`Unknown or disabled op '${opName}'`);
         }
         let op;
-        if (asyncOps[opName] !== undefined) {
+        if (uninitializedAsyncOps[opName] !== undefined) {
           op = setUpAsyncStub(opName);
           if (keep !== true) {
-            delete asyncOps[opName];
+            delete uninitializedAsyncOps[opName];
           }
         } else {
           op = ops[opName];
