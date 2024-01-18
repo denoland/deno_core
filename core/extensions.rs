@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::modules::ModuleCodeString;
+use crate::runtime::bindings;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
@@ -7,6 +8,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use v8::fast_api::FastFunction;
 use v8::ExternalReference;
+use v8::MapFnTo;
 
 #[derive(Clone, Debug)]
 pub enum ExtensionFileSourceCode {
@@ -90,7 +92,6 @@ pub type GlobalObjectMiddlewareFn =
 #[derive(Copy, Clone)]
 pub struct OpDecl {
   pub name: &'static str,
-  pub enabled: bool,
   pub is_async: bool,
   pub is_reentrant: bool,
   pub arg_count: u8,
@@ -121,7 +122,6 @@ impl OpDecl {
     #[allow(deprecated)]
     Self {
       name,
-      enabled: true,
       is_async,
       is_reentrant,
       arg_count,
@@ -132,14 +132,15 @@ impl OpDecl {
     }
   }
 
-  /// Returns a copy of this `OpDecl` with `enabled` set to the given state.
-  pub const fn enabled(self, enabled: bool) -> Self {
-    Self { enabled, ..self }
-  }
-
   /// Returns a copy of this `OpDecl` with `enabled` set to `false`.
-  pub const fn disable(self) -> Self {
-    self.enabled(false)
+  pub fn disable(self) -> Self {
+    Self {
+      slow_fn: bindings::empty_fn.map_fn_to(),
+      slow_fn_with_metrics: bindings::empty_fn.map_fn_to(),
+      fast_fn: None,
+      fast_fn_with_metrics: None,
+      ..self
+    }
   }
 
   /// Returns a copy of this `OpDecl` with the implementation function set to the function from another
@@ -590,7 +591,7 @@ impl Extension {
   pub fn init_ops(&mut self) -> &[OpDecl] {
     if !self.enabled {
       for op in self.ops.to_mut() {
-        op.enabled = false;
+        op.disable();
       }
     }
     self.ops.as_ref()

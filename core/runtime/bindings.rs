@@ -263,12 +263,6 @@ pub(crate) fn initialize_context<'s>(
 
   let undefined = v8::undefined(scope);
   for op_ctx in op_ctxs {
-    // TODO(bartlomieju): https://github.com/denoland/deno_core/issues/447
-    // Do not register disabled ops.
-    if !op_ctx.decl.enabled {
-      continue;
-    }
-
     let mut op_fn = op_ctx_function(scope, op_ctx);
     let key = v8::String::new_external_onebyte_static(
       scope,
@@ -499,7 +493,7 @@ fn import_meta_resolve(
   };
 }
 
-fn empty_fn(
+pub fn empty_fn(
   _scope: &mut v8::HandleScope,
   _args: v8::FunctionCallbackArguments,
   _rv: v8::ReturnValue,
