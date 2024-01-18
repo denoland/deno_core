@@ -221,11 +221,7 @@ pub(crate) fn initialize_context<'s>(
   if init_mode == InitMode::New {
     for file_source in CONTEXT_SETUP_SOURCES {
       let code = file_source.load().unwrap();
-      let source = v8::String::new_external_onebyte_static(
-        scope,
-        code.try_static_ascii().unwrap(),
-      )
-      .unwrap();
+      let source_str = JsRealm::string_from_code(scope, &code).unwrap();
       let name = v8::String::new_external_onebyte_static(
         scope,
         file_source.specifier.as_bytes(),
@@ -233,7 +229,8 @@ pub(crate) fn initialize_context<'s>(
       .unwrap();
       let origin = script_origin(scope, name);
       // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
-      let script = v8::Script::compile(scope, source, Some(&origin)).unwrap();
+      let script =
+        v8::Script::compile(scope, source_str, Some(&origin)).unwrap();
       script.run(scope).unwrap();
     }
   }
