@@ -132,7 +132,8 @@ impl OpDecl {
     }
   }
 
-  /// Returns a copy of this `OpDecl` with `enabled` set to `false`.
+  /// Returns a copy of this `OpDecl` that replaces underlying functions
+  /// with noops.
   pub fn disable(self) -> Self {
     Self {
       slow_fn: bindings::empty_fn.map_fn_to(),
