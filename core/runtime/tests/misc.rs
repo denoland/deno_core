@@ -1236,7 +1236,10 @@ async fn terminate_execution_run_event_loop_js() {
     .execute_script_static("sleep.js", "sleep()")
     .unwrap();
 
-  let err = runtime.run_event_loop(Default::default()).await.unwrap_err();
+  let err = runtime
+    .run_event_loop(Default::default())
+    .await
+    .unwrap_err();
   assert_eq!(err.to_string(), "Uncaught Error: execution terminated");
 
   // Cancel the execution-terminating exception in order to allow script
