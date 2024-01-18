@@ -860,17 +860,13 @@ impl JsRuntime {
     context.set_slot(scope, module_map.clone());
 
     let main_realm = {
-      let main_realm = JsRealmInner::new(
-        context_state.clone(),
-        main_context,
-        module_map.clone(),
-      );
+      let main_realm =
+        JsRealmInner::new(context_state, main_context, module_map.clone());
       state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
       main_realm
     };
     let main_realm = JsRealm::new(main_realm);
-
     scope.set_data(
       STATE_DATA_OFFSET,
       Rc::into_raw(state_rc.clone()) as *mut c_void,
