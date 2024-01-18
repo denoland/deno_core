@@ -1174,7 +1174,6 @@ impl JsRuntime {
 
     // Setup state
     for e in &mut options.extensions {
-      // ops are already registered during in bindings::initialize_context();
       e.take_state(&mut op_state);
     }
 
