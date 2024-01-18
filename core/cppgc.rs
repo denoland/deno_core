@@ -9,9 +9,7 @@ struct CppGcObject<T: Resource> {
 }
 
 impl<T: Resource> v8::cppgc::GarbageCollected for CppGcObject<T> {
-  fn trace(&self, _: &v8::cppgc::Visitor) {
-    println!("trace");
-  }
+  fn trace(&self, _: &v8::cppgc::Visitor) {}
 }
 
 pub(crate) const DEFAULT_CPP_GC_EMBEDDER_ID: u16 = 0xde90;
