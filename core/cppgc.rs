@@ -29,7 +29,7 @@ pub fn make_cppgc_object<'a, T: Resource>(
 
   let obj = templ.new_instance(scope).unwrap();
   let member = v8::cppgc::make_garbage_collected(
-    scope.get_cpp_heap(),
+    scope.get_cpp_heap().unwrap(),
     Box::new(CppGcObject {
       tag: TypeId::of::<T>(),
       member: t,
@@ -42,12 +42,6 @@ pub fn make_cppgc_object<'a, T: Resource>(
   );
   obj.set_aligned_pointer_in_internal_field(SLOT_OFFSET, member.handle as _);
   obj
-}
-
-// TODO: Inner struct in rusty_v8. Need an API to get the member ptr.
-struct Obj<T> {
-  _padding: [usize; 2],
-  ptr: *const T,
 }
 
 pub fn unwrap_cppgc_object<'sc, T: Resource>(
@@ -64,8 +58,8 @@ pub fn unwrap_cppgc_object<'sc, T: Resource>(
   // The object can only be created by `make_cppgc_object`.
   let member = unsafe {
     let ptr = obj.get_aligned_pointer_from_internal_field(SLOT_OFFSET);
-    let obj = &*(ptr as *const Obj<CppGcObject<T>>);
-    &*obj.ptr
+    let obj = &*(ptr as *const v8::cppgc::InnerMember);
+    obj.get::<CppGcObject<T>>()
   };
 
   if member.tag != TypeId::of::<T>() {
