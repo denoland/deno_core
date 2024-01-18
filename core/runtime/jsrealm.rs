@@ -255,7 +255,7 @@ impl JsRealm {
     unsafe { self.0.context.get_unchecked() as *const _ as _ }
   }
 
-  fn string_from_code<'a>(
+  pub(crate) fn string_from_code<'a>(
     scope: &mut HandleScope<'a>,
     code: &ModuleCodeString,
   ) -> Option<Local<'a, v8::String>> {

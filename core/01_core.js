@@ -13,15 +13,12 @@
     ObjectKeys,
     ObjectHasOwn,
     Proxy,
-    SafeArrayIterator,
     SymbolFor,
     TypeError,
     setQueueMicrotask,
   } = window.__bootstrap.primordials;
   const {
     ops,
-    asyncOps,
-    setUpAsyncStub,
     getPromise,
     hasPromise,
     promiseIdSymbol,
@@ -274,28 +271,15 @@
     );
   }
 
-  // Eagerly initialize ops for snapshot purposes
-  for (const opName of new SafeArrayIterator(ObjectKeys(asyncOps))) {
-    setUpAsyncStub(opName);
-  }
-
   function ensureFastOps(keep) {
     return new Proxy({}, {
       get(_target, opName) {
+        const op = ops[opName];
         if (ops[opName] === undefined) {
           op_panic(`Unknown or disabled op '${opName}'`);
         }
-        let op;
-        if (asyncOps[opName] !== undefined) {
-          op = setUpAsyncStub(opName);
-          if (keep !== true) {
-            delete asyncOps[opName];
-          }
-        } else {
-          op = ops[opName];
-          if (keep !== true) {
-            delete ops[opName];
-          }
+        if (keep !== true) {
+          delete ops[opName];
         }
         return op;
       },

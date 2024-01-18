@@ -1,10 +1,10 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use log::debug;
-use std::fmt::Write;
 use std::option::Option;
 use std::os::raw::c_void;
 use v8::MapFnTo;
 
+use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -120,7 +120,6 @@ pub mod v8_static_strings {
   pub static DENO: &[u8] = b"Deno";
   pub static CORE: &[u8] = b"core";
   pub static OPS: &[u8] = b"ops";
-  pub static ASYNC_OPS: &[u8] = b"asyncOps";
   pub static URL: &[u8] = b"url";
   pub static MAIN: &[u8] = b"main";
   pub static RESOLVE: &[u8] = b"resolve";
@@ -138,7 +137,6 @@ pub mod v8_static_strings {
 /// globalThis.Deno = {
 ///   core: {
 ///     ops: {},
-///     asyncOps: {},
 ///   },
 ///   // console from V8
 ///   console,
@@ -169,28 +167,15 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   let deno_core_key =
     v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
       .unwrap();
+  // Set up `Deno.core.ops` object
   let deno_core_ops_obj = v8::Object::new(scope);
   let deno_core_ops_key =
     v8::String::new_external_onebyte_static(scope, v8_static_strings::OPS)
       .unwrap();
 
-  let deno_core_async_ops_obj = v8::Object::new(scope);
-  let deno_core_async_ops_key = v8::String::new_external_onebyte_static(
-    scope,
-    v8_static_strings::ASYNC_OPS,
-  )
-  .unwrap();
-
   let deno_core_obj = v8::Object::new(scope);
   deno_core_obj
     .set(scope, deno_core_ops_key.into(), deno_core_ops_obj.into())
-    .unwrap();
-  deno_core_obj
-    .set(
-      scope,
-      deno_core_async_ops_key.into(),
-      deno_core_async_ops_obj.into(),
-    )
     .unwrap();
 
   // If we're initializing fresh context set up the console
@@ -224,68 +209,85 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   global.set(scope, deno_str.into(), deno_obj.into());
 }
 
-// TODO(bartlomieju): don't return a value - we are mutating `context` arg
+/// If required, execute required JavaScript for `deno_core` to function and
+/// set up JavaScript bindings for ops.
 pub(crate) fn initialize_context<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   init_mode: InitMode,
-) -> v8::Local<'s, v8::Context> {
-  // Fast path.
+) {
+  // Execute `00_primordials.js` and `00_infra.js`
+  if init_mode == InitMode::New {
+    for file_source in CONTEXT_SETUP_SOURCES {
+      let code = file_source.load().unwrap();
+      let source_str = JsRealm::string_from_code(scope, &code).unwrap();
+      let name = v8::String::new_external_onebyte_static(
+        scope,
+        file_source.specifier.as_bytes(),
+      )
+      .unwrap();
+      let origin = script_origin(scope, name);
+      // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+      let script =
+        v8::Script::compile(scope, source_str, Some(&origin)).unwrap();
+      script.run(scope).unwrap();
+    }
+  }
+
+  // Fast path - if all the ops have been registered already, bail out.
   if matches!(
     init_mode,
     InitMode::FromSnapshot {
       skip_op_registration: true
     }
   ) {
-    return context;
+    return;
   }
 
   let global = context.global(scope);
 
-  let mut codegen = String::with_capacity(op_ctxs.len() * 200);
-  codegen.push_str(include_str!("bindings.js"));
-  _ = writeln!(codegen, "Deno.__op__ = function(opFns) {{");
-  for op_ctx in op_ctxs {
-    if op_ctx.decl.enabled {
-      _ = writeln!(
-        codegen,
-        "Deno.__op__registerOp({}, opFns[{}], \"{}\");",
-        op_ctx.decl.is_async, op_ctx.id, op_ctx.decl.name
-      );
-    } else {
-      _ = writeln!(
-        codegen,
-        "Deno.__op__unregisterOp({}, \"{}\");",
-        op_ctx.decl.is_async, op_ctx.decl.name
-      );
-    }
-  }
-  codegen.push_str("Deno.__op__cleanup();");
-  _ = writeln!(codegen, "}}");
-
-  let script = v8::String::new_from_one_byte(
+  // Set up JavaScript bindings for the defined op - this will insert proper
+  // `v8::Function` into `Deno.core.ops` object. For async ops, there a bit
+  // more machinery involved, see comment below.
+  let deno_obj = get(scope, global, b"Deno", "Deno");
+  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
+  let deno_core_ops_obj: v8::Local<v8::Object> =
+    get(scope, deno_core_obj, b"ops", "Deno.core.ops");
+  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
-    codegen.as_bytes(),
-    v8::NewStringType::Normal,
-  )
-  .unwrap();
-  let script = v8::Script::compile(scope, script, None).unwrap();
-  script.run(scope);
+    deno_core_obj,
+    b"setUpAsyncStub",
+    "Deno.core.setUpAsyncStub",
+  );
 
-  let deno = get(scope, global, b"Deno", "Deno");
-  let op_fn: v8::Local<v8::Function> =
-    get(scope, deno, b"__op__", "Deno.__op__");
-  let recv = v8::undefined(scope);
-  let op_fns = v8::Array::new(scope, op_ctxs.len() as i32);
+  let undefined = v8::undefined(scope);
   for op_ctx in op_ctxs {
-    let op_fn = op_ctx_function(scope, op_ctx);
-    op_fns.set_index(scope, op_ctx.id as u32, op_fn.into());
+    // TODO(bartlomieju): https://github.com/denoland/deno_core/issues/447
+    // Do not register disabled ops.
+    if !op_ctx.decl.enabled {
+      continue;
+    }
+
+    let mut op_fn = op_ctx_function(scope, op_ctx);
+    let key = v8::String::new_external_onebyte_static(
+      scope,
+      op_ctx.decl.name.as_bytes(),
+    )
+    .unwrap();
+
+    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+    // this call will generate an optimized function that binds to the provided
+    // op, while keeping track of promises and error remapping.
+    if op_ctx.decl.is_async {
+      let result = set_up_async_stub_fn
+        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
+        .unwrap();
+      op_fn = result.try_into().unwrap()
+    }
+
+    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
   }
-
-  op_fn.call(scope, recv.into(), &[op_fns.into()]);
-
-  context
 }
 
 fn op_ctx_function<'s>(

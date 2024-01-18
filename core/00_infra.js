@@ -38,7 +38,6 @@
   //  2. Add `captureStackTrace` function that will perform stack trace capturing
   //     and can define which function should the trace hide.
   const core_ = window.Deno.core;
-  const { ops, asyncOps } = window.Deno.core;
 
   let nextPromiseId = 0;
   const promiseMap = new SafeMap();
@@ -211,7 +210,7 @@
     };
   }
 
-  function setUpAsyncStubInner(opName, originalOp) {
+  function setUpAsyncStub(opName, originalOp) {
     let fn;
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {
@@ -451,13 +450,6 @@
       configurable: false,
       writable: false,
     });
-    return fn;
-  }
-
-  function setUpAsyncStub(opName) {
-    const originalOp = asyncOps[opName];
-    const fn = setUpAsyncStubInner(opName, originalOp);
-    ops[opName] = fn;
     return fn;
   }
 
