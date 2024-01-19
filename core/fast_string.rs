@@ -145,6 +145,21 @@ impl FastString {
       Self::Arc(s) => *self = s[..index].to_owned().into(),
     }
   }
+
+  pub(crate) fn v8_string<'a>(
+    &self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> Option<v8::Local<'a, v8::String>> {
+    if let Some(code) = self.try_static_ascii() {
+      v8::String::new_external_onebyte_static(scope, code)
+    } else {
+      v8::String::new_from_utf8(
+        scope,
+        self.as_bytes(),
+        v8::NewStringType::Normal,
+      )
+    }
+  }
 }
 
 impl Hash for FastString {
