@@ -133,8 +133,10 @@ pub(crate) struct ModuleMapData {
   pub(crate) main_module_id: Option<ModuleId>,
   /// This store is used to temporarily store data that is used
   /// to evaluate a "synthetic module".
-  pub(crate) synthetic_module_value_store:
-    HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
+  pub(crate) synthetic_module_exports_store: HashMap<
+    v8::Global<v8::Module>,
+    Vec<(v8::Global<v8::String>, v8::Global<v8::Value>)>,
+  >,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
 }
