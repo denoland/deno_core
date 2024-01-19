@@ -404,10 +404,8 @@ impl ModuleMap {
   ) -> Result<ModuleId, ModuleError> {
     let name_str = name.v8(scope);
 
-    let export_names = exports
-      .iter()
-      .map(|(name, _)| name.clone())
-      .collect::<Vec<_>>();
+    let export_names =
+      exports.iter().map(|(name, _)| *name).collect::<Vec<_>>();
     let module = v8::Module::create_synthetic_module(
       scope,
       name_str,

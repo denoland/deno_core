@@ -117,6 +117,23 @@ pub(crate) struct ModuleMapSnapshottedData {
   pub module_handles: Vec<v8::Global<v8::Module>>,
 }
 
+/// An array of tuples that provide module exports.
+///
+/// "default" name will make the export "default" - ie. one that can be imported
+/// with `import foo from "./virtual.js"`;.
+/// All other name provide "named exports" - ie. ones that can be imported like
+/// so: `import { name1, name2 } from "./virtual.js`.
+pub(crate) type SyntheticModuleExports =
+  Vec<(v8::Global<v8::String>, v8::Global<v8::Value>)>;
+
+// TODO(bartlomieju): add an assertion that checks for that assumption?
+// If it's true we can simplify the type to be an `Option` instead of a `HashMap`.
+/// This hash map is not expected to hold more than one element at a time.
+/// It is a temporary store, so we can forward data to
+/// `synthetic_module_evaluation_steps` callback.
+pub(crate) type SyntheticModuleExportsStore =
+  HashMap<v8::Global<v8::Module>, SyntheticModuleExports>;
+
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
@@ -133,10 +150,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) main_module_id: Option<ModuleId>,
   /// This store is used to temporarily store data that is used
   /// to evaluate a "synthetic module".
-  pub(crate) synthetic_module_exports_store: HashMap<
-    v8::Global<v8::Module>,
-    Vec<(v8::Global<v8::String>, v8::Global<v8::Value>)>,
-  >,
+  pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
 }
