@@ -99,7 +99,7 @@ pub fn script_origin<'a>(
   )
 }
 
-fn get<'s, T>(
+pub(crate) fn get<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   from: v8::Local<v8::Object>,
   key: &'static [u8],
@@ -290,7 +290,7 @@ pub(crate) fn initialize_context<'s>(
   }
 }
 
-fn op_ctx_function<'s>(
+pub fn op_ctx_function<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,
 ) -> v8::Local<'s, v8::Function> {
@@ -690,4 +690,48 @@ where
   };
 
   Some(promise)
+}
+
+pub fn get_exports_for_ops_virtual_module<'s>(
+  op_ctxs: &[OpCtx],
+  scope: &'s mut v8::HandleScope,
+  global: v8::Local<v8::Object>,
+) -> Vec<(v8::Local<'s, v8::String>, v8::Local<'s, v8::Value>)> {
+  let mut exports = Vec::with_capacity(op_ctxs.len());
+
+  // TODO(bartlomieju): duplicated in `bindings.rs`
+  // TODO(bartlomieju): called for every single extension - can be optimized away
+  let deno_obj = get(scope, global, b"Deno", "Deno");
+  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
+  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
+    scope,
+    deno_core_obj,
+    b"setUpAsyncStub",
+    "Deno.core.setUpAsyncStub",
+  );
+
+  let undefined = v8::undefined(scope);
+
+  for op_ctx in op_ctxs {
+    let name = v8::String::new_external_onebyte_static(
+      scope,
+      op_ctx.decl.name.as_bytes(),
+    )
+    .unwrap();
+    let mut op_fn = op_ctx_function(scope, op_ctx);
+
+    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+    // this call will generate an optimized function that binds to the provided
+    // op, while keeping track of promises and error remapping.
+    if op_ctx.decl.is_async {
+      let result = set_up_async_stub_fn
+        .call(scope, undefined.into(), &[name.into(), op_fn.into()])
+        .unwrap();
+      op_fn = result.try_into().unwrap()
+    }
+
+    exports.push((name, op_fn.into()));
+  }
+
+  exports
 }

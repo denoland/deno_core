@@ -864,6 +864,13 @@ impl JsRuntime {
       ))
     };
 
+    // Execute virtual ops modules here
+    {
+      let op_ctxs = context_state.op_ctxs.borrow();
+      // TODO(bartlomieju): all `op_ctxs` are already coalesced into a single
+      // vector so we don't know which extension they belong to? Or do we?
+    }
+
     context.set_slot(scope, module_map.clone());
 
     let main_realm = {
@@ -995,6 +1002,10 @@ impl JsRuntime {
     // Take extensions temporarily so we can avoid have a mutable reference to self
     let extensions = std::mem::take(&mut self.extensions);
 
+    // TODO(bartlomieju): get `ContextState` here to get `op_ctxs` and execute
+    // virtual ops module.
+    // let context_state = realm.state();
+
     let loader = module_map.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
     *module_map.loader.borrow_mut() = ext_loader;
@@ -1030,6 +1041,9 @@ impl JsRuntime {
 
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
+        // TODO(bartlomieju): this shouldn't use `extension.get_ops_virtual_module`
+        // but instead call `get_exports_for_ops_virtual_module` and execute
+        // a synthetic module.
         if let Some(file_source) = extension.get_ops_virtual_module() {
           realm
             .load_side_module(
