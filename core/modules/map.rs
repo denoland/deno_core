@@ -1558,9 +1558,8 @@ fn synthetic_module_evaluation_steps<'a>(
     let value = v8::Local::new(tc_scope, export_value);
 
     // This should never fail
-    assert_eq!(
-      module.set_synthetic_module_export(tc_scope, name, value),
-      Some(true)
+    assert!(
+      module.set_synthetic_module_export(tc_scope, name, value).unwrap()
     );
     assert!(!tc_scope.has_caught());
   }
