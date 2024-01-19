@@ -4,17 +4,20 @@ use std::marker::PhantomData;
 use std::marker::PhantomPinned;
 use std::mem::MaybeUninit;
 use std::pin::Pin;
+use std::ptr::addr_of_mut;
+use std::ptr::NonNull;
 use std::task::Context;
 use std::task::Poll;
 
 #[repr(C, align(16))]
 pub struct TypeErased<const MAX_SIZE: usize> {
   memory: [MaybeUninit<u8>; MAX_SIZE],
-  drop: fn(this: *mut ()),
+  drop: fn(this: NonNull<()>),
   _unpin: PhantomPinned,
 }
 
 impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
+  #[inline(always)]
   pub unsafe fn take<R: 'static>(self) -> R {
     assert!(
       std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory),
@@ -35,14 +38,16 @@ impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
     r
   }
 
-  pub fn raw_ptr(&mut self) -> *mut () {
-    self.memory.as_mut_ptr() as _
+  #[inline(always)]
+  pub fn raw_ptr<R>(&mut self) -> NonNull<R> {
+    unsafe { NonNull::new_unchecked(self.memory.as_mut_ptr() as *mut _) }
   }
 
+  #[inline(always)]
   pub fn new<R>(r: R) -> Self {
     let mut new = Self {
       memory: [MaybeUninit::uninit(); MAX_SIZE],
-      drop: |this| unsafe { std::ptr::drop_in_place::<R>(this as _) },
+      drop: |this| unsafe { std::ptr::drop_in_place::<R>(this.as_ptr() as _) },
       _unpin: PhantomPinned,
     };
     assert!(
@@ -66,10 +71,12 @@ impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
 
 impl<const MAX_SIZE: usize> Drop for TypeErased<MAX_SIZE> {
   fn drop(&mut self) {
-    (self.drop)(self.raw_ptr())
+    (self.drop)(self.raw_ptr::<()>())
   }
 }
 
+// TODO(mmastrac): This code is also testing TypeErased above
+#[allow(dead_code)]
 pub struct ErasedFuture<const MAX_SIZE: usize, Output> {
   erased: TypeErased<MAX_SIZE>,
   poll: unsafe fn(

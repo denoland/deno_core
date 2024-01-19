@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::erased_future::TypeErased;
+use super::future_arena::FutureContextMapper;
 use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
@@ -39,7 +40,7 @@ pub trait OpMappingContextLifetime<'s> {
 pub trait OpMappingContext:
   for<'s> OpMappingContextLifetime<'s> + 'static
 {
-  type MappingFn<R: 'static>;
+  type MappingFn<R: 'static>: Copy;
 
   fn erase_mapping_fn<R: 'static>(f: Self::MappingFn<R>) -> *const fn();
   fn unerase_mapping_fn<'s, R: 'static>(
@@ -47,6 +48,8 @@ pub trait OpMappingContext:
     scope: &mut <Self as OpMappingContextLifetime<'s>>::Context,
     r: R,
   ) -> UnmappedResult<'s, Self>;
+
+  fn unerase_mapping_fn_raw<R: 'static>(f: *const fn()) -> Self::MappingFn<R>;
 }
 
 #[derive(Default)]
@@ -87,6 +90,12 @@ impl OpMappingContext for V8OpMappingContext {
   fn erase_mapping_fn<R: 'static>(f: Self::MappingFn<R>) -> *const fn() {
     f as _
   }
+
+  #[inline(always)]
+  fn unerase_mapping_fn_raw<R: 'static>(f: *const fn()) -> Self::MappingFn<R> {
+    unsafe { std::mem::transmute(f) }
+  }
+
   #[inline(always)]
   fn unerase_mapping_fn<'s, R: 'static>(
     f: *const fn(),
@@ -125,7 +134,56 @@ impl<C: OpMappingContext> PendingOp<C> {
   }
 }
 
+#[derive(Clone, Copy)]
 pub struct PendingOpInfo(pub PromiseId, pub OpId);
+
+#[derive(Clone, Copy)]
+pub struct PendingOpMappingRawInfo(pub PendingOpInfo, pub *const fn());
+
+pub struct PendingOpMappingInfo<
+  C: OpMappingContext,
+  R: 'static,
+  const FALLIBLE: bool,
+>(pub PendingOpInfo, pub C::MappingFn<R>);
+
+impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Copy
+  for PendingOpMappingInfo<C, R, FALLIBLE>
+{
+}
+impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Clone
+  for PendingOpMappingInfo<C, R, FALLIBLE>
+{
+  #[inline(always)]
+  fn clone(&self) -> Self {
+    *self
+  }
+}
+
+impl<C: OpMappingContext, R: 'static, E: Into<Error> + 'static>
+  FutureContextMapper<PendingOp<C>, PendingOpInfo, Result<R, E>>
+  for PendingOpMappingInfo<C, R, true>
+{
+  fn context(&self) -> PendingOpInfo {
+    self.0
+  }
+
+  fn map(&self, r: Result<R, E>) -> PendingOp<C> {
+    PendingOp::new(self.0, self.1, r)
+  }
+}
+
+impl<C: OpMappingContext, R: 'static>
+  FutureContextMapper<PendingOp<C>, PendingOpInfo, R>
+  for PendingOpMappingInfo<C, R, false>
+{
+  fn context(&self) -> PendingOpInfo {
+    self.0
+  }
+
+  fn map(&self, r: R) -> PendingOp<C> {
+    PendingOp::ok(self.0, self.1, r)
+  }
+}
 
 type MapRawFn<C> = for<'a> fn(
   _lifetime: &'a (),
