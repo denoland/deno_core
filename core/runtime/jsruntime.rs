@@ -2309,12 +2309,12 @@ impl JsRuntime {
 
     js_event_loop_tick_cb.call(tc_scope, undefined, args.as_slice());
 
-    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Ok(false);
-    }
-
     if let Some(exception) = tc_scope.exception() {
       return exception_to_err_result(tc_scope, exception, false, true);
+    }
+
+    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+      return Ok(false);
     }
 
     Ok(dispatched_ops)
