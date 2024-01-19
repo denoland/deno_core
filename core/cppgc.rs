@@ -1,14 +1,13 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::Resource;
 use std::any::TypeId;
 
-struct CppGcObject<T: Resource> {
+struct CppGcObject<T> {
   tag: TypeId,
   member: T,
 }
 
-impl<T: Resource> v8::cppgc::GarbageCollected for CppGcObject<T> {
+impl<T> v8::cppgc::GarbageCollected for CppGcObject<T> {
   fn trace(&self, _: &v8::cppgc::Visitor) {}
 }
 
@@ -18,7 +17,7 @@ const EMBEDDER_ID_OFFSET: i32 = 0;
 const SLOT_OFFSET: i32 = 1;
 const FIELD_COUNT: usize = 2;
 
-pub fn make_cppgc_object<'a, T: Resource>(
+pub fn make_cppgc_object<'a, T: 'static>(
   scope: &'a mut v8::HandleScope,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
@@ -42,7 +41,7 @@ pub fn make_cppgc_object<'a, T: Resource>(
   obj
 }
 
-pub fn unwrap_cppgc_object<'sc, T: Resource>(
+pub fn unwrap_cppgc_object<'sc, T: 'static>(
   obj: v8::Local<v8::Object>,
 ) -> Option<&'sc T> {
   if obj.internal_field_count() != FIELD_COUNT {
