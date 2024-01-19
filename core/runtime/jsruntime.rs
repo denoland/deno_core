@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
+use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
@@ -253,12 +254,23 @@ impl Future for RcPromiseFuture {
   }
 }
 
-pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 3] = include_js_files!(
+/// These files are executed just after a new context is created. They provided
+/// the necessary infrastructure to bind ops.
+pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
   core
   "00_primordials.js",
+  "00_infra.js",
+);
+
+/// These files are executed when we start setting up extensions. They rely
+/// on ops being already fully set up.
+pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
+  core
   "01_core.js",
   "02_error.js",
 );
+/// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
+/// that exports `core`, `internals` and `primordials` objects.
 pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   include_js_files!(core "mod.js",);
 
@@ -805,6 +817,7 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
+    bindings::initialize_deno_core_namespace(scope, context, init_mode);
     bindings::initialize_context(
       scope,
       context,
@@ -1199,7 +1212,6 @@ impl JsRuntime {
 
     // Setup state
     for e in &mut options.extensions {
-      // ops are already registered during in bindings::initialize_context();
       e.take_state(&mut op_state);
     }
 
@@ -1227,16 +1239,24 @@ impl JsRuntime {
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
+      // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
+      // look up them again?
       let deno_str =
-        v8::String::new_external_onebyte_static(scope, b"Deno").unwrap();
+        v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
+          .unwrap();
       let core_str =
-        v8::String::new_external_onebyte_static(scope, b"core").unwrap();
-      let event_loop_tick_str =
-        v8::String::new_external_onebyte_static(scope, b"eventLoopTick")
+        v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
           .unwrap();
-      let build_custom_error_str =
-        v8::String::new_external_onebyte_static(scope, b"buildCustomError")
-          .unwrap();
+      let event_loop_tick_str = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::EVENT_LOOP_TICK,
+      )
+      .unwrap();
+      let build_custom_error_str = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::BUILD_CUSTOM_ERROR,
+      )
+      .unwrap();
 
       let deno_obj: v8::Local<v8::Object> = global
         .get(scope, deno_str.into())

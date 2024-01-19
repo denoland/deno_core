@@ -25,12 +25,6 @@ declare namespace Deno {
     const ops: Record<string, (...args: unknown[]) => any>;
 
     /**
-     * List of all registered async ops, in the form of a map that maps op
-     * name to function.
-     */
-    const asyncOps: Record<string, (...args: unknown[]) => any>;
-
-    /**
      * Retrieve a list of all open resources, in the form of a map that maps
      * resource id to the resource name.
      */
