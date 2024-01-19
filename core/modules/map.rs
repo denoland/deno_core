@@ -1,4 +1,3 @@
-use crate::FastString;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
@@ -22,6 +21,7 @@ use crate::modules::ResolutionKind;
 use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
 use crate::ExtensionFileSource;
+use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
