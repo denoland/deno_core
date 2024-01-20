@@ -230,7 +230,7 @@ impl From<Arc<str>> for FastString {
 #[macro_export]
 macro_rules! include_ascii_string {
   ($file:literal) => {
-    $crate::FastString::ensure_static_ascii(include_str!($file))
+    $crate::FastString::ensure_static_ascii(::std::include_str!($file))
   };
 }
 
