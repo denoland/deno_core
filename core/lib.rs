@@ -190,11 +190,11 @@ macro_rules! located_script_name {
   () => {
     concat!(
       "[ext:",
-      std::file!(),
+      ::std::file!(),
       ":",
-      std::line!(),
+      ::std::line!(),
       ":",
-      std::column!(),
+      ::std::column!(),
       "]"
     )
   };
