@@ -1196,3 +1196,61 @@ async fn task_spawner_cross_thread_blocking() {
     assert!(start.elapsed().as_secs() < 60);
   }
 }
+
+#[tokio::test]
+async fn terminate_execution_run_event_loop_js() {
+  #[op2(async)]
+  async fn op_async_sleep() -> Result<(), Error> {
+    tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+    Ok(())
+  }
+  deno_core::extension!(test_ext, ops = [op_async_sleep]);
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops()],
+    ..Default::default()
+  });
+
+  // Create sleep function that waits for 2 seconds.
+  runtime
+    .execute_script_static(
+      "sleep_code.js",
+      r#"
+              const { op_async_sleep } = Deno.core.ensureFastOps(); 
+              async function sleep() {
+                await op_async_sleep();
+              }
+      "#,
+    )
+    .unwrap();
+
+  // Terminate execution after 1 second.
+  let v8_isolate_handle = runtime.v8_isolate().thread_safe_handle();
+  let terminator_thread = std::thread::spawn(move || {
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    let ok = v8_isolate_handle.terminate_execution();
+    assert!(ok);
+  });
+
+  // Start waiting period of 2 seconds.
+  runtime
+    .execute_script_static("sleep.js", "sleep()")
+    .unwrap();
+
+  let err = runtime
+    .run_event_loop(Default::default())
+    .await
+    .unwrap_err();
+  assert_eq!(err.to_string(), "Uncaught Error: execution terminated");
+
+  // Cancel the execution-terminating exception in order to allow script
+  // execution again.
+  let ok = runtime.v8_isolate().cancel_terminate_execution();
+  assert!(ok);
+
+  // Verify that the isolate usable again.
+  runtime
+    .execute_script_static("simple.js", "1 + 1")
+    .expect("execution should be possible again");
+
+  terminator_thread.join().unwrap();
+}
