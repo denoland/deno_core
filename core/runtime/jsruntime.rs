@@ -1030,36 +1030,37 @@ impl JsRuntime {
       // TODO(bartlomieju): this is somewhat duplicated in `bindings::initialize_context`,
       // but for migration period we need to have ops available in both `Deno.core.ops`
       // as well as have them available in "virtual ops module"
-      if !matches!(
-        self.init_mode,
-        InitMode::FromSnapshot {
-          skip_op_registration: true
-        }
-      ) {
-        let scope = &mut self.handle_scope();
-        let context_local = v8::Local::new(scope, context_global);
-        let context_state = JsRealm::state_from_scope(scope);
-        let op_ctxs = context_state.op_ctxs.borrow();
-        let global = context_local.global(scope);
-        let synthetic_module_exports =
-          get_exports_for_ops_virtual_module(&op_ctxs, scope, global);
-        let mod_id = module_map
-          .new_synthetic_module(
-            scope,
-            FastString::StaticAscii("ext:core/ops"),
-            crate::ModuleType::JavaScript,
-            synthetic_module_exports,
-          )
-          .unwrap();
-        module_map.instantiate_module(scope, mod_id).unwrap();
-        let mut receiver = module_map.mod_evaluate(scope, mod_id);
-        let Poll::Ready(result) =
-          receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
-        else {
-          unreachable!();
-        };
-        result.unwrap();
-      }
+      // if !matches!(
+      //   self.init_mode,
+      //   InitMode::FromSnapshot {
+      //     skip_op_registration: true
+      //   }
+      // ) {
+      //   let scope = &mut self.handle_scope();
+      //   let context_local = v8::Local::new(scope, context_global);
+      //   let context_state = JsRealm::state_from_scope(scope);
+      //   let op_ctxs = context_state.op_ctxs.borrow();
+      //   let global = context_local.global(scope);
+      //   let synthetic_module_exports =
+      //     get_exports_for_ops_virtual_module(&op_ctxs, scope, global);
+      //   let mod_id = module_map
+      //     .new_synthetic_module(
+      //       scope,
+      //       FastString::StaticAscii("ext:core/ops"),
+      //       crate::ModuleType::JavaScript,
+      //       synthetic_module_exports,
+      //     )
+      //     .unwrap();
+      //   module_map.get_data().borrow_mut().next_load_id += 1;
+      //   module_map.instantiate_module(scope, mod_id).unwrap();
+      //   let mut receiver = module_map.mod_evaluate(scope, mod_id);
+      //   let Poll::Ready(result) =
+      //     receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+      //   else {
+      //     unreachable!();
+      //   };
+      //   result.unwrap();
+      // }
 
       {
         for file_source in &BUILTIN_SOURCES {
@@ -1983,7 +1984,7 @@ impl JsRuntimeForSnapshot {
         snapshotted_data,
       );
     }
-
+    eprintln!("before calling snapshot");
     drop(realm);
 
     self
