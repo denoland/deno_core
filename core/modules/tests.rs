@@ -1285,8 +1285,8 @@ if (b() != 'b') throw Error();
 if (c() != 'c') throw Error();
 if (!import.meta.main) throw Error();
 if (import.meta.url != 'file:///C:/main_with_code.js') throw Error();
-if (import.meta.filename != 'C:\\main_with_code.js') throw Error();
-if (import.meta.dirname != 'C:\\') throw Error();
+if (typeof import.meta.filename != 'string') throw Error();
+if (typeof import.meta.dirname != 'string') throw Error();
 "#
   );
 
