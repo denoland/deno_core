@@ -11,6 +11,7 @@ use crate::error::throw_type_error;
 use crate::error::JsStackFrame;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
+use crate::modules::synthetic_module_evaluation_steps;
 use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
@@ -26,8 +27,16 @@ pub(crate) fn external_references(
   eprintln!("external_references ops {}", ops.len());
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references =
-    Vec::with_capacity(5 + (ops.len() * 4) + additional_references.len());
+    Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
 
+  eprintln!(
+    "synthetic_module_evaluation_steps as *mut c_void {:?}",
+    synthetic_module_evaluation_steps as *mut c_void
+  );
+  eprintln!(
+    "synthetic_module_evaluation_steps as *mut c_void {:?}",
+    synthetic_module_evaluation_steps as *mut c_void
+  );
   references.push(v8::ExternalReference {
     function: call_console.map_fn_to(),
   });
@@ -42,6 +51,9 @@ pub(crate) fn external_references(
   });
   references.push(v8::ExternalReference {
     function: op_disabled_fn.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    pointer: synthetic_module_evaluation_steps as *mut c_void,
   });
 
   for ctx in ops {
