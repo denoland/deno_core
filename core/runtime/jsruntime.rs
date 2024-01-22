@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
+use super::bindings::get_exports_for_ops_virtual_module;
 use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
@@ -885,9 +886,10 @@ impl JsRuntime {
       ))
     };
 
+    // TODO(bartlomieju): maybe not needed after all?
     // Execute virtual ops modules here
     {
-      let op_ctxs = context_state.op_ctxs.borrow();
+      let _op_ctxs = context_state.op_ctxs.borrow();
       // TODO(bartlomieju): all `op_ctxs` are already coalesced into a single
       // vector so we don't know which extension they belong to? Or do we?
     }
@@ -1019,6 +1021,7 @@ impl JsRuntime {
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
     let realm = JsRealm::clone(&self.inner.main_realm);
+    let context_global = realm.context();
     let module_map = realm.0.module_map();
 
     // Take extensions temporarily so we can avoid have a mutable reference to self
@@ -1062,6 +1065,24 @@ impl JsRuntime {
           .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
 
         let maybe_esm_entry_point = extension.get_esm_entry_point();
+
+        let ops_for_extension = extension.ops.clone();
+
+        {
+          let scope = &mut self.handle_scope();
+          // TODO(bartlomieju): this is inefficient, because we create a local for each
+          // extension. Probably can hoist it.
+          let context_local = v8::Local::new(scope, context_global);
+          let context_state = JsRealm::state_from_scope(scope);
+          let op_ctxs = context_state.op_ctxs.borrow();
+          let global = context_local.global(scope);
+          let _synthetic_module_exports = get_exports_for_ops_virtual_module(
+            ops_for_extension,
+            &op_ctxs,
+            scope,
+            global,
+          );
+        }
 
         // TODO(bartlomieju): this shouldn't use `extension.get_ops_virtual_module`
         // but instead call `get_exports_for_ops_virtual_module` and execute
