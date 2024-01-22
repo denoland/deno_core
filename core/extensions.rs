@@ -136,8 +136,8 @@ impl OpDecl {
   /// with noops.
   pub fn disable(self) -> Self {
     Self {
-      slow_fn: bindings::empty_fn.map_fn_to(),
-      slow_fn_with_metrics: bindings::empty_fn.map_fn_to(),
+      slow_fn: bindings::op_disabled_fn.map_fn_to(),
+      slow_fn_with_metrics: bindings::op_disabled_fn.map_fn_to(),
       fast_fn: None,
       fast_fn_with_metrics: None,
       ..self

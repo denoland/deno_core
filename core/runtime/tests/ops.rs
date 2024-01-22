@@ -205,13 +205,11 @@ fn test_op_disabled() {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
-  // Disabled op should be replaced with a noop function.
-  let val = runtime
+  // Disabled op should be replaced with a function that throws.
+  let err = runtime
     .execute_script_static("test.js", "Deno.core.ops.op_foo()")
-    .unwrap();
-  let scope = &mut runtime.handle_scope();
-  let local_val = v8::Local::new(scope, val);
-  assert!(local_val.is_undefined());
+    .unwrap_err();
+  assert!(err.to_string().contains("op is disabled"));
 }
 
 #[test]
