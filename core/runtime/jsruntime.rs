@@ -1037,7 +1037,6 @@ impl JsRuntime {
     *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
-    let mut ops_virtual_modules = vec![];
 
     futures::executor::block_on(async {
       if self.init_mode == InitMode::New {
@@ -1095,20 +1094,6 @@ impl JsRuntime {
           );
         }
 
-        // TODO(bartlomieju): this shouldn't use `extension.get_ops_virtual_module`
-        // but instead call `get_exports_for_ops_virtual_module` and execute
-        // a synthetic module.
-        if let Some(file_source) = extension.get_ops_virtual_module() {
-          realm
-            .load_side_module(
-              self.v8_isolate(),
-              &ModuleSpecifier::parse(file_source.specifier)?,
-              None,
-            )
-            .await?;
-          ops_virtual_modules.push(file_source.specifier);
-        }
-
         for file_source in extension.get_esm_sources() {
           realm
             .load_side_module(
@@ -1130,31 +1115,6 @@ impl JsRuntime {
             file_source.load()?,
           )?;
         }
-      }
-
-      // Execute ops virtual modules first...
-      for specifier in ops_virtual_modules {
-        let Some(mod_id) =
-          module_map.get_id(specifier, RequestedModuleType::None)
-        else {
-          bail!("{} not present in the module map", specifier);
-        };
-
-        let mut receiver = {
-          let isolate = self.v8_isolate();
-          let scope = &mut realm.handle_scope(isolate);
-          module_map.mod_evaluate(scope, mod_id)
-        };
-
-        let Poll::Ready(result) =
-          receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
-        else {
-          panic!(
-            "Virtual op module {} didn't execute synchronously",
-            specifier
-          );
-        };
-        result.with_context(|| format!("Couldn't execute '{specifier}'"))?;
       }
 
       // ...then execute all entry points

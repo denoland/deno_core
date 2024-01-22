@@ -586,50 +586,6 @@ impl Extension {
     self.esm_entry_point
   }
 
-  pub fn get_ops_virtual_module(&self) -> Option<ExtensionFileSource> {
-    // TODO(bartlomieju): not great to hardcode `core` here.
-    // TODO(bartlomieju): checking for files beings empty is a bit error
-    // prone, but we don't store information if we're snapshotting or not
-    // in extension.
-    if self.name == "core"
-      || self.ops.is_empty()
-      || (self.js_files.is_empty()
-        && self.esm_files.is_empty()
-        && self.esm_entry_point.is_none())
-    {
-      return None;
-    }
-
-    let op_names: Vec<_> = self
-      .ops
-      .iter()
-      .filter(|o| o.enabled)
-      .map(|o| o.name)
-      .collect();
-
-    let mut output = Vec::with_capacity(op_names.len() * 2 + 4);
-    output.push("const {".to_string());
-
-    for op_name in &op_names {
-      output.push(format!("  {},", op_name));
-    }
-
-    output.push("} = Deno.core.ensureFastOps(true);".to_string());
-    output.push("export {".to_string());
-
-    for op_name in &op_names {
-      output.push(format!("  {},", op_name));
-    }
-
-    output.push("};".to_string());
-
-    let specifier = format!("ext:{}/ops", self.name).leak();
-    Some(ExtensionFileSource {
-      specifier,
-      code: ExtensionFileSourceCode::Computed(output.join("\n").into()),
-    })
-  }
-
   /// Called at JsRuntime startup to initialize ops in the isolate.
   pub fn init_ops(&mut self) -> &[OpDecl] {
     if !self.enabled {
