@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::modules::ModuleCodeString;
+use crate::runtime::bindings;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
@@ -7,6 +8,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use v8::fast_api::FastFunction;
 use v8::ExternalReference;
+use v8::MapFnTo;
 
 #[derive(Clone, Debug)]
 pub enum ExtensionFileSourceCode {
@@ -90,7 +92,6 @@ pub type GlobalObjectMiddlewareFn =
 #[derive(Copy, Clone)]
 pub struct OpDecl {
   pub name: &'static str,
-  pub enabled: bool,
   pub is_async: bool,
   pub is_reentrant: bool,
   pub arg_count: u8,
@@ -121,7 +122,6 @@ impl OpDecl {
     #[allow(deprecated)]
     Self {
       name,
-      enabled: true,
       is_async,
       is_reentrant,
       arg_count,
@@ -132,14 +132,16 @@ impl OpDecl {
     }
   }
 
-  /// Returns a copy of this `OpDecl` with `enabled` set to the given state.
-  pub const fn enabled(self, enabled: bool) -> Self {
-    Self { enabled, ..self }
-  }
-
-  /// Returns a copy of this `OpDecl` with `enabled` set to `false`.
-  pub const fn disable(self) -> Self {
-    self.enabled(false)
+  /// Returns a copy of this `OpDecl` that replaces underlying functions
+  /// with noops.
+  pub fn disable(self) -> Self {
+    Self {
+      slow_fn: bindings::op_disabled_fn.map_fn_to(),
+      slow_fn_with_metrics: bindings::op_disabled_fn.map_fn_to(),
+      fast_fn: None,
+      fast_fn_with_metrics: None,
+      ..self
+    }
   }
 
   /// Returns a copy of this `OpDecl` with the implementation function set to the function from another
@@ -211,7 +213,7 @@ impl OpDecl {
 #[macro_export]
 macro_rules! ops {
   ($name:ident, parameters = [ $( $param:ident : $type:ident ),+ ], ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $op_param:ident > )?  ),+ $(,)? ]) => {
-    pub(crate) fn $name < $( $param : $type + 'static ),+ > () -> Vec<$crate::OpDecl> {
+    pub(crate) fn $name < $( $param : $type + 'static ),+ > () -> ::std::vec::Vec<$crate::OpDecl> {
       vec![
       $(
         $( #[ $m ] )*
@@ -221,7 +223,7 @@ macro_rules! ops {
     }
   };
   ($name:ident, [ $( $(#[$m:meta])* $( $op:ident )::+ ),+ $(,)? ] ) => {
-    pub(crate) fn $name() -> Vec<$crate::OpDecl> {
+    pub(crate) fn $name() -> ::std::Vec<$crate::OpDecl> {
       use $crate::Op;
       vec![
         $( $( #[ $m ] )* $( $op )::+ :: DECL, )+
@@ -323,36 +325,36 @@ macro_rules! extension {
         use $crate::Op;
         $crate::Extension {
           // Computed at compile-time, may be modified at runtime with `Cow`:
-          name: stringify!($name),
-          deps: &[ $( $( stringify!($dep) ),* )? ],
+          name: ::std::stringify!($name),
+          deps: &[ $( $( ::std::stringify!($dep) ),* )? ],
           // Use intermediary `const`s here to disable user expressions which
           // can't be evaluated at compile-time.
           js_files: {
-            const V: std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, []));
+            const V: ::std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = ::std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, []));
             V
           },
           esm_files: {
-            const V: std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, []));
+            const V: ::std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = ::std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, []));
             V
           },
           lazy_loaded_esm_files: {
-            const V: std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_lazy_loaded_js_files!( $name $( dir $dir_lazy_loaded_esm , )? $( $lazy_loaded_esm $( with_specifier $lazy_loaded_esm_specifier )? , )* ))?, []));
+            const V: ::std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = ::std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_lazy_loaded_js_files!( $name $( dir $dir_lazy_loaded_esm , )? $( $lazy_loaded_esm $( with_specifier $lazy_loaded_esm_specifier )? , )* ))?, []));
             V
           },
           esm_entry_point: {
-            const V: Option<&'static str> = $crate::or!($(Some($esm_entry_point))?, None);
+            const V: ::std::option::Option<&'static ::std::primitive::str> = $crate::or!($(::std::option::Option::Some($esm_entry_point))?, ::std::option::Option::None);
             V
           },
-          ops: std::borrow::Cow::Borrowed(&[$($(
+          ops: ::std::borrow::Cow::Borrowed(&[$($(
             $( #[ $m ] )*
             $( $op )::+ $( :: < $($op_param),* > )? :: DECL
           ),+)?]),
-          external_references: std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
-          global_template_middleware: None,
-          global_object_middleware: None,
+          external_references: ::std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
+          global_template_middleware: ::std::option::Option::None,
+          global_object_middleware: ::std::option::Option::None,
           // Computed at runtime:
-          op_state_fn: None,
-          middleware_fn: None,
+          op_state_fn: ::std::option::Option::None,
+          middleware_fn: ::std::option::Option::None,
           enabled: true,
         }
       }
@@ -376,15 +378,15 @@ macro_rules! extension {
         $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
 
         $(
-          ext.global_template_middleware = Some($global_template_middleware_fn);
+          ext.global_template_middleware = ::std::option::Option::Some($global_template_middleware_fn);
         )?
 
         $(
-          ext.global_object_middleware = Some($global_object_middleware_fn);
+          ext.global_object_middleware = ::std::option::Option::Some($global_object_middleware_fn);
         )?
 
         $(
-          ext.middleware_fn = Some(Box::new($middleware_fn));
+          ext.middleware_fn = ::std::option::Option::Some(::std::boxed::Box::new($middleware_fn));
         )?
       }
 
@@ -444,9 +446,9 @@ macro_rules! extension {
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
-        ext.js_files = std::borrow::Cow::Borrowed(&[]);
-        ext.esm_files = std::borrow::Cow::Borrowed(&[]);
-        ext.esm_entry_point = None;
+        ext.js_files = ::std::borrow::Cow::Borrowed(&[]);
+        ext.esm_files = ::std::borrow::Cow::Borrowed(&[]);
+        ext.esm_entry_point = ::std::option::Option::None;
         ext
       }
     }
@@ -466,14 +468,14 @@ macro_rules! extension {
       };
 
       let state_fn: fn(&mut $crate::OpState, Config $( <  $( $param ),+ > )? ) = $(  $state_fn  )?;
-      $ext.op_state_fn = Some(Box::new(move |state: &mut $crate::OpState| {
+      $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new(move |state: &mut $crate::OpState| {
         state_fn(state, config);
       }));
     }
   };
 
   (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr )? ) => {
-    $( $ext.op_state_fn = Some(Box::new($state_fn)); )?
+    $( $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn)); )?
   };
 
   (! __ops__ $ext:ident __eot__) => {
@@ -590,7 +592,7 @@ impl Extension {
   pub fn init_ops(&mut self) -> &[OpDecl] {
     if !self.enabled {
       for op in self.ops.to_mut() {
-        op.enabled = false;
+        op.disable();
       }
     }
     self.ops.as_ref()

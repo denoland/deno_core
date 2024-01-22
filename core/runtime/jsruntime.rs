@@ -1,9 +1,11 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
+use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
+use super::op_driver::OpInflightStats;
 use super::snapshot_util;
 use super::SnapshottedData;
 use crate::error::exception_to_err_result;
@@ -77,6 +79,14 @@ use v8::Isolate;
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
 
+/// Information about in-flight ops, open resources, active timers and other runtime-specific
+/// data that can be used for test sanitization.
+pub struct RuntimeActivityStats {
+  /// This will be exposed in follow-up work.
+  #[allow(dead_code)]
+  op: OpInflightStats,
+}
+
 pub enum Snapshot {
   Static(&'static [u8]),
   JustCreated(v8::StartupData),
@@ -131,6 +141,7 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
+  cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -167,9 +178,10 @@ impl InnerIsolateState {
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
     // SAFETY: We're copying out of self and then immediately forgetting self
-    let (state, isolate) = unsafe {
+    let (state, _cpp_heap, isolate) = unsafe {
       (
         ManuallyDrop::take(&mut self.state.0),
+        ManuallyDrop::take(&mut self.cpp_heap),
         ManuallyDrop::take(&mut self.v8_isolate),
       )
     };
@@ -189,6 +201,7 @@ impl Drop for InnerIsolateState {
         // Create the snapshot and just drop it.
         eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
       } else {
+        ManuallyDrop::drop(&mut self.cpp_heap);
         ManuallyDrop::drop(&mut self.v8_isolate);
       }
     }
@@ -253,12 +266,23 @@ impl Future for RcPromiseFuture {
   }
 }
 
-pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 3] = include_js_files!(
+/// These files are executed just after a new context is created. They provided
+/// the necessary infrastructure to bind ops.
+pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
   core
   "00_primordials.js",
+  "00_infra.js",
+);
+
+/// These files are executed when we start setting up extensions. They rely
+/// on ops being already fully set up.
+pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
+  core
   "01_core.js",
   "02_error.js",
 );
+/// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
+/// that exports `core`, `internals` and `primordials` objects.
 pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   include_js_files!(core "mod.js",);
 
@@ -399,8 +423,10 @@ fn v8_init(
 
   let v8_platform = v8_platform
     .unwrap_or_else(|| v8::new_default_platform(0, false).make_shared());
-  v8::V8::initialize_platform(v8_platform);
+  v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
+
+  v8::cppgc::initalize_process(v8_platform);
 }
 
 #[derive(Default)]
@@ -624,6 +650,20 @@ impl JsRuntime {
       .call_once(move || v8_init(v8_platform, predictable, expose_natives));
   }
 
+  fn init_cppgc(isolate: &mut v8::Isolate) -> v8::UniqueRef<v8::cppgc::Heap> {
+    let heap = v8::cppgc::Heap::create(
+      v8::V8::get_current_platform(),
+      v8::cppgc::HeapCreateParams::new(v8::cppgc::WrapperDescriptor::new(
+        0,
+        1,
+        crate::cppgc::DEFAULT_CPP_GC_EMBEDDER_ID,
+      )),
+    );
+
+    isolate.attach_cpp_heap(&heap);
+    heap
+  }
+
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
@@ -747,6 +787,7 @@ impl JsRuntime {
           V8_WRAPPER_OBJECT_INDEX,
         )
         .external_references(&**refs);
+      let has_snapshot = options.startup_snapshot.is_some();
       if let Some(snapshot) = options.startup_snapshot.take() {
         params = match snapshot {
           Snapshot::Static(data) => params.snapshot_blob(data),
@@ -754,8 +795,26 @@ impl JsRuntime {
           Snapshot::Boxed(data) => params.snapshot_blob(data),
         };
       }
-      v8::Isolate::new(params)
+      static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
+      static SNAPSHOW_INIT_MUT: Mutex<()> = Mutex::new(());
+
+      // On Windows, the snapshot deserialization code appears to be crashing and we are not
+      // certain of the reason. We take a mutex the first time an isolate with a snapshot to
+      // prevent this. https://github.com/denoland/deno/issues/15590
+      if cfg!(windows)
+        && has_snapshot
+        && FIRST_SNAPSHOT_INIT.load(Ordering::SeqCst)
+      {
+        let _g = SNAPSHOW_INIT_MUT.lock().unwrap();
+        let res = v8::Isolate::new(params);
+        FIRST_SNAPSHOT_INIT.store(true, Ordering::SeqCst);
+        res
+      } else {
+        v8::Isolate::new(params)
+      }
     };
+
+    let cpp_heap = Self::init_cppgc(&mut isolate);
 
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
@@ -805,6 +864,7 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
+    bindings::initialize_deno_core_namespace(scope, context, init_mode);
     bindings::initialize_context(
       scope,
       context,
@@ -874,6 +934,7 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
+        cpp_heap: ManuallyDrop::new(cpp_heap),
       },
       init_mode,
       allocations: IsolateAllocations::default(),
@@ -937,6 +998,12 @@ impl JsRuntime {
       .as_ref()
     {
       callback();
+    }
+  }
+
+  pub fn inflight_stats(&self) -> RuntimeActivityStats {
+    RuntimeActivityStats {
+      op: self.inner.main_realm.0.context_state.pending_ops.stats(),
     }
   }
 
@@ -1161,7 +1228,6 @@ impl JsRuntime {
 
     // Setup state
     for e in &mut options.extensions {
-      // ops are already registered during in bindings::initialize_context();
       e.take_state(&mut op_state);
     }
 
@@ -1189,16 +1255,24 @@ impl JsRuntime {
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
+      // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
+      // look up them again?
       let deno_str =
-        v8::String::new_external_onebyte_static(scope, b"Deno").unwrap();
+        v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
+          .unwrap();
       let core_str =
-        v8::String::new_external_onebyte_static(scope, b"core").unwrap();
-      let event_loop_tick_str =
-        v8::String::new_external_onebyte_static(scope, b"eventLoopTick")
+        v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
           .unwrap();
-      let build_custom_error_str =
-        v8::String::new_external_onebyte_static(scope, b"buildCustomError")
-          .unwrap();
+      let event_loop_tick_str = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::EVENT_LOOP_TICK,
+      )
+      .unwrap();
+      let build_custom_error_str = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::BUILD_CUSTOM_ERROR,
+      )
+      .unwrap();
 
       let deno_obj: v8::Local<v8::Object> = global
         .get(scope, deno_str.into())
@@ -2267,12 +2341,12 @@ impl JsRuntime {
 
     js_event_loop_tick_cb.call(tc_scope, undefined, args.as_slice());
 
-    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Ok(false);
-    }
-
     if let Some(exception) = tc_scope.exception() {
       return exception_to_err_result(tc_scope, exception, false, true);
+    }
+
+    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+      return Ok(false);
     }
 
     Ok(dispatched_ops)

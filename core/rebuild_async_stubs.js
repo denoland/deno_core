@@ -20,17 +20,17 @@ function __TEMPLATE__(__ARGS_PARAM__) {
   nextPromiseId = (id + 1) & 0xffffffff;
   let promise = PromisePrototypeThen(
     setPromise(id),
-    unwrapOpError(eventLoopTick),
+    unwrapOpError(core_.eventLoopTick),
   );
   promise = handleOpCallTracing(opName, id, promise);
   promise[promiseIdSymbol] = id;
   return promise;
 }
 
-const coreJsPath = new URL("01_core.js", import.meta.url);
-const coreJs = Deno.readTextFileSync(coreJsPath);
+const infraJsPath = new URL("00_infra.js", import.meta.url);
+const infraJs = Deno.readTextFileSync(infraJsPath);
 
-const corePristine = coreJs.replaceAll(
+const infraPristine = infraJs.replaceAll(
   /\/\* BEGIN TEMPLATE ([^ ]+) \*\/.*?\/\* END TEMPLATE \*\//smg,
   "TEMPLATE-$1",
 );
@@ -61,17 +61,17 @@ ${func};
 asyncStubCases += "/* END TEMPLATE */";
 
 const asyncStubIndent =
-  corePristine.match(/^([\t ]+)(?=TEMPLATE-setUpAsyncStub)/m)[0];
+  infraPristine.match(/^([\t ]+)(?=TEMPLATE-setUpAsyncStub)/m)[0];
 
-const coreOutput = corePristine
+const infraOutput = infraPristine
   .replace(
     /[\t ]+TEMPLATE-setUpAsyncStub/,
     asyncStubCases.replaceAll(/^/gm, asyncStubIndent),
   );
 
 if (Deno.args[0] === "--check") {
-  if (coreOutput !== coreJs) {
-    Deno.writeTextFileSync("/tmp/mismatch.txt", coreOutput);
+  if (infraOutput !== infraJs) {
+    Deno.writeTextFileSync("/tmp/mismatch.txt", infraOutput);
     throw new Error(
       "Mismatch between pristine and updated source (wrote mismatch to /tmp/mismatch.txt)",
     );
@@ -79,5 +79,5 @@ if (Deno.args[0] === "--check") {
     console.log("✅ Templated sections would not change");
   }
 } else {
-  Deno.writeTextFileSync(coreJsPath, coreOutput);
+  Deno.writeTextFileSync(infraJsPath, infraOutput);
 }

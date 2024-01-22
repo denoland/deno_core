@@ -22,8 +22,6 @@ use std::option::Option;
 use std::rc::Rc;
 use std::sync::Arc;
 use v8::Handle;
-use v8::HandleScope;
-use v8::Local;
 
 // Hasher used for `unrefed_ops`. Since these are rolling i32, there's no
 // need to actually hash them.
@@ -46,13 +44,13 @@ impl Hasher for IdentityHasher {
 
 /// We will be experimenting with different driver types in the future. This allows us to
 /// swap the driver out for experimentation.
-#[cfg(feature = "op_driver_joinset")]
+#[cfg(all(
+  feature = "op_driver_joinset",
+  not(feature = "op_driver_futuresunordered")
+))]
 type DefaultOpDriver = super::op_driver::JoinSetDriver;
 
-#[cfg(all(
-  feature = "op_driver_futuresunordered",
-  not(feature = "op_driver_joinset")
-))]
+#[cfg(feature = "op_driver_futuresunordered")]
 type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
 
 pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
@@ -255,21 +253,6 @@ impl JsRealm {
     unsafe { self.0.context.get_unchecked() as *const _ as _ }
   }
 
-  fn string_from_code<'a>(
-    scope: &mut HandleScope<'a>,
-    code: &ModuleCodeString,
-  ) -> Option<Local<'a, v8::String>> {
-    if let Some(code) = code.try_static_ascii() {
-      v8::String::new_external_onebyte_static(scope, code)
-    } else {
-      v8::String::new_from_utf8(
-        scope,
-        code.as_bytes(),
-        v8::NewStringType::Normal,
-      )
-    }
-  }
-
   /// Executes traditional JavaScript code (traditional = not ES modules) in the
   /// realm's context.
   ///
@@ -320,7 +303,7 @@ impl JsRealm {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let scope = &mut self.0.handle_scope(isolate);
 
-    let source = Self::string_from_code(scope, &source_code).unwrap();
+    let source = source_code.v8_string(scope).unwrap();
     debug_assert!(name.is_ascii());
     let name =
       v8::String::new_external_onebyte_static(scope, name.as_bytes()).unwrap();
