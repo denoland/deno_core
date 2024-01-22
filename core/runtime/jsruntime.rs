@@ -1074,12 +1074,14 @@ impl JsRuntime {
           );
           let virtual_module_name =
             format!("ext:{}/ops", extension.name).leak();
-          module_map.new_synthetic_module(
-            scope,
-            FastString::StaticAscii(virtual_module_name),
-            crate::ModuleType::JavaScript,
-            synthetic_module_exports,
-          );
+          module_map
+            .new_synthetic_module(
+              scope,
+              FastString::StaticAscii(virtual_module_name),
+              crate::ModuleType::JavaScript,
+              synthetic_module_exports,
+            )
+            .unwrap();
         }
 
         for file_source in extension.get_esm_sources() {

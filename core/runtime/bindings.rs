@@ -705,7 +705,7 @@ where
 pub fn get_exports_for_ops_virtual_module<'s>(
   ops_for_extension: Cow<'_, [OpDecl]>,
   op_ctxs: &[OpCtx],
-  scope: &'s mut v8::HandleScope,
+  scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
 ) -> Vec<(FastString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
