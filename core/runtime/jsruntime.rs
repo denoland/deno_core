@@ -778,6 +778,7 @@ impl JsRuntime {
           V8_WRAPPER_OBJECT_INDEX,
         )
         .external_references(&**refs);
+      let has_snapshot = options.startup_snapshot.is_some();
       if let Some(snapshot) = options.startup_snapshot.take() {
         params = match snapshot {
           Snapshot::Static(data) => params.snapshot_blob(data),
@@ -785,7 +786,23 @@ impl JsRuntime {
           Snapshot::Boxed(data) => params.snapshot_blob(data),
         };
       }
-      v8::Isolate::new(params)
+      static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
+      static SNAPSHOW_INIT_MUT: Mutex<()> = Mutex::new(());
+
+      // On Windows, the snapshot deserialization code appears to be crashing and we are not
+      // certain of the reason. We take a mutex the first time an isolate with a snapshot to
+      // prevent this. https://github.com/denoland/deno/issues/15590
+      if cfg!(windows)
+        && has_snapshot
+        && FIRST_SNAPSHOT_INIT.load(Ordering::SeqCst)
+      {
+        let _g = SNAPSHOW_INIT_MUT.lock().unwrap();
+        let res = v8::Isolate::new(params);
+        FIRST_SNAPSHOT_INIT.store(true, Ordering::SeqCst);
+        res
+      } else {
+        v8::Isolate::new(params)
+      }
     };
 
     let cpp_heap = Self::init_cppgc(&mut isolate);
