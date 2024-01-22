@@ -17,6 +17,7 @@ use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
+use crate::FastString;
 use crate::JsRuntime;
 use crate::OpDecl;
 
@@ -699,7 +700,7 @@ pub fn get_exports_for_ops_virtual_module<'s>(
   op_ctxs: &[OpCtx],
   scope: &'s mut v8::HandleScope,
   global: v8::Local<v8::Object>,
-) -> Vec<(v8::Local<'s, v8::String>, v8::Local<'s, v8::Value>)> {
+) -> Vec<(FastString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
 
   // TODO(bartlomieju): duplicated in `bindings.rs`
@@ -740,7 +741,7 @@ pub fn get_exports_for_ops_virtual_module<'s>(
       op_fn = result.try_into().unwrap()
     }
 
-    exports.push((name, op_fn.into()));
+    exports.push((FastString::StaticAscii(op_ctx.decl.name), op_fn.into()));
   }
 
   exports

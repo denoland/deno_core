@@ -38,6 +38,7 @@ use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
 use crate::ExtensionFileSource;
+use crate::FastString;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
@@ -1066,9 +1067,11 @@ impl JsRuntime {
 
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
-        let ops_for_extension = extension.ops.clone();
-
+        // TODO(bartlomieju): this should happen before we execute `BUILTIN_SOURCES`
+        // above.
+        // TODO(bartlomieju): still doesn't generate actual sythetic module
         {
+          let ops_for_extension = extension.ops.clone();
           let scope = &mut self.handle_scope();
           // TODO(bartlomieju): this is inefficient, because we create a local for each
           // extension. Probably can hoist it.
@@ -1076,11 +1079,19 @@ impl JsRuntime {
           let context_state = JsRealm::state_from_scope(scope);
           let op_ctxs = context_state.op_ctxs.borrow();
           let global = context_local.global(scope);
-          let _synthetic_module_exports = get_exports_for_ops_virtual_module(
+          let synthetic_module_exports = get_exports_for_ops_virtual_module(
             ops_for_extension,
             &op_ctxs,
             scope,
             global,
+          );
+          let virtual_module_name =
+            format!("ext:{}/ops", extension.name).leak();
+          module_map.new_synthetic_module(
+            scope,
+            FastString::StaticAscii(virtual_module_name),
+            crate::ModuleType::JavaScript,
+            synthetic_module_exports,
           );
         }
 
