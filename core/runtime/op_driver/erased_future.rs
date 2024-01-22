@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use std::marker::PhantomPinned;
 use std::mem::MaybeUninit;
 use std::pin::Pin;
-use std::ptr::addr_of_mut;
 use std::ptr::NonNull;
 use std::task::Context;
 use std::task::Poll;
@@ -87,6 +86,7 @@ pub struct ErasedFuture<const MAX_SIZE: usize, Output> {
 }
 
 impl<const MAX_SIZE: usize, Output> ErasedFuture<MAX_SIZE, Output> {
+  #[allow(dead_code)]
   unsafe fn poll<F>(
     pin: Pin<&mut TypeErased<MAX_SIZE>>,
     cx: &mut Context<'_>,
@@ -97,6 +97,7 @@ impl<const MAX_SIZE: usize, Output> ErasedFuture<MAX_SIZE, Output> {
     F::poll(std::mem::transmute(pin), cx)
   }
 
+  #[allow(dead_code)]
   pub fn new<F>(f: F) -> Self
   where
     F: Future<Output = Output>,
