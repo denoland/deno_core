@@ -88,6 +88,17 @@ impl<T> RawArenaEntry<T> {
 }
 
 impl<T> RawArena<T> {
+  /// Returns the constant overhead per allocation to assist with making allocations
+  /// page-aligned.
+  pub const fn overhead() -> usize {
+    Self::allocation_size() - std::mem::size_of::<T>()
+  }
+
+  /// Returns the size of each allocation.
+  pub const fn allocation_size() -> usize {
+    std::mem::size_of::<RawArenaEntry<T>>()
+  }
+
   /// Allocate an arena, completely initialized. This memory is not zeroed, and
   /// we use the high-water mark to keep track of what we've initialized so far.
   ///
