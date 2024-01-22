@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use log::debug;
-use std::borrow::Cow;
 use std::option::Option;
 use std::os::raw::c_void;
 use v8::MapFnTo;
@@ -19,7 +18,6 @@ use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
 use crate::FastString;
 use crate::JsRuntime;
-use crate::OpDecl;
 
 pub(crate) fn external_references(
   ops: &[OpCtx],
@@ -703,7 +701,6 @@ where
 }
 
 pub fn get_exports_for_ops_virtual_module<'s>(
-  ops_for_extension: Cow<'_, [OpDecl]>,
   op_ctxs: &[OpCtx],
   scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
@@ -723,14 +720,7 @@ pub fn get_exports_for_ops_virtual_module<'s>(
 
   let undefined = v8::undefined(scope);
 
-  for op in ops_for_extension.iter() {
-    // TODO(bartlomieju): this is really inefficient, because we are looking up
-    // `op_ctx` for each op.
-    eprintln!("get_exports_for_ops_virtual_module {}", op.name);
-    let op_ctx = op_ctxs
-      .iter()
-      .find(|op_ctx| op_ctx.decl.name == op.name)
-      .unwrap();
+  for op_ctx in op_ctxs {
     let name = v8::String::new_external_onebyte_static(
       scope,
       op_ctx.decl.name.as_bytes(),
