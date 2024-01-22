@@ -3,6 +3,7 @@ pub mod arena;
 mod async_cancel;
 mod async_cell;
 mod buffer_strategy;
+pub mod cppgc;
 pub mod error;
 mod error_codes;
 mod extensions;
@@ -190,11 +191,11 @@ macro_rules! located_script_name {
   () => {
     concat!(
       "[ext:",
-      std::file!(),
+      ::std::file!(),
       ":",
-      std::line!(),
+      ::std::line!(),
       ":",
-      std::column!(),
+      ::std::column!(),
       "]"
     )
   };
