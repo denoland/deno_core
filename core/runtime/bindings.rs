@@ -24,7 +24,7 @@ pub(crate) fn external_references(
 ) -> v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references =
-    Vec::with_capacity(4 + (ops.len() * 4) + additional_references.len());
+    Vec::with_capacity(5 + (ops.len() * 4) + additional_references.len());
 
   references.push(v8::ExternalReference {
     function: call_console.map_fn_to(),
@@ -37,6 +37,9 @@ pub(crate) fn external_references(
   });
   references.push(v8::ExternalReference {
     function: empty_fn.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: op_disabled_fn.map_fn_to(),
   });
 
   for ctx in ops {
@@ -263,12 +266,6 @@ pub(crate) fn initialize_context<'s>(
 
   let undefined = v8::undefined(scope);
   for op_ctx in op_ctxs {
-    // TODO(bartlomieju): https://github.com/denoland/deno_core/issues/447
-    // Do not register disabled ops.
-    if !op_ctx.decl.enabled {
-      continue;
-    }
-
     let mut op_fn = op_ctx_function(scope, op_ctx);
     let key = v8::String::new_external_onebyte_static(
       scope,
@@ -505,6 +502,16 @@ fn empty_fn(
   _rv: v8::ReturnValue,
 ) {
   //Do Nothing
+}
+
+pub(crate) fn op_disabled_fn(
+  scope: &mut v8::HandleScope,
+  _args: v8::FunctionCallbackArguments,
+  _rv: v8::ReturnValue,
+) {
+  let message = v8::String::new(scope, "op is disabled").unwrap();
+  let exception = v8::Exception::error(scope, message);
+  scope.throw_exception(exception);
 }
 
 //It creates a reference to an empty function which can be mantained after the snapshots

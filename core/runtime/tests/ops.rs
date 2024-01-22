@@ -205,12 +205,11 @@ fn test_op_disabled() {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
+  // Disabled op should be replaced with a function that throws.
   let err = runtime
     .execute_script_static("test.js", "Deno.core.ops.op_foo()")
     .unwrap_err();
-  assert!(err
-    .to_string()
-    .contains("TypeError: Deno.core.ops.op_foo is not a function"));
+  assert!(err.to_string().contains("op is disabled"));
 }
 
 #[test]
