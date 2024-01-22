@@ -887,14 +887,6 @@ impl JsRuntime {
       ))
     };
 
-    // TODO(bartlomieju): maybe not needed after all?
-    // Execute virtual ops modules here
-    {
-      let _op_ctxs = context_state.op_ctxs.borrow();
-      // TODO(bartlomieju): all `op_ctxs` are already coalesced into a single
-      // vector so we don't know which extension they belong to? Or do we?
-    }
-
     context.set_slot(scope, module_map.clone());
 
     let main_realm = {
@@ -1027,10 +1019,6 @@ impl JsRuntime {
 
     // Take extensions temporarily so we can avoid have a mutable reference to self
     let extensions = std::mem::take(&mut self.extensions);
-
-    // TODO(bartlomieju): get `ContextState` here to get `op_ctxs` and execute
-    // virtual ops module.
-    // let context_state = realm.state();
 
     let loader = module_map.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
