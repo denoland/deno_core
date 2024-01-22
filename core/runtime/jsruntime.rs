@@ -1062,7 +1062,7 @@ impl JsRuntime {
       //   result.unwrap();
       // }
 
-      {
+      if self.init_mode == InitMode::New {
         for file_source in &BUILTIN_SOURCES {
           realm.execute_script(
             self.v8_isolate(),
