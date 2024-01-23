@@ -1673,3 +1673,39 @@ if (typeof internals === "undefined") throw new Error("core missing");
   futures::executor::block_on(runtime.run_event_loop(Default::default()))
     .unwrap();
 }
+
+#[test]
+fn import_meta_filename_dirname() {
+  #[cfg(not(target_os = "windows"))]
+  let main_specifier = resolve_url("file:///main_module.js").unwrap();
+  #[cfg(not(target_os = "windows"))]
+  let code = ascii_str!(
+    r#"if (import.meta.filename != '/main_module.js') throw Error();
+    if (import.meta.dirname != '/') throw Error();"#
+  );
+
+  #[cfg(target_os = "windows")]
+  let main_specifier = resolve_url("file:///C:/main_module.js").unwrap();
+  #[cfg(target_os = "windows")]
+  let code = ascii_str!(
+    r#"if (import.meta.filename != 'C:\\main_module.js') throw Error();
+    if (import.meta.dirname != 'C:\\') throw Error();"#
+  );
+
+  let loader = StaticModuleLoader::new([(main_specifier.clone(), code)]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+
+  let main_id_fut = runtime
+    .load_main_module(&main_specifier, None)
+    .boxed_local();
+  let main_id = futures::executor::block_on(main_id_fut).unwrap();
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(main_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+}
