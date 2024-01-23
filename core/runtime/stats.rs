@@ -2,7 +2,6 @@
 use super::op_driver::OpDriver;
 use super::op_driver::OpInflightStats;
 use super::ContextState;
-use crate::OpDecl;
 use crate::OpState;
 use crate::PromiseId;
 use crate::ResourceId;
@@ -23,7 +22,7 @@ impl RuntimeActivityStatsFactory {
     for resource in self.op_state.borrow().resource_table.names() {
       resources
         .resources
-        .push((resource.0, resource.1.to_owned().to_string()))
+        .push((resource.0, resource.1.to_string()))
     }
     let timers = TimerStats {
       intervals: vec![],
@@ -43,7 +42,9 @@ pub struct ResourceOpenStats {
 }
 
 pub struct TimerStats {
+  #[allow(dead_code)] // coming soon
   pub(super) timers: Vec<usize>,
+  #[allow(dead_code)] // coming soon
   pub(super) intervals: Vec<usize>,
 }
 
@@ -53,6 +54,7 @@ pub struct RuntimeActivityStats {
   context_state: Rc<ContextState>,
   pub(super) op: OpInflightStats,
   pub(super) resources: ResourceOpenStats,
+  #[allow(dead_code)] // coming soon
   pub(super) timers: TimerStats,
 }
 
@@ -75,6 +77,9 @@ impl RuntimeActivityStats {
         op.0,
         ops[op.1 as usize].decl.name.to_owned(),
       ));
+    }
+    for resource in self.resources.resources.iter() {
+      v.push(RuntimeActivity::Resource(resource.0, resource.1.clone()))
     }
     RuntimeActivitySnapshot { active: v }
   }
@@ -106,6 +111,25 @@ impl RuntimeActivityStats {
           op.0,
           ops[op.1 as usize].decl.name.to_owned(),
         ));
+      }
+    }
+
+    let mut a = BitSet::new();
+    for op in after.resources.resources.iter() {
+      a.insert(op.0 as usize);
+    }
+    for op in before.resources.resources.iter() {
+      if a.remove(op.0 as usize) {
+        // continuing op
+      } else {
+        // before, but not after
+        disappeared.push(RuntimeActivity::Resource(op.0, op.1.clone()));
+      }
+    }
+    for op in after.resources.resources.iter() {
+      if a.contains(op.0 as usize) {
+        // after but not before
+        appeared.push(RuntimeActivity::Resource(op.0, op.1.clone()));
       }
     }
 

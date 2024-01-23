@@ -236,7 +236,6 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
       v.push(f.context())
     }
     OpInflightStats {
-      supported: true,
       ops: v.into_boxed_slice(),
     }
   }

@@ -28,7 +28,6 @@ pub use self::op_results::V8RetValMapper;
 pub struct OpInflightStats {
   /// The [`PromiseId`] of any inflight ops by each [`OpId`].
   pub(super) ops: Box<[PendingOpInfo]>,
-  pub(super) supported: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
