@@ -55,6 +55,7 @@ export class StatsDiff {
   #appeared;
   #disappeared;
 
+  // deno-lint-ignore no-explicit-any
   constructor(private diff: any) {
     this.#appeared = new StatsCollection(this.diff.appeared);
     this.#disappeared = new StatsCollection(this.diff.disappeared);
@@ -74,10 +75,11 @@ export class StatsDiff {
 }
 
 export class StatsCollection {
+  // deno-lint-ignore no-explicit-any
   constructor(private data: any[]) {
   }
 
-  countOps(): any {
+  countOps(): number {
     let count = 0;
     for (const item of this.data) {
       if ("AsyncOp" in item) {

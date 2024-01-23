@@ -7,9 +7,9 @@ test(async function testStatsOps() {
   assert(statsBefore.dump().empty);
 
   barrierCreate("barrier", 3);
-  let promise1 = barrierAwait("barrier");
+  const promise1 = barrierAwait("barrier");
   assertEquals(1, StatsFactory.capture().dump().countOps());
-  let promise2 = barrierAwait("barrier");
+  const promise2 = barrierAwait("barrier");
   assertEquals(2, StatsFactory.capture().dump().countOps());
   using statsMiddle = StatsFactory.capture();
   const diffMiddle = StatsFactory.diff(statsBefore, statsMiddle);
