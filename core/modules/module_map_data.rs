@@ -295,7 +295,6 @@ impl ModuleMapData {
     }
 
     let info_arr = v8::Array::new(scope, data.info.len() as i32);
-    eprintln!("data.info {:#?}", data.info);
     for (i, info) in data.info.iter().enumerate() {
       let module_info_arr = v8::Array::new(scope, 4);
 
@@ -456,7 +455,6 @@ impl ModuleMapData {
         };
         info.push(module_info);
       }
-      eprintln!("info in deserialize, {:#?}", info);
       self.info = info;
     }
 

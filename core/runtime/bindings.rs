@@ -24,19 +24,10 @@ pub(crate) fn external_references(
   ops: &[OpCtx],
   additional_references: &[v8::ExternalReference],
 ) -> v8::ExternalReferences {
-  eprintln!("external_references ops {}", ops.len());
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references =
     Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
 
-  eprintln!(
-    "synthetic_module_evaluation_steps as *mut c_void {:?}",
-    synthetic_module_evaluation_steps as *mut c_void
-  );
-  eprintln!(
-    "synthetic_module_evaluation_steps as *mut c_void {:?}",
-    synthetic_module_evaluation_steps as *mut c_void
-  );
   references.push(v8::ExternalReference {
     function: call_console.map_fn_to(),
   });

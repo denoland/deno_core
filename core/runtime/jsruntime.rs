@@ -1985,7 +1985,6 @@ impl JsRuntimeForSnapshot {
         snapshotted_data,
       );
     }
-    eprintln!("before calling snapshot");
     drop(realm);
 
     self

@@ -149,10 +149,8 @@ fn es_snapshot() {
       module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
       ..Default::default()
     });
-    eprintln!("before taking snapshot");
     runtime.snapshot()
   };
-  eprintln!("snapshot created!");
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
     startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
