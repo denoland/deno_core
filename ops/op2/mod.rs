@@ -187,7 +187,15 @@ fn generate_op2(
   };
   let is_async = signature.ret_val.is_async();
   let is_reentrant = config.reentrant;
-  let meta = config.meta;
+  let meta_token_stream: TokenStream = config
+    .meta
+    .iter()
+    .map(|(key, value)| {
+      quote! {
+          #key: #value,
+      }
+    })
+    .collect();
 
   match (is_async, config.r#async) {
     (true, false) => return Err(Op2Error::ShouldBeAsync),
@@ -257,12 +265,12 @@ fn generate_op2(
         /*name*/ stringify!(#name),
         /*is_async*/ #is_async,
         /*is_reentrant*/ #is_reentrant,
+        /*meta*/ #meta_token_stream
         /*arg_count*/ #arg_count as u8,
         /*slow_fn*/ Self::#slow_function as _,
         /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
         /*fast_fn*/ #fast_definition,
         /*fast_fn_metrics*/ #fast_definition_metrics,
-        /*meta*/ #meta
       );
     }
 
