@@ -65,7 +65,7 @@ pub fn op_stats_diff(
 ) -> RuntimeActivityDiff {
   let before = test_data.get::<RuntimeActivityStats>(before);
   let after = test_data.get::<RuntimeActivityStats>(after);
-  RuntimeActivityStats::diff(&before, &after)
+  RuntimeActivityStats::diff(before, after)
 }
 
 #[op2(fast)]
