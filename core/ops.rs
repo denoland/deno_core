@@ -3,8 +3,8 @@
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
-use crate::ops_metrics::OpMetricsFn;
 use crate::io::ResourceTable;
+use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRuntimeState;
 use crate::FeatureChecker;

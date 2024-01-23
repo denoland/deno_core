@@ -1,9 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::io::ReadResult;
 use crate::error::AnyError;
+use crate::io::ReadResult;
 use crate::BufView;
 use deno_unsync::UnsyncWaker;
-use tokio::io::ReadBuf;
 use std::cell::RefCell;
 use std::cell::RefMut;
 use std::marker::PhantomData;
@@ -11,6 +10,7 @@ use std::mem::MaybeUninit;
 use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
+use tokio::io::ReadBuf;
 
 // How many buffers we'll allow in the channel before we stop allowing writes.
 const BUFFER_CHANNEL_SIZE: u16 = 1024;
@@ -133,7 +133,7 @@ impl BoundedBufferChannelInner {
     // If we have less than the aggregation limit AND we have more than one buffer in the channel,
     // aggregate and return everything in a single buffer.
     if self.current_size <= BUFFER_AGGREGATION_LIMIT
-      && self.current_size <= buf.remaining() 
+      && self.current_size <= buf.remaining()
       && self.len > 1
     {
       self.drain(|slice| {
@@ -249,7 +249,7 @@ impl BoundedBufferChannelInner {
 
 /// A unidirectional channel that provides a read and write end to collect [`V8Slice`]s
 /// and provide them to read operations.
-/// 
+///
 /// The channel optimizes reads after small writes where possible.
 #[repr(transparent)]
 #[derive(Clone, Default)]
@@ -311,7 +311,7 @@ mod tests {
 
   fn create_buffer(byte_length: usize) -> BufView {
     BufView::from(vec![0; byte_length])
-  }  
+  }
 
   #[test]
   fn test_bounded_buffer_channel() {
@@ -387,7 +387,7 @@ mod tests {
           ReadResult::Ready => buf.filled().len(),
           ReadResult::EOF => break,
           ReadResult::ReadyBuf(buf) => buf.len(),
-          _ => unreachable!()
+          _ => unreachable!(),
         };
         total_recv_task.fetch_add(len, std::sync::atomic::Ordering::SeqCst);
       }

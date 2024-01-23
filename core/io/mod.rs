@@ -13,22 +13,22 @@ use std::pin::Pin;
 mod buffer_channel;
 mod buffers;
 mod resource;
-mod resource_io;
 mod resource_handle;
+mod resource_io;
 mod resource_table;
 
+pub use buffer_channel::BoundedBufferChannel;
 pub use buffers::BufMutView;
 pub use buffers::BufMutViewWhole;
 pub use buffers::BufView;
-pub use buffer_channel::BoundedBufferChannel;
 pub use resource::Resource;
+pub use resource_handle::ResourceHandle;
+pub use resource_handle::ResourceHandleFd;
+pub use resource_handle::ResourceHandleSocket;
 pub use resource_io::ReadContext;
 pub use resource_io::ReadResult;
 pub use resource_io::WriteContext;
 pub use resource_io::WriteResult;
-pub use resource_handle::ResourceHandle;
-pub use resource_handle::ResourceHandleFd;
-pub use resource_handle::ResourceHandleSocket;
 pub use resource_table::ResourceId;
 pub use resource_table::ResourceTable;
 
@@ -36,16 +36,15 @@ pub use resource_table::ResourceTable;
 pub type AsyncResult<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
 
 pub enum WriteOutcome {
-    Partial { nwritten: usize, view: BufView },
-    Full { nwritten: usize },
-  }
-  
-  impl WriteOutcome {
-    pub fn nwritten(&self) -> usize {
-      match self {
-        WriteOutcome::Partial { nwritten, .. } => *nwritten,
-        WriteOutcome::Full { nwritten } => *nwritten,
-      }
+  Partial { nwritten: usize, view: BufView },
+  Full { nwritten: usize },
+}
+
+impl WriteOutcome {
+  pub fn nwritten(&self) -> usize {
+    match self {
+      WriteOutcome::Partial { nwritten, .. } => *nwritten,
+      WriteOutcome::Full { nwritten } => *nwritten,
     }
   }
-  
+}

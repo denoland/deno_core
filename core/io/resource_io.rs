@@ -105,7 +105,11 @@ impl<'a> WriteContext<'a> {
     self.buf.split_off(0)
   }
 
-  pub fn poll_writer<W: AsyncWrite + Unpin>(&self, cx: &mut Context<'_>, w: &mut W) -> Poll<WriteResult<'a>> {
+  pub fn poll_writer<W: AsyncWrite + Unpin>(
+    &self,
+    cx: &mut Context<'_>,
+    w: &mut W,
+  ) -> Poll<WriteResult<'a>> {
     Poll::Ready(match ready!(Pin::new(w).poll_write(cx, &self.buf)) {
       Err(err) => WriteResult::Err(err.into()),
       Ok(n) => WriteResult::Ready(n),
@@ -159,7 +163,7 @@ impl<'a> ReadContext<'a> {
     match &self.buf {
       ReadContextBuf::Buf(buf) => buf.len(),
       ReadContextBuf::BufRead(buf) => buf.remaining_mut(),
-      ReadContextBuf::Empty => panic!("ReadContext is no longer valid")
+      ReadContextBuf::Empty => panic!("ReadContext is no longer valid"),
     }
   }
 
