@@ -247,6 +247,7 @@ impl ModuleMap {
     self.data.borrow().is_alias(name, requested_module_type)
   }
 
+  #[cfg(test)]
   pub(crate) fn get_data(&self) -> &RefCell<ModuleMapData> {
     &self.data
   }

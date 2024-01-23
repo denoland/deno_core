@@ -110,7 +110,7 @@ pub fn script_origin<'a>(
   )
 }
 
-pub(crate) fn get<'s, T>(
+fn get<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   from: v8::Local<v8::Object>,
   key: &'static [u8],
@@ -295,7 +295,7 @@ pub(crate) fn initialize_context<'s>(
   }
 }
 
-pub fn op_ctx_function<'s>(
+fn op_ctx_function<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,
 ) -> v8::Local<'s, v8::Function> {
@@ -714,8 +714,6 @@ pub fn get_exports_for_ops_virtual_module<'s>(
 ) -> Vec<(FastString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
 
-  // TODO(bartlomieju): duplicated in `bindings.rs`
-  // TODO(bartlomieju): called for every single extension - can be optimized away
   let deno_obj = get(scope, global, b"Deno", "Deno");
   let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(

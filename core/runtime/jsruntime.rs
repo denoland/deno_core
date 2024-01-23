@@ -1084,7 +1084,6 @@ impl JsRuntime {
             synthetic_module_exports,
           )
           .unwrap();
-        module_map.get_data().borrow_mut().next_load_id += 1;
         module_map.instantiate_module(scope, mod_id).unwrap();
         let mut receiver = module_map.mod_evaluate(scope, mod_id);
         let Poll::Ready(result) =
