@@ -15,7 +15,7 @@ impl deno_core::_ops::Op for op_file {
             use deno_core::v8::fast_api::Type;
             use deno_core::v8::fast_api::CType;
             deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::V8Value],
+                &[Type::V8Value, Type::V8Value, Type::CallbackOptions],
                 CType::Void,
                 Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
             )
@@ -56,7 +56,7 @@ impl op_file {
             &opctx,
             deno_core::_ops::OpMetricsEvent::Dispatched,
         );
-        let res = Self::v8_fn_ptr_fast(this, arg0);
+        let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
         deno_core::_ops::dispatch_metrics_fast(
             &opctx,
             deno_core::_ops::OpMetricsEvent::Completed,
@@ -67,15 +67,20 @@ impl op_file {
     fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: deno_core::v8::Local<deno_core::v8::Value>,
+        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
             &<Self as deno_core::_ops::Op>::DECL,
         );
+        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let result = {
             let arg0 = arg0.try_into().unwrap();
-            let arg0 = deno_core::cppgc::unwrap_cppgc_object::<std::fs::File>(arg0)
-                .unwrap();
+            let Some(arg0) = deno_core::cppgc::unwrap_cppgc_object::<std::fs::File>(arg0)
+            else {
+                fast_api_callback_options.fallback = true;
+                return unsafe { std::mem::zeroed() };
+            };
             Self::call(arg0)
         };
         result as _
@@ -95,8 +100,19 @@ impl op_file {
         let result = {
             let arg0 = args.get(0usize as i32);
             let arg0 = arg0.try_into().unwrap();
-            let arg0 = deno_core::cppgc::unwrap_cppgc_object::<std::fs::File>(arg0)
-                .unwrap();
+            let Some(arg0) = deno_core::cppgc::unwrap_cppgc_object::<std::fs::File>(arg0)
+            else {
+                let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+                let msg = deno_core::v8::String::new_from_one_byte(
+                        &mut scope,
+                        "expected std::fs::File".as_bytes(),
+                        deno_core::v8::NewStringType::Normal,
+                    )
+                    .unwrap();
+                let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                scope.throw_exception(exc);
+                return 1;
+            };
             Self::call(arg0)
         };
         deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);

@@ -24,6 +24,7 @@ use super::signature::Strings;
 use super::signature::WasmMemorySource;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
+use crate::op2::signature::stringify_token;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -507,9 +508,16 @@ pub fn from_arg(
       }
     }
     Arg::Special(Special::CppGcResource(ty)) => {
+      let throw_exception = throw_type_error(
+        generator_state,
+        format!("expected {}", stringify_token(ty)),
+      )?;
+
       quote! {
-          let #arg_ident = #arg_ident.try_into().unwrap();
-          let #arg_ident = deno_core::cppgc::unwrap_cppgc_object::<#ty>(#arg_ident).unwrap();
+        let #arg_ident = #arg_ident.try_into().unwrap();
+        let Some(#arg_ident) = deno_core::cppgc::unwrap_cppgc_object::<#ty>(#arg_ident) else {
+          #throw_exception;
+        };
       }
     }
     _ => return Err("a slow argument"),

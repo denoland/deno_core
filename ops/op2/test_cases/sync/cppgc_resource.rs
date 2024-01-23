@@ -3,5 +3,4 @@
 deno_ops_compile_test_runner::prelude!();
 
 #[op2(fast)]
-fn op_file(#[cppgc] file: &std::fs::File) {
-}
+fn op_file(#[cppgc] file: &std::fs::File) {}
