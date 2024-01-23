@@ -147,5 +147,5 @@ impl op_file {
         }
     }
     #[inline(always)]
-    fn call(file: &std::fs::File) {}
+    fn call(_file: &std::fs::File) {}
 }
