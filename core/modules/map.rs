@@ -1398,6 +1398,12 @@ impl ModuleMap {
     let module_handle = data.handles.get(module_id).unwrap();
 
     let module = v8::Local::new(scope, module_handle);
+    // v8::Module::GetStalledTopLevelAwaitMessage() must not be called on
+    // a synthetic module.
+    if module.is_synthetic_module() {
+      return vec![];
+    }
+
     let stalled = module.get_stalled_top_level_await_message(scope);
     let mut messages = vec![];
     for (_, message) in stalled {
