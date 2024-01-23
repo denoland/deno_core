@@ -61,6 +61,8 @@ pub enum Op2Error {
   TooManyFastAlternatives,
   #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
   ImproperlySortedAttribute(String),
+  #[error("The 'meta' attributes are invalid.")]
+  InvalidMetaAttributes,
 }
 
 #[derive(Debug, Error)]
@@ -185,6 +187,7 @@ fn generate_op2(
   };
   let is_async = signature.ret_val.is_async();
   let is_reentrant = config.reentrant;
+  let meta = config.meta;
 
   match (is_async, config.r#async) {
     (true, false) => return Err(Op2Error::ShouldBeAsync),
@@ -259,6 +262,7 @@ fn generate_op2(
         /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
         /*fast_fn*/ #fast_definition,
         /*fast_fn_metrics*/ #fast_definition_metrics,
+        /*meta*/ #meta
       );
     }
 

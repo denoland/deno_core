@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::TokenStream;
 use proc_macro2::TokenTree;
@@ -22,6 +24,9 @@ pub(crate) struct MacroConfig {
   pub async_deferred: bool,
   /// Marks an op as re-entrant (can safely call other ops).
   pub reentrant: bool,
+  /// Metadata attached to an op definition. Currently we only support
+  /// `async_verb` and `async_fix`.
+  pub meta: HashMap<&'static str, &'static str>,
 }
 
 impl MacroConfig {
@@ -85,6 +90,22 @@ impl MacroConfig {
         config.async_deferred = true;
       } else if flag == "reentrant" {
         config.reentrant = true;
+      } else if flag == "meta" {
+        let tokens =
+          syn::parse_str::<TokenTree>(&flag[4..])?.into_token_stream();
+        config.meta = std::panic::catch_unwind(|| {
+          rules!(tokens => {
+            ( $( $name:literal = $value:literal ),* ) => {
+              name.into_iter().zip(value.into_iter()).map(|(name, val)| {
+                let name_static: &'static str = name.to_string().leak();
+                let val_static: &'static str = val.to_string().leak();
+                (name_static, val_static)
+              })
+            }
+          })
+        })
+        .map_err(|_| Op2Error::InvalidMetaAttributes)?
+        .collect::<HashMap<&'static str, &'static str>>();
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }

@@ -118,6 +118,7 @@ impl OpDecl {
     slow_fn_with_metrics: OpFnRef,
     fast_fn: Option<FastFunction>,
     fast_fn_with_metrics: Option<FastFunction>,
+    _meta: HashMap<&'static str, &'static str>,
   ) -> Self {
     #[allow(deprecated)]
     Self {
