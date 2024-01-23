@@ -7,7 +7,7 @@ use crate::io::BufView;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
-use crate::resources::ResourceId;
+use crate::io::ResourceId;
 use crate::JsBuffer;
 use crate::OpState;
 use crate::Resource;

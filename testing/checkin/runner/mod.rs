@@ -19,6 +19,7 @@ use crate::checkin::runner::testing::TestData;
 use self::testing::TestFunctions;
 
 mod ops;
+mod ops_io;
 mod ops_async;
 mod ops_buffer;
 mod testing;
@@ -34,6 +35,7 @@ deno_core::extension!(
     ops::op_stats_diff,
     ops::op_stats_dump,
     ops::op_stats_delete,
+    ops_io::op_pipe_create,
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,
