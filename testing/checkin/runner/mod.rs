@@ -30,6 +30,10 @@ deno_core::extension!(
     ops::op_log_debug,
     ops::op_log_info,
     ops::op_test_register,
+    ops::op_stats_capture,
+    ops::op_stats_diff,
+    ops::op_stats_dump,
+    ops::op_stats_delete,
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,
@@ -68,7 +72,7 @@ fn create_runtime() -> JsRuntime {
     }
   }
 
-  JsRuntime::new(RuntimeOptions {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
@@ -78,7 +82,10 @@ fn create_runtime() -> JsRuntime {
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
-  })
+  });
+  let stats = runtime.runtime_activity_stats_factory();
+  runtime.op_state().borrow_mut().put(stats);
+  runtime
 }
 
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,

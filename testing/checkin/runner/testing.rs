@@ -26,11 +26,21 @@ impl TestData {
   }
 
   pub fn get<T: 'static + Any>(&self, name: String) -> &T {
+    let key = (name, TypeId::of::<T>());
     self
       .data
-      .get(&(name, TypeId::of::<T>()))
-      .unwrap()
+      .get(&key)
+      .unwrap_or_else(|| panic!("Unable to locate {} of type {}", key.0, std::any::type_name::<T>()))
       .downcast_ref()
+      .unwrap()
+  }
+
+  pub fn take<T: 'static + Any>(&mut self, name: String) -> T {
+    *self
+      .data
+      .remove(&(name, TypeId::of::<T>()))
+      .unwrap()
+      .downcast()
       .unwrap()
   }
 }

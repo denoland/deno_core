@@ -36,6 +36,15 @@
 (() => {
   const primordials = {};
 
+  if (!Symbol.dispose) {
+    Symbol.dispose = Symbol("Symbol.dispose");
+  }
+  primordials.SymbolDispose = Symbol.dispose;
+  if (!Symbol.asyncDispose) {
+    Symbol.asyncDispose = Symbol("Symbol.asyncDispose");
+  }
+  primordials.SymbolAsyncDispose = Symbol.asyncDispose;
+
   const {
     defineProperty: ReflectDefineProperty,
     getOwnPropertyDescriptor: ReflectGetOwnPropertyDescriptor,
