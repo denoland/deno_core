@@ -18,8 +18,11 @@ pub struct RuntimeActivityStatsFactory {
 
 impl RuntimeActivityStatsFactory {
   pub fn capture(self) -> RuntimeActivityStats {
-    let mut resources = ResourceOpenStats { resources: vec![] };
-    for resource in self.op_state.borrow().resource_table.names() {
+    let res = &self.op_state.borrow().resource_table;
+    let mut resources = ResourceOpenStats {
+      resources: Vec::with_capacity(res.len()),
+    };
+    for resource in res.names() {
       resources
         .resources
         .push((resource.0, resource.1.to_string()))
@@ -70,7 +73,8 @@ impl RuntimeActivityStats {
   /// Capture the data within this [`RuntimeActivityStats`] as a [`RuntimeActivitySnapshot`]
   /// with details of activity.
   pub fn dump(&self) -> RuntimeActivitySnapshot {
-    let mut v = vec![];
+    let mut v =
+      Vec::with_capacity(self.op.ops.len() + self.resources.resources.len());
     let ops = self.context_state.op_ctxs.borrow();
     for op in self.op.ops.iter() {
       v.push(RuntimeActivity::AsyncOp(
