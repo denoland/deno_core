@@ -1262,7 +1262,6 @@ async fn loader_disappears_after_error() {
 
 #[test]
 fn recursive_load_main_with_code() {
-  #[cfg(not(target_os = "windows"))]
   const MAIN_WITH_CODE_SRC: FastString = ascii_str!(
     r#"
 import { b } from "/b.js";
@@ -1271,22 +1270,6 @@ if (b() != 'b') throw Error();
 if (c() != 'c') throw Error();
 if (!import.meta.main) throw Error();
 if (import.meta.url != 'file:///main_with_code.js') throw Error();
-if (import.meta.filename != '/main_with_code.js') throw Error();
-if (import.meta.dirname != '/') throw Error();
-"#
-  );
-
-  #[cfg(target_os = "windows")]
-  const MAIN_WITH_CODE_SRC: FastString = ascii_str!(
-    r#"
-import { b } from "/b.js";
-import { c } from "/c.js";
-if (b() != 'b') throw Error();
-if (c() != 'c') throw Error();
-if (!import.meta.main) throw Error();
-if (import.meta.url != 'file:///C:/main_with_code.js') throw Error();
-if (typeof import.meta.filename != 'string') throw Error();
-if (typeof import.meta.dirname != 'string') throw Error();
 "#
   );
 
@@ -1299,10 +1282,7 @@ if (typeof import.meta.dirname != 'string') throw Error();
   // In default resolution code should be empty.
   // Instead we explicitly pass in our own code.
   // The behavior should be very similar to /a.js.
-  #[cfg(not(target_os = "windows"))]
   let spec = resolve_url("file:///main_with_code.js").unwrap();
-  #[cfg(target_os = "windows")]
-  let spec = resolve_url("file:///C:/main_with_code.js").unwrap();
   let main_id_fut = runtime
     .load_main_module(&spec, Some(MAIN_WITH_CODE_SRC))
     .boxed_local();
@@ -1677,6 +1657,42 @@ if (typeof internals === "undefined") throw new Error("core missing");
     .to_string();
   let loader =
     StaticModuleLoader::new([(main_specifier.clone(), source_code.into())]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+
+  let main_id_fut = runtime
+    .load_main_module(&main_specifier, None)
+    .boxed_local();
+  let main_id = futures::executor::block_on(main_id_fut).unwrap();
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(main_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+}
+
+#[test]
+fn import_meta_filename_dirname() {
+  #[cfg(not(target_os = "windows"))]
+  let main_specifier = resolve_url("file:///main_module.js").unwrap();
+  #[cfg(not(target_os = "windows"))]
+  let code = ascii_str!(
+    r#"if (import.meta.filename != '/main_module.js') throw Error();
+    if (import.meta.dirname != '/') throw Error();"#
+  );
+
+  #[cfg(target_os = "windows")]
+  let main_specifier = resolve_url("file:///C:/main_module.js").unwrap();
+  #[cfg(target_os = "windows")]
+  let code = ascii_str!(
+    r#"if (import.meta.filename != 'C:\\main_module.js') throw Error();
+    if (import.meta.dirname != 'C:\\') throw Error();"#
+  );
+
+  let loader = StaticModuleLoader::new([(main_specifier.clone(), code)]);
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
