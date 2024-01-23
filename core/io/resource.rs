@@ -7,12 +7,12 @@
 // file descriptor (hence the different name).
 
 use crate::error::not_supported;
+use crate::io::AsyncResult;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::io::WriteOutcome;
 use crate::ResourceHandle;
 use crate::ResourceHandleFd;
-use crate::io::AsyncResult;
 use anyhow::Error;
 use std::any::type_name;
 use std::any::Any;

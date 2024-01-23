@@ -19,9 +19,9 @@ use crate::checkin::runner::testing::TestData;
 use self::testing::TestFunctions;
 
 mod ops;
-mod ops_io;
 mod ops_async;
 mod ops_buffer;
+mod ops_io;
 mod testing;
 mod ts_module_loader;
 
