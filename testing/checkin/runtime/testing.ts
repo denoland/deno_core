@@ -1,6 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-import { op_test_register } from "ext:checkin_runtime/ops";
+import { op_test_register } from "ext:core/ops";
 
 /**
  * Define a sync or async test function.
