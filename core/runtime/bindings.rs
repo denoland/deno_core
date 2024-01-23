@@ -483,7 +483,7 @@ fn maybe_add_import_meta_filename_dirname(
 
   // Use display() here so that Rust takes care of proper forward/backward slash
   // formatting depending on the OS.
-  let escaped_filename = file_path.display().to_string().replace('\\', "\\\\");
+  let escaped_filename = file_path.display().to_string();
   let Some(filename_val) = v8::String::new(scope, &escaped_filename) else {
     return;
   };
@@ -495,7 +495,7 @@ fn maybe_add_import_meta_filename_dirname(
     .parent()
     .map(|p| p.to_owned())
     .unwrap_or_else(|| PathBuf::from("/"));
-  let escaped_dirname = dir_path.display().to_string().replace('\\', "\\\\");
+  let escaped_dirname = dir_path.display().to_string();
   let Some(dirname_val) = v8::String::new(scope, &escaped_dirname) else {
     return;
   };
