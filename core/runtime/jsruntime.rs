@@ -5,8 +5,8 @@ use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
-use super::op_driver::OpInflightStats;
 use super::snapshot_util;
+use super::stats::RuntimeActivityStatsFactory;
 use super::SnapshottedData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
@@ -78,14 +78,6 @@ use v8::Isolate;
 
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
-
-/// Information about in-flight ops, open resources, active timers and other runtime-specific
-/// data that can be used for test sanitization.
-pub struct RuntimeActivityStats {
-  /// This will be exposed in follow-up work.
-  #[allow(dead_code)]
-  op: OpInflightStats,
-}
 
 pub enum Snapshot {
   Static(&'static [u8]),
@@ -1001,9 +993,10 @@ impl JsRuntime {
     }
   }
 
-  pub fn inflight_stats(&self) -> RuntimeActivityStats {
-    RuntimeActivityStats {
-      op: self.inner.main_realm.0.context_state.pending_ops.stats(),
+  pub fn runtime_activity_stats_factory(&self) -> RuntimeActivityStatsFactory {
+    RuntimeActivityStatsFactory {
+      context_state: self.inner.main_realm.0.context_state.clone(),
+      op_state: self.inner.state.op_state.clone(),
     }
   }
 

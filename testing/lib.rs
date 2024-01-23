@@ -38,6 +38,7 @@ unit_test!(
   ops_async_test,
   ops_buffer_test,
   serialize_deserialize_test,
+  stats_test,
   tc39_test,
   timer_test,
   type_test,

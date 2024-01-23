@@ -357,6 +357,17 @@ pub struct ResourceTable {
 }
 
 impl ResourceTable {
+  /// Returns the number of resources currently active in the resource table.
+  /// Resources taken from the table do not contribute to this count.
+  pub fn len(&self) -> usize {
+    self.index.len()
+  }
+
+  /// Returns whether this table is empty.
+  pub fn is_empty(&self) -> bool {
+    self.index.is_empty()
+  }
+
   /// Inserts resource into the resource table, which takes ownership of it.
   ///
   /// The resource type is erased at runtime and must be statically known

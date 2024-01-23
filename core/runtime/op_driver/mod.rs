@@ -24,12 +24,10 @@ pub use self::op_results::V8OpMappingContext;
 pub use self::op_results::V8RetValMapper;
 
 #[derive(Default)]
-#[allow(dead_code)] // follow-up PR
 /// Returns a set of stats on inflight ops.
 pub struct OpInflightStats {
   /// The [`PromiseId`] of any inflight ops by each [`OpId`].
-  ops: Box<[PendingOpInfo]>,
-  supported: bool,
+  pub(super) ops: Box<[PendingOpInfo]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
