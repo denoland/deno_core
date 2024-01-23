@@ -2,13 +2,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use deno_core::OpState;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
 use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::v8;
+use deno_core::OpState;
 
 use super::testing::Output;
 use super::testing::TestData;
@@ -36,7 +36,10 @@ pub fn op_test_register(
 
 #[op2(fast)]
 pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
-  let stats = state.borrow().borrow::<RuntimeActivityStatsFactory>().clone();
+  let stats = state
+    .borrow()
+    .borrow::<RuntimeActivityStatsFactory>()
+    .clone();
   let data = stats.capture();
   let mut state = state.borrow_mut();
   let test_data = state.borrow_mut::<TestData>();
@@ -45,20 +48,30 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
 
 #[op2]
 #[serde]
-pub fn op_stats_dump(#[string] name: String, #[state] test_data: &mut TestData) -> RuntimeActivitySnapshot {
+pub fn op_stats_dump(
+  #[string] name: String,
+  #[state] test_data: &mut TestData,
+) -> RuntimeActivitySnapshot {
   let stats = test_data.get::<RuntimeActivityStats>(name);
   stats.dump()
 }
 
 #[op2]
 #[serde]
-pub fn op_stats_diff(#[string] before: String, #[string] after: String, #[state] test_data: &mut TestData) -> RuntimeActivityDiff {
+pub fn op_stats_diff(
+  #[string] before: String,
+  #[string] after: String,
+  #[state] test_data: &mut TestData,
+) -> RuntimeActivityDiff {
   let before = test_data.get::<RuntimeActivityStats>(before);
   let after = test_data.get::<RuntimeActivityStats>(after);
   RuntimeActivityStats::diff(&before, &after)
 }
 
 #[op2(fast)]
-pub fn op_stats_delete(#[string] name: String, #[state] test_data: &mut TestData) {
+pub fn op_stats_delete(
+  #[string] name: String,
+  #[state] test_data: &mut TestData,
+) {
   test_data.take::<RuntimeActivityStats>(name);
 }

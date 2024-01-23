@@ -30,7 +30,13 @@ impl TestData {
     self
       .data
       .get(&key)
-      .unwrap_or_else(|| panic!("Unable to locate {} of type {}", key.0, std::any::type_name::<T>()))
+      .unwrap_or_else(|| {
+        panic!(
+          "Unable to locate {} of type {}",
+          key.0,
+          std::any::type_name::<T>()
+        )
+      })
       .downcast_ref()
       .unwrap()
   }

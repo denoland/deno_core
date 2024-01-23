@@ -1,15 +1,15 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use bit_set::BitSet;
-use serde::Serialize;
-use crate::OpState;
-use crate::ResourceId;
-use crate::PromiseId;
-use crate::OpDecl;
-use std::cell::RefCell;
-use std::rc::Rc;
-use super::ContextState;
 use super::op_driver::OpDriver;
 use super::op_driver::OpInflightStats;
+use super::ContextState;
+use crate::OpDecl;
+use crate::OpState;
+use crate::PromiseId;
+use crate::ResourceId;
+use bit_set::BitSet;
+use serde::Serialize;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct RuntimeActivityStatsFactory {
@@ -21,23 +21,25 @@ impl RuntimeActivityStatsFactory {
   pub fn capture(self) -> RuntimeActivityStats {
     let mut resources = ResourceOpenStats { resources: vec![] };
     for resource in self.op_state.borrow().resource_table.names() {
-      resources.resources.push((resource.0, resource.1.to_owned().to_string()))
+      resources
+        .resources
+        .push((resource.0, resource.1.to_owned().to_string()))
     }
     let timers = TimerStats {
       intervals: vec![],
-      timers: vec![]
+      timers: vec![],
     };
     RuntimeActivityStats {
       context_state: self.context_state.clone(),
       op: self.context_state.pending_ops.stats(),
       resources,
-      timers
+      timers,
     }
   }
 }
 
 pub struct ResourceOpenStats {
-  pub(super) resources: Vec<(u32, String)>
+  pub(super) resources: Vec<(u32, String)>,
 }
 
 pub struct TimerStats {
@@ -69,7 +71,10 @@ impl RuntimeActivityStats {
     let mut v = vec![];
     let ops = self.context_state.op_ctxs.borrow();
     for op in self.op.ops.iter() {
-      v.push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name.to_owned()));
+      v.push(RuntimeActivity::AsyncOp(
+        op.0,
+        ops[op.1 as usize].decl.name.to_owned(),
+      ));
     }
     RuntimeActivitySnapshot { active: v }
   }
@@ -88,17 +93,26 @@ impl RuntimeActivityStats {
         // continuing op
       } else {
         // before, but not after
-        disappeared.push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name.to_owned()));
+        disappeared.push(RuntimeActivity::AsyncOp(
+          op.0,
+          ops[op.1 as usize].decl.name.to_owned(),
+        ));
       }
     }
     for op in after.op.ops.iter() {
       if a.contains(op.0 as usize) {
         // after but not before
-        appeared.push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name.to_owned()));
+        appeared.push(RuntimeActivity::AsyncOp(
+          op.0,
+          ops[op.1 as usize].decl.name.to_owned(),
+        ));
       }
     }
-    
-    RuntimeActivityDiff { appeared, disappeared }
+
+    RuntimeActivityDiff {
+      appeared,
+      disappeared,
+    }
   }
 }
 
