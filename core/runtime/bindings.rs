@@ -52,8 +52,11 @@ pub(crate) fn external_references(
   references.push(v8::ExternalReference {
     function: op_disabled_fn.map_fn_to(),
   });
+
+  let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
+    synthetic_module_evaluation_steps.map_fn_to();
   references.push(v8::ExternalReference {
-    pointer: synthetic_module_evaluation_steps as *mut c_void,
+    pointer: syn_module_eval_fn as *mut c_void,
   });
 
   for ctx in ops {
