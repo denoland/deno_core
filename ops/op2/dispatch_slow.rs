@@ -506,6 +506,12 @@ pub fn from_arg(
         };
       }
     }
+    Arg::Special(Special::CppGcResource(ty)) => {
+      quote! {
+          let #arg_ident = #arg_ident.try_into().unwrap();
+          let #arg_ident = deno_core::cppgc::unwrap_cppgc_object::<#ty>(#arg_ident).unwrap();
+      }
+    }
     _ => return Err("a slow argument"),
   };
   Ok(res)

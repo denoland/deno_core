@@ -138,13 +138,14 @@ impl ToTokens for V8Arg {
   }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Special {
   HandleScope,
   OpState,
   JsRuntimeState,
   FastApiCallbackOptions,
   Isolate,
+  CppGcResource(syn::Path),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -417,7 +418,7 @@ impl Arg {
       Arg::OptionV8Local(t) => Arg::V8Local(*t),
       Arg::OptionV8Global(t) => Arg::V8Global(*t),
       Arg::OptionNumeric(t, flag) => Arg::Numeric(*t, *flag),
-      Arg::Option(t) => Arg::Special(*t),
+      Arg::Option(t) => Arg::Special(t.clone()),
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
@@ -765,6 +766,8 @@ pub enum AttributeModifier {
   Number,
   /// #[memory], for a WasmMemory-backed buffer
   WasmMemory(WasmMemorySource),
+  /// #[cppgc], for a resource backed managed by cppgc.
+  CppGcResource,
 }
 
 impl AttributeModifier {
@@ -779,6 +782,7 @@ impl AttributeModifier {
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::WasmMemory(..) => "memory",
+      AttributeModifier::CppGcResource => "cppgc",
     }
   }
 }
@@ -859,6 +863,10 @@ pub enum ArgError {
   NotAllowedInThisPosition(String),
   #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
   InvalidDenoCorePrefix(String, String, String),
+  #[error("Expected reference. Try changing to `&{0}`.")]
+  ExpectedCppGcReference(String),
+  #[error("Invalid cppgc type '{0}'")]
+  InvalidCppGcType(String),
 }
 
 #[derive(Error, Debug)]
@@ -1171,6 +1179,7 @@ fn parse_attribute(
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
       (#[memory(caller)]) => Some(AttributeModifier::WasmMemory(WasmMemorySource::Caller)),
+      (#[cppgc]) => Some(AttributeModifier::CppGcResource),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
@@ -1376,6 +1385,15 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.primary {
     match primary {
+      AttributeModifier::CppGcResource => match ty {
+        Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
+          Type::Path(of) => {
+            return Ok(Arg::Special(Special::CppGcResource(of.path.clone())));
+          }
+          _ => return Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+        },
+        _ => return Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+      },
       AttributeModifier::Serde => match ty {
         Type::Tuple(of) => {
           return Ok(Arg::SerdeV8(stringify_token(of)));
@@ -1858,6 +1876,11 @@ mod tests {
   test!(
     fn op_wasm_memory(#[memory(caller)] memory: Option<&[u8]>);
     (OptionWasmMemory(Ref, Caller)) -> Infallible(Void)
+  );
+  expect_fail!(
+    op_cppgc_resource_owned,
+    ArgError("resource", ExpectedCppGcReference("std::fs::File")),
+    fn f(#[cppgc] resource: std::fs::File) {}
   );
 
   // Args
