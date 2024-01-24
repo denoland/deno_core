@@ -1,0 +1,3 @@
+[registries]
+# Specify the registry as "upstream" so we can dry-run publish to a test server
+upstream = { index = "https://crates.io/api/v1/crates" }
