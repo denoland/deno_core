@@ -3,6 +3,13 @@ name: CI
 on: [push, pull_request]
 
 jobs:
+  success:
+    needs: top
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print success
+        run: echo Success ✅
+
   compute-jobs:
     runs-on: ubuntu-latest
     outputs:
@@ -15,6 +22,7 @@ jobs:
         with:
           # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
           # matrix below
+          # Test this using jq/yq: cat config.yaml | yq -o json | jq
           query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
           config: |-
             linux:
