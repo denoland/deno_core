@@ -18,9 +18,9 @@ repository = "https://github.com/denoland/deno_core"
 
 [workspace.dependencies]
 # Local dependencies
-deno_core = { version = "0.251.0", path = "./core", registry = "upstream" }
-deno_ops = { version = "0.127.0", path = "./ops", registry = "upstream" }
-serde_v8 = { version = "0.160.0", path = "./serde_v8", registry = "upstream" }
+deno_core = { version = "0.252.0", path = "./core", registry = "upstream" }
+deno_ops = { version = "0.128.0", path = "./ops", registry = "upstream" }
+serde_v8 = { version = "0.161.0", path = "./serde_v8", registry = "upstream" }
 
 v8 = { version = "0.83.1", default-features = false }
 deno_ast = { version = "=0.32.0", features = ["transpiling"] }
