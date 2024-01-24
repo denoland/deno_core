@@ -2,7 +2,13 @@ name: Publish workflow
 runs:
   using: "composite"
   steps:
+    - name: Cargo publish (dry-run)
+      if: contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
     - name: Cargo publish
+      if: \!contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
