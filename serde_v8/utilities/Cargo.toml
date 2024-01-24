@@ -1,0 +1,9 @@
+[package]
+name = "serde_v8_utilities"
+version = "0.0.0"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+v8.workspace = true

@@ -1230,8 +1230,16 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "serde_v8_utilities",
  "smallvec",
  "thiserror",
+ "v8",
+]
+
+[[package]]
+name = "serde_v8_utilities"
+version = "0.0.0"
+dependencies = [
  "v8",
 ]
 
