@@ -10,7 +10,7 @@ on:
         type: string
       job:
         required: true
-        type: string
+        type: string        
 
 jobs:
   job:
@@ -68,6 +68,7 @@ jobs:
         id: publish
         if: inputs.job == 'publish'
         uses: ./.github/workflows/ci-publish
+        secrets: inherit
 
     env:
       CARGO_INCREMENTAL: 0
