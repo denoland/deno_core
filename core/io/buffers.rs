@@ -174,6 +174,9 @@ impl From<BufView> for bytes::Bytes {
   }
 }
 
+/// BufMutViewWhole is equivalent to `BufMutView`, but cannot be split, preventing
+/// someone from accidentally holding a `BufView` down the road that is being actively
+/// mutated from JavaScript.
 pub struct BufMutViewWhole {
   inner: BufMutViewInner,
   cursor: usize,
