@@ -383,11 +383,7 @@ fn v8_init(
 ) {
   #[cfg(feature = "include_icu_data")]
   {
-    // Include 10MB ICU data file.
-    #[repr(C, align(16))]
-    struct IcuData([u8; 10631872]);
-    static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
-    v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
+    v8::icu::set_common_data_73(&deno_core_icudata::ICU_DATA).unwrap();
   }
 
   let base_flags = concat!(

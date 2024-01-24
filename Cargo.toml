@@ -25,6 +25,7 @@ serde_v8 = { version = "0.160.0", path = "./serde_v8", registry = "upstream" }
 v8 = { version = "0.83.1", default-features = false }
 deno_ast = { version = "=0.32.0", features = ["transpiling"] }
 deno_unsync = "0.3.2"
+deno_core_icudata = "0.0.73"
 
 anyhow = "1"
 bencher = "0.1"
