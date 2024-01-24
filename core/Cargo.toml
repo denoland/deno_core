@@ -9,6 +9,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and Tokio"
+registry = "upstream"
 
 [lib]
 path = "lib.rs"
