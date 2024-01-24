@@ -64,6 +64,11 @@ jobs:
         if: inputs.job == 'test-miri'
         uses: ./.github/workflows/ci-test-miri
 
+      - name: Publish
+        id: publish
+        if: inputs.job == 'publish'
+        uses: ./.github/workflows/ci-publish
+
     env:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
