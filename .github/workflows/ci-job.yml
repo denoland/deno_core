@@ -68,6 +68,8 @@ jobs:
         id: publish
         if: inputs.job == 'publish'
         uses: ./.github/workflows/ci-publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
     env:
       CARGO_INCREMENTAL: 0

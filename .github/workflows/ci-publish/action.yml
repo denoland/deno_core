@@ -5,15 +5,21 @@ runs:
     - name: Cargo publish (dry-run)
       shell: bash
       if: contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      run: cargo publish -p serde_v8 --dry-run && cargo publish -p deno_ops --dry-run && cargo publish -p deno_core --dry-run
+      run: |
+        curl --output kellnr-latest.zip "https://github.com/kellnr/kellnr/releases/5.1.1/download/kellnr-x86_64-unknown-linux-gnuzip"
+        unzip kellnr-latest.zip -d ./kellnr
+        (cd ./kellnr && ./kellnr) &
+
+        cargo publish -p serde_v8 --dry-run
+        cargo publish -p deno_ops --dry-run
+        cargo publish -p deno_core --dry-run
     - name: Cargo publish
       shell: bash
       if: \!contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
+      run: |
+        cargo publish -p serde_v8
+        cargo publish -p deno_ops
+        cargo publish -p deno_core
     - name: Get tag version
       shell: bash
       id: get_tag_version
