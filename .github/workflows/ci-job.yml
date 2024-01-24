@@ -11,6 +11,12 @@ on:
       job:
         required: true
         type: string
+      is_main:
+        required: true
+        type: boolean
+      is_tag:
+        required: true
+        type: boolean
 
 jobs:
   job:
@@ -33,11 +39,16 @@ jobs:
         with:
           prefix-key: "v0-rust"
           shared-key: "${{ inputs.label }}-${{ inputs.job }}"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ inputs.is_main }}
 
       - name: Clean
-        if: github.ref == 'refs/heads/main'
+        if: inputs.is_main
         run: cargo clean
+
+      - name: No-op
+        id: nop
+        if: inputs.job == 'nop'
+        uses: ./.github/workflows/ci-nop
 
       - name: Lint
         id: lint
@@ -63,6 +74,11 @@ jobs:
         id: test-miri
         if: inputs.job == 'test-miri'
         uses: ./.github/workflows/ci-test-miri
+
+      - name: Publish (dry-run)
+        id: test-publish
+        if: inputs.job == 'test-publish'
+        uses: ./.github/workflows/ci-test-publish
 
       - name: Publish
         id: publish

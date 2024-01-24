@@ -1,19 +1,29 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  # Run on any push to main or any tag
+  push:
+    branches:
+      - main
+    tags:
+      - \*
+  # Run on any pull request
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  success:
-    needs: top
-    runs-on: ubuntu-latest
-    steps:
-      - name: Print success
-        run: echo Success ✅
-
   compute-jobs:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.read-jobs.outputs.matrix }}
+      # If we're not running in the denoland repo, or we're building on a tag, use the 'nop' matrix
+      # that runs a single, no-op job
+      matrix: |
+        ${{ (github.repository == 'denoland/deno_core' && !startsWith(github.ref, 'refs/tags/')) 
+          && steps.read-jobs.outputs.matrix 
+          || '[{ "label": "linux", "os": "ubuntu-latest", "job": "nop" }]' }}
+      is_tag: ${{ github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/') }}
+      is_main: ${{ github.repository == 'denoland/deno_core' && github.ref == 'refs/heads/main' }}
     steps:
       # https://github.com/marketplace/actions/query-yaml-config-as-outputs
       - name: Read job configuration
@@ -27,7 +37,7 @@ jobs:
           config: |-
             linux:
               os: ubuntu-latest
-              jobs: [lint, lint-deps, test, test-miri, test-ops]
+              jobs: [lint, lint-deps, test, test-miri, test-ops, test-publish]
             macos:
               os: macOS-latest
               jobs: [lint, test]
@@ -38,23 +48,35 @@ jobs:
   top:
     name: build-${{ matrix.label }}
     needs: compute-jobs
-    if: github.repository == 'denoland/deno_core'
     uses: ./.github/workflows/ci-job.yml
     with:
       label: ${{ matrix.label }}
       os: ${{ matrix.os }}
       job: ${{ matrix.job }}
+      is_main: ${{ needs.compute-jobs.outputs.is_main == true }}
+      is_tag: ${{ needs.compute-jobs.outputs.is_tag == true }}
     strategy:
       matrix:
         include: ${{ fromJSON(needs.compute-jobs.outputs.matrix) }}
 
+  success:
+    needs: top
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print success
+        run: echo Success ✅
+
   publish:
     name: publish
-    needs: top
-    if: (github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/')) || contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
+    needs:
+      - top
+      - compute-jobs
+    if: needs.compute-jobs.outputs.is_tag
     uses: ./.github/workflows/ci-job.yml
     secrets: inherit
     with:
       label: linux
       os: ubuntu-latest
       job: publish
+      is_main: ${{ needs.compute-jobs.outputs.is_main }}
+      is_tag: ${{ needs.compute-jobs.outputs.is_tag }}

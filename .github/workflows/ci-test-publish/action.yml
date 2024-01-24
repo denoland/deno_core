@@ -1,0 +1,17 @@
+name: Test publish
+runs:
+  using: "composite"
+  steps:
+    - name: Cargo publish (dry-run)
+      shell: bash
+      env:
+        CARGO_REGISTRIES_UPSTREAM_INDEX: sparse+http://localhost:8000/api/v1/crates/
+        CARGO_REGISTRIES_UPSTREAM_TOKEN: Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD
+        # This should match our bumped-up crates.io limits
+        KELLNR_REGISTRY__MAX_CRATE_SIZE: 10
+      run: |
+        curl -L --output kellnr-latest.zip "https://github.com/kellnr/kellnr/releases/download/v5.1.1/kellnr-x86_64-unknown-linux-gnu.zip"
+        unzip kellnr-latest.zip -d ./kellnr
+        (cd ./kellnr && ./kellnr) &
+        sleep 1
+        tools/publish_dry_run.ts
