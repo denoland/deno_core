@@ -2,13 +2,13 @@
 use serde::Deserialize;
 use serde::Deserializer;
 
-use serde_v8::utils::js_exec;
-use serde_v8::utils::v8_do;
 use serde_v8::BigInt;
 use serde_v8::ByteString;
 use serde_v8::Error;
 use serde_v8::JsBuffer;
 use serde_v8::U16String;
+use serde_v8_utilities::js_exec;
+use serde_v8_utilities::v8_do;
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct MathOp {

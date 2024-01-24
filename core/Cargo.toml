@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.246.0"
+version = "0.253.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -15,10 +15,11 @@ path = "lib.rs"
 
 [features]
 default = ["include_icu_data", "v8_use_custom_libcxx", "op_driver_futuresunordered"]
-include_icu_data = []
+include_icu_data = ["deno_core_icudata"]
 v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
+unsafe_use_unprotected_platform = []
 
 # Use the old, slower (but better tested) JoinSet driver
 op_driver_joinset = []
@@ -33,6 +34,7 @@ bytes.workspace = true
 cooked-waker.workspace = true
 deno_ops.workspace = true
 deno_unsync.workspace = true
+deno_core_icudata = { workspace = true, optional = true }
 futures.workspace = true
 libc.workspace = true
 log.workspace = true

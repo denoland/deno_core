@@ -1,10 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use log::debug;
-use std::fmt::Write;
 use std::option::Option;
 use std::os::raw::c_void;
+use std::path::PathBuf;
+use url::Url;
 use v8::MapFnTo;
 
+use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -24,7 +26,7 @@ pub(crate) fn external_references(
 ) -> v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references =
-    Vec::with_capacity(4 + (ops.len() * 4) + additional_references.len());
+    Vec::with_capacity(5 + (ops.len() * 4) + additional_references.len());
 
   references.push(v8::ExternalReference {
     function: call_console.map_fn_to(),
@@ -37,6 +39,9 @@ pub(crate) fn external_references(
   });
   references.push(v8::ExternalReference {
     function: empty_fn.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: op_disabled_fn.map_fn_to(),
   });
 
   for ctx in ops {
@@ -120,7 +125,6 @@ pub mod v8_static_strings {
   pub static DENO: &[u8] = b"Deno";
   pub static CORE: &[u8] = b"core";
   pub static OPS: &[u8] = b"ops";
-  pub static ASYNC_OPS: &[u8] = b"asyncOps";
   pub static URL: &[u8] = b"url";
   pub static MAIN: &[u8] = b"main";
   pub static RESOLVE: &[u8] = b"resolve";
@@ -138,7 +142,6 @@ pub mod v8_static_strings {
 /// globalThis.Deno = {
 ///   core: {
 ///     ops: {},
-///     asyncOps: {},
 ///   },
 ///   // console from V8
 ///   console,
@@ -169,28 +172,15 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   let deno_core_key =
     v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
       .unwrap();
+  // Set up `Deno.core.ops` object
   let deno_core_ops_obj = v8::Object::new(scope);
   let deno_core_ops_key =
     v8::String::new_external_onebyte_static(scope, v8_static_strings::OPS)
       .unwrap();
 
-  let deno_core_async_ops_obj = v8::Object::new(scope);
-  let deno_core_async_ops_key = v8::String::new_external_onebyte_static(
-    scope,
-    v8_static_strings::ASYNC_OPS,
-  )
-  .unwrap();
-
   let deno_core_obj = v8::Object::new(scope);
   deno_core_obj
     .set(scope, deno_core_ops_key.into(), deno_core_ops_obj.into())
-    .unwrap();
-  deno_core_obj
-    .set(
-      scope,
-      deno_core_async_ops_key.into(),
-      deno_core_async_ops_obj.into(),
-    )
     .unwrap();
 
   // If we're initializing fresh context set up the console
@@ -224,68 +214,79 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   global.set(scope, deno_str.into(), deno_obj.into());
 }
 
-// TODO(bartlomieju): don't return a value - we are mutating `context` arg
+/// If required, execute required JavaScript for `deno_core` to function and
+/// set up JavaScript bindings for ops.
 pub(crate) fn initialize_context<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   init_mode: InitMode,
-) -> v8::Local<'s, v8::Context> {
-  // Fast path.
+) {
+  // Execute `00_primordials.js` and `00_infra.js`
+  if init_mode == InitMode::New {
+    for file_source in CONTEXT_SETUP_SOURCES {
+      let code = file_source.load().unwrap();
+      let source_str = code.v8_string(scope).unwrap();
+      let name = v8::String::new_external_onebyte_static(
+        scope,
+        file_source.specifier.as_bytes(),
+      )
+      .unwrap();
+      let origin = script_origin(scope, name);
+      // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+      let script =
+        v8::Script::compile(scope, source_str, Some(&origin)).unwrap();
+      script.run(scope).unwrap();
+    }
+  }
+
+  // Fast path - if all the ops have been registered already, bail out.
   if matches!(
     init_mode,
     InitMode::FromSnapshot {
       skip_op_registration: true
     }
   ) {
-    return context;
+    return;
   }
 
   let global = context.global(scope);
 
-  let mut codegen = String::with_capacity(op_ctxs.len() * 200);
-  codegen.push_str(include_str!("bindings.js"));
-  _ = writeln!(codegen, "Deno.__op__ = function(opFns) {{");
-  for op_ctx in op_ctxs {
-    if op_ctx.decl.enabled {
-      _ = writeln!(
-        codegen,
-        "Deno.__op__registerOp({}, opFns[{}], \"{}\");",
-        op_ctx.decl.is_async, op_ctx.id, op_ctx.decl.name
-      );
-    } else {
-      _ = writeln!(
-        codegen,
-        "Deno.__op__unregisterOp({}, \"{}\");",
-        op_ctx.decl.is_async, op_ctx.decl.name
-      );
-    }
-  }
-  codegen.push_str("Deno.__op__cleanup();");
-  _ = writeln!(codegen, "}}");
-
-  let script = v8::String::new_from_one_byte(
+  // Set up JavaScript bindings for the defined op - this will insert proper
+  // `v8::Function` into `Deno.core.ops` object. For async ops, there a bit
+  // more machinery involved, see comment below.
+  let deno_obj = get(scope, global, b"Deno", "Deno");
+  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
+  let deno_core_ops_obj: v8::Local<v8::Object> =
+    get(scope, deno_core_obj, b"ops", "Deno.core.ops");
+  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
-    codegen.as_bytes(),
-    v8::NewStringType::Normal,
-  )
-  .unwrap();
-  let script = v8::Script::compile(scope, script, None).unwrap();
-  script.run(scope);
+    deno_core_obj,
+    b"setUpAsyncStub",
+    "Deno.core.setUpAsyncStub",
+  );
 
-  let deno = get(scope, global, b"Deno", "Deno");
-  let op_fn: v8::Local<v8::Function> =
-    get(scope, deno, b"__op__", "Deno.__op__");
-  let recv = v8::undefined(scope);
-  let op_fns = v8::Array::new(scope, op_ctxs.len() as i32);
+  let undefined = v8::undefined(scope);
   for op_ctx in op_ctxs {
-    let op_fn = op_ctx_function(scope, op_ctx);
-    op_fns.set_index(scope, op_ctx.id as u32, op_fn.into());
+    let mut op_fn = op_ctx_function(scope, op_ctx);
+    let key = v8::String::new_external_onebyte_static(
+      scope,
+      op_ctx.decl.name.as_bytes(),
+    )
+    .unwrap();
+
+    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+    // this call will generate an optimized function that binds to the provided
+    // op, while keeping track of promises and error remapping.
+    if op_ctx.decl.is_async {
+      let result = set_up_async_stub_fn
+        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
+        .unwrap();
+      op_fn = result.try_into().unwrap()
+    }
+
+    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
   }
-
-  op_fn.call(scope, recv.into(), &[op_fns.into()]);
-
-  context
 }
 
 fn op_ctx_function<'s>(
@@ -456,6 +457,51 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     v8::String::new_external_onebyte_static(scope, v8_static_strings::RESOLVE)
       .unwrap();
   meta.set(scope, resolve_key.into(), val.into());
+
+  maybe_add_import_meta_filename_dirname(scope, meta, &name);
+}
+
+fn maybe_add_import_meta_filename_dirname(
+  scope: &mut v8::HandleScope,
+  meta: v8::Local<v8::Object>,
+  name: &str,
+) {
+  // For `file:` URL we provide additional `filename` and `dirname` values
+  let Ok(name_url) = Url::parse(name) else {
+    return;
+  };
+
+  if name_url.scheme() != "file" {
+    return;
+  }
+
+  // If something goes wrong acquiring a filepath, let skip instead of crashing
+  // (mostly concerned about file paths on Windows).
+  let Ok(file_path) = name_url.to_file_path() else {
+    return;
+  };
+
+  // Use display() here so that Rust takes care of proper forward/backward slash
+  // formatting depending on the OS.
+  let escaped_filename = file_path.display().to_string();
+  let Some(filename_val) = v8::String::new(scope, &escaped_filename) else {
+    return;
+  };
+  let filename_key =
+    v8::String::new_external_onebyte_static(scope, b"filename").unwrap();
+  meta.create_data_property(scope, filename_key.into(), filename_val.into());
+
+  let dir_path = file_path
+    .parent()
+    .map(|p| p.to_owned())
+    .unwrap_or_else(|| PathBuf::from("/"));
+  let escaped_dirname = dir_path.display().to_string();
+  let Some(dirname_val) = v8::String::new(scope, &escaped_dirname) else {
+    return;
+  };
+  let dirname_key =
+    v8::String::new_external_onebyte_static(scope, b"dirname").unwrap();
+  meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
 }
 
 fn import_meta_resolve(
@@ -503,6 +549,16 @@ fn empty_fn(
   _rv: v8::ReturnValue,
 ) {
   //Do Nothing
+}
+
+pub(crate) fn op_disabled_fn(
+  scope: &mut v8::HandleScope,
+  _args: v8::FunctionCallbackArguments,
+  _rv: v8::ReturnValue,
+) {
+  let message = v8::String::new(scope, "op is disabled").unwrap();
+  let exception = v8::Exception::error(scope, message);
+  scope.throw_exception(exception);
 }
 
 //It creates a reference to an empty function which can be mantained after the snapshots

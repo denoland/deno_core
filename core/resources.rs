@@ -79,12 +79,12 @@ impl ResourceHandle {
       match self {
         // NULL or INVALID_HANDLE_VALUE
         Self::Fd(handle) => {
-          return !handle.is_null()
+          !handle.is_null()
             && *handle != -1_isize as std::os::windows::io::RawHandle
         }
         // INVALID_SOCKET
         Self::Socket(socket) => {
-          return *socket != -1_i64 as std::os::windows::io::RawSocket
+          *socket != -1_i64 as std::os::windows::io::RawSocket
         }
       }
     }
@@ -357,6 +357,17 @@ pub struct ResourceTable {
 }
 
 impl ResourceTable {
+  /// Returns the number of resources currently active in the resource table.
+  /// Resources taken from the table do not contribute to this count.
+  pub fn len(&self) -> usize {
+    self.index.len()
+  }
+
+  /// Returns whether this table is empty.
+  pub fn is_empty(&self) -> bool {
+    self.index.is_empty()
+  }
+
   /// Inserts resource into the resource table, which takes ownership of it.
   ///
   /// The resource type is erased at runtime and must be statically known
@@ -521,7 +532,10 @@ impl ResourceTable {
 
   /// Retrieves the [`ResourceHandle`] for a given resource, for potential optimization
   /// purposes within ops.
-  pub fn get_handle(&self, rid: ResourceId) -> Result<ResourceHandle, Error> {
+  pub fn get_handle(
+    &self,
+    rid: ResourceId,
+  ) -> ::std::result::Result<ResourceHandle, ::anyhow::Error> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
       return Err(bad_resource_id());
     };
@@ -535,25 +549,28 @@ impl ResourceTable {
 #[macro_export]
 macro_rules! impl_readable_byob {
   () => {
-    fn read(self: Rc<Self>, limit: usize) -> AsyncResult<$crate::BufView> {
-      Box::pin(async move {
-        let mut vec = vec![0; limit];
+    fn read(
+      self: ::std::rc::Rc<Self>,
+      limit: ::core::primitive::usize,
+    ) -> AsyncResult<$crate::BufView> {
+      ::std::boxed::Box::pin(async move {
+        let mut vec = ::std::vec![0; limit];
         let nread = self.read(&mut vec).await?;
         if nread != vec.len() {
           vec.truncate(nread);
         }
         let view = $crate::BufView::from(vec);
-        Ok(view)
+        ::std::result::Result::Ok(view)
       })
     }
 
     fn read_byob(
-      self: Rc<Self>,
+      self: ::std::rc::Rc<Self>,
       mut buf: $crate::BufMutView,
-    ) -> AsyncResult<(usize, $crate::BufMutView)> {
-      Box::pin(async move {
+    ) -> AsyncResult<(::core::primitive::usize, $crate::BufMutView)> {
+      ::std::boxed::Box::pin(async move {
         let nread = self.read(buf.as_mut()).await?;
-        Ok((nread, buf))
+        ::std::result::Result::Ok((nread, buf))
       })
     }
   };
@@ -563,20 +580,26 @@ macro_rules! impl_readable_byob {
 macro_rules! impl_writable {
   (__write) => {
     fn write(
-      self: Rc<Self>,
+      self: ::std::rc::Rc<Self>,
       view: $crate::BufView,
-    ) -> AsyncResult<$crate::WriteOutcome> {
-      Box::pin(async move {
+    ) -> $crate::AsyncResult<$crate::WriteOutcome> {
+      ::std::boxed::Box::pin(async move {
         let nwritten = self.write(&view).await?;
-        Ok($crate::WriteOutcome::Partial { nwritten, view })
+        ::std::result::Result::Ok($crate::WriteOutcome::Partial {
+          nwritten,
+          view,
+        })
       })
     }
   };
   (__write_all) => {
-    fn write_all(self: Rc<Self>, view: $crate::BufView) -> AsyncResult<()> {
-      Box::pin(async move {
+    fn write_all(
+      self: ::std::rc::Rc<Self>,
+      view: $crate::BufView,
+    ) -> $crate::AsyncResult<()> {
+      ::std::boxed::Box::pin(async move {
         self.write_all(&view).await?;
-        Ok(())
+        ::std::result::Result::Ok(())
       })
     }
   };

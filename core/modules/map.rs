@@ -21,6 +21,7 @@ use crate::modules::ResolutionKind;
 use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
 use crate::ExtensionFileSource;
+use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
@@ -351,11 +352,12 @@ impl ModuleMap {
           // synthetic module.
           CustomModuleEvaluationKind::Synthetic(value_global) => {
             let value = v8::Local::new(scope, value_global);
+            let exports = vec![(FastString::StaticAscii("default"), value)];
             self.new_synthetic_module(
               scope,
               module_url_found,
               ModuleType::Other(module_type.clone()),
-              value,
+              exports,
             )?
           }
 
@@ -368,11 +370,12 @@ impl ModuleMap {
           ) => {
             let (url1, url2) = module_url_found.into_cheap_copy();
             let value = v8::Local::new(scope, synthetic_value);
+            let exports = vec![(FastString::StaticAscii("default"), value)];
             let _synthetic_mod_id = self.new_synthetic_module(
               scope,
               url1,
               synthetic_module_type,
-              value,
+              exports,
             )?;
             self.new_module_from_js_source(
               scope,
@@ -396,11 +399,20 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     name: ModuleName,
     module_type: ModuleType,
-    value: v8::Local<v8::Value>,
+    exports: Vec<(FastString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
     let name_str = name.v8(scope);
 
-    let export_names = [v8::String::new(scope, "default").unwrap()];
+    let export_names = exports
+      .iter()
+      .map(|(name, _)| {
+        if let Some(buffer) = name.try_static_ascii() {
+          v8::String::new_external_onebyte_static(scope, buffer).unwrap()
+        } else {
+          v8::String::new(scope, name.as_str()).unwrap()
+        }
+      })
+      .collect::<Vec<_>>();
     let module = v8::Module::create_synthetic_module(
       scope,
       name_str,
@@ -409,12 +421,22 @@ impl ModuleMap {
     );
 
     let handle = v8::Global::<v8::Module>::new(scope, module);
-    let value_handle = v8::Global::<v8::Value>::new(scope, value);
+    let mut exports_global = Vec::with_capacity(exports.len());
+
+    for i in 0..exports.len() {
+      let export_name = export_names[i];
+      let (_, export_value) = exports[i];
+      exports_global.push((
+        v8::Global::new(scope, export_name),
+        v8::Global::new(scope, export_value),
+      ));
+    }
+
     self
       .data
       .borrow_mut()
-      .synthetic_module_value_store
-      .insert(handle.clone(), value_handle);
+      .synthetic_module_exports_store
+      .insert(handle.clone(), exports_global);
 
     let id = self.data.borrow_mut().create_module_info(
       name,
@@ -594,7 +616,8 @@ impl ModuleMap {
         return Err(ModuleError::Exception(exception));
       }
     };
-    self.new_synthetic_module(tc_scope, name, ModuleType::Json, parsed_json)
+    let exports = vec![(FastString::StaticAscii("default"), parsed_json)];
+    self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
   }
 
   pub(crate) fn instantiate_module(
@@ -684,6 +707,7 @@ impl ModuleMap {
     if specifier.starts_with("ext:")
       && !referrer.starts_with("ext:")
       && !referrer.starts_with("node:")
+      && !referrer.starts_with("checkin:")
       && referrer != "."
       && kind != ResolutionKind::MainModule
     {
@@ -1533,23 +1557,26 @@ fn synthetic_module_evaluation_steps<'a>(
   let module_map = JsRealm::module_map_from(tc_scope);
 
   let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-  let value_handle = module_map
+  let exports = module_map
     .data
     .borrow_mut()
-    .synthetic_module_value_store
+    .synthetic_module_exports_store
     .remove(&handle)
     .unwrap();
-  let value_local = v8::Local::new(tc_scope, value_handle);
 
-  let name = v8::String::new(tc_scope, "default").unwrap();
-  // This should never fail
-  assert!(
-    module.set_synthetic_module_export(tc_scope, name, value_local)
-      == Some(true)
-  );
-  assert!(!tc_scope.has_caught());
+  for (export_name, export_value) in exports {
+    let name = v8::Local::new(tc_scope, export_name);
+    let value = v8::Local::new(tc_scope, export_value);
 
-  // Since TLA is active we need to return a promise.
+    // This should never fail
+    assert!(module
+      .set_synthetic_module_export(tc_scope, name, value)
+      .unwrap());
+    assert!(!tc_scope.has_caught());
+  }
+
+  // Since Top-Level Await is active we need to return a promise.
+  // This promise is resolved immediately.
   let resolver = v8::PromiseResolver::new(tc_scope).unwrap();
   let undefined = v8::undefined(tc_scope);
   resolver.resolve(tc_scope, undefined.into());

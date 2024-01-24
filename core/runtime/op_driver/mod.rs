@@ -19,8 +19,16 @@ pub use joinset_driver::JoinSetDriver;
 
 pub use self::op_results::OpMappingContext;
 pub use self::op_results::OpResult;
+use self::op_results::PendingOpInfo;
 pub use self::op_results::V8OpMappingContext;
 pub use self::op_results::V8RetValMapper;
+
+#[derive(Default)]
+/// Returns a set of stats on inflight ops.
+pub struct OpInflightStats {
+  /// The [`PromiseId`] of any inflight ops by each [`OpId`].
+  pub(super) ops: Box<[PendingOpInfo]>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OpScheduling {
@@ -118,8 +126,16 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     cx: &mut Context,
   ) -> Poll<(PromiseId, OpId, OpResult<C>)>;
 
-  /// Return the number of futures currently being polled.
+  /// Return the number of in-flight ops currently being polled, or waiting for their results to be
+  /// picked up in `poll_ready`.
   fn len(&self) -> usize;
+
+  /// Capture the statistics of in-flight ops, for op sanitizer purposes. Note that this
+  /// may not be a cheap operation and calling it large number of times (for example, in an
+  /// event loop) may cause slowdowns.
+  ///
+  /// A [`PromiseId`] will appear in this list until its results have been picked up in `poll_ready`.
+  fn stats(&self) -> OpInflightStats;
 }
 
 #[cfg(test)]
@@ -166,6 +182,12 @@ mod tests {
     ) -> UnmappedResult<'s, Self> {
       let f: Self::MappingFn<R> = unsafe { std::mem::transmute(f) };
       f(r)
+    }
+
+    fn unerase_mapping_fn_raw<R: 'static>(
+      f: *const fn(),
+    ) -> Self::MappingFn<R> {
+      unsafe { std::mem::transmute(f) }
     }
   }
 
