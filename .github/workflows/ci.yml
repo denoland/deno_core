@@ -51,8 +51,9 @@ jobs:
   publish:
     name: publish
     needs: top
-    if: github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/')
+    if: (github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/')) || contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
     uses: ./.github/workflows/ci-job.yml
+    secrets: inherit
     with:
       label: linux
       os: ubuntu-latest

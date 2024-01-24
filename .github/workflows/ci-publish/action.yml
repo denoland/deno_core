@@ -2,10 +2,32 @@ name: Publish workflow
 runs:
   using: "composite"
   steps:
-    - name: Cargo publish
+    - name: Cargo publish (dry-run)
+      shell: bash
+      if: contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
       env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
+        CARGO_REGISTRIES_UPSTREAM_INDEX: sparse+http://localhost:8000/api/v1/crates/
+        CARGO_REGISTRIES_UPSTREAM_TOKEN: Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD
+        # This should match our bumped-up crates.io limits
+        KELLNR_REGISTRY__MAX_CRATE_SIZE: 20
+      run: |
+        curl -L --output kellnr-latest.zip "https://github.com/kellnr/kellnr/releases/download/v5.1.1/kellnr-x86_64-unknown-linux-gnu.zip"
+        unzip kellnr-latest.zip -d ./kellnr
+        (cd ./kellnr && ./kellnr) &
+        sleep 1
+        # Temp fix for crates that are too large: https://github.com/kellnr/kellnr/issues/180
+        dd if=/dev/zero of=core/runtime/icudtl.dat bs=10631872 count=1 
+        for package in serde_v8 deno_ops deno_core; do
+          cargo publish -p $package --registry upstream --allow-dirty
+        done
+    - name: Cargo publish
+      shell: bash
+      if: "!contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')"
+      run: |
+        for package in serde_v8 deno_ops deno_core; do
+          cargo publish -p $package
+        done
     - name: Get tag version
+      shell: bash
       id: get_tag_version
       run: echo TAG_VERSION=${GITHUB_REF/refs\/tags\//} >> "$GITHUB_OUTPUT"
