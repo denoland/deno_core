@@ -14,16 +14,17 @@ runs:
         (cd ./kellnr && ./kellnr) &
         # Clean the cargo registry to avoid confusion
         rm -rf ~/.cargo/registry
-        cargo publish --index $DRY_RUN_REGISTRY_INDEX --token $DRY_RUN_REGISTRY_TOKEN -p serde_v8 
-        cargo publish --index $DRY_RUN_REGISTRY_INDEX --token $DRY_RUN_REGISTRY_TOKEN -p deno_ops
-        cargo publish --index $DRY_RUN_REGISTRY_INDEX --token $DRY_RUN_REGISTRY_TOKEN -p deno_core
+        for package in serde_v8 deno_ops deno_core; do
+          cargo publish --index $DRY_RUN_REGISTRY_INDEX --token $DRY_RUN_REGISTRY_TOKEN -p $package
+          sleep 1
+        done
     - name: Cargo publish
       shell: bash
       if: "!contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')"
       run: |
-        cargo publish -p serde_v8
-        cargo publish -p deno_ops
-        cargo publish -p deno_core
+        for package in serde_v8 deno_ops deno_core; do
+          cargo publish -p $package
+        done
     - name: Get tag version
       shell: bash
       id: get_tag_version
