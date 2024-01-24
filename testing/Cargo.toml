@@ -15,7 +15,7 @@ path = "./lib.rs"
 
 [dev-dependencies]
 deno_core.workspace = true
-deno_core.features = ["testing"]
+deno_core.features = ["unsafe_use_unprotected_platform"]
 pretty_assertions.workspace = true
 prettyplease.workspace = true
 testing_macros.workspace = true

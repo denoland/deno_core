@@ -414,9 +414,8 @@ fn v8_init(
   v8::V8::set_flags_from_string(&flags);
 
   let v8_platform = v8_platform.unwrap_or_else(|| {
-    if cfg!(any(test, feature = "testing")) {
-      // We don't want to use the default platform in tests, because it
-      // uses memory protection keys which break multi-threaded tests.
+    if cfg!(any(test, feature = "unsafe_use_unprotected_platform")) {
+      // We want to use the unprotected platform for unit tests
       v8::new_unprotected_default_platform(0, false)
     } else {
       v8::new_default_platform(0, false)
