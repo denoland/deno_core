@@ -6,16 +6,16 @@ runs:
       shell: bash
       if: contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')
       env:
-        CARGO_REGISTRIES_LOCAL_INDEX: sparse+http://localhost:8000/api/v1/crates/
-        CARGO_REGISTRIES_LOCAL_TOKEN: Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD
+        CARGO_REGISTRY_INDEX: sparse+http://localhost:8000/api/v1/crates/
+        CARGO_REGISTRY_TOKEN: Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD
       run: |
         curl -L --output kellnr-latest.zip "https://github.com/kellnr/kellnr/releases/download/v5.1.1/kellnr-x86_64-unknown-linux-gnu.zip"
         unzip kellnr-latest.zip -d ./kellnr
         (cd ./kellnr && ./kellnr) &
 
-        cargo publish --registry=local -p serde_v8 
-        cargo publish --registry=local -p deno_ops
-        cargo publish --registry=local -p deno_core
+        cargo publish -p serde_v8 
+        cargo publish -p deno_ops
+        cargo publish -p deno_core
     - name: Cargo publish
       shell: bash
       if: "!contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')"
