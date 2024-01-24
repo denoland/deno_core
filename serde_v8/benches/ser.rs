@@ -5,8 +5,8 @@ use bencher::Bencher;
 
 use serde::Serialize;
 
-use serde_v8::utils::v8_do;
 use serde_v8::ByteString;
+use serde_v8_utilities::v8_do;
 
 #[derive(Serialize)]
 struct MathOp {
