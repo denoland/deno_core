@@ -12,9 +12,9 @@ runs:
         unzip kellnr-latest.zip -d ./kellnr
         (cd ./kellnr && ./kellnr) &
 
-        cargo publish --index sparse+http://localhost:8000/api/v1/crates/ -p serde_v8 
-        cargo publish --index sparse+http://localhost:8000/api/v1/crates/ -p deno_ops
-        cargo publish --index sparse+http://localhost:8000/api/v1/crates/ -p deno_core
+        cargo publish --index sparse+http://localhost:8000/api/v1/crates/ --token Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD -p serde_v8 
+        cargo publish --index sparse+http://localhost:8000/api/v1/crates/ --token Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD -p deno_ops
+        cargo publish --index sparse+http://localhost:8000/api/v1/crates/ --token Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD -p deno_core
     - name: Cargo publish
       shell: bash
       if: "!contains(github.event.pull_request.labels.*.name, 'cargo-publish-dry-run')"
