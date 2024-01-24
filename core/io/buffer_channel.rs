@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::error::AnyError;
-use crate::io::ReadResult;
 use crate::BufView;
 use deno_unsync::UnsyncWaker;
 use std::cell::RefCell;
@@ -11,6 +10,9 @@ use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 use tokio::io::ReadBuf;
+
+use super::resource_io::ReadResultSync;
+use super::resource_io::WriteResultSync;
 
 // How many buffers we'll allow in the channel before we stop allowing writes.
 const BUFFER_CHANNEL_SIZE: u16 = 1024;
@@ -115,17 +117,17 @@ impl BoundedBufferChannelInner {
     self.len = 0;
   }
 
-  pub fn read(&mut self, buf: &mut ReadBuf) -> ReadResult<'static> {
+  pub fn read(&mut self, buf: &mut ReadBuf) -> ReadResultSync {
     // Empty buffers will return the error, if one exists, or None
     if self.len == 0 {
       if let Some(error) = self.error.take() {
-        return ReadResult::Err(error);
+        return ReadResultSync::Err(error);
       } else {
         if self.closed {
-          return ReadResult::EOF;
+          return ReadResultSync::EOF;
         } else {
-          // Spurious wakeup
-          return ReadResult::PollAgain;
+          // Spurious wakeups should not be possible
+          unreachable!()
         }
       }
     }
@@ -143,7 +145,7 @@ impl BoundedBufferChannelInner {
       // We can always write again
       self.write_waker.wake();
 
-      return ReadResult::Ready;
+      return ReadResultSync::Ready;
     }
 
     // SAFETY: We know this exists
@@ -162,23 +164,25 @@ impl BoundedBufferChannelInner {
       self.write_waker.wake();
     }
 
-    ReadResult::ReadyBuf(buf)
+    ReadResultSync::ReadyBuf(buf)
   }
 
-  pub fn write(&mut self, buffer: BufView) -> Result<(), BufView> {
+  pub fn write(&mut self, buffer: BufView) -> WriteResultSync {
     let next_producer_index = (self.ring_producer + 1) % BUFFER_CHANNEL_SIZE;
     if next_producer_index == self.ring_consumer {
       // Note that we may have been allowed to write because of a close/error condition, but the
       // underlying channel is actually closed. If this is the case, we return `Ok(())`` and just
       // drop the bytes on the floor.
       return if self.closed || self.error.is_some() {
-        Ok(())
+        WriteResultSync::EOF(buffer)
       } else {
-        Err(buffer)
+        // Spurious wakeups should not be possible
+        unreachable!()
       };
     }
 
-    self.current_size += buffer.len();
+    let len = buffer.len();
+    self.current_size += len;
 
     // SAFETY: we know the ringbuffer bounds are correct
     unsafe {
@@ -189,7 +193,7 @@ impl BoundedBufferChannelInner {
     self.len += 1;
     debug_assert!(self.ring_producer != self.ring_consumer);
     self.read_waker.wake();
-    Ok(())
+    WriteResultSync::Ready(len)
   }
 
   pub fn write_error(&mut self, error: AnyError) {
@@ -264,11 +268,11 @@ impl BoundedBufferChannel {
     self.inner.borrow_mut()
   }
 
-  pub fn read<'a>(&self, buf: &mut ReadBuf<'a>) -> ReadResult<'static> {
+  pub fn read<'a>(&self, buf: &mut ReadBuf<'a>) -> ReadResultSync {
     self.inner().read(buf)
   }
 
-  pub fn write(&self, buffer: BufView) -> Result<(), BufView> {
+  pub fn write(&self, buffer: BufView) -> WriteResultSync {
     self.inner().write(buffer)
   }
 
@@ -318,7 +322,7 @@ mod tests {
     let channel = BoundedBufferChannel::default();
 
     for _ in 0..BUFFER_CHANNEL_SIZE - 1 {
-      channel.write(create_buffer(1024)).unwrap();
+      channel.write(create_buffer(1024));
     }
   }
 
@@ -331,9 +335,7 @@ mod tests {
     let a = deno_core::unsync::spawn(async move {
       for _ in 0..BUFFER_CHANNEL_SIZE * 2 {
         poll_fn(|cx| channel_send.poll_write_ready(cx)).await;
-        channel_send
-          .write(create_buffer(BUFFER_AGGREGATION_LIMIT))
-          .unwrap();
+        channel_send.write(create_buffer(BUFFER_AGGREGATION_LIMIT));
       }
     });
 
@@ -366,7 +368,7 @@ mod tests {
     let a = deno_core::unsync::spawn(async move {
       for _ in 0..BUFFER_CHANNEL_SIZE * 2 {
         poll_fn(|cx| channel_send.poll_write_ready(cx)).await;
-        channel_send.write(create_buffer(16)).unwrap();
+        channel_send.write(create_buffer(16));
         total_send_task.fetch_add(16, std::sync::atomic::Ordering::SeqCst);
       }
       // We need to close because we may get aggregated packets and we want a signal
@@ -384,9 +386,9 @@ mod tests {
         let mut buf = [0; 1024];
         let mut buf = ReadBuf::new(&mut buf);
         let len = match channel.read(&mut buf) {
-          ReadResult::Ready => buf.filled().len(),
-          ReadResult::EOF => break,
-          ReadResult::ReadyBuf(buf) => buf.len(),
+          ReadResultSync::Ready => buf.filled().len(),
+          ReadResultSync::EOF => break,
+          ReadResultSync::ReadyBuf(buf) => buf.len(),
           _ => unreachable!(),
         };
         total_recv_task.fetch_add(len, std::sync::atomic::Ordering::SeqCst);

@@ -1,18 +1,13 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::BufMutViewWhole;
-use super::ResourceHandle;
-use crate::error::not_supported;
 use crate::io::BufMutView;
 use crate::io::BufView;
-use crate::AsyncResult;
+use crate::WriteOutcome;
 use anyhow::Error;
+use bytes::Buf;
 use bytes::BufMut;
 use futures::Future;
 use futures::FutureExt;
-use std::any::type_name;
-use std::any::Any;
-use std::any::TypeId;
-use std::borrow::Cow;
 use std::pin::Pin;
 use std::task::ready;
 use std::task::Context;
@@ -21,15 +16,35 @@ use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tokio::io::ReadBuf;
 
+#[derive(Default)]
+pub struct ReadState {
+  partial: Option<BufView>,
+}
+
+impl ReadState {
+  pub fn write(
+    &mut self,
+    slice: &mut [u8],
+    mut buf: BufView,
+  ) -> Result<usize, Error> {
+    let buf_len = buf.len();
+    let slice_len = slice.len();
+    if buf_len > slice_len {
+      buf.copy_to_slice(slice);
+      self.partial = Some(buf);
+      return Ok(slice_len);
+    } else {
+      buf.copy_to_slice(&mut slice[..buf_len]);
+      return Ok(buf_len);
+    }
+  }
+}
+
 // We don't want `OpaqueReadFuture` leaking.
 #[allow(private_interfaces)]
 pub enum ReadResult<'a> {
   /// The read operation returned an error.
   Err(Error),
-  /// The read operation could not complete, but is requesting a re-poll at a later time
-  /// (potentially even right away). This is useful in certain cases where there may be internal
-  /// buffering and it is simply easier to retry to read.
-  PollAgain,
   /// The stream is at the end-of-file and is therefore complete. It is an error to
   /// return an empty result via the `Ready` enumeration value to prevent coding errors.
   EOF,
@@ -42,12 +57,37 @@ pub enum ReadResult<'a> {
   Future(OpaqueReadFuture<'a>),
 }
 
-pub(crate) enum ReadResult2 {
+pub enum ReadResultSync {
+  /// The read operation returned an error.
   Err(Error),
+  /// The stream is at the end-of-file and is therefore complete. It is an error to
+  /// return an empty result via the `Ready` enumeration value to prevent coding errors.
   EOF,
-  Ready(usize),
+  Ready,
   ReadyBufMut(BufMutView),
   ReadyBuf(BufView),
+}
+
+impl ReadResultSync {
+  pub fn into_read_byob_result(
+    self,
+    mut buf: BufMutView,
+    read_size: usize,
+  ) -> Result<(usize, BufMutView), Error> {
+    match self {
+      ReadResultSync::Ready => Ok((read_size, buf)),
+      ReadResultSync::Err(err) => Err(err),
+      ReadResultSync::EOF => Ok((0, buf)),
+      ReadResultSync::ReadyBuf(new_buf) => {
+        buf[..new_buf.len()].copy_from_slice(&new_buf);
+        Ok((new_buf.len(), buf))
+      }
+      ReadResultSync::ReadyBufMut(new_buf) => {
+        buf[..new_buf.len()].copy_from_slice(&new_buf);
+        Ok((new_buf.len(), buf))
+      }
+    }
+  }
 }
 
 // We don't want `OpaqueWriteFuture` leaking.
@@ -55,13 +95,39 @@ pub(crate) enum ReadResult2 {
 pub enum WriteResult<'a> {
   /// The write operation returned an error.
   Err(Error),
-  /// The write operation could not complete, but is requesting a re-poll at a later time
-  /// (potentially even right away). This is useful in certain cases where there may be internal
-  /// buffering and it is simply easier to retry to write.
-  PollAgain,
   EOF,
   Ready(usize),
   Future(OpaqueWriteFuture<'a>),
+}
+
+pub enum WriteResultSync {
+  /// The write operation returned an error.
+  Err(Error),
+  /// No more bytes can be written and the buffer was returned.
+  EOF(BufView),
+  /// The buffer was fully written and consumed.
+  Ready(usize),
+  /// The buffer was fully or partially written and returned.
+  ReadyReturn(usize, BufView),
+}
+
+impl WriteResultSync {
+  pub fn into_write_result(self) -> Result<WriteOutcome, Error> {
+    match self {
+      WriteResultSync::EOF(view) => Ok(WriteOutcome::Partial {
+        nwritten: 0,
+        view,
+      }),
+      WriteResultSync::Ready(nwritten) => {
+        Ok(WriteOutcome::Full { nwritten })
+      }
+      WriteResultSync::ReadyReturn(nwritten, view) => Ok(WriteOutcome::Partial {
+        nwritten,
+        view,
+      }),
+      WriteResultSync::Err(err) => Err(err),
+    }
+  }
 }
 
 pub(crate) struct OpaqueReadFuture<'a> {
@@ -133,6 +199,13 @@ impl<'a> ReadContext<'a> {
       buf: ReadContextBuf::Buf(buf.as_mut()),
     }
   }
+
+  pub fn new_from_read_byob(buf: &'a mut BufMutView) -> Self {
+    Self {
+      buf: ReadContextBuf::Buf(buf.as_mut()),
+    }
+  }
+
   /// Use this buffer holder to poll a reader.
   pub fn poll_reader<R: AsyncRead + Unpin>(
     &mut self,

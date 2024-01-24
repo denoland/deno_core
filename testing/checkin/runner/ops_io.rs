@@ -1,10 +1,12 @@
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
 use deno_core::AsyncRefCell;
 use deno_core::BoundedBufferChannel;
 use deno_core::BufView;
 use deno_core::OpState;
 use deno_core::RcRef;
-use deno_core::ReadResult;
+use deno_core::ReadContext;
+use deno_core::ReadState;
 use deno_core::Resource;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
@@ -14,7 +16,7 @@ use tokio::io::ReadBuf;
 
 struct PipeResource {
   tx: AsyncRefCell<BoundedBufferChannel>,
-  rx: AsyncRefCell<BoundedBufferChannel>,
+  rx: AsyncRefCell<(BoundedBufferChannel, ReadState)>,
 }
 
 impl Resource for PipeResource {
@@ -24,45 +26,25 @@ impl Resource for PipeResource {
   ) -> deno_core::AsyncResult<(usize, deno_core::BufMutView)> {
     async {
       let lock = RcRef::map(self, |this| &this.rx).borrow_mut().await;
-      loop {
-        poll_fn(|cx| lock.poll_read_ready(cx)).await;
-        let mut read_buf = ReadBuf::new(&mut buf);
-        let res = lock.read(&mut read_buf);
-        break match res {
-          ReadResult::PollAgain => continue,
-          ReadResult::Ready => Ok((read_buf.filled().len(), buf)),
-          ReadResult::Err(err) => Err(err),
-          ReadResult::EOF => Ok((0, buf)),
-          ReadResult::ReadyBuf(new_buf) => {
-            buf[..new_buf.len()].copy_from_slice(&new_buf);
-            Ok((new_buf.len(), buf))
-          }
-          ReadResult::ReadyBufMut(new_buf) => {
-            buf[..new_buf.len()].copy_from_slice(&new_buf);
-            Ok((new_buf.len(), buf))
-          }
-          ReadResult::Future(..) => unreachable!(),
-        };
-      }
+      lock.1.poll(&mut buf)
+      poll_fn(|cx| lock.poll_read_ready(cx)).await;
+      let mut read_buf = ReadBuf::new(&mut buf);
+      let res = lock.read(&mut read_buf);
+      let len = read_buf.filled().len();
+      res.into_read_byob_result(buf, len)
     }
     .boxed_local()
   }
 
   fn write(
     self: std::rc::Rc<Self>,
-    mut buf: BufView,
+    buf: BufView,
   ) -> deno_core::AsyncResult<deno_core::WriteOutcome> {
     async {
       let lock = RcRef::map(self, |this| &this.tx).borrow_mut().await;
-      loop {
-        poll_fn(|cx| lock.poll_write_ready(cx)).await;
-        let nwritten = buf.len();
-        if let Err(err_buf) = lock.write(buf) {
-          buf = err_buf;
-          continue;
-        }
-        break Ok(WriteOutcome::Full { nwritten });
-      }
+      poll_fn(|cx| lock.poll_write_ready(cx)).await;
+      let res = lock.write(buf);
+      res.into_write_result()
     }
     .boxed_local()
   }
@@ -77,11 +59,11 @@ pub fn op_pipe_create(op_state: &mut OpState) -> (ResourceId, ResourceId) {
   let rx2 = tx2.clone();
   let rid1 = op_state.resource_table.add(PipeResource {
     tx: tx1.into(),
-    rx: rx2.into(),
+    rx: (rx2, ReadState::default()).into(),
   });
   let rid2 = op_state.resource_table.add(PipeResource {
     tx: tx2.into(),
-    rx: rx1.into(),
+    rx: (rx1, ReadState::default()).into(),
   });
   (rid1, rid2)
 }

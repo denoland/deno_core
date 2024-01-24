@@ -85,6 +85,7 @@ pub use crate::io::AsyncResult;
 pub use crate::io::BoundedBufferChannel;
 pub use crate::io::BufMutView;
 pub use crate::io::BufView;
+pub use crate::io::ReadState;
 pub use crate::io::ReadContext;
 pub use crate::io::ReadResult;
 pub use crate::io::Resource;

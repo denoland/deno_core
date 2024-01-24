@@ -27,6 +27,7 @@ pub use resource_handle::ResourceHandleFd;
 pub use resource_handle::ResourceHandleSocket;
 pub use resource_io::ReadContext;
 pub use resource_io::ReadResult;
+pub use resource_io::ReadState;
 pub use resource_io::WriteContext;
 pub use resource_io::WriteResult;
 pub use resource_table::ResourceId;
