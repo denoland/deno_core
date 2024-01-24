@@ -518,7 +518,7 @@ impl ModuleMapData {
     // There's always two internal `deno_core` ES module loaded, so +2 here.
     assert_eq!(data.handles.len(), modules.len() + 2);
     assert_eq!(data.info.len(), modules.len() + 2);
-    assert_eq!(data.next_load_id as usize, modules.len() + 1);
+    assert_eq!(data.next_load_id as usize, modules.len());
     assert_eq!(data.by_name.len(), modules.len() + 2);
 
     for info in modules {
