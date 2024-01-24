@@ -10,7 +10,7 @@ on:
         type: string
       job:
         required: true
-        type: string        
+        type: string
 
 jobs:
   job:
