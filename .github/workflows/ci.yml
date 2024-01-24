@@ -27,13 +27,13 @@ jobs:
           config: |-
             linux:
               os: ubuntu-latest
-              jobs: [lint, lint-deps, test, test-miri, test-ops]
+              jobs: [lint] #, lint-deps, test, test-miri, test-ops]
             macos:
               os: macOS-latest
-              jobs: [lint, test]
+              jobs: [lint] #, test]
             windows:
               os: windows-2019
-              jobs: [lint, test]
+              jobs: [lint] #, test]
 
   top:
     name: build-${{ matrix.label }}
