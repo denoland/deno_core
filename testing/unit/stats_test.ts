@@ -25,7 +25,7 @@ test(async function testStatsOps() {
   assert(diff.empty);
 });
 
-test(async function testStatsResources() {
+test(function testStatsResources() {
   using statsBefore = StatsFactory.capture();
 
   const [p1, p2] = op_pipe_create();
