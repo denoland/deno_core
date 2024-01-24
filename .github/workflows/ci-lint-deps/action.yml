@@ -1,0 +1,13 @@
+name: Lint Dependencies
+runs:
+  using: "composite"
+  steps:
+    - name: Install Rust (nightly)
+      uses: dtolnay/rust-toolchain@nightly
+    - name: Lint deps
+      shell: bash
+      run: |
+        cargo install cargo-machete --locked
+        cargo machete
+        cargo install cargo-udeps --locked
+        cargo +nightly udeps

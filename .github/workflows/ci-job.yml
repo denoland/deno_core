@@ -1,0 +1,71 @@
+name: CI Job
+on:
+  workflow_call:
+    inputs:
+      label:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+      job:
+        required: true
+        type: string
+
+jobs:
+  job:
+    name: ${{ inputs.label }} ${{ inputs.job }}
+    runs-on: ${{ inputs.os }}
+    steps:
+      - run: echo ${{ inputs.job }}
+
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v1
+
+      # https://github.com/marketplace/actions/rust-cache
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v0-rust"
+          shared-key: "${{ inputs.label }}-${{ inputs.job }}"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Clean
+        if: github.ref == 'refs/heads/main'
+        run: cargo clean
+
+      - name: Lint
+        id: lint
+        if: inputs.job == 'lint'
+        uses: ./.github/workflows/ci-lint
+
+      - name: Lint (deps)
+        id: lint-deps
+        if: inputs.job == 'lint-deps'
+        uses: ./.github/workflows/ci-lint-deps
+
+      - name: Test
+        id: test
+        if: inputs.job == 'test'
+        uses: ./.github/workflows/ci-test
+
+      - name: Test (ops)
+        id: test-ops
+        if: inputs.job == 'test-ops'
+        uses: ./.github/workflows/ci-test-ops
+
+      - name: Test (miri)
+        id: test-miri
+        if: inputs.job == 'test-miri'
+        uses: ./.github/workflows/ci-test-miri
+
+    env:
+      CARGO_INCREMENTAL: 0
+      GH_ACTIONS: 1
+      RUST_BACKTRACE: full
+      RUSTFLAGS: -D warnings
