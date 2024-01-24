@@ -13,7 +13,7 @@ runs:
         unzip kellnr-latest.zip -d ./kellnr
         (cd ./kellnr && ./kellnr) &
         for package in serde_v8 deno_ops deno_core; do
-          cargo publish -p $package
+          cargo publish -p $package --token $CARGO_REGISTRIES_UPSTREAM_TOKEN
         done
     - name: Cargo publish
       shell: bash
