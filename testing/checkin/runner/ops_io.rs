@@ -11,8 +11,8 @@ use futures::FutureExt;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::DuplexStream;
-use tokio::io::WriteHalf;
 use tokio::io::ReadHalf;
+use tokio::io::WriteHalf;
 
 struct PipeResource {
   tx: AsyncRefCell<WriteHalf<DuplexStream>>,
@@ -29,7 +29,8 @@ impl Resource for PipeResource {
       // Note that we're holding a slice across an await point, so this code is very much not safe
       let res = lock.read(&mut buf).await?;
       Ok((res, buf))
-    }.boxed_local()
+    }
+    .boxed_local()
   }
 
   fn write(
@@ -39,7 +40,10 @@ impl Resource for PipeResource {
     async {
       let mut lock = RcRef::map(self, |this| &this.tx).borrow_mut().await;
       let nwritten = lock.write(&buf).await?;
-      Ok(WriteOutcome::Partial { nwritten, view: buf })
+      Ok(WriteOutcome::Partial {
+        nwritten,
+        view: buf,
+      })
     }
     .boxed_local()
   }

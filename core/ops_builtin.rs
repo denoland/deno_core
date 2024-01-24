@@ -1,7 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::io::AdaptiveBufferStrategy;
 use crate::error::format_file_name;
 use crate::error::type_error;
+use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::io::ResourceId;
