@@ -13,7 +13,10 @@ test(async function testPipe() {
 
 test(async function testPipeSmallRead() {
   const [p1, p2] = op_pipe_create();
-  assertEquals(6, await Deno.core.write(p1, new Uint8Array([1, 2, 3, 4, 5, 6])));
+  assertEquals(
+    6,
+    await Deno.core.write(p1, new Uint8Array([1, 2, 3, 4, 5, 6])),
+  );
   const buf = new Uint8Array(1);
   for (let i = 1; i <= 6; i++) {
     assertEquals(1, await Deno.core.read(p2, buf));

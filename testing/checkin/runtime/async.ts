@@ -89,6 +89,16 @@ export class StatsCollection {
     return count;
   }
 
+  countResources(): number {
+    let count = 0;
+    for (const item of this.data) {
+      if ("Resource" in item) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   get empty(): boolean {
     return this.data.length == 0;
   }
