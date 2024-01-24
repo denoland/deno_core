@@ -15,7 +15,7 @@ runs:
         unzip kellnr-latest.zip -d ./kellnr
         (cd ./kellnr && ./kellnr) &
         # Temp fix for crates that are too large
-        echo XXX > core/runtime/icudtl.dat
+        dd if=/dev/zero of=core/runtime/icudtl.dat bs=10631872 count=1 
         for package in serde_v8 deno_ops deno_core; do
           cargo publish -p $package --registry upstream --allow-dirty
         done
