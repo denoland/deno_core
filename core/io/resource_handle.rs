@@ -53,12 +53,12 @@ impl ResourceHandle {
       match self {
         // NULL or INVALID_HANDLE_VALUE
         Self::Fd(handle) => {
-          return !handle.is_null()
+          !handle.is_null()
             && *handle != -1_isize as std::os::windows::io::RawHandle
         }
         // INVALID_SOCKET
         Self::Socket(socket) => {
-          return *socket != -1_i64 as std::os::windows::io::RawSocket
+          *socket != -1_i64 as std::os::windows::io::RawSocket
         }
       }
     }
