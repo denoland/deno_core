@@ -10,14 +10,13 @@ use anyhow::Error;
 use futures::Future;
 use std::pin::Pin;
 
-mod buffer_channel;
+mod buffer_strategy;
 mod buffers;
 mod resource;
 mod resource_handle;
-mod resource_io;
 mod resource_table;
 
-pub use buffer_channel::BoundedBufferChannel;
+pub use buffer_strategy::AdaptiveBufferStrategy;
 pub use buffers::BufMutView;
 pub use buffers::BufMutViewWhole;
 pub use buffers::BufView;
@@ -25,11 +24,6 @@ pub use resource::Resource;
 pub use resource_handle::ResourceHandle;
 pub use resource_handle::ResourceHandleFd;
 pub use resource_handle::ResourceHandleSocket;
-pub use resource_io::ReadContext;
-pub use resource_io::ReadResult;
-pub use resource_io::ReadState;
-pub use resource_io::WriteContext;
-pub use resource_io::WriteResult;
 pub use resource_table::ResourceId;
 pub use resource_table::ResourceTable;
 

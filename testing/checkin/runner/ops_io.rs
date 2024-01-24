@@ -1,22 +1,22 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
 use deno_core::AsyncRefCell;
-use deno_core::BoundedBufferChannel;
 use deno_core::BufView;
 use deno_core::OpState;
 use deno_core::RcRef;
-use deno_core::ReadContext;
-use deno_core::ReadState;
 use deno_core::Resource;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
 use futures::FutureExt;
-use std::future::poll_fn;
-use tokio::io::ReadBuf;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::io::DuplexStream;
+use tokio::io::WriteHalf;
+use tokio::io::ReadHalf;
 
 struct PipeResource {
-  tx: AsyncRefCell<BoundedBufferChannel>,
-  rx: AsyncRefCell<(BoundedBufferChannel, ReadState)>,
+  tx: AsyncRefCell<WriteHalf<DuplexStream>>,
+  rx: AsyncRefCell<ReadHalf<DuplexStream>>,
 }
 
 impl Resource for PipeResource {
@@ -25,15 +25,11 @@ impl Resource for PipeResource {
     mut buf: deno_core::BufMutView,
   ) -> deno_core::AsyncResult<(usize, deno_core::BufMutView)> {
     async {
-      let lock = RcRef::map(self, |this| &this.rx).borrow_mut().await;
-      lock.1.poll(&mut buf)
-      poll_fn(|cx| lock.poll_read_ready(cx)).await;
-      let mut read_buf = ReadBuf::new(&mut buf);
-      let res = lock.read(&mut read_buf);
-      let len = read_buf.filled().len();
-      res.into_read_byob_result(buf, len)
-    }
-    .boxed_local()
+      let mut lock = RcRef::map(self, |this| &this.rx).borrow_mut().await;
+      // Note that we're holding a slice across an await point, so this code is very much not safe
+      let res = lock.read(&mut buf).await?;
+      Ok((res, buf))
+    }.boxed_local()
   }
 
   fn write(
@@ -41,10 +37,9 @@ impl Resource for PipeResource {
     buf: BufView,
   ) -> deno_core::AsyncResult<deno_core::WriteOutcome> {
     async {
-      let lock = RcRef::map(self, |this| &this.tx).borrow_mut().await;
-      poll_fn(|cx| lock.poll_write_ready(cx)).await;
-      let res = lock.write(buf);
-      res.into_write_result()
+      let mut lock = RcRef::map(self, |this| &this.tx).borrow_mut().await;
+      let nwritten = lock.write(&buf).await?;
+      Ok(WriteOutcome::Partial { nwritten, view: buf })
     }
     .boxed_local()
   }
@@ -53,17 +48,16 @@ impl Resource for PipeResource {
 #[op2]
 #[serde]
 pub fn op_pipe_create(op_state: &mut OpState) -> (ResourceId, ResourceId) {
-  let tx1 = BoundedBufferChannel::default();
-  let rx1 = tx1.clone();
-  let tx2 = BoundedBufferChannel::default();
-  let rx2 = tx2.clone();
+  let (s1, s2) = tokio::io::duplex(1024);
+  let (rx1, tx1) = tokio::io::split(s1);
+  let (rx2, tx2) = tokio::io::split(s2);
   let rid1 = op_state.resource_table.add(PipeResource {
-    tx: tx1.into(),
-    rx: (rx2, ReadState::default()).into(),
+    rx: AsyncRefCell::new(rx1),
+    tx: AsyncRefCell::new(tx1),
   });
   let rid2 = op_state.resource_table.add(PipeResource {
-    tx: tx2.into(),
-    rx: (rx1, ReadState::default()).into(),
+    rx: AsyncRefCell::new(rx2),
+    tx: AsyncRefCell::new(tx2),
   });
   (rid1, rid2)
 }
