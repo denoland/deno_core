@@ -57,3 +57,5 @@ jobs:
       label: linux
       os: ubuntu-latest
       job: publish
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
