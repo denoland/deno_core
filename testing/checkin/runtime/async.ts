@@ -98,6 +98,10 @@ export class StatsCollection {
     return this.countResourceActivity("Resource");
   }
 
+  countTimers(): number {
+    return this.countResourceActivity("Timer") + this.countResourceActivity("Interval");
+  }
+
   get empty(): boolean {
     return this.data.length == 0;
   }
