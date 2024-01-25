@@ -27,10 +27,17 @@ impl RuntimeActivityStatsFactory {
         .resources
         .push((resource.0, resource.1.to_string()))
     }
-    let timers = TimerStats {
-      intervals: vec![],
-      timers: vec![],
+    let timer_count = self.context_state.timers.len();
+    let mut timers = TimerStats {
+      timers: Vec::with_capacity(timer_count),
+      repeats: BitSet::with_capacity(timer_count),
     };
+    for (timer_id, repeats) in &self.context_state.timers.iter() {
+      if repeats {
+        timers.repeats.insert(timers.timers.len());
+      }
+      timers.timers.push(timer_id as usize);
+    }
     RuntimeActivityStats {
       context_state: self.context_state.clone(),
       op: self.context_state.pending_ops.stats(),
@@ -45,10 +52,10 @@ pub struct ResourceOpenStats {
 }
 
 pub struct TimerStats {
-  #[allow(dead_code)] // coming soon
   pub(super) timers: Vec<usize>,
-  #[allow(dead_code)] // coming soon
-  pub(super) intervals: Vec<usize>,
+  /// `repeats` is a bitset that reports whether a given index in the ID array
+  /// is an interval (if true) or a timer (if false).
+  pub(super) repeats: BitSet,
 }
 
 /// Information about in-flight ops, open resources, active timers and other runtime-specific
@@ -65,16 +72,19 @@ pub struct RuntimeActivityStats {
 pub enum RuntimeActivity {
   AsyncOp(PromiseId, String),
   Resource(ResourceId, String),
-  Timer(usize, usize),
-  Interval(usize, usize),
+  Timer(usize),
+  Interval(usize),
 }
 
 impl RuntimeActivityStats {
   /// Capture the data within this [`RuntimeActivityStats`] as a [`RuntimeActivitySnapshot`]
   /// with details of activity.
   pub fn dump(&self) -> RuntimeActivitySnapshot {
-    let mut v =
-      Vec::with_capacity(self.op.ops.len() + self.resources.resources.len());
+    let mut v = Vec::with_capacity(
+      self.op.ops.len()
+        + self.resources.resources.len()
+        + self.timers.timers.len(),
+    );
     let ops = self.context_state.op_ctxs.borrow();
     for op in self.op.ops.iter() {
       v.push(RuntimeActivity::AsyncOp(
@@ -84,6 +94,13 @@ impl RuntimeActivityStats {
     }
     for resource in self.resources.resources.iter() {
       v.push(RuntimeActivity::Resource(resource.0, resource.1.clone()))
+    }
+    for i in 0..self.timers.timers.len() {
+      if self.timers.repeats.contains(i) {
+        v.push(RuntimeActivity::Interval(self.timers.timers[i]));
+      } else {
+        v.push(RuntimeActivity::Timer(self.timers.timers[i]));
+      }
     }
     RuntimeActivitySnapshot { active: v }
   }
@@ -134,6 +151,35 @@ impl RuntimeActivityStats {
       if a.contains(op.0 as usize) {
         // after but not before
         appeared.push(RuntimeActivity::Resource(op.0, op.1.clone()));
+      }
+    }
+
+    let mut a = BitSet::new();
+    for timer in after.timers.timers.iter() {
+      a.insert(*timer);
+    }
+    for index in 0..before.timers.timers.len() {
+      let timer = before.timers.timers[index];
+      if a.remove(timer) {
+        // continuing op
+      } else {
+        // before, but not after
+        if before.timers.repeats.contains(index) {
+          disappeared.push(RuntimeActivity::Interval(timer));
+        } else {
+          disappeared.push(RuntimeActivity::Timer(timer));
+        }
+      }
+    }
+    for index in 0..after.timers.timers.len() {
+      let timer = after.timers.timers[index];
+      if a.contains(timer) {
+        // after but not before
+        if after.timers.repeats.contains(index) {
+          appeared.push(RuntimeActivity::Interval(timer));
+        } else {
+          appeared.push(RuntimeActivity::Timer(timer));
+        }
       }
     }
 

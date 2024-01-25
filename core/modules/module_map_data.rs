@@ -455,7 +455,6 @@ impl ModuleMapData {
         };
         info.push(module_info);
       }
-
       self.info = info;
     }
 
@@ -515,12 +514,12 @@ impl ModuleMapData {
   // TODO(mmastrac): this is better than giving the entire crate access to the internals.
   #[cfg(test)]
   pub fn assert_module_map(&self, modules: &Vec<ModuleInfo>) {
+    use crate::runtime::NO_OF_BUILTIN_MODULES;
     let data = self;
-    // There's always one internal `deno_core` ES module loaded, so +1 here.
-    assert_eq!(data.handles.len(), modules.len() + 1);
-    assert_eq!(data.info.len(), modules.len() + 1);
+    assert_eq!(data.handles.len(), modules.len() + NO_OF_BUILTIN_MODULES);
+    assert_eq!(data.info.len(), modules.len() + NO_OF_BUILTIN_MODULES);
     assert_eq!(data.next_load_id as usize, modules.len());
-    assert_eq!(data.by_name.len(), modules.len() + 1);
+    assert_eq!(data.by_name.len(), modules.len() + NO_OF_BUILTIN_MODULES);
 
     for info in modules {
       assert!(data.handles.get(info.id).is_some());

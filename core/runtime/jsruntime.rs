@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
+use super::bindings::get_exports_for_ops_virtual_module;
 use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
@@ -38,6 +39,7 @@ use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
 use crate::ExtensionFileSource;
+use crate::FastString;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
@@ -278,6 +280,10 @@ pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
 pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   include_js_files!(core "mod.js",);
 
+/// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
+#[cfg(test)]
+pub(crate) const NO_OF_BUILTIN_MODULES: usize = 2;
+
 /// A single execution context of JavaScript. Corresponds roughly to the "Web
 /// Worker" concept in the DOM.
 ///
@@ -383,11 +389,7 @@ fn v8_init(
 ) {
   #[cfg(feature = "include_icu_data")]
   {
-    // Include 10MB ICU data file.
-    #[repr(C, align(16))]
-    struct IcuData([u8; 10631872]);
-    static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
-    v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
+    v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
   }
 
   let base_flags = concat!(
@@ -413,8 +415,15 @@ fn v8_init(
   };
   v8::V8::set_flags_from_string(&flags);
 
-  let v8_platform = v8_platform
-    .unwrap_or_else(|| v8::new_default_platform(0, false).make_shared());
+  let v8_platform = v8_platform.unwrap_or_else(|| {
+    if cfg!(any(test, feature = "unsafe_use_unprotected_platform")) {
+      // We want to use the unprotected platform for unit tests
+      v8::new_unprotected_default_platform(0, false)
+    } else {
+      v8::new_default_platform(0, false)
+    }
+    .make_shared()
+  });
   v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
 
@@ -1037,6 +1046,7 @@ impl JsRuntime {
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
     let realm = JsRealm::clone(&self.inner.main_realm);
+    let context_global = realm.context();
     let module_map = realm.0.module_map();
 
     // Take extensions temporarily so we can avoid have a mutable reference to self
@@ -1049,6 +1059,41 @@ impl JsRuntime {
     let mut esm_entrypoints = vec![];
 
     futures::executor::block_on(async {
+      // TODO(bartlomieju): this is somewhat duplicated in `bindings::initialize_context`,
+      // but for migration period we need to have ops available in both `Deno.core.ops`
+      // as well as have them available in "virtual ops module"
+      // if !matches!(
+      //   self.init_mode,
+      //   InitMode::FromSnapshot {
+      //     skip_op_registration: true
+      //   }
+      // ) {
+      if self.init_mode == InitMode::New {
+        let scope = &mut self.handle_scope();
+        let context_local = v8::Local::new(scope, context_global);
+        let context_state = JsRealm::state_from_scope(scope);
+        let op_ctxs = context_state.op_ctxs.borrow();
+        let global = context_local.global(scope);
+        let synthetic_module_exports =
+          get_exports_for_ops_virtual_module(&op_ctxs, scope, global);
+        let mod_id = module_map
+          .new_synthetic_module(
+            scope,
+            FastString::StaticAscii("ext:core/ops"),
+            crate::ModuleType::JavaScript,
+            synthetic_module_exports,
+          )
+          .unwrap();
+        module_map.instantiate_module(scope, mod_id).unwrap();
+        let mut receiver = module_map.mod_evaluate(scope, mod_id);
+        let Poll::Ready(result) =
+          receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+        else {
+          unreachable!();
+        };
+        result.unwrap();
+      }
+
       if self.init_mode == InitMode::New {
         for file_source in &BUILTIN_SOURCES {
           realm.execute_script(
@@ -1099,6 +1144,7 @@ impl JsRuntime {
         }
       }
 
+      // ...then execute all entry points
       for specifier in esm_entrypoints {
         let Some(mod_id) =
           module_map.get_id(specifier, RequestedModuleType::None)
@@ -1970,7 +2016,6 @@ impl JsRuntimeForSnapshot {
         snapshotted_data,
       );
     }
-
     drop(realm);
 
     self

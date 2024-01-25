@@ -5,8 +5,10 @@ use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use futures::Future;
 use std::cell::Cell;
+use std::cell::Ref;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
+use std::collections::btree_set;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::mem::MaybeUninit;
@@ -85,6 +87,42 @@ impl<T> Default for WebTimers<T> {
       tombstone_count: Default::default(),
       unrefd_count: Default::default(),
       sleep: MutableSleep::new(),
+    }
+  }
+}
+
+pub(crate) struct WebTimersIterator<'a, T> {
+  data: Ref<'a, BTreeMap<WebTimerId, (T, bool)>>,
+  timers: Ref<'a, BTreeSet<TimerKey>>,
+}
+
+impl<'a, T> IntoIterator for &'a WebTimersIterator<'a, T> {
+  type IntoIter = WebTimersIteratorImpl<'a, T>;
+  type Item = (u64, bool);
+
+  fn into_iter(self) -> Self::IntoIter {
+    WebTimersIteratorImpl {
+      data: &self.data,
+      timers: self.timers.iter(),
+    }
+  }
+}
+
+pub(crate) struct WebTimersIteratorImpl<'a, T> {
+  data: &'a BTreeMap<WebTimerId, (T, bool)>,
+  timers: btree_set::Iter<'a, TimerKey>,
+}
+
+impl<'a, T> Iterator for WebTimersIteratorImpl<'a, T> {
+  type Item = (u64, bool);
+  fn next(&mut self) -> Option<Self::Item> {
+    loop {
+      let Some(item) = self.timers.next() else {
+        return None;
+      };
+      if self.data.contains_key(&item.1) {
+        return Some((item.1, !matches!(item.2, TimerType::Once)));
+      }
     }
   }
 }
@@ -210,6 +248,15 @@ unsafe impl ViaRawPointer for MutableSleepWaker {
 }
 
 impl<T: Clone> WebTimers<T> {
+  /// Returns an internal iterator that locks the internal data structures for the period
+  /// of iteration. Calling other methods on this collection will cause a panic.
+  pub(crate) fn iter(&self) -> WebTimersIterator<T> {
+    WebTimersIterator {
+      data: self.data_map.borrow(),
+      timers: self.timers.borrow(),
+    }
+  }
+
   /// Refs a timer by ID. Invalid IDs are ignored.
   pub fn ref_timer(&self, id: WebTimerId) {
     if let Some((_, unrefd)) = self.data_map.borrow_mut().get_mut(&id) {

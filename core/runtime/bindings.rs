@@ -13,11 +13,13 @@ use crate::error::throw_type_error;
 use crate::error::JsStackFrame;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
+use crate::modules::synthetic_module_evaluation_steps;
 use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
+use crate::FastString;
 use crate::JsRuntime;
 
 pub(crate) fn external_references(
@@ -26,7 +28,7 @@ pub(crate) fn external_references(
 ) -> v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references =
-    Vec::with_capacity(5 + (ops.len() * 4) + additional_references.len());
+    Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
 
   references.push(v8::ExternalReference {
     function: call_console.map_fn_to(),
@@ -42,6 +44,12 @@ pub(crate) fn external_references(
   });
   references.push(v8::ExternalReference {
     function: op_disabled_fn.map_fn_to(),
+  });
+
+  let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
+    synthetic_module_evaluation_steps.map_fn_to();
+  references.push(v8::ExternalReference {
+    pointer: syn_module_eval_fn as *mut c_void,
   });
 
   for ctx in ops {
@@ -744,4 +752,46 @@ where
   };
 
   Some(promise)
+}
+
+pub fn get_exports_for_ops_virtual_module<'s>(
+  op_ctxs: &[OpCtx],
+  scope: &mut v8::HandleScope<'s>,
+  global: v8::Local<v8::Object>,
+) -> Vec<(FastString, v8::Local<'s, v8::Value>)> {
+  let mut exports = Vec::with_capacity(op_ctxs.len());
+
+  let deno_obj = get(scope, global, b"Deno", "Deno");
+  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
+  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
+    scope,
+    deno_core_obj,
+    b"setUpAsyncStub",
+    "Deno.core.setUpAsyncStub",
+  );
+
+  let undefined = v8::undefined(scope);
+
+  for op_ctx in op_ctxs {
+    let name = v8::String::new_external_onebyte_static(
+      scope,
+      op_ctx.decl.name.as_bytes(),
+    )
+    .unwrap();
+    let mut op_fn = op_ctx_function(scope, op_ctx);
+
+    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+    // this call will generate an optimized function that binds to the provided
+    // op, while keeping track of promises and error remapping.
+    if op_ctx.decl.is_async {
+      let result = set_up_async_stub_fn
+        .call(scope, undefined.into(), &[name.into(), op_fn.into()])
+        .unwrap();
+      op_fn = result.try_into().unwrap()
+    }
+
+    exports.push((FastString::StaticAscii(op_ctx.decl.name), op_fn.into()));
+  }
+
+  exports
 }
