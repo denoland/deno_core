@@ -40,3 +40,21 @@ test(function testStatsResources() {
   const diff = StatsFactory.diff(statsBefore, statsAfter);
   assert(diff.empty);
 });
+
+test(function testTimers() {
+  using statsBefore = StatsFactory.capture();
+
+  const timeout = setTimeout(() => null, 1000);
+  const interval = setInterval(() => null, 1000);
+
+  using statsMiddle = StatsFactory.capture();
+  const diffMiddle = StatsFactory.diff(statsBefore, statsMiddle);
+  assertEquals(0, diffMiddle.disappeared.countTimers());
+  assertEquals(2, diffMiddle.appeared.countTimers());
+  clearTimeout(timeout);
+  clearInterval(interval);
+
+  using statsAfter = StatsFactory.capture();
+  const diff = StatsFactory.diff(statsBefore, statsAfter);
+  assert(diff.empty);
+});
