@@ -74,29 +74,28 @@ export class StatsDiff {
   }
 }
 
+// This contains an array of serialized RuntimeActivity structs.
 export class StatsCollection {
   // deno-lint-ignore no-explicit-any
   constructor(private data: any[]) {
   }
 
-  countOps(): number {
+  private countResourceActivity(type: string): number {
     let count = 0;
     for (const item of this.data) {
-      if ("AsyncOp" in item) {
+      if (type in item) {
         count++;
       }
     }
     return count;
   }
 
+  countOps(): number {
+    return this.countResourceActivity("AsyncOp");
+  }
+
   countResources(): number {
-    let count = 0;
-    for (const item of this.data) {
-      if ("Resource" in item) {
-        count++;
-      }
-    }
-    return count;
+    return this.countResourceActivity("Resource");
   }
 
   get empty(): boolean {
