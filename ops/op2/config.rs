@@ -26,7 +26,7 @@ pub(crate) struct MacroConfig {
   pub reentrant: bool,
   /// Metadata attached to an op definition. Currently we only support
   /// `async_verb` and `async_fix`.
-  pub meta: HashMap<&'static str, &'static str>,
+  pub meta: HashMap<String, String>,
 }
 
 impl MacroConfig {
@@ -97,15 +97,13 @@ impl MacroConfig {
           rules!(tokens => {
             ( $( $name:literal = $value:literal ),* ) => {
               name.into_iter().zip(value.into_iter()).map(|(name, val)| {
-                let name_static: &'static str = name.to_string().leak();
-                let val_static: &'static str = val.to_string().leak();
-                (name_static, val_static)
+                (name.to_string(), val.to_string())
               })
             }
           })
         })
         .map_err(|_| Op2Error::InvalidMetaAttributes)?
-        .collect::<HashMap<&'static str, &'static str>>();
+        .collect::<HashMap<String, String>>();
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }

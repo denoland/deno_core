@@ -192,7 +192,7 @@ fn generate_op2(
     .iter()
     .map(|(key, value)| {
       quote! {
-          #key: #value,
+          #key, #value,
       }
     })
     .collect();
@@ -265,12 +265,14 @@ fn generate_op2(
         /*name*/ stringify!(#name),
         /*is_async*/ #is_async,
         /*is_reentrant*/ #is_reentrant,
-        /*meta*/ #meta_token_stream
         /*arg_count*/ #arg_count as u8,
         /*slow_fn*/ Self::#slow_function as _,
         /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
         /*fast_fn*/ #fast_definition,
         /*fast_fn_metrics*/ #fast_definition_metrics,
+        /*meta*/ ::std::collections::HashMap<&str, &str> = [
+          #meta_token_stream
+        ].iter().cloned().collect()
       );
     }
 

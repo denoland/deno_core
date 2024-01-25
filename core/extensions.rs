@@ -114,12 +114,12 @@ impl OpDecl {
     name: &'static str,
     is_async: bool,
     is_reentrant: bool,
-    _meta: HashMap<&'static str, &'static str>,
     arg_count: u8,
     slow_fn: OpFnRef,
     slow_fn_with_metrics: OpFnRef,
     fast_fn: Option<FastFunction>,
     fast_fn_with_metrics: Option<FastFunction>,
+    _meta: HashMap<&'static str, &'static str>,
   ) -> Self {
     #[allow(deprecated)]
     Self {
