@@ -456,6 +456,7 @@
 
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
+    internalRidSymbol: SymbolFor("Deno.internal.rid"),
     ensureFastOps,
     resources,
     metrics,
