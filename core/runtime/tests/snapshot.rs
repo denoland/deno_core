@@ -2,12 +2,9 @@
 use crate::extensions::Op;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
-use crate::modules::TestingModuleLoader;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
-use std::rc::Rc;
-use url::Url;
 
 #[test]
 fn will_snapshot() {

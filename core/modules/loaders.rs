@@ -414,10 +414,6 @@ impl<L: ModuleLoader> TestingModuleLoader<L> {
     }
   }
 
-  pub fn log(&self) -> Vec<ModuleSpecifier> {
-    self.log.borrow().clone()
-  }
-
   /// Retrieve the current module load event counts.
   pub fn counts(&self) -> ModuleLoadEventCounts {
     ModuleLoadEventCounts {

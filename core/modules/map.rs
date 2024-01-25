@@ -189,16 +189,6 @@ impl ModuleMap {
     new
   }
 
-  fn get_handle_by_name(
-    &self,
-    name: impl AsRef<str>,
-  ) -> Option<v8::Global<v8::Module>> {
-    let id = self
-      .get_id(name.as_ref(), RequestedModuleType::None)
-      .or_else(|| self.get_id(name.as_ref(), RequestedModuleType::Json))?;
-    self.get_handle(id)
-  }
-
   /// Get module id, following all aliases in case of module specifier
   /// that had been redirected.
   pub(crate) fn get_id(
@@ -750,21 +740,6 @@ impl ModuleMap {
     }
 
     None
-  }
-
-  pub(crate) fn inject_handle(
-    &self,
-    name: ModuleName,
-    module_type: ModuleType,
-    handle: v8::Global<v8::Module>,
-  ) {
-    self.data.borrow_mut().create_module_info(
-      name,
-      module_type,
-      handle,
-      false,
-      vec![],
-    );
   }
 
   pub(crate) fn get_requested_modules(
@@ -1369,24 +1344,6 @@ impl ModuleMap {
         .map_err(|err: v8::DataError| generic_error(err.to_string()))?;
 
     Ok(v8::Global::new(scope, module_namespace))
-  }
-
-  /// Clear the module map, meant to be used after initializing extensions.
-  /// Optionally pass a list of exceptions `(old_name, new_name)` representing
-  /// specifiers which will be renamed and preserved in the module map.
-  pub fn clear_module_map(&self, exceptions: &'static [&'static str]) {
-    let handles = exceptions
-      .iter()
-      .map(|mod_name| (self.get_handle_by_name(mod_name).unwrap(), mod_name))
-      .collect::<Vec<_>>();
-    *self.data.borrow_mut() = ModuleMapData::default();
-    for (handle, new_name) in handles {
-      self.inject_handle(
-        ModuleName::from_static(new_name),
-        ModuleType::JavaScript,
-        handle,
-      )
-    }
   }
 
   fn get_stalled_top_level_await_message_for_module(
