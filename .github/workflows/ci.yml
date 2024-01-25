@@ -1,3 +1,4 @@
+# The core job execution is orchestrated by the `ci.yml` workflow.
 name: CI
 
 on:
@@ -13,6 +14,11 @@ on:
       - main
 
 jobs:
+  # This job computes the matrix for the subsequent jobs based on the repository and ref conditions. It reads
+  # the job configuration from embedded YAML and sets up the matrix for different OS and jobs.
+  #
+  # The extracted configurations are transformed into a matrix structure, which includes the label (job name),
+  # operating system (OS), and specific job type.
   compute-jobs:
     runs-on: ubuntu-latest
     outputs:
@@ -45,6 +51,8 @@ jobs:
               os: windows-2019
               jobs: [lint, test]
 
+  # This job is responsible for coordinating the execution of individual jobs defined in `ci-job.yml` based on the matrix generated
+  # by `compute-jobs`. It acts as the orchestrator for the overall CI workflow.
   top:
     name: build-${{ matrix.label }}
     needs: compute-jobs
@@ -59,6 +67,8 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.compute-jobs.outputs.matrix) }}
 
+  # A simple job that runs after the `top` job is successful. It prints a success message indicating that the CI workflow has
+  # completed successfully. This allows us to have a single "build success" step for the repository.
   success:
     needs: top
     runs-on: ubuntu-latest
@@ -66,6 +76,8 @@ jobs:
       - name: Print success
         run: echo Success ✅
 
+  # In the case of a tag build, run the publish step.
+  # TODO(mmastrac): this should actually be generated as part of the matrix.
   publish:
     name: publish
     needs:

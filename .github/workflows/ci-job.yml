@@ -1,13 +1,18 @@
+# Each sub-job is defined here. These jobs perform specific tasks such as linting, testing, or publishing
+# based on the matrix parameters.
 name: CI Job
 on:
   workflow_call:
     inputs:
+      # "linux"
       label:
         required: true
         type: string
+      # "ubuntu-latest"
       os:
         required: true
         type: string
+      # "lint"
       job:
         required: true
         type: string
@@ -25,6 +30,12 @@ jobs:
     steps:
       - run: echo ${{ inputs.job }}
 
+      # ************************************************************************************************
+      #  BEGIN COMMON STEPS
+      #  These steps are run for each and every sub-job, on a clean runner. 
+      # ************************************************************************************
+
+      # TODO(mmastrac): these could be extracted to a `ci-common.yml`
       - name: Clone repository
         uses: actions/checkout@v3
 
@@ -44,6 +55,10 @@ jobs:
       - name: Clean
         if: inputs.is_main
         run: cargo clean
+
+      # ************************************************************************************************
+      #  END COMMON STEPS
+      # ************************************************************************************************
 
       - name: No-op
         id: nop
