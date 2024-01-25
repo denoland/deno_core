@@ -17,7 +17,7 @@ pub struct RuntimeActivityStatsFactory {
 }
 
 /// Selects the statistics that you are interested in capturing.
-#[derive(Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct RuntimeActivityStatsFilter {
   include_timers: bool,
   include_ops: bool,
@@ -46,6 +46,10 @@ impl RuntimeActivityStatsFilter {
   pub fn with_timers(mut self) -> Self {
     self.include_timers = true;
     self
+  }
+
+  pub fn is_empty(&self) -> bool {
+    *self == Self::default()
   }
 }
 
