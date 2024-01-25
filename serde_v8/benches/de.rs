@@ -5,9 +5,9 @@ use bencher::Bencher;
 
 use serde::Deserialize;
 
-use serde_v8::utils::js_exec;
-use serde_v8::utils::v8_do;
 use serde_v8::ByteString;
+use serde_v8_utilities::js_exec;
+use serde_v8_utilities::v8_do;
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct MathOp {

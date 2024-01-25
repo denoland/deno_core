@@ -6,7 +6,6 @@ mod magic;
 mod payload;
 mod ser;
 mod serializable;
-pub mod utils;
 
 pub use de::from_v8;
 pub use de::from_v8_cached;

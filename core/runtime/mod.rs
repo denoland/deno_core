@@ -8,6 +8,7 @@ pub mod op_driver;
 pub mod ops;
 pub mod ops_rust_to_v8;
 mod snapshot_util;
+pub mod stats;
 
 #[cfg(all(test, not(miri)))]
 mod tests;

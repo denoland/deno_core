@@ -1,99 +1,94 @@
-name: ci
+# The core job execution is orchestrated by the `ci.yml` workflow.
+name: CI
 
-on: [push, pull_request]
+on:
+  # Run on any push to main or any tag
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  # Run on any pull request
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  rust:
-    name: deno_core-${{ matrix.os }}
-    if: |
-      (github.event_name == 'push' || !startsWith(github.event.pull_request.head.label, 'denoland:'))
-      && github.ref_name != 'deno_core'
-      && !startsWith(github.ref, 'refs/tags/deno/')
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+  # This job computes the matrix for the subsequent jobs based on the repository and ref conditions. It reads
+  # the job configuration from embedded YAML and sets up the matrix for different OS and jobs.
+  #
+  # The extracted configurations are transformed into a matrix structure, which includes the label (job name),
+  # operating system (OS), and specific job type.
+  compute-jobs:
+    runs-on: ubuntu-latest
+    outputs:
+      # If we're not running in the denoland repo, or we're building on a tag, use the 'nop' matrix
+      # that runs a single, no-op job
+      matrix: |
+        ${{ (github.repository == 'denoland/deno_core' && !startsWith(github.ref, 'refs/tags/')) 
+          && steps.read-jobs.outputs.matrix 
+          || '[{ "label": "linux", "os": "ubuntu-latest", "job": "nop" }]' }}
+      is_tag: ${{ github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/') }}
+      is_main: ${{ github.repository == 'denoland/deno_core' && github.ref == 'refs/heads/main' }}
+    steps:
+      # https://github.com/marketplace/actions/query-yaml-config-as-outputs
+      - name: Read job configuration
+        uses: cloudposse/github-action-yaml-config-query@main
+        id: read-jobs
+        with:
+          # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
+          # matrix below
+          # Test this using jq/yq: cat config.yaml | yq -o json | jq
+          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
+          config: |-
+            linux:
+              os: ubuntu-latest
+              jobs: [lint, lint-deps, test, test-miri, test-ops, test-publish]
+            macos:
+              os: macOS-latest
+              jobs: [lint, test]
+            windows:
+              os: windows-2019
+              jobs: [lint, test]
+
+  # This job is responsible for coordinating the execution of individual jobs defined in `ci-job.yml` based on the matrix generated
+  # by `compute-jobs`. It acts as the orchestrator for the overall CI workflow.
+  top:
+    name: build-${{ matrix.label }}
+    needs: compute-jobs
+    uses: ./.github/workflows/ci-job.yml
+    with:
+      label: ${{ matrix.label }}
+      os: ${{ matrix.os }}
+      job: ${{ matrix.job }}
+      is_main: ${{ needs.compute-jobs.outputs.is_main == true }}
+      is_tag: ${{ needs.compute-jobs.outputs.is_tag == true }}
     strategy:
       matrix:
-        os: [macOS-latest, ubuntu-latest, windows-2019]
+        include: ${{ fromJSON(needs.compute-jobs.outputs.matrix) }}
 
-    env:
-      CARGO_INCREMENTAL: 0
-      GH_ACTIONS: 1
-      RUST_BACKTRACE: full
-      RUSTFLAGS: -D warnings
-
+  # A simple job that runs after the `top` job is successful. It prints a success message indicating that the CI workflow has
+  # completed successfully. This allows us to have a single "build success" step for the repository.
+  success:
+    needs: top
+    runs-on: ubuntu-latest
     steps:
-      - name: Clone repository
-        uses: actions/checkout@v3
+      - name: Print success
+        run: echo Success ✅
 
-      - name: Install Rust
-        uses: dsherret/rust-toolchain-file@v1
-
-      - name: Install Rust (nightly)
-        if: contains(matrix.os, 'ubuntu')
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Install Deno
-        uses: denoland/setup-deno@v1
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v1-rust"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Clean
-        if: github.ref == 'refs/heads/main'
-        run: cargo clean
-
-      - name: Format
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          cargo fmt -- --check
-          deno fmt --check ./core/ ./ops/ ./serde_v8/
-
-      - name: Lint
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          cargo clippy --locked --release --all-features --all-targets -- -D clippy::all
-          deno lint
-          tools/copyright_checker.js
-
-      - name: Lint deps
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          cargo install cargo-machete --locked
-          cargo machete
-          cargo install cargo-udeps --locked
-          cargo +nightly udeps
-
-      - name: Cargo test
-        run: cargo test --locked --release --all-features --bins --tests --examples && cargo test --doc
-
-      - name: Cargo test (miri)
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          # Install and run miri tests
-          rustup component add --toolchain nightly miri
-          # This somehow prints errors in CI that don't show up locally
-          MIRIFLAGS="-Zmiri-disable-isolation" RUSTFLAGS=-Awarnings cargo +nightly miri test -p deno_core
-
-      - name: Run examples
-        # Only regression tests here for now.
-        # Regression test for https://github.com/denoland/deno/pull/19615.
-        run: |-
-          cargo run -p deno_core --example op2
-          cargo run -p deno_core --example op2 --features include_js_files_for_snapshotting
-
-      - name: Cargo publish
-        if: |
-          contains(matrix.os, 'ubuntu') &&
-          github.repository == 'denoland/deno_core' &&
-          startsWith(github.ref, 'refs/tags/')
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p serde_v8 && cargo publish -p deno_ops && cargo publish -p deno_core
-
-      - name: Get tag version
-        if: contains(matrix.os, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
-        id: get_tag_version
-        run: echo TAG_VERSION=${GITHUB_REF/refs\/tags\//} >> "$GITHUB_OUTPUT"
-
+  # In the case of a tag build, run the publish step.
+  # TODO(mmastrac): this should actually be generated as part of the matrix.
+  publish:
+    name: publish
+    needs:
+      - top
+      - compute-jobs
+    if: ${{ needs.compute-jobs.outputs.is_tag }}
+    uses: ./.github/workflows/ci-job.yml
+    secrets: inherit
+    with:
+      label: linux
+      os: ubuntu-latest
+      job: publish
+      is_main: ${{ needs.compute-jobs.outputs.is_main == true }}
+      is_tag: ${{ needs.compute-jobs.outputs.is_tag == true }}
