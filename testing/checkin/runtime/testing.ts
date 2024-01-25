@@ -1,8 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-const {
-  op_test_register,
-} = Deno.core.ensureFastOps();
+import { op_test_register } from "ext:core/ops";
 
 /**
  * Define a sync or async test function.

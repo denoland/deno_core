@@ -27,6 +27,10 @@ export class DenoWorkspace {
     return this.#repo;
   }
 
+  static get manifest() {
+    return $.path.join(this.rootDirPath, "Cargo.toml");
+  }
+
   get crates() {
     return this.#repo.crates;
   }
@@ -34,7 +38,7 @@ export class DenoWorkspace {
   /** Gets the deno_core dependency crates that should be published. */
   getDenoCoreDependencyCrates() {
     return this.getDenoCoreCrate()
-      .descendantDependenciesInRepo();
+      .immediateDependenciesInRepo().map(c => c.crate);
   }
 
   getDenoCoreCrate() {

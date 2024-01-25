@@ -21,6 +21,7 @@ use self::testing::TestFunctions;
 mod ops;
 mod ops_async;
 mod ops_buffer;
+mod ops_io;
 mod testing;
 mod ts_module_loader;
 
@@ -30,15 +31,24 @@ deno_core::extension!(
     ops::op_log_debug,
     ops::op_log_info,
     ops::op_test_register,
+    ops::op_stats_capture,
+    ops::op_stats_diff,
+    ops::op_stats_dump,
+    ops::op_stats_delete,
+    ops_io::op_pipe_create,
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,
+    ops_async::op_async_throw_error_eager,
+    ops_async::op_async_throw_error_lazy,
+    ops_async::op_async_throw_error_deferred,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [
     dir "checkin/runtime",
+    "__bootstrap.js",
     "__init.js",
     "async.ts" with_specifier "checkin:async",
     "console.ts" with_specifier "checkin:console",
@@ -65,7 +75,7 @@ fn create_runtime() -> JsRuntime {
     }
   }
 
-  JsRuntime::new(RuntimeOptions {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
@@ -75,7 +85,10 @@ fn create_runtime() -> JsRuntime {
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
-  })
+  });
+  let stats = runtime.runtime_activity_stats_factory();
+  runtime.op_state().borrow_mut().put(stats);
+  runtime
 }
 
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,

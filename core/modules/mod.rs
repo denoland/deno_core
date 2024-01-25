@@ -34,6 +34,7 @@ pub(crate) use loaders::LazyEsmModuleLoader;
 pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
+pub(crate) use map::synthetic_module_evaluation_steps;
 pub(crate) use map::ModuleMap;
 pub(crate) use module_map_data::ModuleMapSnapshottedData;
 

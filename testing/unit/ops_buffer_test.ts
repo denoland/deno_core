@@ -3,7 +3,7 @@ import { assertArrayEquals, test } from "checkin:testing";
 const {
   op_v8slice_store,
   op_v8slice_clone,
-} = Deno.core.ensureFastOps();
+} = Deno.core.ensureFastOps(true);
 
 // Cloning a buffer should result in the same buffer being returned
 test(function testBufferStore() {

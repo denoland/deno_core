@@ -1,8 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use super::future_arena::FutureAllocation;
-use super::future_arena::FutureArena;
 use super::op_results::*;
 use super::OpDriver;
+use super::OpInflightStats;
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
@@ -19,14 +18,12 @@ use std::task::Poll;
 /// [`OpDriver`] implementation built on a tokio [`JoinSet`].
 pub struct JoinSetDriver<C: OpMappingContext = V8OpMappingContext> {
   pending_ops: RefCell<JoinSet<PendingOp<C>>>,
-  arena: FutureArena,
 }
 
 impl<C: OpMappingContext> Default for JoinSetDriver<C> {
   fn default() -> Self {
     Self {
       pending_ops: Default::default(),
-      arena: Default::default(),
     }
   }
 }
@@ -52,7 +49,7 @@ impl<C: OpMappingContext> JoinSetDriver<C> {
   #[inline(always)]
   fn spawn_polled<R>(
     &self,
-    task: FutureAllocation<R>,
+    task: impl Future<Output = R> + 'static,
     map: impl FnOnce(R) -> PendingOp<C> + 'static,
   ) {
     self.pending_ops.borrow_mut().spawn(task.map(map));
@@ -82,7 +79,7 @@ impl<C: OpMappingContext> OpDriver<C> for JoinSetDriver<C> {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      let mut pinned = self.arena.allocate(op);
+      let mut pinned = op.boxed_local();
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => {
           self.spawn_polled(pinned, move |r| PendingOp::new(info, rv_map, r))
@@ -119,7 +116,7 @@ impl<C: OpMappingContext> OpDriver<C> for JoinSetDriver<C> {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      let mut pinned = self.arena.allocate(op);
+      let mut pinned = op.boxed_local();
       match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
         Poll::Pending => {
           self.spawn_polled(pinned, move |res| PendingOp::ok(info, rv_map, res))
@@ -156,5 +153,9 @@ impl<C: OpMappingContext> OpDriver<C> for JoinSetDriver<C> {
   #[inline(always)]
   fn len(&self) -> usize {
     self.pending_ops.borrow().len()
+  }
+
+  fn stats(&self) -> OpInflightStats {
+    OpInflightStats::default()
   }
 }

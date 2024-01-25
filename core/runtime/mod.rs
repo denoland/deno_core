@@ -8,6 +8,7 @@ pub mod op_driver;
 pub mod ops;
 pub mod ops_rust_to_v8;
 mod snapshot_util;
+pub mod stats;
 
 #[cfg(all(test, not(miri)))]
 mod tests;
@@ -28,6 +29,8 @@ pub use jsruntime::PollEventLoopOptions;
 pub use jsruntime::RuntimeOptions;
 pub use jsruntime::SharedArrayBufferStore;
 pub use jsruntime::Snapshot;
+#[cfg(test)]
+pub(crate) use jsruntime::NO_OF_BUILTIN_MODULES;
 pub use snapshot_util::create_snapshot;
 pub use snapshot_util::get_js_files;
 pub use snapshot_util::CreateSnapshotOptions;

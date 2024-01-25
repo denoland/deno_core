@@ -117,6 +117,23 @@ pub(crate) struct ModuleMapSnapshottedData {
   pub module_handles: Vec<v8::Global<v8::Module>>,
 }
 
+/// An array of tuples that provide module exports.
+///
+/// "default" name will make the export "default" - ie. one that can be imported
+/// with `import foo from "./virtual.js"`;.
+/// All other name provide "named exports" - ie. ones that can be imported like
+/// so: `import { name1, name2 } from "./virtual.js`.
+pub(crate) type SyntheticModuleExports =
+  Vec<(v8::Global<v8::String>, v8::Global<v8::Value>)>;
+
+// TODO(bartlomieju): add an assertion that checks for that assumption?
+// If it's true we can simplify the type to be an `Option` instead of a `HashMap`.
+/// This hash map is not expected to hold more than one element at a time.
+/// It is a temporary store, so we can forward data to
+/// `synthetic_module_evaluation_steps` callback.
+pub(crate) type SyntheticModuleExportsStore =
+  HashMap<v8::Global<v8::Module>, SyntheticModuleExports>;
+
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
@@ -133,8 +150,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) main_module_id: Option<ModuleId>,
   /// This store is used to temporarily store data that is used
   /// to evaluate a "synthetic module".
-  pub(crate) synthetic_module_value_store:
-    HashMap<v8::Global<v8::Module>, v8::Global<v8::Value>>,
+  pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
 }
@@ -439,7 +455,6 @@ impl ModuleMapData {
         };
         info.push(module_info);
       }
-
       self.info = info;
     }
 
@@ -499,12 +514,12 @@ impl ModuleMapData {
   // TODO(mmastrac): this is better than giving the entire crate access to the internals.
   #[cfg(test)]
   pub fn assert_module_map(&self, modules: &Vec<ModuleInfo>) {
+    use crate::runtime::NO_OF_BUILTIN_MODULES;
     let data = self;
-    // There's always one internal `deno_core` ES module loaded, so +1 here.
-    assert_eq!(data.handles.len(), modules.len() + 1);
-    assert_eq!(data.info.len(), modules.len() + 1);
+    assert_eq!(data.handles.len(), modules.len() + NO_OF_BUILTIN_MODULES);
+    assert_eq!(data.info.len(), modules.len() + NO_OF_BUILTIN_MODULES);
     assert_eq!(data.next_load_id as usize, modules.len());
-    assert_eq!(data.by_name.len(), modules.len() + 1);
+    assert_eq!(data.by_name.len(), modules.len() + NO_OF_BUILTIN_MODULES);
 
     for info in modules {
       assert!(data.handles.get(info.id).is_some());

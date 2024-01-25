@@ -151,7 +151,6 @@ fn es_snapshot() {
     });
     runtime.snapshot()
   };
-
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
     startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
