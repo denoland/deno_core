@@ -143,6 +143,10 @@ pub mod v8_static_strings {
   pub static BUILD_CUSTOM_ERROR: &[u8] = b"buildCustomError";
   pub static CONSOLE: &[u8] = b"console";
   pub static CALL_CONSOLE: &[u8] = b"callConsole";
+  pub static WEBASSEMBLY: &[u8] = b"WebAssembly";
+  pub static MODULE: &[u8] = b"Module";
+  pub static IMPORTS: &[u8] = b"imports";
+  pub static EXPORTS: &[u8] = b"exports";
 }
 
 /// Create an object on the `globalThis` that looks like this:

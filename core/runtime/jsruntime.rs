@@ -1307,14 +1307,28 @@ impl JsRuntime {
       let core_str =
         v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
           .unwrap();
-      let web_assembly_key =
-        v8::String::new_external_onebyte_static(scope, b"WebAssembly").unwrap();
-      let web_assembly_module_key =
-        v8::String::new_external_onebyte_static(scope, b"Module").unwrap();
+      let web_assembly_key = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::WEBASSEMBLY,
+      )
+      .unwrap();
+      let web_assembly_module_key = v8::String::new_external_onebyte_static(
+        scope,
+        v8_static_strings::MODULE,
+      )
+      .unwrap();
       let web_assembly_module_imports_key =
-        v8::String::new_external_onebyte_static(scope, b"imports").unwrap();
+        v8::String::new_external_onebyte_static(
+          scope,
+          v8_static_strings::IMPORTS,
+        )
+        .unwrap();
       let web_assembly_module_exports_key =
-        v8::String::new_external_onebyte_static(scope, b"exports").unwrap();
+        v8::String::new_external_onebyte_static(
+          scope,
+          v8_static_strings::EXPORTS,
+        )
+        .unwrap();
       let event_loop_tick_str = v8::String::new_external_onebyte_static(
         scope,
         v8_static_strings::EVENT_LOOP_TICK,
