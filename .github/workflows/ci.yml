@@ -7,7 +7,7 @@ on:
     branches:
       - main
     tags:
-      - \*
+      - '*'
   # Run on any pull request
   pull_request:
     branches:
@@ -83,12 +83,12 @@ jobs:
     needs:
       - top
       - compute-jobs
-    if: needs.compute-jobs.outputs.is_tag
+    if: ${{ needs.compute-jobs.outputs.is_tag }}
     uses: ./.github/workflows/ci-job.yml
     secrets: inherit
     with:
       label: linux
       os: ubuntu-latest
       job: publish
-      is_main: ${{ needs.compute-jobs.outputs.is_main }}
-      is_tag: ${{ needs.compute-jobs.outputs.is_tag }}
+      is_main: ${{ needs.compute-jobs.outputs.is_main == true }}
+      is_tag: ${{ needs.compute-jobs.outputs.is_tag == true }}
