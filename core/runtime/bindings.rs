@@ -2,6 +2,8 @@
 use log::debug;
 use std::option::Option;
 use std::os::raw::c_void;
+use std::path::PathBuf;
+use url::Url;
 use v8::MapFnTo;
 
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
@@ -455,6 +457,51 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     v8::String::new_external_onebyte_static(scope, v8_static_strings::RESOLVE)
       .unwrap();
   meta.set(scope, resolve_key.into(), val.into());
+
+  maybe_add_import_meta_filename_dirname(scope, meta, &name);
+}
+
+fn maybe_add_import_meta_filename_dirname(
+  scope: &mut v8::HandleScope,
+  meta: v8::Local<v8::Object>,
+  name: &str,
+) {
+  // For `file:` URL we provide additional `filename` and `dirname` values
+  let Ok(name_url) = Url::parse(name) else {
+    return;
+  };
+
+  if name_url.scheme() != "file" {
+    return;
+  }
+
+  // If something goes wrong acquiring a filepath, let skip instead of crashing
+  // (mostly concerned about file paths on Windows).
+  let Ok(file_path) = name_url.to_file_path() else {
+    return;
+  };
+
+  // Use display() here so that Rust takes care of proper forward/backward slash
+  // formatting depending on the OS.
+  let escaped_filename = file_path.display().to_string();
+  let Some(filename_val) = v8::String::new(scope, &escaped_filename) else {
+    return;
+  };
+  let filename_key =
+    v8::String::new_external_onebyte_static(scope, b"filename").unwrap();
+  meta.create_data_property(scope, filename_key.into(), filename_val.into());
+
+  let dir_path = file_path
+    .parent()
+    .map(|p| p.to_owned())
+    .unwrap_or_else(|| PathBuf::from("/"));
+  let escaped_dirname = dir_path.display().to_string();
+  let Some(dirname_val) = v8::String::new(scope, &escaped_dirname) else {
+    return;
+  };
+  let dirname_key =
+    v8::String::new_external_onebyte_static(scope, b"dirname").unwrap();
+  meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
 }
 
 fn import_meta_resolve(

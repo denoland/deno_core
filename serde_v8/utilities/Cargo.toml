@@ -1,0 +1,12 @@
+# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+
+[package]
+name = "serde_v8_utilities"
+version = "0.3.0"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+v8.workspace = true

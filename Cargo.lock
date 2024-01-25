@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.248.0"
+version = "0.254.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -281,6 +281,7 @@ dependencies = [
  "bytes",
  "cooked-waker",
  "deno_ast",
+ "deno_core_icudata",
  "deno_ops",
  "deno_unsync",
  "fastrand",
@@ -303,6 +304,12 @@ dependencies = [
  "url",
  "v8",
 ]
+
+[[package]]
+name = "deno_core_icudata"
+version = "0.0.73"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a13951ea98c0a4c372f162d669193b4c9d991512de9f2381dd161027f34b26b1"
 
 [[package]]
 name = "deno_core_testing"
@@ -331,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.124.0"
+version = "0.130.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -1221,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.157.0"
+version = "0.163.0"
 dependencies = [
  "bencher",
  "bytes",
@@ -1230,8 +1237,16 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "serde_v8_utilities",
  "smallvec",
  "thiserror",
+ "v8",
+]
+
+[[package]]
+name = "serde_v8_utilities"
+version = "0.3.0"
+dependencies = [
  "v8",
 ]
 

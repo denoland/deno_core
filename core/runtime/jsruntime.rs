@@ -5,8 +5,8 @@ use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
-use super::op_driver::OpInflightStats;
 use super::snapshot_util;
+use super::stats::RuntimeActivityStatsFactory;
 use super::SnapshottedData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
@@ -78,14 +78,6 @@ use v8::Isolate;
 
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
-
-/// Information about in-flight ops, open resources, active timers and other runtime-specific
-/// data that can be used for test sanitization.
-pub struct RuntimeActivityStats {
-  /// This will be exposed in follow-up work.
-  #[allow(dead_code)]
-  op: OpInflightStats,
-}
 
 pub enum Snapshot {
   Static(&'static [u8]),
@@ -391,11 +383,7 @@ fn v8_init(
 ) {
   #[cfg(feature = "include_icu_data")]
   {
-    // Include 10MB ICU data file.
-    #[repr(C, align(16))]
-    struct IcuData([u8; 10631872]);
-    static ICU_DATA: IcuData = IcuData(*include_bytes!("icudtl.dat"));
-    v8::icu::set_common_data_73(&ICU_DATA.0).unwrap();
+    v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
   }
 
   let base_flags = concat!(
@@ -421,8 +409,15 @@ fn v8_init(
   };
   v8::V8::set_flags_from_string(&flags);
 
-  let v8_platform = v8_platform
-    .unwrap_or_else(|| v8::new_default_platform(0, false).make_shared());
+  let v8_platform = v8_platform.unwrap_or_else(|| {
+    if cfg!(any(test, feature = "unsafe_use_unprotected_platform")) {
+      // We want to use the unprotected platform for unit tests
+      v8::new_unprotected_default_platform(0, false)
+    } else {
+      v8::new_default_platform(0, false)
+    }
+    .make_shared()
+  });
   v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
 
@@ -989,9 +984,10 @@ impl JsRuntime {
     }
   }
 
-  pub fn inflight_stats(&self) -> RuntimeActivityStats {
-    RuntimeActivityStats {
-      op: self.inner.main_realm.0.context_state.pending_ops.stats(),
+  pub fn runtime_activity_stats_factory(&self) -> RuntimeActivityStatsFactory {
+    RuntimeActivityStatsFactory {
+      context_state: self.inner.main_realm.0.context_state.clone(),
+      op_state: self.inner.state.op_state.clone(),
     }
   }
 
