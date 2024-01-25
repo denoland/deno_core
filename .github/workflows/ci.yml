@@ -83,7 +83,7 @@ jobs:
     needs:
       - top
       - compute-jobs
-    if: ${{ needs.compute-jobs.outputs.is_tag }}
+    if: ${{ needs.compute-jobs.outputs.is_tag == true }}
     uses: ./.github/workflows/ci-job.yml
     secrets: inherit
     with:
