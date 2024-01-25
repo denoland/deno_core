@@ -14,6 +14,7 @@
     ObjectHasOwn,
     Proxy,
     setQueueMicrotask,
+    Symbol,
     SymbolFor,
     TypedArrayPrototypeGetLength,
     TypedArrayPrototypeJoin,
@@ -456,7 +457,7 @@
 
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
-    internalRidSymbol: SymbolFor("Deno.internal.rid"),
+    internalRidSymbol: Symbol("Deno.internal.rid"),
     ensureFastOps,
     resources,
     metrics,
