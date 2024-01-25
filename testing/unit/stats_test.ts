@@ -53,9 +53,8 @@ test(function testTimers() {
   assertEquals(2, diffMiddle.appeared.countTimers());
   clearTimeout(timeout);
   clearInterval(interval);
-  
+
   using statsAfter = StatsFactory.capture();
   const diff = StatsFactory.diff(statsBefore, statsAfter);
   assert(diff.empty);
-
 });
