@@ -53,9 +53,9 @@ pub struct ResourceOpenStats {
 
 pub struct TimerStats {
   pub(super) timers: Vec<usize>,
-    /// `repeats` is a bitset that reports whether a given index in the ID array
-    /// is an interval (if true) or a timer (if false).
-    pub(super) repeats: BitSet,
+  /// `repeats` is a bitset that reports whether a given index in the ID array
+  /// is an interval (if true) or a timer (if false).
+  pub(super) repeats: BitSet,
 }
 
 /// Information about in-flight ops, open resources, active timers and other runtime-specific
