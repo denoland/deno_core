@@ -130,6 +130,13 @@ where
 }
 
 pub mod v8_static_strings {
+  pub fn new<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    str_: &'static [u8],
+  ) -> v8::Local<'s, v8::String> {
+    v8::String::new_external_onebyte_static(scope, str_).unwrap()
+  }
+
   pub static DENO: &[u8] = b"Deno";
   pub static CORE: &[u8] = b"core";
   pub static OPS: &[u8] = b"ops";
