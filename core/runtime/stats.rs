@@ -147,6 +147,10 @@ impl RuntimeActivity {
   }
 }
 
+/// A data-less discriminant for [`RuntimeActivity`].
+#[derive(
+  Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize,
+)]
 pub enum RuntimeActivityType {
   AsyncOp,
   Resource,
