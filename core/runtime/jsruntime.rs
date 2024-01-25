@@ -1079,7 +1079,7 @@ impl JsRuntime {
         let mod_id = module_map
           .new_synthetic_module(
             scope,
-            FastString::StaticAscii("ext:core/ops".into()),
+            FastString::StaticAscii("ext:core/ops"),
             crate::ModuleType::JavaScript,
             synthetic_module_exports,
           )

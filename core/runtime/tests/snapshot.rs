@@ -3,6 +3,7 @@ use crate::extensions::Op;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::modules::TestingModuleLoader;
+use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
