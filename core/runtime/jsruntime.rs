@@ -280,6 +280,10 @@ pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
 pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   include_js_files!(core "mod.js",);
 
+/// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
+#[cfg(test)]
+pub(crate) const NO_OF_BUILTIN_MODULES: usize = 2;
+
 /// A single execution context of JavaScript. Corresponds roughly to the "Web
 /// Worker" concept in the DOM.
 ///
@@ -1075,7 +1079,7 @@ impl JsRuntime {
         let mod_id = module_map
           .new_synthetic_module(
             scope,
-            FastString::Owned("ext:core/ops".into()),
+            FastString::StaticAscii("ext:core/ops".into()),
             crate::ModuleType::JavaScript,
             synthetic_module_exports,
           )
