@@ -38,7 +38,7 @@ export class DenoWorkspace {
   /** Gets the deno_core dependency crates that should be published. */
   getDenoCoreDependencyCrates() {
     return this.getDenoCoreCrate()
-      .immediateDependenciesInRepo().map((c) => c.crate);
+      .immediateDependenciesInRepo().map(c => c.crate);
   }
 
   getDenoCoreCrate() {

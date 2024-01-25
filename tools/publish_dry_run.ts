@@ -14,8 +14,7 @@ for (const crate of workspace.getDenoCoreDependencyCrates()) {
 }
 
 // We have the crates in the correct publish order here
-const cratesInOrder = repo.getCratesPublishOrder().map((c) => allCrates[c.name])
-  .filter((c) => !!c);
+const cratesInOrder = repo.getCratesPublishOrder().map(c => allCrates[c.name]).filter(c => !!c);
 
 for (const crate of cratesInOrder) {
   await crate.increment("minor");
@@ -32,14 +31,10 @@ Deno.writeTextFileSync(DenoWorkspace.manifest, manifest);
 
 for (const crate of cratesInOrder) {
   await crate.publish(
-    "-p",
-    crate.name,
-    "--allow-dirty",
-    "--registry",
-    "upstream",
-    "--token",
-    "Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD",
-    "--config",
-    'registries.upstream.index="sparse+http://localhost:8000/api/v1/crates/"',
+    "-p", crate.name,
+    "--allow-dirty", 
+    "--registry", "upstream",
+    "--token", "Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD", 
+    "--config", 'registries.upstream.index="sparse+http://localhost:8000/api/v1/crates/"'
   );
 }
