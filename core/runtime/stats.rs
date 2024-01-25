@@ -78,8 +78,11 @@ impl RuntimeActivityStats {
   /// Capture the data within this [`RuntimeActivityStats`] as a [`RuntimeActivitySnapshot`]
   /// with details of activity.
   pub fn dump(&self) -> RuntimeActivitySnapshot {
-    let mut v =
-      Vec::with_capacity(self.op.ops.len() + self.resources.resources.len());
+    let mut v = Vec::with_capacity(
+      self.op.ops.len()
+        + self.resources.resources.len()
+        + self.timers.timers.len(),
+    );
     let ops = self.context_state.op_ctxs.borrow();
     for op in self.op.ops.iter() {
       v.push(RuntimeActivity::AsyncOp(
