@@ -64,9 +64,7 @@ impl RuntimeActivityStatsFilter {
       include_timers,
       op_filter: _,
     } = self;
-    !(*include_ops)
-      && !(*include_resources)
-      && !(*include_timers)
+    !(*include_ops) && !(*include_resources) && !(*include_timers)
   }
 }
 
