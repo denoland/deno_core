@@ -863,7 +863,7 @@ pub enum ArgError {
   NotAllowedInThisPosition(String),
   #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
   InvalidDenoCorePrefix(String, String, String),
-  #[error("Expected reference. Try changing to `&{0}`.")]
+  #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
   ExpectedCppGcReference(String),
   #[error("Invalid cppgc type '{0}'")]
   InvalidCppGcType(String),
