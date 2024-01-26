@@ -24,7 +24,6 @@ use super::signature::Strings;
 use super::signature::WasmMemorySource;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
-use crate::op2::signature::stringify_token;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -507,12 +506,11 @@ pub fn from_arg(
         };
       }
     }
-    Arg::Special(Special::CppGcResource(ty)) => {
-      let throw_exception = throw_type_error(
-        generator_state,
-        format!("expected {}", stringify_token(ty)),
-      )?;
-
+    Arg::CppGcResource(ty) => {
+      let throw_exception =
+        throw_type_error(generator_state, format!("expected {}", &ty))?;
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       quote! {
         let #arg_ident = #arg_ident.try_into().unwrap();
         let Some(#arg_ident) = deno_core::cppgc::unwrap_cppgc_object::<#ty>(#arg_ident) else {

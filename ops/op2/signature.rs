@@ -145,7 +145,6 @@ pub enum Special {
   JsRuntimeState,
   FastApiCallbackOptions,
   Isolate,
-  CppGcResource(syn::Path),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -277,6 +276,7 @@ pub enum Arg {
   SerdeV8(String),
   State(RefType, String),
   OptionState(RefType, String),
+  CppGcResource(String),
   WasmMemory(RefType, WasmMemorySource),
   OptionWasmMemory(RefType, WasmMemorySource),
 }
@@ -1375,6 +1375,18 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
+fn parse_cppgc(ty: &Type) -> Result<Arg, ArgError> {
+  match ty {
+    Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
+      Type::Path(of) => {
+        return Ok(Arg::CppGcResource(stringify_token(&of.path)));
+      }
+      _ => return Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+    },
+    _ => return Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+  }
+}
+
 pub(crate) fn parse_type(
   position: Position,
   attrs: Attributes,
@@ -1385,15 +1397,7 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.primary {
     match primary {
-      AttributeModifier::CppGcResource => match ty {
-        Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
-          Type::Path(of) => {
-            return Ok(Arg::Special(Special::CppGcResource(of.path.clone())));
-          }
-          _ => return Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-        },
-        _ => return Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
-      },
+      AttributeModifier::CppGcResource => return parse_cppgc(ty),
       AttributeModifier::Serde => match ty {
         Type::Tuple(of) => {
           return Ok(Arg::SerdeV8(stringify_token(of)));
