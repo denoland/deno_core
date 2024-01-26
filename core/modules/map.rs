@@ -23,6 +23,7 @@ use crate::runtime::JsRealm;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::JsRuntime;
+use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
 use anyhow::bail;
@@ -1536,11 +1537,14 @@ impl ModuleMap {
     }
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
-    let source = futures::executor::block_on(async {
-      loader
-        .load(&specifier, None, false, RequestedModuleType::None)
-        .await
-    })?;
+
+    let load_response =
+      loader.load(&specifier, None, false, RequestedModuleType::None);
+
+    let source = match load_response {
+      ModuleLoadResponse::Sync(result) => result,
+      ModuleLoadResponse::Async(fut) => futures::executor::block_on(fut),
+    }?;
 
     self.lazy_load_es_module_from_code(
       scope,

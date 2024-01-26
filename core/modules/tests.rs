@@ -19,7 +19,6 @@ use crate::runtime::JsRuntimeForSnapshot;
 use crate::FastString;
 use crate::ModuleCodeString;
 use crate::ModuleSource;
-use crate::ModuleSourceFuture;
 use crate::ModuleSpecifier;
 use crate::ModuleType;
 use crate::ResolutionKind;
@@ -242,11 +241,13 @@ impl ModuleLoader for MockLoader {
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     let mut loads = self.loads.lock();
     loads.push(module_specifier.to_string());
     let url = module_specifier.to_string();
-    DelayedSourceCodeFuture { url, counter: 0 }.boxed()
+    ModuleLoadResponse::Async(
+      DelayedSourceCodeFuture { url, counter: 0 }.boxed(),
+    )
   }
 }
 
@@ -1543,7 +1544,7 @@ async fn no_duplicate_loads() {
       _maybe_referrer: Option<&ModuleSpecifier>,
       _is_dyn_import: bool,
       _requested_module_type: RequestedModuleType,
-    ) -> Pin<Box<ModuleSourceFuture>> {
+    ) -> ModuleLoadResponse {
       let found_specifier =
         if module_specifier.as_str() == "https://example.com/foo.js" {
           Some("https://example.com/v1/foo.js".to_string())
@@ -1574,7 +1575,7 @@ async fn no_duplicate_loads() {
         module_url_specified: module_specifier.clone().into(),
         module_url_found: found_specifier.map(|s| s.into()),
       };
-      async move { Ok(module_source) }.boxed_local()
+      ModuleLoadResponse::Async(async move { Ok(module_source) }.boxed_local())
     }
   }
 

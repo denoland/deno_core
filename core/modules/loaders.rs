@@ -15,7 +15,6 @@ use crate::ModuleSourceCode;
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Error;
-use futures::future::ready;
 use futures::future::FutureExt;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -23,6 +22,11 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+
+pub enum ModuleLoadResponse {
+  Sync(Result<ModuleSource, Error>),
+  Async(Pin<Box<ModuleSourceFuture>>),
+}
 
 pub trait ModuleLoader {
   /// Returns an absolute URL.
@@ -52,7 +56,7 @@ pub trait ModuleLoader {
     maybe_referrer: Option<&ModuleSpecifier>,
     is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>>;
+  ) -> ModuleLoadResponse;
 
   /// This hook can be used by implementors to do some preparation
   /// work before starting loading of modules.
@@ -92,7 +96,7 @@ impl ModuleLoader for NoopModuleLoader {
     maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     let maybe_referrer = maybe_referrer
       .map(|s| s.as_str())
       .unwrap_or("(no referrer)");
@@ -101,7 +105,7 @@ impl ModuleLoader for NoopModuleLoader {
         "Module loading is not supported; attempted to load: \"{module_specifier}\" from \"{maybe_referrer}\"",
       )
     );
-    async move { Err(err) }.boxed_local()
+    ModuleLoadResponse::Sync(Err(err))
   }
 }
 
@@ -147,28 +151,28 @@ impl ModuleLoader for ExtModuleLoader {
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     let sources = self.sources.borrow();
     let source = match sources.get(specifier.as_str()) {
       Some(source) => source,
-      None => return futures::future::err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier)).boxed_local(),
+      None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier))),
     };
     self
       .used_specifiers
       .borrow_mut()
       .insert(specifier.to_string());
     let result = source.load();
-    match result {
+    ModuleLoadResponse::Sync(match result {
       Ok(code) => {
         let res = ModuleSource::new(
           ModuleType::JavaScript,
           ModuleSourceCode::String(code),
           specifier,
         );
-        return futures::future::ok(res).boxed_local();
+        Ok(res)
       }
-      Err(err) => return futures::future::err(err).boxed_local(),
-    }
+      Err(err) => Err(err),
+    })
   }
 
   fn prepare_load(
@@ -212,24 +216,25 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     let sources = self.sources.borrow();
     let source = match sources.get(specifier.as_str()) {
       Some(source) => source,
-      None => return futures::future::err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the binary.", specifier)).boxed_local(),
+      None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the binary.", specifier))),
     };
     let result = source.load();
-    match result {
+
+    ModuleLoadResponse::Sync(match result {
       Ok(code) => {
         let res = ModuleSource::new(
           ModuleType::JavaScript,
           ModuleSourceCode::String(code),
           specifier,
         );
-        return futures::future::ok(res).boxed_local();
+        Ok(res)
       }
-      Err(err) => return futures::future::err(err).boxed_local(),
-    }
+      Err(err) => Err(err),
+    })
   }
 
   fn prepare_load(
@@ -288,9 +293,9 @@ impl ModuleLoader for FsModuleLoader {
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dynamic: bool,
     requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
-    async move {
+    let fut = async move {
       let path = module_specifier.to_file_path().map_err(|_| {
         generic_error(format!(
           "Provided module specifier \"{module_specifier}\" is not a file URL."
@@ -331,7 +336,9 @@ impl ModuleLoader for FsModuleLoader {
       );
       Ok(module)
     }
-    .boxed_local()
+    .boxed_local();
+
+    ModuleLoadResponse::Async(fut)
   }
 }
 
@@ -377,7 +384,7 @@ impl ModuleLoader for StaticModuleLoader {
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     let res = if let Some(code) = self.map.get(module_specifier) {
       Ok(ModuleSource::new(
         ModuleType::JavaScript,
@@ -387,7 +394,7 @@ impl ModuleLoader for StaticModuleLoader {
     } else {
       Err(generic_error("Module not found"))
     };
-    ready(res).boxed_local()
+    ModuleLoadResponse::Sync(res)
   }
 }
 
@@ -458,7 +465,7 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     maybe_referrer: Option<&ModuleSpecifier>,
     is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
     self.loader.load(
