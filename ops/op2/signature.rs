@@ -865,7 +865,7 @@ pub enum ArgError {
   InvalidDenoCorePrefix(String, String, String),
   #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
   ExpectedCppGcReference(String),
-  #[error("Invalid cppgc type '{0}'")]
+  #[error("Invalid #[cppgc] type '{0}'")]
   InvalidCppGcType(String),
 }
 
