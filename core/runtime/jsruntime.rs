@@ -689,6 +689,14 @@ impl JsRuntime {
     }
     *context_state.op_ctxs.borrow_mut() = op_ctxs;
 
+    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
+    // not overwriting an existing pointer.
+    isolate = unsafe {
+      isolate_ptr.write(isolate);
+      isolate_ptr.read()
+    };
+    op_state.borrow_mut().put(isolate_ptr);
+
     let (main_context, snapshotted_data) = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
 
@@ -708,13 +716,6 @@ impl JsRuntime {
       (v8::Global::new(scope, context), snapshotted_data)
     };
 
-    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
-    // not overwriting an existing pointer.
-    isolate = unsafe {
-      isolate_ptr.write(isolate);
-      isolate_ptr.read()
-    };
-
     let mut context_scope: v8::HandleScope =
       v8::HandleScope::with_context(&mut isolate, &main_context);
     let scope = &mut context_scope;
@@ -730,7 +731,6 @@ impl JsRuntime {
 
     context.set_slot(scope, context_state.clone());
 
-    op_state.borrow_mut().put(isolate_ptr);
     let inspector = if options.inspector {
       Some(JsRuntimeInspector::new(scope, context, options.is_main))
     } else {
