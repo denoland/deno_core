@@ -23,8 +23,15 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
+/// Result of calling `ModuleLoader::load`.
 pub enum ModuleLoadResponse {
+  /// Source file is available synchronously - eg. embedder might have
+  /// collected all the necessary sources in `ModuleLoader::prepare_module_load`.
+  /// Slightly cheaper than `Async` as it avoids boxing.
   Sync(Result<ModuleSource, Error>),
+
+  /// Source file needs to be loaded. Requires boxing due to recrusive
+  /// nature of module loading.
   Async(Pin<Box<ModuleSourceFuture>>),
 }
 
@@ -161,18 +168,14 @@ impl ModuleLoader for ExtModuleLoader {
       .used_specifiers
       .borrow_mut()
       .insert(specifier.to_string());
-    let result = source.load();
-    ModuleLoadResponse::Sync(match result {
-      Ok(code) => {
-        let res = ModuleSource::new(
-          ModuleType::JavaScript,
-          ModuleSourceCode::String(code),
-          specifier,
-        );
-        Ok(res)
-      }
-      Err(err) => Err(err),
-    })
+    let result = source.load().map(|code| {
+      ModuleSource::new(
+        ModuleType::JavaScript,
+        ModuleSourceCode::String(code),
+        specifier,
+      )
+    });
+    ModuleLoadResponse::Sync(result)
   }
 
   fn prepare_load(
@@ -222,19 +225,14 @@ impl ModuleLoader for LazyEsmModuleLoader {
       Some(source) => source,
       None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the binary.", specifier))),
     };
-    let result = source.load();
-
-    ModuleLoadResponse::Sync(match result {
-      Ok(code) => {
-        let res = ModuleSource::new(
-          ModuleType::JavaScript,
-          ModuleSourceCode::String(code),
-          specifier,
-        );
-        Ok(res)
-      }
-      Err(err) => Err(err),
-    })
+    let result = source.load().map(|code| {
+      ModuleSource::new(
+        ModuleType::JavaScript,
+        ModuleSourceCode::String(code),
+        specifier,
+      )
+    });
+    ModuleLoadResponse::Sync(result)
   }
 
   fn prepare_load(

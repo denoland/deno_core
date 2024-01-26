@@ -1575,7 +1575,7 @@ async fn no_duplicate_loads() {
         module_url_specified: module_specifier.clone().into(),
         module_url_found: found_specifier.map(|s| s.into()),
       };
-      ModuleLoadResponse::Async(async move { Ok(module_source) }.boxed_local())
+      ModuleLoadResponse::Sync(Ok(module_source))
     }
   }
 
