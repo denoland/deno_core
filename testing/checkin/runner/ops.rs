@@ -41,7 +41,7 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
     .borrow()
     .borrow::<RuntimeActivityStatsFactory>()
     .clone();
-  let data = stats.capture(RuntimeActivityStatsFilter::all());
+  let data = stats.capture(&RuntimeActivityStatsFilter::all());
   let mut state = state.borrow_mut();
   let test_data = state.borrow_mut::<TestData>();
   test_data.insert(name, data);
