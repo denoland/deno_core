@@ -2,6 +2,7 @@
 use super::op_driver::OpDriver;
 use super::op_driver::OpInflightStats;
 use super::ContextState;
+use crate::OpId;
 use crate::OpState;
 use crate::PromiseId;
 use crate::ResourceId;
@@ -17,11 +18,12 @@ pub struct RuntimeActivityStatsFactory {
 }
 
 /// Selects the statistics that you are interested in capturing.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct RuntimeActivityStatsFilter {
   include_timers: bool,
   include_ops: bool,
   include_resources: bool,
+  op_filter: BitSet,
 }
 
 impl RuntimeActivityStatsFilter {
@@ -30,6 +32,7 @@ impl RuntimeActivityStatsFilter {
       include_ops: true,
       include_resources: true,
       include_timers: true,
+      op_filter: BitSet::default(),
     }
   }
 
@@ -48,15 +51,28 @@ impl RuntimeActivityStatsFilter {
     self
   }
 
+  pub fn omit_op(mut self, op: OpId) -> Self {
+    self.op_filter.insert(op as _);
+    self
+  }
+
   pub fn is_empty(&self) -> bool {
-    *self == Self::default()
+    // This ensures we don't miss a newly-added field in the empty comparison
+    let Self {
+      include_ops,
+      include_resources,
+      include_timers,
+      op_filter: _,
+    } = self;
+    !(*include_ops) && !(*include_resources) && !(*include_timers)
   }
 }
 
 impl RuntimeActivityStatsFactory {
+  /// Capture the current runtime activity.
   pub fn capture(
     self,
-    filter: RuntimeActivityStatsFilter,
+    filter: &RuntimeActivityStatsFilter,
   ) -> RuntimeActivityStats {
     let resources = if filter.include_resources {
       let res = &self.op_state.borrow().resource_table;
@@ -91,7 +107,7 @@ impl RuntimeActivityStatsFactory {
     };
 
     let ops = if filter.include_ops {
-      self.context_state.pending_ops.stats()
+      self.context_state.pending_ops.stats(&filter.op_filter)
     } else {
       OpInflightStats::default()
     };
@@ -131,7 +147,7 @@ pub struct RuntimeActivityStats {
 #[derive(Debug, Serialize)]
 pub enum RuntimeActivity {
   /// An async op, including the promise ID and op name.
-  AsyncOp(PromiseId, String),
+  AsyncOp(PromiseId, &'static str),
   /// A resource, including the resource ID and name.
   Resource(ResourceId, String),
   /// A timer, including the timer ID.
@@ -173,10 +189,7 @@ impl RuntimeActivityStats {
     );
     let ops = self.context_state.op_ctxs.borrow();
     for op in self.ops.ops.iter() {
-      v.push(RuntimeActivity::AsyncOp(
-        op.0,
-        ops[op.1 as usize].decl.name.to_owned(),
-      ));
+      v.push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
     }
     for resource in self.resources.resources.iter() {
       v.push(RuntimeActivity::Resource(resource.0, resource.1.clone()))
@@ -205,19 +218,15 @@ impl RuntimeActivityStats {
         // continuing op
       } else {
         // before, but not after
-        disappeared.push(RuntimeActivity::AsyncOp(
-          op.0,
-          ops[op.1 as usize].decl.name.to_owned(),
-        ));
+        disappeared
+          .push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
       }
     }
     for op in after.ops.ops.iter() {
       if a.contains(op.0 as usize) {
         // after but not before
-        appeared.push(RuntimeActivity::AsyncOp(
-          op.0,
-          ops[op.1 as usize].decl.name.to_owned(),
-        ));
+        appeared
+          .push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
       }
     }
 
