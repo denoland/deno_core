@@ -22,23 +22,36 @@ jobs:
   compute-jobs:
     runs-on: ubuntu-latest
     outputs:
-      # If we're not running in the denoland repo, or we're building on a tag, use the 'nop' matrix
-      # that runs a single, no-op job
+      # If we're not running in the denoland repo, use the 'nop' matrix that runs a single, no-op job
       matrix: |
-        ${{ (github.repository == 'denoland/deno_core' && !startsWith(github.ref, 'refs/tags/')) 
-          && steps.read-jobs.outputs.matrix 
-          || '[{ "label": "linux", "os": "ubuntu-latest", "job": "nop" }]' }}
+        ${{
+          steps.read-jobs-fast.outputs.matrix 
+          || steps.read-jobs-pr.outputs.matrix 
+          || steps.read-jobs-tag.outputs.matrix 
+          || '{ "label": "linux", "os": "ubuntu-latest", "job": "nop" }'
+        }}
       is_tag: ${{ github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/') }}
       is_main: ${{ github.repository == 'denoland/deno_core' && github.ref == 'refs/heads/main' }}
     steps:
       # https://github.com/marketplace/actions/query-yaml-config-as-outputs
-      - name: Read job configuration
+      # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
+      # matrix below
+      # Test this using jq/yq: cat config.yaml | yq -o json | jq
+      - name: Read job configuration (PR/main fast-build)
         uses: cloudposse/github-action-yaml-config-query@main
-        id: read-jobs
+        id: read-jobs-fast
+        if: github.repository == 'denoland/deno_core' && contains(github.event.pull_request.labels.*.name, 'fast-build') && (!startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main')
         with:
-          # Extract the jobs, then combine them with the os/uses line to build an array of 'includes' lines for the
-          # matrix below
-          # Test this using jq/yq: cat config.yaml | yq -o json | jq
+          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
+          config: |-
+            linux:
+              os: ubuntu-latest
+              jobs: [lint, test]
+      - name: Read job configuration (PR/main)
+        uses: cloudposse/github-action-yaml-config-query@main
+        id: read-jobs-pr
+        if: github.repository == 'denoland/deno_core' && (!startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main')
+        with:
           query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
           config: |-
             linux:
@@ -50,6 +63,16 @@ jobs:
             windows:
               os: windows-2019
               jobs: [lint, test]
+      - name: Read job configuration (tag)
+        uses: cloudposse/github-action-yaml-config-query@main
+        id: read-jobs-tag
+        if: github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/')
+        with:
+          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
+          config: |-
+            linux:
+              os: ubuntu-latest
+              jobs: [publish]
 
   # This job is responsible for coordinating the execution of individual jobs defined in `ci-job.yml` based on the matrix generated
   # by `compute-jobs`. It acts as the orchestrator for the overall CI workflow.
@@ -75,20 +98,3 @@ jobs:
     steps:
       - name: Print success
         run: echo Success ✅
-
-  # In the case of a tag build, run the publish step.
-  # TODO(mmastrac): this should actually be generated as part of the matrix.
-  publish:
-    name: publish
-    needs:
-      - top
-      - compute-jobs
-    if: needs.compute-jobs.outputs.is_tag == true
-    uses: ./.github/workflows/ci-job.yml
-    secrets: inherit
-    with:
-      label: linux
-      os: ubuntu-latest
-      job: publish
-      is_main: ${{ needs.compute-jobs.outputs.is_main == true }}
-      is_tag: ${{ needs.compute-jobs.outputs.is_tag == true }}
