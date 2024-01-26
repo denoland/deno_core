@@ -74,7 +74,7 @@ impl RuntimeActivityStatsFactory {
   /// Capture the current runtime activity.
   pub fn capture(
     self,
-    filter: RuntimeActivityStatsFilter,
+    filter: &RuntimeActivityStatsFilter,
   ) -> RuntimeActivityStats {
     let resources = if filter.include_resources {
       let res = &self.op_state.borrow().resource_table;
