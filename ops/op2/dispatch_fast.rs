@@ -719,8 +719,7 @@ fn map_v8_fastcall_arg_to_arg(
 
       *needs_fast_api_callback_options = true;
       quote! {
-        let #arg_ident = #arg_ident.try_into().unwrap();
-        let Some(#arg_ident) = deno_core::cppgc::unwrap_cppgc_object::<#ty>(#arg_ident) else {
+        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
             #fast_api_callback_options.fallback = true;
             // SAFETY: All fast return types have zero as a valid value
             return unsafe { std::mem::zeroed() };

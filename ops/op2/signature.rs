@@ -1378,12 +1378,10 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
 fn parse_cppgc(ty: &Type) -> Result<Arg, ArgError> {
   match ty {
     Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
-      Type::Path(of) => {
-        return Ok(Arg::CppGcResource(stringify_token(&of.path)));
-      }
-      _ => return Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+      Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
     },
-    _ => return Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+    _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
   }
 }
 

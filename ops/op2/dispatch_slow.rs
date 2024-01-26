@@ -512,8 +512,7 @@ pub fn from_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       quote! {
-        let #arg_ident = #arg_ident.try_into().unwrap();
-        let Some(#arg_ident) = deno_core::cppgc::unwrap_cppgc_object::<#ty>(#arg_ident) else {
+        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
           #throw_exception;
         };
       }

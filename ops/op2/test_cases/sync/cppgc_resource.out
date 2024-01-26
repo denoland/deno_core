@@ -75,9 +75,9 @@ impl op_file {
         );
         let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
         let result = {
-            let arg0 = arg0.try_into().unwrap();
-            let Some(arg0) = deno_core::cppgc::unwrap_cppgc_object::<std::fs::File>(arg0)
-            else {
+            let Some(arg0) = deno_core::cppgc::try_unwrap_cppgc_object::<
+                std::fs::File,
+            >(arg0) else {
                 fast_api_callback_options.fallback = true;
                 return unsafe { std::mem::zeroed() };
             };
@@ -99,9 +99,9 @@ impl op_file {
         });
         let result = {
             let arg0 = args.get(0usize as i32);
-            let arg0 = arg0.try_into().unwrap();
-            let Some(arg0) = deno_core::cppgc::unwrap_cppgc_object::<std::fs::File>(arg0)
-            else {
+            let Some(arg0) = deno_core::cppgc::try_unwrap_cppgc_object::<
+                std::fs::File,
+            >(arg0) else {
                 let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
                 let msg = deno_core::v8::String::new_from_one_byte(
                         &mut scope,
