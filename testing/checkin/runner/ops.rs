@@ -7,6 +7,7 @@ use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
 use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
+use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
 use deno_core::OpState;
 
@@ -40,7 +41,7 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
     .borrow()
     .borrow::<RuntimeActivityStatsFactory>()
     .clone();
-  let data = stats.capture();
+  let data = stats.capture(RuntimeActivityStatsFilter::all());
   let mut state = state.borrow_mut();
   let test_data = state.borrow_mut::<TestData>();
   test_data.insert(name, data);
