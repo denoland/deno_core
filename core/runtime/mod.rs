@@ -7,6 +7,7 @@ pub mod op_driver;
 #[doc(hidden)]
 pub mod ops;
 pub mod ops_rust_to_v8;
+mod setup;
 mod snapshot_util;
 pub mod stats;
 

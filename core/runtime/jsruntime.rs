@@ -6,6 +6,7 @@ use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
+use super::setup;
 use super::snapshot_util;
 use super::stats::RuntimeActivityStatsFactory;
 use super::SnapshottedData;
@@ -45,8 +46,6 @@ use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
 use crate::OpMiddlewareFn;
 use crate::OpState;
-use crate::V8_WRAPPER_OBJECT_INDEX;
-use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context as AnyhowContext;
@@ -68,11 +67,8 @@ use std::ops::DerefMut;
 use std::option::Option;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::Once;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -382,54 +378,6 @@ pub struct JsRuntimeState {
   has_inspector: Cell<bool>,
 }
 
-fn v8_init(
-  v8_platform: Option<v8::SharedRef<v8::Platform>>,
-  predictable: bool,
-  expose_natives: bool,
-) {
-  #[cfg(feature = "include_icu_data")]
-  {
-    v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
-  }
-
-  let base_flags = concat!(
-    " --wasm-test-streaming",
-    " --harmony-import-assertions",
-    " --harmony-import-attributes",
-    " --no-validate-asm",
-    " --turbo_fast_api_calls",
-    " --harmony-array-from_async",
-    " --harmony-iterator-helpers",
-  );
-  let predictable_flags = "--predictable --random-seed=42";
-  let expose_natives_flags = "--expose_gc --allow_natives_syntax";
-
-  #[allow(clippy::useless_format)]
-  let flags = match (predictable, expose_natives) {
-    (false, false) => format!("{base_flags}"),
-    (true, false) => format!("{base_flags} {predictable_flags}"),
-    (false, true) => format!("{base_flags} {expose_natives_flags}"),
-    (true, true) => {
-      format!("{base_flags} {predictable_flags} {expose_natives_flags}")
-    }
-  };
-  v8::V8::set_flags_from_string(&flags);
-
-  let v8_platform = v8_platform.unwrap_or_else(|| {
-    if cfg!(any(test, feature = "unsafe_use_unprotected_platform")) {
-      // We want to use the unprotected platform for unit tests
-      v8::new_unprotected_default_platform(0, false)
-    } else {
-      v8::new_default_platform(0, false)
-    }
-    .make_shared()
-  });
-  v8::V8::initialize_platform(v8_platform.clone());
-  v8::V8::initialize();
-
-  v8::cppgc::initalize_process(v8_platform);
-}
-
 #[derive(Default)]
 pub struct RuntimeOptions {
   /// Source map reference for errors.
@@ -581,7 +529,7 @@ impl JsRuntime {
   /// ignored.
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
   pub fn init_platform(v8_platform: Option<v8::SharedRef<v8::Platform>>) {
-    JsRuntime::init_v8(v8_platform, cfg!(test), false);
+    setup::init_v8(v8_platform, cfg!(test), false);
   }
 
   /// Explicitly initalizes the V8 platform using the passed platform. This
@@ -597,12 +545,12 @@ impl JsRuntime {
     v8_platform: Option<v8::SharedRef<v8::Platform>>,
     expose_natives: bool,
   ) {
-    JsRuntime::init_v8(v8_platform, cfg!(test), expose_natives);
+    setup::init_v8(v8_platform, cfg!(test), expose_natives);
   }
 
   /// Only constructor, configuration is done through `options`.
   pub fn new(mut options: RuntimeOptions) -> JsRuntime {
-    JsRuntime::init_v8(
+    setup::init_v8(
       options.v8_platform.take(),
       cfg!(test),
       options.unsafe_expose_natives_and_gc(),
@@ -631,40 +579,6 @@ impl JsRuntime {
     EventLoopPendingState::new_from_scope(scope).is_pending()
   }
 
-  fn init_v8(
-    v8_platform: Option<v8::SharedRef<v8::Platform>>,
-    predictable: bool,
-    expose_natives: bool,
-  ) {
-    static DENO_INIT: Once = Once::new();
-    static DENO_PREDICTABLE: AtomicBool = AtomicBool::new(false);
-    static DENO_PREDICTABLE_SET: AtomicBool = AtomicBool::new(false);
-
-    if DENO_PREDICTABLE_SET.load(Ordering::SeqCst) {
-      let current = DENO_PREDICTABLE.load(Ordering::SeqCst);
-      assert_eq!(current, predictable, "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both.");
-      DENO_PREDICTABLE_SET.store(true, Ordering::SeqCst);
-      DENO_PREDICTABLE.store(predictable, Ordering::SeqCst);
-    }
-
-    DENO_INIT
-      .call_once(move || v8_init(v8_platform, predictable, expose_natives));
-  }
-
-  fn init_cppgc(isolate: &mut v8::Isolate) -> v8::UniqueRef<v8::cppgc::Heap> {
-    let heap = v8::cppgc::Heap::create(
-      v8::V8::get_current_platform(),
-      v8::cppgc::HeapCreateParams::new(v8::cppgc::WrapperDescriptor::new(
-        0,
-        1,
-        crate::cppgc::DEFAULT_CPP_GC_EMBEDDER_ID,
-      )),
-    );
-
-    isolate.attach_cpp_heap(&heap);
-    heap
-  }
-
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let (op_state, ops) = Self::create_opstate(&mut options);
@@ -688,16 +602,7 @@ impl JsRuntime {
         .extend_from_slice(extension.get_external_references());
     }
 
-    let align = std::mem::align_of::<usize>();
-    let layout = std::alloc::Layout::from_size_align(
-      std::mem::size_of::<*mut v8::OwnedIsolate>(),
-      align,
-    )
-    .unwrap();
-    assert!(layout.size() > 0);
-    let isolate_ptr: *mut v8::OwnedIsolate =
-      // SAFETY: we just asserted that layout has non-0 size.
-      unsafe { std::alloc::alloc(layout) as *mut _ };
+    let isolate_ptr = setup::create_isolate_ptr();
 
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
@@ -769,70 +674,20 @@ impl JsRuntime {
       .collect::<Vec<_>>()
       .into_boxed_slice();
 
-    let refs = bindings::external_references(&op_ctxs, &additional_references);
-    // V8 takes ownership of external_references.
-    let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
+    let mut isolate = setup::create_isolate(
+      options.create_params.take(),
+      options.startup_snapshot.take(),
+      will_snapshot,
+      &op_ctxs,
+      &additional_references,
+    );
 
-    let mut isolate = if will_snapshot {
-      snapshot_util::create_snapshot_creator(
-        refs,
-        options.startup_snapshot.take(),
-      )
-    } else {
-      let mut params = options
-        .create_params
-        .take()
-        .unwrap_or_default()
-        .embedder_wrapper_type_info_offsets(
-          V8_WRAPPER_TYPE_INDEX,
-          V8_WRAPPER_OBJECT_INDEX,
-        )
-        .external_references(&**refs);
-      let has_snapshot = options.startup_snapshot.is_some();
-      if let Some(snapshot) = options.startup_snapshot.take() {
-        params = match snapshot {
-          Snapshot::Static(data) => params.snapshot_blob(data),
-          Snapshot::JustCreated(data) => params.snapshot_blob(data),
-          Snapshot::Boxed(data) => params.snapshot_blob(data),
-        };
-      }
-      static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
-      static SNAPSHOW_INIT_MUT: Mutex<()> = Mutex::new(());
-
-      // On Windows, the snapshot deserialization code appears to be crashing and we are not
-      // certain of the reason. We take a mutex the first time an isolate with a snapshot to
-      // prevent this. https://github.com/denoland/deno/issues/15590
-      if cfg!(windows)
-        && has_snapshot
-        && FIRST_SNAPSHOT_INIT.load(Ordering::SeqCst)
-      {
-        let _g = SNAPSHOW_INIT_MUT.lock().unwrap();
-        let res = v8::Isolate::new(params);
-        FIRST_SNAPSHOT_INIT.store(true, Ordering::SeqCst);
-        res
-      } else {
-        v8::Isolate::new(params)
-      }
-    };
-
-    let cpp_heap = Self::init_cppgc(&mut isolate);
+    let cpp_heap = setup::init_cppgc(&mut isolate);
 
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
     *context_state.op_ctxs.borrow_mut() = op_ctxs;
-
-    isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
-    isolate.set_promise_reject_callback(bindings::promise_reject_callback);
-    isolate.set_host_initialize_import_meta_object_callback(
-      bindings::host_initialize_import_meta_object_callback,
-    );
-    isolate.set_host_import_module_dynamically_callback(
-      bindings::host_import_module_dynamically_callback,
-    );
-    isolate.set_wasm_async_resolve_promise_callback(
-      bindings::wasm_async_resolve_promise_callback,
-    );
 
     let (main_context, snapshotted_data) = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
@@ -1962,7 +1817,7 @@ fn create_context<'a>(
 
 impl JsRuntimeForSnapshot {
   pub fn new(mut options: RuntimeOptions) -> JsRuntimeForSnapshot {
-    JsRuntime::init_v8(
+    setup::init_v8(
       options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),
