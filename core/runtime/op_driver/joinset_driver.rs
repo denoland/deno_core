@@ -5,6 +5,7 @@ use super::OpInflightStats;
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
+use bit_set::BitSet;
 use deno_unsync::JoinSet;
 use futures::task::noop_waker_ref;
 use futures::FutureExt;
@@ -155,7 +156,7 @@ impl<C: OpMappingContext> OpDriver<C> for JoinSetDriver<C> {
     self.pending_ops.borrow().len()
   }
 
-  fn stats(&self) -> OpInflightStats {
+  fn stats(&self, _op_exclusions: &BitSet) -> OpInflightStats {
     OpInflightStats::default()
   }
 }
