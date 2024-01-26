@@ -80,6 +80,7 @@ jobs:
     name: build-${{ matrix.label }}
     needs: compute-jobs
     uses: ./.github/workflows/ci-job.yml
+    secrets: inherit
     with:
       label: ${{ matrix.label }}
       os: ${{ matrix.os }}
