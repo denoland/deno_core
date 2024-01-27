@@ -1,5 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use v8::ExternalReferences;
+
 use crate::ops::OpCtx;
 use crate::Snapshot;
 use crate::V8_WRAPPER_OBJECT_INDEX;
@@ -110,18 +112,16 @@ pub fn create_isolate_ptr() -> *mut v8::OwnedIsolate {
 }
 
 pub fn create_isolate(
+  will_snapshot: bool,
   maybe_create_params: Option<v8::CreateParams>,
   maybe_startup_snapshot: Option<Snapshot>,
-  will_snapshot: bool,
-  op_ctxs: &[OpCtx],
-  additional_references: &[v8::ExternalReference<'_>],
+  external_refs: &'static v8::ExternalReferences,
 ) -> v8::OwnedIsolate {
-  let refs = bindings::external_references(op_ctxs, additional_references);
-  // V8 takes ownership of external_references.
-  let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
-
   let mut isolate = if will_snapshot {
-    snapshot_util::create_snapshot_creator(refs, maybe_startup_snapshot)
+    snapshot_util::create_snapshot_creator(
+      external_refs,
+      maybe_startup_snapshot,
+    )
   } else {
     let mut params = maybe_create_params
       .unwrap_or_default()
@@ -129,7 +129,7 @@ pub fn create_isolate(
         V8_WRAPPER_TYPE_INDEX,
         V8_WRAPPER_OBJECT_INDEX,
       )
-      .external_references(&**refs);
+      .external_references(&**external_refs);
     let has_snapshot = maybe_startup_snapshot.is_some();
     if let Some(snapshot) = maybe_startup_snapshot {
       params = match snapshot {

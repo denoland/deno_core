@@ -22,10 +22,10 @@ use crate::runtime::JsRealm;
 use crate::FastString;
 use crate::JsRuntime;
 
-pub(crate) fn external_references(
+pub(crate) fn create_external_references(
   ops: &[OpCtx],
   additional_references: &[v8::ExternalReference],
-) -> v8::ExternalReferences {
+) -> &'static v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references =
     Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
@@ -89,6 +89,9 @@ pub(crate) fn external_references(
   let refs = v8::ExternalReferences::new(&references);
   // Leak, V8 takes ownership of the references.
   std::mem::forget(references);
+
+  // V8 takes ownership of external_references.
+  let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
   refs
 }
 

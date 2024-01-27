@@ -614,12 +614,12 @@ impl JsRuntime {
       wait_for_inspector_disconnect_callback: options
         .wait_for_inspector_disconnect_callback,
       op_state: op_state.clone(),
-      // Some fields are initialized later after isolate is created
-      inspector: None.into(),
-      has_inspector: false.into(),
       validate_import_attributes_cb: options.validate_import_attributes_cb,
       custom_module_evaluation_cb: options.custom_module_evaluation_cb,
       waker,
+      // Some fields are initialized later after isolate is created
+      inspector: None.into(),
+      has_inspector: false.into(),
     });
 
     let count = ops.len();
@@ -674,12 +674,14 @@ impl JsRuntime {
       .collect::<Vec<_>>()
       .into_boxed_slice();
 
+    let external_refs =
+      bindings::create_external_references(&op_ctxs, &additional_references);
+
     let mut isolate = setup::create_isolate(
+      will_snapshot,
       options.create_params.take(),
       options.startup_snapshot.take(),
-      will_snapshot,
-      &op_ctxs,
-      &additional_references,
+      external_refs,
     );
 
     let cpp_heap = setup::init_cppgc(&mut isolate);
