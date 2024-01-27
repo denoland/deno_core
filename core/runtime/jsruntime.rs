@@ -791,14 +791,18 @@ impl JsRuntime {
       allocations: IsolateAllocations::default(),
       // TODO(bartlomieju): at this point extensions have only JS/ESM sources left;
       // probably worth to add a dedicated struct to represent that.
-      extensions,
+      extensions: vec![],
       is_main_runtime: options.is_main,
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
     js_runtime
-      .init_extension_js()
+      .init_extension_js(&mut extensions)
       .expect("Failed to evaluate extension JS");
+
+    // TODO(bartlomieju): clean this up - we shouldn't need to store extensions
+    // on the `js_runtime` as they are mutable.
+    js_runtime.extensions = extensions;
 
     // If the embedder has requested to clear the module map resulting from
     // extensions, possibly with exceptions.
@@ -891,7 +895,10 @@ impl JsRuntime {
   }
 
   /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(&mut self) -> Result<(), Error> {
+  fn init_extension_js(
+    &mut self,
+    extensions: &mut [Extension],
+  ) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
@@ -901,12 +908,8 @@ impl JsRuntime {
     let realm = JsRealm::clone(&self.inner.main_realm);
     let context_global = realm.context();
     let module_map = realm.0.module_map();
-
-    // Take extensions temporarily so we can avoid have a mutable reference to self
-    let extensions = std::mem::take(&mut self.extensions);
-
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
+    let ext_loader = Rc::new(ExtModuleLoader::new(extensions));
     *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
@@ -966,7 +969,7 @@ impl JsRuntime {
       }
       self.init_cbs(&realm);
 
-      for extension in &extensions {
+      for extension in extensions {
         // If the extension provides "lazy loaded ES modules" then store them
         // on the ModuleMap.
         module_map
@@ -1042,7 +1045,6 @@ impl JsRuntime {
       Ok::<_, anyhow::Error>(())
     })?;
 
-    self.extensions = extensions;
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
 
