@@ -31,7 +31,6 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleMapSnapshottedData;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
-use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
@@ -582,7 +581,7 @@ impl JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let mut op_state = OpState::new(options.feature_checker.take());
     let mut deno_core_ext = crate::ops_builtin::core::init_ops();
-    let ops =
+    let op_decls =
       extension_set::init_ops(&mut deno_core_ext, &mut options.extensions);
     extension_set::setup_op_state(
       &mut op_state,
@@ -630,15 +629,15 @@ impl JsRuntime {
       has_inspector: false.into(),
     });
 
-    let count = ops.len();
-    let op_metrics_fns = ops
+    let op_count = op_decls.len();
+    let op_metrics_fns = op_decls
       .iter()
       .enumerate()
       .map(|(id, decl)| {
         options
           .op_metrics_factory_fn
           .as_ref()
-          .and_then(|f| (f)(id as _, count, decl))
+          .and_then(|f| (f)(id as _, op_count, decl))
       })
       .collect::<Vec<_>>();
     let ops_with_metrics = op_metrics_fns
@@ -663,24 +662,18 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    let mut op_ctxs = ops
-      .into_iter()
-      .enumerate()
-      .zip(op_metrics_fns)
-      .map(|((id, decl), metrics_fn)| {
-        OpCtx::new(
-          id as _,
-          std::ptr::null_mut(),
-          context_state.clone(),
-          Rc::new(decl),
-          op_state.clone(),
-          state_rc.clone(),
-          options.get_error_class_fn.unwrap_or(&|_| "Error"),
-          metrics_fn,
-        )
-      })
-      .collect::<Vec<_>>()
-      .into_boxed_slice();
+    let mut op_ctxs = {
+      let get_error_class_fn =
+        options.get_error_class_fn.unwrap_or(&|_| "Error");
+      extension_set::create_op_ctxs(
+        op_decls,
+        op_metrics_fns,
+        context_state.clone(),
+        op_state.clone(),
+        state_rc.clone(),
+        get_error_class_fn,
+      )
+    };
 
     let external_refs =
       bindings::create_external_references(&op_ctxs, &additional_references);

@@ -1,10 +1,18 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::extensions::Extension;
 use crate::extensions::OpMiddlewareFn;
+use crate::ops::OpCtx;
+use crate::runtime::ContextState;
+use crate::runtime::JsRuntimeState;
+use crate::GetErrorClassFn;
 use crate::OpDecl;
+use crate::OpMetricsEvent;
+use crate::OpMetricsSource;
 use crate::OpState;
 
 /// Contribute to the `OpState` from each extension.
@@ -108,4 +116,34 @@ fn check_no_duplicate_op_names(ops: &[OpDecl]) {
     msg.push_str("Op names need to be unique.");
     panic!("{}", msg);
   }
+}
+
+pub type OpMetricsFn = Rc<dyn Fn(&OpCtx, OpMetricsEvent, OpMetricsSource)>;
+
+pub fn create_op_ctxs(
+  op_decls: Vec<OpDecl>,
+  op_metrics_fns: Vec<Option<OpMetricsFn>>,
+  context_state: Rc<ContextState>,
+  op_state: Rc<RefCell<OpState>>,
+  runtime_state: Rc<JsRuntimeState>,
+  get_error_class_fn: GetErrorClassFn,
+) -> Box<[OpCtx]> {
+  op_decls
+    .into_iter()
+    .enumerate()
+    .zip(op_metrics_fns)
+    .map(|((id, decl), metrics_fn)| {
+      OpCtx::new(
+        id as _,
+        std::ptr::null_mut(),
+        context_state.clone(),
+        Rc::new(decl),
+        op_state.clone(),
+        runtime_state.clone(),
+        get_error_class_fn,
+        metrics_fn,
+      )
+    })
+    .collect::<Vec<_>>()
+    .into_boxed_slice()
 }
