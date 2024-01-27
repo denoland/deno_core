@@ -72,6 +72,7 @@ pub fn init_ops(
 }
 
 /// This functions panics if any of the extensions is missing its dependencies.
+#[cfg(debug_assertions)]
 fn check_extensions_dependencies(
   deno_core_ext: &Extension,
   exts: &[Extension],
@@ -84,6 +85,7 @@ fn check_extensions_dependencies(
 }
 
 /// This function panics if there are ops with duplicate names
+#[cfg(debug_assertions)]
 fn check_no_duplicate_op_names(ops: &[OpDecl]) {
   let mut count_by_name = HashMap::new();
 
