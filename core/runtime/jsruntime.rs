@@ -580,21 +580,23 @@ impl JsRuntime {
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let mut op_state = OpState::new(options.feature_checker.take());
+
+    let mut extensions = std::mem::take(&mut options.extensions);
     let mut deno_core_ext = crate::ops_builtin::core::init_ops();
     let op_decls =
       extension_set::init_ops(&mut deno_core_ext, &mut options.extensions);
     extension_set::setup_op_state(
       &mut op_state,
       &mut deno_core_ext,
-      &mut options.extensions,
+      &mut extensions,
     );
     let (global_template_middlewares, global_object_middlewares) =
-      extension_set::get_middlewares(&mut options.extensions);
+      extension_set::get_middlewares(&mut extensions);
 
     // TODO(bartlomieju): this should be done in `extension_set` module, but
     // the lifetimes are a bit problematic
     let mut additional_references = Vec::with_capacity(16);
-    for extension in &mut options.extensions {
+    for extension in &mut extensions {
       additional_references
         .extend_from_slice(extension.get_external_references());
     }
@@ -787,7 +789,9 @@ impl JsRuntime {
       },
       init_mode,
       allocations: IsolateAllocations::default(),
-      extensions: options.extensions,
+      // TODO(bartlomieju): at this point extensions have only JS/ESM sources left;
+      // probably worth to add a dedicated struct to represent that.
+      extensions,
       is_main_runtime: options.is_main,
     };
 
