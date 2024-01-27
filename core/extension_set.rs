@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::extensions::Extension;
+use crate::extensions::GlobalObjectMiddlewareFn;
+use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpMiddlewareFn;
 use crate::ops::OpCtx;
 use crate::runtime::ContextState;
@@ -170,4 +172,27 @@ pub fn create_op_metrics_fns(
   }
 
   op_metrics_fns
+}
+
+pub fn get_middlewares(
+  extensions: &mut [Extension],
+) -> (
+  Vec<GlobalTemplateMiddlewareFn>,
+  Vec<GlobalObjectMiddlewareFn>,
+) {
+  // TODO(bartlomieju): these numbers were chosen arbitrarily. This is a very
+  // niche features and it's unlikely a lot of extensions use it.
+  let mut global_template_middlewares = Vec::with_capacity(16);
+  let mut global_object_middlewares = Vec::with_capacity(16);
+
+  for extension in extensions {
+    if let Some(middleware) = extension.get_global_template_middleware() {
+      global_template_middlewares.push(middleware);
+    }
+    if let Some(middleware) = extension.get_global_object_middleware() {
+      global_object_middlewares.push(middleware);
+    }
+  }
+
+  (global_template_middlewares, global_object_middlewares)
 }

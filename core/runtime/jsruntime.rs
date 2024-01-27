@@ -588,23 +588,13 @@ impl JsRuntime {
       &mut deno_core_ext,
       &mut options.extensions,
     );
+    let (global_template_middlewares, global_object_middlewares) =
+      extension_set::get_middlewares(&mut options.extensions);
 
-    // TODO(bartlomieju): this should be done in `extension_set` module
-    // Collect global template middleware, global object
-    // middleware, and additional ExternalReferences from extensions.
-    let mut global_template_middlewares =
-      Vec::with_capacity(options.extensions.len());
-    let mut global_object_middlewares =
-      Vec::with_capacity(options.extensions.len());
-    let mut additional_references =
-      Vec::with_capacity(options.extensions.len());
+    // TODO(bartlomieju): this should be done in `extension_set` module, but
+    // the lifetimes are a bit problematic
+    let mut additional_references = Vec::with_capacity(16);
     for extension in &mut options.extensions {
-      if let Some(middleware) = extension.get_global_template_middleware() {
-        global_template_middlewares.push(middleware);
-      }
-      if let Some(middleware) = extension.get_global_object_middleware() {
-        global_object_middlewares.push(middleware);
-      }
       additional_references
         .extend_from_slice(extension.get_external_references());
     }
