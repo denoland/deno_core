@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::extensions::Extension;
@@ -101,6 +100,8 @@ fn check_extensions_dependencies(
 /// This function panics if there are ops with duplicate names
 #[cfg(debug_assertions)]
 fn check_no_duplicate_op_names(ops: &[OpDecl]) {
+  use std::collections::HashMap;
+
   let mut count_by_name = HashMap::new();
 
   for op in ops.iter() {
