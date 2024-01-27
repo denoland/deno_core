@@ -1135,14 +1135,6 @@ impl JsRuntime {
     self.inner.state.op_state.clone()
   }
 
-  /// Returns the runtime's op names, ordered by OpId.
-  pub fn op_names(&self) -> Vec<&'static str> {
-    let main_realm = self.inner.main_realm.clone();
-    let state_rc = main_realm.0.state();
-    let ctx = state_rc.op_ctxs.borrow();
-    ctx.iter().map(|o| o.decl.name).collect()
-  }
-
   /// Executes traditional JavaScript code (traditional = not ES modules).
   ///
   /// The execution takes place on the current main realm, so it is possible
