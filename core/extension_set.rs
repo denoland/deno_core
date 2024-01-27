@@ -7,6 +7,7 @@ use crate::extensions::OpMiddlewareFn;
 use crate::OpDecl;
 use crate::OpState;
 
+/// Contribute to the `OpState` from each extension.
 pub fn setup_op_state(
   op_state: &mut OpState,
   deno_core_ext: &mut Extension,

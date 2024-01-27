@@ -874,6 +874,7 @@ impl JsRuntime {
     }
   }
 
+  // TODO(bartlomieju): this method probably be public to the crate
   /// Returns the extensions that this runtime is using (including internal ones).
   pub fn extensions(&self) -> &Vec<Extension> {
     &self.extensions
