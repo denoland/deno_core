@@ -42,7 +42,6 @@ pub fn init_ops(
   #[cfg(debug_assertions)]
   check_extensions_dependencies(deno_core_ext, extensions);
 
-  // TODO(bartlomieju)
   let no_of_ops = extensions
     .iter()
     .map(|e| e.op_count())
