@@ -5,26 +5,38 @@ use std::collections::HashMap;
 use crate::extensions::Extension;
 use crate::extensions::OpMiddlewareFn;
 use crate::OpDecl;
+use crate::OpState;
+
+pub fn setup_op_state(
+  op_state: &mut OpState,
+  deno_core_ext: &mut Extension,
+  extensions: &mut [Extension],
+) {
+  deno_core_ext.take_state(op_state);
+  for ext in extensions {
+    ext.take_state(op_state);
+  }
+}
 
 /// Collects ops from extensions & applies middleware
-pub fn init_ops_from_extensions(
+pub fn init_ops(
   deno_core_ext: &mut Extension,
-  exts: &mut [Extension],
+  extensions: &mut [Extension],
 ) -> Vec<OpDecl> {
   // In debug build verify there that inter-Extension dependencies
   // are setup correctly.
   #[cfg(debug_assertions)]
-  check_extensions_dependencies(deno_core_ext, exts);
+  check_extensions_dependencies(deno_core_ext, extensions);
 
   // TODO(bartlomieju)
-  let no_of_ops = exts
+  let no_of_ops = extensions
     .iter()
     .map(|e| e.op_count())
     .fold(0, |ext_ops_count, count| count + ext_ops_count);
   let mut ops = Vec::with_capacity(no_of_ops + deno_core_ext.op_count());
 
   // Collect all middlewares - deno_core extension must not have a middleware!
-  let middlewares: Vec<Box<OpMiddlewareFn>> = exts
+  let middlewares: Vec<Box<OpMiddlewareFn>> = extensions
     .iter_mut()
     .filter_map(|e| e.take_middleware())
     .collect();
@@ -41,7 +53,7 @@ pub fn init_ops_from_extensions(
     });
   }
 
-  for ext in exts.iter_mut() {
+  for ext in extensions.iter_mut() {
     let ext_ops = ext.init_ops();
     for ext_op in ext_ops {
       ops.push(OpDecl {

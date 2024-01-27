@@ -17,7 +17,6 @@ use crate::error::JsError;
 use crate::extension_set;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
-use crate::extensions::OpDecl;
 use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
@@ -582,8 +581,12 @@ impl JsRuntime {
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let mut op_state = OpState::new(options.feature_checker.take());
-    let ops = Self::create_op_decls_and_setup_op_state_from_extensions(
+    let mut deno_core_ext = crate::ops_builtin::core::init_ops();
+    let ops =
+      extension_set::init_ops(&mut deno_core_ext, &mut options.extensions);
+    extension_set::setup_op_state(
       &mut op_state,
+      &mut deno_core_ext,
       &mut options.extensions,
     );
 
@@ -1055,26 +1058,6 @@ impl JsRuntime {
     *module_map.loader.borrow_mut() = loader;
 
     Ok(())
-  }
-
-  // TODO(bartlomieju): this function does too much and should be split into
-  // smaller functions.
-  /// Initializes ops of provided Extensions
-  fn create_op_decls_and_setup_op_state_from_extensions(
-    op_state: &mut OpState,
-    extensions: &mut Vec<Extension>,
-  ) -> Vec<OpDecl> {
-    let ops = extension_set::init_ops_from_extensions(
-      &mut crate::ops_builtin::core::init_ops(),
-      extensions,
-    );
-
-    // Setup state
-    for e in extensions {
-      e.take_state(op_state);
-    }
-
-    ops
   }
 
   pub fn eval<'s, T>(
