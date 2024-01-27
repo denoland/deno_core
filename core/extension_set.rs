@@ -128,22 +128,25 @@ pub fn create_op_ctxs(
   runtime_state: Rc<JsRuntimeState>,
   get_error_class_fn: GetErrorClassFn,
 ) -> Box<[OpCtx]> {
-  op_decls
-    .into_iter()
-    .enumerate()
-    .zip(op_metrics_fns)
-    .map(|((id, decl), metrics_fn)| {
-      OpCtx::new(
-        id as _,
-        std::ptr::null_mut(),
-        context_state.clone(),
-        Rc::new(decl),
-        op_state.clone(),
-        runtime_state.clone(),
-        get_error_class_fn,
-        metrics_fn,
-      )
-    })
-    .collect::<Vec<_>>()
-    .into_boxed_slice()
+  let mut op_ctxs = Vec::with_capacity(op_decls.len());
+
+  // TODO(bartlomieju): try to flatten it
+  for ((index, decl), metrics_fn) in
+    op_decls.into_iter().enumerate().zip(op_metrics_fns)
+  {
+    let op_ctx = OpCtx::new(
+      index as _,
+      std::ptr::null_mut(),
+      context_state.clone(),
+      Rc::new(decl),
+      op_state.clone(),
+      runtime_state.clone(),
+      get_error_class_fn,
+      metrics_fn,
+    );
+
+    op_ctxs.push(op_ctx);
+  }
+
+  op_ctxs.into_boxed_slice()
 }
