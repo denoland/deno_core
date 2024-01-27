@@ -629,7 +629,10 @@ impl JsRuntime {
       has_inspector: false.into(),
     });
 
-    let op_metrics_fns = extension_set::get_op_metrics_fns(
+    // TODO(bartlomieju): clean this up, there must be a smarter way to generate these functions,
+    // maybe an explicit method on `ContextState` that gets list of `OpCtx`, assigns it and
+    // generates necessary functions?
+    let op_metrics_fns = extension_set::create_op_metrics_fns(
       &op_decls,
       options.op_metrics_factory_fn,
     );
@@ -645,6 +648,7 @@ impl JsRuntime {
       ops_with_metrics,
     ));
 
+    // TODO(bartlomieju): factor out
     // Add the task spawners to the OpState
     let spawner = context_state
       .task_spawner_factory

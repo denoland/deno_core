@@ -155,7 +155,7 @@ pub fn create_op_ctxs(
   op_ctxs.into_boxed_slice()
 }
 
-pub fn get_op_metrics_fns(
+pub fn create_op_metrics_fns(
   op_decls: &[OpDecl],
   maybe_op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
 ) -> Vec<Option<OpMetricsFn>> {
