@@ -12,6 +12,7 @@ use crate::runtime::JsRuntimeState;
 use crate::GetErrorClassFn;
 use crate::OpDecl;
 use crate::OpMetricsEvent;
+use crate::OpMetricsFactoryFn;
 use crate::OpMetricsSource;
 use crate::OpState;
 
@@ -152,4 +153,21 @@ pub fn create_op_ctxs(
   }
 
   op_ctxs.into_boxed_slice()
+}
+
+pub fn get_op_metrics_fns(
+  op_decls: &[OpDecl],
+  maybe_op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
+) -> Vec<Option<OpMetricsFn>> {
+  let op_count = op_decls.len();
+  let mut op_metrics_fns = Vec::with_capacity(op_count);
+
+  for (index, op_decl) in op_decls.iter().enumerate() {
+    let op_metrics_fn = maybe_op_metrics_factory_fn
+      .as_ref()
+      .and_then(|f| (f)(index as _, op_count, op_decl));
+    op_metrics_fns.push(op_metrics_fn);
+  }
+
+  op_metrics_fns
 }

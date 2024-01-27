@@ -629,21 +629,16 @@ impl JsRuntime {
       has_inspector: false.into(),
     });
 
-    let op_count = op_decls.len();
-    let op_metrics_fns = op_decls
-      .iter()
-      .enumerate()
-      .map(|(id, decl)| {
-        options
-          .op_metrics_factory_fn
-          .as_ref()
-          .and_then(|f| (f)(id as _, op_count, decl))
-      })
-      .collect::<Vec<_>>();
+    let op_metrics_fns = extension_set::get_op_metrics_fns(
+      &op_decls,
+      options.op_metrics_factory_fn,
+    );
+    // TODO(bartlomieju): clean this up
     let ops_with_metrics = op_metrics_fns
       .iter()
       .map(|o| o.is_some())
       .collect::<Vec<_>>();
+
     let context_state = Rc::new(ContextState::new(
       isolate_ptr,
       options.get_error_class_fn.unwrap_or(&|_| "Error"),
