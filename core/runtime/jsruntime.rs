@@ -775,6 +775,7 @@ impl JsRuntime {
     let main_realm = {
       let main_realm =
         JsRealmInner::new(context_state, main_context, module_map.clone());
+      // TODO(bartlomieju): why is this done in here? Maybe we can hoist it out?
       state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
       main_realm
