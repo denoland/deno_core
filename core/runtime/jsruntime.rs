@@ -590,6 +590,7 @@ impl JsRuntime {
       &mut options.extensions,
     );
 
+    // TODO(bartlomieju): this should be done in `extension_set` module
     // Collect global template middleware, global object
     // middleware, and additional ExternalReferences from extensions.
     let mut global_template_middlewares =
