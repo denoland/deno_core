@@ -1,8 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use v8::ExternalReferences;
-
-use crate::ops::OpCtx;
 use crate::Snapshot;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;

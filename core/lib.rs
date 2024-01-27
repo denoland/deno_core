@@ -5,6 +5,7 @@ mod async_cell;
 pub mod cppgc;
 pub mod error;
 mod error_codes;
+mod extension_set;
 mod extensions;
 mod external;
 mod fast_string;

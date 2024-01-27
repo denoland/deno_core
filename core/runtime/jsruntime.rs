@@ -14,6 +14,7 @@ use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
+use crate::extension_set;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpDecl;
@@ -44,7 +45,6 @@ use crate::FastString;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
-use crate::OpMiddlewareFn;
 use crate::OpState;
 use anyhow::anyhow;
 use anyhow::bail;
@@ -581,7 +581,11 @@ impl JsRuntime {
 
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
-    let (op_state, ops) = Self::create_opstate(&mut options);
+    let mut op_state = OpState::new(options.feature_checker.take());
+    let ops = Self::create_op_decls_and_setup_op_state_from_extensions(
+      &mut op_state,
+      &mut options.extensions,
+    );
 
     // Collect global template middleware, global object
     // middleware, and additional ExternalReferences from extensions.
@@ -1053,81 +1057,24 @@ impl JsRuntime {
     Ok(())
   }
 
-  /// Collects ops from extensions & applies middleware
-  fn collect_ops(exts: &mut [Extension]) -> Vec<OpDecl> {
-    for (ext, previous_exts) in
-      exts.iter().enumerate().map(|(i, ext)| (ext, &exts[..i]))
-    {
-      ext.check_dependencies(previous_exts);
-    }
+  // TODO(bartlomieju): this function does too much and should be split into
+  // smaller functions.
+  /// Initializes ops of provided Extensions
+  fn create_op_decls_and_setup_op_state_from_extensions(
+    op_state: &mut OpState,
+    extensions: &mut Vec<Extension>,
+  ) -> Vec<OpDecl> {
+    let ops = extension_set::init_ops_from_extensions(
+      &mut crate::ops_builtin::core::init_ops(),
+      extensions,
+    );
 
-    // Middleware
-    let middleware: Vec<Box<OpMiddlewareFn>> = exts
-      .iter_mut()
-      .filter_map(|e| e.take_middleware())
-      .collect();
-
-    // macroware wraps an opfn in all the middleware
-    let macroware = move |d| middleware.iter().fold(d, |d, m| m(d));
-
-    // Flatten ops, apply middleware & override disabled ops
-    let ops: Vec<_> = exts
-      .iter_mut()
-      .flat_map(|e| e.init_ops())
-      .map(|d| OpDecl {
-        name: d.name,
-        ..macroware(*d)
-      })
-      .collect();
-
-    // In debug build verify there are no duplicate ops.
-    #[cfg(debug_assertions)]
-    {
-      let mut count_by_name = HashMap::new();
-
-      for op in ops.iter() {
-        count_by_name
-          .entry(&op.name)
-          .or_insert(vec![])
-          .push(op.name.to_string());
-      }
-
-      let mut duplicate_ops = vec![];
-      for (op_name, _count) in
-        count_by_name.iter().filter(|(_k, v)| v.len() > 1)
-      {
-        duplicate_ops.push(op_name.to_string());
-      }
-      if !duplicate_ops.is_empty() {
-        let mut msg = "Found ops with duplicate names:\n".to_string();
-        for op_name in duplicate_ops {
-          msg.push_str(&format!("  - {}\n", op_name));
-        }
-        msg.push_str("Op names need to be unique.");
-        panic!("{}", msg);
-      }
+    // Setup state
+    for e in extensions {
+      e.take_state(op_state);
     }
 
     ops
-  }
-
-  /// Initializes ops of provided Extensions
-  fn create_opstate(options: &mut RuntimeOptions) -> (OpState, Vec<OpDecl>) {
-    // Add built-in extension
-    options
-      .extensions
-      .insert(0, crate::ops_builtin::core::init_ops());
-
-    let ops = Self::collect_ops(&mut options.extensions);
-
-    let mut op_state = OpState::new(options.feature_checker.take());
-
-    // Setup state
-    for e in &mut options.extensions {
-      e.take_state(&mut op_state);
-    }
-
-    (op_state, ops)
   }
 
   pub fn eval<'s, T>(
