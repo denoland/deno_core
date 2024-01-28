@@ -70,7 +70,6 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) get_error_class_fn: GetErrorClassFn,
-  pub(crate) ops_with_metrics: Vec<bool>,
 }
 
 impl<O: OpDriver> ContextState<O> {
@@ -80,15 +79,9 @@ impl<O: OpDriver> ContextState<O> {
     get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
   ) -> Self {
-    let ops_with_metrics = op_ctxs
-      .iter()
-      .map(|o| o.metrics_fn.is_some())
-      .collect::<Vec<_>>();
-
     Self {
       isolate: Some(isolate_ptr),
       get_error_class_fn,
-      ops_with_metrics,
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),

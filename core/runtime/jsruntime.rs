@@ -2266,17 +2266,14 @@ impl JsRuntime {
 
       let res = res.unwrap(scope, context_state.get_error_class_fn);
 
-      if context_state.ops_with_metrics[op_id as usize] {
-        if res.is_ok() {
-          dispatch_metrics_async(
-            &context_state.op_ctxs[op_id as usize],
-            OpMetricsEvent::CompletedAsync,
-          );
-        } else {
-          dispatch_metrics_async(
-            &context_state.op_ctxs[op_id as usize],
-            OpMetricsEvent::ErrorAsync,
-          );
+      {
+        let op_ctx = &context_state.op_ctxs[op_id as usize];
+        if op_ctx.metrics_enabled() {
+          if res.is_ok() {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::CompletedAsync);
+          } else {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
+          }
         }
       }
 
