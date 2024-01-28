@@ -65,7 +65,7 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
   pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
-  pub(crate) op_ctxs: RefCell<Box<[OpCtx]>>,
+  pub(crate) op_ctxs: Box<[OpCtx]>,
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
@@ -93,7 +93,7 @@ impl<O: OpDriver> ContextState<O> {
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
-      op_ctxs: RefCell::new(op_ctxs),
+      op_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
@@ -187,8 +187,6 @@ impl JsRealmInner {
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
-    // The OpCtx slice may contain a circular reference
-    std::mem::take(&mut *state.op_ctxs.borrow_mut());
 
     self.context().open(isolate).clear_all_slots(isolate);
 
