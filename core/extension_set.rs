@@ -134,7 +134,6 @@ pub fn create_op_ctxs(
   let op_count = op_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
 
-  // TODO(bartlomieju): try to flatten it
   for (index, decl) in op_decls.into_iter().enumerate() {
     let metrics_fn = op_metrics_factory_fn
       .as_ref()
