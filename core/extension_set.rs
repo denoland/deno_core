@@ -174,16 +174,18 @@ pub fn create_op_metrics_fns(
   op_metrics_fns
 }
 
-pub fn get_middlewares(
+pub fn get_middlewares_and_external_refs(
   extensions: &mut [Extension],
 ) -> (
   Vec<GlobalTemplateMiddlewareFn>,
   Vec<GlobalObjectMiddlewareFn>,
+  Vec<v8::ExternalReference<'static>>,
 ) {
   // TODO(bartlomieju): these numbers were chosen arbitrarily. This is a very
   // niche features and it's unlikely a lot of extensions use it.
   let mut global_template_middlewares = Vec::with_capacity(16);
   let mut global_object_middlewares = Vec::with_capacity(16);
+  let mut additional_references = Vec::with_capacity(16);
 
   for extension in extensions {
     if let Some(middleware) = extension.get_global_template_middleware() {
@@ -192,7 +194,14 @@ pub fn get_middlewares(
     if let Some(middleware) = extension.get_global_object_middleware() {
       global_object_middlewares.push(middleware);
     }
+
+    additional_references
+      .extend_from_slice(extension.get_external_references());
   }
 
-  (global_template_middlewares, global_object_middlewares)
+  (
+    global_template_middlewares,
+    global_object_middlewares,
+    additional_references,
+  )
 }

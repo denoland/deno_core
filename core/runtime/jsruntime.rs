@@ -589,16 +589,11 @@ impl JsRuntime {
       &mut deno_core_ext,
       &mut extensions,
     );
-    let (global_template_middlewares, global_object_middlewares) =
-      extension_set::get_middlewares(&mut extensions);
-
-    // TODO(bartlomieju): this should be done in `extension_set` module, but
-    // the lifetimes are a bit problematic
-    let mut additional_references = Vec::with_capacity(16);
-    for extension in &mut extensions {
-      additional_references
-        .extend_from_slice(extension.get_external_references());
-    }
+    let (
+      global_template_middlewares,
+      global_object_middlewares,
+      additional_references,
+    ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
     let isolate_ptr = setup::create_isolate_ptr();
 
