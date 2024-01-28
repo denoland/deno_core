@@ -671,6 +671,8 @@ impl JsRuntime {
     };
     op_state.borrow_mut().put(isolate_ptr);
 
+    // TODO(bartlomieju): this context creation and setup is really non-trivial.
+    // Additionally it's unclear what is done when snapshotting/running from snapshot.
     let (main_context, snapshotted_data) = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
 
