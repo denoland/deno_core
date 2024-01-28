@@ -90,12 +90,17 @@ pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
 }
 
 #[doc(hidden)]
-pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
+pub fn dispatch_metrics_async(
+  metrics_fn: &Option<OpMetricsFn>,
+  op_id: OpId,
+  op_decl: &OpDecl,
+  metrics: OpMetricsEvent,
+) {
   // SAFETY: this should only be called from ops where we know the function is Some
   unsafe {
-    (opctx.metrics_fn.as_ref().unwrap_unchecked())(
-      opctx.id,
-      &opctx.decl,
+    (metrics_fn.as_ref().unwrap_unchecked())(
+      op_id,
+      op_decl,
       metrics,
       OpMetricsSource::Async,
     )

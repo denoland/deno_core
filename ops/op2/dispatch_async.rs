@@ -164,12 +164,12 @@ pub(crate) fn generate_dispatch_async(
           &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
             as *const deno_core::_ops::OpCtx)
         };
-        deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
+        deno_core::_ops::dispatch_metrics_async(&#opctx.metrics_fn, #opctx.id, &#opctx.decl, deno_core::_ops::OpMetricsEvent::Dispatched);
         let res = Self::slow_function_impl(#info);
         if res == 0 {
-          deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Completed);
+          deno_core::_ops::dispatch_metrics_async(&#opctx.metrics_fn, #opctx.id, &#opctx.decl, deno_core::_ops::OpMetricsEvent::Completed);
         } else if res == 1 {
-          deno_core::_ops::dispatch_metrics_async(&#opctx, deno_core::_ops::OpMetricsEvent::Error);
+          deno_core::_ops::dispatch_metrics_async(&#opctx.metrics_fn, #opctx.id, &#opctx.decl, deno_core::_ops::OpMetricsEvent::Error);
         }
       }
     }),
