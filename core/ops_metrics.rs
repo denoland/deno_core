@@ -34,7 +34,8 @@ pub enum OpMetricsSource {
 }
 
 /// A callback to receieve an [`OpMetricsEvent`].
-pub type OpMetricsFn = Rc<dyn Fn(&OpCtx, OpMetricsEvent, OpMetricsSource)>;
+pub type OpMetricsFn =
+  Rc<dyn Fn(OpId, &OpDecl, OpMetricsEvent, OpMetricsSource)>;
 
 // TODO(mmastrac): this would be better as a trait
 /// A callback to retrieve an optional [`OpMetricsFn`] for this op.
@@ -52,10 +53,12 @@ pub fn merge_op_metrics(
       (None, None) => None,
       (Some(a), None) => Some(a),
       (None, Some(b)) => Some(b),
-      (Some(a), Some(b)) => Some(Rc::new(move |ctx, event, source| {
-        a(ctx, event, source);
-        b(ctx, event, source);
-      })),
+      (Some(a), Some(b)) => {
+        Some(Rc::new(move |op_id, op_decl, event, source| {
+          a(op_id, op_decl, event, source);
+          b(op_id, op_decl, event, source);
+        }))
+      }
     }
   })
 }
@@ -65,7 +68,8 @@ pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
   // SAFETY: this should only be called from ops where we know the function is Some
   unsafe {
     (opctx.metrics_fn.as_ref().unwrap_unchecked())(
-      opctx,
+      opctx.id,
+      &opctx.decl,
       metrics,
       OpMetricsSource::Fast,
     )
@@ -77,7 +81,8 @@ pub fn dispatch_metrics_slow(opctx: &OpCtx, metrics: OpMetricsEvent) {
   // SAFETY: this should only be called from ops where we know the function is Some
   unsafe {
     (opctx.metrics_fn.as_ref().unwrap_unchecked())(
-      opctx,
+      opctx.id,
+      &opctx.decl,
       metrics,
       OpMetricsSource::Slow,
     )
@@ -89,7 +94,8 @@ pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
   // SAFETY: this should only be called from ops where we know the function is Some
   unsafe {
     (opctx.metrics_fn.as_ref().unwrap_unchecked())(
-      opctx,
+      opctx.id,
+      &opctx.decl,
       metrics,
       OpMetricsSource::Async,
     )
@@ -147,13 +153,13 @@ impl OpMetricsSummaryTracker {
 
   /// Returns a [`OpMetricsFn`] for this tracker.
   fn op_metrics_fn(self: Rc<Self>) -> OpMetricsFn {
-    Rc::new(move |ctx, event, source| match event {
+    Rc::new(move |op_id, op_decl, event, source| match event {
       OpMetricsEvent::Dispatched => {
-        let mut m = self.metrics_mut(ctx.id);
+        let mut m = self.metrics_mut(op_id);
         if source == OpMetricsSource::Fast {
           m.ops_dispatched_fast += 1;
         }
-        if ctx.decl.is_async {
+        if op_decl.is_async {
           m.ops_dispatched_async += 1;
         } else {
           m.ops_dispatched_sync += 1;
@@ -163,8 +169,8 @@ impl OpMetricsSummaryTracker {
       | OpMetricsEvent::Error
       | OpMetricsEvent::CompletedAsync
       | OpMetricsEvent::ErrorAsync => {
-        if ctx.decl.is_async {
-          self.metrics_mut(ctx.id).ops_completed_async += 1;
+        if op_decl.is_async {
+          self.metrics_mut(op_id).ops_completed_async += 1;
         }
       }
     })

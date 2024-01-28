@@ -624,7 +624,7 @@ pub async fn test_op_metrics() {
         return None;
       }
       let out_clone = out_clone.clone();
-      Some(Rc::new(move |_, metrics, _| {
+      Some(Rc::new(move |_, _, metrics, _| {
         let s = format!("{} {:?}", name, metrics);
         println!("{s}");
         out_clone.borrow_mut().push(s);
