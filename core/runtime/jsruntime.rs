@@ -722,8 +722,11 @@ impl JsRuntime {
       .into_iter()
       .enumerate()
       .map(|(id, decl)| {
+        let metrics_fn = op_metrics_factory_fn
+          .as_ref()
+          .and_then(|f| (f)(id as _, op_count, &decl));
+
         OpCtx::new(
-          op_count,
           id as _,
           std::ptr::null_mut(),
           op_driver.clone(),
@@ -731,7 +734,7 @@ impl JsRuntime {
           op_state.clone(),
           state_rc.clone(),
           options.get_error_class_fn.unwrap_or(&|_| "Error"),
-          op_metrics_factory_fn.as_ref(),
+          metrics_fn,
         )
       })
       .collect::<Vec<_>>()
