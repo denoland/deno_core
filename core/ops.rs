@@ -73,11 +73,9 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub get_error_class_fn: GetErrorClassFn,
 
-  #[doc(hidden)]
-  pub decl: Rc<OpDecl>,
+  pub(crate) decl: Rc<OpDecl>,
   pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
-  #[doc(hidden)]
-  pub metrics_fn: Option<OpMetricsFn>,
+  pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 

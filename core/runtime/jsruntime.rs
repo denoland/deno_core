@@ -1050,10 +1050,12 @@ impl JsRuntime {
         let scope = &mut self.handle_scope();
         let context_local = v8::Local::new(scope, context_global);
         let context_state = JsRealm::state_from_scope(scope);
-        let op_ctxs = &context_state.op_ctxs;
         let global = context_local.global(scope);
-        let synthetic_module_exports =
-          get_exports_for_ops_virtual_module(op_ctxs, scope, global);
+        let synthetic_module_exports = get_exports_for_ops_virtual_module(
+          &context_state.op_ctxs,
+          scope,
+          global,
+        );
         let mod_id = module_map
           .new_synthetic_module(
             scope,
@@ -1341,8 +1343,7 @@ impl JsRuntime {
   pub fn op_names(&self) -> Vec<&'static str> {
     let main_realm = self.inner.main_realm.clone();
     let state_rc = main_realm.0.state();
-    let ctx = &state_rc.op_ctxs;
-    ctx.iter().map(|o| o.decl.name).collect()
+    state_rc.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
