@@ -620,15 +620,17 @@ impl JsRuntime {
       &op_decls,
       options.op_metrics_factory_fn,
     );
-    // TODO(bartlomieju): clean this up
+    // TODO(bartlomieju): clean this up - ideally we could do it in `ContextState::set_op_ctxs`,
+    // but we don't have a mutable reference available to `ContextState` at that point.
     let ops_with_metrics = op_metrics_fns
       .iter()
       .map(|o| o.is_some())
       .collect::<Vec<_>>();
 
+    let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
     let context_state = Rc::new(ContextState::new(
       isolate_ptr,
-      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      get_error_class_fn,
       ops_with_metrics,
     ));
 
@@ -645,9 +647,7 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    let mut op_ctxs = {
-      let get_error_class_fn =
-        options.get_error_class_fn.unwrap_or(&|_| "Error");
+    let op_ctxs = {
       extension_set::create_op_ctxs(
         op_decls,
         op_metrics_fns,
@@ -670,10 +670,7 @@ impl JsRuntime {
 
     let cpp_heap = setup::init_cppgc(&mut isolate);
 
-    for op_ctx in op_ctxs.iter_mut() {
-      op_ctx.isolate = isolate.as_mut() as *mut Isolate;
-    }
-    *context_state.op_ctxs.borrow_mut() = op_ctxs;
+    context_state.set_op_ctxs(isolate.as_mut() as *mut Isolate, op_ctxs);
 
     // SAFETY: this is first use of `isolate_ptr` so we are sure we're
     // not overwriting an existing pointer.

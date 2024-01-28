@@ -94,6 +94,20 @@ impl<O: OpDriver> ContextState<O> {
       unrefed_ops: Default::default(),
     }
   }
+
+  pub(crate) fn set_op_ctxs(
+    &self,
+    isolate_ptr: *mut v8::Isolate,
+    mut op_ctxs: Box<[OpCtx]>,
+  ) {
+    // TODO(bartlomieju): set up of `ops_with_metrics` should be done here,
+    // but we don't have a mutable reference available here.
+
+    for op_ctx in op_ctxs.iter_mut() {
+      op_ctx.isolate = isolate_ptr;
+    }
+    *self.op_ctxs.borrow_mut() = op_ctxs;
+  }
 }
 
 /// A representation of a JavaScript realm tied to a [`JsRuntime`], that allows
