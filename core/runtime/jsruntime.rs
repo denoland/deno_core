@@ -459,10 +459,6 @@ pub struct RuntimeOptions {
   /// JavaScript sources in the extensions.
   pub extensions: Vec<Extension>,
 
-  /// If provided, the module map will be cleared and left only with the specifiers
-  /// in this list. If not provided, the module map is left intact.
-  pub preserve_snapshotted_modules: Option<&'static [&'static str]>,
-
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
 
@@ -947,14 +943,6 @@ impl JsRuntime {
     js_runtime
       .init_extension_js()
       .expect("Failed to evaluate extension JS");
-
-    // If the embedder has requested to clear the module map resulting from
-    // extensions, possibly with exceptions.
-    if let Some(preserve_snapshotted_modules) =
-      options.preserve_snapshotted_modules
-    {
-      module_map.clear_module_map(preserve_snapshotted_modules);
-    }
 
     js_runtime
   }
