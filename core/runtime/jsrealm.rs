@@ -48,12 +48,12 @@ impl Hasher for IdentityHasher {
   feature = "op_driver_joinset",
   not(feature = "op_driver_futuresunordered")
 ))]
-pub(crate) type DefaultOpDriver = super::op_driver::JoinSetDriver;
+pub(crate) type RealOpDriver = super::op_driver::JoinSetDriver;
 
 #[cfg(feature = "op_driver_futuresunordered")]
-pub(crate) type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
+pub(crate) type RealOpDriver = super::op_driver::FuturesUnorderedDriver;
 
-pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
+pub(crate) struct ContextState<OpDriverImpl: OpDriver = RealOpDriver> {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:

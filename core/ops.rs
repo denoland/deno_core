@@ -5,8 +5,8 @@ use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
-use crate::runtime::DefaultOpDriver;
 use crate::runtime::JsRuntimeState;
+use crate::runtime::RealOpDriver;
 use crate::FeatureChecker;
 use crate::OpDecl;
 use futures::task::AtomicWaker;
@@ -78,7 +78,7 @@ pub struct OpCtx {
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
-  op_driver: Rc<DefaultOpDriver>,
+  op_driver: Rc<RealOpDriver>,
   runtime_state: Rc<JsRuntimeState>,
 }
 
@@ -87,7 +87,7 @@ impl OpCtx {
   pub(crate) fn new(
     id: OpId,
     isolate: *mut Isolate,
-    op_driver: Rc<DefaultOpDriver>,
+    op_driver: Rc<RealOpDriver>,
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: Rc<JsRuntimeState>,
@@ -173,9 +173,7 @@ impl OpCtx {
     *opt_mut = Some(error);
   }
 
-  // TODO(bartlomieju): this forces use of `DefaultOpDriver`, but making it
-  // generic is a bit cumbersome. Probably need to address before landing.
-  pub(crate) fn op_driver(&self) -> &DefaultOpDriver {
+  pub(crate) fn op_driver(&self) -> &RealOpDriver {
     &self.op_driver
   }
 
