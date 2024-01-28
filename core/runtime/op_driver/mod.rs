@@ -2,6 +2,7 @@
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
+use bit_set::BitSet;
 use std::future::Future;
 use std::task::Context;
 use std::task::Poll;
@@ -134,8 +135,10 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// may not be a cheap operation and calling it large number of times (for example, in an
   /// event loop) may cause slowdowns.
   ///
+  /// If `op_exclusions` is passed to this function, any ops in the set are excluded from the stats.
+  ///
   /// A [`PromiseId`] will appear in this list until its results have been picked up in `poll_ready`.
-  fn stats(&self) -> OpInflightStats;
+  fn stats(&self, op_exclusions: &BitSet) -> OpInflightStats;
 }
 
 #[cfg(test)]

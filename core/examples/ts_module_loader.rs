@@ -6,7 +6,6 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::rc::Rc;
 
 use anyhow::anyhow;
@@ -20,17 +19,16 @@ use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::resolve_path;
 use deno_core::JsRuntime;
+use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceCode;
-use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
 use deno_core::SourceMapGetter;
-use futures::FutureExt;
 
 #[derive(Clone)]
 struct SourceMapStore(Rc<RefCell<HashMap<String, Vec<u8>>>>);
@@ -69,7 +67,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+  ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(
       source_maps: SourceMapStore,
@@ -128,7 +126,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       ))
     }
 
-    futures::future::ready(load(source_maps, module_specifier)).boxed_local()
+    ModuleLoadResponse::Sync(load(source_maps, module_specifier))
   }
 }
 

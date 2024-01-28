@@ -2,6 +2,7 @@
 use crate::extensions::Op;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
+use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
@@ -144,8 +145,7 @@ fn es_snapshot() {
       )
       .unwrap()
     };
-    // There's always one internal `deno_core` ES module loaded, so +1 here.
-    assert_eq!(i + 1, id);
+    assert_eq!(i + NO_OF_BUILTIN_MODULES, id);
 
     #[allow(clippy::let_underscore_future)]
     let _ = runtime.mod_evaluate(id);

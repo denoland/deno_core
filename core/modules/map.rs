@@ -23,6 +23,7 @@ use crate::runtime::JsRealm;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::JsRuntime;
+use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
 use anyhow::bail;
@@ -238,7 +239,7 @@ impl ModuleMap {
   }
 
   #[cfg(test)]
-  pub fn get_data(&self) -> &RefCell<ModuleMapData> {
+  pub(crate) fn get_data(&self) -> &RefCell<ModuleMapData> {
     &self.data
   }
 
@@ -1355,6 +1356,12 @@ impl ModuleMap {
     let module_handle = data.handles.get(module_id).unwrap();
 
     let module = v8::Local::new(scope, module_handle);
+    // v8::Module::GetStalledTopLevelAwaitMessage() must not be called on
+    // a synthetic module.
+    if module.is_synthetic_module() {
+      return vec![];
+    }
+
     let stalled = module.get_stalled_top_level_await_message(scope);
     let mut messages = vec![];
     for (_, message) in stalled {
@@ -1487,11 +1494,14 @@ impl ModuleMap {
     }
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
-    let source = futures::executor::block_on(async {
-      loader
-        .load(&specifier, None, false, RequestedModuleType::None)
-        .await
-    })?;
+
+    let load_response =
+      loader.load(&specifier, None, false, RequestedModuleType::None);
+
+    let source = match load_response {
+      ModuleLoadResponse::Sync(result) => result,
+      ModuleLoadResponse::Async(fut) => futures::executor::block_on(fut),
+    }?;
 
     self.lazy_load_es_module_from_code(
       scope,
@@ -1504,7 +1514,7 @@ impl ModuleMap {
 // Clippy thinks the return value doesn't need to be an Option, it's unaware
 // of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
 #[allow(clippy::unnecessary_wraps)]
-fn synthetic_module_evaluation_steps<'a>(
+pub(crate) fn synthetic_module_evaluation_steps<'a>(
   context: v8::Local<'a, v8::Context>,
   module: v8::Local<v8::Module>,
 ) -> Option<v8::Local<'a, v8::Value>> {

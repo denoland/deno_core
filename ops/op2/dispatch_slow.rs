@@ -506,6 +506,17 @@ pub fn from_arg(
         };
       }
     }
+    Arg::CppGcResource(ty) => {
+      let throw_exception =
+        throw_type_error(generator_state, format!("expected {}", &ty))?;
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+      quote! {
+        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
+          #throw_exception;
+        };
+      }
+    }
     _ => return Err("a slow argument"),
   };
   Ok(res)
