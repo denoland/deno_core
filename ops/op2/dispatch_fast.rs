@@ -713,6 +713,19 @@ fn map_v8_fastcall_arg_to_arg(
       )?;
       quote!(let #arg_ident = #fast_api_callback_options.wasm_memory as _; #convert; let #arg_ident = Some(#arg_ident);)
     }
+    Arg::CppGcResource(ty) => {
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+
+      *needs_fast_api_callback_options = true;
+      quote! {
+        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
+            #fast_api_callback_options.fallback = true;
+            // SAFETY: All fast return types have zero as a valid value
+            return unsafe { std::mem::zeroed() };
+        };
+      }
+    }
     _ => quote!(let #arg_ident = #arg_ident as _;),
   };
   Ok(res)
@@ -820,6 +833,7 @@ fn map_arg_to_v8_fastcall_type(
     // Cow byte strings can be fast and don't require copying
     Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
     Arg::External(..) => V8FastCallType::Pointer,
+    Arg::CppGcResource(..) => V8FastCallType::V8Value,
     _ => return Err("a fast argument"),
   };
   Ok(Some(rv))

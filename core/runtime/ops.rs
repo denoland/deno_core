@@ -1865,10 +1865,9 @@ mod tests {
     Ok(())
   }
 
-  struct TestResource {
+  pub struct TestResource {
     pub value: u32,
   }
-  impl crate::Resource for TestResource {}
 
   #[op2]
   pub fn op_test_make_cppgc_resource<'s>(
@@ -1879,9 +1878,7 @@ mod tests {
 
   #[op2(fast)]
   #[smi]
-  pub fn op_test_get_cppgc_resource(resource: v8::Local<v8::Object>) -> u32 {
-    let resource =
-      crate::cppgc::unwrap_cppgc_object::<TestResource>(resource).unwrap();
+  pub fn op_test_get_cppgc_resource(#[cppgc] resource: &TestResource) -> u32 {
     resource.value
   }
 
