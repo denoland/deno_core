@@ -1,6 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
-use super::bindings::get_exports_for_ops_virtual_module;
+use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
@@ -877,8 +877,11 @@ impl JsRuntime {
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
-    let synthetic_module_exports =
-      get_exports_for_ops_virtual_module(&context_state.op_ctxs, scope, global);
+    let synthetic_module_exports = create_exports_for_ops_virtual_module(
+      &context_state.op_ctxs,
+      scope,
+      global,
+    );
     let mod_id = module_map
       .new_synthetic_module(
         scope,

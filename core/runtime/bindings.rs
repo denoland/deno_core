@@ -757,7 +757,9 @@ where
   Some(promise)
 }
 
-pub fn get_exports_for_ops_virtual_module<'s>(
+/// This function generates a list of tuples, that are a mapping of `<op_name>`
+/// to a JavaScript function that executes and op.
+pub fn create_exports_for_ops_virtual_module<'s>(
   op_ctxs: &[OpCtx],
   scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
