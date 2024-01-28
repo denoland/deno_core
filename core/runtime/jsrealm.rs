@@ -78,8 +78,13 @@ impl<O: OpDriver> ContextState<O> {
     op_driver: Rc<O>,
     isolate_ptr: *mut v8::OwnedIsolate,
     get_error_class_fn: GetErrorClassFn,
-    ops_with_metrics: Vec<bool>,
+    op_ctxs: Box<[OpCtx]>,
   ) -> Self {
+    let ops_with_metrics = op_ctxs
+      .iter()
+      .map(|o| o.metrics_fn.is_some())
+      .collect::<Vec<_>>();
+
     Self {
       isolate: Some(isolate_ptr),
       get_error_class_fn,
@@ -88,7 +93,7 @@ impl<O: OpDriver> ContextState<O> {
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
-      op_ctxs: Default::default(),
+      op_ctxs: RefCell::new(op_ctxs),
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),

@@ -725,30 +725,8 @@ impl JsRuntime {
           .and_then(|f| (f)(id as _, count, decl))
       })
       .collect::<Vec<_>>();
-    let ops_with_metrics = op_metrics_fns
-      .iter()
-      .map(|o| o.is_some())
-      .collect::<Vec<_>>();
 
     let op_driver = Rc::new(DefaultOpDriver::default());
-    let context_state = Rc::new(ContextState::new(
-      op_driver.clone(),
-      isolate_ptr,
-      options.get_error_class_fn.unwrap_or(&|_| "Error"),
-      ops_with_metrics,
-    ));
-
-    // Add the task spawners to the OpState
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_same_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_cross_thread_spawner();
-    op_state.borrow_mut().put(spawner);
 
     let mut op_ctxs = ops
       .into_iter()
@@ -820,7 +798,25 @@ impl JsRuntime {
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
-    *context_state.op_ctxs.borrow_mut() = op_ctxs;
+
+    let context_state = Rc::new(ContextState::new(
+      op_driver.clone(),
+      isolate_ptr,
+      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      op_ctxs,
+    ));
+
+    // Add the task spawners to the OpState
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_same_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_cross_thread_spawner();
+    op_state.borrow_mut().put(spawner);
 
     isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
     isolate.set_promise_reject_callback(bindings::promise_reject_callback);
