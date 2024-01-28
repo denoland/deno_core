@@ -1,3 +1,4 @@
+use super::ModuleVisibility;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::RequestedModuleType;
 use crate::fast_string::FastString;
@@ -159,6 +160,7 @@ impl ModuleMapData {
   pub fn create_module_info(
     &mut self,
     name: FastString,
+    visibility: ModuleVisibility,
     module_type: ModuleType,
     handle: v8::Global<v8::Module>,
     main: bool,
@@ -179,6 +181,7 @@ impl ModuleMapData {
     data.info.push(ModuleInfo {
       id,
       main,
+      visibility,
       name: name2,
       requests,
       module_type,
@@ -413,11 +416,18 @@ impl ModuleMapData {
           .unwrap()
           .value() as ModuleId;
 
-        let name = module_info_arr
+        let name: FastString = module_info_arr
           .get_index(scope, 1)
           .unwrap()
           .to_rust_string_lossy(scope)
           .into();
+        // TODO(bartlomieju): this is brittle - we should store visibility in the
+        // snapshot.
+        let visibility = if name.as_str().starts_with("ext:core/") {
+          ModuleVisibility::Internal
+        } else {
+          ModuleVisibility::Extension
+        };
 
         let requests_arr: v8::Local<v8::Array> = module_info_arr
           .get_index(scope, 2)
@@ -449,6 +459,7 @@ impl ModuleMapData {
         let module_info = ModuleInfo {
           id,
           main,
+          visibility,
           name,
           requests,
           module_type,

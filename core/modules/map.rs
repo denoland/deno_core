@@ -52,6 +52,7 @@ use super::module_map_data::ModuleMapData;
 use super::module_map_data::ModuleMapSnapshottedData;
 use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
+use super::ModuleVisibility;
 use super::RequestedModuleType;
 
 type PrepareLoadFuture =
@@ -302,6 +303,8 @@ impl ModuleMap {
         self.new_module_from_js_source(
           scope,
           main,
+          // FIXME(bartlomieju):
+          ModuleVisibility::User,
           ModuleType::JavaScript,
           module_url_found,
           code,
@@ -347,6 +350,8 @@ impl ModuleMap {
             self.new_synthetic_module(
               scope,
               module_url_found,
+              // FIXME(bartlomieju):
+              ModuleVisibility::User,
               ModuleType::Other(module_type.clone()),
               exports,
             )?
@@ -365,12 +370,16 @@ impl ModuleMap {
             let _synthetic_mod_id = self.new_synthetic_module(
               scope,
               url1,
+              // FIXME(bartlomieju):
+              ModuleVisibility::User,
               synthetic_module_type,
               exports,
             )?;
             self.new_module_from_js_source(
               scope,
               main,
+              // FIXME(bartlomieju):
+              ModuleVisibility::User,
               ModuleType::Other(module_type.clone()),
               url2,
               computed_src,
@@ -389,6 +398,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     name: ModuleName,
+    visibility: ModuleVisibility,
     module_type: ModuleType,
     exports: Vec<(FastString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
@@ -431,6 +441,7 @@ impl ModuleMap {
 
     let id = self.data.borrow_mut().create_module_info(
       name,
+      visibility,
       module_type,
       handle,
       false,
@@ -453,6 +464,8 @@ impl ModuleMap {
     self.new_module_from_js_source(
       scope,
       main,
+      // FIXME(bartlomieju):
+      ModuleVisibility::User,
       ModuleType::JavaScript,
       name,
       source,
@@ -472,10 +485,12 @@ impl ModuleMap {
   /// and attached to associated [`ModuleInfo`].
   ///
   /// Returns an ID of newly created module.
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn new_module_from_js_source(
     &self,
     scope: &mut v8::HandleScope,
     main: bool,
+    visibility: ModuleVisibility,
     module_type: ModuleType,
     name: ModuleName,
     source: ModuleCodeString,
@@ -575,6 +590,7 @@ impl ModuleMap {
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
     let id = self.data.borrow_mut().create_module_info(
       name,
+      visibility,
       module_type,
       handle,
       main,
@@ -608,7 +624,13 @@ impl ModuleMap {
       }
     };
     let exports = vec![(FastString::StaticAscii("default"), parsed_json)];
-    self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
+    self.new_synthetic_module(
+      tc_scope,
+      name,
+      ModuleVisibility::User,
+      ModuleType::Json,
+      exports,
+    )
   }
 
   pub(crate) fn instantiate_module(

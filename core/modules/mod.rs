@@ -479,10 +479,29 @@ pub(crate) struct ModuleRequest {
   pub requested_module_type: RequestedModuleType,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ModuleVisibility {
+  /// Module provided by `deno_core` crate.
+  ///
+  /// Visibile to `Extension` modules.
+  Internal,
+
+  /// Module provided by an extension.
+  ///
+  /// Visibile to native code and other `Extension` modules.
+  Extension,
+
+  /// Module executed by user.
+  ///
+  /// Visibile to native code. Can't access `Internal` or `Extension` modules.
+  User,
+}
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct ModuleInfo {
   #[allow(unused)]
   pub id: ModuleId,
+  pub visibility: ModuleVisibility,
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,

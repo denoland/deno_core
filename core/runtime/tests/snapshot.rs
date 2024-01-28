@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::extensions::Op;
 use crate::modules::ModuleInfo;
+use crate::modules::ModuleVisibility;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
@@ -155,6 +156,7 @@ fn es_snapshot() {
     ModuleInfo {
       id,
       main,
+      visibility: ModuleVisibility::User,
       name: specifier.into(),
       requests: vec![crate::modules::ModuleRequest {
         specifier: format!("file:///{prev}.js"),
@@ -196,6 +198,7 @@ fn es_snapshot() {
   modules.push(ModuleInfo {
     id,
     main: false,
+    visibility: ModuleVisibility::User,
     name: specifier.into(),
     requests: vec![],
     module_type: RequestedModuleType::None,

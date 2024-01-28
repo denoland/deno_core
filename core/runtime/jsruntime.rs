@@ -28,6 +28,7 @@ use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
 use crate::modules::ModuleMapSnapshottedData;
+use crate::modules::ModuleVisibility;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops::*;
@@ -1068,6 +1069,7 @@ impl JsRuntime {
           .new_synthetic_module(
             scope,
             FastString::StaticAscii("ext:core/ops"),
+            ModuleVisibility::Internal,
             crate::ModuleType::JavaScript,
             synthetic_module_exports,
           )
