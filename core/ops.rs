@@ -175,6 +175,8 @@ impl OpCtx {
     *opt_mut = Some(error);
   }
 
+  // TODO(bartlomieju): this forces use of `DefaultOpDriver`, but making it
+  // generic is a bit cumbersome. Probably need to address before landing.
   pub(crate) fn op_driver(&self) -> &DefaultOpDriver {
     &self.op_driver
   }
