@@ -2273,20 +2273,17 @@ impl JsRuntime {
       let res = res.unwrap(scope, context_state.get_error_class_fn);
 
       if context_state.ops_with_metrics[op_id as usize] {
-        let op_ctxs = &context_state.op_ctxs;
-        let op_ctx = &op_ctxs[op_id as usize];
-        let event = if res.is_ok() {
-          OpMetricsEvent::CompletedAsync
+        if res.is_ok() {
+          dispatch_metrics_async(
+            &context_state.op_ctxs[op_id as usize],
+            OpMetricsEvent::CompletedAsync,
+          );
         } else {
-          OpMetricsEvent::ErrorAsync
-        };
-
-        dispatch_metrics_async(
-          &op_ctx.metrics_fn,
-          op_ctx.id,
-          &op_ctx.decl,
-          event,
-        );
+          dispatch_metrics_async(
+            &context_state.op_ctxs[op_id as usize],
+            OpMetricsEvent::ErrorAsync,
+          );
+        }
       }
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
