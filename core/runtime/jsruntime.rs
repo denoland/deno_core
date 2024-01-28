@@ -583,8 +583,7 @@ impl JsRuntime {
 
     let mut extensions = std::mem::take(&mut options.extensions);
     let mut deno_core_ext = crate::ops_builtin::core::init_ops();
-    let op_decls =
-      extension_set::init_ops(&mut deno_core_ext, &mut options.extensions);
+    let op_decls = extension_set::init_ops(&mut deno_core_ext, &mut extensions);
     extension_set::setup_op_state(
       &mut op_state,
       &mut deno_core_ext,
