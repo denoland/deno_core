@@ -255,6 +255,8 @@ impl Future for RcPromiseFuture {
   }
 }
 
+const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
+
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
 pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
@@ -577,24 +579,20 @@ impl JsRuntime {
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
     let mut op_state = OpState::new(options.feature_checker.take());
+
+    let mut extensions = std::mem::take(&mut options.extensions);
     let mut deno_core_ext = crate::ops_builtin::core::init_ops();
-    let op_decls =
-      extension_set::init_ops(&mut deno_core_ext, &mut options.extensions);
+    let op_decls = extension_set::init_ops(&mut deno_core_ext, &mut extensions);
     extension_set::setup_op_state(
       &mut op_state,
       &mut deno_core_ext,
-      &mut options.extensions,
+      &mut extensions,
     );
-    let (global_template_middlewares, global_object_middlewares) =
-      extension_set::get_middlewares(&mut options.extensions);
-
-    // TODO(bartlomieju): this should be done in `extension_set` module, but
-    // the lifetimes are a bit problematic
-    let mut additional_references = Vec::with_capacity(16);
-    for extension in &mut options.extensions {
-      additional_references
-        .extend_from_slice(extension.get_external_references());
-    }
+    let (
+      global_template_middlewares,
+      global_object_middlewares,
+      additional_references,
+    ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
     let isolate_ptr = setup::create_isolate_ptr();
 
@@ -771,14 +769,20 @@ impl JsRuntime {
       },
       init_mode,
       allocations: IsolateAllocations::default(),
-      extensions: options.extensions,
+      // TODO(bartlomieju): at this point extensions have only JS/ESM sources left;
+      // probably worth to add a dedicated struct to represent that.
+      extensions: vec![],
       is_main_runtime: options.is_main,
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
     js_runtime
-      .init_extension_js()
+      .init_extension_js(&mut extensions)
       .expect("Failed to evaluate extension JS");
+
+    // TODO(bartlomieju): clean this up - we shouldn't need to store extensions
+    // on the `js_runtime` as they are mutable.
+    js_runtime.extensions = extensions;
 
     js_runtime
   }
@@ -862,8 +866,42 @@ impl JsRuntime {
     f(&mut scope)
   }
 
+  /// Create a synthetic module - `ext:core/ops` - that exports all ops registered
+  /// with the runtime.
+  fn execute_virtual_ops_module(
+    &mut self,
+    context_global: &v8::Global<v8::Context>,
+    module_map: Rc<ModuleMap>,
+  ) {
+    let scope = &mut self.handle_scope();
+    let context_local = v8::Local::new(scope, context_global);
+    let context_state = JsRealm::state_from_scope(scope);
+    let global = context_local.global(scope);
+    let synthetic_module_exports =
+      get_exports_for_ops_virtual_module(&context_state.op_ctxs, scope, global);
+    let mod_id = module_map
+      .new_synthetic_module(
+        scope,
+        FastString::StaticAscii(VIRTUAL_OPS_MODULE_NAME),
+        crate::ModuleType::JavaScript,
+        synthetic_module_exports,
+      )
+      .unwrap();
+    module_map.instantiate_module(scope, mod_id).unwrap();
+    let mut receiver = module_map.mod_evaluate(scope, mod_id);
+    let Poll::Ready(result) =
+      receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+    else {
+      unreachable!();
+    };
+    result.unwrap();
+  }
+
   /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(&mut self) -> Result<(), Error> {
+  fn init_extension_js(
+    &mut self,
+    extensions: &mut [Extension],
+  ) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
@@ -873,12 +911,8 @@ impl JsRuntime {
     let realm = JsRealm::clone(&self.inner.main_realm);
     let context_global = realm.context();
     let module_map = realm.0.module_map();
-
-    // Take extensions temporarily so we can avoid have a mutable reference to self
-    let extensions = std::mem::take(&mut self.extensions);
-
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
+    let ext_loader = Rc::new(ExtModuleLoader::new(extensions));
     *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
@@ -894,31 +928,7 @@ impl JsRuntime {
       //   }
       // ) {
       if self.init_mode == InitMode::New {
-        let scope = &mut self.handle_scope();
-        let context_local = v8::Local::new(scope, context_global);
-        let context_state = JsRealm::state_from_scope(scope);
-        let global = context_local.global(scope);
-        let synthetic_module_exports = get_exports_for_ops_virtual_module(
-          &context_state.op_ctxs,
-          scope,
-          global,
-        );
-        let mod_id = module_map
-          .new_synthetic_module(
-            scope,
-            FastString::StaticAscii("ext:core/ops"),
-            crate::ModuleType::JavaScript,
-            synthetic_module_exports,
-          )
-          .unwrap();
-        module_map.instantiate_module(scope, mod_id).unwrap();
-        let mut receiver = module_map.mod_evaluate(scope, mod_id);
-        let Poll::Ready(result) =
-          receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
-        else {
-          unreachable!();
-        };
-        result.unwrap();
+        self.execute_virtual_ops_module(context_global, module_map.clone());
       }
 
       if self.init_mode == InitMode::New {
@@ -940,7 +950,7 @@ impl JsRuntime {
       }
       self.init_cbs(&realm);
 
-      for extension in &extensions {
+      for extension in extensions {
         // If the extension provides "lazy loaded ES modules" then store them
         // on the ModuleMap.
         module_map
@@ -1016,7 +1026,6 @@ impl JsRuntime {
       Ok::<_, anyhow::Error>(())
     })?;
 
-    self.extensions = extensions;
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
 
