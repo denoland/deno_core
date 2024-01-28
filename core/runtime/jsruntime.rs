@@ -714,26 +714,16 @@ impl JsRuntime {
       waker,
     });
 
-    let count = ops.len();
-    let op_metrics_fns = ops
-      .iter()
-      .enumerate()
-      .map(|(id, decl)| {
-        options
-          .op_metrics_factory_fn
-          .as_ref()
-          .and_then(|f| (f)(id as _, count, decl))
-      })
-      .collect::<Vec<_>>();
-
+    let op_count = ops.len();
     let op_driver = Rc::new(DefaultOpDriver::default());
+    let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
 
     let mut op_ctxs = ops
       .into_iter()
       .enumerate()
-      .zip(op_metrics_fns)
-      .map(|((id, decl), metrics_fn)| {
+      .map(|(id, decl)| {
         OpCtx::new(
+          op_count,
           id as _,
           std::ptr::null_mut(),
           op_driver.clone(),
@@ -741,7 +731,7 @@ impl JsRuntime {
           op_state.clone(),
           state_rc.clone(),
           options.get_error_class_fn.unwrap_or(&|_| "Error"),
-          metrics_fn,
+          op_metrics_factory_fn.as_ref(),
         )
       })
       .collect::<Vec<_>>()

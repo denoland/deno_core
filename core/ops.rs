@@ -9,6 +9,7 @@ use crate::runtime::DefaultOpDriver;
 use crate::runtime::JsRuntimeState;
 use crate::FeatureChecker;
 use crate::OpDecl;
+use crate::OpMetricsFactoryFn;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
@@ -87,6 +88,8 @@ pub struct OpCtx {
 impl OpCtx {
   #[allow(clippy::too_many_arguments)]
   pub(crate) fn new(
+    // TODO(bartlomieju): remove
+    op_count: usize,
     id: OpId,
     isolate: *mut Isolate,
     op_driver: Rc<DefaultOpDriver>,
@@ -94,9 +97,13 @@ impl OpCtx {
     state: Rc<RefCell<OpState>>,
     runtime_state: Rc<JsRuntimeState>,
     get_error_class_fn: GetErrorClassFn,
-    metrics_fn: Option<OpMetricsFn>,
+    maybe_op_metrics_factory_fn: Option<&OpMetricsFactoryFn>,
   ) -> Self {
     let mut fast_fn_c_info = None;
+
+    let metrics_fn = maybe_op_metrics_factory_fn
+      .as_ref()
+      .and_then(|f| (f)(id as _, op_count, &decl));
 
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
     // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
