@@ -254,6 +254,8 @@ impl Future for RcPromiseFuture {
   }
 }
 
+const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
+
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
 pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
@@ -876,6 +878,38 @@ impl JsRuntime {
     f(&mut scope)
   }
 
+  /// Create a synthetic module - `ext:core/ops` - that exports all ops registered
+  /// with the runtime.
+  fn execute_virtual_ops_module(
+    &mut self,
+    context_global: &v8::Global<v8::Context>,
+    module_map: Rc<ModuleMap>,
+  ) {
+    let scope = &mut self.handle_scope();
+    let context_local = v8::Local::new(scope, context_global);
+    let context_state = JsRealm::state_from_scope(scope);
+    let op_ctxs = context_state.op_ctxs.borrow();
+    let global = context_local.global(scope);
+    let synthetic_module_exports =
+      get_exports_for_ops_virtual_module(&op_ctxs, scope, global);
+    let mod_id = module_map
+      .new_synthetic_module(
+        scope,
+        FastString::StaticAscii(VIRTUAL_OPS_MODULE_NAME),
+        crate::ModuleType::JavaScript,
+        synthetic_module_exports,
+      )
+      .unwrap();
+    module_map.instantiate_module(scope, mod_id).unwrap();
+    let mut receiver = module_map.mod_evaluate(scope, mod_id);
+    let Poll::Ready(result) =
+      receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+    else {
+      unreachable!();
+    };
+    result.unwrap();
+  }
+
   /// Initializes JS of provided Extensions in the given realm.
   fn init_extension_js(
     &mut self,
@@ -907,29 +941,7 @@ impl JsRuntime {
       //   }
       // ) {
       if self.init_mode == InitMode::New {
-        let scope = &mut self.handle_scope();
-        let context_local = v8::Local::new(scope, context_global);
-        let context_state = JsRealm::state_from_scope(scope);
-        let op_ctxs = context_state.op_ctxs.borrow();
-        let global = context_local.global(scope);
-        let synthetic_module_exports =
-          get_exports_for_ops_virtual_module(&op_ctxs, scope, global);
-        let mod_id = module_map
-          .new_synthetic_module(
-            scope,
-            FastString::StaticAscii("ext:core/ops"),
-            crate::ModuleType::JavaScript,
-            synthetic_module_exports,
-          )
-          .unwrap();
-        module_map.instantiate_module(scope, mod_id).unwrap();
-        let mut receiver = module_map.mod_evaluate(scope, mod_id);
-        let Poll::Ready(result) =
-          receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
-        else {
-          unreachable!();
-        };
-        result.unwrap();
+        self.execute_virtual_ops_module(context_global, module_map.clone());
       }
 
       if self.init_mode == InitMode::New {
