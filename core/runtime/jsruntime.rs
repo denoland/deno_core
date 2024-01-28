@@ -34,6 +34,7 @@ use crate::modules::ValidateImportAttributesCb;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
+use crate::runtime::DefaultOpDriver;
 use crate::runtime::JsRealm;
 use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
@@ -405,10 +406,6 @@ pub struct RuntimeOptions {
   /// JavaScript sources in the extensions.
   pub extensions: Vec<Extension>,
 
-  /// If provided, the module map will be cleared and left only with the specifiers
-  /// in this list. If not provided, the module map is left intact.
-  pub preserve_snapshotted_modules: Option<&'static [&'static str]>,
-
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
 
@@ -619,50 +616,18 @@ impl JsRuntime {
       has_inspector: false.into(),
     });
 
-    // TODO(bartlomieju): clean this up, there must be a smarter way to generate these functions,
-    // maybe an explicit method on `ContextState` that gets list of `OpCtx`, assigns it and
-    // generates necessary functions?
-    let op_metrics_fns = extension_set::create_op_metrics_fns(
-      &op_decls,
-      options.op_metrics_factory_fn,
+    let op_driver = Rc::new(DefaultOpDriver::default());
+    let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
+    let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
+
+    let mut op_ctxs = extension_set::create_op_ctxs(
+      op_decls,
+      op_metrics_factory_fn,
+      op_driver.clone(),
+      op_state.clone(),
+      state_rc.clone(),
+      get_error_class_fn,
     );
-    // TODO(bartlomieju): clean this up
-    let ops_with_metrics = op_metrics_fns
-      .iter()
-      .map(|o| o.is_some())
-      .collect::<Vec<_>>();
-
-    let context_state = Rc::new(ContextState::new(
-      isolate_ptr,
-      options.get_error_class_fn.unwrap_or(&|_| "Error"),
-      ops_with_metrics,
-    ));
-
-    // TODO(bartlomieju): factor out
-    // Add the task spawners to the OpState
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_same_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_cross_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-
-    let mut op_ctxs = {
-      let get_error_class_fn =
-        options.get_error_class_fn.unwrap_or(&|_| "Error");
-      extension_set::create_op_ctxs(
-        op_decls,
-        op_metrics_fns,
-        context_state.clone(),
-        op_state.clone(),
-        state_rc.clone(),
-        get_error_class_fn,
-      )
-    };
 
     let external_refs =
       bindings::create_external_references(&op_ctxs, &additional_references);
@@ -679,7 +644,26 @@ impl JsRuntime {
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
-    *context_state.op_ctxs.borrow_mut() = op_ctxs;
+
+    let context_state = Rc::new(ContextState::new(
+      op_driver.clone(),
+      isolate_ptr,
+      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      op_ctxs,
+    ));
+
+    // TODO(bartlomieju): factor out
+    // Add the task spawners to the OpState
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_same_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_cross_thread_spawner();
+    op_state.borrow_mut().put(spawner);
 
     // SAFETY: this is first use of `isolate_ptr` so we are sure we're
     // not overwriting an existing pointer.
@@ -717,7 +701,7 @@ impl JsRuntime {
     bindings::initialize_context(
       scope,
       context,
-      &context_state.op_ctxs.borrow(),
+      &context_state.op_ctxs,
       init_mode,
     );
 
@@ -795,14 +779,6 @@ impl JsRuntime {
     js_runtime
       .init_extension_js()
       .expect("Failed to evaluate extension JS");
-
-    // If the embedder has requested to clear the module map resulting from
-    // extensions, possibly with exceptions.
-    if let Some(preserve_snapshotted_modules) =
-      options.preserve_snapshotted_modules
-    {
-      module_map.clear_module_map(preserve_snapshotted_modules);
-    }
 
     js_runtime
   }
@@ -921,10 +897,12 @@ impl JsRuntime {
         let scope = &mut self.handle_scope();
         let context_local = v8::Local::new(scope, context_global);
         let context_state = JsRealm::state_from_scope(scope);
-        let op_ctxs = context_state.op_ctxs.borrow();
         let global = context_local.global(scope);
-        let synthetic_module_exports =
-          get_exports_for_ops_virtual_module(&op_ctxs, scope, global);
+        let synthetic_module_exports = get_exports_for_ops_virtual_module(
+          &context_state.op_ctxs,
+          scope,
+          global,
+        );
         let mod_id = module_map
           .new_synthetic_module(
             scope,
@@ -1135,8 +1113,7 @@ impl JsRuntime {
   pub fn op_names(&self) -> Vec<&'static str> {
     let main_realm = self.inner.main_realm.clone();
     let state_rc = main_realm.0.state();
-    let ctx = state_rc.op_ctxs.borrow();
-    ctx.iter().map(|o| o.decl.name).collect()
+    state_rc.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
@@ -2056,17 +2033,14 @@ impl JsRuntime {
 
       let res = res.unwrap(scope, context_state.get_error_class_fn);
 
-      if context_state.ops_with_metrics[op_id as usize] {
-        if res.is_ok() {
-          dispatch_metrics_async(
-            &context_state.op_ctxs.borrow()[op_id as usize],
-            OpMetricsEvent::CompletedAsync,
-          );
-        } else {
-          dispatch_metrics_async(
-            &context_state.op_ctxs.borrow()[op_id as usize],
-            OpMetricsEvent::ErrorAsync,
-          );
+      {
+        let op_ctx = &context_state.op_ctxs[op_id as usize];
+        if op_ctx.metrics_enabled() {
+          if res.is_ok() {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::CompletedAsync);
+          } else {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
+          }
         }
       }
 

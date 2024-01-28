@@ -41,9 +41,13 @@ pub fn make_cppgc_object<'a, T: 'static>(
   obj
 }
 
-pub fn unwrap_cppgc_object<'sc, T: 'static>(
-  obj: v8::Local<v8::Object>,
+pub fn try_unwrap_cppgc_object<'sc, T: 'static>(
+  val: v8::Local<v8::Value>,
 ) -> Option<&'sc T> {
+  let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
+    return None;
+  };
+
   if obj.internal_field_count() != FIELD_COUNT {
     return None;
   }

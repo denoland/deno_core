@@ -8,13 +8,11 @@ use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpMiddlewareFn;
 use crate::ops::OpCtx;
-use crate::runtime::ContextState;
+use crate::runtime::DefaultOpDriver;
 use crate::runtime::JsRuntimeState;
 use crate::GetErrorClassFn;
 use crate::OpDecl;
-use crate::OpMetricsEvent;
 use crate::OpMetricsFactoryFn;
-use crate::OpMetricsSource;
 use crate::OpState;
 
 /// Contribute to the `OpState` from each extension.
@@ -125,27 +123,28 @@ fn check_no_duplicate_op_names(ops: &[OpDecl]) {
   }
 }
 
-pub type OpMetricsFn = Rc<dyn Fn(&OpCtx, OpMetricsEvent, OpMetricsSource)>;
-
 pub fn create_op_ctxs(
   op_decls: Vec<OpDecl>,
-  op_metrics_fns: Vec<Option<OpMetricsFn>>,
-  context_state: Rc<ContextState>,
+  op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
+  op_driver: Rc<DefaultOpDriver>,
   op_state: Rc<RefCell<OpState>>,
   runtime_state: Rc<JsRuntimeState>,
   get_error_class_fn: GetErrorClassFn,
 ) -> Box<[OpCtx]> {
-  let mut op_ctxs = Vec::with_capacity(op_decls.len());
+  let op_count = op_decls.len();
+  let mut op_ctxs = Vec::with_capacity(op_count);
 
   // TODO(bartlomieju): try to flatten it
-  for ((index, decl), metrics_fn) in
-    op_decls.into_iter().enumerate().zip(op_metrics_fns)
-  {
+  for (index, decl) in op_decls.into_iter().enumerate() {
+    let metrics_fn = op_metrics_factory_fn
+      .as_ref()
+      .and_then(|f| (f)(index as _, op_count, &decl));
+
     let op_ctx = OpCtx::new(
       index as _,
       std::ptr::null_mut(),
-      context_state.clone(),
-      Rc::new(decl),
+      op_driver.clone(),
+      decl,
       op_state.clone(),
       runtime_state.clone(),
       get_error_class_fn,
@@ -156,23 +155,6 @@ pub fn create_op_ctxs(
   }
 
   op_ctxs.into_boxed_slice()
-}
-
-pub fn create_op_metrics_fns(
-  op_decls: &[OpDecl],
-  maybe_op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
-) -> Vec<Option<OpMetricsFn>> {
-  let op_count = op_decls.len();
-  let mut op_metrics_fns = Vec::with_capacity(op_count);
-
-  for (index, op_decl) in op_decls.iter().enumerate() {
-    let op_metrics_fn = maybe_op_metrics_factory_fn
-      .as_ref()
-      .and_then(|f| (f)(index as _, op_count, op_decl));
-    op_metrics_fns.push(op_metrics_fn);
-  }
-
-  op_metrics_fns
 }
 
 pub fn get_middlewares(

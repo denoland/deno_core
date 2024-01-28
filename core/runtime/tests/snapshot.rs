@@ -2,13 +2,10 @@
 use crate::extensions::Op;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
-use crate::modules::TestingModuleLoader;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
-use std::rc::Rc;
-use url::Url;
 
 #[test]
 fn will_snapshot() {
@@ -329,113 +326,4 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     dyn_import_result.err().unwrap().to_string().as_str(),
     r#"Uncaught (in promise) TypeError: Importing ext: modules is only allowed from ext: and node: modules. Tried to import ext:module_snapshot/test2.js from (no referrer)"#
   );
-}
-
-pub(crate) fn generic_preserve_snapshotted_modules_test(test_snapshot: bool) {
-  let extension = Extension {
-    name: "module_snapshot",
-    esm_files: Cow::Borrowed(&[
-      ExtensionFileSource {
-        specifier: "test:preserved",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          "export const TEST = 'foo';",
-        ),
-      },
-      ExtensionFileSource {
-        specifier: "test:not-preserved",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          "import 'test:preserved'; export const TEST = 'bar';",
-        ),
-      },
-    ]),
-    esm_entry_point: Some("test:not-preserved"),
-    ..Default::default()
-  };
-
-  let loader = Rc::new(TestingModuleLoader::new(NoopModuleLoader));
-
-  let mut runtime = if test_snapshot {
-    let snapshot_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![extension],
-      ..Default::default()
-    });
-    let startup_data = snapshot_runtime.snapshot();
-
-    JsRuntime::new(RuntimeOptions {
-      module_loader: Some(loader.clone()),
-      startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
-      preserve_snapshotted_modules: Some(&["test:preserved"]),
-      ..Default::default()
-    })
-  } else {
-    JsRuntime::new(RuntimeOptions {
-      module_loader: Some(loader.clone()),
-      extensions: vec![extension],
-      preserve_snapshotted_modules: Some(&["test:preserved"]),
-      ..Default::default()
-    })
-  };
-
-  let realm = runtime.main_realm();
-
-  // We can't import "test:not-preserved"
-  {
-    assert_eq!(loader.log(), vec![]);
-    let dyn_import_promise = realm
-      .execute_script_static(
-        runtime.v8_isolate(),
-        "",
-        "import('test:not-preserved')",
-      )
-      .unwrap();
-    #[allow(deprecated)]
-    let dyn_import_result =
-      futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
-    assert!(dyn_import_result.is_err());
-    assert_eq!(
-      dyn_import_result.err().unwrap().to_string().as_str(),
-      "Uncaught (in promise) TypeError: Module loading is not supported; attempted to load: \"test:not-preserved\" from \"(no referrer)\""
-    );
-    // Ensure that we tried to load `test:not-preserved`
-    assert_eq!(
-      loader.log(),
-      vec![Url::parse("test:not-preserved").unwrap()]
-    );
-  }
-
-  // But we can import "test:preserved"
-  {
-    let dyn_import_promise = realm
-      .execute_script_static(
-        runtime.v8_isolate(),
-        "",
-        "import('test:preserved').then(module => module.TEST)",
-      )
-      .unwrap();
-    #[allow(deprecated)]
-    let dyn_import_result =
-      futures::executor::block_on(runtime.resolve_value(dyn_import_promise))
-        .unwrap();
-    let scope = &mut realm.handle_scope(runtime.v8_isolate());
-    assert!(dyn_import_result.open(scope).is_string());
-    assert_eq!(
-      dyn_import_result
-        .open(scope)
-        .to_rust_string_lossy(scope)
-        .as_str(),
-      "foo"
-    );
-  }
-}
-
-#[test]
-fn preserve_snapshotted_modules() {
-  generic_preserve_snapshotted_modules_test(true)
-}
-
-/// Test that `RuntimeOptions::preserve_snapshotted_modules` also works without
-/// a snapshot.
-#[test]
-fn non_snapshot_preserve_snapshotted_modules() {
-  generic_preserve_snapshotted_modules_test(false)
 }
