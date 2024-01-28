@@ -730,7 +730,7 @@ impl JsRuntime {
           id as _,
           std::ptr::null_mut(),
           op_driver.clone(),
-          Rc::new(decl),
+          decl,
           op_state.clone(),
           state_rc.clone(),
           options.get_error_class_fn.unwrap_or(&|_| "Error"),

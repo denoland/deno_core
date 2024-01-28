@@ -72,7 +72,7 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub get_error_class_fn: GetErrorClassFn,
 
-  pub(crate) decl: Rc<OpDecl>,
+  pub(crate) decl: OpDecl,
   pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
@@ -88,7 +88,7 @@ impl OpCtx {
     id: OpId,
     isolate: *mut Isolate,
     op_driver: Rc<DefaultOpDriver>,
-    decl: Rc<OpDecl>,
+    decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: Rc<JsRuntimeState>,
     get_error_class_fn: GetErrorClassFn,
