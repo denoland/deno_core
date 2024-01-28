@@ -17,6 +17,7 @@ pub const V8_WRAPPER_TYPE_INDEX: i32 = 0;
 pub const V8_WRAPPER_OBJECT_INDEX: i32 = 1;
 
 pub(crate) use jsrealm::ContextState;
+pub(crate) use jsrealm::DefaultOpDriver;
 pub(crate) use jsrealm::JsRealm;
 pub use jsruntime::CompiledWasmModuleStore;
 pub use jsruntime::CreateRealmOptions;

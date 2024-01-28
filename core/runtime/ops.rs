@@ -40,7 +40,7 @@ pub fn map_async_op_infallible<R: 'static>(
   op: impl Future<Output = R> + 'static,
   rv_map: V8RetValMapper<R>,
 ) -> Option<R> {
-  let pending_ops = &ctx.context_state().pending_ops;
+  let pending_ops = ctx.op_driver();
   pending_ops.submit_op_infallible_scheduling(
     op_scheduling(lazy, deferred),
     ctx.id,
@@ -59,7 +59,7 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   op: impl Future<Output = Result<R, E>> + 'static,
   rv_map: V8RetValMapper<R>,
 ) -> Option<Result<R, E>> {
-  let pending_ops = &ctx.context_state().pending_ops;
+  let pending_ops = ctx.op_driver();
   pending_ops.submit_op_fallible_scheduling(
     op_scheduling(lazy, deferred),
     ctx.id,

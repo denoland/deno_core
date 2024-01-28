@@ -48,10 +48,10 @@ impl Hasher for IdentityHasher {
   feature = "op_driver_joinset",
   not(feature = "op_driver_futuresunordered")
 ))]
-type DefaultOpDriver = super::op_driver::JoinSetDriver;
+pub(crate) type DefaultOpDriver = super::op_driver::JoinSetDriver;
 
 #[cfg(feature = "op_driver_futuresunordered")]
-type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
+pub(crate) type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
 
 pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
@@ -62,7 +62,7 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
-  pub(crate) pending_ops: OpDriverImpl,
+  pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: RefCell<Box<[OpCtx]>>,
@@ -75,6 +75,7 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
 
 impl<O: OpDriver> ContextState<O> {
   pub(crate) fn new(
+    op_driver: Rc<O>,
     isolate_ptr: *mut v8::OwnedIsolate,
     get_error_class_fn: GetErrorClassFn,
     ops_with_metrics: Vec<bool>,
@@ -88,7 +89,7 @@ impl<O: OpDriver> ContextState<O> {
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       op_ctxs: Default::default(),
-      pending_ops: Default::default(),
+      pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
       unrefed_ops: Default::default(),

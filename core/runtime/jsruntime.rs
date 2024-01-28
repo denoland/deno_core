@@ -34,6 +34,7 @@ use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
+use crate::runtime::DefaultOpDriver;
 use crate::runtime::JsRealm;
 use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
@@ -728,7 +729,10 @@ impl JsRuntime {
       .iter()
       .map(|o| o.is_some())
       .collect::<Vec<_>>();
+
+    let op_driver = Rc::new(DefaultOpDriver::default());
     let context_state = Rc::new(ContextState::new(
+      op_driver.clone(),
       isolate_ptr,
       options.get_error_class_fn.unwrap_or(&|_| "Error"),
       ops_with_metrics,
@@ -754,7 +758,7 @@ impl JsRuntime {
         OpCtx::new(
           id as _,
           std::ptr::null_mut(),
-          context_state.clone(),
+          op_driver.clone(),
           Rc::new(decl),
           op_state.clone(),
           state_rc.clone(),
