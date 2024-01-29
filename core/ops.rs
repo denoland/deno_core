@@ -5,8 +5,8 @@ use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
-use crate::runtime::ContextState;
 use crate::runtime::JsRuntimeState;
+use crate::runtime::OpDriverImpl;
 use crate::FeatureChecker;
 use crate::OpDecl;
 use futures::task::AtomicWaker;
@@ -72,13 +72,13 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub get_error_class_fn: GetErrorClassFn,
 
-  pub(crate) decl: Rc<OpDecl>,
+  pub(crate) decl: OpDecl,
   pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
-  context_state: Rc<ContextState>,
+  op_driver: Rc<OpDriverImpl>,
   runtime_state: Rc<JsRuntimeState>,
 }
 
@@ -87,8 +87,8 @@ impl OpCtx {
   pub(crate) fn new(
     id: OpId,
     isolate: *mut Isolate,
-    context_state: Rc<ContextState>,
-    decl: Rc<OpDecl>,
+    op_driver: Rc<OpDriverImpl>,
+    decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: Rc<JsRuntimeState>,
     get_error_class_fn: GetErrorClassFn,
@@ -129,7 +129,7 @@ impl OpCtx {
       get_error_class_fn,
       runtime_state,
       decl,
-      context_state,
+      op_driver,
       fast_fn_c_info,
       last_fast_error: UnsafeCell::new(None),
       isolate,
@@ -173,9 +173,8 @@ impl OpCtx {
     *opt_mut = Some(error);
   }
 
-  /// Get the [`ContextState`] for this op.
-  pub(crate) fn context_state(&self) -> &ContextState {
-    &self.context_state
+  pub(crate) fn op_driver(&self) -> &OpDriverImpl {
+    &self.op_driver
   }
 
   /// Get the [`JsRuntimeState`] for this op.

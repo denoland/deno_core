@@ -187,7 +187,7 @@ impl RuntimeActivityStats {
         + self.resources.resources.len()
         + self.timers.timers.len(),
     );
-    let ops = self.context_state.op_ctxs.borrow();
+    let ops = &self.context_state.op_ctxs;
     for op in self.ops.ops.iter() {
       v.push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
     }
@@ -207,7 +207,7 @@ impl RuntimeActivityStats {
   pub fn diff(before: &Self, after: &Self) -> RuntimeActivityDiff {
     let mut appeared = vec![];
     let mut disappeared = vec![];
-    let ops = before.context_state.op_ctxs.borrow();
+    let ops = &before.context_state.op_ctxs;
 
     let mut a = BitSet::new();
     for op in after.ops.ops.iter() {
