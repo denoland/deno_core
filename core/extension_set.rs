@@ -16,12 +16,7 @@ use crate::OpMetricsFactoryFn;
 use crate::OpState;
 
 /// Contribute to the `OpState` from each extension.
-pub fn setup_op_state(
-  op_state: &mut OpState,
-  deno_core_ext: &mut Extension,
-  extensions: &mut [Extension],
-) {
-  deno_core_ext.take_state(op_state);
+pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
   for ext in extensions {
     ext.take_state(op_state);
   }

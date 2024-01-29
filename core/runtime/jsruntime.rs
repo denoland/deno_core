@@ -601,14 +601,9 @@ impl JsRuntime {
     let mut op_state = OpState::new(options.feature_checker.take());
 
     let mut extensions = std::mem::take(&mut options.extensions);
-    let mut deno_core_ext = crate::ops_builtin::core::init_ops();
     let op_decls =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
-    extension_set::setup_op_state(
-      &mut op_state,
-      &mut deno_core_ext,
-      &mut extensions,
-    );
+    extension_set::setup_op_state(&mut op_state, &mut extensions);
     let (
       global_template_middlewares,
       global_object_middlewares,
