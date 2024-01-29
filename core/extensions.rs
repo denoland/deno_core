@@ -554,7 +554,7 @@ impl Extension {
   /// Check if dependencies have been loaded, and errors if either:
   /// - The extension is depending on itself or an extension with the same name.
   /// - A dependency hasn't been loaded yet.
-  pub fn check_dependencies(&self, previous_exts: &[Extension]) {
+  pub fn check_dependencies(&self, previous_exts: &[&Extension]) {
     'dep_loop: for dep in self.deps {
       if dep == &self.name {
         panic!("Extension '{}' is either depending on itself or there is another extension with the same name", self.name);
@@ -586,6 +586,10 @@ impl Extension {
 
   pub fn get_esm_entry_point(&self) -> Option<&'static str> {
     self.esm_entry_point
+  }
+
+  pub fn op_count(&self) -> usize {
+    self.ops.len()
   }
 
   /// Called at JsRuntime startup to initialize ops in the isolate.

@@ -1,11 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
-use super::bindings::get_exports_for_ops_virtual_module;
+use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
+use super::setup;
 use super::snapshot_util;
 use super::stats::RuntimeActivityStatsFactory;
 use super::SnapshottedData;
@@ -13,9 +14,9 @@ use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
+use crate::extension_set;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
-use crate::extensions::OpDecl;
 use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
@@ -30,7 +31,6 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleMapSnapshottedData;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
-use crate::ops::*;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
@@ -44,10 +44,7 @@ use crate::FastString;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
-use crate::OpMiddlewareFn;
 use crate::OpState;
-use crate::V8_WRAPPER_OBJECT_INDEX;
-use crate::V8_WRAPPER_TYPE_INDEX;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context as AnyhowContext;
@@ -69,11 +66,8 @@ use std::ops::DerefMut;
 use std::option::Option;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::Once;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -261,6 +255,8 @@ impl Future for RcPromiseFuture {
   }
 }
 
+const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
+
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
 pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
@@ -381,54 +377,6 @@ pub struct JsRuntimeState {
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
   has_inspector: Cell<bool>,
-}
-
-fn v8_init(
-  v8_platform: Option<v8::SharedRef<v8::Platform>>,
-  predictable: bool,
-  expose_natives: bool,
-) {
-  #[cfg(feature = "include_icu_data")]
-  {
-    v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
-  }
-
-  let base_flags = concat!(
-    " --wasm-test-streaming",
-    " --harmony-import-assertions",
-    " --harmony-import-attributes",
-    " --no-validate-asm",
-    " --turbo_fast_api_calls",
-    " --harmony-array-from_async",
-    " --harmony-iterator-helpers",
-  );
-  let predictable_flags = "--predictable --random-seed=42";
-  let expose_natives_flags = "--expose_gc --allow_natives_syntax";
-
-  #[allow(clippy::useless_format)]
-  let flags = match (predictable, expose_natives) {
-    (false, false) => format!("{base_flags}"),
-    (true, false) => format!("{base_flags} {predictable_flags}"),
-    (false, true) => format!("{base_flags} {expose_natives_flags}"),
-    (true, true) => {
-      format!("{base_flags} {predictable_flags} {expose_natives_flags}")
-    }
-  };
-  v8::V8::set_flags_from_string(&flags);
-
-  let v8_platform = v8_platform.unwrap_or_else(|| {
-    if cfg!(any(test, feature = "unsafe_use_unprotected_platform")) {
-      // We want to use the unprotected platform for unit tests
-      v8::new_unprotected_default_platform(0, false)
-    } else {
-      v8::new_default_platform(0, false)
-    }
-    .make_shared()
-  });
-  v8::V8::initialize_platform(v8_platform.clone());
-  v8::V8::initialize();
-
-  v8::cppgc::initalize_process(v8_platform);
 }
 
 #[derive(Default)]
@@ -578,7 +526,7 @@ impl JsRuntime {
   /// ignored.
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
   pub fn init_platform(v8_platform: Option<v8::SharedRef<v8::Platform>>) {
-    JsRuntime::init_v8(v8_platform, cfg!(test), false);
+    setup::init_v8(v8_platform, cfg!(test), false);
   }
 
   /// Explicitly initalizes the V8 platform using the passed platform. This
@@ -594,12 +542,12 @@ impl JsRuntime {
     v8_platform: Option<v8::SharedRef<v8::Platform>>,
     expose_natives: bool,
   ) {
-    JsRuntime::init_v8(v8_platform, cfg!(test), expose_natives);
+    setup::init_v8(v8_platform, cfg!(test), expose_natives);
   }
 
   /// Only constructor, configuration is done through `options`.
   pub fn new(mut options: RuntimeOptions) -> JsRuntime {
-    JsRuntime::init_v8(
+    setup::init_v8(
       options.v8_platform.take(),
       cfg!(test),
       options.unsafe_expose_natives_and_gc(),
@@ -628,73 +576,25 @@ impl JsRuntime {
     EventLoopPendingState::new_from_scope(scope).is_pending()
   }
 
-  fn init_v8(
-    v8_platform: Option<v8::SharedRef<v8::Platform>>,
-    predictable: bool,
-    expose_natives: bool,
-  ) {
-    static DENO_INIT: Once = Once::new();
-    static DENO_PREDICTABLE: AtomicBool = AtomicBool::new(false);
-    static DENO_PREDICTABLE_SET: AtomicBool = AtomicBool::new(false);
-
-    if DENO_PREDICTABLE_SET.load(Ordering::SeqCst) {
-      let current = DENO_PREDICTABLE.load(Ordering::SeqCst);
-      assert_eq!(current, predictable, "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both.");
-      DENO_PREDICTABLE_SET.store(true, Ordering::SeqCst);
-      DENO_PREDICTABLE.store(predictable, Ordering::SeqCst);
-    }
-
-    DENO_INIT
-      .call_once(move || v8_init(v8_platform, predictable, expose_natives));
-  }
-
-  fn init_cppgc(isolate: &mut v8::Isolate) -> v8::UniqueRef<v8::cppgc::Heap> {
-    let heap = v8::cppgc::Heap::create(
-      v8::V8::get_current_platform(),
-      v8::cppgc::HeapCreateParams::new(v8::cppgc::WrapperDescriptor::new(
-        0,
-        1,
-        crate::cppgc::DEFAULT_CPP_GC_EMBEDDER_ID,
-      )),
-    );
-
-    isolate.attach_cpp_heap(&heap);
-    heap
-  }
-
   fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
     let init_mode = InitMode::from_options(&options);
-    let (op_state, ops) = Self::create_opstate(&mut options);
+    let mut op_state = OpState::new(options.feature_checker.take());
 
-    // Collect global template middleware, global object
-    // middleware, and additional ExternalReferences from extensions.
-    let mut global_template_middlewares =
-      Vec::with_capacity(options.extensions.len());
-    let mut global_object_middlewares =
-      Vec::with_capacity(options.extensions.len());
-    let mut additional_references =
-      Vec::with_capacity(options.extensions.len());
-    for extension in &mut options.extensions {
-      if let Some(middleware) = extension.get_global_template_middleware() {
-        global_template_middlewares.push(middleware);
-      }
-      if let Some(middleware) = extension.get_global_object_middleware() {
-        global_object_middlewares.push(middleware);
-      }
-      additional_references
-        .extend_from_slice(extension.get_external_references());
-    }
+    let mut extensions = std::mem::take(&mut options.extensions);
+    let mut deno_core_ext = crate::ops_builtin::core::init_ops();
+    let op_decls = extension_set::init_ops(&mut deno_core_ext, &mut extensions);
+    extension_set::setup_op_state(
+      &mut op_state,
+      &mut deno_core_ext,
+      &mut extensions,
+    );
+    let (
+      global_template_middlewares,
+      global_object_middlewares,
+      additional_references,
+    ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
-    let align = std::mem::align_of::<usize>();
-    let layout = std::alloc::Layout::from_size_align(
-      std::mem::size_of::<*mut v8::OwnedIsolate>(),
-      align,
-    )
-    .unwrap();
-    assert!(layout.size() > 0);
-    let isolate_ptr: *mut v8::OwnedIsolate =
-      // SAFETY: we just asserted that layout has non-0 size.
-      unsafe { std::alloc::alloc(layout) as *mut _ };
+    let isolate_ptr = setup::create_isolate_ptr();
 
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
@@ -706,87 +606,38 @@ impl JsRuntime {
       wait_for_inspector_disconnect_callback: options
         .wait_for_inspector_disconnect_callback,
       op_state: op_state.clone(),
-      // Some fields are initialized later after isolate is created
-      inspector: None.into(),
-      has_inspector: false.into(),
       validate_import_attributes_cb: options.validate_import_attributes_cb,
       custom_module_evaluation_cb: options.custom_module_evaluation_cb,
       waker,
+      // Some fields are initialized later after isolate is created
+      inspector: None.into(),
+      has_inspector: false.into(),
     });
 
-    let op_count = ops.len();
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
+    let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
-    let mut op_ctxs = ops
-      .into_iter()
-      .enumerate()
-      .map(|(id, decl)| {
-        let metrics_fn = op_metrics_factory_fn
-          .as_ref()
-          .and_then(|f| (f)(id as _, op_count, &decl));
+    let mut op_ctxs = extension_set::create_op_ctxs(
+      op_decls,
+      op_metrics_factory_fn,
+      op_driver.clone(),
+      op_state.clone(),
+      state_rc.clone(),
+      get_error_class_fn,
+    );
 
-        OpCtx::new(
-          id as _,
-          std::ptr::null_mut(),
-          op_driver.clone(),
-          decl,
-          op_state.clone(),
-          state_rc.clone(),
-          options.get_error_class_fn.unwrap_or(&|_| "Error"),
-          metrics_fn,
-        )
-      })
-      .collect::<Vec<_>>()
-      .into_boxed_slice();
+    let external_refs =
+      bindings::create_external_references(&op_ctxs, &additional_references);
 
-    let refs = bindings::external_references(&op_ctxs, &additional_references);
-    // V8 takes ownership of external_references.
-    let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
+    let mut isolate = setup::create_isolate(
+      will_snapshot,
+      options.create_params.take(),
+      options.startup_snapshot.take(),
+      external_refs,
+    );
 
-    let mut isolate = if will_snapshot {
-      snapshot_util::create_snapshot_creator(
-        refs,
-        options.startup_snapshot.take(),
-      )
-    } else {
-      let mut params = options
-        .create_params
-        .take()
-        .unwrap_or_default()
-        .embedder_wrapper_type_info_offsets(
-          V8_WRAPPER_TYPE_INDEX,
-          V8_WRAPPER_OBJECT_INDEX,
-        )
-        .external_references(&**refs);
-      let has_snapshot = options.startup_snapshot.is_some();
-      if let Some(snapshot) = options.startup_snapshot.take() {
-        params = match snapshot {
-          Snapshot::Static(data) => params.snapshot_blob(data),
-          Snapshot::JustCreated(data) => params.snapshot_blob(data),
-          Snapshot::Boxed(data) => params.snapshot_blob(data),
-        };
-      }
-      static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
-      static SNAPSHOW_INIT_MUT: Mutex<()> = Mutex::new(());
-
-      // On Windows, the snapshot deserialization code appears to be crashing and we are not
-      // certain of the reason. We take a mutex the first time an isolate with a snapshot to
-      // prevent this. https://github.com/denoland/deno/issues/15590
-      if cfg!(windows)
-        && has_snapshot
-        && FIRST_SNAPSHOT_INIT.load(Ordering::SeqCst)
-      {
-        let _g = SNAPSHOW_INIT_MUT.lock().unwrap();
-        let res = v8::Isolate::new(params);
-        FIRST_SNAPSHOT_INIT.store(true, Ordering::SeqCst);
-        res
-      } else {
-        v8::Isolate::new(params)
-      }
-    };
-
-    let cpp_heap = Self::init_cppgc(&mut isolate);
+    let cpp_heap = setup::init_cppgc(&mut isolate);
 
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
@@ -798,6 +649,28 @@ impl JsRuntime {
       options.get_error_class_fn.unwrap_or(&|_| "Error"),
       op_ctxs,
     ));
+
+    // TODO(bartlomieju): factor out
+    // Add the task spawners to the OpState
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_same_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_cross_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+
+    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
+    // not overwriting an existing pointer.
+    isolate = unsafe {
+      isolate_ptr.write(isolate);
+      isolate_ptr.read()
+    };
+
+    op_state.borrow_mut().put(isolate_ptr);
 
     // Add the task spawners to the OpState
     let spawner = context_state
@@ -811,18 +684,8 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
-    isolate.set_promise_reject_callback(bindings::promise_reject_callback);
-    isolate.set_host_initialize_import_meta_object_callback(
-      bindings::host_initialize_import_meta_object_callback,
-    );
-    isolate.set_host_import_module_dynamically_callback(
-      bindings::host_import_module_dynamically_callback,
-    );
-    isolate.set_wasm_async_resolve_promise_callback(
-      bindings::wasm_async_resolve_promise_callback,
-    );
-
+    // TODO(bartlomieju): this context creation and setup is really non-trivial.
+    // Additionally it's unclear what is done when snapshotting/running from snapshot.
     let (main_context, snapshotted_data) = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
 
@@ -842,13 +705,6 @@ impl JsRuntime {
       (v8::Global::new(scope, context), snapshotted_data)
     };
 
-    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
-    // not overwriting an existing pointer.
-    isolate = unsafe {
-      isolate_ptr.write(isolate);
-      isolate_ptr.read()
-    };
-
     let mut context_scope: v8::HandleScope =
       v8::HandleScope::with_context(&mut isolate, &main_context);
     let scope = &mut context_scope;
@@ -864,7 +720,6 @@ impl JsRuntime {
 
     context.set_slot(scope, context_state.clone());
 
-    op_state.borrow_mut().put(isolate_ptr);
     let inspector = if options.inspector {
       Some(JsRuntimeInspector::new(scope, context, options.is_main))
     } else {
@@ -906,6 +761,7 @@ impl JsRuntime {
     let main_realm = {
       let main_realm =
         JsRealmInner::new(context_state, main_context, module_map.clone());
+      // TODO(bartlomieju): why is this done in here? Maybe we can hoist it out?
       state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
       main_realm
@@ -928,14 +784,20 @@ impl JsRuntime {
       },
       init_mode,
       allocations: IsolateAllocations::default(),
-      extensions: options.extensions,
+      // TODO(bartlomieju): at this point extensions have only JS/ESM sources left;
+      // probably worth to add a dedicated struct to represent that.
+      extensions: vec![],
       is_main_runtime: options.is_main,
     };
 
     // TODO(mmastrac): We should thread errors back out of the runtime
     js_runtime
-      .init_extension_js()
+      .init_extension_js(&mut extensions)
       .expect("Failed to evaluate extension JS");
+
+    // TODO(bartlomieju): clean this up - we shouldn't need to store extensions
+    // on the `js_runtime` as they are mutable.
+    js_runtime.extensions = extensions;
 
     js_runtime
   }
@@ -990,6 +852,7 @@ impl JsRuntime {
     }
   }
 
+  // TODO(bartlomieju): this method probably be public to the crate
   /// Returns the extensions that this runtime is using (including internal ones).
   pub fn extensions(&self) -> &Vec<Extension> {
     &self.extensions
@@ -1018,8 +881,45 @@ impl JsRuntime {
     f(&mut scope)
   }
 
+  /// Create a synthetic module - `ext:core/ops` - that exports all ops registered
+  /// with the runtime.
+  fn execute_virtual_ops_module(
+    &mut self,
+    context_global: &v8::Global<v8::Context>,
+    module_map: Rc<ModuleMap>,
+  ) {
+    let scope = &mut self.handle_scope();
+    let context_local = v8::Local::new(scope, context_global);
+    let context_state = JsRealm::state_from_scope(scope);
+    let global = context_local.global(scope);
+    let synthetic_module_exports = create_exports_for_ops_virtual_module(
+      &context_state.op_ctxs,
+      scope,
+      global,
+    );
+    let mod_id = module_map
+      .new_synthetic_module(
+        scope,
+        FastString::StaticAscii(VIRTUAL_OPS_MODULE_NAME),
+        crate::ModuleType::JavaScript,
+        synthetic_module_exports,
+      )
+      .unwrap();
+    module_map.instantiate_module(scope, mod_id).unwrap();
+    let mut receiver = module_map.mod_evaluate(scope, mod_id);
+    let Poll::Ready(result) =
+      receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+    else {
+      unreachable!();
+    };
+    result.unwrap();
+  }
+
   /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(&mut self) -> Result<(), Error> {
+  fn init_extension_js(
+    &mut self,
+    extensions: &mut [Extension],
+  ) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
@@ -1029,12 +929,8 @@ impl JsRuntime {
     let realm = JsRealm::clone(&self.inner.main_realm);
     let context_global = realm.context();
     let module_map = realm.0.module_map();
-
-    // Take extensions temporarily so we can avoid have a mutable reference to self
-    let extensions = std::mem::take(&mut self.extensions);
-
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
+    let ext_loader = Rc::new(ExtModuleLoader::new(extensions));
     *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
@@ -1050,31 +946,7 @@ impl JsRuntime {
       //   }
       // ) {
       if self.init_mode == InitMode::New {
-        let scope = &mut self.handle_scope();
-        let context_local = v8::Local::new(scope, context_global);
-        let context_state = JsRealm::state_from_scope(scope);
-        let global = context_local.global(scope);
-        let synthetic_module_exports = get_exports_for_ops_virtual_module(
-          &context_state.op_ctxs,
-          scope,
-          global,
-        );
-        let mod_id = module_map
-          .new_synthetic_module(
-            scope,
-            FastString::StaticAscii("ext:core/ops"),
-            crate::ModuleType::JavaScript,
-            synthetic_module_exports,
-          )
-          .unwrap();
-        module_map.instantiate_module(scope, mod_id).unwrap();
-        let mut receiver = module_map.mod_evaluate(scope, mod_id);
-        let Poll::Ready(result) =
-          receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
-        else {
-          unreachable!();
-        };
-        result.unwrap();
+        self.execute_virtual_ops_module(context_global, module_map.clone());
       }
 
       if self.init_mode == InitMode::New {
@@ -1096,7 +968,7 @@ impl JsRuntime {
       }
       self.init_cbs(&realm);
 
-      for extension in &extensions {
+      for extension in extensions {
         // If the extension provides "lazy loaded ES modules" then store them
         // on the ModuleMap.
         module_map
@@ -1172,88 +1044,10 @@ impl JsRuntime {
       Ok::<_, anyhow::Error>(())
     })?;
 
-    self.extensions = extensions;
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
 
     Ok(())
-  }
-
-  /// Collects ops from extensions & applies middleware
-  fn collect_ops(exts: &mut [Extension]) -> Vec<OpDecl> {
-    for (ext, previous_exts) in
-      exts.iter().enumerate().map(|(i, ext)| (ext, &exts[..i]))
-    {
-      ext.check_dependencies(previous_exts);
-    }
-
-    // Middleware
-    let middleware: Vec<Box<OpMiddlewareFn>> = exts
-      .iter_mut()
-      .filter_map(|e| e.take_middleware())
-      .collect();
-
-    // macroware wraps an opfn in all the middleware
-    let macroware = move |d| middleware.iter().fold(d, |d, m| m(d));
-
-    // Flatten ops, apply middleware & override disabled ops
-    let ops: Vec<_> = exts
-      .iter_mut()
-      .flat_map(|e| e.init_ops())
-      .map(|d| OpDecl {
-        name: d.name,
-        ..macroware(*d)
-      })
-      .collect();
-
-    // In debug build verify there are no duplicate ops.
-    #[cfg(debug_assertions)]
-    {
-      let mut count_by_name = HashMap::new();
-
-      for op in ops.iter() {
-        count_by_name
-          .entry(&op.name)
-          .or_insert(vec![])
-          .push(op.name.to_string());
-      }
-
-      let mut duplicate_ops = vec![];
-      for (op_name, _count) in
-        count_by_name.iter().filter(|(_k, v)| v.len() > 1)
-      {
-        duplicate_ops.push(op_name.to_string());
-      }
-      if !duplicate_ops.is_empty() {
-        let mut msg = "Found ops with duplicate names:\n".to_string();
-        for op_name in duplicate_ops {
-          msg.push_str(&format!("  - {}\n", op_name));
-        }
-        msg.push_str("Op names need to be unique.");
-        panic!("{}", msg);
-      }
-    }
-
-    ops
-  }
-
-  /// Initializes ops of provided Extensions
-  fn create_opstate(options: &mut RuntimeOptions) -> (OpState, Vec<OpDecl>) {
-    // Add built-in extension
-    options
-      .extensions
-      .insert(0, crate::ops_builtin::core::init_ops());
-
-    let ops = Self::collect_ops(&mut options.extensions);
-
-    let mut op_state = OpState::new(options.feature_checker.take());
-
-    // Setup state
-    for e in &mut options.extensions {
-      e.take_state(&mut op_state);
-    }
-
-    (op_state, ops)
   }
 
   pub fn eval<'s, T>(
@@ -1340,6 +1134,13 @@ impl JsRuntime {
   /// and access resources between op calls.
   pub fn op_state(&mut self) -> Rc<RefCell<OpState>> {
     self.inner.state.op_state.clone()
+  }
+
+  /// Returns the runtime's op names, ordered by OpId.
+  pub fn op_names(&self) -> Vec<&'static str> {
+    let main_realm = self.inner.main_realm.clone();
+    let state_rc = main_realm.0.state();
+    state_rc.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
@@ -1937,7 +1738,7 @@ fn create_context<'a>(
 
 impl JsRuntimeForSnapshot {
   pub fn new(mut options: RuntimeOptions) -> JsRuntimeForSnapshot {
-    JsRuntime::init_v8(
+    setup::init_v8(
       options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),

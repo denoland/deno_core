@@ -22,10 +22,10 @@ use crate::runtime::JsRealm;
 use crate::FastString;
 use crate::JsRuntime;
 
-pub(crate) fn external_references(
+pub(crate) fn create_external_references(
   ops: &[OpCtx],
   additional_references: &[v8::ExternalReference],
-) -> v8::ExternalReferences {
+) -> &'static v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references =
     Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
@@ -86,7 +86,9 @@ pub(crate) fn external_references(
 
   references.extend_from_slice(additional_references);
 
-  v8::ExternalReferences::new(&references)
+  let refs = v8::ExternalReferences::new(&references);
+  let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
+  refs
 }
 
 // TODO(nayeemrmn): Move to runtime and/or make `pub(crate)`.
@@ -751,7 +753,9 @@ where
   Some(promise)
 }
 
-pub fn get_exports_for_ops_virtual_module<'s>(
+/// This function generates a list of tuples, that are a mapping of `<op_name>`
+/// to a JavaScript function that executes and op.
+pub fn create_exports_for_ops_virtual_module<'s>(
   op_ctxs: &[OpCtx],
   scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
