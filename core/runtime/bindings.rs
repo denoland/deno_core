@@ -221,42 +221,32 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   global.set(scope, deno_str.into(), deno_obj.into());
 }
 
-/// If required, execute required JavaScript for `deno_core` to function and
-/// set up JavaScript bindings for ops.
-pub(crate) fn initialize_context<'s>(
+/// Execute `00_primordials.js` and `00_infra.js` that are required for ops
+/// to function properly
+pub(crate) fn initialize_primordials_and_infra<'s>(
+  scope: &mut v8::HandleScope<'s>,
+) {
+  for file_source in CONTEXT_SETUP_SOURCES {
+    let code = file_source.load().unwrap();
+    let source_str = code.v8_string(scope).unwrap();
+    let name = v8::String::new_external_onebyte_static(
+      scope,
+      file_source.specifier.as_bytes(),
+    )
+    .unwrap();
+    let origin = script_origin(scope, name);
+    // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+    let script = v8::Script::compile(scope, source_str, Some(&origin)).unwrap();
+    script.run(scope).unwrap();
+  }
+}
+
+/// Set up JavaScript bindings for ops.
+pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
-  init_mode: InitMode,
 ) {
-  // Execute `00_primordials.js` and `00_infra.js`
-  if init_mode == InitMode::New {
-    for file_source in CONTEXT_SETUP_SOURCES {
-      let code = file_source.load().unwrap();
-      let source_str = code.v8_string(scope).unwrap();
-      let name = v8::String::new_external_onebyte_static(
-        scope,
-        file_source.specifier.as_bytes(),
-      )
-      .unwrap();
-      let origin = script_origin(scope, name);
-      // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
-      let script =
-        v8::Script::compile(scope, source_str, Some(&origin)).unwrap();
-      script.run(scope).unwrap();
-    }
-  }
-
-  // Fast path - if all the ops have been registered already, bail out.
-  if matches!(
-    init_mode,
-    InitMode::FromSnapshot {
-      skip_op_registration: true
-    }
-  ) {
-    return;
-  }
-
   let global = context.global(scope);
 
   // Set up JavaScript bindings for the defined op - this will insert proper

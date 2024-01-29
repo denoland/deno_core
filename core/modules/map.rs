@@ -177,19 +177,15 @@ impl ModuleMap {
     }
   }
 
-  pub(crate) fn new_from_snapshotted_data(
-    loader: Rc<dyn ModuleLoader>,
-    exception_state: Rc<ExceptionState>,
-    import_meta_resolve_cb: ImportMetaResolveCallback,
+  pub(crate) fn update_with_snapshotted_data(
+    &self,
     scope: &mut v8::HandleScope,
     data: ModuleMapSnapshottedData,
-  ) -> Self {
-    let new = Self::new(loader, exception_state, import_meta_resolve_cb);
-    new
+  ) {
+    self
       .data
       .borrow_mut()
       .update_with_snapshotted_data(scope, data);
-    new
   }
 
   /// Get module id, following all aliases in case of module specifier

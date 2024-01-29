@@ -220,6 +220,16 @@ impl InitMode {
   pub fn is_from_snapshot(&self) -> bool {
     matches!(self, Self::FromSnapshot { .. })
   }
+
+  #[inline]
+  pub fn needs_ops_bindings(&self) -> bool {
+    !matches!(
+      self,
+      InitMode::FromSnapshot {
+        skip_op_registration: true
+      }
+    )
+  }
 }
 
 #[derive(Default)]
@@ -684,7 +694,8 @@ impl JsRuntime {
 
     // TODO(bartlomieju): this context creation and setup is really non-trivial.
     // Additionally it's unclear what is done when snapshotting/running from snapshot.
-    let (main_context, snapshotted_data) = {
+    let mut snapshotted_data = None;
+    let main_context = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
 
       let context = create_context(
@@ -694,13 +705,12 @@ impl JsRuntime {
       );
 
       // Get module map data from the snapshot
-      let snapshotted_data = if init_mode.is_from_snapshot() {
-        Some(snapshot_util::get_snapshotted_data(scope, context))
-      } else {
-        None
-      };
+      if init_mode.is_from_snapshot() {
+        snapshotted_data =
+          Some(snapshot_util::get_snapshotted_data(scope, context));
+      }
 
-      (v8::Global::new(scope, context), snapshotted_data)
+      v8::Global::new(scope, context)
     };
 
     let mut context_scope: v8::HandleScope =
@@ -708,13 +718,19 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
-    bindings::initialize_deno_core_namespace(scope, context, init_mode);
-    bindings::initialize_context(
-      scope,
-      context,
-      &context_state.op_ctxs,
-      init_mode,
-    );
+    if init_mode == InitMode::New {
+      bindings::initialize_deno_core_namespace(scope, context, init_mode);
+      bindings::initialize_primordials_and_infra(scope);
+    }
+    // If we're creating a new runtime or there are new ops to register
+    // set up JavaScript bindings for them.
+    if init_mode.needs_ops_bindings() {
+      bindings::initialize_deno_core_ops_bindings(
+        scope,
+        context,
+        &context_state.op_ctxs,
+      );
+    }
 
     context.set_slot(scope, context_state.clone());
 
@@ -730,29 +746,24 @@ impl JsRuntime {
     let import_meta_resolve_cb = options
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
-
     let exception_state = context_state.exception_state.clone();
-    let module_map = if let Some(snapshotted_data) = snapshotted_data {
+
+    let module_map = Rc::new(ModuleMap::new(
+      loader,
+      exception_state.clone(),
+      import_meta_resolve_cb,
+    ));
+
+    if let Some(snapshotted_data) = snapshotted_data {
       *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
         snapshotted_data.js_handled_promise_rejection_cb;
       let module_map_snapshotted_data = ModuleMapSnapshottedData {
         module_map_data: snapshotted_data.module_map_data,
         module_handles: snapshotted_data.module_handles,
       };
-      Rc::new(ModuleMap::new_from_snapshotted_data(
-        loader,
-        exception_state,
-        import_meta_resolve_cb,
-        scope,
-        module_map_snapshotted_data,
-      ))
-    } else {
-      Rc::new(ModuleMap::new(
-        loader,
-        exception_state,
-        import_meta_resolve_cb,
-      ))
-    };
+      module_map
+        .update_with_snapshotted_data(scope, module_map_snapshotted_data);
+    }
 
     context.set_slot(scope, module_map.clone());
 
