@@ -1,6 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::exception_state::ExceptionState;
+#[cfg(test)]
+use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCodeString;
