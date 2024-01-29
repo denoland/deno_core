@@ -925,6 +925,50 @@ impl JsRuntime {
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
+  fn execute_builtin_source(
+    &mut self,
+    realm: &JsRealm,
+    files_loaded: &mut Vec<&'static str>,
+  ) -> Result<(), Error> {
+    for file_source in &BUILTIN_SOURCES {
+      if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
+        file_source.code
+      {
+        files_loaded.push(path);
+      }
+
+      realm.execute_script(
+        self.v8_isolate(),
+        file_source.specifier,
+        file_source.load()?,
+      )?;
+    }
+    Ok(())
+  }
+
+  fn execute_builtin_es_modules(
+    &mut self,
+    realm: &JsRealm,
+    module_map: &Rc<ModuleMap>,
+    files_loaded: &mut Vec<&'static str>,
+  ) -> Result<(), Error> {
+    for file_source in &BUILTIN_ES_MODULES {
+      if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
+        file_source.code
+      {
+        files_loaded.push(path);
+      }
+      let mut scope = realm.handle_scope(self.v8_isolate());
+      module_map.lazy_load_es_module_from_code(
+        &mut scope,
+        file_source.specifier,
+        file_source.load()?,
+      )?;
+    }
+
+    Ok(())
+  }
+
   /// Initializes JS of provided Extensions in the given realm.
   fn init_extension_js(
     &mut self,
@@ -936,10 +980,38 @@ impl JsRuntime {
     //  b. Load all extension "module" JS files (but do not execute them yet)
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
-    let mut files_loaded_from_fs_during_snapshot = Vec::with_capacity(128);
+    let mut files_loaded = Vec::with_capacity(128);
     let realm = JsRealm::clone(&self.inner.main_realm);
     let context_global = realm.context();
     let module_map = realm.0.module_map();
+
+    // TODO(bartlomieju): this is somewhat duplicated in `bindings::initialize_context`,
+    // but for migration period we need to have ops available in both `Deno.core.ops`
+    // as well as have them available in "virtual ops module"
+    // if !matches!(
+    //   self.init_mode,
+    //   InitMode::FromSnapshot {
+    //     skip_op_registration: true
+    //   }
+    // ) {
+    if self.init_mode == InitMode::New {
+      self.execute_virtual_ops_module(context_global, module_map.clone());
+    }
+
+    // TODO(bartlomieju): can this be done outside this function? It's
+    // doing built-in sources, so not exactly extensions...
+    if self.init_mode == InitMode::New {
+      self.execute_builtin_source(&realm, &mut files_loaded)?;
+      self.execute_builtin_es_modules(
+        &realm,
+        &module_map,
+        &mut files_loaded,
+      )?;
+    }
+
+    // TODO(bartlomieju): can we do it, after we've executed all the code here?
+    self.init_cbs(&realm);
+
     let loader = module_map.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
     *module_map.loader.borrow_mut() = ext_loader;
@@ -947,48 +1019,6 @@ impl JsRuntime {
     let mut esm_entrypoints = vec![];
 
     futures::executor::block_on(async {
-      // TODO(bartlomieju): this is somewhat duplicated in `bindings::initialize_context`,
-      // but for migration period we need to have ops available in both `Deno.core.ops`
-      // as well as have them available in "virtual ops module"
-      // if !matches!(
-      //   self.init_mode,
-      //   InitMode::FromSnapshot {
-      //     skip_op_registration: true
-      //   }
-      // ) {
-      if self.init_mode == InitMode::New {
-        self.execute_virtual_ops_module(context_global, module_map.clone());
-      }
-
-      if self.init_mode == InitMode::New {
-        for file_source in &BUILTIN_SOURCES {
-          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-            file_source.code
-          {
-            files_loaded_from_fs_during_snapshot.push(path);
-          }
-          realm.execute_script(
-            self.v8_isolate(),
-            file_source.specifier,
-            file_source.load()?,
-          )?;
-        }
-        for file_source in &BUILTIN_ES_MODULES {
-          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-            file_source.code
-          {
-            files_loaded_from_fs_during_snapshot.push(path);
-          }
-          let mut scope = realm.handle_scope(self.v8_isolate());
-          module_map.lazy_load_es_module_from_code(
-            &mut scope,
-            file_source.specifier,
-            file_source.load()?,
-          )?;
-        }
-      }
-      self.init_cbs(&realm);
-
       for extension in extensions {
         // If the extension provides "lazy loaded ES modules" then store them
         // on the ModuleMap.
@@ -1001,7 +1031,7 @@ impl JsRuntime {
           if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
             file_source.code
           {
-            files_loaded_from_fs_during_snapshot.push(path);
+            files_loaded.push(path);
           }
           realm
             .load_side_module(
@@ -1020,7 +1050,7 @@ impl JsRuntime {
           if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
             &file_source.code
           {
-            files_loaded_from_fs_during_snapshot.push(path);
+            files_loaded.push(path);
           }
           realm.execute_script(
             self.v8_isolate(),
@@ -1055,7 +1085,7 @@ impl JsRuntime {
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
 
-    Ok(files_loaded_from_fs_during_snapshot)
+    Ok(files_loaded)
   }
 
   pub fn eval<'s, T>(
