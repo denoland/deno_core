@@ -1782,7 +1782,6 @@ impl JsRuntime {
   ) -> Poll<Result<(), Error>> {
     let has_inspector = self.inner.state.has_inspector.get();
     self.inner.state.waker.register(cx.waker());
-    eprintln!("poll");
     if has_inspector {
       // We poll the inspector first.
       let _ = self.inspector().borrow().poll_sessions(Some(cx)).unwrap();
