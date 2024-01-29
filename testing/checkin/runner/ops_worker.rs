@@ -72,7 +72,7 @@ pub fn worker_create(
         rx: rx2.into(),
       })
       .into(),
-    parent_close_watcher: parent.map(move |w| w.clone()).into(),
+    parent_close_watcher: parent.into(),
   };
   let worker_host_side = WorkerHostSide {
     close_watcher,
@@ -156,8 +156,7 @@ pub fn op_worker_send(
 #[op2(async)]
 #[string]
 pub async fn op_worker_recv(#[cppgc] worker: &WorkerControl) -> Option<String> {
-  let message = worker.worker_channel.rx.lock().await.recv().await;
-  message
+  worker.worker_channel.rx.lock().await.recv().await
 }
 
 #[op2]
