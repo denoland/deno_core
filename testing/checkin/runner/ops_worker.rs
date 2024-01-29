@@ -1,5 +1,5 @@
-use anyhow::bail;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use anyhow::bail;
 use anyhow::Error;
 use deno_core::cppgc;
 use deno_core::op2;
