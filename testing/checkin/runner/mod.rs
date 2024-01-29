@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use anyhow::bail;
 use anyhow::Error;
-use deno_ast::swc::common::util::take::Take;
 use deno_core::url::Url;
 use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
@@ -133,15 +132,15 @@ async fn run_integration_test_task(
     .run_event_loop(PollEventLoopOptions::default())
     .await
   {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
     for line in e.to_string().split('\n') {
-      actual_output += "[ERR] ";
-      actual_output += line;
-      actual_output += "\n";
+      output.line(format!("[ERR] {line}"));
     }
   }
   f.await?;
-  let output: Output = runtime.op_state().borrow_mut().take();
-  let mut lines = output.lines.lock().unwrap().take();
+  let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
   lines.push(String::new());
   let mut expected_output = String::new();
   File::open(test_dir.join(format!("{test}.out")))

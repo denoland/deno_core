@@ -15,6 +15,10 @@ impl Output {
   pub fn line(&self, line: String) {
     self.lines.lock().unwrap().push(line)
   }
+
+  pub fn take(&self) -> Vec<String> {
+    std::mem::take(&mut self.lines.lock().unwrap())
+  }
 }
 
 #[derive(Default)]
