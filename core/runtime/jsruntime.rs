@@ -305,8 +305,9 @@ pub(crate) const NO_OF_BUILTIN_MODULES: usize = 2;
 pub struct JsRuntime {
   pub(crate) inner: InnerIsolateState,
   pub(crate) allocations: IsolateAllocations,
-  extensions: Vec<Extension>,
-  /// Contains paths of source files that were executed in [`JsRuntime::init_extension_js`].
+  // Contains paths of source files that were executed in
+  // [`JsRuntime::init_extension_js`]. This field is populated only if a
+  // snapshot is being created.
   files_loaded_from_fs_during_snapshot: Vec<&'static str>,
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
@@ -804,19 +805,13 @@ impl JsRuntime {
       },
       init_mode,
       allocations: IsolateAllocations::default(),
-      // TODO(bartlomieju): at this point extensions have only JS/ESM sources left;
-      // probably worth to add a dedicated struct to represent that.
-      extensions: vec![],
       files_loaded_from_fs_during_snapshot: vec![],
       is_main_runtime: options.is_main,
     };
 
     let files_loaded_from_fs_during_snapshot =
-      js_runtime.init_extension_js(&mut extensions)?;
+      js_runtime.init_extension_js(extensions)?;
 
-    // TODO(bartlomieju): clean this up - we shouldn't need to store extensions
-    // on the `js_runtime` as they are mutable.
-    js_runtime.extensions = extensions;
     if will_snapshot {
       js_runtime.files_loaded_from_fs_during_snapshot =
         files_loaded_from_fs_during_snapshot;
@@ -933,8 +928,7 @@ impl JsRuntime {
   /// Initializes JS of provided Extensions in the given realm.
   fn init_extension_js(
     &mut self,
-    // TODO(bartlomieju): consume extensions here
-    extensions: &mut [Extension],
+    extensions: Vec<Extension>,
   ) -> Result<Vec<&'static str>, Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
@@ -947,7 +941,7 @@ impl JsRuntime {
     let context_global = realm.context();
     let module_map = realm.0.module_map();
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(extensions));
+    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
     *module_map.loader.borrow_mut() = ext_loader;
 
     let mut esm_entrypoints = vec![];
