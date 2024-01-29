@@ -223,9 +223,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 
 /// Execute `00_primordials.js` and `00_infra.js` that are required for ops
 /// to function properly
-pub(crate) fn initialize_primordials_and_infra<'s>(
-  scope: &mut v8::HandleScope<'s>,
-) {
+pub(crate) fn initialize_primordials_and_infra(scope: &mut v8::HandleScope) {
   for file_source in CONTEXT_SETUP_SOURCES {
     let code = file_source.load().unwrap();
     let source_str = code.v8_string(scope).unwrap();

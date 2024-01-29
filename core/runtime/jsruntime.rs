@@ -560,7 +560,12 @@ impl JsRuntime {
       cfg!(test),
       options.unsafe_expose_natives_and_gc(),
     );
-    JsRuntime::new_inner(options, false)
+    match JsRuntime::new_inner(options, false) {
+      Ok(runtime) => runtime,
+      Err(err) => {
+        panic!("Failed to initialize a JsRuntime: {:?}", err);
+      }
+    }
   }
 
   pub(crate) fn state_from(isolate: &v8::Isolate) -> Rc<JsRuntimeState> {
@@ -584,7 +589,10 @@ impl JsRuntime {
     EventLoopPendingState::new_from_scope(scope).is_pending()
   }
 
-  fn new_inner(mut options: RuntimeOptions, will_snapshot: bool) -> JsRuntime {
+  fn new_inner(
+    mut options: RuntimeOptions,
+    will_snapshot: bool,
+  ) -> Result<JsRuntime, Error> {
     let init_mode = InitMode::from_options(&options);
     let mut op_state = OpState::new(options.feature_checker.take());
 
@@ -799,16 +807,13 @@ impl JsRuntime {
       is_main_runtime: options.is_main,
     };
 
-    // TODO(mmastrac): We should thread errors back out of the runtime
-    js_runtime
-      .init_extension_js(&mut extensions)
-      .expect("Failed to evaluate extension JS");
+    js_runtime.init_extension_js(&mut extensions)?;
 
     // TODO(bartlomieju): clean this up - we shouldn't need to store extensions
     // on the `js_runtime` as they are mutable.
     js_runtime.extensions = extensions;
 
-    js_runtime
+    Ok(js_runtime)
   }
 
   #[cfg(test)]
@@ -1723,7 +1728,14 @@ impl JsRuntimeForSnapshot {
       true,
       options.unsafe_expose_natives_and_gc(),
     );
-    JsRuntimeForSnapshot(JsRuntime::new_inner(options, true))
+
+    let runtime = match JsRuntime::new_inner(options, true) {
+      Ok(r) => r,
+      Err(err) => {
+        panic!("Failed to initialize JsRuntime for snapshotting: {:?}", err);
+      }
+    };
+    JsRuntimeForSnapshot(runtime)
   }
 
   /// Takes a snapshot and consumes the runtime.
