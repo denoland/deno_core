@@ -2,12 +2,19 @@
 use std::any::Any;
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use deno_core::v8;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Output {
-  pub lines: Vec<String>,
+  pub lines: Arc<Mutex<Vec<String>>>,
+}
+impl Output {
+  pub fn line(&self, line: String) {
+    self.lines.lock().unwrap().push(line)
+  }
 }
 
 #[derive(Default)]

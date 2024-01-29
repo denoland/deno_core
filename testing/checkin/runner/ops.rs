@@ -23,7 +23,7 @@ pub fn op_log_debug(#[string] s: &str) {
 #[op2(fast)]
 pub fn op_log_info(#[state] output: &mut Output, #[string] s: String) {
   println!("{s}");
-  output.lines.push(s);
+  output.lines.lock().unwrap().push(s);
 }
 
 #[op2]
