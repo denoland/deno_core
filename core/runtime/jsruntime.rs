@@ -602,7 +602,8 @@ impl JsRuntime {
 
     let mut extensions = std::mem::take(&mut options.extensions);
     let mut deno_core_ext = crate::ops_builtin::core::init_ops();
-    let op_decls = extension_set::init_ops(&mut deno_core_ext, &mut extensions);
+    let op_decls =
+      extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
     extension_set::setup_op_state(
       &mut op_state,
       &mut deno_core_ext,
@@ -925,9 +926,11 @@ impl JsRuntime {
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
-  fn execute_builtin_source(
+  /// Executes built-in scripts and ES modules.
+  fn execute_builtin_sources(
     &mut self,
     realm: &JsRealm,
+    module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), Error> {
     for file_source in &BUILTIN_SOURCES {
@@ -943,15 +946,7 @@ impl JsRuntime {
         file_source.load()?,
       )?;
     }
-    Ok(())
-  }
 
-  fn execute_builtin_es_modules(
-    &mut self,
-    realm: &JsRealm,
-    module_map: &Rc<ModuleMap>,
-    files_loaded: &mut Vec<&'static str>,
-  ) -> Result<(), Error> {
     for file_source in &BUILTIN_ES_MODULES {
       if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
         file_source.code
@@ -985,6 +980,7 @@ impl JsRuntime {
     let context_global = realm.context();
     let module_map = realm.0.module_map();
 
+    // TODO(bartlomieju): hoist it out of this method.
     // TODO(bartlomieju): this is somewhat duplicated in `bindings::initialize_context`,
     // but for migration period we need to have ops available in both `Deno.core.ops`
     // as well as have them available in "virtual ops module"
@@ -998,18 +994,12 @@ impl JsRuntime {
       self.execute_virtual_ops_module(context_global, module_map.clone());
     }
 
-    // TODO(bartlomieju): can this be done outside this function? It's
-    // doing built-in sources, so not exactly extensions...
+    // TODO(bartlomieju): hoist it out of this method.
     if self.init_mode == InitMode::New {
-      self.execute_builtin_source(&realm, &mut files_loaded)?;
-      self.execute_builtin_es_modules(
-        &realm,
-        &module_map,
-        &mut files_loaded,
-      )?;
+      self.execute_builtin_sources(&realm, &module_map, &mut files_loaded)?;
     }
 
-    // TODO(bartlomieju): can we do it, after we've executed all the code here?
+    // TODO(bartlomieju): hoist it out of this method.
     self.init_cbs(&realm);
 
     let loader = module_map.loader.borrow().clone();
