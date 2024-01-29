@@ -87,10 +87,6 @@ pub(crate) fn create_external_references(
   references.extend_from_slice(additional_references);
 
   let refs = v8::ExternalReferences::new(&references);
-  // Leak, V8 takes ownership of the references.
-  std::mem::forget(references);
-
-  // V8 takes ownership of external_references.
   let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
   refs
 }

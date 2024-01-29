@@ -34,8 +34,8 @@ use crate::modules::ValidateImportAttributesCb;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
-use crate::runtime::DefaultOpDriver;
 use crate::runtime::JsRealm;
+use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
@@ -614,7 +614,7 @@ impl JsRuntime {
       has_inspector: false.into(),
     });
 
-    let op_driver = Rc::new(DefaultOpDriver::default());
+    let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
     let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
@@ -669,7 +669,20 @@ impl JsRuntime {
       isolate_ptr.write(isolate);
       isolate_ptr.read()
     };
+
     op_state.borrow_mut().put(isolate_ptr);
+
+    // Add the task spawners to the OpState
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_same_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_cross_thread_spawner();
+    op_state.borrow_mut().put(spawner);
 
     // TODO(bartlomieju): this context creation and setup is really non-trivial.
     // Additionally it's unclear what is done when snapshotting/running from snapshot.

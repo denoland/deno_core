@@ -8,8 +8,8 @@ use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpMiddlewareFn;
 use crate::ops::OpCtx;
-use crate::runtime::DefaultOpDriver;
 use crate::runtime::JsRuntimeState;
+use crate::runtime::OpDriverImpl;
 use crate::GetErrorClassFn;
 use crate::OpDecl;
 use crate::OpMetricsFactoryFn;
@@ -125,7 +125,7 @@ fn check_no_duplicate_op_names(ops: &[OpDecl]) {
 pub fn create_op_ctxs(
   op_decls: Vec<OpDecl>,
   op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
-  op_driver: Rc<DefaultOpDriver>,
+  op_driver: Rc<OpDriverImpl>,
   op_state: Rc<RefCell<OpState>>,
   runtime_state: Rc<JsRuntimeState>,
   get_error_class_fn: GetErrorClassFn,
