@@ -4,10 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::runtime::jsruntime::BUILTIN_ES_MODULES;
-use crate::runtime::jsruntime::BUILTIN_SOURCES;
 use crate::Extension;
-use crate::ExtensionFileSourceCode;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
 use crate::Snapshot;
@@ -50,33 +47,11 @@ pub fn create_snapshot(
   );
   mark = Instant::now();
 
-  let mut files_loaded_during_snapshot = vec![];
-  for source in &BUILTIN_SOURCES {
-    if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-      &source.code
-    {
-      files_loaded_during_snapshot.push(PathBuf::from(path));
-    }
-  }
-  for source in &BUILTIN_ES_MODULES {
-    if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-      &source.code
-    {
-      files_loaded_during_snapshot.push(PathBuf::from(path));
-    }
-  }
-  for source in js_runtime
-    .extensions()
+  let files_loaded_during_snapshot = js_runtime
+    .files_loaded_from_fs_during_snapshot()
     .iter()
-    .flat_map(|e| vec![e.get_esm_sources(), e.get_js_sources()])
-    .flatten()
-  {
-    if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-      &source.code
-    {
-      files_loaded_during_snapshot.push(PathBuf::from(path));
-    }
-  }
+    .map(PathBuf::from)
+    .collect::<Vec<_>>();
 
   if let Some(with_runtime_cb) = create_snapshot_options.with_runtime_cb {
     with_runtime_cb(&mut js_runtime);

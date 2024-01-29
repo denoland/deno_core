@@ -16,12 +16,7 @@ use crate::OpMetricsFactoryFn;
 use crate::OpState;
 
 /// Contribute to the `OpState` from each extension.
-pub fn setup_op_state(
-  op_state: &mut OpState,
-  deno_core_ext: &mut Extension,
-  extensions: &mut [Extension],
-) {
-  deno_core_ext.take_state(op_state);
+pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
   for ext in extensions {
     ext.take_state(op_state);
   }
@@ -32,19 +27,19 @@ pub fn setup_op_state(
 // but not added to "ext:core/ops" virtual module.
 /// Collects ops from extensions & applies middleware
 pub fn init_ops(
-  deno_core_ext: &mut Extension,
+  deno_core_ops: &'static [OpDecl],
   extensions: &mut [Extension],
 ) -> Vec<OpDecl> {
   // In debug build verify there that inter-Extension dependencies
   // are setup correctly.
   #[cfg(debug_assertions)]
-  check_extensions_dependencies(deno_core_ext, extensions);
+  check_extensions_dependencies(extensions);
 
   let no_of_ops = extensions
     .iter()
     .map(|e| e.op_count())
     .fold(0, |ext_ops_count, count| count + ext_ops_count);
-  let mut ops = Vec::with_capacity(no_of_ops + deno_core_ext.op_count());
+  let mut ops = Vec::with_capacity(no_of_ops + deno_core_ops.len());
 
   // Collect all middlewares - deno_core extension must not have a middleware!
   let middlewares: Vec<Box<OpMiddlewareFn>> = extensions
@@ -56,11 +51,10 @@ pub fn init_ops(
   let macroware = move |d| middlewares.iter().fold(d, |d, m| m(d));
 
   // Collect ops from all extensions and apply a macroware to each of them.
-  let ext_ops = deno_core_ext.init_ops();
-  for ext_op in ext_ops {
+  for core_op in deno_core_ops {
     ops.push(OpDecl {
-      name: ext_op.name,
-      ..macroware(*ext_op)
+      name: core_op.name,
+      ..macroware(*core_op)
     });
   }
 
@@ -83,14 +77,10 @@ pub fn init_ops(
 
 /// This functions panics if any of the extensions is missing its dependencies.
 #[cfg(debug_assertions)]
-fn check_extensions_dependencies(
-  deno_core_ext: &Extension,
-  exts: &[Extension],
-) {
+fn check_extensions_dependencies(exts: &[Extension]) {
   for (index, ext) in exts.iter().enumerate() {
-    let mut previous_exts = vec![deno_core_ext];
-    previous_exts.extend_from_slice(&exts[..index].iter().collect::<Vec<_>>());
-    ext.check_dependencies(&previous_exts);
+    let previous_exts = &exts[..index];
+    ext.check_dependencies(previous_exts);
   }
 }
 

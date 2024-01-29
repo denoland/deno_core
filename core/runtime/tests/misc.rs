@@ -1010,7 +1010,7 @@ async fn test_dynamic_import_module_error_stack() {
 
 #[tokio::test]
 #[should_panic(
-  expected = r#"Failed to evaluate extension JS: Top-level await is not allowed in extensions
+  expected = r#"Failed to initialize a JsRuntime: Top-level await is not allowed in extensions
 
 Caused by:
     Top-level await promise never resolved
@@ -1057,7 +1057,7 @@ async fn tla_in_esm_extensions_panics() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 #[should_panic(
-  expected = r#"Failed to evaluate extension JS: Error: This fails
+  expected = r#"Failed to initialize a JsRuntime: Error: This fails
     at a (mod:error:2:34)
     at mod:error:3:13"#
 )]
