@@ -35,6 +35,7 @@ use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
+use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
@@ -713,49 +714,23 @@ impl JsRuntime {
       waker,
     });
 
-    let count = ops.len();
-    let op_metrics_fns = ops
-      .iter()
-      .enumerate()
-      .map(|(id, decl)| {
-        options
-          .op_metrics_factory_fn
-          .as_ref()
-          .and_then(|f| (f)(id as _, count, decl))
-      })
-      .collect::<Vec<_>>();
-    let ops_with_metrics = op_metrics_fns
-      .iter()
-      .map(|o| o.is_some())
-      .collect::<Vec<_>>();
-    let context_state = Rc::new(ContextState::new(
-      isolate_ptr,
-      options.get_error_class_fn.unwrap_or(&|_| "Error"),
-      ops_with_metrics,
-    ));
-
-    // Add the task spawners to the OpState
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_same_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_cross_thread_spawner();
-    op_state.borrow_mut().put(spawner);
+    let op_count = ops.len();
+    let op_driver = Rc::new(OpDriverImpl::default());
+    let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
 
     let mut op_ctxs = ops
       .into_iter()
       .enumerate()
-      .zip(op_metrics_fns)
-      .map(|((id, decl), metrics_fn)| {
+      .map(|(id, decl)| {
+        let metrics_fn = op_metrics_factory_fn
+          .as_ref()
+          .and_then(|f| (f)(id as _, op_count, &decl));
+
         OpCtx::new(
           id as _,
           std::ptr::null_mut(),
-          context_state.clone(),
-          Rc::new(decl),
+          op_driver.clone(),
+          decl,
           op_state.clone(),
           state_rc.clone(),
           options.get_error_class_fn.unwrap_or(&|_| "Error"),
@@ -816,7 +791,25 @@ impl JsRuntime {
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
-    *context_state.op_ctxs.borrow_mut() = op_ctxs;
+
+    let context_state = Rc::new(ContextState::new(
+      op_driver.clone(),
+      isolate_ptr,
+      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      op_ctxs,
+    ));
+
+    // Add the task spawners to the OpState
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_same_thread_spawner();
+    op_state.borrow_mut().put(spawner);
+    let spawner = context_state
+      .task_spawner_factory
+      .clone()
+      .new_cross_thread_spawner();
+    op_state.borrow_mut().put(spawner);
 
     isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
     isolate.set_promise_reject_callback(bindings::promise_reject_callback);
@@ -865,7 +858,7 @@ impl JsRuntime {
     bindings::initialize_context(
       scope,
       context,
-      &context_state.op_ctxs.borrow(),
+      &context_state.op_ctxs,
       init_mode,
     );
 
@@ -1060,10 +1053,12 @@ impl JsRuntime {
         let scope = &mut self.handle_scope();
         let context_local = v8::Local::new(scope, context_global);
         let context_state = JsRealm::state_from_scope(scope);
-        let op_ctxs = context_state.op_ctxs.borrow();
         let global = context_local.global(scope);
-        let synthetic_module_exports =
-          get_exports_for_ops_virtual_module(&op_ctxs, scope, global);
+        let synthetic_module_exports = get_exports_for_ops_virtual_module(
+          &context_state.op_ctxs,
+          scope,
+          global,
+        );
         let mod_id = module_map
           .new_synthetic_module(
             scope,
@@ -1345,14 +1340,6 @@ impl JsRuntime {
   /// and access resources between op calls.
   pub fn op_state(&mut self) -> Rc<RefCell<OpState>> {
     self.inner.state.op_state.clone()
-  }
-
-  /// Returns the runtime's op names, ordered by OpId.
-  pub fn op_names(&self) -> Vec<&'static str> {
-    let main_realm = self.inner.main_realm.clone();
-    let state_rc = main_realm.0.state();
-    let ctx = state_rc.op_ctxs.borrow();
-    ctx.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
@@ -2272,17 +2259,14 @@ impl JsRuntime {
 
       let res = res.unwrap(scope, context_state.get_error_class_fn);
 
-      if context_state.ops_with_metrics[op_id as usize] {
-        if res.is_ok() {
-          dispatch_metrics_async(
-            &context_state.op_ctxs.borrow()[op_id as usize],
-            OpMetricsEvent::CompletedAsync,
-          );
-        } else {
-          dispatch_metrics_async(
-            &context_state.op_ctxs.borrow()[op_id as usize],
-            OpMetricsEvent::ErrorAsync,
-          );
+      {
+        let op_ctx = &context_state.op_ctxs[op_id as usize];
+        if op_ctx.metrics_enabled() {
+          if res.is_ok() {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::CompletedAsync);
+          } else {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
+          }
         }
       }
 

@@ -853,8 +853,11 @@ pub fn op_dispatch_exception(
 #[serde]
 pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
   let state = JsRealm::state_from_scope(scope);
-  let ctx = state.op_ctxs.borrow();
-  ctx.iter().map(|o| o.decl.name.to_string()).collect()
+  state
+    .op_ctxs
+    .iter()
+    .map(|o| o.decl.name.to_string())
+    .collect()
 }
 
 #[derive(Deserialize, Serialize)]
