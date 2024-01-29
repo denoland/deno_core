@@ -40,6 +40,7 @@ use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
 use crate::ExtensionFileSource;
+use crate::ExtensionFileSourceCode;
 use crate::FastString;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
@@ -305,6 +306,8 @@ pub struct JsRuntime {
   pub(crate) inner: InnerIsolateState,
   pub(crate) allocations: IsolateAllocations,
   extensions: Vec<Extension>,
+  /// Contains paths of source files that were executed in [`JsRuntime::init_extension_js`].
+  files_loaded_from_fs_during_snapshot: Vec<&'static str>,
   init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
@@ -804,14 +807,20 @@ impl JsRuntime {
       // TODO(bartlomieju): at this point extensions have only JS/ESM sources left;
       // probably worth to add a dedicated struct to represent that.
       extensions: vec![],
+      files_loaded_from_fs_during_snapshot: vec![],
       is_main_runtime: options.is_main,
     };
 
-    js_runtime.init_extension_js(&mut extensions)?;
+    let files_loaded_from_fs_during_snapshot =
+      js_runtime.init_extension_js(&mut extensions)?;
 
     // TODO(bartlomieju): clean this up - we shouldn't need to store extensions
     // on the `js_runtime` as they are mutable.
     js_runtime.extensions = extensions;
+    if will_snapshot {
+      js_runtime.files_loaded_from_fs_during_snapshot =
+        files_loaded_from_fs_during_snapshot;
+    }
 
     Ok(js_runtime)
   }
@@ -866,10 +875,8 @@ impl JsRuntime {
     }
   }
 
-  // TODO(bartlomieju): this method probably be public to the crate
-  /// Returns the extensions that this runtime is using (including internal ones).
-  pub fn extensions(&self) -> &Vec<Extension> {
-    &self.extensions
+  pub(crate) fn files_loaded_from_fs_during_snapshot(&self) -> &[&'static str] {
+    &self.files_loaded_from_fs_during_snapshot
   }
 
   #[inline]
@@ -926,14 +933,16 @@ impl JsRuntime {
   /// Initializes JS of provided Extensions in the given realm.
   fn init_extension_js(
     &mut self,
+    // TODO(bartlomieju): consume extensions here
     extensions: &mut [Extension],
-  ) -> Result<(), Error> {
+  ) -> Result<Vec<&'static str>, Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
     //  b. Load all extension "module" JS files (but do not execute them yet)
     // 2. Iterate through all extensions:
     //  a. If an extension has a `esm_entry_point`, execute it.
+    let mut files_loaded_from_fs_during_snapshot = Vec::with_capacity(128);
     let realm = JsRealm::clone(&self.inner.main_realm);
     let context_global = realm.context();
     let module_map = realm.0.module_map();
@@ -959,6 +968,11 @@ impl JsRuntime {
 
       if self.init_mode == InitMode::New {
         for file_source in &BUILTIN_SOURCES {
+          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
+            file_source.code
+          {
+            files_loaded_from_fs_during_snapshot.push(path);
+          }
           realm.execute_script(
             self.v8_isolate(),
             file_source.specifier,
@@ -966,6 +980,11 @@ impl JsRuntime {
           )?;
         }
         for file_source in &BUILTIN_ES_MODULES {
+          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
+            file_source.code
+          {
+            files_loaded_from_fs_during_snapshot.push(path);
+          }
           let mut scope = realm.handle_scope(self.v8_isolate());
           module_map.lazy_load_es_module_from_code(
             &mut scope,
@@ -985,6 +1004,11 @@ impl JsRuntime {
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
         for file_source in extension.get_esm_sources() {
+          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
+            file_source.code
+          {
+            files_loaded_from_fs_during_snapshot.push(path);
+          }
           realm
             .load_side_module(
               self.v8_isolate(),
@@ -999,6 +1023,11 @@ impl JsRuntime {
         }
 
         for file_source in extension.get_js_sources() {
+          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
+            &file_source.code
+          {
+            files_loaded_from_fs_during_snapshot.push(path);
+          }
           realm.execute_script(
             self.v8_isolate(),
             file_source.specifier,
@@ -1032,7 +1061,7 @@ impl JsRuntime {
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
 
-    Ok(())
+    Ok(files_loaded_from_fs_during_snapshot)
   }
 
   pub fn eval<'s, T>(
