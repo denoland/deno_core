@@ -6,7 +6,7 @@ use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
-use crate::runtime::RealOpDriver;
+use crate::runtime::OpDriverImpl;
 use crate::FeatureChecker;
 use crate::OpDecl;
 use futures::task::AtomicWaker;
@@ -78,7 +78,7 @@ pub struct OpCtx {
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
-  op_driver: Rc<RealOpDriver>,
+  op_driver: Rc<OpDriverImpl>,
   runtime_state: Rc<JsRuntimeState>,
 }
 
@@ -87,7 +87,7 @@ impl OpCtx {
   pub(crate) fn new(
     id: OpId,
     isolate: *mut Isolate,
-    op_driver: Rc<RealOpDriver>,
+    op_driver: Rc<OpDriverImpl>,
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: Rc<JsRuntimeState>,
@@ -173,7 +173,7 @@ impl OpCtx {
     *opt_mut = Some(error);
   }
 
-  pub(crate) fn op_driver(&self) -> &RealOpDriver {
+  pub(crate) fn op_driver(&self) -> &OpDriverImpl {
     &self.op_driver
   }
 

@@ -18,7 +18,7 @@ pub const V8_WRAPPER_OBJECT_INDEX: i32 = 1;
 
 pub(crate) use jsrealm::ContextState;
 pub(crate) use jsrealm::JsRealm;
-pub(crate) use jsrealm::RealOpDriver;
+pub(crate) use jsrealm::OpDriverImpl;
 pub use jsruntime::CompiledWasmModuleStore;
 pub use jsruntime::CreateRealmOptions;
 pub use jsruntime::CrossIsolateStore;

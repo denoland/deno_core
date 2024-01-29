@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::exception_state::ExceptionState;
-use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleCodeString;
@@ -48,12 +47,12 @@ impl Hasher for IdentityHasher {
   feature = "op_driver_joinset",
   not(feature = "op_driver_futuresunordered")
 ))]
-pub(crate) type RealOpDriver = super::op_driver::JoinSetDriver;
+pub(crate) type OpDriverImpl = super::op_driver::JoinSetDriver;
 
 #[cfg(feature = "op_driver_futuresunordered")]
-pub(crate) type RealOpDriver = super::op_driver::FuturesUnorderedDriver;
+pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
-pub(crate) struct ContextState<OpDriverImpl: OpDriver = RealOpDriver> {
+pub(crate) struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:
@@ -72,9 +71,9 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = RealOpDriver> {
   pub(crate) get_error_class_fn: GetErrorClassFn,
 }
 
-impl<O: OpDriver> ContextState<O> {
+impl ContextState {
   pub(crate) fn new(
-    op_driver: Rc<O>,
+    op_driver: Rc<OpDriverImpl>,
     isolate_ptr: *mut v8::OwnedIsolate,
     get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,

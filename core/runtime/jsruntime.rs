@@ -35,7 +35,7 @@ use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
-use crate::runtime::RealOpDriver;
+use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
@@ -715,7 +715,7 @@ impl JsRuntime {
     });
 
     let op_count = ops.len();
-    let op_driver = Rc::new(RealOpDriver::default());
+    let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
 
     let mut op_ctxs = ops
