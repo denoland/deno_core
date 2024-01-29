@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use anyhow::Context;
 use log::debug;
 use std::option::Option;
 use std::os::raw::c_void;
@@ -10,6 +11,7 @@ use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
+use crate::error::AnyError;
 use crate::error::JsStackFrame;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
@@ -223,7 +225,9 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 
 /// Execute `00_primordials.js` and `00_infra.js` that are required for ops
 /// to function properly
-pub(crate) fn initialize_primordials_and_infra(scope: &mut v8::HandleScope) {
+pub(crate) fn initialize_primordials_and_infra(
+  scope: &mut v8::HandleScope,
+) -> Result<(), AnyError> {
   for file_source in CONTEXT_SETUP_SOURCES {
     let code = file_source.load().unwrap();
     let source_str = code.v8_string(scope).unwrap();
@@ -234,9 +238,13 @@ pub(crate) fn initialize_primordials_and_infra(scope: &mut v8::HandleScope) {
     .unwrap();
     let origin = script_origin(scope, name);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
-    let script = v8::Script::compile(scope, source_str, Some(&origin)).unwrap();
-    script.run(scope).unwrap();
+    let script = v8::Script::compile(scope, source_str, Some(&origin))
+      .with_context(|| format!("Failed to parse {}", file_source.specifier))?;
+    script.run(scope).with_context(|| {
+      format!("Failed to execute {}", file_source.specifier)
+    })?;
   }
+  Ok(())
 }
 
 /// Set up JavaScript bindings for ops.

@@ -728,7 +728,7 @@ impl JsRuntime {
 
     if init_mode == InitMode::New {
       bindings::initialize_deno_core_namespace(scope, context, init_mode);
-      bindings::initialize_primordials_and_infra(scope);
+      bindings::initialize_primordials_and_infra(scope)?;
     }
     // If we're creating a new runtime or there are new ops to register
     // set up JavaScript bindings for them.
