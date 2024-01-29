@@ -11,6 +11,7 @@ use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
+use crate::modules::ModuleVisibility;
 use crate::modules::RequestedModuleType;
 use crate::resolve_import;
 use crate::resolve_url;
@@ -908,6 +909,7 @@ export const foo = bytes;
     info,
     &ModuleInfo {
       id: mod_id,
+      visibility: ModuleVisibility::User,
       main: true,
       name: ascii_str!("file:///b.png"),
       requests: vec![ModuleRequest {
@@ -924,6 +926,7 @@ export const foo = bytes;
     info,
     &ModuleInfo {
       id: mod_id - 1,
+      visibility: ModuleVisibility::User,
       main: false,
       name: ascii_str!("file:///b.png"),
       requests: vec![],
