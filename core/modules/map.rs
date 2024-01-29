@@ -27,10 +27,12 @@ use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
 use anyhow::bail;
+use anyhow::Context as _;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
+use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
@@ -960,6 +962,41 @@ impl ModuleMap {
     }
 
     receiver
+  }
+
+  /// Helper function that allows to evaluate a module and ensure it's fully
+  /// evaluated without the need to poll the event loop.
+  ///
+  /// This is useful for evaluating internal modules that can't use Top-Level Await.
+  pub(crate) fn mod_evaluate_sync(
+    self: &Rc<Self>,
+    scope: &mut v8::HandleScope,
+    id: ModuleId,
+  ) -> Result<(), Error> {
+    let mut receiver = self.mod_evaluate(scope, id);
+
+    // After evaluate_pending_module, if the module isn't fully evaluated
+    // and the resolver solved, it means the module or one of its imports
+    // uses TLA.
+    match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      Poll::Ready(result) => {
+        result.with_context(|| {
+          let specifier = self.get_name_by_id(id).unwrap();
+          format!("Couldn't execute '{specifier}'")
+        })?;
+      }
+      Poll::Pending => {
+        // Find the TLA location and return it as an error
+        let messages = self.find_stalled_top_level_await(scope);
+        assert!(!messages.is_empty());
+        let msg = v8::Local::new(scope, &messages[0]);
+        let js_error = JsError::from_v8_message(scope, msg);
+        return Err(Error::from(js_error))
+          .with_context(|| "Top-level await is not allowed in extensions");
+      }
+    }
+
+    Ok(())
   }
 
   fn dynamic_import_module_evaluate(
