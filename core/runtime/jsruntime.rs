@@ -47,10 +47,8 @@ use crate::OpMetricsEvent;
 use crate::OpState;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Context as AnyhowContext;
 use anyhow::Error;
 use futures::future::poll_fn;
-use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::FutureExt;
@@ -906,13 +904,7 @@ impl JsRuntime {
       )
       .unwrap();
     module_map.instantiate_module(scope, mod_id).unwrap();
-    let mut receiver = module_map.mod_evaluate(scope, mod_id);
-    let Poll::Ready(result) =
-      receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
-    else {
-      unreachable!();
-    };
-    result.unwrap();
+    module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
   /// Initializes JS of provided Extensions in the given realm.
@@ -1007,32 +999,9 @@ impl JsRuntime {
           bail!("{} not present in the module map", specifier);
         };
 
-        let mut receiver = {
-          let isolate = self.v8_isolate();
-          let scope = &mut realm.handle_scope(isolate);
-
-          module_map.mod_evaluate(scope, mod_id)
-        };
-
-        // After evaluate_pending_module, if the module isn't fully evaluated
-        // and the resolver solved, it means the module or one of its imports
-        // uses TLA.
-        match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-          Poll::Ready(result) => {
-            result
-              .with_context(|| format!("Couldn't execute '{specifier}'"))?;
-          }
-          Poll::Pending => {
-            // Find the TLA location and return it as an error
-            let scope = &mut realm.handle_scope(self.v8_isolate());
-            let messages = module_map.find_stalled_top_level_await(scope);
-            assert!(!messages.is_empty());
-            let msg = v8::Local::new(scope, &messages[0]);
-            let js_error = JsError::from_v8_message(scope, msg);
-            return Err(Error::from(js_error))
-              .with_context(|| "Top-level await is not allowed in extensions");
-          }
-        }
+        let isolate = self.v8_isolate();
+        let scope = &mut realm.handle_scope(isolate);
+        module_map.mod_evaluate_sync(scope, mod_id)?;
       }
 
       #[cfg(debug_assertions)]
