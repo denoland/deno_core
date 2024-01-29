@@ -605,7 +605,7 @@ impl JsRuntime {
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
     extension_set::setup_op_state(&mut op_state, &mut extensions);
     let (
-      global_template_middlewares,
+      global_template_middleware,
       global_object_middlewares,
       additional_references,
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
@@ -708,7 +708,7 @@ impl JsRuntime {
 
       let context = create_context(
         scope,
-        &global_template_middlewares,
+        &global_template_middleware,
         &global_object_middlewares,
       );
 
@@ -921,7 +921,12 @@ impl JsRuntime {
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
-  /// Executes built-in scripts and ES modules.
+  /// Executes built-in scripts and ES modules - this code is required for
+  /// ops system to work properly, as well as providing necessary bindings
+  /// on the `Deno.core` namespace.
+  ///
+  /// This is not done in [`bindings::initialize_primordials_and_infra`] because
+  /// some of this code already relies on certain ops being available.
   fn execute_builtin_sources(
     &mut self,
     realm: &JsRealm,
@@ -929,12 +934,7 @@ impl JsRuntime {
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), Error> {
     for file_source in &BUILTIN_SOURCES {
-      if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-        file_source.code
-      {
-        files_loaded.push(path);
-      }
-
+      mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
       realm.execute_script(
         self.v8_isolate(),
         file_source.specifier,
@@ -943,11 +943,7 @@ impl JsRuntime {
     }
 
     for file_source in &BUILTIN_ES_MODULES {
-      if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-        file_source.code
-      {
-        files_loaded.push(path);
-      }
+      mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
       let mut scope = realm.handle_scope(self.v8_isolate());
       module_map.lazy_load_es_module_from_code(
         &mut scope,
@@ -1013,11 +1009,10 @@ impl JsRuntime {
         let maybe_esm_entry_point = extension.get_esm_entry_point();
 
         for file_source in extension.get_esm_sources() {
-          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-            file_source.code
-          {
-            files_loaded.push(path);
-          }
+          mark_as_loaded_from_fs_during_snapshot(
+            &mut files_loaded,
+            &file_source.code,
+          );
           realm
             .load_side_module(
               self.v8_isolate(),
@@ -1032,11 +1027,10 @@ impl JsRuntime {
         }
 
         for file_source in extension.get_js_sources() {
-          if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) =
-            &file_source.code
-          {
-            files_loaded.push(path);
-          }
+          mark_as_loaded_from_fs_during_snapshot(
+            &mut files_loaded,
+            &file_source.code,
+          );
           realm.execute_script(
             self.v8_isolate(),
             file_source.specifier,
@@ -2191,5 +2185,14 @@ impl JsRuntime {
     }
 
     Ok(dispatched_ops)
+  }
+}
+
+fn mark_as_loaded_from_fs_during_snapshot(
+  files_loaded: &mut Vec<&'static str>,
+  source: &ExtensionFileSourceCode,
+) {
+  if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) = source {
+    files_loaded.push(path);
   }
 }
