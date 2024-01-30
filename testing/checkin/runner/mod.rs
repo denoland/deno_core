@@ -16,12 +16,16 @@ use tokio::io::AsyncReadExt;
 
 use crate::checkin::runner::testing::TestData;
 
+use self::ops_worker::worker_create;
+use self::ops_worker::WorkerCloseWatcher;
+use self::ops_worker::WorkerHostSide;
 use self::testing::TestFunctions;
 
 mod ops;
 mod ops_async;
 mod ops_buffer;
 mod ops_io;
+mod ops_worker;
 mod testing;
 mod ts_module_loader;
 
@@ -44,6 +48,12 @@ deno_core::extension!(
     ops_async::op_async_throw_error_deferred,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
+    ops_worker::op_worker_spawn,
+    ops_worker::op_worker_send,
+    ops_worker::op_worker_recv,
+    ops_worker::op_worker_parent,
+    ops_worker::op_worker_await_close,
+    ops_worker::op_worker_terminate,
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [
@@ -54,15 +64,19 @@ deno_core::extension!(
     "console.ts" with_specifier "checkin:console",
     "testing.ts" with_specifier "checkin:testing",
     "timers.ts" with_specifier "checkin:timers",
+    "worker.ts" with_specifier "checkin:worker",
   ],
   state = |state| {
     state.put(TestFunctions::default());
     state.put(TestData::default());
-    state.put(Output::default());
   }
 );
 
-fn create_runtime() -> JsRuntime {
+fn create_runtime(
+  output: Output,
+  parent: Option<WorkerCloseWatcher>,
+) -> (JsRuntime, WorkerHostSide) {
+  let (worker, worker_host_side) = worker_create(parent);
   let mut extensions = vec![checkin_runtime::init_ops_and_esm()];
 
   for extension in &mut extensions {
@@ -88,13 +102,15 @@ fn create_runtime() -> JsRuntime {
   });
   let stats = runtime.runtime_activity_stats_factory();
   runtime.op_state().borrow_mut().put(stats);
-  runtime
+  runtime.op_state().borrow_mut().put(worker);
+  runtime.op_state().borrow_mut().put(output);
+  (runtime, worker_host_side)
 }
 
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
 /// and compares its output with the `.out` file in the same directory.
 pub fn run_integration_test(test: &str) {
-  let runtime = create_runtime();
+  let (runtime, _) = create_runtime(Output::default(), None);
   let tokio = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
@@ -117,21 +133,22 @@ async fn run_integration_test_task(
     .run_event_loop(PollEventLoopOptions::default())
     .await
   {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
     for line in e.to_string().split('\n') {
-      actual_output += "[ERR] ";
-      actual_output += line;
-      actual_output += "\n";
+      output.line(format!("[ERR] {line}"));
     }
   }
   f.await?;
-  let mut output: Output = runtime.op_state().borrow_mut().take();
-  output.lines.push(String::new());
+  let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
+  lines.push(String::new());
   let mut expected_output = String::new();
   File::open(test_dir.join(format!("{test}.out")))
     .await?
     .read_to_string(&mut expected_output)
     .await?;
-  actual_output += &output.lines.join("\n");
+  actual_output += &lines.join("\n");
   assert_eq!(actual_output, expected_output);
   Ok(())
 }
@@ -139,7 +156,7 @@ async fn run_integration_test_task(
 /// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
 /// then each test is run individually and failures are printed.
 pub fn run_unit_test(test: &str) {
-  let runtime = create_runtime();
+  let (runtime, _) = create_runtime(Output::default(), None);
   let tokio = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
