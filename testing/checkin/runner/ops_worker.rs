@@ -10,7 +10,6 @@ use deno_core::v8::IsolateHandle;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
-use futures::ready;
 use std::cell::RefCell;
 use std::future::poll_fn;
 use std::rc::Rc;
