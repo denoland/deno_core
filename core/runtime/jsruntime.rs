@@ -699,8 +699,6 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    // TODO(bartlomieju): this context creation and setup is really non-trivial.
-    // Additionally it's unclear what is done when snapshotting/running from snapshot.
     let mut snapshotted_data = None;
     let main_context = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
