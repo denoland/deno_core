@@ -413,7 +413,7 @@ impl JsRealm {
   /// User must call [`ModuleMap::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
   // TODO(bartlomieju): create a separate method to execute code synchronously
-  // from a loader? Would simplify JsRuntime code and not require running in 
+  // from a loader? Would simplify JsRuntime code and not require running in
   // a `block_on`.
   pub(crate) async fn load_side_module(
     &self,
