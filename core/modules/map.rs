@@ -381,6 +381,8 @@ impl ModuleMap {
     Ok(module_id)
   }
 
+  // TODO(bartlomieju): this method should instantiate the module - these have
+  // no dependencies so can be instantiated immediately.
   /// Creates a "synthetic module", that contains only a single, "default" export,
   /// that returns the provided value.
   pub fn new_synthetic_module(

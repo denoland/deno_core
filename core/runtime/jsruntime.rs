@@ -309,7 +309,6 @@ pub struct JsRuntime {
   // [`JsRuntime::init_extension_js`]. This field is populated only if a
   // snapshot is being created.
   files_loaded_from_fs_during_snapshot: Vec<&'static str>,
-  init_mode: InitMode,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
 }
@@ -598,20 +597,14 @@ impl JsRuntime {
     will_snapshot: bool,
   ) -> Result<JsRuntime, Error> {
     let init_mode = InitMode::from_options(&options);
-    let mut op_state = OpState::new(options.feature_checker.take());
-
     let mut extensions = std::mem::take(&mut options.extensions);
-    let op_decls =
-      extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
+
+    // First let's create an `OpState` and contribute to it from extensions...
+    let mut op_state = OpState::new(options.feature_checker.take());
     extension_set::setup_op_state(&mut op_state, &mut extensions);
-    let (
-      global_template_middleware,
-      global_object_middlewares,
-      additional_references,
-    ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
-    let isolate_ptr = setup::create_isolate_ptr();
-
+    // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
+    // later, after `JsRuntime` is all set up...
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
@@ -630,6 +623,11 @@ impl JsRuntime {
       has_inspector: false.into(),
     });
 
+    // ...now we're moving on to ops; set them up, create `OpCtx` for each op
+    // and get ready to actually create V8 isolate...
+    let op_decls =
+      extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
+
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
     let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
@@ -643,6 +641,12 @@ impl JsRuntime {
       get_error_class_fn,
     );
 
+    // ...ops are now almost fully set up; let's create a V8 isolate...
+    let (
+      global_template_middleware,
+      global_object_middlewares,
+      additional_references,
+    ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
     let external_refs =
       bindings::create_external_references(&op_ctxs, &additional_references);
 
@@ -655,10 +659,23 @@ impl JsRuntime {
 
     let cpp_heap = setup::init_cppgc(&mut isolate);
 
+    // ...isolate is fully set up, we can forward its pointer to the ops to finish
+    // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
 
+    // TODO(Bartlomieju): this can be simplified
+    let isolate_ptr = setup::create_isolate_ptr();
+    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
+    // not overwriting an existing pointer.
+    isolate = unsafe {
+      isolate_ptr.write(isolate);
+      isolate_ptr.read()
+    };
+    op_state.borrow_mut().put(isolate_ptr);
+
+    // ...once ops and isolate are set up, we can create a `ContextState`...
     let context_state = Rc::new(ContextState::new(
       op_driver.clone(),
       isolate_ptr,
@@ -679,29 +696,7 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
-    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
-    // not overwriting an existing pointer.
-    isolate = unsafe {
-      isolate_ptr.write(isolate);
-      isolate_ptr.read()
-    };
-
-    op_state.borrow_mut().put(isolate_ptr);
-
-    // Add the task spawners to the OpState
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_same_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_cross_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-
-    // TODO(bartlomieju): this context creation and setup is really non-trivial.
-    // Additionally it's unclear what is done when snapshotting/running from snapshot.
+    // ...and with `ContextState` available we can set up V8 context...
     let mut snapshotted_data = None;
     let main_context = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
@@ -726,6 +721,8 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
+    // ...followed by creation of `Deno.core` namespace, as well as internal
+    // infrastructure to provide JavaScript bindings for ops...
     if init_mode == InitMode::New {
       bindings::initialize_deno_core_namespace(scope, context, init_mode);
       bindings::initialize_primordials_and_infra(scope)?;
@@ -748,6 +745,9 @@ impl JsRuntime {
       None
     };
 
+    // ...now that JavaScript bindings to ops are available we can deserialize
+    // modules stored in the snapshot (because they depend on the ops and external
+    // references must match properly) and recreate a module map...
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
@@ -755,7 +755,6 @@ impl JsRuntime {
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
     let exception_state = context_state.exception_state.clone();
-
     let module_map = Rc::new(ModuleMap::new(
       loader,
       exception_state.clone(),
@@ -775,6 +774,7 @@ impl JsRuntime {
 
     context.set_slot(scope, module_map.clone());
 
+    // ...we are ready to create a "realm" for the context...
     let main_realm = {
       let main_realm =
         JsRealmInner::new(context_state, main_context, module_map.clone());
@@ -791,6 +791,7 @@ impl JsRuntime {
 
     drop(context_scope);
 
+    // ...which allows us to create the `JsRuntime` instance...
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
@@ -799,20 +800,57 @@ impl JsRuntime {
         v8_isolate: ManuallyDrop::new(isolate),
         cpp_heap: ManuallyDrop::new(cpp_heap),
       },
-      init_mode,
       allocations: IsolateAllocations::default(),
       files_loaded_from_fs_during_snapshot: vec![],
       is_main_runtime: options.is_main,
     };
 
-    let files_loaded_from_fs_during_snapshot =
-      js_runtime.init_extension_js(extensions)?;
+    let mut files_loaded = Vec::with_capacity(128);
 
-    if will_snapshot {
-      js_runtime.files_loaded_from_fs_during_snapshot =
-        files_loaded_from_fs_during_snapshot;
+    // ...we're almost done with the setup, all that's left is to execute
+    // internal JS and then execute code provided by extensions...
+    {
+      let realm = JsRealm::clone(&js_runtime.inner.main_realm);
+      let context_global = realm.context();
+      let module_map = realm.0.module_map();
+
+      // TODO(bartlomieju): this is somewhat duplicated in `bindings::initialize_context`,
+      // but for migration period we need to have ops available in both `Deno.core.ops`
+      // as well as have them available in "virtual ops module"
+      // if !matches!(
+      //   self.init_mode,
+      //   InitMode::FromSnapshot {
+      //     skip_op_registration: true
+      //   }
+      // ) {
+      if init_mode == InitMode::New {
+        js_runtime
+          .execute_virtual_ops_module(context_global, module_map.clone());
+      }
+
+      if init_mode == InitMode::New {
+        js_runtime.execute_builtin_sources(
+          &realm,
+          &module_map,
+          &mut files_loaded,
+        )?;
+      }
+
+      js_runtime.store_js_callbacks(&realm);
+
+      js_runtime.init_extension_js(
+        &realm,
+        &module_map,
+        extensions,
+        &mut files_loaded,
+      )?;
     }
 
+    if will_snapshot {
+      js_runtime.files_loaded_from_fs_during_snapshot = files_loaded;
+    }
+
+    // ...and we've made it; `JsRuntime` is ready to execute user code.
     Ok(js_runtime)
   }
 
@@ -866,6 +904,8 @@ impl JsRuntime {
     }
   }
 
+  // TODO(bartlomieju): remove, instead `JsRuntimeForSnapshot::new` should return
+  // a struct that contains this data.
   pub(crate) fn files_loaded_from_fs_during_snapshot(&self) -> &[&'static str] {
     &self.files_loaded_from_fs_during_snapshot
   }
@@ -956,115 +996,106 @@ impl JsRuntime {
   }
 
   /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(
+  async fn init_extension_js_inner(
     &mut self,
+    realm: &JsRealm,
+    module_map: &Rc<ModuleMap>,
     extensions: Vec<Extension>,
-  ) -> Result<Vec<&'static str>, Error> {
+    files_loaded: &mut Vec<&'static str>,
+  ) -> Result<(), Error> {
     // Initialization of JS happens in phases:
     // 1. Iterate through all extensions:
     //  a. Execute all extension "script" JS files
     //  b. Load all extension "module" JS files (but do not execute them yet)
-    // 2. Iterate through all extensions:
-    //  a. If an extension has a `esm_entry_point`, execute it.
-    let mut files_loaded = Vec::with_capacity(128);
-    let realm = JsRealm::clone(&self.inner.main_realm);
-    let context_global = realm.context();
-    let module_map = realm.0.module_map();
+    //  c. If extension has an "entrypoint" collect it
+    // 2. Execute all collected entrypoints.
+    // 3. Verify that all extension files have been executed.
 
-    // TODO(bartlomieju): hoist it out of this method.
-    // TODO(bartlomieju): this is somewhat duplicated in `bindings::initialize_context`,
-    // but for migration period we need to have ops available in both `Deno.core.ops`
-    // as well as have them available in "virtual ops module"
-    // if !matches!(
-    //   self.init_mode,
-    //   InitMode::FromSnapshot {
-    //     skip_op_registration: true
-    //   }
-    // ) {
-    if self.init_mode == InitMode::New {
-      self.execute_virtual_ops_module(context_global, module_map.clone());
+    let mut esm_entrypoints = vec![];
+
+    for extension in extensions {
+      // If the extension provides "lazy loaded ES modules" then store them
+      // on the ModuleMap.
+      module_map
+        .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
+
+      let maybe_esm_entry_point = extension.get_esm_entry_point();
+
+      for file_source in extension.get_esm_sources() {
+        mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
+        realm
+          .load_side_module(
+            self.v8_isolate(),
+            &ModuleSpecifier::parse(file_source.specifier)?,
+            None,
+          )
+          .await?;
+      }
+
+      if let Some(entry_point) = maybe_esm_entry_point {
+        esm_entrypoints.push(entry_point);
+      }
+
+      for file_source in extension.get_js_sources() {
+        mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
+        realm.execute_script(
+          self.v8_isolate(),
+          file_source.specifier,
+          file_source.load()?,
+        )?;
+      }
     }
 
-    // TODO(bartlomieju): hoist it out of this method.
-    if self.init_mode == InitMode::New {
-      self.execute_builtin_sources(&realm, &module_map, &mut files_loaded)?;
+    // ...then execute all entry points
+    for specifier in esm_entrypoints {
+      let Some(mod_id) =
+        module_map.get_id(specifier, RequestedModuleType::None)
+      else {
+        bail!("{} not present in the module map", specifier);
+      };
+
+      let isolate = self.v8_isolate();
+      let scope = &mut realm.handle_scope(isolate);
+      module_map.mod_evaluate_sync(scope, mod_id)?;
     }
 
-    // TODO(bartlomieju): hoist it out of this method.
-    self.init_cbs(&realm);
+    Ok(())
+  }
 
+  /// Initializes JS of provided Extensions in the given realm.
+  fn init_extension_js(
+    &mut self,
+    realm: &JsRealm,
+    module_map: &Rc<ModuleMap>,
+    extensions: Vec<Extension>,
+    files_loaded: &mut Vec<&'static str>,
+  ) -> Result<(), Error> {
+    // Temporarily override the loader of the `ModuleMap` so we can load
+    // extension code.
+
+    // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
+    // instead of explicitly changing the `.loader` field?
     let loader = module_map.loader.borrow().clone();
     let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
     *module_map.loader.borrow_mut() = ext_loader;
 
-    let mut esm_entrypoints = vec![];
+    futures::executor::block_on(self.init_extension_js_inner(
+      realm,
+      module_map,
+      extensions,
+      files_loaded,
+    ))?;
 
-    futures::executor::block_on(async {
-      for extension in extensions {
-        // If the extension provides "lazy loaded ES modules" then store them
-        // on the ModuleMap.
-        module_map
-          .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
-
-        let maybe_esm_entry_point = extension.get_esm_entry_point();
-
-        for file_source in extension.get_esm_sources() {
-          mark_as_loaded_from_fs_during_snapshot(
-            &mut files_loaded,
-            &file_source.code,
-          );
-          realm
-            .load_side_module(
-              self.v8_isolate(),
-              &ModuleSpecifier::parse(file_source.specifier)?,
-              None,
-            )
-            .await?;
-        }
-
-        if let Some(entry_point) = maybe_esm_entry_point {
-          esm_entrypoints.push(entry_point);
-        }
-
-        for file_source in extension.get_js_sources() {
-          mark_as_loaded_from_fs_during_snapshot(
-            &mut files_loaded,
-            &file_source.code,
-          );
-          realm.execute_script(
-            self.v8_isolate(),
-            file_source.specifier,
-            file_source.load()?,
-          )?;
-        }
-      }
-
-      // ...then execute all entry points
-      for specifier in esm_entrypoints {
-        let Some(mod_id) =
-          module_map.get_id(specifier, RequestedModuleType::None)
-        else {
-          bail!("{} not present in the module map", specifier);
-        };
-
-        let isolate = self.v8_isolate();
-        let scope = &mut realm.handle_scope(isolate);
-        module_map.mod_evaluate_sync(scope, mod_id)?;
-      }
-
-      #[cfg(debug_assertions)]
-      {
-        let mut scope = realm.handle_scope(self.v8_isolate());
-        module_map.check_all_modules_evaluated(&mut scope)?;
-      }
-
-      Ok::<_, anyhow::Error>(())
-    })?;
+    #[cfg(debug_assertions)]
+    {
+      let mut scope = realm.handle_scope(self.v8_isolate());
+      module_map.check_all_modules_evaluated(&mut scope)?;
+    }
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
 
-    Ok(files_loaded)
+    Ok(())
   }
 
   pub fn eval<'s, T>(
@@ -1081,8 +1112,9 @@ impl JsRuntime {
     scope.escape(v).try_into().ok()
   }
 
-  /// Grabs a reference to core.js' eventLoopTick & buildCustomError
-  fn init_cbs(&mut self, realm: &JsRealm) {
+  /// Grab and store JavaScript bindings to callbacks necessary for the
+  /// JsRuntime to operate properly.
+  fn store_js_callbacks(&mut self, realm: &JsRealm) {
     let (event_loop_tick_cb, build_custom_error_cb) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
