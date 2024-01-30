@@ -747,7 +747,7 @@ impl JsRuntime {
 
     // ...now that JavaScript bindings to ops are available we can deserialize
     // modules stored in the snapshot (because they depend on the ops and external
-    // references must match propoerly) and recreate a module map...
+    // references must match properly) and recreate a module map...
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
