@@ -597,20 +597,14 @@ impl JsRuntime {
     will_snapshot: bool,
   ) -> Result<JsRuntime, Error> {
     let init_mode = InitMode::from_options(&options);
-    let mut op_state = OpState::new(options.feature_checker.take());
-
     let mut extensions = std::mem::take(&mut options.extensions);
-    let op_decls =
-      extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
+
+    // First let's create an `OpState` and contribute to it from extensions...
+    let mut op_state = OpState::new(options.feature_checker.take());
     extension_set::setup_op_state(&mut op_state, &mut extensions);
-    let (
-      global_template_middleware,
-      global_object_middlewares,
-      additional_references,
-    ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
-    let isolate_ptr = setup::create_isolate_ptr();
-
+    // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
+    // later, after `JsRuntime` is all set up...
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
@@ -629,6 +623,11 @@ impl JsRuntime {
       has_inspector: false.into(),
     });
 
+    // ...now we're moving on to ops; set them up, create `OpCtx` for each op
+    // and get ready to actually create V8 isolate...
+    let op_decls =
+      extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
+
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
     let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
@@ -642,6 +641,12 @@ impl JsRuntime {
       get_error_class_fn,
     );
 
+    // ...ops are now almost fully set up; let's create a V8 isolate...
+    let (
+      global_template_middleware,
+      global_object_middlewares,
+      additional_references,
+    ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
     let external_refs =
       bindings::create_external_references(&op_ctxs, &additional_references);
 
@@ -654,25 +659,29 @@ impl JsRuntime {
 
     let cpp_heap = setup::init_cppgc(&mut isolate);
 
+    // ...isolate is fully set up, we can forward its pointer to the ops to finish
+    // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
 
-    let context_state = Rc::new(ContextState::new(
-      op_driver.clone(),
-      isolate_ptr,
-      options.get_error_class_fn.unwrap_or(&|_| "Error"),
-      op_ctxs,
-    ));
-
+    // TODO(Bartlomieju): this can be simplified
+    let isolate_ptr = setup::create_isolate_ptr();
     // SAFETY: this is first use of `isolate_ptr` so we are sure we're
     // not overwriting an existing pointer.
     isolate = unsafe {
       isolate_ptr.write(isolate);
       isolate_ptr.read()
     };
-
     op_state.borrow_mut().put(isolate_ptr);
+
+    // ...once ops and isolate are set up, we can create a `ContextState`...
+    let context_state = Rc::new(ContextState::new(
+      op_driver.clone(),
+      isolate_ptr,
+      options.get_error_class_fn.unwrap_or(&|_| "Error"),
+      op_ctxs,
+    ));
 
     // TODO(bartlomieju): factor out
     // Add the task spawners to the OpState
@@ -687,6 +696,7 @@ impl JsRuntime {
       .new_cross_thread_spawner();
     op_state.borrow_mut().put(spawner);
 
+    // ...and with `ContextState` available we can set up V8 context...
     let mut snapshotted_data = None;
     let main_context = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
@@ -711,6 +721,8 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
+    // ...followed by creation of `Deno.core` namespace, as well as internal
+    // infrastructure to provide JavaScript bindings for ops...
     if init_mode == InitMode::New {
       bindings::initialize_deno_core_namespace(scope, context, init_mode);
       bindings::initialize_primordials_and_infra(scope)?;
@@ -733,6 +745,9 @@ impl JsRuntime {
       None
     };
 
+    // ...now that JavaScript bindings to ops are available we can deserialize
+    // modules stored in the snapshot (because they depend on the ops and external
+    // references must match propoerly) and recreate a module map...
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
@@ -740,7 +755,6 @@ impl JsRuntime {
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
     let exception_state = context_state.exception_state.clone();
-
     let module_map = Rc::new(ModuleMap::new(
       loader,
       exception_state.clone(),
@@ -760,6 +774,7 @@ impl JsRuntime {
 
     context.set_slot(scope, module_map.clone());
 
+    // ...we are ready to create a "realm" for the context...
     let main_realm = {
       let main_realm =
         JsRealmInner::new(context_state, main_context, module_map.clone());
@@ -776,6 +791,7 @@ impl JsRuntime {
 
     drop(context_scope);
 
+    // ...which allows us to create the `JsRuntime` instance...
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
@@ -791,8 +807,8 @@ impl JsRuntime {
 
     let mut files_loaded = Vec::with_capacity(128);
 
-    // Finalize the setup of JsRuntime by executing internal JS and then
-    // executing code provided by extensions.
+    // ...we're almost done with the setup, all that's left is to execute
+    // internal JS and then execute code provided by extensions...
     {
       let realm = JsRealm::clone(&js_runtime.inner.main_realm);
       let context_global = realm.context();
@@ -834,6 +850,7 @@ impl JsRuntime {
       js_runtime.files_loaded_from_fs_during_snapshot = files_loaded;
     }
 
+    // ...and we've made it; `JsRuntime` is ready to execute user code.
     Ok(js_runtime)
   }
 
