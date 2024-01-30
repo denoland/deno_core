@@ -873,6 +873,10 @@ impl ModuleMap {
     // Update status after evaluating.
     status = module.get_status();
 
+    eprintln!(
+      "mod_evaluate, has dispatched exception {}",
+      self.exception_state.has_dispatched_exception()
+    );
     if self.exception_state.has_dispatched_exception() {
       // This will be overridden in `exception_to_err_result()`.
       let exception = v8::undefined(tc_scope).into();
@@ -918,6 +922,7 @@ impl ModuleMap {
         |scope: &mut v8::HandleScope<'_>,
          args: v8::FunctionCallbackArguments<'_>,
          _rv: v8::ReturnValue| {
+          eprintln!("mod_evaluate on rejected");
           let mut sender = get_sender(args.data());
           sender.module_map.pending_mod_evaluation.set(false);
           sender.module_map.module_waker.wake();
@@ -947,6 +952,7 @@ impl ModuleMap {
             // Module was rejected
             let err = promise.result(tc_scope);
             let err = JsError::from_v8_exception(tc_scope, err);
+            eprintln!("mod evaluate promise state rejected");
             _ = sender.sender.take().unwrap().send(Err(err.into()));
           }
           PromiseState::Pending => {
