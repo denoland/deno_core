@@ -134,8 +134,11 @@ async fn run_worker_task(
   let module = runtime.load_main_module(&url, None).await?;
   let f = runtime.mod_evaluate(module);
   // We need this structure for the shutdown code to ensure that the output is
+  // consistent whether the v8 termination signal is sent, or the shutdown_rx is
+  // triggered.
   if let Err(e) = poll_fn(|cx| {
     if shutdown_rx.poll_recv(cx).is_ready() {
+      // This matches the v8 error. We'll hit both, depending on timing.
       return Poll::Ready(Err(anyhow!("Uncaught Error: execution terminated")));
     }
     runtime.poll_event_loop(cx, PollEventLoopOptions::default())
