@@ -5,6 +5,7 @@ import {
   op_worker_recv,
   op_worker_send,
   op_worker_spawn,
+  op_worker_terminate,
 } from "ext:core/ops";
 
 const privateConstructor = Symbol();
@@ -31,6 +32,10 @@ export class Worker {
 
   async receiveMessage(): Promise<string | undefined> {
     return await op_worker_recv(this.#worker);
+  }
+
+  terminate() {
+    op_worker_terminate(this.#worker);
   }
 
   get closed(): Promise<void> {

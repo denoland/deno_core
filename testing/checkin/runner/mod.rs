@@ -53,6 +53,7 @@ deno_core::extension!(
     ops_worker::op_worker_recv,
     ops_worker::op_worker_parent,
     ops_worker::op_worker_await_close,
+    ops_worker::op_worker_terminate,
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [

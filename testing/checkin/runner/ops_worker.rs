@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use anyhow::bail;
 use anyhow::Error;
@@ -9,10 +10,13 @@ use deno_core::v8::IsolateHandle;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
+use futures::ready;
 use std::cell::RefCell;
+use std::future::poll_fn;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
+use std::task::Poll;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
@@ -26,9 +30,8 @@ use super::testing::Output;
 pub struct WorkerControl {
   worker_channel: WorkerChannel,
   close_watcher: WorkerCloseWatcher,
-  // TODO(mmastrac): terminate for workers
-  #[allow(dead_code)]
   handle: Option<IsolateHandle>,
+  shutdown_flag: Option<UnboundedSender<()>>,
 }
 
 pub struct WorkerChannel {
@@ -95,6 +98,7 @@ pub fn op_worker_spawn<'s>(
   let output = output.clone();
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();
+  let (shutdown_tx, shutdown_rx) = unbounded_channel();
   std::thread::spawn(move || {
     let (mut runtime, worker_host_side) =
       create_runtime(output, Some(close_watcher));
@@ -103,6 +107,7 @@ pub fn op_worker_spawn<'s>(
         worker_channel: worker_host_side.worker_channel,
         close_watcher: worker_host_side.close_watcher,
         handle: Some(runtime.v8_isolate().thread_safe_handle()),
+        shutdown_flag: Some(shutdown_tx),
       })
       .map_err(|_| unreachable!())
       .unwrap();
@@ -111,7 +116,7 @@ pub fn op_worker_spawn<'s>(
       .build()
       .expect("Failed to build a runtime");
     tokio
-      .block_on(run_worker_task(runtime, base_url, main_script))
+      .block_on(run_worker_task(runtime, base_url, main_script, shutdown_rx))
       .expect("Failed to complete test");
   });
 
@@ -124,13 +129,18 @@ async fn run_worker_task(
   mut runtime: JsRuntime,
   base_url: String,
   main_script: String,
+  mut shutdown_rx: UnboundedReceiver<()>,
 ) -> Result<(), Error> {
   let url = Url::try_from(base_url.as_str())?.join(&main_script)?;
   let module = runtime.load_main_module(&url, None).await?;
   let f = runtime.mod_evaluate(module);
-  if let Err(e) = runtime
-    .run_event_loop(PollEventLoopOptions::default())
-    .await
+  if let Err(e) = poll_fn(|cx| {
+    if shutdown_rx.poll_recv(cx).is_ready() {
+      return Poll::Ready(Err(anyhow!("Uncaught Error: execution terminated")));
+    }
+    runtime.poll_event_loop(cx, PollEventLoopOptions::default())
+  })
+  .await
   {
     let state = runtime.op_state().clone();
     let state = state.borrow();
@@ -140,7 +150,7 @@ async fn run_worker_task(
     }
     return Ok(());
   }
-  f.await?;
+  _ = f.await;
   Ok(())
 }
 
@@ -178,6 +188,7 @@ pub fn op_worker_parent<'s>(
       worker_channel,
       close_watcher,
       handle: None,
+      shutdown_flag: None,
     },
   ))
 }
@@ -197,4 +208,14 @@ pub async fn op_worker_await_close(#[cppgc] worker: &WorkerControl) {
       break;
     }
   }
+}
+
+#[op2(fast)]
+pub fn op_worker_terminate(
+  #[cppgc] worker: &WorkerControl,
+  state: Rc<RefCell<OpState>>,
+) {
+  worker.handle.as_ref().unwrap().terminate_execution();
+  _ = worker.shutdown_flag.as_ref().unwrap().send(());
+  state.borrow_mut().waker.wake();
 }
