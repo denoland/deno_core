@@ -18,7 +18,7 @@ const SLOT_OFFSET: i32 = 1;
 const FIELD_COUNT: usize = 2;
 
 pub fn make_cppgc_object<'a, T: 'static>(
-  scope: &'a mut v8::HandleScope,
+  scope: &mut v8::HandleScope<'a>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
   let templ = v8::ObjectTemplate::new(scope);

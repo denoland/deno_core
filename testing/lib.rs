@@ -59,4 +59,6 @@ integration_test!(
   timer_ref,
   timer_ref_and_cancel,
   timer_many,
+  worker_spawn,
+  worker_terminate,
 );
