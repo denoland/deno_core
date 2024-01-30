@@ -1,4 +1,4 @@
-\// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 "use strict";
 
 ((window) => {
@@ -463,7 +463,7 @@
       configurable: true,
     };
   }
-  
+
   function propNonEnumerable(value) {
     return {
       value,
@@ -472,7 +472,7 @@
       configurable: true,
     };
   }
-  
+
   function propReadOnly(value) {
     return {
       value,
@@ -481,7 +481,7 @@
       configurable: true,
     };
   }
-  
+
   function propGetterOnly(getter) {
     return {
       get: getter,
@@ -491,10 +491,10 @@
     };
   }
 
-  function propNonEnumerableLazyLoaded(getter, loadFn){
+  function propNonEnumerableLazyLoaded(getter, loadFn) {
     let valueIsSet = false;
     let value;
-  
+
     return {
       get() {
         loadFn();
