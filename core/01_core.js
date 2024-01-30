@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+\// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 "use strict";
 
 ((window) => {
@@ -455,6 +455,65 @@
     op_is_weak_set,
   } = ensureFastOps();
 
+  function propWritable(value) {
+    return {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    };
+  }
+  
+  function propNonEnumerable(value) {
+    return {
+      value,
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    };
+  }
+  
+  function propReadOnly(value) {
+    return {
+      value,
+      enumerable: true,
+      writable: false,
+      configurable: true,
+    };
+  }
+  
+  function propGetterOnly(getter) {
+    return {
+      get: getter,
+      set() {},
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+  function propNonEnumerableLazyLoaded(getter, loadFn){
+    let valueIsSet = false;
+    let value;
+  
+    return {
+      get() {
+        loadFn();
+        if (valueIsSet) {
+          return value;
+        } else {
+          return getter();
+        }
+      },
+      set(v) {
+        loadFn();
+        valueIsSet = true;
+        value = v;
+      },
+      enumerable: false,
+      configurable: true,
+    };
+  }
+
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
@@ -554,6 +613,11 @@
     currentUserCallSite,
     wrapConsole,
     v8Console,
+    propReadOnly,
+    propWritable,
+    propNonEnumerable,
+    propGetterOnly,
+    propNonEnumerableLazyLoaded,
   });
 
   const internals = {};
