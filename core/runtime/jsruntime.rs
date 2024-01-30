@@ -665,19 +665,6 @@ impl JsRuntime {
       op_ctxs,
     ));
 
-    // TODO(bartlomieju): factor out
-    // Add the task spawners to the OpState
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_same_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-    let spawner = context_state
-      .task_spawner_factory
-      .clone()
-      .new_cross_thread_spawner();
-    op_state.borrow_mut().put(spawner);
-
     // SAFETY: this is first use of `isolate_ptr` so we are sure we're
     // not overwriting an existing pointer.
     isolate = unsafe {
@@ -687,6 +674,7 @@ impl JsRuntime {
 
     op_state.borrow_mut().put(isolate_ptr);
 
+    // TODO(bartlomieju): factor out
     // Add the task spawners to the OpState
     let spawner = context_state
       .task_spawner_factory
