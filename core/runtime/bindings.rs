@@ -113,7 +113,7 @@ pub fn script_origin<'a>(
   )
 }
 
-fn get<'s, T>(
+pub(crate) fn get<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   from: v8::Local<v8::Object>,
   key: &'static [u8],
