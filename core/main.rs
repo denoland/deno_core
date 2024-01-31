@@ -79,7 +79,7 @@ fn wasm_module(
   // that will be the actual module evaluated.
   let js_wasm_module_source = {
     let wasm_module_analysis =
-      ctx.analyze_wasm_module(scope, wasm_module_value);
+      ctx.analyze_wasm_module(scope, wasm_module_value)?;
     let js_wasm_module_source =
       render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
     js_wasm_module_source

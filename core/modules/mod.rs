@@ -126,8 +126,8 @@ pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
 
 pub struct CustomModuleEvaluationCtx {
-  web_assembly_module_imports_fn: Rc<v8::Global<v8::Function>>,
-  web_assembly_module_exports_fn: Rc<v8::Global<v8::Function>>,
+  pub(crate) web_assembly_module_imports_fn: Rc<v8::Global<v8::Function>>,
+  pub(crate) web_assembly_module_exports_fn: Rc<v8::Global<v8::Function>>,
 }
 
 #[derive(Debug)]
@@ -153,26 +153,38 @@ impl CustomModuleEvaluationCtx {
     &self,
     scope: &mut v8::HandleScope,
     value: v8::Local<v8::Value>,
-  ) -> WasmModuleAnalysis {
+  ) -> Result<WasmModuleAnalysis, Error> {
     let web_assembly_module_imports_fn: v8::Local<v8::Function> =
       v8::Local::new(scope, self.web_assembly_module_imports_fn.as_ref());
     let web_assembly_module_exports_fn: v8::Local<v8::Function> =
       v8::Local::new(scope, self.web_assembly_module_exports_fn.as_ref());
     let receiver = v8::undefined(scope);
 
-    // TODO(bartlomieju): this should be done in try catch scope and handle failures
-    let import_result = web_assembly_module_imports_fn
-      .call(scope, receiver.into(), &[value])
-      .unwrap();
-    let imports: Vec<WebAssemblyImportDescriptor> =
-      serde_v8::from_v8(scope, import_result).unwrap();
-    let export_result = web_assembly_module_exports_fn
-      .call(scope, receiver.into(), &[value])
-      .unwrap();
-    let exports: Vec<WebAssemblyExportDescriptor> =
-      serde_v8::from_v8(scope, export_result).unwrap();
+    let tc_scope = &mut v8::TryCatch::new(scope);
 
-    WasmModuleAnalysis { imports, exports }
+    let import_result =
+      web_assembly_module_imports_fn.call(tc_scope, receiver.into(), &[value]);
+
+    if tc_scope.has_caught() {
+      let exception = tc_scope.exception().unwrap();
+      return exception_to_err_result(tc_scope, exception, false, false);
+    }
+
+    let imports: Vec<WebAssemblyImportDescriptor> =
+      serde_v8::from_v8(tc_scope, import_result.unwrap()).unwrap();
+
+    let export_result =
+      web_assembly_module_exports_fn.call(tc_scope, receiver.into(), &[value]);
+
+    if tc_scope.has_caught() {
+      let exception = tc_scope.exception().unwrap();
+      return exception_to_err_result(tc_scope, exception, false, false);
+    }
+
+    let exports: Vec<WebAssemblyExportDescriptor> =
+      serde_v8::from_v8(tc_scope, export_result.unwrap()).unwrap();
+
+    Ok(WasmModuleAnalysis { imports, exports })
   }
 }
 

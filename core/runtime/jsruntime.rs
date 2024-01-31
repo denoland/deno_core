@@ -836,7 +836,7 @@ impl JsRuntime {
         )?;
       }
 
-      js_runtime.store_js_callbacks(&realm);
+      js_runtime.store_js_callbacks(&realm, will_snapshot);
 
       js_runtime.init_extension_js(
         &realm,
@@ -1114,7 +1114,7 @@ impl JsRuntime {
 
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
-  fn store_js_callbacks(&mut self, realm: &JsRealm) {
+  fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (
       event_loop_tick_cb,
       build_custom_error_cb,
@@ -1127,70 +1127,61 @@ impl JsRuntime {
       let global = context_local.global(scope);
       // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
       // look up them again?
-      let deno_str = v8_static_strings::new(scope, v8_static_strings::DENO);
-      let core_str = v8_static_strings::new(scope, v8_static_strings::CORE);
-      let web_assembly_key =
-        v8_static_strings::new(scope, v8_static_strings::WEBASSEMBLY);
-      let web_assembly_module_key =
-        v8_static_strings::new(scope, v8_static_strings::MODULE);
-      let web_assembly_module_imports_key =
-        v8_static_strings::new(scope, v8_static_strings::IMPORTS);
-      let web_assembly_module_exports_key =
-        v8_static_strings::new(scope, v8_static_strings::EXPORTS);
-      let event_loop_tick_str =
-        v8_static_strings::new(scope, v8_static_strings::EVENT_LOOP_TICK);
-      let build_custom_error_str =
-        v8_static_strings::new(scope, v8_static_strings::BUILD_CUSTOM_ERROR);
+      let deno_obj: v8::Local<v8::Object> =
+        bindings::get(scope, global, v8_static_strings::DENO, "Deno");
+      let core_obj: v8::Local<v8::Object> =
+        bindings::get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
 
-      let deno_obj: v8::Local<v8::Object> = global
-        .get(scope, deno_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let core_obj: v8::Local<v8::Object> = deno_obj
-        .get(scope, core_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
+      let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        v8_static_strings::EVENT_LOOP_TICK,
+        "Deno.core.eventLoopTick",
+      );
+      let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        v8_static_strings::BUILD_CUSTOM_ERROR,
+        "Deno.core.buildCustomError",
+      );
 
-      let event_loop_tick_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, event_loop_tick_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let build_custom_error_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, build_custom_error_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let web_assembly_object: v8::Local<v8::Object> = global
-        .get(scope, web_assembly_key.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let web_assembly_module_object: v8::Local<v8::Object> =
-        web_assembly_object
-          .get(scope, web_assembly_module_key.into())
-          .unwrap()
-          .try_into()
-          .unwrap();
-      let web_assembly_module_imports_fn: v8::Local<v8::Function> =
-        web_assembly_module_object
-          .get(scope, web_assembly_module_imports_key.into())
-          .unwrap()
-          .try_into()
-          .unwrap();
-      let web_assembly_module_exports_fn: v8::Local<v8::Function> =
-        web_assembly_module_object
-          .get(scope, web_assembly_module_exports_key.into())
-          .unwrap()
-          .try_into()
-          .unwrap();
+      let mut web_assembly_module_imports_fn = None;
+      let mut web_assembly_module_exports_fn = None;
+
+      if !will_snapshot {
+        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
+          scope,
+          global,
+          v8_static_strings::WEBASSEMBLY,
+          "WebAssembly",
+        );
+        let web_assembly_module_object: v8::Local<v8::Object> = bindings::get(
+          scope,
+          web_assembly_object,
+          v8_static_strings::MODULE,
+          "WebAssembly.Module",
+        );
+        web_assembly_module_imports_fn =
+          Some(bindings::get::<v8::Local<v8::Function>>(
+            scope,
+            web_assembly_module_object,
+            v8_static_strings::IMPORTS,
+            "WebAssembly.Module.imports",
+          ));
+        web_assembly_module_exports_fn =
+          Some(bindings::get::<v8::Local<v8::Function>>(
+            scope,
+            web_assembly_module_object,
+            v8_static_strings::EXPORTS,
+            "WebAssembly.Module.exports",
+          ));
+      }
+
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
-        v8::Global::new(scope, web_assembly_module_imports_fn),
-        v8::Global::new(scope, web_assembly_module_exports_fn),
+        web_assembly_module_imports_fn.map(|f| v8::Global::new(scope, f)),
+        web_assembly_module_exports_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1205,14 +1196,20 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
-    state_rc
-      .web_assembly_module_imports_fn
-      .borrow_mut()
-      .replace(Rc::new(web_assembly_module_imports_fn));
-    state_rc
-      .web_assembly_module_exports_fn
-      .borrow_mut()
-      .replace(Rc::new(web_assembly_module_exports_fn));
+    if let Some(web_assembly_module_imports_fn) = web_assembly_module_imports_fn
+    {
+      state_rc
+        .web_assembly_module_imports_fn
+        .borrow_mut()
+        .replace(Rc::new(web_assembly_module_imports_fn));
+    }
+    if let Some(web_assembly_module_exports_fn) = web_assembly_module_exports_fn
+    {
+      state_rc
+        .web_assembly_module_exports_fn
+        .borrow_mut()
+        .replace(Rc::new(web_assembly_module_exports_fn));
+    }
   }
 
   /// Returns the runtime's op state, which can be used to maintain ops

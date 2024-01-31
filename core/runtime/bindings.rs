@@ -113,7 +113,7 @@ pub fn script_origin<'a>(
   )
 }
 
-fn get<'s, T>(
+pub(crate) fn get<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   from: v8::Local<v8::Object>,
   key: &'static [u8],
@@ -122,7 +122,7 @@ fn get<'s, T>(
 where
   v8::Local<'s, v8::Value>: TryInto<T>,
 {
-  let key = v8::String::new_external_onebyte_static(scope, key).unwrap();
+  let key = v8_static_strings::new(scope, key);
   from
     .get(scope, key.into())
     .unwrap_or_else(|| panic!("{path} exists"))
@@ -151,6 +151,9 @@ pub mod v8_static_strings {
   pub static BUILD_CUSTOM_ERROR: &[u8] = b"buildCustomError";
   pub static CONSOLE: &[u8] = b"console";
   pub static CALL_CONSOLE: &[u8] = b"callConsole";
+  pub static FILENAME: &[u8] = b"filename";
+  pub static DIRNAME: &[u8] = b"dirname";
+  pub static SET_UP_ASYNC_STUB: &[u8] = b"setUpAsyncStub";
   pub static WEBASSEMBLY: &[u8] = b"WebAssembly";
   pub static MODULE: &[u8] = b"Module";
   pub static IMPORTS: &[u8] = b"imports";
@@ -175,9 +178,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   init_mode: InitMode,
 ) {
   let global = context.global(scope);
-  let deno_str =
-    v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
-      .unwrap();
+  let deno_str = v8_static_strings::new(scope, v8_static_strings::DENO);
 
   let maybe_deno_obj_val = global.get(scope, deno_str.into());
 
@@ -189,14 +190,10 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   }
 
   let deno_obj = v8::Object::new(scope);
-  let deno_core_key =
-    v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
-      .unwrap();
+  let deno_core_key = v8_static_strings::new(scope, v8_static_strings::CORE);
   // Set up `Deno.core.ops` object
   let deno_core_ops_obj = v8::Object::new(scope);
-  let deno_core_ops_key =
-    v8::String::new_external_onebyte_static(scope, v8_static_strings::OPS)
-      .unwrap();
+  let deno_core_ops_key = v8_static_strings::new(scope, v8_static_strings::OPS);
 
   let deno_core_obj = v8::Object::new(scope);
   deno_core_obj
@@ -207,11 +204,8 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   if init_mode == InitMode::New {
     // Bind `call_console` to Deno.core.callConsole
     let call_console_fn = v8::Function::new(scope, call_console).unwrap();
-    let call_console_key = v8::String::new_external_onebyte_static(
-      scope,
-      v8_static_strings::CALL_CONSOLE,
-    )
-    .unwrap();
+    let call_console_key =
+      v8_static_strings::new(scope, v8_static_strings::CALL_CONSOLE);
     deno_core_obj.set(scope, call_console_key.into(), call_console_fn.into());
 
     // Bind v8 console object to Deno.core.console
@@ -219,14 +213,10 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
     let console_obj: v8::Local<v8::Object> = get(
       scope,
       extra_binding_obj,
-      b"console",
+      v8_static_strings::CONSOLE,
       "ExtrasBindingObject.console",
     );
-    let console_key = v8::String::new_external_onebyte_static(
-      scope,
-      v8_static_strings::CONSOLE,
-    )
-    .unwrap();
+    let console_key = v8_static_strings::new(scope, v8_static_strings::CONSOLE);
     deno_core_obj.set(scope, console_key.into(), console_obj.into());
   }
 
@@ -242,11 +232,7 @@ pub(crate) fn initialize_primordials_and_infra(
   for file_source in CONTEXT_SETUP_SOURCES {
     let code = file_source.load().unwrap();
     let source_str = code.v8_string(scope).unwrap();
-    let name = v8::String::new_external_onebyte_static(
-      scope,
-      file_source.specifier.as_bytes(),
-    )
-    .unwrap();
+    let name = v8_static_strings::new(scope, file_source.specifier.as_bytes());
     let origin = script_origin(scope, name);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source_str, Some(&origin))
@@ -269,25 +255,26 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   // Set up JavaScript bindings for the defined op - this will insert proper
   // `v8::Function` into `Deno.core.ops` object. For async ops, there a bit
   // more machinery involved, see comment below.
-  let deno_obj = get(scope, global, b"Deno", "Deno");
-  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
-  let deno_core_ops_obj: v8::Local<v8::Object> =
-    get(scope, deno_core_obj, b"ops", "Deno.core.ops");
+  let deno_obj = get(scope, global, v8_static_strings::DENO, "Deno");
+  let deno_core_obj =
+    get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
+  let deno_core_ops_obj: v8::Local<v8::Object> = get(
+    scope,
+    deno_core_obj,
+    v8_static_strings::OPS,
+    "Deno.core.ops",
+  );
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
-    b"setUpAsyncStub",
+    v8_static_strings::SET_UP_ASYNC_STUB,
     "Deno.core.setUpAsyncStub",
   );
 
   let undefined = v8::undefined(scope);
   for op_ctx in op_ctxs {
     let mut op_fn = op_ctx_function(scope, op_ctx);
-    let key = v8::String::new_external_onebyte_static(
-      scope,
-      op_ctx.decl.name.as_bytes(),
-    )
-    .unwrap();
+    let key = v8_static_strings::new(scope, op_ctx.decl.name.as_bytes());
 
     // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
     // this call will generate an optimized function that binds to the provided
@@ -309,9 +296,7 @@ fn op_ctx_function<'s>(
 ) -> v8::Local<'s, v8::Function> {
   let op_ctx_ptr = op_ctx as *const OpCtx as *const c_void;
   let external = v8::External::new(scope, op_ctx_ptr as *mut c_void);
-  let v8name =
-    v8::String::new_external_onebyte_static(scope, op_ctx.decl.name.as_bytes())
-      .unwrap();
+  let v8name = v8_static_strings::new(scope, op_ctx.decl.name.as_bytes());
 
   let (slow_fn, fast_fn) = if op_ctx.metrics_enabled() {
     (
@@ -451,15 +436,11 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     .get_name_by_module(&module_global)
     .expect("Module not found");
 
-  let url_key =
-    v8::String::new_external_onebyte_static(scope, v8_static_strings::URL)
-      .unwrap();
+  let url_key = v8_static_strings::new(scope, v8_static_strings::URL);
   let url_val = v8::String::new(scope, &name).unwrap();
   meta.create_data_property(scope, url_key.into(), url_val.into());
 
-  let main_key =
-    v8::String::new_external_onebyte_static(scope, v8_static_strings::MAIN)
-      .unwrap();
+  let main_key = v8_static_strings::new(scope, v8_static_strings::MAIN);
   let main = module_map.is_main_module(&module_global);
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
@@ -467,9 +448,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let builder =
     v8::FunctionBuilder::new(import_meta_resolve).data(url_val.into());
   let val = v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
-  let resolve_key =
-    v8::String::new_external_onebyte_static(scope, v8_static_strings::RESOLVE)
-      .unwrap();
+  let resolve_key = v8_static_strings::new(scope, v8_static_strings::RESOLVE);
   meta.set(scope, resolve_key.into(), val.into());
 
   maybe_add_import_meta_filename_dirname(scope, meta, &name);
@@ -501,8 +480,7 @@ fn maybe_add_import_meta_filename_dirname(
   let Some(filename_val) = v8::String::new(scope, &escaped_filename) else {
     return;
   };
-  let filename_key =
-    v8::String::new_external_onebyte_static(scope, b"filename").unwrap();
+  let filename_key = v8_static_strings::new(scope, v8_static_strings::FILENAME);
   meta.create_data_property(scope, filename_key.into(), filename_val.into());
 
   let dir_path = file_path
@@ -513,8 +491,7 @@ fn maybe_add_import_meta_filename_dirname(
   let Some(dirname_val) = v8::String::new(scope, &escaped_dirname) else {
     return;
   };
-  let dirname_key =
-    v8::String::new_external_onebyte_static(scope, b"dirname").unwrap();
+  let dirname_key = v8_static_strings::new(scope, v8_static_strings::DIRNAME);
   meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
 }
 
@@ -595,11 +572,8 @@ fn catch_dynamic_import_promise_error(
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
-      let message_key = v8::String::new_external_onebyte_static(
-        scope,
-        v8_static_strings::MESSAGE,
-      )
-      .unwrap();
+      let message_key =
+        v8_static_strings::new(scope, v8_static_strings::MESSAGE);
       let message = arg.get(scope, message_key.into()).unwrap();
       let mut message: v8::Local<v8::String> = message.try_into().unwrap();
       if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
@@ -616,14 +590,9 @@ fn catch_dynamic_import_promise_error(
         "ReferenceError" => v8::Exception::reference_error(scope, message),
         _ => v8::Exception::error(scope, message),
       };
-      let code_key =
-        v8::String::new_external_onebyte_static(scope, v8_static_strings::CODE)
-          .unwrap();
-      let code_value = v8::String::new_external_onebyte_static(
-        scope,
-        v8_static_strings::ERR_MODULE_NOT_FOUND,
-      )
-      .unwrap();
+      let code_key = v8_static_strings::new(scope, v8_static_strings::CODE);
+      let code_value =
+        v8_static_strings::new(scope, v8_static_strings::ERR_MODULE_NOT_FOUND);
       let exception_obj = exception.to_object(scope).unwrap();
       exception_obj.set(scope, code_key.into(), code_value.into());
       scope.throw_exception(exception);
@@ -769,23 +738,20 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 ) -> Vec<(FastString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
 
-  let deno_obj = get(scope, global, b"Deno", "Deno");
-  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
+  let deno_obj = get(scope, global, v8_static_strings::DENO, "Deno");
+  let deno_core_obj =
+    get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
-    b"setUpAsyncStub",
+    v8_static_strings::SET_UP_ASYNC_STUB,
     "Deno.core.setUpAsyncStub",
   );
 
   let undefined = v8::undefined(scope);
 
   for op_ctx in op_ctxs {
-    let name = v8::String::new_external_onebyte_static(
-      scope,
-      op_ctx.decl.name.as_bytes(),
-    )
-    .unwrap();
+    let name = v8_static_strings::new(scope, op_ctx.decl.name.as_bytes());
     let mut op_fn = op_ctx_function(scope, op_ctx);
 
     // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
