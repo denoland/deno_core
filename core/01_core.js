@@ -405,6 +405,7 @@
     op_get_promise_details,
     op_get_proxy_details,
     op_has_tick_scheduled,
+    op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
     op_panic,
@@ -491,17 +492,40 @@
     };
   }
 
+  function propWritableLazyLoaded(getter, loadFn) {
+    let valueIsSet = false;
+    let value;
+
+    return {
+      get() {
+        const loadedValue = loadFn();
+        if (valueIsSet) {
+          return value;
+        } else {
+          return getter(loadedValue);
+        }
+      },
+      set(v) {
+        loadFn();
+        valueIsSet = true;
+        value = v;
+      },
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
   function propNonEnumerableLazyLoaded(getter, loadFn) {
     let valueIsSet = false;
     let value;
 
     return {
       get() {
-        loadFn();
+        const loadedValue = loadFn();
         if (valueIsSet) {
           return value;
         } else {
-          return getter();
+          return getter(loadedValue);
         }
       },
       set(v) {
@@ -512,6 +536,17 @@
       enumerable: false,
       configurable: true,
     };
+  }
+
+  function createLazyLoader(specifier) {
+    let value;
+
+    return function lazyLoad() {
+      if (!value) {
+        value = op_lazy_load_esm(specifier);
+      }
+      return value;
+    }
   }
 
   // Extra Deno.core.* exports
@@ -617,7 +652,9 @@
     propWritable,
     propNonEnumerable,
     propGetterOnly,
+    propWritableLazyLoaded,
     propNonEnumerableLazyLoaded,
+    createLazyLoader,
   });
 
   const internals = {};
