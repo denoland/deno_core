@@ -8,6 +8,7 @@ use crate::modules::ModuleRequest;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_url;
+use crate::ModuleLoadResponse;
 use crate::ModuleLoader;
 use crate::ModuleSource;
 use anyhow::Error;
@@ -265,14 +266,17 @@ impl RecursiveModuleLoad {
               if visited_as_alias.borrow().contains(specifier.as_str()) {
                 return Ok(None);
               }
-              let load_result = loader
-                .load(
-                  &specifier,
-                  Some(&referrer),
-                  is_dynamic_import,
-                  requested_module_type,
-                )
-                .await;
+              let load_response = loader.load(
+                &specifier,
+                Some(&referrer),
+                is_dynamic_import,
+                requested_module_type,
+              );
+
+              let load_result = match load_response {
+                ModuleLoadResponse::Sync(result) => result,
+                ModuleLoadResponse::Async(fut) => fut.await,
+              };
               if let Ok(source) = &load_result {
                 if let Some(found_specifier) = &source.module_url_found {
                   visited_as_alias
@@ -337,14 +341,16 @@ impl Stream for RecursiveModuleLoad {
           let is_dynamic_import = inner.is_dynamic_import();
           let requested_module_type = requested_module_type.clone();
           async move {
-            let result = loader
-              .load(
-                &module_specifier,
-                maybe_referrer.as_ref(),
-                is_dynamic_import,
-                requested_module_type,
-              )
-              .await;
+            let load_response = loader.load(
+              &module_specifier,
+              maybe_referrer.as_ref(),
+              is_dynamic_import,
+              requested_module_type,
+            );
+            let result = match load_response {
+              ModuleLoadResponse::Sync(result) => result,
+              ModuleLoadResponse::Async(fut) => fut.await,
+            };
             result.map(|s| Some((module_request, s)))
           }
           .boxed_local()

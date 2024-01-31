@@ -31,6 +31,7 @@ pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::ExtModuleLoaderCb;
 pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;
+pub use loaders::ModuleLoadResponse;
 pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;

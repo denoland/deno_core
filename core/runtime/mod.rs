@@ -7,6 +7,7 @@ pub mod op_driver;
 #[doc(hidden)]
 pub mod ops;
 pub mod ops_rust_to_v8;
+mod setup;
 mod snapshot_util;
 pub mod stats;
 
@@ -18,6 +19,7 @@ pub const V8_WRAPPER_OBJECT_INDEX: i32 = 1;
 
 pub(crate) use jsrealm::ContextState;
 pub(crate) use jsrealm::JsRealm;
+pub(crate) use jsrealm::OpDriverImpl;
 pub use jsruntime::CompiledWasmModuleStore;
 pub use jsruntime::CreateRealmOptions;
 pub use jsruntime::CrossIsolateStore;

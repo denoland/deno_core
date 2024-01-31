@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::exception_state::ExceptionState;
+#[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
@@ -48,12 +49,12 @@ impl Hasher for IdentityHasher {
   feature = "op_driver_joinset",
   not(feature = "op_driver_futuresunordered")
 ))]
-type DefaultOpDriver = super::op_driver::JoinSetDriver;
+pub(crate) type OpDriverImpl = super::op_driver::JoinSetDriver;
 
 #[cfg(feature = "op_driver_futuresunordered")]
-type DefaultOpDriver = super::op_driver::FuturesUnorderedDriver;
+pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
-pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
+pub(crate) struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:
@@ -66,35 +67,34 @@ pub(crate) struct ContextState<OpDriverImpl: OpDriver = DefaultOpDriver> {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
-  pub(crate) pending_ops: OpDriverImpl,
+  pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
-  pub(crate) op_ctxs: RefCell<Box<[OpCtx]>>,
+  pub(crate) op_ctxs: Box<[OpCtx]>,
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) get_error_class_fn: GetErrorClassFn,
-  pub(crate) ops_with_metrics: Vec<bool>,
 }
 
-impl<O: OpDriver> ContextState<O> {
+impl ContextState {
   pub(crate) fn new(
+    op_driver: Rc<OpDriverImpl>,
     isolate_ptr: *mut v8::OwnedIsolate,
     get_error_class_fn: GetErrorClassFn,
-    ops_with_metrics: Vec<bool>,
+    op_ctxs: Box<[OpCtx]>,
   ) -> Self {
     Self {
       isolate: Some(isolate_ptr),
       get_error_class_fn,
-      ops_with_metrics,
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       web_assembly_module_imports_fn: Default::default(),
       web_assembly_module_exports_fn: Default::default(),
-      op_ctxs: Default::default(),
-      pending_ops: Default::default(),
+      op_ctxs,
+      pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
       unrefed_ops: Default::default(),
@@ -187,8 +187,6 @@ impl JsRealmInner {
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
-    // The OpCtx slice may contain a circular reference
-    std::mem::take(&mut *state.op_ctxs.borrow_mut());
 
     self.context().open(isolate).clear_all_slots(isolate);
 
@@ -420,6 +418,9 @@ impl JsRealm {
   ///
   /// User must call [`ModuleMap::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
+  // TODO(bartlomieju): create a separate method to execute code synchronously
+  // from a loader? Would simplify JsRuntime code and not require running in
+  // a `block_on`.
   pub(crate) async fn load_side_module(
     &self,
     isolate: &mut v8::Isolate,

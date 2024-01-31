@@ -24,13 +24,16 @@ use crate::runtime::JsRealm;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::JsRuntime;
+use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
 use anyhow::bail;
+use anyhow::Context as _;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
+use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
@@ -175,29 +178,15 @@ impl ModuleMap {
     }
   }
 
-  pub(crate) fn new_from_snapshotted_data(
-    loader: Rc<dyn ModuleLoader>,
-    exception_state: Rc<ExceptionState>,
-    import_meta_resolve_cb: ImportMetaResolveCallback,
+  pub(crate) fn update_with_snapshotted_data(
+    &self,
     scope: &mut v8::HandleScope,
     data: ModuleMapSnapshottedData,
-  ) -> Self {
-    let new = Self::new(loader, exception_state, import_meta_resolve_cb);
-    new
+  ) {
+    self
       .data
       .borrow_mut()
       .update_with_snapshotted_data(scope, data);
-    new
-  }
-
-  fn get_handle_by_name(
-    &self,
-    name: impl AsRef<str>,
-  ) -> Option<v8::Global<v8::Module>> {
-    let id = self
-      .get_id(name.as_ref(), RequestedModuleType::None)
-      .or_else(|| self.get_id(name.as_ref(), RequestedModuleType::Json))?;
-    self.get_handle(id)
   }
 
   /// Get module id, following all aliases in case of module specifier
@@ -412,6 +401,8 @@ impl ModuleMap {
     Ok(module_id)
   }
 
+  // TODO(bartlomieju): this method should instantiate the module - these have
+  // no dependencies so can be instantiated immediately.
   /// Creates a "synthetic module", that contains only a single, "default" export,
   /// that returns the provided value.
   pub fn new_synthetic_module(
@@ -772,21 +763,6 @@ impl ModuleMap {
     None
   }
 
-  pub(crate) fn inject_handle(
-    &self,
-    name: ModuleName,
-    module_type: ModuleType,
-    handle: v8::Global<v8::Module>,
-  ) {
-    self.data.borrow_mut().create_module_info(
-      name,
-      module_type,
-      handle,
-      false,
-      vec![],
-    );
-  }
-
   pub(crate) fn get_requested_modules(
     &self,
     id: ModuleId,
@@ -1004,6 +980,41 @@ impl ModuleMap {
     }
 
     receiver
+  }
+
+  /// Helper function that allows to evaluate a module and ensure it's fully
+  /// evaluated without the need to poll the event loop.
+  ///
+  /// This is useful for evaluating internal modules that can't use Top-Level Await.
+  pub(crate) fn mod_evaluate_sync(
+    self: &Rc<Self>,
+    scope: &mut v8::HandleScope,
+    id: ModuleId,
+  ) -> Result<(), Error> {
+    let mut receiver = self.mod_evaluate(scope, id);
+
+    // After evaluate_pending_module, if the module isn't fully evaluated
+    // and the resolver solved, it means the module or one of its imports
+    // uses TLA.
+    match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      Poll::Ready(result) => {
+        result.with_context(|| {
+          let specifier = self.get_name_by_id(id).unwrap();
+          format!("Couldn't execute '{specifier}'")
+        })?;
+      }
+      Poll::Pending => {
+        // Find the TLA location and return it as an error
+        let messages = self.find_stalled_top_level_await(scope);
+        assert!(!messages.is_empty());
+        let msg = v8::Local::new(scope, &messages[0]);
+        let js_error = JsError::from_v8_message(scope, msg);
+        return Err(Error::from(js_error))
+          .with_context(|| "Top-level await is not allowed in extensions");
+      }
+    }
+
+    Ok(())
   }
 
   fn dynamic_import_module_evaluate(
@@ -1391,24 +1402,6 @@ impl ModuleMap {
     Ok(v8::Global::new(scope, module_namespace))
   }
 
-  /// Clear the module map, meant to be used after initializing extensions.
-  /// Optionally pass a list of exceptions `(old_name, new_name)` representing
-  /// specifiers which will be renamed and preserved in the module map.
-  pub fn clear_module_map(&self, exceptions: &'static [&'static str]) {
-    let handles = exceptions
-      .iter()
-      .map(|mod_name| (self.get_handle_by_name(mod_name).unwrap(), mod_name))
-      .collect::<Vec<_>>();
-    *self.data.borrow_mut() = ModuleMapData::default();
-    for (handle, new_name) in handles {
-      self.inject_handle(
-        ModuleName::from_static(new_name),
-        ModuleType::JavaScript,
-        handle,
-      )
-    }
-  }
-
   fn get_stalled_top_level_await_message_for_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -1556,11 +1549,14 @@ impl ModuleMap {
     }
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
-    let source = futures::executor::block_on(async {
-      loader
-        .load(&specifier, None, false, RequestedModuleType::None)
-        .await
-    })?;
+
+    let load_response =
+      loader.load(&specifier, None, false, RequestedModuleType::None);
+
+    let source = match load_response {
+      ModuleLoadResponse::Sync(result) => result,
+      ModuleLoadResponse::Async(fut) => futures::executor::block_on(fut),
+    }?;
 
     self.lazy_load_es_module_from_code(
       scope,

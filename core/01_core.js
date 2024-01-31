@@ -14,6 +14,7 @@
     ObjectHasOwn,
     Proxy,
     setQueueMicrotask,
+    Symbol,
     SymbolFor,
     TypedArrayPrototypeGetLength,
     TypedArrayPrototypeJoin,
@@ -404,6 +405,7 @@
     op_get_promise_details,
     op_get_proxy_details,
     op_has_tick_scheduled,
+    op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
     op_panic,
@@ -454,8 +456,102 @@
     op_is_weak_set,
   } = ensureFastOps();
 
+  function propWritable(value) {
+    return {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+  function propNonEnumerable(value) {
+    return {
+      value,
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    };
+  }
+
+  function propReadOnly(value) {
+    return {
+      value,
+      enumerable: true,
+      writable: false,
+      configurable: true,
+    };
+  }
+
+  function propGetterOnly(getter) {
+    return {
+      get: getter,
+      set() {},
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+  function propWritableLazyLoaded(getter, loadFn) {
+    let valueIsSet = false;
+    let value;
+
+    return {
+      get() {
+        const loadedValue = loadFn();
+        if (valueIsSet) {
+          return value;
+        } else {
+          return getter(loadedValue);
+        }
+      },
+      set(v) {
+        loadFn();
+        valueIsSet = true;
+        value = v;
+      },
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+  function propNonEnumerableLazyLoaded(getter, loadFn) {
+    let valueIsSet = false;
+    let value;
+
+    return {
+      get() {
+        const loadedValue = loadFn();
+        if (valueIsSet) {
+          return value;
+        } else {
+          return getter(loadedValue);
+        }
+      },
+      set(v) {
+        loadFn();
+        valueIsSet = true;
+        value = v;
+      },
+      enumerable: false,
+      configurable: true,
+    };
+  }
+
+  function createLazyLoader(specifier) {
+    let value;
+
+    return function lazyLoad() {
+      if (!value) {
+        value = op_lazy_load_esm(specifier);
+      }
+      return value;
+    };
+  }
+
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
+    internalRidSymbol: Symbol("Deno.internal.rid"),
     ensureFastOps,
     resources,
     metrics,
@@ -552,6 +648,13 @@
     currentUserCallSite,
     wrapConsole,
     v8Console,
+    propReadOnly,
+    propWritable,
+    propNonEnumerable,
+    propGetterOnly,
+    propWritableLazyLoaded,
+    propNonEnumerableLazyLoaded,
+    createLazyLoader,
   });
 
   const internals = {};

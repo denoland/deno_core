@@ -588,6 +588,10 @@ impl Extension {
     self.esm_entry_point
   }
 
+  pub fn op_count(&self) -> usize {
+    self.ops.len()
+  }
+
   /// Called at JsRuntime startup to initialize ops in the isolate.
   pub fn init_ops(&mut self) -> &[OpDecl] {
     if !self.enabled {

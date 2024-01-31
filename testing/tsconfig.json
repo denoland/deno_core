@@ -5,7 +5,8 @@
     "paths": {
       "checkin:async": ["checkin/runtime/async.ts"],
       "checkin:console": ["checkin/runtime/console.ts"],
-      "checkin:testing": ["checkin/runtime/testing.ts"]
+      "checkin:testing": ["checkin/runtime/testing.ts"],
+      "checkin:worker": ["checkin/runtime/worker.ts"]
     },
     "lib": ["ESNext", "DOM", "ES2023.Array"],
     "module": "ES2022",

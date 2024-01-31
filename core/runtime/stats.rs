@@ -2,6 +2,7 @@
 use super::op_driver::OpDriver;
 use super::op_driver::OpInflightStats;
 use super::ContextState;
+use crate::OpId;
 use crate::OpState;
 use crate::PromiseId;
 use crate::ResourceId;
@@ -16,41 +17,116 @@ pub struct RuntimeActivityStatsFactory {
   pub(super) op_state: Rc<RefCell<OpState>>,
 }
 
+/// Selects the statistics that you are interested in capturing.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct RuntimeActivityStatsFilter {
+  include_timers: bool,
+  include_ops: bool,
+  include_resources: bool,
+  op_filter: BitSet,
+}
+
+impl RuntimeActivityStatsFilter {
+  pub fn all() -> Self {
+    RuntimeActivityStatsFilter {
+      include_ops: true,
+      include_resources: true,
+      include_timers: true,
+      op_filter: BitSet::default(),
+    }
+  }
+
+  pub fn with_ops(mut self) -> Self {
+    self.include_ops = true;
+    self
+  }
+
+  pub fn with_resources(mut self) -> Self {
+    self.include_resources = true;
+    self
+  }
+
+  pub fn with_timers(mut self) -> Self {
+    self.include_timers = true;
+    self
+  }
+
+  pub fn omit_op(mut self, op: OpId) -> Self {
+    self.op_filter.insert(op as _);
+    self
+  }
+
+  pub fn is_empty(&self) -> bool {
+    // This ensures we don't miss a newly-added field in the empty comparison
+    let Self {
+      include_ops,
+      include_resources,
+      include_timers,
+      op_filter: _,
+    } = self;
+    !(*include_ops) && !(*include_resources) && !(*include_timers)
+  }
+}
+
 impl RuntimeActivityStatsFactory {
-  pub fn capture(self) -> RuntimeActivityStats {
-    let res = &self.op_state.borrow().resource_table;
-    let mut resources = ResourceOpenStats {
-      resources: Vec::with_capacity(res.len()),
-    };
-    for resource in res.names() {
-      resources
-        .resources
-        .push((resource.0, resource.1.to_string()))
-    }
-    let timer_count = self.context_state.timers.len();
-    let mut timers = TimerStats {
-      timers: Vec::with_capacity(timer_count),
-      repeats: BitSet::with_capacity(timer_count),
-    };
-    for (timer_id, repeats) in &self.context_state.timers.iter() {
-      if repeats {
-        timers.repeats.insert(timers.timers.len());
+  /// Capture the current runtime activity.
+  pub fn capture(
+    self,
+    filter: &RuntimeActivityStatsFilter,
+  ) -> RuntimeActivityStats {
+    let resources = if filter.include_resources {
+      let res = &self.op_state.borrow().resource_table;
+      let mut resources = ResourceOpenStats {
+        resources: Vec::with_capacity(res.len()),
+      };
+      for resource in res.names() {
+        resources
+          .resources
+          .push((resource.0, resource.1.to_string()))
       }
-      timers.timers.push(timer_id as usize);
-    }
+      resources
+    } else {
+      ResourceOpenStats::default()
+    };
+
+    let timers = if filter.include_timers {
+      let timer_count = self.context_state.timers.len();
+      let mut timers = TimerStats {
+        timers: Vec::with_capacity(timer_count),
+        repeats: BitSet::with_capacity(timer_count),
+      };
+      for (timer_id, repeats) in &self.context_state.timers.iter() {
+        if repeats {
+          timers.repeats.insert(timers.timers.len());
+        }
+        timers.timers.push(timer_id as usize);
+      }
+      timers
+    } else {
+      TimerStats::default()
+    };
+
+    let ops = if filter.include_ops {
+      self.context_state.pending_ops.stats(&filter.op_filter)
+    } else {
+      OpInflightStats::default()
+    };
+
     RuntimeActivityStats {
       context_state: self.context_state.clone(),
-      op: self.context_state.pending_ops.stats(),
+      ops,
       resources,
       timers,
     }
   }
 }
 
+#[derive(Default)]
 pub struct ResourceOpenStats {
   pub(super) resources: Vec<(u32, String)>,
 }
 
+#[derive(Default)]
 pub struct TimerStats {
   pub(super) timers: Vec<usize>,
   /// `repeats` is a bitset that reports whether a given index in the ID array
@@ -62,18 +138,44 @@ pub struct TimerStats {
 /// data that can be used for test sanitization.
 pub struct RuntimeActivityStats {
   context_state: Rc<ContextState>,
-  pub(super) op: OpInflightStats,
+  pub(super) ops: OpInflightStats,
   pub(super) resources: ResourceOpenStats,
-  #[allow(dead_code)] // coming soon
   pub(super) timers: TimerStats,
 }
 
-#[derive(Serialize)]
+/// The type of runtime activity being tracked.
+#[derive(Debug, Serialize)]
 pub enum RuntimeActivity {
-  AsyncOp(PromiseId, String),
+  /// An async op, including the promise ID and op name.
+  AsyncOp(PromiseId, &'static str),
+  /// A resource, including the resource ID and name.
   Resource(ResourceId, String),
+  /// A timer, including the timer ID.
   Timer(usize),
+  /// An interval, including the interval ID.
   Interval(usize),
+}
+
+impl RuntimeActivity {
+  pub fn activity(&self) -> RuntimeActivityType {
+    match self {
+      Self::AsyncOp(..) => RuntimeActivityType::AsyncOp,
+      Self::Resource(..) => RuntimeActivityType::Resource,
+      Self::Timer(..) => RuntimeActivityType::Timer,
+      Self::Interval(..) => RuntimeActivityType::Interval,
+    }
+  }
+}
+
+/// A data-less discriminant for [`RuntimeActivity`].
+#[derive(
+  Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize,
+)]
+pub enum RuntimeActivityType {
+  AsyncOp,
+  Resource,
+  Timer,
+  Interval,
 }
 
 impl RuntimeActivityStats {
@@ -81,16 +183,13 @@ impl RuntimeActivityStats {
   /// with details of activity.
   pub fn dump(&self) -> RuntimeActivitySnapshot {
     let mut v = Vec::with_capacity(
-      self.op.ops.len()
+      self.ops.ops.len()
         + self.resources.resources.len()
         + self.timers.timers.len(),
     );
-    let ops = self.context_state.op_ctxs.borrow();
-    for op in self.op.ops.iter() {
-      v.push(RuntimeActivity::AsyncOp(
-        op.0,
-        ops[op.1 as usize].decl.name.to_owned(),
-      ));
+    let ops = &self.context_state.op_ctxs;
+    for op in self.ops.ops.iter() {
+      v.push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
     }
     for resource in self.resources.resources.iter() {
       v.push(RuntimeActivity::Resource(resource.0, resource.1.clone()))
@@ -108,30 +207,26 @@ impl RuntimeActivityStats {
   pub fn diff(before: &Self, after: &Self) -> RuntimeActivityDiff {
     let mut appeared = vec![];
     let mut disappeared = vec![];
-    let ops = before.context_state.op_ctxs.borrow();
+    let ops = &before.context_state.op_ctxs;
 
     let mut a = BitSet::new();
-    for op in after.op.ops.iter() {
+    for op in after.ops.ops.iter() {
       a.insert(op.0 as usize);
     }
-    for op in before.op.ops.iter() {
+    for op in before.ops.ops.iter() {
       if a.remove(op.0 as usize) {
         // continuing op
       } else {
         // before, but not after
-        disappeared.push(RuntimeActivity::AsyncOp(
-          op.0,
-          ops[op.1 as usize].decl.name.to_owned(),
-        ));
+        disappeared
+          .push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
       }
     }
-    for op in after.op.ops.iter() {
+    for op in after.ops.ops.iter() {
       if a.contains(op.0 as usize) {
         // after but not before
-        appeared.push(RuntimeActivity::AsyncOp(
-          op.0,
-          ops[op.1 as usize].decl.name.to_owned(),
-        ));
+        appeared
+          .push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
       }
     }
 
@@ -190,13 +285,13 @@ impl RuntimeActivityStats {
   }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct RuntimeActivityDiff {
   pub appeared: Vec<RuntimeActivity>,
   pub disappeared: Vec<RuntimeActivity>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct RuntimeActivitySnapshot {
   pub active: Vec<RuntimeActivity>,
 }

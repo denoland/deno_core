@@ -4,6 +4,7 @@ import * as async from "checkin:async";
 import * as testing from "checkin:testing";
 import * as console from "checkin:console";
 import * as timers from "checkin:timers";
+import * as worker from "checkin:worker";
 testing;
 async;
 
@@ -12,6 +13,7 @@ globalThis.setTimeout = timers.setTimeout;
 globalThis.setInterval = timers.setInterval;
 globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
+globalThis.Worker = worker.Worker;
 Reflect.defineProperty(globalThis, "onunhandledrejection", {
   set: (cb) => {
     if (cb) {

@@ -7,6 +7,7 @@ use super::OpInflightStats;
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
+use bit_set::BitSet;
 use deno_unsync::spawn;
 use deno_unsync::JoinHandle;
 use deno_unsync::UnsyncWaker;
@@ -229,11 +230,14 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
     self.len.get()
   }
 
-  fn stats(&self) -> OpInflightStats {
+  fn stats(&self, op_exclusions: &BitSet) -> OpInflightStats {
     let q = self.queue.queue.queue.borrow();
     let mut v: Vec<PendingOpInfo> = Vec::with_capacity(self.len.get());
     for f in q.iter() {
-      v.push(f.context())
+      let context = f.context();
+      if !op_exclusions.contains(context.1 as _) {
+        v.push(context);
+      }
     }
     OpInflightStats {
       ops: v.into_boxed_slice(),
