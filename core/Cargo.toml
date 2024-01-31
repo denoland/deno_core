@@ -11,7 +11,7 @@ repository.workspace = true
 description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and Tokio"
 
 [[bin]]
-name = "deno_core"
+name = "dcore"
 path = "main.rs"
 
 [lib]
