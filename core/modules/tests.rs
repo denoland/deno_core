@@ -431,10 +431,10 @@ fn test_lazy_loaded_esm() {
       "setup.js",
       r#"
       Deno.core.print("1\n");
-      const module = Deno.core.ops.op_lazy_load_esm("ext:test_ext/lazy_loaded.js");
+      const module = Deno.core.createLazyLoader("ext:test_ext/lazy_loaded.js")();
       module.blah("hello\n");
       Deno.core.print(`${JSON.stringify(module)}\n`);
-      const module1 = Deno.core.ops.op_lazy_load_esm("ext:test_ext/lazy_loaded.js");
+      const module1 = Deno.core.createLazyLoader("ext:test_ext/lazy_loaded.js")();
       if (module !== module1) throw new Error("should return the same error");
       "#,
     )

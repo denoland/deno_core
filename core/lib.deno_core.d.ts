@@ -299,6 +299,23 @@ declare namespace Deno {
     function isWeakMap(value: unknown): value is WeakMap<WeakKey, unknown>;
     function isWeakSet(value: unknown): value is WeakSet<WeakKey>;
 
+    function propWritable(value: unknown): PropertyDescriptor;
+    function propNonEnumerable(value: unknown): PropertyDescriptor;
+    function propReadOnly(value: unknown): PropertyDescriptor;
+    function propGetterOnly(value: unknown): PropertyDescriptor;
+
+    function propWritableLazyLoaded<T>(
+      getter: (loadedValue: T) => unknown,
+      loadFn: LazyLoader<T>,
+    ): PropertyDescriptor;
+    function propNonEnumerableLazyLoaded<T>(
+      getter: (loadedValue: T) => unknown,
+      loadFn: LazyLoader<T>,
+    ): PropertyDescriptor;
+
+    type LazyLoader<T> = () => T;
+    function createLazyLoader<T = unknown>(specifier: string): LazyLoader<T>;
+
     const build: {
       target: string;
       arch: string;

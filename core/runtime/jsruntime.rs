@@ -1126,44 +1126,24 @@ impl JsRuntime {
       let global = context_local.global(scope);
       // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
       // look up them again?
-      let deno_str =
-        v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
-          .unwrap();
-      let core_str =
-        v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
-          .unwrap();
-      let event_loop_tick_str = v8::String::new_external_onebyte_static(
+      let deno_obj: v8::Local<v8::Object> =
+        bindings::get(scope, global, v8_static_strings::DENO, "Deno");
+      let core_obj: v8::Local<v8::Object> =
+        bindings::get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
+
+      let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
         scope,
+        core_obj,
         v8_static_strings::EVENT_LOOP_TICK,
-      )
-      .unwrap();
-      let build_custom_error_str = v8::String::new_external_onebyte_static(
+        "Deno.core.eventLoopTick",
+      );
+      let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
         scope,
+        core_obj,
         v8_static_strings::BUILD_CUSTOM_ERROR,
-      )
-      .unwrap();
+        "Deno.core.buildCustomError",
+      );
 
-      let deno_obj: v8::Local<v8::Object> = global
-        .get(scope, deno_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let core_obj: v8::Local<v8::Object> = deno_obj
-        .get(scope, core_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-
-      let event_loop_tick_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, event_loop_tick_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let build_custom_error_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, build_custom_error_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
