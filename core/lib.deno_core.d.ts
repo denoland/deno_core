@@ -304,8 +304,14 @@ declare namespace Deno {
     function propReadOnly(value: unknown): PropertyDescriptor;
     function propGetterOnly(value: unknown): PropertyDescriptor;
 
-    function propWritableLazyLoaded<T>(getter: (loadedValue: T) => unknown, loadFn: LazyLoader<T>): PropertyDescriptor;
-    function propNonEnumerableLazyLoaded<T>(getter: (loadedValue: T) => unknown, loadFn: LazyLoader<T>): PropertyDescriptor;
+    function propWritableLazyLoaded<T>(
+      getter: (loadedValue: T) => unknown,
+      loadFn: LazyLoader<T>,
+    ): PropertyDescriptor;
+    function propNonEnumerableLazyLoaded<T>(
+      getter: (loadedValue: T) => unknown,
+      loadFn: LazyLoader<T>,
+    ): PropertyDescriptor;
 
     type LazyLoader<T> = () => T;
     function createLazyLoader<T = unknown>(specifier: string): LazyLoader<T>;

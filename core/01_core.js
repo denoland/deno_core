@@ -546,7 +546,7 @@
         value = op_lazy_load_esm(specifier);
       }
       return value;
-    }
+    };
   }
 
   // Extra Deno.core.* exports
