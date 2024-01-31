@@ -957,7 +957,6 @@ impl JsRuntime {
         synthetic_module_exports,
       )
       .unwrap();
-    module_map.instantiate_module(scope, mod_id).unwrap();
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
