@@ -72,8 +72,11 @@ fn text_module(
 
 fn main() -> Result<(), Error> {
   let args: Vec<String> = std::env::args().collect();
+  eprintln!(
+    "🛑 deno_core binary is meant for development and testing purposes."
+  );
   if args.len() < 2 {
-    println!("Usage: target/examples/debug/fs_module_loader <path_to_module>");
+    println!("Usage: cargo run -- <path_to_module>");
     std::process::exit(1);
   }
   let main_url = &args[1];
