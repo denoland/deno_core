@@ -153,6 +153,7 @@ pub mod v8_static_strings {
   pub static CALL_CONSOLE: &[u8] = b"callConsole";
   pub static FILENAME: &[u8] = b"filename";
   pub static DIRNAME: &[u8] = b"dirname";
+  pub static SET_UP_ASYNC_STUB: &[u8] = b"setUpAsyncStub";
 }
 
 /// Create an object on the `globalThis` that looks like this:
@@ -208,7 +209,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
     let console_obj: v8::Local<v8::Object> = get(
       scope,
       extra_binding_obj,
-      b"console",
+      v8_static_strings::CONSOLE,
       "ExtrasBindingObject.console",
     );
     let console_key = v8_static_strings::new(scope, v8_static_strings::CONSOLE);
@@ -250,14 +251,19 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   // Set up JavaScript bindings for the defined op - this will insert proper
   // `v8::Function` into `Deno.core.ops` object. For async ops, there a bit
   // more machinery involved, see comment below.
-  let deno_obj = get(scope, global, b"Deno", "Deno");
-  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
-  let deno_core_ops_obj: v8::Local<v8::Object> =
-    get(scope, deno_core_obj, b"ops", "Deno.core.ops");
+  let deno_obj = get(scope, global, v8_static_strings::DENO, "Deno");
+  let deno_core_obj =
+    get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
+  let deno_core_ops_obj: v8::Local<v8::Object> = get(
+    scope,
+    deno_core_obj,
+    v8_static_strings::OPS,
+    "Deno.core.ops",
+  );
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
-    b"setUpAsyncStub",
+    v8_static_strings::SET_UP_ASYNC_STUB,
     "Deno.core.setUpAsyncStub",
   );
 
@@ -728,12 +734,13 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 ) -> Vec<(FastString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
 
-  let deno_obj = get(scope, global, b"Deno", "Deno");
-  let deno_core_obj = get(scope, deno_obj, b"core", "Deno.core");
+  let deno_obj = get(scope, global, v8_static_strings::DENO, "Deno");
+  let deno_core_obj =
+    get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
-    b"setUpAsyncStub",
+    v8_static_strings::SET_UP_ASYNC_STUB,
     "Deno.core.setUpAsyncStub",
   );
 
