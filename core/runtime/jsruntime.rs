@@ -836,7 +836,7 @@ impl JsRuntime {
         )?;
       }
 
-      js_runtime.store_js_callbacks(&realm);
+      js_runtime.store_js_callbacks(&realm, will_snapshot);
 
       js_runtime.init_extension_js(
         &realm,
@@ -1114,7 +1114,7 @@ impl JsRuntime {
 
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
-  fn store_js_callbacks(&mut self, realm: &JsRealm) {
+  fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (
       event_loop_tick_cb,
       build_custom_error_cb,
@@ -1145,37 +1145,43 @@ impl JsRuntime {
         "Deno.core.buildCustomError",
       );
 
-      let web_assembly_object: v8::Local<v8::Object> = bindings::get(
-        scope,
-        global,
-        v8_static_strings::WEBASSEMBLY,
-        "WebAssembly",
-      );
-      let web_assembly_module_object: v8::Local<v8::Object> = bindings::get(
-        scope,
-        web_assembly_object,
-        v8_static_strings::MODULE,
-        "WebAssembly.Module",
-      );
-      let web_assembly_module_imports_fn: v8::Local<v8::Function> =
-        bindings::get(
+      let mut web_assembly_module_imports_fn = None;
+      let mut web_assembly_module_exports_fn = None;
+
+      if !will_snapshot {
+        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
           scope,
-          web_assembly_module_object,
-          v8_static_strings::IMPORTS,
-          "WebAssembly.Module.imports",
+          global,
+          v8_static_strings::WEBASSEMBLY,
+          "WebAssembly",
         );
-      let web_assembly_module_exports_fn: v8::Local<v8::Function> =
-        bindings::get(
+        let web_assembly_module_object: v8::Local<v8::Object> = bindings::get(
           scope,
-          web_assembly_module_object,
-          v8_static_strings::EXPORTS,
-          "WebAssembly.Module.exports",
+          web_assembly_object,
+          v8_static_strings::MODULE,
+          "WebAssembly.Module",
         );
+        web_assembly_module_imports_fn =
+          Some(bindings::get::<v8::Local<v8::Function>>(
+            scope,
+            web_assembly_module_object,
+            v8_static_strings::IMPORTS,
+            "WebAssembly.Module.imports",
+          ));
+        web_assembly_module_exports_fn =
+          Some(bindings::get::<v8::Local<v8::Function>>(
+            scope,
+            web_assembly_module_object,
+            v8_static_strings::EXPORTS,
+            "WebAssembly.Module.exports",
+          ));
+      }
+
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
-        v8::Global::new(scope, web_assembly_module_imports_fn),
-        v8::Global::new(scope, web_assembly_module_exports_fn),
+        web_assembly_module_imports_fn.map(|f| v8::Global::new(scope, f)),
+        web_assembly_module_exports_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1190,14 +1196,20 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
-    state_rc
-      .web_assembly_module_imports_fn
-      .borrow_mut()
-      .replace(Rc::new(web_assembly_module_imports_fn));
-    state_rc
-      .web_assembly_module_exports_fn
-      .borrow_mut()
-      .replace(Rc::new(web_assembly_module_exports_fn));
+    if let Some(web_assembly_module_imports_fn) = web_assembly_module_imports_fn
+    {
+      state_rc
+        .web_assembly_module_imports_fn
+        .borrow_mut()
+        .replace(Rc::new(web_assembly_module_imports_fn));
+    }
+    if let Some(web_assembly_module_exports_fn) = web_assembly_module_exports_fn
+    {
+      state_rc
+        .web_assembly_module_exports_fn
+        .borrow_mut()
+        .replace(Rc::new(web_assembly_module_exports_fn));
+    }
   }
 
   /// Returns the runtime's op state, which can be used to maintain ops
