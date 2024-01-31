@@ -909,6 +909,7 @@ impl ModuleMap {
         |_scope: &mut v8::HandleScope<'_>,
          args: v8::FunctionCallbackArguments<'_>,
          _rv: v8::ReturnValue| {
+          eprintln!("mod_evaluate on fulfilled");
           let mut sender = get_sender(args.data());
           sender.module_map.pending_mod_evaluation.set(false);
           sender.module_map.module_waker.wake();
@@ -1141,6 +1142,7 @@ impl ModuleMap {
     let resolver = resolver_handle.open(scope);
 
     let exception = v8::Local::new(scope, exception);
+    eprintln!("dynamic import rejection, got exception");
     resolver.reject(scope, exception).unwrap();
     scope.perform_microtask_checkpoint();
   }
