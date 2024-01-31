@@ -3,7 +3,6 @@
 
 ((window) => {
   const core = Deno.core;
-  const ops = core.ops;
   const {
     Error,
     ObjectDefineProperties,
@@ -22,7 +21,7 @@
       fileName.startsWith("data:") &&
       fileName.length > DATA_URL_ABBREV_THRESHOLD
     ) {
-      return ops.op_format_file_name(fileName);
+      return core.formatFileName(fileName);
     }
     return fileName;
   }
@@ -151,7 +150,7 @@
         callSite.fileName !== null && callSite.lineNumber !== null &&
         callSite.columnNumber !== null
       ) {
-        res = ops.op_apply_source_map(
+        res = core.applySourceMap(
           callSite.fileName,
           callSite.lineNumber,
           callSite.columnNumber,
@@ -163,7 +162,7 @@
         callSite.columnNumber = applySourceMapRetBuf[1];
       }
       if (res >= 2) {
-        callSite.fileName = ops.op_apply_source_map_filename();
+        callSite.fileName = core.applySourceMapFilename();
       }
       ArrayPrototypePush(error.__callSiteEvals, callSite);
       stack += `\n    at ${formatCallSiteEval(callSite)}`;

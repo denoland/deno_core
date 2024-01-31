@@ -826,7 +826,7 @@ async fn test_promise_rejection_handler_generic(
     function throwError() {
       throw new Error("boom");
     }
-    const { op_void_async, op_void_async_deferred } = Deno.core.ensureFastOps();
+    const { opVoidAsync, opVoidAsyncDeferred } = Deno.core;
     if (test != "no_handler") {
       Deno.core.setUnhandledPromiseRejectionHandler((promise, rejection) => {
         if (test.startsWith("exception_")) {
@@ -841,9 +841,9 @@ async fn test_promise_rejection_handler_generic(
     }
     if (test != "no_reject") {
       if (test.startsWith("async_op_eager_")) {
-        op_void_async().then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
+        opVoidAsync().then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
       } else if (test.startsWith("async_op_deferred_")) {
-        op_void_async_deferred().then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
+        opVoidAsyncDeferred().then(() => { Deno.core.ops.op_breakpoint(); throw new Error("fail") });
       } else if (test.startsWith("throw_")) {
         Deno.core.ops.op_breakpoint();
         throw new Error("fail");

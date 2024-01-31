@@ -730,10 +730,14 @@ impl JsRuntime {
     // If we're creating a new runtime or there are new ops to register
     // set up JavaScript bindings for them.
     if init_mode.needs_ops_bindings() {
-      bindings::initialize_deno_core_ops_bindings(
+      // TODO(bartlomieju): this is a really hacky solution and relies
+      // implicitly on how `extension_set::create_op_ctxs` works.
+      let last_deno_core_op_id = crate::ops_builtin::BUILTIN_OPS.len() - 1;
+      bindings::initialize_ops_bindings(
         scope,
         context,
         &context_state.op_ctxs,
+        last_deno_core_op_id,
       );
     }
 

@@ -23,11 +23,17 @@
     TypeError,
   } = window.__bootstrap.primordials;
   const {
+    coreOps,
     ops,
     getPromise,
     hasPromise,
     promiseIdSymbol,
   } = window.Deno.core;
+  // TODO(bartlomieju): because op bindings are generated on each startup
+  // we can't remove it right now. See https://github.com/denoland/deno_core/issues/521.
+  // Delete `Deno.core.coreOps` immediately. These bindings shouldn't be accessible
+  // outside deno_core.
+  // delete window.Deno.core.coreOps;
 
   let unhandledPromiseRejectionHandler = () => false;
   let timerDepth = 0;
@@ -302,7 +308,7 @@
     op_read_sync: readSync,
     op_write_sync: writeSync,
     op_shutdown: shutdown,
-  } = ensureFastOps(true);
+  } = coreOps;
 
   const callSiteRetBuf = new Uint32Array(2);
   const callSiteRetBufU8 = new Uint8Array(callSiteRetBuf.buffer);
@@ -420,6 +426,12 @@
     op_set_wasm_streaming_callback,
     op_str_byte_length,
     op_timer_cancel,
+    op_void_async,
+    op_void_async_deferred,
+    op_set_format_exception_callback,
+    op_format_file_name,
+    op_apply_source_map_filename,
+    op_apply_source_map,
     op_timer_queue,
     op_timer_ref,
     op_timer_unref,
@@ -453,7 +465,7 @@
     op_is_typed_array,
     op_is_weak_map,
     op_is_weak_set,
-  } = ensureFastOps();
+  } = coreOps;
 
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
@@ -538,7 +550,14 @@
     destructureError: (error) => op_destructure_error(error),
     opNames: () => op_op_names(),
     eventLoopHasMoreWork: () => op_event_loop_has_more_work(),
+    setFormatExceptionCallback: (cb) => op_set_format_exception_callback(cb),
+    applySourceMapFilename: () => op_apply_source_map_filename(),
+    applySourceMap: (fileName, lineNumber, columnNumber, retBuf) =>
+      op_apply_source_map(fileName, lineNumber, columnNumber, retBuf),
+    formatFileName: (fileName) => op_format_file_name(fileName),
     byteLength: (str) => op_str_byte_length(str),
+    opVoidAsync: () => op_void_async(),
+    opVoidAsyncDeferred: () => op_void_async_deferred(),
     setHandledPromiseRejectionHandler: (handler) =>
       op_set_handled_promise_rejection_handler(handler),
     setUnhandledPromiseRejectionHandler: (handler) =>
