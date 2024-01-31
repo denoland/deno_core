@@ -10,6 +10,10 @@ readme = "README.md"
 repository.workspace = true
 description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and Tokio"
 
+[[bin]]
+name = "dcore"
+path = "main.rs"
+
 [lib]
 path = "lib.rs"
 
@@ -32,9 +36,9 @@ bit-set.workspace = true
 bit-vec.workspace = true
 bytes.workspace = true
 cooked-waker.workspace = true
+deno_core_icudata = { workspace = true, optional = true }
 deno_ops.workspace = true
 deno_unsync.workspace = true
-deno_core_icudata = { workspace = true, optional = true }
 futures.workspace = true
 libc.workspace = true
 log.workspace = true
@@ -52,11 +56,11 @@ url.workspace = true
 v8.workspace = true
 
 [dev-dependencies]
-deno_ast.workspace = true
 bencher.workspace = true
+deno_ast.workspace = true
+fastrand.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
-fastrand.workspace = true
 unicycle = "0"
 
 [[bench]]
