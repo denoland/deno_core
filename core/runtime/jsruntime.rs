@@ -36,6 +36,9 @@ use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
+use crate::source_map::apply_source_map;
+use crate::source_map::get_source_line;
+use crate::source_map::SourceMapApplication;
 use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
 use crate::Extension;
@@ -375,8 +378,11 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) source_map_getter: Option<Rc<Box<dyn SourceMapGetter>>>,
-  pub(crate) source_map_cache: Rc<RefCell<SourceMapCache>>,
+  source_map_getter: Option<Box<dyn SourceMapGetter>>,
+  source_map_cache: RefCell<SourceMapCache>,
+  // This is not the right place for this, but it's the easiest way to make
+  // op_apply_source_map a fast op. This stashing should happen in #[op2].
+  pub(crate) stashed_file_name: Rc<RefCell<Option<String>>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -608,8 +614,9 @@ impl JsRuntime {
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
-      source_map_getter: options.source_map_getter.map(Rc::new),
+      source_map_getter: options.source_map_getter,
       source_map_cache: Default::default(),
+      stashed_file_name: Default::default(),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       wait_for_inspector_disconnect_callback: options
@@ -1966,6 +1973,43 @@ impl JsRuntimeState {
       .borrow()
       .as_ref()
       .map(|inspector| f(&inspector.borrow()))
+  }
+
+  pub(crate) fn has_source_map(&self) -> bool {
+    self.source_map_getter.is_some()
+  }
+
+  pub(crate) fn apply_source_map(
+    &self,
+    file_name: &str,
+    line_number: u32,
+    column_number: u32,
+  ) -> SourceMapApplication {
+    if let Some(source_map_getter) = &self.source_map_getter {
+      let mut cache = self.source_map_cache.borrow_mut();
+      apply_source_map(
+        file_name,
+        line_number,
+        column_number,
+        &mut cache,
+        &**source_map_getter,
+      )
+    } else {
+      SourceMapApplication::Unchanged
+    }
+  }
+
+  pub(crate) fn get_source_line(
+    &self,
+    file_name: &str,
+    line_number: i64,
+  ) -> Option<String> {
+    if let Some(source_map_getter) = &self.source_map_getter {
+      let mut cache = self.source_map_cache.borrow_mut();
+      get_source_line(file_name, line_number, &mut cache, &**source_map_getter)
+    } else {
+      None
+    }
   }
 }
 

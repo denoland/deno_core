@@ -40,9 +40,6 @@ where
 pub struct SourceMapCache {
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
-  // This is not the right place for this, but it's the easiest way to make
-  // op_apply_source_map a fast op. This stashing should happen in #[op2].
-  pub stashed_file_name: Option<String>,
 }
 
 pub enum SourceMapApplication {
