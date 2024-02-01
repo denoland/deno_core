@@ -949,8 +949,13 @@ impl JsRuntime {
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
+
+    // TODO(bartlomieju): this is a really hacky solution and relies
+    // implicitly on how `extension_set::create_op_ctxs` works.
+    let last_deno_core_op_id = crate::ops_builtin::BUILTIN_OPS.len() - 1;
+
     let synthetic_module_exports = create_exports_for_ops_virtual_module(
-      &context_state.op_ctxs,
+      &context_state.op_ctxs[last_deno_core_op_id..],
       scope,
       global,
     );
