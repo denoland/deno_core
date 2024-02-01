@@ -260,6 +260,7 @@ pub(crate) fn initialize_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
+  init_mode: InitMode,
   // TODO(bartlomieju): this is really hacky solution
   last_deno_core_op_id: usize,
 ) {
@@ -277,12 +278,6 @@ pub(crate) fn initialize_ops_bindings<'s>(
     v8_static_strings::OPS,
     "Deno.core.ops",
   );
-  let deno_core_core_ops_obj: v8::Local<v8::Object> = get(
-    scope,
-    deno_core_obj,
-    v8_static_strings::CORE_OPS,
-    "Deno.core.coreOps",
-  );
 
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
@@ -295,27 +290,35 @@ pub(crate) fn initialize_ops_bindings<'s>(
 
   let deno_core_op_ctxs = &op_ctxs[..last_deno_core_op_id];
   let ext_op_ctxs = &op_ctxs[last_deno_core_op_id..];
-  // TODO(bartlomieju): `deno_core_op_ctxs` should be initialized only once
-  // with `init_mode == InitMode::New`.
-  for op_ctx in deno_core_op_ctxs {
-    let mut op_fn = op_ctx_function(scope, op_ctx);
-    let key = v8::String::new_external_onebyte_static(
+
+  // TODO(bartlomieju): hoist this to a separate function
+  if init_mode == InitMode::New {
+    let deno_core_core_ops_obj: v8::Local<v8::Object> = get(
       scope,
-      op_ctx.decl.name.as_bytes(),
-    )
-    .unwrap();
+      deno_core_obj,
+      v8_static_strings::CORE_OPS,
+      "Deno.core.coreOps",
+    );
+    for op_ctx in deno_core_op_ctxs {
+      let mut op_fn = op_ctx_function(scope, op_ctx);
+      let key = v8::String::new_external_onebyte_static(
+        scope,
+        op_ctx.decl.name.as_bytes(),
+      )
+      .unwrap();
 
-    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
-    // this call will generate an optimized function that binds to the provided
-    // op, while keeping track of promises and error remapping.
-    if op_ctx.decl.is_async {
-      let result = set_up_async_stub_fn
-        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
-        .unwrap();
-      op_fn = result.try_into().unwrap()
+      // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+      // this call will generate an optimized function that binds to the provided
+      // op, while keeping track of promises and error remapping.
+      if op_ctx.decl.is_async {
+        let result = set_up_async_stub_fn
+          .call(scope, undefined.into(), &[key.into(), op_fn.into()])
+          .unwrap();
+        op_fn = result.try_into().unwrap()
+      }
+
+      deno_core_core_ops_obj.set(scope, key.into(), op_fn.into());
     }
-
-    deno_core_core_ops_obj.set(scope, key.into(), op_fn.into());
   }
 
   for op_ctx in ext_op_ctxs {

@@ -33,7 +33,7 @@
   // we can't remove it right now. See https://github.com/denoland/deno_core/issues/521.
   // Delete `Deno.core.coreOps` immediately. These bindings shouldn't be accessible
   // outside deno_core.
-  // delete window.Deno.core.coreOps;
+  delete window.Deno.core.coreOps;
 
   let unhandledPromiseRejectionHandler = () => false;
   let timerDepth = 0;
@@ -432,6 +432,8 @@
     op_set_format_exception_callback,
     op_format_file_name,
     op_apply_source_map_filename,
+    op_wasm_streaming_feed,
+    op_wasm_streaming_set_url,
     op_apply_source_map,
     op_timer_queue,
     op_timer_ref,
@@ -629,6 +631,8 @@
     isRegExp: (value) => op_is_reg_exp(value),
     isSet: (value) => op_is_set(value),
     isSetIterator: (value) => op_is_set_iterator(value),
+    wasmStreamingFeed: (rid, bytes) => op_wasm_streaming_feed(rid, bytes),
+    wasmStreamingSetUrl: (rid, url) => op_wasm_streaming_set_url(rid, url),
     isSharedArrayBuffer: (value) => op_is_shared_array_buffer(value),
     isStringObject: (value) => op_is_string_object(value),
     isSymbolObject: (value) => op_is_symbol_object(value),

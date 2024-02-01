@@ -737,6 +737,7 @@ impl JsRuntime {
         scope,
         context,
         &context_state.op_ctxs,
+        init_mode,
         last_deno_core_op_id,
       );
     }

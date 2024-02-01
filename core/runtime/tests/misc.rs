@@ -376,8 +376,8 @@ async fn wasm_streaming_op_invocation_in_import() {
   runtime.execute_script_static("setup.js",
                                r#"
                                 Deno.core.setWasmStreamingCallback((source, rid) => {
-                                  Deno.core.ops.op_wasm_streaming_set_url(rid, "file:///foo.wasm");
-                                  Deno.core.ops.op_wasm_streaming_feed(rid, source);
+                                  Deno.core.wasmStreamingSetUrl(rid, "file:///foo.wasm");
+                                  Deno.core.wasmStreamingFeed(rid, source);
                                   Deno.core.close(rid);
                                 });
                                "#).unwrap();
