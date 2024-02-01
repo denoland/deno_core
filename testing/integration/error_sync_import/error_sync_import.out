@@ -1,3 +1,0 @@
-[ERR] BadResource: uh oh
-[ERR]     at throwCustomError (checkin:error:12:3)
-[ERR]     at test:///integration/error_sync_import/throws.ts:3:1

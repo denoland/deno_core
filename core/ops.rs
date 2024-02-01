@@ -43,12 +43,6 @@ impl Drop for ReentrancyGuard {
 #[cfg(debug_assertions)]
 #[doc(hidden)]
 pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
-  // TODO(mmastrac): All ops have a chance to call this if we synchronously throw an error during a
-  // module load event. This is tested in the "error_sync_import" integration test.
-  // if decl.name == "op_apply_source_map" {
-  //   return None;
-  // }
-
   if decl.is_reentrant {
     return None;
   }

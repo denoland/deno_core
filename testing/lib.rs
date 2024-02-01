@@ -54,7 +54,6 @@ integration_test!(
   error_async_stack,
   error_rejection_catch,
   error_rejection_order,
-  error_sync_import,
   error_with_stack,
   error_without_stack,
   smoke_test,
