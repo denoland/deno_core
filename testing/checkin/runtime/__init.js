@@ -3,10 +3,12 @@ import "ext:checkin_runtime/__bootstrap.js";
 import * as async from "checkin:async";
 import * as testing from "checkin:testing";
 import * as console from "checkin:console";
+import * as error from "checkin:error";
 import * as timers from "checkin:timers";
 import * as worker from "checkin:worker";
 testing;
 async;
+error;
 
 globalThis.console = console.console;
 globalThis.setTimeout = timers.setTimeout;
@@ -47,3 +49,6 @@ Reflect.defineProperty(globalThis, "onrejectionhandled", {
 });
 Deno.unrefTimer = timers.unrefTimer;
 Deno.refTimer = timers.refTimer;
+
+// TODO(mmastrac): arguably this could be registered in 00_infra.js since it's a deno_core error
+Deno.core.registerErrorClass("BadResource", Deno.core.BadResource);

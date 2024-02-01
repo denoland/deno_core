@@ -1,11 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 import { assertEquals, test } from "checkin:testing";
-import {
-  asyncThrow,
-  asyncYield,
-  barrierAwait,
-  barrierCreate,
-} from "checkin:async";
+import { asyncYield, barrierAwait, barrierCreate } from "checkin:async";
+import { asyncThrow } from "checkin:error";
 
 // Test that stack traces from async ops are all sane
 test(async function testAsyncThrow() {
@@ -15,7 +11,7 @@ test(async function testAsyncThrow() {
     const stack = e.stack.replace(/\d+:\d+/g, "line:col");
     assertEquals(
       stack,
-      "TypeError: Error\n    at asyncThrow (checkin:async:line:col)\n    at testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
+      "TypeError: Error\n    at asyncThrow (checkin:error:line:col)\n    at testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
     );
   }
   try {
@@ -24,7 +20,7 @@ test(async function testAsyncThrow() {
     const stack = e.stack.replace(/\d+:\d+/g, "line:col");
     assertEquals(
       stack,
-      "TypeError: Error\n    at async asyncThrow (checkin:async:line:col)\n    at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
+      "TypeError: Error\n    at async asyncThrow (checkin:error:line:col)\n    at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
     );
   }
   try {
@@ -33,7 +29,7 @@ test(async function testAsyncThrow() {
     const stack = e.stack.replace(/\d+:\d+/g, "line:col");
     assertEquals(
       stack,
-      "TypeError: Error\n    at async asyncThrow (checkin:async:line:col)\n    at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
+      "TypeError: Error\n    at async asyncThrow (checkin:error:line:col)\n    at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
     );
   }
 });

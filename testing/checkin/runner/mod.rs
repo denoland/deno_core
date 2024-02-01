@@ -24,6 +24,7 @@ use self::testing::TestFunctions;
 mod ops;
 mod ops_async;
 mod ops_buffer;
+mod ops_error;
 mod ops_io;
 mod ops_worker;
 mod testing;
@@ -43,9 +44,12 @@ deno_core::extension!(
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,
-    ops_async::op_async_throw_error_eager,
-    ops_async::op_async_throw_error_lazy,
-    ops_async::op_async_throw_error_deferred,
+    ops_error::op_async_throw_error_eager,
+    ops_error::op_async_throw_error_lazy,
+    ops_error::op_async_throw_error_deferred,
+    ops_error::op_error_custom_sync,
+    ops_error::op_error_context_sync,
+    ops_error::op_error_context_async,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
     ops_worker::op_worker_spawn,
@@ -62,6 +66,7 @@ deno_core::extension!(
     "__init.js",
     "async.ts" with_specifier "checkin:async",
     "console.ts" with_specifier "checkin:console",
+    "error.ts" with_specifier "checkin:error",
     "testing.ts" with_specifier "checkin:testing",
     "timers.ts" with_specifier "checkin:timers",
     "worker.ts" with_specifier "checkin:worker",
@@ -95,7 +100,7 @@ fn create_runtime(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),
     get_error_class_fn: Some(&|error| {
-      deno_core::error::get_custom_error_class(error).unwrap()
+      deno_core::error::get_custom_error_class(error).unwrap_or("Error")
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()

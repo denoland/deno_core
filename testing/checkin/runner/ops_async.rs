@@ -1,6 +1,4 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use anyhow::Error;
-use deno_core::error::type_error;
 use deno_core::op2;
 use std::future::Future;
 use std::rc::Rc;
@@ -32,19 +30,4 @@ pub fn op_async_barrier_await(
   async move {
     barrier.wait().await;
   }
-}
-
-#[op2(async)]
-pub async fn op_async_throw_error_eager() -> Result<(), Error> {
-  Err(type_error("Error"))
-}
-
-#[op2(async(deferred), fast)]
-pub async fn op_async_throw_error_deferred() -> Result<(), Error> {
-  Err(type_error("Error"))
-}
-
-#[op2(async(lazy), fast)]
-pub async fn op_async_throw_error_lazy() -> Result<(), Error> {
-  Err(type_error("Error"))
 }
