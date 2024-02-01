@@ -1,0 +1,4 @@
+[ERR] Error: Failed
+[ERR]     at innertTrowInExt (checkin:throwInExt:11:9)
+[ERR]     at throwInExt (checkin:throwInExt:7:3)
+[ERR]     at test:///integration/error_ext_stack/error_ext_stack.ts:3:1
