@@ -3,6 +3,7 @@ const {
   op_async_barrier_create,
   op_async_barrier_await,
   op_async_yield,
+  op_async_spin_on_state,
   op_stats_capture,
   op_stats_diff,
   op_stats_dump,
@@ -21,6 +22,11 @@ export async function barrierAwait(name: string) {
 
 export async function asyncYield() {
   await op_async_yield();
+}
+
+// This function never returns.
+export async function asyncSpin() {
+  await op_async_spin_on_state();
 }
 
 let nextStats = 0;

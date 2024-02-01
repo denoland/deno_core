@@ -62,4 +62,5 @@ integration_test!(
   timer_many,
   worker_spawn,
   worker_terminate,
+  worker_terminate_op,
 );
