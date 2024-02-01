@@ -22,7 +22,7 @@ pub async fn op_async_throw_error_lazy() -> Result<(), Error> {
 
 #[op2(fast)]
 pub fn op_error_custom_sync(#[string] message: String) -> Result<(), Error> {
-  Err(custom_error("bad_resource", message))
+  Err(custom_error("BadResource", message))
 }
 
 #[op2(fast)]

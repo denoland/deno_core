@@ -32,7 +32,6 @@ test(async function opsAsyncBadResource() {
       new Uint8Array(100),
     );
   } catch (e) {
-    console.log(e);
     assert(e instanceof Deno.core.BadResource);
   }
 });
@@ -45,7 +44,6 @@ test(function opsSyncBadResource() {
       new Uint8Array(100),
     );
   } catch (e) {
-    console.log(e.message);
     assert(e instanceof Deno.core.BadResource);
   }
 });
