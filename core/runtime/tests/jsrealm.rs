@@ -139,6 +139,7 @@ fn es_snapshot() {
         code: ExtensionFileSourceCode::IncludedInBinary(
           "globalThis.TEST = 'foo'; export const TEST = 'bar';",
         ),
+        source_map: None,
       }]),
       esm_entry_point: Some("mod:test"),
       ..Default::default()

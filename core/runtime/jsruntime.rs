@@ -380,6 +380,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 pub struct JsRuntimeState {
   source_map_getter: Option<Box<dyn SourceMapGetter>>,
   source_map_cache: RefCell<SourceMapCache>,
+  source_map_extensions: HashMap<String, Vec<u8>>,
   // This is not the right place for this, but it's the easiest way to make
   // op_apply_source_map a fast op. This stashing should happen in #[op2].
   pub(crate) stashed_file_name: Rc<RefCell<Option<String>>>,
@@ -616,6 +617,17 @@ impl JsRuntime {
     let state_rc = Rc::new(JsRuntimeState {
       source_map_getter: options.source_map_getter,
       source_map_cache: Default::default(),
+      source_map_extensions: {
+        let mut map = HashMap::new();
+        for extension in &mut extensions {
+          for esm in extension.get_esm_sources() {
+            if let Some(source_map) = &esm.source_map {
+              map.insert(esm.specifier.to_owned(), source_map.to_owned());
+            }
+          }
+        }
+        map
+      },
       stashed_file_name: Default::default(),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
@@ -1985,18 +1997,18 @@ impl JsRuntimeState {
     line_number: u32,
     column_number: u32,
   ) -> SourceMapApplication {
-    if let Some(source_map_getter) = &self.source_map_getter {
-      let mut cache = self.source_map_cache.borrow_mut();
-      apply_source_map(
-        file_name,
-        line_number,
-        column_number,
-        &mut cache,
-        &**source_map_getter,
-      )
-    } else {
-      SourceMapApplication::Unchanged
-    }
+    eprintln!(
+      "apply_source_map {} {} {}",
+      file_name, line_number, column_number
+    );
+    apply_source_map(
+      file_name,
+      line_number,
+      column_number,
+      &self.source_map_extensions,
+      &mut self.source_map_cache.borrow_mut(),
+      self.source_map_getter.as_deref(),
+    )
   }
 
   pub(crate) fn get_source_line(

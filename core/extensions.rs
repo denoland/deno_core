@@ -31,6 +31,7 @@ pub enum ExtensionFileSourceCode {
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
   pub code: ExtensionFileSourceCode,
+  pub source_map: Option<Vec<u8>>,
 }
 
 impl ExtensionFileSource {
@@ -806,6 +807,7 @@ macro_rules! include_js_files {
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
         ),
+        source_map: None,
       },)+
     ]
   };
@@ -817,6 +819,7 @@ macro_rules! include_js_files {
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file))
         ),
+        source_map: None,
       },)+
     ]
   };
@@ -832,6 +835,7 @@ macro_rules! include_js_files {
         code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
           concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file)
         ),
+        source_map: None,
       },)+
     ]
   };
@@ -843,6 +847,7 @@ macro_rules! include_js_files {
         code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
           concat!(env!("CARGO_MANIFEST_DIR"), "/", $file)
         ),
+        source_map: None,
       },)+
     ]
   };
@@ -857,6 +862,7 @@ macro_rules! include_lazy_loaded_js_files {
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
         ),
+        source_map: None,
       },)+
     ]
   };
@@ -868,6 +874,7 @@ macro_rules! include_lazy_loaded_js_files {
         code: $crate::ExtensionFileSourceCode::IncludedInBinary(
           include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file))
         ),
+        source_map: None,
       },)+
     ]
   };

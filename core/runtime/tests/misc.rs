@@ -1035,10 +1035,12 @@ async fn tla_in_esm_extensions_panics() {
             export const TEST = "foo";
         "#,
         ),
+        source_map: None,
       },
       ExtensionFileSource {
         specifier: "mod:test",
         code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:tla';"),
+        source_map: None,
       },
     ]),
     esm_entry_point: Some("mod:test"),
@@ -1079,10 +1081,12 @@ async fn esm_extensions_throws() {
             a();
           "#,
         ),
+        source_map: None,
       },
       ExtensionFileSource {
         specifier: "mod:test",
         code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:error';"),
+        source_map: None,
       },
     ]),
     esm_entry_point: Some("mod:test"),

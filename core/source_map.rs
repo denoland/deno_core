@@ -67,8 +67,9 @@ pub fn apply_source_map<G: SourceMapGetter + ?Sized>(
   file_name: &str,
   line_number: u32,
   column_number: u32,
+  exts: &HashMap<String, Vec<u8>>,
   cache: &mut SourceMapCache,
-  getter: &G,
+  getter: Option<&G>,
 ) -> SourceMapApplication {
   // Lookup expects 0-based line and column numbers, but ours are 1-based.
   let line_number = line_number - 1;
@@ -78,9 +79,14 @@ pub fn apply_source_map<G: SourceMapGetter + ?Sized>(
   let maybe_source_map = maybe_source_map_entry
     .map(Cow::Borrowed)
     .unwrap_or_else(|| {
-      let maybe_source_map = getter
-        .get_source_map(file_name)
-        .and_then(|raw_source_map| SourceMap::from_slice(&raw_source_map).ok());
+      let maybe_source_map = if let Some(mapped) = exts.get(file_name) {
+        Some(mapped.to_owned())
+      } else if let Some(getter) = getter {
+        getter.get_source_map(file_name)
+      } else {
+        None
+      }
+      .and_then(|raw_source_map| SourceMap::from_slice(&raw_source_map).ok());
       Cow::Owned(maybe_source_map)
     });
 

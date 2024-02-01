@@ -263,6 +263,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
         code: ExtensionFileSourceCode::IncludedInBinary(
           "globalThis.TEST = 'foo'; export const TEST = 'bar';",
         ),
+        source_map: None,
       }]),
       esm_entry_point: Some("ext:module_snapshot/test.js"),
       ..Default::default()
