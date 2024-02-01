@@ -324,12 +324,16 @@ impl ModuleMap {
           ))));
         };
 
+        let ctx = JsRealm::get_custom_module_evaluation_ctx(scope);
+
         // TODO(bartlomieju): creating a global just to create a local from it
         // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
         // a lifetime will have a viral effect and required `JsRuntimeOptions`
         // to have a callback as well as `JsRuntime`.
+
         let module_evaluation_kind = custom_evaluation_cb(
           scope,
+          ctx,
           module_type.clone(),
           &module_url_found,
           code,

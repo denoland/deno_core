@@ -154,6 +154,10 @@ pub mod v8_static_strings {
   pub static FILENAME: &[u8] = b"filename";
   pub static DIRNAME: &[u8] = b"dirname";
   pub static SET_UP_ASYNC_STUB: &[u8] = b"setUpAsyncStub";
+  pub static WEBASSEMBLY: &[u8] = b"WebAssembly";
+  pub static MODULE: &[u8] = b"Module";
+  pub static IMPORTS: &[u8] = b"imports";
+  pub static EXPORTS: &[u8] = b"exports";
 }
 
 /// Create an object on the `globalThis` that looks like this:
