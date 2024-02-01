@@ -34,6 +34,7 @@ macro_rules! integration_test {
 // Test individual bits of functionality. These files are loaded from the unit/ dir.
 unit_test!(
   encode_decode_test,
+  error_test,
   microtask_test,
   ops_async_test,
   ops_buffer_test,
@@ -53,6 +54,7 @@ integration_test!(
   error_async_stack,
   error_rejection_catch,
   error_rejection_order,
+  error_sync_import,
   error_with_stack,
   error_without_stack,
   smoke_test,
