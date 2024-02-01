@@ -13,13 +13,13 @@ use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleType;
 use deno_core::RuntimeOptions;
-use deno_core::WasmModuleAnalysis;
 use std::borrow::Cow;
 use std::rc::Rc;
+use wasm_dep_analyzer::WasmDeps;
 
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
-  ctx: CustomModuleEvaluationCtx,
+  _ctx: CustomModuleEvaluationCtx,
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,
@@ -27,7 +27,7 @@ fn custom_module_evaluation_cb(
   match &*module_type {
     "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
-    "wasm" => wasm_module(scope, ctx, module_name, code),
+    "wasm" => wasm_module(scope, module_name, code),
     _ => Err(anyhow!(
       "Can't import {:?} because of unknown module type {}",
       module_name,
@@ -58,7 +58,6 @@ fn bytes_module(
 
 fn wasm_module(
   scope: &mut v8::HandleScope,
-  ctx: CustomModuleEvaluationCtx,
   module_name: &FastString,
   code: ModuleSourceCode,
 ) -> Result<CustomModuleEvaluationKind, Error> {
@@ -66,6 +65,9 @@ fn wasm_module(
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
   };
+
+  let wasm_module_analysis = WasmDeps::parse(buf.as_bytes())?;
+
   let Some(wasm_module) = v8::WasmModuleObject::compile(scope, buf.as_bytes())
   else {
     return Err(generic_error(format!(
@@ -77,13 +79,8 @@ fn wasm_module(
 
   // Get imports and exports of the WASM module, then rendered a shim JS module
   // that will be the actual module evaluated.
-  let js_wasm_module_source = {
-    let wasm_module_analysis =
-      ctx.analyze_wasm_module(scope, wasm_module_value)?;
-    let js_wasm_module_source =
-      render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
-    js_wasm_module_source
-  };
+  let js_wasm_module_source =
+    render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
 
   let wasm_module_value_global = v8::Global::new(scope, wasm_module_value);
   let synthetic_module_type = ModuleType::Other("wasm-module".into());
@@ -97,7 +94,7 @@ fn wasm_module(
 
 fn render_js_wasm_module(
   specifier: &str,
-  wasm_module_analysis: WasmModuleAnalysis,
+  wasm_module_analysis: WasmDeps,
 ) -> String {
   // TODO:
   let mut src = Vec::with_capacity(1024);
