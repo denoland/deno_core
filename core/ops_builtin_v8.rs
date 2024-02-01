@@ -10,7 +10,6 @@ use crate::resolve_url;
 use crate::runtime::script_origin;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
-use crate::source_map::apply_source_map;
 use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRuntime;
@@ -896,36 +895,27 @@ pub fn op_apply_source_map(
   if ret_buf.len() != 8 {
     return Err(type_error("retBuf must be 8 bytes"));
   }
-  if let Some(source_map_getter) = state.source_map_getter.as_ref() {
-    let mut cache = state.source_map_cache.borrow_mut();
-    let application = apply_source_map(
-      file_name,
+  let mut source_mapper = state.source_mapper.borrow_mut();
+  let application =
+    source_mapper.apply_source_map(file_name, line_number, column_number);
+  match application {
+    SourceMapApplication::Unchanged => Ok(0),
+    SourceMapApplication::LineAndColumn {
       line_number,
       column_number,
-      &mut cache,
-      &***source_map_getter,
-    );
-    match application {
-      SourceMapApplication::Unchanged => Ok(0),
-      SourceMapApplication::LineAndColumn {
-        line_number,
-        column_number,
-      } => {
-        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
-        Ok(1)
-      }
-      SourceMapApplication::LineAndColumnAndFileName {
-        line_number,
-        column_number,
-        file_name,
-      } => {
-        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
-        cache.stashed_file_name.replace(file_name);
-        Ok(2)
-      }
+    } => {
+      write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
+      Ok(1)
     }
-  } else {
-    Ok(0)
+    SourceMapApplication::LineAndColumnAndFileName {
+      line_number,
+      column_number,
+      file_name,
+    } => {
+      write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
+      source_mapper.stashed_file_name.replace(file_name);
+      Ok(2)
+    }
   }
 }
 
@@ -937,7 +927,7 @@ pub fn op_apply_source_map_filename(
   state: &JsRuntimeState,
 ) -> Result<String, Error> {
   state
-    .source_map_cache
+    .source_mapper
     .borrow_mut()
     .stashed_file_name
     .take()
@@ -970,20 +960,10 @@ pub fn op_current_user_call_site(
     }
     let line_number = frame.get_line_number() as u32;
     let column_number = frame.get_column() as u32;
-    let application = if let Some(source_map_getter) =
-      js_runtime_state.source_map_getter.as_ref()
-    {
-      let mut cache = js_runtime_state.source_map_cache.borrow_mut();
-      apply_source_map(
-        &file_name,
-        line_number,
-        column_number,
-        &mut cache,
-        &***source_map_getter,
-      )
-    } else {
-      SourceMapApplication::Unchanged
-    };
+    let application = js_runtime_state
+      .source_mapper
+      .borrow_mut()
+      .apply_source_map(&file_name, line_number, column_number);
 
     match application {
       SourceMapApplication::Unchanged => {
