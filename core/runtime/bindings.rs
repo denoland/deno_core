@@ -113,6 +113,24 @@ pub fn script_origin<'a>(
   )
 }
 
+macro_rules! get_todo {
+  ($type:ty, $scope: expr, $from:expr, $key:expr, $path:literal) => {{
+    let temp = v8_static_strings::new($scope, $key).into();
+    TryInto::<$type>::try_into(
+      $from
+        .get($scope, temp)
+        .unwrap_or_else(|| panic!("{} exists", $path)),
+    )
+    .unwrap_or_else(|_| {
+      panic!(
+        "Unable to convert {} to desired {}",
+        $path,
+        stringify!($type)
+      )
+    })
+  }};
+}
+
 pub(crate) fn get<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   from: v8::Local<v8::Object>,
@@ -221,11 +239,12 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 
     // Bind v8 console object to Deno.core.console
     let extra_binding_obj = context.get_extras_binding_object(scope);
-    let console_obj: v8::Local<v8::Object> = get(
+    let console_obj = get_todo!(
+      v8::Local<v8::Object>,
       scope,
       extra_binding_obj,
       v8_static_strings::CONSOLE,
-      "ExtrasBindingObject.console",
+      "ExtrasBindingObject.console"
     );
     let console_key = v8_static_strings::new(scope, v8_static_strings::CONSOLE);
     deno_core_obj.set(scope, console_key.into(), console_obj.into());

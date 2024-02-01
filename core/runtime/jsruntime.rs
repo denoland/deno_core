@@ -264,7 +264,7 @@ impl Future for RcPromiseFuture {
   }
 }
 
-const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
+pub(crate) const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
 
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.

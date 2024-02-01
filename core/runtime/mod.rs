@@ -33,6 +33,7 @@ pub use jsruntime::SharedArrayBufferStore;
 pub use jsruntime::Snapshot;
 #[cfg(test)]
 pub(crate) use jsruntime::NO_OF_BUILTIN_MODULES;
+pub(crate) use jsruntime::VIRTUAL_OPS_MODULE_NAME;
 pub use snapshot_util::create_snapshot;
 pub use snapshot_util::get_js_files;
 pub use snapshot_util::CreateSnapshotOptions;

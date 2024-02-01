@@ -9,6 +9,7 @@ use crate::modules::ModuleType;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
+use crate::runtime::VIRTUAL_OPS_MODULE_NAME;
 use crate::Extension;
 use crate::ModuleSourceCode;
 
@@ -251,7 +252,10 @@ impl Drop for ExtModuleLoader {
     let used_specifiers = self.used_specifiers.get_mut();
     let unused_modules: Vec<_> = sources
       .iter()
-      .filter(|(k, _)| !used_specifiers.contains(k.as_str()))
+      .filter(|(k, _)| {
+        k.as_str() == VIRTUAL_OPS_MODULE_NAME
+          || !used_specifiers.contains(k.as_str())
+      })
       .collect();
 
     if !unused_modules.is_empty() {
