@@ -385,10 +385,9 @@ impl ModuleMap {
     Ok(module_id)
   }
 
-  // TODO(bartlomieju): this method should instantiate the module - these have
-  // no dependencies so can be instantiated immediately.
-  /// Creates a "synthetic module", that contains only a single, "default" export,
-  /// that returns the provided value.
+  /// Creates a "synthetic module", that contains only a single, "default" export.
+  ///
+  /// The module gets instantiated and its ID is returned.
   pub fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -440,6 +439,9 @@ impl ModuleMap {
       false,
       vec![],
     );
+
+    // Synthetic modules have no imports so their instantation must never fail.
+    self.instantiate_module(scope, id).unwrap();
 
     Ok(id)
   }
