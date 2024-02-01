@@ -113,6 +113,24 @@ pub fn script_origin<'a>(
   )
 }
 
+macro_rules! get_todo {
+  ($type:ty, $scope: expr, $from:expr, $key:expr, $path:literal) => {{
+    let temp = v8_static_strings::new($scope, $key).into();
+    TryInto::<$type>::try_into(
+      $from
+        .get($scope, temp)
+        .unwrap_or_else(|| panic!("{} exists", $path)),
+    )
+    .unwrap_or_else(|_| {
+      panic!(
+        "Unable to convert {} to desired {}",
+        $path,
+        stringify!($type)
+      )
+    })
+  }};
+}
+
 pub(crate) fn get<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   from: v8::Local<v8::Object>,
@@ -127,7 +145,7 @@ where
     .get(scope, key.into())
     .unwrap_or_else(|| panic!("{path} exists"))
     .try_into()
-    .unwrap_or_else(|_| panic!("unable to convert"))
+    .unwrap_or_else(|_| panic!("Unable to convert {path} to desired type"))
 }
 
 pub mod v8_static_strings {
@@ -140,6 +158,7 @@ pub mod v8_static_strings {
 
   pub static DENO: &[u8] = b"Deno";
   pub static CORE: &[u8] = b"core";
+  pub static CORE_OPS: &[u8] = b"coreOps";
   pub static OPS: &[u8] = b"ops";
   pub static URL: &[u8] = b"url";
   pub static MAIN: &[u8] = b"main";
@@ -200,6 +219,20 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
     .set(scope, deno_core_ops_key.into(), deno_core_ops_obj.into())
     .unwrap();
 
+  // Set up `Deno.core.coreOps` object
+  let deno_core_core_ops_obj = v8::Object::new(scope);
+  let deno_core_core_ops_key =
+    v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE_OPS)
+      .unwrap();
+
+  deno_core_obj
+    .set(
+      scope,
+      deno_core_core_ops_key.into(),
+      deno_core_core_ops_obj.into(),
+    )
+    .unwrap();
+
   // If we're initializing fresh context set up the console
   if init_mode == InitMode::New {
     // Bind `call_console` to Deno.core.callConsole
@@ -210,11 +243,12 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 
     // Bind v8 console object to Deno.core.console
     let extra_binding_obj = context.get_extras_binding_object(scope);
-    let console_obj: v8::Local<v8::Object> = get(
+    let console_obj = get_todo!(
+      v8::Local<v8::Object>,
       scope,
       extra_binding_obj,
       v8_static_strings::CONSOLE,
-      "ExtrasBindingObject.console",
+      "ExtrasBindingObject.console"
     );
     let console_key = v8_static_strings::new(scope, v8_static_strings::CONSOLE);
     deno_core_obj.set(scope, console_key.into(), console_obj.into());
@@ -245,10 +279,13 @@ pub(crate) fn initialize_primordials_and_infra(
 }
 
 /// Set up JavaScript bindings for ops.
-pub(crate) fn initialize_deno_core_ops_bindings<'s>(
+pub(crate) fn initialize_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
+  init_mode: InitMode,
+  // TODO(bartlomieju): this is really hacky solution
+  last_deno_core_op_id: usize,
 ) {
   let global = context.global(scope);
 
@@ -264,6 +301,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     v8_static_strings::OPS,
     "Deno.core.ops",
   );
+
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
@@ -272,7 +310,41 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   );
 
   let undefined = v8::undefined(scope);
-  for op_ctx in op_ctxs {
+
+  let deno_core_op_ctxs = &op_ctxs[..last_deno_core_op_id];
+  let ext_op_ctxs = &op_ctxs[last_deno_core_op_id..];
+
+  // TODO(bartlomieju): hoist this to a separate function
+  if init_mode == InitMode::New {
+    let deno_core_core_ops_obj: v8::Local<v8::Object> = get(
+      scope,
+      deno_core_obj,
+      v8_static_strings::CORE_OPS,
+      "Deno.core.coreOps",
+    );
+    for op_ctx in deno_core_op_ctxs {
+      let mut op_fn = op_ctx_function(scope, op_ctx);
+      let key = v8::String::new_external_onebyte_static(
+        scope,
+        op_ctx.decl.name.as_bytes(),
+      )
+      .unwrap();
+
+      // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+      // this call will generate an optimized function that binds to the provided
+      // op, while keeping track of promises and error remapping.
+      if op_ctx.decl.is_async {
+        let result = set_up_async_stub_fn
+          .call(scope, undefined.into(), &[key.into(), op_fn.into()])
+          .unwrap();
+        op_fn = result.try_into().unwrap()
+      }
+
+      deno_core_core_ops_obj.set(scope, key.into(), op_fn.into());
+    }
+  }
+
+  for op_ctx in ext_op_ctxs {
     let mut op_fn = op_ctx_function(scope, op_ctx);
     let key = v8_static_strings::new(scope, op_ctx.decl.name.as_bytes());
 

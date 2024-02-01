@@ -29,7 +29,7 @@ fn test_set_format_exception_callback_realms() {
         "",
         format!(
           r#"
-            Deno.core.ops.op_set_format_exception_callback((error) => {{
+            Deno.core.setFormatExceptionCallback((error) => {{
               return `{realm_name} / ${{error}}`;
             }});
           "#

@@ -75,7 +75,7 @@ fn test_snapshot_callbacks() {
         Deno.core.setMacrotaskCallback(() => {
           return true;
         });
-        Deno.core.ops.op_set_format_exception_callback(()=> {
+        Deno.core.setFormatExceptionCallback(()=> {
           return null;
         })
         Deno.core.setUnhandledPromiseRejectionHandler(() => {

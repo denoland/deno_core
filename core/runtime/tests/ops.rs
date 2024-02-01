@@ -494,8 +494,8 @@ await import('./mod.js');
       Url::parse("http://x/mod.js").unwrap(),
       ascii_str!(
         r#"
-const { op_void_async_deferred } = Deno.core.ensureFastOps();
-await op_void_async_deferred();
+const { opVoidAsyncDeferred } = Deno.core;
+await opVoidAsyncDeferred();
     "#
       ),
     ),

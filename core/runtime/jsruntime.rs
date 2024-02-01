@@ -264,7 +264,7 @@ impl Future for RcPromiseFuture {
   }
 }
 
-const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
+pub(crate) const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
 
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
@@ -728,10 +728,15 @@ impl JsRuntime {
     // If we're creating a new runtime or there are new ops to register
     // set up JavaScript bindings for them.
     if init_mode.needs_ops_bindings() {
-      bindings::initialize_deno_core_ops_bindings(
+      // TODO(bartlomieju): this is a really hacky solution and relies
+      // implicitly on how `extension_set::create_op_ctxs` works.
+      let last_deno_core_op_id = crate::ops_builtin::BUILTIN_OPS.len() - 1;
+      bindings::initialize_ops_bindings(
         scope,
         context,
         &context_state.op_ctxs,
+        init_mode,
+        last_deno_core_op_id,
       );
     }
 
@@ -942,8 +947,13 @@ impl JsRuntime {
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
+
+    // TODO(bartlomieju): this is a really hacky solution and relies
+    // implicitly on how `extension_set::create_op_ctxs` works.
+    let last_deno_core_op_id = crate::ops_builtin::BUILTIN_OPS.len() - 1;
+
     let synthetic_module_exports = create_exports_for_ops_virtual_module(
-      &context_state.op_ctxs,
+      &context_state.op_ctxs[last_deno_core_op_id..],
       scope,
       global,
     );
