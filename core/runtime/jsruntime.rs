@@ -625,6 +625,16 @@ impl JsRuntime {
               map.insert(esm.specifier.to_owned(), source_map.to_owned());
             }
           }
+          for lazy_esm in extension.get_lazy_loaded_esm_sources() {
+            if let Some(source_map) = &lazy_esm.source_map {
+              map.insert(lazy_esm.specifier.to_owned(), source_map.to_owned());
+            }
+          }
+          for js in extension.get_js_sources() {
+            if let Some(source_map) = &js.source_map {
+              map.insert(js.specifier.to_owned(), source_map.to_owned());
+            }
+          }
         }
         map
       },
