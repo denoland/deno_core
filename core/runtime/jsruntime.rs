@@ -376,9 +376,6 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// embedder slots.
 pub struct JsRuntimeState {
   pub(crate) source_mapper: RefCell<SourceMapper<Box<dyn SourceMapGetter>>>,
-  // This is not the right place for this, but it's the easiest way to make
-  // op_apply_source_map a fast op. This stashing should happen in #[op2].
-  pub(crate) stashed_file_name: RefCell<Option<String>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -611,7 +608,6 @@ impl JsRuntime {
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
       source_mapper: RefCell::new(SourceMapper::new(options.source_map_getter)),
-      stashed_file_name: Default::default(),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       wait_for_inspector_disconnect_callback: options

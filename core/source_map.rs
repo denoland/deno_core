@@ -54,6 +54,9 @@ pub struct SourceMapper<G: SourceMapGetter> {
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
   getter: Option<G>,
+  // This is not the right place for this, but it's the easiest way to make
+  // op_apply_source_map a fast op. This stashing should happen in #[op2].
+  pub(crate) stashed_file_name: Option<String>,
 }
 
 impl<G: SourceMapGetter> SourceMapper<G> {
@@ -62,6 +65,7 @@ impl<G: SourceMapGetter> SourceMapper<G> {
       maps: Default::default(),
       source_lines: Default::default(),
       getter,
+      stashed_file_name: Default::default(),
     }
   }
 
