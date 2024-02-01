@@ -5,6 +5,7 @@ use crate::error::generic_error;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
+use crate::modules::CustomModuleEvaluationCtx;
 use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
@@ -754,6 +755,7 @@ fn test_custom_module_type_default() {
 fn test_custom_module_type_callback_synthetic() {
   fn custom_eval_cb(
     scope: &mut v8::HandleScope,
+    _ctx: CustomModuleEvaluationCtx,
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
@@ -836,6 +838,7 @@ fn test_custom_module_type_callback_synthetic() {
 fn test_custom_module_type_callback_computed() {
   fn custom_eval_cb(
     scope: &mut v8::HandleScope,
+    _ctx: CustomModuleEvaluationCtx,
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,

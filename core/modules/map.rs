@@ -324,12 +324,16 @@ impl ModuleMap {
           ))));
         };
 
+        let ctx = JsRealm::get_custom_module_evaluation_ctx(scope);
+
         // TODO(bartlomieju): creating a global just to create a local from it
         // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
         // a lifetime will have a viral effect and required `JsRuntimeOptions`
         // to have a callback as well as `JsRuntime`.
+
         let module_evaluation_kind = custom_evaluation_cb(
           scope,
+          ctx,
           module_type.clone(),
           &module_url_found,
           code,
@@ -381,10 +385,9 @@ impl ModuleMap {
     Ok(module_id)
   }
 
-  // TODO(bartlomieju): this method should instantiate the module - these have
-  // no dependencies so can be instantiated immediately.
-  /// Creates a "synthetic module", that contains only a single, "default" export,
-  /// that returns the provided value.
+  /// Creates a "synthetic module", that contains only a single, "default" export.
+  ///
+  /// The module gets instantiated and its ID is returned.
   pub fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -436,6 +439,9 @@ impl ModuleMap {
       false,
       vec![],
     );
+
+    // Synthetic modules have no imports so their instantation must never fail.
+    self.instantiate_module(scope, id).unwrap();
 
     Ok(id)
   }

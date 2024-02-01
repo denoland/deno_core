@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
 use deno_core::v8;
+use deno_core::CustomModuleEvaluationCtx;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
@@ -15,6 +16,7 @@ use std::rc::Rc;
 
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
+  _ctx: CustomModuleEvaluationCtx,
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,

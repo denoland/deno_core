@@ -5,6 +5,7 @@ use super::exception_state::ExceptionState;
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::CustomModuleEvaluationCtx;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
@@ -61,6 +62,10 @@ pub(crate) struct ContextState {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) js_wasm_streaming_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) web_assembly_module_imports_fn:
+    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) web_assembly_module_exports_fn:
+    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
@@ -87,6 +92,8 @@ impl ContextState {
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
+      web_assembly_module_imports_fn: Default::default(),
+      web_assembly_module_exports_fn: Default::default(),
       op_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
@@ -360,6 +367,26 @@ impl JsRealm {
   pub(crate) fn increment_modules_idle(&self) {
     let count = &self.0.module_map.dyn_module_evaluate_idle_counter;
     count.set(count.get() + 1)
+  }
+
+  pub(crate) fn get_custom_module_evaluation_ctx(
+    scope: &mut v8::HandleScope,
+  ) -> CustomModuleEvaluationCtx {
+    let state = Self::state_from_scope(scope);
+    let web_assembly_module_imports_fn = state
+      .web_assembly_module_imports_fn
+      .borrow()
+      .clone()
+      .unwrap();
+    let web_assembly_module_exports_fn = state
+      .web_assembly_module_exports_fn
+      .borrow()
+      .clone()
+      .unwrap();
+    CustomModuleEvaluationCtx {
+      web_assembly_module_imports_fn,
+      web_assembly_module_exports_fn,
+    }
   }
 
   /// Asynchronously load specified module and all of its dependencies.
