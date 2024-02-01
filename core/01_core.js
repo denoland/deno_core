@@ -439,6 +439,9 @@
     op_timer_ref,
     op_timer_unref,
     op_unref_op,
+    op_arraybuffer_was_detached,
+    op_get_constructor_name,
+    op_get_non_index_property_names,
 
     op_is_any_array_buffer,
     op_is_arguments_object,
@@ -649,6 +652,10 @@
     opNames: () => op_op_names(),
     eventLoopHasMoreWork: () => op_event_loop_has_more_work(),
     setFormatExceptionCallback: (cb) => op_set_format_exception_callback(cb),
+    arrayBufferWasDetached: (buf) => op_arraybuffer_was_detached(buf),
+    getConstructorName: (obj) => op_get_constructor_name(obj),
+    getNonIndexPropertyNames: (obj, filter) =>
+      op_get_non_index_property_names(obj, filter),
     applySourceMapFilename: () => op_apply_source_map_filename(),
     applySourceMap: (fileName, lineNumber, columnNumber, retBuf) =>
       op_apply_source_map(fileName, lineNumber, columnNumber, retBuf),
