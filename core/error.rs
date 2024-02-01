@@ -11,8 +11,6 @@ use anyhow::Error;
 
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntime;
-use crate::source_map::apply_source_map;
-use crate::source_map::get_source_line;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
 
@@ -213,21 +211,8 @@ impl JsStackFrame {
     // V8's column numbers are 0-based, we want 1-based.
     let c = message.get_start_column() as u32 + 1;
     let state = JsRuntime::state_from(scope);
-    let (getter, cache) = {
-      (
-        state.source_map_getter.clone(),
-        state.source_map_cache.clone(),
-      )
-    };
-
-    let application = if let Some(source_map_getter) = getter {
-      let mut cache = cache.borrow_mut();
-      apply_source_map(&f, l, c, &mut cache, &**source_map_getter)
-    } else {
-      SourceMapApplication::Unchanged
-    };
-
-    match application {
+    let mut source_mapper = state.source_mapper.borrow_mut();
+    match source_mapper.apply_source_map(&f, l, c) {
       SourceMapApplication::Unchanged => Some(JsStackFrame::from_location(
         Some(f),
         Some(l.into()),
@@ -331,28 +316,15 @@ impl JsError {
     }
     {
       let state = JsRuntime::state_from(scope);
-      let (getter, cache) = {
-        (
-          state.source_map_getter.clone(),
-          state.source_map_cache.clone(),
-        )
-      };
-      if let Some(source_map_getter) = getter {
-        let mut cache = cache.borrow_mut();
-        for (i, frame) in frames.iter().enumerate() {
-          if let (Some(file_name), Some(line_number)) =
-            (&frame.file_name, frame.line_number)
-          {
-            if !file_name.trim_start_matches('[').starts_with("ext:") {
-              source_line = get_source_line(
-                file_name,
-                line_number,
-                &mut cache,
-                &**source_map_getter,
-              );
-              source_line_frame_index = Some(i);
-              break;
-            }
+      let mut source_mapper = state.source_mapper.borrow_mut();
+      for (i, frame) in frames.iter().enumerate() {
+        if let (Some(file_name), Some(line_number)) =
+          (&frame.file_name, frame.line_number)
+        {
+          if !file_name.trim_start_matches('[').starts_with("ext:") {
+            source_line = source_mapper.get_source_line(file_name, line_number);
+            source_line_frame_index = Some(i);
+            break;
           }
         }
       }
@@ -462,26 +434,15 @@ impl JsError {
       }
       {
         let state = JsRuntime::state_from(scope);
-        let (getter, cache) = {
-          (
-            state.source_map_getter.clone(),
-            state.source_map_cache.clone(),
-          )
-        };
-        if let Some(source_map_getter) = getter {
-          let mut cache = cache.borrow_mut();
-
+        let mut source_mapper = state.source_mapper.borrow_mut();
+        if source_mapper.has_user_sources() {
           for (i, frame) in frames.iter().enumerate() {
             if let (Some(file_name), Some(line_number)) =
               (&frame.file_name, frame.line_number)
             {
               if !file_name.trim_start_matches('[').starts_with("ext:") {
-                source_line = get_source_line(
-                  file_name,
-                  line_number,
-                  &mut cache,
-                  &**source_map_getter,
-                );
+                source_line =
+                  source_mapper.get_source_line(file_name, line_number);
                 source_line_frame_index = Some(i);
                 break;
               }
