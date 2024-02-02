@@ -171,10 +171,6 @@ pub mod v8_static_strings {
   pub static DIRNAME: v8::OneByteConst = onebyte_const!("dirname");
   pub static SET_UP_ASYNC_STUB: v8::OneByteConst =
     onebyte_const!("setUpAsyncStub");
-  pub static WEBASSEMBLY: v8::OneByteConst = onebyte_const!("WebAssembly");
-  pub static MODULE: v8::OneByteConst = onebyte_const!("Module");
-  pub static IMPORTS: v8::OneByteConst = onebyte_const!("imports");
-  pub static EXPORTS: v8::OneByteConst = onebyte_const!("exports");
 }
 
 /// Create an object on the `globalThis` that looks like this:
