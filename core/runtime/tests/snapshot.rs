@@ -256,20 +256,15 @@ fn es_snapshot() {
 #[test]
 pub(crate) fn es_snapshot_without_runtime_module_loader() {
   let startup_data = {
-    let extension = Extension {
-      name: "module_snapshot",
-      esm_files: Cow::Borrowed(&[ExtensionFileSource {
-        specifier: "ext:module_snapshot/test.js",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          "globalThis.TEST = 'foo'; export const TEST = 'bar';",
-        ),
-      }]),
-      esm_entry_point: Some("ext:module_snapshot/test.js"),
-      ..Default::default()
-    };
+    deno_core::extension!(
+      module_snapshot,
+      esm_entry_point = "ext:module_snapshot/test.js",
+      esm = ["ext:module_snapshot/test.js" =
+        { source = "globalThis.TEST = 'foo'; export const TEST = 'bar';" },]
+    );
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![extension],
+      extensions: vec![module_snapshot::init_ops_and_esm()],
       ..Default::default()
     });
 

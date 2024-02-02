@@ -69,12 +69,12 @@ deno_core::extension!(
     dir "checkin/runtime",
     "__bootstrap.js",
     "__init.js",
-    "async.ts" with_specifier "checkin:async",
-    "console.ts" with_specifier "checkin:console",
-    "error.ts" with_specifier "checkin:error",
-    "testing.ts" with_specifier "checkin:testing",
-    "timers.ts" with_specifier "checkin:timers",
-    "worker.ts" with_specifier "checkin:worker",
+    "checkin:async" = "async.ts",
+    "checkin:console" = "console.ts",
+    "checkin:error" = "error.ts",
+    "checkin:testing" = "testing.ts",
+    "checkin:timers" = "timers.ts",
+    "checkin:worker" = "worker.ts",
   ],
   state = |state| {
     state.put(TestFunctions::default());
