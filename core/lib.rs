@@ -64,7 +64,6 @@ pub use crate::async_cell::RcRef;
 pub use crate::error::GetErrorClassFn;
 pub use crate::error::JsErrorCreateFn;
 pub use crate::extensions::Extension;
-pub use crate::extensions::ExtensionBuilder;
 pub use crate::extensions::ExtensionFileSource;
 pub use crate::extensions::ExtensionFileSourceCode;
 pub use crate::extensions::Op;

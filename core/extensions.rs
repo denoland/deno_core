@@ -7,7 +7,6 @@ use anyhow::Error;
 use std::borrow::Cow;
 use std::sync::Arc;
 use v8::fast_api::FastFunction;
-use v8::ExternalReference;
 use v8::MapFnTo;
 
 #[derive(Clone, Debug)]
@@ -274,8 +273,8 @@ macro_rules! or {
 ///  * config: a structure-like definition for configuration parameters which will be required when initializing this extension, eg: `config = { my_param: Option<usize> }`
 ///  * middleware: an [`OpDecl`] middleware function with the signature `fn (OpDecl) -> OpDecl`
 ///  * state: a state initialization function, with the signature `fn (&mut OpState, ...) -> ()`, where `...` are parameters matching the fields of the config struct
-///  * global_template_middleware: a global template middleware function (see [`ExtensionBuilder::global_template_middleware`])
-///  * global_object_middleware: a global object middleware function (see [`ExtensionBuilder::global_object_middleware`])
+///  * global_template_middleware: a global template middleware function (see [`Extension::global_template_middleware`])
+///  * global_object_middleware: a global object middleware function (see [`Extension::global_object_middleware`])
 ///  * docs: comma separated list of toplevel #[doc=...] tags to be applied to the extension's resulting struct
 #[macro_export]
 macro_rules! extension {
@@ -398,22 +397,6 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
-      /// Legacy function for extension instantiation.
-      /// Please use `init_ops_and_esm` or `init_ops` instead
-      ///
-      /// # Returns
-      /// an Extension object that can be used during instantiation of a JsRuntime
-      #[deprecated(since="0.216.0", note="please use `init_ops_and_esm` or `init_ops` instead")]
-      pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
-      $( where $( $bound : $bound_type ),+ )?
-      {
-        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
-        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
-        Self::with_customizer(&mut ext);
-        ext
-      }
-
-      #[allow(dead_code)]
       /// Initialize this extension for runtime or snapshot creation. Use this
       /// function if the runtime or snapshot is not created from a (separate)
       /// snapshot, or that snapshot does not contain this extension. Otherwise
@@ -529,28 +512,6 @@ impl Default for Extension {
 // Note: this used to be a trait, but we "downgraded" it to a single concrete type
 // for the initial iteration, it will likely become a trait in the future
 impl Extension {
-  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
-  #[allow(deprecated)]
-  pub fn builder(name: &'static str) -> ExtensionBuilder {
-    ExtensionBuilder {
-      name,
-      ..Default::default()
-    }
-  }
-
-  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
-  #[allow(deprecated)]
-  pub fn builder_with_deps(
-    name: &'static str,
-    deps: &'static [&'static str],
-  ) -> ExtensionBuilder {
-    ExtensionBuilder {
-      name,
-      deps,
-      ..Default::default()
-    }
-  }
-
   /// Check if dependencies have been loaded, and errors if either:
   /// - The extension is depending on itself or an extension with the same name.
   /// - A dependency hasn't been loaded yet.
@@ -638,134 +599,6 @@ impl Extension {
 
   pub fn disable(self) -> Self {
     self.enabled(false)
-  }
-}
-
-// Provides a convenient builder pattern to declare Extensions
-#[derive(Default)]
-pub struct ExtensionBuilder {
-  js: Vec<ExtensionFileSource>,
-  esm: Vec<ExtensionFileSource>,
-  lazy_loaded_esm: Vec<ExtensionFileSource>,
-  esm_entry_point: Option<&'static str>,
-  ops: Vec<OpDecl>,
-  state: Option<Box<OpStateFn>>,
-  middleware: Option<Box<OpMiddlewareFn>>,
-  global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
-  global_object_middleware: Option<GlobalObjectMiddlewareFn>,
-  external_references: Vec<ExternalReference<'static>>,
-  name: &'static str,
-  deps: &'static [&'static str],
-}
-
-impl ExtensionBuilder {
-  pub fn js(&mut self, js_files: Vec<ExtensionFileSource>) -> &mut Self {
-    self.js.extend(js_files);
-    self
-  }
-
-  pub fn esm(&mut self, esm_files: Vec<ExtensionFileSource>) -> &mut Self {
-    self.esm.extend(esm_files);
-    self
-  }
-
-  pub fn lazy_loaded_esm(
-    &mut self,
-    lazy_loaded_esm_files: Vec<ExtensionFileSource>,
-  ) -> &mut Self {
-    self.lazy_loaded_esm.extend(lazy_loaded_esm_files);
-    self
-  }
-
-  pub fn esm_entry_point(&mut self, entry_point: &'static str) -> &mut Self {
-    self.esm_entry_point = Some(entry_point);
-    self
-  }
-
-  pub fn ops(&mut self, ops: Vec<OpDecl>) -> &mut Self {
-    self.ops.extend(ops);
-    self
-  }
-
-  pub fn state<F>(&mut self, op_state_fn: F) -> &mut Self
-  where
-    F: FnOnce(&mut OpState) + 'static,
-  {
-    self.state = Some(Box::new(op_state_fn));
-    self
-  }
-
-  pub fn middleware<F>(&mut self, middleware_fn: F) -> &mut Self
-  where
-    F: Fn(OpDecl) -> OpDecl + 'static,
-  {
-    self.middleware = Some(Box::new(middleware_fn));
-    self
-  }
-
-  pub fn global_template_middleware<F>(
-    &mut self,
-    middleware_fn: GlobalTemplateMiddlewareFn,
-  ) -> &mut Self {
-    self.global_template_middleware = Some(middleware_fn);
-    self
-  }
-
-  pub fn global_object_middleware<F>(
-    &mut self,
-    middleware_fn: GlobalObjectMiddlewareFn,
-  ) -> &mut Self {
-    self.global_object_middleware = Some(middleware_fn);
-    self
-  }
-
-  pub fn external_references(
-    &mut self,
-    external_references: Vec<ExternalReference<'static>>,
-  ) -> &mut Self {
-    self.external_references.extend(external_references);
-    self
-  }
-
-  /// Consume the [`ExtensionBuilder`] and return an [`Extension`].
-  pub fn take(self) -> Extension {
-    Extension {
-      name: self.name,
-      deps: self.deps,
-      js_files: Cow::Owned(self.js),
-      esm_files: Cow::Owned(self.esm),
-      lazy_loaded_esm_files: Cow::Owned(self.lazy_loaded_esm),
-      esm_entry_point: self.esm_entry_point,
-      ops: Cow::Owned(self.ops),
-      external_references: Cow::Owned(self.external_references),
-      global_template_middleware: self.global_template_middleware,
-      global_object_middleware: self.global_object_middleware,
-      op_state_fn: self.state,
-      middleware_fn: self.middleware,
-      enabled: true,
-    }
-  }
-
-  pub fn build(&mut self) -> Extension {
-    Extension {
-      name: self.name,
-      deps: std::mem::take(&mut self.deps),
-      js_files: Cow::Owned(std::mem::take(&mut self.js)),
-      esm_files: Cow::Owned(std::mem::take(&mut self.esm)),
-      lazy_loaded_esm_files: Cow::Owned(std::mem::take(
-        &mut self.lazy_loaded_esm,
-      )),
-      esm_entry_point: self.esm_entry_point.take(),
-      ops: Cow::Owned(std::mem::take(&mut self.ops)),
-      external_references: Cow::Owned(std::mem::take(
-        &mut self.external_references,
-      )),
-      global_template_middleware: self.global_template_middleware.take(),
-      global_object_middleware: self.global_object_middleware.take(),
-      op_state_fn: self.state.take(),
-      middleware_fn: self.middleware.take(),
-      enabled: true,
-    }
   }
 }
 
