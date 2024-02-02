@@ -837,7 +837,7 @@ impl JsRuntime {
         )?;
       }
 
-      js_runtime.store_js_callbacks(&realm);
+      js_runtime.store_js_callbacks(&realm, will_snapshot);
 
       js_runtime.init_extension_js(
         &realm,
@@ -1118,8 +1118,8 @@ impl JsRuntime {
 
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
-  fn store_js_callbacks(&mut self, realm: &JsRealm) {
-    let (event_loop_tick_cb, build_custom_error_cb) = {
+  fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
+    let (event_loop_tick_cb, build_custom_error_cb, wasm_instantiate_fn) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1144,9 +1144,26 @@ impl JsRuntime {
         "Deno.core.buildCustomError",
       );
 
+      let mut wasm_instantiate_fn = None;
+      if !will_snapshot {
+        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
+          scope,
+          global,
+          &v8_static_strings::WEBASSEMBLY,
+          "WebAssembly",
+        );
+        wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
+          scope,
+          web_assembly_object,
+          &v8_static_strings::INSTANTIATE,
+          "WebAssembly.instantiate",
+        ));
+      }
+
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
+        wasm_instantiate_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1161,6 +1178,12 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
+    if let Some(wasm_instantiate_fn) = wasm_instantiate_fn {
+      state_rc
+        .wasm_instantiate_fn
+        .borrow_mut()
+        .replace(Rc::new(wasm_instantiate_fn));
+    }
   }
 
   /// Returns the runtime's op state, which can be used to maintain ops

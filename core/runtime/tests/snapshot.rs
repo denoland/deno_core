@@ -160,7 +160,7 @@ fn es_snapshot() {
         specifier: format!("file:///{prev}.js"),
         requested_module_type: RequestedModuleType::None,
       }],
-      module_type: RequestedModuleType::None,
+      module_type: ModuleType::JavaScript,
     }
   }
 
@@ -198,7 +198,7 @@ fn es_snapshot() {
     main: false,
     name: specifier.into(),
     requests: vec![],
-    module_type: RequestedModuleType::None,
+    module_type: ModuleType::JavaScript,
   });
 
   modules.extend((1..200).map(|i| create_module(&mut runtime, i, false)));
