@@ -126,6 +126,10 @@ importsObject["{}"]["{}"] = {};"#,
       ))
     }
 
+    // TODO(bartlomieju): if someone overrides `WebAssembly` namespace we'll run
+    // into trouble. Quick idea for a fix: store the namespace on `Deno.core`
+    // and allow "wasm imports" to import from "ext:core/mod.js". Not sure how
+    // that would happen though...
     src.push(
       "const modInstance = await WebAssembly.instantiate(wasmMod, importsObject);".to_string(),
     )
