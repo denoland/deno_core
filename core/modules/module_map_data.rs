@@ -152,7 +152,7 @@ pub(crate) struct ModuleMapData {
   /// to evaluate a "synthetic module".
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
-    Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+    Rc<RefCell<HashMap<&'static str, &'static ExtensionFileSource>>>,
 }
 
 impl ModuleMapData {

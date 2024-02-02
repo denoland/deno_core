@@ -10,6 +10,7 @@ use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::Extension;
+use crate::ExtensionTranspilerFn;
 use crate::ModuleSourceCode;
 
 use anyhow::anyhow;
@@ -126,12 +127,19 @@ pub(crate) struct ExtModuleLoader {
 }
 
 impl ExtModuleLoader {
-  pub fn new(extensions: &'_ [Extension]) -> Result<Self, Error> {
+  pub fn new(
+    transpiler: Option<&'_ ExtensionTranspilerFn>,
+    extensions: &'_ [Extension],
+  ) -> Result<Self, Error> {
     // Guesstimate a length
     let mut sources = HashMap::with_capacity(extensions.len() * 3);
     for extension in extensions {
       for esm in extension.get_esm_sources() {
-        let source = esm.load()?;
+        let source = if let Some(transpiler) = transpiler {
+          transpiler(esm)?
+        } else {
+          esm.load()?
+        };
         sources.insert(esm.specifier, source);
       }
     }
@@ -203,12 +211,12 @@ impl ModuleLoader for ExtModuleLoader {
 /// ES modules that were embedded in the binary using `lazy_loaded_esm`
 /// option in `extension!` macro.
 pub(crate) struct LazyEsmModuleLoader {
-  sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+  sources: Rc<RefCell<HashMap<&'static str, &'static ExtensionFileSource>>>,
 }
 
 impl LazyEsmModuleLoader {
   pub fn new(
-    sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+    sources: Rc<RefCell<HashMap<&'static str, &'static ExtensionFileSource>>>,
   ) -> Self {
     LazyEsmModuleLoader { sources }
   }

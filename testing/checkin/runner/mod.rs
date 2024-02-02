@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::RecvTimeoutError;
+use std::sync::Arc;
 use std::time::Duration;
 use testing::Output;
 use tokio::fs::File;
@@ -87,20 +88,13 @@ fn create_runtime(
   parent: Option<WorkerCloseWatcher>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let mut extensions = vec![checkin_runtime::init_ops_and_esm()];
-
-  for extension in &mut extensions {
-    use ts_module_loader::maybe_transpile_source;
-    for source in extension.esm_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-    for source in extension.js_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-  }
+  let extensions = vec![checkin_runtime::init_ops_and_esm()];
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
+    extension_transpiler: Some(Arc::new(|source| {
+      ts_module_loader::maybe_transpile_source(source)
+    })),
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),

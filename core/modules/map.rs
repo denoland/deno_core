@@ -1490,19 +1490,17 @@ impl ModuleMap {
 
   pub(crate) fn add_lazy_loaded_esm_sources(
     &self,
-    sources: &[ExtensionFileSource],
+    sources: &'static [ExtensionFileSource],
   ) {
     if sources.is_empty() {
       return;
     }
 
     let data = self.data.borrow_mut();
-    data.lazy_esm_sources.borrow_mut().extend(
-      sources
-        .iter()
-        .cloned()
-        .map(|source| (source.specifier, source)),
-    );
+    data
+      .lazy_esm_sources
+      .borrow_mut()
+      .extend(sources.iter().map(|source| (source.specifier, source)));
   }
 
   /// Lazy load and evaluate an ES module. Only modules that have been added

@@ -247,10 +247,7 @@ pub(crate) fn initialize_primordials_and_infra(
   for file_source in &CONTEXT_SETUP_SOURCES {
     let code = file_source.load().unwrap();
     let source_str = code.v8_string(scope).unwrap();
-    let name = v8_static_strings::new_from_static_str(
-      scope,
-      file_source.specifier.as_bytes(),
-    );
+    let name = file_source.specifier_v8(scope);
     let origin = script_origin(scope, name);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source_str, Some(&origin))

@@ -41,6 +41,7 @@ use crate::source_map::SourceMapper;
 use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
+use crate::ExtensionTranspilerFn;
 use crate::FastString;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
@@ -291,7 +292,7 @@ pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
 #[cfg(test)]
-pub(crate) const NO_OF_BUILTIN_MODULES: usize = 2;
+pub(crate) static NO_OF_BUILTIN_MODULES: usize = 2;
 
 /// A single execution context of JavaScript. Corresponds roughly to the "Web
 /// Worker" concept in the DOM.
@@ -415,11 +416,15 @@ pub struct RuntimeOptions {
   /// JsRuntime extensions, not to be confused with ES modules.
   /// Only ops registered by extensions will be initialized. If you need
   /// to execute JS code from extensions, pass source files in `js` or `esm`
-  /// option on `ExtensionBuilder`.
+  /// option to `extension!`.
   ///
   /// If you are creating a runtime from a snapshot take care not to include
   /// JavaScript sources in the extensions.
   pub extensions: Vec<Extension>,
+
+  /// If you are providing extension scripts that require transpilation (eg: TypeScript
+  /// to JavaScript), you may provide a transpiler function here.
+  pub extension_transpiler: Option<Arc<ExtensionTranspilerFn>>,
 
   /// V8 snapshot that should be loaded on startup.
   pub startup_snapshot: Option<Snapshot>,
@@ -842,6 +847,7 @@ impl JsRuntime {
       js_runtime.init_extension_js(
         &realm,
         &module_map,
+        options.extension_transpiler.as_deref(),
         extensions,
         &mut files_loaded,
       )?;
@@ -1000,6 +1006,7 @@ impl JsRuntime {
     &mut self,
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
+    transpiler: Option<&ExtensionTranspilerFn>,
     extensions: Vec<Extension>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), Error> {
@@ -1038,10 +1045,15 @@ impl JsRuntime {
 
       for file_source in extension.get_js_sources() {
         mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
+        let source_code = if let Some(transpiler) = transpiler {
+          transpiler(file_source)?
+        } else {
+          file_source.load()?
+        };
         realm.execute_script(
           self.v8_isolate(),
           file_source.specifier,
-          file_source.load()?,
+          source_code,
         )?;
       }
     }
@@ -1067,6 +1079,7 @@ impl JsRuntime {
     &mut self,
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
+    transpiler: Option<&ExtensionTranspilerFn>,
     extensions: Vec<Extension>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), Error> {
@@ -1076,12 +1089,13 @@ impl JsRuntime {
     // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
     // instead of explicitly changing the `.loader` field?
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions)?);
+    let ext_loader = Rc::new(ExtModuleLoader::new(transpiler, &extensions)?);
     *module_map.loader.borrow_mut() = ext_loader.clone();
 
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
       module_map,
+      transpiler,
       extensions,
       files_loaded,
     ))?;

@@ -13,7 +13,7 @@ use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::ExtensionFileSource;
-use deno_core::ExtensionFileSourceCode;
+use deno_core::ModuleCodeString;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
@@ -131,25 +131,25 @@ impl ModuleLoader for TypescriptModuleLoader {
 }
 
 pub fn maybe_transpile_source(
-  source: &mut ExtensionFileSource,
-) -> Result<(), AnyError> {
+  source: &ExtensionFileSource,
+) -> Result<ModuleCodeString, AnyError> {
   // Always transpile `checkin:` built-in modules, since they might be TypeScript.
   let media_type = if source.specifier.starts_with("checkin:") {
     MediaType::TypeScript
   } else {
     MediaType::from_path(Path::new(&source.specifier))
   };
+  let code = source.load()?;
 
   match media_type {
     MediaType::TypeScript => {}
-    MediaType::JavaScript => return Ok(()),
-    MediaType::Mjs => return Ok(()),
+    MediaType::JavaScript => return Ok(code),
+    MediaType::Mjs => return Ok(code),
     _ => panic!(
       "Unsupported media type for snapshotting {media_type:?} for file {}",
       source.specifier
     ),
   }
-  let code = source.load()?;
 
   let parsed = deno_ast::parse_module(ParseParams {
     specifier: source.specifier.to_string(),
@@ -165,7 +165,5 @@ pub fn maybe_transpile_source(
     ..Default::default()
   })?;
 
-  source.code =
-    ExtensionFileSourceCode::Computed(transpiled_source.text.into());
-  Ok(())
+  Ok(transpiled_source.text.into())
 }

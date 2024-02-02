@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::modules::ModuleCodeString;
 use crate::runtime::bindings;
+use crate::runtime::bindings::v8_static_strings;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
@@ -9,6 +10,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use v8::fast_api::FastFunction;
 use v8::MapFnTo;
+use v8::OneByteConst;
 
 #[derive(Clone)]
 pub enum ExtensionFileSourceCode {
@@ -22,6 +24,7 @@ pub enum ExtensionFileSourceCode {
   // Source code is loaded from a file on disk. It's meant to be used if the
   // embedder is creating snapshots. Files will be loaded from the filesystem
   // during the build time and they will only be present in the V8 snapshot.
+  #[deprecated = "Use ExtensionFileSource::loaded_during_snapshot"]
   LoadedFromFsDuringSnapshot(&'static str), // <- Path
 
   // Source code was loaded from memory. It's meant to be used if the
@@ -49,9 +52,10 @@ impl std::fmt::Debug for ExtensionFileSourceCode {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
+  specifier_v8: Option<OneByteConst>,
   pub code: ExtensionFileSourceCode,
   _unconstructable_use_new: PhantomData<()>,
 }
@@ -61,6 +65,13 @@ impl ExtensionFileSource {
     #[allow(deprecated)]
     Self {
       specifier,
+      specifier_v8: if specifier.is_ascii() {
+        Some(v8::String::create_external_onebyte_const(
+          specifier.as_bytes(),
+        ))
+      } else {
+        None
+      },
       code: ExtensionFileSourceCode::IncludedInBinary(code),
       _unconstructable_use_new: PhantomData,
     }
@@ -70,6 +81,13 @@ impl ExtensionFileSource {
     #[allow(deprecated)]
     Self {
       specifier,
+      specifier_v8: if specifier.is_ascii() {
+        Some(v8::String::create_external_onebyte_const(
+          specifier.as_bytes(),
+        ))
+      } else {
+        None
+      },
       code: ExtensionFileSourceCode::Computed(code),
       _unconstructable_use_new: PhantomData,
     }
@@ -82,6 +100,13 @@ impl ExtensionFileSource {
     #[allow(deprecated)]
     Self {
       specifier,
+      specifier_v8: if specifier.is_ascii() {
+        Some(v8::String::create_external_onebyte_const(
+          specifier.as_bytes(),
+        ))
+      } else {
+        None
+      },
       code: ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path),
       _unconstructable_use_new: PhantomData,
     }
@@ -94,6 +119,13 @@ impl ExtensionFileSource {
     #[allow(deprecated)]
     Self {
       specifier,
+      specifier_v8: if specifier.is_ascii() {
+        Some(v8::String::create_external_onebyte_const(
+          specifier.as_bytes(),
+        ))
+      } else {
+        None
+      },
       code: ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code),
       _unconstructable_use_new: PhantomData,
     }
@@ -137,6 +169,19 @@ impl ExtensionFileSource {
         Ok(ModuleCodeString::Arc(code.clone()))
       }
     }
+  }
+
+  pub(crate) fn specifier_v8<'s>(
+    &'static self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> v8::Local<'s, v8::String> {
+    let Some(specifier) = &self.specifier_v8 else {
+      return v8_static_strings::new_from_static_str(
+        scope,
+        self.specifier.as_bytes(),
+      );
+    };
+    v8_static_strings::new(scope, specifier)
   }
 }
 
@@ -398,15 +443,15 @@ macro_rules! extension {
           // can't be evaluated at compile-time.
           js_files: {
             const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_js_files!( $name $($($js)*)? );
-            ::std::borrow::Cow::Borrowed(JS)
+            JS
           },
           esm_files: {
             const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_js_files!( $name $($($esm)*)? );
-            ::std::borrow::Cow::Borrowed(JS)
+            JS
           },
           lazy_loaded_esm_files: {
             const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_lazy_loaded_js_files!( $name $($($lazy_loaded_esm)*)? );
-            ::std::borrow::Cow::Borrowed(JS)
+            JS
           },
           esm_entry_point: {
             const V: ::std::option::Option<&'static ::std::primitive::str> = $crate::or!($(::std::option::Option::Some($esm_entry_point))?, ::std::option::Option::None);
@@ -497,8 +542,8 @@ macro_rules! extension {
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
-        ext.js_files = ::std::borrow::Cow::Borrowed(&[]);
-        ext.esm_files = ::std::borrow::Cow::Borrowed(&[]);
+        ext.js_files = &[];
+        ext.esm_files = &[];
         ext.esm_entry_point = ::std::option::Option::None;
         ext
       }
@@ -541,12 +586,17 @@ macro_rules! extension {
   };
 }
 
+/// The `extension!` source transpiler function. Given [`ExtensionFileSource`] input, returns
+/// the transpiled [`ModuleCodeString`].
+pub type ExtensionTranspilerFn =
+  dyn Fn(&'static ExtensionFileSource) -> Result<ModuleCodeString, Error>;
+
 pub struct Extension {
   pub name: &'static str,
   pub deps: &'static [&'static str],
-  pub js_files: Cow<'static, [ExtensionFileSource]>,
-  pub esm_files: Cow<'static, [ExtensionFileSource]>,
-  pub lazy_loaded_esm_files: Cow<'static, [ExtensionFileSource]>,
+  pub js_files: &'static [ExtensionFileSource],
+  pub esm_files: &'static [ExtensionFileSource],
+  pub lazy_loaded_esm_files: &'static [ExtensionFileSource],
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
   pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
@@ -562,9 +612,9 @@ impl Default for Extension {
     Self {
       name: "DEFAULT",
       deps: &[],
-      js_files: Cow::Borrowed(&[]),
-      esm_files: Cow::Borrowed(&[]),
-      lazy_loaded_esm_files: Cow::Borrowed(&[]),
+      js_files: &[],
+      esm_files: &[],
+      lazy_loaded_esm_files: &[],
       esm_entry_point: None,
       ops: Cow::Borrowed(&[]),
       external_references: Cow::Borrowed(&[]),
@@ -601,16 +651,16 @@ impl Extension {
 
   /// returns JS source code to be loaded into the isolate (either at snapshotting,
   /// or at startup).  as a vector of a tuple of the file name, and the source code.
-  pub fn get_js_sources(&self) -> &[ExtensionFileSource] {
-    &self.js_files
+  pub fn get_js_sources(&self) -> &'static [ExtensionFileSource] {
+    self.js_files
   }
 
-  pub fn get_esm_sources(&self) -> &[ExtensionFileSource] {
-    &self.esm_files
+  pub fn get_esm_sources(&self) -> &'static [ExtensionFileSource] {
+    self.esm_files
   }
 
-  pub fn get_lazy_loaded_esm_sources(&self) -> &[ExtensionFileSource] {
-    &self.lazy_loaded_esm_files
+  pub fn get_lazy_loaded_esm_sources(&self) -> &'static [ExtensionFileSource] {
+    self.lazy_loaded_esm_files
   }
 
   pub fn get_esm_entry_point(&self) -> Option<&'static str> {
