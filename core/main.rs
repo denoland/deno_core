@@ -131,11 +131,12 @@ importsObject["{}"]["{}"] = {};"#,
     // and allow "wasm imports" to import from "ext:core/mod.js". Not sure how
     // that would happen though...
     src.push(
-      "const modInstance = await WebAssembly.instantiate(wasmMod, importsObject);".to_string(),
+      "const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);".to_string(),
     )
   } else {
     src.push(
-      "const modInstance = await WebAssembly.instantiate(wasmMod);".to_string(),
+      "const modInstance = await import.meta.wasmInstantiate(wasmMod);"
+        .to_string(),
     )
   }
 

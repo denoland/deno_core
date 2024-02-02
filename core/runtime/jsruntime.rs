@@ -1117,6 +1117,7 @@ impl JsRuntime {
       build_custom_error_cb,
       web_assembly_module_imports_fn,
       web_assembly_module_exports_fn,
+      web_assembly_instatiate_fn,
     ) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
@@ -1144,6 +1145,7 @@ impl JsRuntime {
 
       let mut web_assembly_module_imports_fn = None;
       let mut web_assembly_module_exports_fn = None;
+      let mut web_assembly_instatiate_fn = None;
 
       if !will_snapshot {
         let web_assembly_object: v8::Local<v8::Object> = bindings::get(
@@ -1172,6 +1174,13 @@ impl JsRuntime {
             &v8_static_strings::EXPORTS,
             "WebAssembly.Module.exports",
           ));
+        web_assembly_instatiate_fn =
+          Some(bindings::get::<v8::Local<v8::Function>>(
+            scope,
+            web_assembly_object,
+            &v8_static_strings::INSTANTIATE,
+            "WebAssembly.instantiate",
+          ));
       }
 
       (
@@ -1179,6 +1188,7 @@ impl JsRuntime {
         v8::Global::new(scope, build_custom_error_cb),
         web_assembly_module_imports_fn.map(|f| v8::Global::new(scope, f)),
         web_assembly_module_exports_fn.map(|f| v8::Global::new(scope, f)),
+        web_assembly_instatiate_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1206,6 +1216,12 @@ impl JsRuntime {
         .web_assembly_module_exports_fn
         .borrow_mut()
         .replace(Rc::new(web_assembly_module_exports_fn));
+    }
+    if let Some(web_assembly_instatiate_fn) = web_assembly_instatiate_fn {
+      state_rc
+        .web_assembly_instatiate_fn
+        .borrow_mut()
+        .replace(Rc::new(web_assembly_instatiate_fn));
     }
   }
 

@@ -175,6 +175,7 @@ pub mod v8_static_strings {
   pub static MODULE: v8::OneByteConst = onebyte_const!("Module");
   pub static IMPORTS: v8::OneByteConst = onebyte_const!("imports");
   pub static EXPORTS: v8::OneByteConst = onebyte_const!("exports");
+  pub static INSTANTIATE: v8::OneByteConst = onebyte_const!("instantiate");
 }
 
 /// Create an object on the `globalThis` that looks like this:
@@ -456,6 +457,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
   let module_map = JsRealm::module_map_from(scope);
+  let state = JsRealm::state_from_scope(scope);
 
   let module_global = v8::Global::new(scope, module);
   let name = module_map
@@ -470,6 +472,26 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let main = module_map.is_main_module(&module_global);
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
+
+  // TODO(bartlomieju): doesn't work for remote modules that don't have `.wasm`
+  // extension.
+  if name.ends_with(".wasm") {
+    // TODO(bartlomieju): use static string
+    let wasm_instantiate_key =
+      v8::String::new(scope, "wasmInstantiate").unwrap();
+    let f = state
+      .web_assembly_instatiate_fn
+      .borrow()
+      .as_ref()
+      .unwrap()
+      .clone();
+    let wasm_instantiate_val = v8::Local::new(scope, &*f);
+    meta.create_data_property(
+      scope,
+      wasm_instantiate_key.into(),
+      wasm_instantiate_val.into(),
+    );
+  }
 
   let builder =
     v8::FunctionBuilder::new(import_meta_resolve).data(url_val.into());

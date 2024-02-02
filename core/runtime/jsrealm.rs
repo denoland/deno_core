@@ -66,6 +66,8 @@ pub(crate) struct ContextState {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) web_assembly_module_exports_fn:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) web_assembly_instatiate_fn:
+    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
@@ -94,6 +96,7 @@ impl ContextState {
       js_wasm_streaming_cb: Default::default(),
       web_assembly_module_imports_fn: Default::default(),
       web_assembly_module_exports_fn: Default::default(),
+      web_assembly_instatiate_fn: Default::default(),
       op_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
