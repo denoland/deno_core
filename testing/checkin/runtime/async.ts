@@ -3,9 +3,6 @@ const {
   op_async_barrier_create,
   op_async_barrier_await,
   op_async_yield,
-  op_async_throw_error_eager,
-  op_async_throw_error_lazy,
-  op_async_throw_error_deferred,
   op_stats_capture,
   op_stats_diff,
   op_stats_dump,
@@ -13,15 +10,6 @@ const {
 } = Deno
   .core
   .ensureFastOps();
-
-export async function asyncThrow(kind: "lazy" | "eager" | "deferred") {
-  const op = {
-    lazy: op_async_throw_error_lazy,
-    eager: op_async_throw_error_eager,
-    deferred: op_async_throw_error_deferred,
-  }[kind];
-  return await op();
-}
 
 export function barrierCreate(name: string, count: number) {
   op_async_barrier_create(name, count);
