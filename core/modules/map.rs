@@ -223,13 +223,6 @@ impl ModuleMap {
     self.data.borrow().get_name_by_id(id)
   }
 
-  pub(crate) fn get_type_by_module(
-    &self,
-    global: &v8::Global<v8::Module>,
-  ) -> Option<ModuleType> {
-    self.data.borrow().get_type_by_module(global)
-  }
-
   pub(crate) fn get_handle(
     &self,
     id: ModuleId,
@@ -1677,13 +1670,28 @@ pub fn module_origin<'a>(
   )
 }
 
-// TODO(bartlomieju): clean up this method
+fn aggregate_wasm_module_imports(
+  imports: &[wasm_dep_analyzer::Import],
+) -> HashMap<String, Vec<String>> {
+  let mut imports_map = HashMap::default();
+
+  for import in imports {
+    let entry = imports_map
+      .entry(import.module.to_string())
+      .or_insert(vec![]);
+    entry.push(import.name.to_string());
+  }
+
+  imports_map
+}
+
 fn render_js_wasm_module(
   specifier: &str,
   wasm_module_analysis: WasmDeps,
 ) -> String {
-  // TODO:
-  let mut src = Vec::with_capacity(1024);
+  // NOTE(bartlomieju): it's unlikely the generated file will have more lines,
+  // but it's better to overallocate than to have to mem copy.
+  let mut src = Vec::with_capacity(512);
 
   src.push(format!(
     r#"import wasmMod from "{}" with {{ type: "$$deno-core-internal-wasm-module" }};"#,
@@ -1692,25 +1700,30 @@ fn render_js_wasm_module(
 
   // TODO(bartlomieju): handle imports collisions?
   if !wasm_module_analysis.imports.is_empty() {
-    for import_desc in &wasm_module_analysis.imports {
+    let aggregated_imports =
+      aggregate_wasm_module_imports(&wasm_module_analysis.imports);
+
+    for (key, value) in aggregated_imports.iter() {
       src.push(format!(
         r#"import {{ {} }} from "{}";"#,
-        import_desc.name, import_desc.module
-      ))
+        value.join(", "),
+        key
+      ));
     }
 
-    src.push("const importsObject = {};".to_string());
+    src.push("const importsObject = {".to_string());
 
-    for import_desc in &wasm_module_analysis.imports {
-      src.push(format!(
-        r#"importsObject["{}"] ??= {{}};
-importsObject["{}"]["{}"] = {};"#,
-        import_desc.module,
-        import_desc.module,
-        import_desc.name,
-        import_desc.name,
-      ))
+    for (key, value) in aggregated_imports.iter() {
+      src.push(format!("  \"{}\": {{", key).to_string());
+
+      for el in value {
+        src.push(format!("    {},", el));
+      }
+
+      src.push("  },".to_string());
     }
+
+    src.push("};".to_string());
 
     src.push(
       "const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);".to_string(),
