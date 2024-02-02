@@ -172,9 +172,6 @@ pub mod v8_static_strings {
   pub static SET_UP_ASYNC_STUB: v8::OneByteConst =
     onebyte_const!("setUpAsyncStub");
   pub static WEBASSEMBLY: v8::OneByteConst = onebyte_const!("WebAssembly");
-  pub static MODULE: v8::OneByteConst = onebyte_const!("Module");
-  pub static IMPORTS: v8::OneByteConst = onebyte_const!("imports");
-  pub static EXPORTS: v8::OneByteConst = onebyte_const!("exports");
   pub static INSTANTIATE: v8::OneByteConst = onebyte_const!("instantiate");
 }
 
@@ -479,12 +476,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     // TODO(bartlomieju): use static string
     let wasm_instantiate_key =
       v8::String::new(scope, "wasmInstantiate").unwrap();
-    let f = state
-      .web_assembly_instatiate_fn
-      .borrow()
-      .as_ref()
-      .unwrap()
-      .clone();
+    let f = state.wasm_instantiate_fn.borrow().as_ref().unwrap().clone();
     let wasm_instantiate_val = v8::Local::new(scope, &*f);
     meta.create_data_property(
       scope,
