@@ -166,16 +166,17 @@ impl ModuleMapData {
   ) -> ModuleId {
     let data = self;
     let id = data.handles.len();
-    let module_type = module_type.into();
     let (name1, name2) = name.into_cheap_copy();
     data.handles_inverted.insert(handle.clone(), id);
     data.handles.push(handle);
     if main {
       data.main_module_id = Some(id);
     }
+    // TODO(bartlomieju): verify if we can store `ModuleType` here instead
+    let requested_module_type = RequestedModuleType::from(module_type.clone());
     data
       .by_name
-      .insert(&module_type, name1, SymbolicModule::Mod(id));
+      .insert(&requested_module_type, name1, SymbolicModule::Mod(id));
     data.info.push(ModuleInfo {
       id,
       main,
@@ -262,6 +263,18 @@ impl ModuleMapData {
   ) -> Option<String> {
     if let Some(id) = self.handles_inverted.get(global) {
       self.get_name_by_id(*id)
+    } else {
+      None
+    }
+  }
+
+  pub(crate) fn get_type_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<ModuleType> {
+    if let Some(id) = self.handles_inverted.get(global) {
+      let info = self.info.get(*id).unwrap();
+      Some(info.module_type.clone())
     } else {
       None
     }
@@ -442,8 +455,7 @@ impl ModuleMapData {
         }
 
         let value = module_info_arr.get_index(scope, 3).unwrap();
-        let module_type =
-          RequestedModuleType::try_from_v8(scope, value).unwrap();
+        let module_type = ModuleType::try_from_v8(scope, value).unwrap();
 
         let main = self.main_module_id == Some(id);
         let module_info = ModuleInfo {
@@ -524,8 +536,10 @@ impl ModuleMapData {
     for info in modules {
       assert!(data.handles.get(info.id).is_some());
       assert_eq!(data.info.get(info.id).unwrap(), info);
+      let requested_module_type =
+        RequestedModuleType::from(info.module_type.clone());
       assert_eq!(
-        data.by_name.get(&info.module_type, &info.name),
+        data.by_name.get(&requested_module_type, &info.name),
         Some(&SymbolicModule::Mod(info.id))
       );
     }

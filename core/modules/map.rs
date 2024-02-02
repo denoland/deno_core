@@ -212,6 +212,13 @@ impl ModuleMap {
     self.data.borrow().get_name_by_module(global)
   }
 
+  pub(crate) fn get_type_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<ModuleType> {
+    self.data.borrow().get_type_by_module(global)
+  }
+
   pub(crate) fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
     self.data.borrow().get_name_by_id(id)
   }

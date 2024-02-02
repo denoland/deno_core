@@ -234,6 +234,38 @@ impl std::fmt::Display for ModuleType {
   }
 }
 
+impl ModuleType {
+  pub fn to_v8<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> v8::Local<'s, v8::Value> {
+    match self {
+      ModuleType::JavaScript => v8::Integer::new(scope, 0).into(),
+      ModuleType::Wasm => v8::Integer::new(scope, 1).into(),
+      ModuleType::Json => v8::Integer::new(scope, 2).into(),
+      ModuleType::Other(ty) => v8::String::new(scope, ty).unwrap().into(),
+    }
+  }
+
+  pub fn try_from_v8(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+  ) -> Option<Self> {
+    Some(if let Some(int) = value.to_integer(scope) {
+      match int.int32_value(scope).unwrap_or_default() {
+        0 => ModuleType::JavaScript,
+        1 => ModuleType::Wasm,
+        2 => ModuleType::Json,
+        _ => return None,
+      }
+    } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
+      ModuleType::Other(Cow::Owned(str.to_rust_string_lossy(scope)))
+    } else {
+      return None;
+    })
+  }
+}
+
 /// EsModule source code that will be loaded into V8.
 ///
 /// Users can implement `Into<ModuleInfo>` for different file types that
@@ -490,7 +522,7 @@ pub(crate) struct ModuleInfo {
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,
-  pub module_type: RequestedModuleType,
+  pub module_type: ModuleType,
 }
 
 #[derive(Debug)]

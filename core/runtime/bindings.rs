@@ -23,6 +23,7 @@ use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
 use crate::FastString;
 use crate::JsRuntime;
+use crate::ModuleType;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
@@ -173,6 +174,8 @@ pub mod v8_static_strings {
     onebyte_const!("setUpAsyncStub");
   pub static WEBASSEMBLY: v8::OneByteConst = onebyte_const!("WebAssembly");
   pub static INSTANTIATE: v8::OneByteConst = onebyte_const!("instantiate");
+  pub static WASM_INSTANTIATE: v8::OneByteConst =
+    onebyte_const!("wasmInstantiate");
 }
 
 /// Create an object on the `globalThis` that looks like this:
@@ -460,6 +463,9 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let name = module_map
     .get_name_by_module(&module_global)
     .expect("Module not found");
+  let module_type = module_map
+    .get_type_by_module(&module_global)
+    .expect("Module not found");
 
   let url_key = v8_static_strings::new(scope, &v8_static_strings::URL);
   let url_val = v8::String::new(scope, &name).unwrap();
@@ -470,12 +476,10 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
-  // TODO(bartlomieju): doesn't work for remote modules that don't have `.wasm`
-  // extension.
-  if name.ends_with(".wasm") {
-    // TODO(bartlomieju): use static string
+  // Add special method that allows WASM module to instantiate themselves.
+  if module_type == ModuleType::Wasm {
     let wasm_instantiate_key =
-      v8::String::new(scope, "wasmInstantiate").unwrap();
+      v8_static_strings::new(scope, &v8_static_strings::WASM_INSTANTIATE);
     let f = state.wasm_instantiate_fn.borrow().as_ref().unwrap().clone();
     let wasm_instantiate_val = v8::Local::new(scope, &*f);
     meta.create_data_property(

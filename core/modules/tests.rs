@@ -916,7 +916,7 @@ export const foo = bytes;
           "foobar-synth".into()
         )
       }],
-      module_type: RequestedModuleType::Other("foobar".into()),
+      module_type: ModuleType::Other("foobar".into()),
     }
   );
   let info = data.info.get(mod_id - 1).unwrap();
@@ -927,7 +927,7 @@ export const foo = bytes;
       main: false,
       name: ascii_str!("file:///b.png"),
       requests: vec![],
-      module_type: RequestedModuleType::Other("foobar-synth".into()),
+      module_type: ModuleType::Other("foobar-synth".into()),
     }
   );
 }
