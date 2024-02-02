@@ -1076,8 +1076,8 @@ impl JsRuntime {
     // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
     // instead of explicitly changing the `.loader` field?
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    *module_map.loader.borrow_mut() = ext_loader;
+    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions)?);
+    *module_map.loader.borrow_mut() = ext_loader.clone();
 
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
@@ -1094,6 +1094,10 @@ impl JsRuntime {
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
+    Rc::try_unwrap(ext_loader)
+      .map_err(drop)
+      .unwrap()
+      .finalize()?;
 
     Ok(())
   }

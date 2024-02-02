@@ -13,12 +13,12 @@ use crate::Extension;
 use crate::ModuleSourceCode;
 
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
 use futures::future::FutureExt;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -122,23 +122,41 @@ pub type ExtModuleLoaderCb =
   Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCodeString, Error>>;
 
 pub(crate) struct ExtModuleLoader {
-  sources: RefCell<HashMap<String, ExtensionFileSource>>,
-  used_specifiers: RefCell<HashSet<String>>,
+  sources: RefCell<HashMap<&'static str, ModuleCodeString>>,
 }
 
 impl ExtModuleLoader {
-  pub fn new(extensions: &[Extension]) -> Self {
-    let mut sources = HashMap::new();
-    sources.extend(
-      extensions
-        .iter()
-        .flat_map(|e| e.get_esm_sources())
-        .map(|s| (s.specifier.to_string(), s.clone())),
-    );
-    ExtModuleLoader {
-      sources: RefCell::new(sources),
-      used_specifiers: Default::default(),
+  pub fn new(extensions: &'_ [Extension]) -> Result<Self, Error> {
+    // Guesstimate a length
+    let mut sources = HashMap::with_capacity(extensions.len() * 3);
+    for extension in extensions {
+      for esm in extension.get_esm_sources() {
+        let source = esm.load()?;
+        sources.insert(esm.specifier, source);
+      }
     }
+    Ok(ExtModuleLoader {
+      sources: RefCell::new(sources),
+    })
+  }
+
+  pub fn finalize(self) -> Result<(), Error> {
+    let sources = self.sources.take();
+    let unused_modules: Vec<_> = sources.iter().collect();
+
+    if !unused_modules.is_empty() {
+      let mut msg =
+        "Following modules were passed to ExtModuleLoader but never used:\n"
+          .to_string();
+      for m in unused_modules {
+        msg.push_str("  - ");
+        msg.push_str(m.0);
+        msg.push('\n');
+      }
+      bail!(msg);
+    }
+
+    Ok(())
   }
 }
 
@@ -159,23 +177,16 @@ impl ModuleLoader for ExtModuleLoader {
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
-    let sources = self.sources.borrow();
-    let source = match sources.get(specifier.as_str()) {
+    let mut sources = self.sources.borrow_mut();
+    let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
       None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier))),
     };
-    self
-      .used_specifiers
-      .borrow_mut()
-      .insert(specifier.to_string());
-    let result = source.load().map(|code| {
-      ModuleSource::new(
-        ModuleType::JavaScript,
-        ModuleSourceCode::String(code),
-        specifier,
-      )
-    });
-    ModuleLoadResponse::Sync(result)
+    ModuleLoadResponse::Sync(Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(source),
+      specifier,
+    )))
   }
 
   fn prepare_load(
@@ -242,29 +253,6 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
     async { Ok(()) }.boxed_local()
-  }
-}
-
-impl Drop for ExtModuleLoader {
-  fn drop(&mut self) {
-    let sources = self.sources.get_mut();
-    let used_specifiers = self.used_specifiers.get_mut();
-    let unused_modules: Vec<_> = sources
-      .iter()
-      .filter(|(k, _)| !used_specifiers.contains(k.as_str()))
-      .collect();
-
-    if !unused_modules.is_empty() {
-      let mut msg =
-        "Following modules were passed to ExtModuleLoader but never used:\n"
-          .to_string();
-      for m in unused_modules {
-        msg.push_str("  - ");
-        msg.push_str(m.0);
-        msg.push('\n');
-      }
-      panic!("{}", msg);
-    }
   }
 }
 
