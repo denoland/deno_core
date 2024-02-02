@@ -195,6 +195,11 @@ declare namespace Deno {
 
     export type UncaughtExceptionCallback = (err: any) => void;
 
+    export class BadResource extends Error {}
+    export const BadResourcePrototype: typeof BadResource.prototype;
+    export class Interrupted extends Error {}
+    export const InterruptedPrototype: typeof Interrupted.prototype;
+
     function serialize(
       value: any,
       options?: any,

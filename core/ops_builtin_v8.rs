@@ -895,7 +895,10 @@ pub fn op_apply_source_map(
   if ret_buf.len() != 8 {
     return Err(type_error("retBuf must be 8 bytes"));
   }
-  match state.apply_source_map(file_name, line_number, column_number) {
+  let mut source_mapper = state.source_mapper.borrow_mut();
+  let application =
+    source_mapper.apply_source_map(file_name, line_number, column_number);
+  match application {
     SourceMapApplication::Unchanged => Ok(0),
     SourceMapApplication::LineAndColumn {
       line_number,
@@ -910,7 +913,7 @@ pub fn op_apply_source_map(
       file_name,
     } => {
       write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
-      state.stashed_file_name.borrow_mut().replace(file_name);
+      source_mapper.stashed_file_name.replace(file_name);
       Ok(2)
     }
   }
@@ -924,8 +927,9 @@ pub fn op_apply_source_map_filename(
   state: &JsRuntimeState,
 ) -> Result<String, Error> {
   state
-    .stashed_file_name
+    .source_mapper
     .borrow_mut()
+    .stashed_file_name
     .take()
     .ok_or_else(|| type_error("No stashed file name"))
 }
@@ -956,12 +960,12 @@ pub fn op_current_user_call_site(
     }
     let line_number = frame.get_line_number() as u32;
     let column_number = frame.get_column() as u32;
+    let application = js_runtime_state
+      .source_mapper
+      .borrow_mut()
+      .apply_source_map(&file_name, line_number, column_number);
 
-    match js_runtime_state.apply_source_map(
-      &file_name,
-      line_number,
-      column_number,
-    ) {
+    match application {
       SourceMapApplication::Unchanged => {
         write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
         return file_name;

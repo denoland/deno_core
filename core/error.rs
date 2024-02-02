@@ -211,8 +211,8 @@ impl JsStackFrame {
     // V8's column numbers are 0-based, we want 1-based.
     let c = message.get_start_column() as u32 + 1;
     let state = JsRuntime::state_from(scope);
-
-    match state.apply_source_map(&f, l, c) {
+    let mut source_mapper = state.source_mapper.borrow_mut();
+    match source_mapper.apply_source_map(&f, l, c) {
       SourceMapApplication::Unchanged => Some(JsStackFrame::from_location(
         Some(f),
         Some(l.into()),
@@ -316,13 +316,13 @@ impl JsError {
     }
     {
       let state = JsRuntime::state_from(scope);
-
+      let mut source_mapper = state.source_mapper.borrow_mut();
       for (i, frame) in frames.iter().enumerate() {
         if let (Some(file_name), Some(line_number)) =
           (&frame.file_name, frame.line_number)
         {
           if !file_name.trim_start_matches('[').starts_with("ext:") {
-            source_line = state.get_source_line(file_name, line_number);
+            source_line = source_mapper.get_source_line(file_name, line_number);
             source_line_frame_index = Some(i);
             break;
           }
@@ -434,13 +434,15 @@ impl JsError {
       }
       {
         let state = JsRuntime::state_from(scope);
-        if state.has_source_map() {
+        let mut source_mapper = state.source_mapper.borrow_mut();
+        if source_mapper.has_user_sources() {
           for (i, frame) in frames.iter().enumerate() {
             if let (Some(file_name), Some(line_number)) =
               (&frame.file_name, frame.line_number)
             {
               if !file_name.trim_start_matches('[').starts_with("ext:") {
-                source_line = state.get_source_line(file_name, line_number);
+                source_line =
+                  source_mapper.get_source_line(file_name, line_number);
                 source_line_frame_index = Some(i);
                 break;
               }

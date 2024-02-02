@@ -3,11 +3,13 @@ import "ext:checkin_runtime/__bootstrap.js";
 import * as async from "checkin:async";
 import * as testing from "checkin:testing";
 import * as console from "checkin:console";
+import * as error from "checkin:error";
 import * as timers from "checkin:timers";
 import * as worker from "checkin:worker";
 import * as throwInExt from "checkin:throwInExt";
 testing;
 async;
+error;
 
 globalThis.console = console.console;
 globalThis.setTimeout = timers.setTimeout;

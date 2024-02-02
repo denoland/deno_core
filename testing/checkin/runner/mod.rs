@@ -6,10 +6,14 @@ use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
 use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
+use futures::Future;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
 use testing::Output;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -24,6 +28,7 @@ use self::testing::TestFunctions;
 mod ops;
 mod ops_async;
 mod ops_buffer;
+mod ops_error;
 mod ops_io;
 mod ops_worker;
 mod testing;
@@ -43,9 +48,13 @@ deno_core::extension!(
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,
-    ops_async::op_async_throw_error_eager,
-    ops_async::op_async_throw_error_lazy,
-    ops_async::op_async_throw_error_deferred,
+    ops_async::op_async_spin_on_state,
+    ops_error::op_async_throw_error_eager,
+    ops_error::op_async_throw_error_lazy,
+    ops_error::op_async_throw_error_deferred,
+    ops_error::op_error_custom_sync,
+    ops_error::op_error_context_sync,
+    ops_error::op_error_context_async,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
     ops_worker::op_worker_spawn,
@@ -62,6 +71,7 @@ deno_core::extension!(
     "__init.js",
     "async.ts" with_specifier "checkin:async",
     "console.ts" with_specifier "checkin:console",
+    "error.ts" with_specifier "checkin:error",
     "testing.ts" with_specifier "checkin:testing",
     "timers.ts" with_specifier "checkin:timers",
     "worker.ts" with_specifier "checkin:worker",
@@ -96,7 +106,7 @@ fn create_runtime(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),
     get_error_class_fn: Some(&|error| {
-      deno_core::error::get_custom_error_class(error).unwrap()
+      deno_core::error::get_custom_error_class(error).unwrap_or("Error")
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
@@ -108,17 +118,38 @@ fn create_runtime(
   (runtime, worker_host_side)
 }
 
-/// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
-/// and compares its output with the `.out` file in the same directory.
-pub fn run_integration_test(test: &str) {
-  let (runtime, _) = create_runtime(Output::default(), None);
+fn run_async(f: impl Future<Output = Result<(), Error>>) {
   let tokio = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
     .expect("Failed to build a runtime");
-  tokio
-    .block_on(run_integration_test_task(runtime, test.to_owned()))
-    .expect("Failed to complete test");
+  tokio.block_on(f).expect("Failed to run the given task");
+
+  // We don't have a good way to wait for tokio to go idle here, but we'd like tokio
+  // to poll any remaining tasks to shake out any errors.
+  let handle = tokio.spawn(async {
+    tokio::task::yield_now().await;
+  });
+  _ = tokio.block_on(handle);
+
+  let (tx, rx) = channel::<()>();
+  let timeout = std::thread::spawn(move || {
+    if rx.recv_timeout(Duration::from_secs(10))
+      == Err(RecvTimeoutError::Timeout)
+    {
+      panic!("Failed to shut down the runtime in time");
+    }
+  });
+  drop(tokio);
+  drop(tx);
+  _ = timeout.join();
+}
+
+/// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
+/// and compares its output with the `.out` file in the same directory.
+pub fn run_integration_test(test: &str) {
+  let (runtime, _) = create_runtime(Output::default(), None);
+  run_async(run_integration_test_task(runtime, test.to_owned()));
 }
 
 async fn run_integration_test_task(
@@ -158,13 +189,7 @@ async fn run_integration_test_task(
 /// then each test is run individually and failures are printed.
 pub fn run_unit_test(test: &str) {
   let (runtime, _) = create_runtime(Output::default(), None);
-  let tokio = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .expect("Failed to build a runtime");
-  tokio
-    .block_on(run_unit_test_task(runtime, test.to_owned()))
-    .expect("Failed to complete test");
+  run_async(run_unit_test_task(runtime, test.to_owned()));
 }
 
 async fn run_unit_test_task(

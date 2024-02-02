@@ -36,11 +36,8 @@ use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
-use crate::source_map::apply_source_map;
-use crate::source_map::get_source_line;
-use crate::source_map::SourceMapApplication;
-use crate::source_map::SourceMapCache;
 use crate::source_map::SourceMapGetter;
+use crate::source_map::SourceMapper;
 use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
@@ -140,6 +137,9 @@ impl InnerIsolateState {
   /// after we've torn down the contexts. If the inspector is not correctly torn down, random crashes
   /// happen in tests (and possibly for users using the inspector).
   pub fn prepare_for_cleanup(&mut self) {
+    // Explicitly shut down the op driver here, just in case there are other references to it
+    // that prevent it from dropping after we invalidate the state.
+    self.main_realm.0.context_state.pending_ops.shutdown();
     let inspector = self.state.inspector.take();
     self.state.op_state.borrow_mut().clear();
     if let Some(inspector) = inspector {
@@ -378,12 +378,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  source_map_getter: Option<Box<dyn SourceMapGetter>>,
-  source_map_cache: RefCell<SourceMapCache>,
-  source_map_extensions: HashMap<String, Vec<u8>>,
-  // This is not the right place for this, but it's the easiest way to make
-  // op_apply_source_map a fast op. This stashing should happen in #[op2].
-  pub(crate) stashed_file_name: Rc<RefCell<Option<String>>>,
+  pub(crate) source_mapper: RefCell<SourceMapper<Box<dyn SourceMapGetter>>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -615,30 +610,7 @@ impl JsRuntime {
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
-      source_map_getter: options.source_map_getter,
-      source_map_cache: Default::default(),
-      source_map_extensions: {
-        let mut map = HashMap::new();
-        for extension in &mut extensions {
-          for esm in extension.get_esm_sources() {
-            if let Some(source_map) = &esm.source_map {
-              map.insert(esm.specifier.to_owned(), source_map.to_owned());
-            }
-          }
-          for lazy_esm in extension.get_lazy_loaded_esm_sources() {
-            if let Some(source_map) = &lazy_esm.source_map {
-              map.insert(lazy_esm.specifier.to_owned(), source_map.to_owned());
-            }
-          }
-          for js in extension.get_js_sources() {
-            if let Some(source_map) = &js.source_map {
-              map.insert(js.specifier.to_owned(), source_map.to_owned());
-            }
-          }
-        }
-        map
-      },
-      stashed_file_name: Default::default(),
+      source_mapper: RefCell::new(SourceMapper::new(options.source_map_getter)),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       wait_for_inspector_disconnect_callback: options
@@ -986,7 +958,6 @@ impl JsRuntime {
         synthetic_module_exports,
       )
       .unwrap();
-    module_map.instantiate_module(scope, mod_id).unwrap();
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
@@ -1105,8 +1076,8 @@ impl JsRuntime {
     // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
     // instead of explicitly changing the `.loader` field?
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    *module_map.loader.borrow_mut() = ext_loader;
+    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions)?);
+    *module_map.loader.borrow_mut() = ext_loader.clone();
 
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
@@ -1123,6 +1094,10 @@ impl JsRuntime {
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
+    Rc::try_unwrap(ext_loader)
+      .map_err(drop)
+      .unwrap()
+      .finalize()?;
 
     Ok(())
   }
@@ -1151,44 +1126,24 @@ impl JsRuntime {
       let global = context_local.global(scope);
       // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
       // look up them again?
-      let deno_str =
-        v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
-          .unwrap();
-      let core_str =
-        v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
-          .unwrap();
-      let event_loop_tick_str = v8::String::new_external_onebyte_static(
-        scope,
-        v8_static_strings::EVENT_LOOP_TICK,
-      )
-      .unwrap();
-      let build_custom_error_str = v8::String::new_external_onebyte_static(
-        scope,
-        v8_static_strings::BUILD_CUSTOM_ERROR,
-      )
-      .unwrap();
+      let deno_obj: v8::Local<v8::Object> =
+        bindings::get(scope, global, &v8_static_strings::DENO, "Deno");
+      let core_obj: v8::Local<v8::Object> =
+        bindings::get(scope, deno_obj, &v8_static_strings::CORE, "Deno.core");
 
-      let deno_obj: v8::Local<v8::Object> = global
-        .get(scope, deno_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let core_obj: v8::Local<v8::Object> = deno_obj
-        .get(scope, core_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
+      let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        &v8_static_strings::EVENT_LOOP_TICK,
+        "Deno.core.eventLoopTick",
+      );
+      let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        &v8_static_strings::BUILD_CUSTOM_ERROR,
+        "Deno.core.buildCustomError",
+      );
 
-      let event_loop_tick_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, event_loop_tick_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let build_custom_error_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, build_custom_error_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
@@ -1216,9 +1171,8 @@ impl JsRuntime {
 
   /// Returns the runtime's op names, ordered by OpId.
   pub fn op_names(&self) -> Vec<&'static str> {
-    let main_realm = self.inner.main_realm.clone();
-    let state_rc = main_realm.0.state();
-    state_rc.op_ctxs.iter().map(|o| o.decl.name).collect()
+    let state = &self.inner.main_realm.0.context_state;
+    state.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).
@@ -1995,43 +1949,6 @@ impl JsRuntimeState {
       .borrow()
       .as_ref()
       .map(|inspector| f(&inspector.borrow()))
-  }
-
-  pub(crate) fn has_source_map(&self) -> bool {
-    self.source_map_getter.is_some()
-  }
-
-  pub(crate) fn apply_source_map(
-    &self,
-    file_name: &str,
-    line_number: u32,
-    column_number: u32,
-  ) -> SourceMapApplication {
-    eprintln!(
-      "apply_source_map {} {} {}",
-      file_name, line_number, column_number
-    );
-    apply_source_map(
-      file_name,
-      line_number,
-      column_number,
-      &self.source_map_extensions,
-      &mut self.source_map_cache.borrow_mut(),
-      self.source_map_getter.as_deref(),
-    )
-  }
-
-  pub(crate) fn get_source_line(
-    &self,
-    file_name: &str,
-    line_number: i64,
-  ) -> Option<String> {
-    if let Some(source_map_getter) = &self.source_map_getter {
-      let mut cache = self.source_map_cache.borrow_mut();
-      get_source_line(file_name, line_number, &mut cache, &**source_map_getter)
-    } else {
-      None
-    }
   }
 }
 

@@ -1,5 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-import { assertArrayEquals, assertEquals, test } from "checkin:testing";
+import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
 
 const { op_pipe_create } = Deno.core.ensureFastOps();
 
@@ -21,5 +21,29 @@ test(async function testPipeSmallRead() {
   for (let i = 1; i <= 6; i++) {
     assertEquals(1, await Deno.core.read(p2, buf));
     assertArrayEquals(buf.subarray(0), [i]);
+  }
+});
+
+test(async function opsAsyncBadResource() {
+  try {
+    const nonExistingRid = 9999;
+    await Deno.core.read(
+      nonExistingRid,
+      new Uint8Array(100),
+    );
+  } catch (e) {
+    assert(e instanceof Deno.core.BadResource);
+  }
+});
+
+test(function opsSyncBadResource() {
+  try {
+    const nonExistingRid = 9999;
+    Deno.core.readSync(
+      nonExistingRid,
+      new Uint8Array(100),
+    );
+  } catch (e) {
+    assert(e instanceof Deno.core.BadResource);
   }
 });
