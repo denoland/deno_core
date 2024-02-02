@@ -2,15 +2,11 @@
 use crate::error;
 use crate::modules::StaticModuleLoader;
 use crate::op2;
-use crate::Extension;
-use crate::ExtensionFileSource;
-use crate::ExtensionFileSourceCode;
 use crate::JsRuntime;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
 use crate::Snapshot;
 use futures::future::poll_fn;
-use std::borrow::Cow;
 use std::rc::Rc;
 use std::task::Poll;
 
@@ -132,20 +128,15 @@ async fn js_realm_ref_unref_ops() {
 #[test]
 fn es_snapshot() {
   let startup_data = {
-    let extension = Extension {
-      name: "module_snapshot",
-      esm_files: Cow::Borrowed(&[ExtensionFileSource {
-        specifier: "mod:test",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          "globalThis.TEST = 'foo'; export const TEST = 'bar';",
-        ),
-      }]),
-      esm_entry_point: Some("mod:test"),
-      ..Default::default()
-    };
+    deno_core::extension!(
+      module_snapshot,
+      esm_entry_point = "mod:test",
+      esm = ["mod:test" =
+        { source = "globalThis.TEST = 'foo'; export const TEST = 'bar';" },]
+    );
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![extension],
+      extensions: vec![module_snapshot::init_ops_and_esm()],
       module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
       ..Default::default()
     });

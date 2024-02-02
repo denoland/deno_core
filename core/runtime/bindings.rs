@@ -244,7 +244,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
 ) -> Result<(), AnyError> {
-  for file_source in CONTEXT_SETUP_SOURCES {
+  for file_source in &CONTEXT_SETUP_SOURCES {
     let code = file_source.load().unwrap();
     let source_str = code.v8_string(scope).unwrap();
     let name = v8_static_strings::new_from_static_str(
