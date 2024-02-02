@@ -137,6 +137,9 @@ impl InnerIsolateState {
   /// after we've torn down the contexts. If the inspector is not correctly torn down, random crashes
   /// happen in tests (and possibly for users using the inspector).
   pub fn prepare_for_cleanup(&mut self) {
+    // Explicitly shut down the op driver here, just in case there are other references to it
+    // that prevent it from dropping after we invalidate the state.
+    self.main_realm.0.context_state.pending_ops.shutdown();
     let inspector = self.state.inspector.take();
     self.state.op_state.borrow_mut().clear();
     if let Some(inspector) = inspector {
@@ -834,7 +837,7 @@ impl JsRuntime {
         )?;
       }
 
-      js_runtime.store_js_callbacks(&realm, will_snapshot);
+      js_runtime.store_js_callbacks(&realm);
 
       js_runtime.init_extension_js(
         &realm,
@@ -1189,9 +1192,8 @@ impl JsRuntime {
 
   /// Returns the runtime's op names, ordered by OpId.
   pub fn op_names(&self) -> Vec<&'static str> {
-    let main_realm = self.inner.main_realm.clone();
-    let state_rc = main_realm.0.state();
-    state_rc.op_ctxs.iter().map(|o| o.decl.name).collect()
+    let state = &self.inner.main_realm.0.context_state;
+    state.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules).

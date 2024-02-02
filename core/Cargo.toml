@@ -18,17 +18,12 @@ path = "main.rs"
 path = "lib.rs"
 
 [features]
-default = ["include_icu_data", "v8_use_custom_libcxx", "op_driver_futuresunordered"]
+default = ["include_icu_data", "v8_use_custom_libcxx"]
 include_icu_data = ["deno_core_icudata"]
 v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 unsafe_use_unprotected_platform = []
-
-# Use the old, slower (but better tested) JoinSet driver
-op_driver_joinset = []
-# Use the new, faster FuturesUnordered driver
-op_driver_futuresunordered = []
 
 [dependencies]
 anyhow.workspace = true

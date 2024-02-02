@@ -328,7 +328,6 @@ impl ModuleMap {
         // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
         // a lifetime will have a viral effect and required `JsRuntimeOptions`
         // to have a callback as well as `JsRuntime`.
-
         let module_evaluation_kind = custom_evaluation_cb(
           scope,
           module_type.clone(),

@@ -66,9 +66,7 @@ pub struct FuturesUnorderedDriver<
 
 impl<C: OpMappingContext + 'static> Drop for FuturesUnorderedDriver<C> {
   fn drop(&mut self) {
-    if let MaybeTask::Handle(h) = self.task.take() {
-      h.abort()
-    }
+    self.shutdown()
   }
 }
 
@@ -228,6 +226,14 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   #[inline(always)]
   fn len(&self) -> usize {
     self.len.get()
+  }
+
+  fn shutdown(&self) {
+    if let MaybeTask::Handle(h) = self.task.take() {
+      h.abort()
+    }
+    self.completed_ops.borrow_mut().clear();
+    self.queue.queue.queue.borrow_mut().clear();
   }
 
   fn stats(&self, op_exclusions: &BitSet) -> OpInflightStats {

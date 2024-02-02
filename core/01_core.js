@@ -27,6 +27,7 @@
     getPromise,
     hasPromise,
     promiseIdSymbol,
+    registerErrorClass,
   } = window.Deno.core;
 
   let unhandledPromiseRejectionHandler = () => false;
@@ -203,6 +204,9 @@
     }
   }
   const InterruptedPrototype = Interrupted.prototype;
+
+  registerErrorClass("BadResource", BadResource);
+  registerErrorClass("Interrupted", Interrupted);
 
   const promiseHooks = [
     [], // init

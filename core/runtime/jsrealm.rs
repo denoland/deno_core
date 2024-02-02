@@ -43,15 +43,7 @@ impl Hasher for IdentityHasher {
   }
 }
 
-/// We will be experimenting with different driver types in the future. This allows us to
-/// swap the driver out for experimentation.
-#[cfg(all(
-  feature = "op_driver_joinset",
-  not(feature = "op_driver_futuresunordered")
-))]
-pub(crate) type OpDriverImpl = super::op_driver::JoinSetDriver;
-
-#[cfg(feature = "op_driver_futuresunordered")]
+/// We may wish to experiment with alternative drivers in the future.
 pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
 pub(crate) struct ContextState {
