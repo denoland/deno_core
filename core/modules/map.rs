@@ -285,13 +285,14 @@ impl ModuleMap {
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
+      eprintln!("already registered");
       debug!(
         "Already-registered module fetched again: {:?}",
         module_url_found
       );
       return Ok(module_id);
     }
-
+    eprintln!("url {:?} module type {:#?}", module_url_found, module_type);
     let module_id = match module_type {
       ModuleType::JavaScript => {
         let code =
@@ -724,6 +725,7 @@ impl ModuleMap {
     referrer: &str,
     import_attributes: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
+    eprintln!("resolve callback {} {}", specifier, referrer);
     let resolved_specifier =
       match self.resolve(specifier, referrer, ResolutionKind::Import) {
         Ok(s) => s,
