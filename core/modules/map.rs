@@ -795,7 +795,6 @@ impl ModuleMap {
     referrer: &str,
     import_attributes: HashMap<String, String>,
   ) -> Option<v8::Local<'s, v8::Module>> {
-    eprintln!("resolve callback {} {}", specifier, referrer);
     let resolved_specifier =
       match self.resolve(specifier, referrer, ResolutionKind::Import) {
         Ok(s) => s,
@@ -807,9 +806,6 @@ impl ModuleMap {
 
     let module_type =
       get_requested_module_type_from_attributes(&import_attributes);
-
-    // let mut maybe_id = self.get_id(resolved_specifier.as_str(), module_type);
-    // if maybe_id.is_none() && module_type == RequestedModuleType::Non
 
     if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type) {
       if let Some(handle) = self.get_handle(id) {
