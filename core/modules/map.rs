@@ -23,8 +23,10 @@ use crate::runtime::JsRealm;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::JsRuntime;
+use crate::ModuleCodeBytes;
 use crate::ModuleLoadResponse;
 use crate::ModuleSource;
+use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
 use anyhow::bail;
 use anyhow::Context as _;
@@ -39,6 +41,7 @@ use futures::StreamExt;
 use log::debug;
 use v8::Function;
 use v8::PromiseState;
+use wasm_dep_analyzer::WasmDeps;
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -285,14 +288,12 @@ impl ModuleMap {
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
-      eprintln!("already registered");
       debug!(
         "Already-registered module fetched again: {:?}",
         module_url_found
       );
       return Ok(module_id);
     }
-    eprintln!("url {:?} module type {:#?}", module_url_found, module_type);
     let module_id = match module_type {
       ModuleType::JavaScript => {
         let code =
@@ -306,6 +307,14 @@ impl ModuleMap {
           code,
           dynamic,
         )?
+      }
+      ModuleType::Wasm => {
+        let ModuleSourceCode::Bytes(code) = code else {
+          return Err(ModuleError::Other(generic_error(
+            "Source code for Wasm module must be provided as bytes",
+          )));
+        };
+        self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
       ModuleType::Json => {
         let code =
@@ -587,6 +596,53 @@ impl ModuleMap {
     Ok(id)
   }
 
+  pub(crate) fn new_wasm_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: ModuleName,
+    source: ModuleCodeBytes,
+    is_dynamic_import: bool,
+  ) -> Result<ModuleId, ModuleError> {
+    let bytes = source.as_bytes();
+    let wasm_module_analysis = WasmDeps::parse(bytes).map_err(|e| {
+      let err = Error::from(e);
+      ModuleError::Other(err)
+    })?;
+
+    let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
+      return Err(ModuleError::Other(generic_error(format!(
+        "Failed to compile WASM module '{}'",
+        name.as_str()
+      ))));
+    };
+    let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
+
+    let js_wasm_module_source =
+      render_js_wasm_module(name.as_str(), wasm_module_analysis);
+
+    let synthetic_module_type =
+      ModuleType::Other("$$deno-core-internal-wasm-module".into());
+
+    let (name1, name2) = name.into_cheap_copy();
+    let value = v8::Local::new(scope, wasm_module_value);
+    let exports = vec![(FastString::StaticAscii("default"), value)];
+    let _synthetic_mod_id = self.new_synthetic_module(
+      scope,
+      name1,
+      synthetic_module_type,
+      exports,
+    )?;
+
+    self.new_module_from_js_source(
+      scope,
+      false,
+      ModuleType::Wasm,
+      name2,
+      js_wasm_module_source.into(),
+      is_dynamic_import,
+    )
+  }
+
   pub(crate) fn new_json_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -737,6 +793,9 @@ impl ModuleMap {
 
     let module_type =
       get_requested_module_type_from_attributes(&import_attributes);
+
+    // let mut maybe_id = self.get_id(resolved_specifier.as_str(), module_type);
+    // if maybe_id.is_none() && module_type == RequestedModuleType::Non
 
     if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type) {
       if let Some(handle) = self.get_handle(id) {
@@ -1606,4 +1665,68 @@ pub fn module_origin<'a>(
     false,
     true,
   )
+}
+
+// TODO(bartlomieju): clean up this method
+fn render_js_wasm_module(
+  specifier: &str,
+  wasm_module_analysis: WasmDeps,
+) -> String {
+  // TODO:
+  let mut src = Vec::with_capacity(1024);
+
+  src.push(format!(
+    r#"import wasmMod from "{}" with {{ type: "$$deno-core-internal-wasm-module" }};"#,
+    specifier,
+  ));
+
+  // TODO(bartlomieju): handle imports collisions?
+  if !wasm_module_analysis.imports.is_empty() {
+    for import_desc in &wasm_module_analysis.imports {
+      src.push(format!(
+        r#"import {{ {} }} from "{}";"#,
+        import_desc.name, import_desc.module
+      ))
+    }
+
+    src.push("const importsObject = {};".to_string());
+
+    for import_desc in &wasm_module_analysis.imports {
+      src.push(format!(
+        r#"importsObject["{}"] ??= {{}};
+importsObject["{}"]["{}"] = {};"#,
+        import_desc.module,
+        import_desc.module,
+        import_desc.name,
+        import_desc.name,
+      ))
+    }
+
+    src.push(
+      "const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);".to_string(),
+    )
+  } else {
+    src.push(
+      "const modInstance = await import.meta.wasmInstantiate(wasmMod);"
+        .to_string(),
+    )
+  }
+
+  if !wasm_module_analysis.exports.is_empty() {
+    for export_desc in &wasm_module_analysis.exports {
+      if export_desc.name == "default" {
+        src.push(format!(
+          "export default modInstance.exports.{};",
+          export_desc.name
+        ));
+      } else {
+        src.push(format!(
+          "export const {} = modInstance.exports.{};",
+          export_desc.name, export_desc.name
+        ));
+      }
+    }
+  }
+
+  src.join("\n")
 }

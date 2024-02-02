@@ -307,7 +307,7 @@ impl ModuleLoader for FsModuleLoader {
         if ext == "json" {
           ModuleType::Json
         } else if ext == "wasm" {
-          ModuleType::Other("wasm".into())
+          ModuleType::Wasm
         } else {
           match &requested_module_type {
             RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),

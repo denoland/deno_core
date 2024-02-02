@@ -837,7 +837,7 @@ impl JsRuntime {
         )?;
       }
 
-      js_runtime.store_js_callbacks(&realm);
+      js_runtime.store_js_callbacks(&realm, will_snapshot);
 
       js_runtime.init_extension_js(
         &realm,
@@ -1114,7 +1114,7 @@ impl JsRuntime {
 
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
-  fn store_js_callbacks(&mut self, realm: &JsRealm) {
+  fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (event_loop_tick_cb, build_custom_error_cb, wasm_instantiate_fn) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
@@ -1141,22 +1141,20 @@ impl JsRuntime {
       );
 
       let mut wasm_instantiate_fn = None;
-
-      // TODO(bartlomieju): verify if available during snapshotting
-      // if !will_snapshot {
-      let web_assembly_object: v8::Local<v8::Object> = bindings::get(
-        scope,
-        global,
-        &v8_static_strings::WEBASSEMBLY,
-        "WebAssembly",
-      );
-      wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
-        scope,
-        web_assembly_object,
-        &v8_static_strings::INSTANTIATE,
-        "WebAssembly.instantiate",
-      ));
-      // }
+      if !will_snapshot {
+        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
+          scope,
+          global,
+          &v8_static_strings::WEBASSEMBLY,
+          "WebAssembly",
+        );
+        wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
+          scope,
+          web_assembly_object,
+          &v8_static_strings::INSTANTIATE,
+          "WebAssembly.instantiate",
+        ));
+      }
 
       (
         v8::Global::new(scope, event_loop_tick_cb),

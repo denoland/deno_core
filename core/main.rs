@@ -3,18 +3,15 @@
 use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
-use deno_core::error::generic_error;
 use deno_core::v8;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
-use deno_core::ModuleType;
 use deno_core::RuntimeOptions;
 use std::borrow::Cow;
 use std::rc::Rc;
-use wasm_dep_analyzer::WasmDeps;
 
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
@@ -25,7 +22,6 @@ fn custom_module_evaluation_cb(
   match &*module_type {
     "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
-    "wasm" => wasm_module(scope, module_name, code),
     _ => Err(anyhow!(
       "Can't import {:?} because of unknown module type {}",
       module_name,
@@ -52,109 +48,6 @@ fn bytes_module(
   Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
     scope, value,
   )))
-}
-
-fn wasm_module(
-  scope: &mut v8::HandleScope,
-  module_name: &FastString,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
-  // FsModuleLoader always returns bytes.
-  let ModuleSourceCode::Bytes(buf) = code else {
-    unreachable!()
-  };
-
-  let wasm_module_analysis = WasmDeps::parse(buf.as_bytes())?;
-
-  let Some(wasm_module) = v8::WasmModuleObject::compile(scope, buf.as_bytes())
-  else {
-    return Err(generic_error(format!(
-      "Failed to compile WASM module '{}'",
-      module_name.as_str()
-    )));
-  };
-  let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
-
-  // Get imports and exports of the WASM module, then rendered a shim JS module
-  // that will be the actual module evaluated.
-  let js_wasm_module_source =
-    render_js_wasm_module(module_name.as_str(), wasm_module_analysis);
-
-  let wasm_module_value_global = v8::Global::new(scope, wasm_module_value);
-  let synthetic_module_type = ModuleType::Other("wasm-module".into());
-
-  Ok(CustomModuleEvaluationKind::ComputedAndSynthetic(
-    js_wasm_module_source.into(),
-    wasm_module_value_global,
-    synthetic_module_type,
-  ))
-}
-
-fn render_js_wasm_module(
-  specifier: &str,
-  wasm_module_analysis: WasmDeps,
-) -> String {
-  // TODO:
-  let mut src = Vec::with_capacity(1024);
-
-  src.push(format!(
-    r#"import wasmMod from "{}" with {{ type: "wasm-module" }};"#,
-    specifier,
-  ));
-
-  // TODO(bartlomieju): handle imports collisions?
-  if !wasm_module_analysis.imports.is_empty() {
-    for import_desc in &wasm_module_analysis.imports {
-      src.push(format!(
-        r#"import {{ {} }} from "{}";"#,
-        import_desc.name, import_desc.module
-      ))
-    }
-
-    src.push("const importsObject = {};".to_string());
-
-    for import_desc in &wasm_module_analysis.imports {
-      src.push(format!(
-        r#"importsObject["{}"] ??= {{}};
-importsObject["{}"]["{}"] = {};"#,
-        import_desc.module,
-        import_desc.module,
-        import_desc.name,
-        import_desc.name,
-      ))
-    }
-
-    // TODO(bartlomieju): if someone overrides `WebAssembly` namespace we'll run
-    // into trouble. Quick idea for a fix: store the namespace on `Deno.core`
-    // and allow "wasm imports" to import from "ext:core/mod.js". Not sure how
-    // that would happen though...
-    src.push(
-      "const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);".to_string(),
-    )
-  } else {
-    src.push(
-      "const modInstance = await import.meta.wasmInstantiate(wasmMod);"
-        .to_string(),
-    )
-  }
-
-  if !wasm_module_analysis.exports.is_empty() {
-    for export_desc in &wasm_module_analysis.exports {
-      if export_desc.name == "default" {
-        src.push(format!(
-          "export default modInstance.exports.{};",
-          export_desc.name
-        ));
-      } else {
-        src.push(format!(
-          "export const {} = modInstance.exports.{};",
-          export_desc.name, export_desc.name
-        ));
-      }
-    }
-  }
-
-  src.join("\n")
 }
 
 fn text_module(

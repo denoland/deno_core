@@ -211,13 +211,14 @@ pub(crate) fn get_requested_module_type_from_attributes(
 
 /// A type of module to be executed.
 ///
-/// `deno_core` supports loading and executing JavaScript and JSON modules,
+/// `deno_core` supports loading and executing JavaScript, Wasm and JSON modules,
 /// by default, but embedders can customize it further by providing
 /// [`CustomModuleEvaluationCb`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum ModuleType {
   JavaScript,
+  Wasm,
   Json,
   Other(Cow<'static, str>),
 }
@@ -226,6 +227,7 @@ impl std::fmt::Display for ModuleType {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::JavaScript => write!(f, "JavaScript"),
+      Self::Wasm => write!(f, "Wasm"),
       Self::Json => write!(f, "JSON"),
       Self::Other(ty) => write!(f, "{}", ty),
     }
@@ -443,6 +445,7 @@ impl PartialEq<ModuleType> for RequestedModuleType {
   fn eq(&self, other: &ModuleType) -> bool {
     match other {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
+      ModuleType::Wasm => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
       ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
@@ -453,6 +456,7 @@ impl From<ModuleType> for RequestedModuleType {
   fn from(module_type: ModuleType) -> RequestedModuleType {
     match module_type {
       ModuleType::JavaScript => RequestedModuleType::None,
+      ModuleType::Wasm => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
       ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
