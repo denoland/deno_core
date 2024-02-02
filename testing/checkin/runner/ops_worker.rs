@@ -23,6 +23,7 @@ use tokio::sync::watch;
 use tokio::sync::Mutex;
 
 use super::create_runtime;
+use super::run_async;
 use super::testing::Output;
 
 /// Our cppgc object.
@@ -110,13 +111,7 @@ pub fn op_worker_spawn<'s>(
       })
       .map_err(|_| unreachable!())
       .unwrap();
-    let tokio = tokio::runtime::Builder::new_current_thread()
-      .enable_all()
-      .build()
-      .expect("Failed to build a runtime");
-    tokio
-      .block_on(run_worker_task(runtime, base_url, main_script, shutdown_rx))
-      .expect("Failed to complete test");
+    run_async(run_worker_task(runtime, base_url, main_script, shutdown_rx));
   });
 
   // This is technically a blocking call

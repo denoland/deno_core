@@ -49,6 +49,3 @@ Reflect.defineProperty(globalThis, "onrejectionhandled", {
 });
 Deno.unrefTimer = timers.unrefTimer;
 Deno.refTimer = timers.refTimer;
-
-// TODO(mmastrac): arguably this could be registered in 00_infra.js since it's a deno_core error
-Deno.core.registerErrorClass("BadResource", Deno.core.BadResource);
