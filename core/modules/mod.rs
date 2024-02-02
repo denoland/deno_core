@@ -11,7 +11,6 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
-use std::rc::Rc;
 use std::sync::Arc;
 
 mod loaders;
@@ -125,75 +124,11 @@ pub(crate) fn default_import_meta_resolve_cb(
 pub type ValidateImportAttributesCb =
   Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
 
-pub struct CustomModuleEvaluationCtx {
-  pub(crate) web_assembly_module_imports_fn: Rc<v8::Global<v8::Function>>,
-  pub(crate) web_assembly_module_exports_fn: Rc<v8::Global<v8::Function>>,
-}
-
-#[derive(Debug)]
-pub struct WasmModuleAnalysis {
-  pub imports: Vec<WebAssemblyImportDescriptor>,
-  pub exports: Vec<WebAssemblyExportDescriptor>,
-}
-#[derive(Debug, Deserialize)]
-pub struct WebAssemblyImportDescriptor {
-  pub module: String,
-  pub name: String,
-  pub kind: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct WebAssemblyExportDescriptor {
-  pub name: String,
-  pub kind: String,
-}
-
-impl CustomModuleEvaluationCtx {
-  pub fn analyze_wasm_module(
-    &self,
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
-  ) -> Result<WasmModuleAnalysis, Error> {
-    let web_assembly_module_imports_fn: v8::Local<v8::Function> =
-      v8::Local::new(scope, self.web_assembly_module_imports_fn.as_ref());
-    let web_assembly_module_exports_fn: v8::Local<v8::Function> =
-      v8::Local::new(scope, self.web_assembly_module_exports_fn.as_ref());
-    let receiver = v8::undefined(scope);
-
-    let tc_scope = &mut v8::TryCatch::new(scope);
-
-    let import_result =
-      web_assembly_module_imports_fn.call(tc_scope, receiver.into(), &[value]);
-
-    if tc_scope.has_caught() {
-      let exception = tc_scope.exception().unwrap();
-      return exception_to_err_result(tc_scope, exception, false, false);
-    }
-
-    let imports: Vec<WebAssemblyImportDescriptor> =
-      serde_v8::from_v8(tc_scope, import_result.unwrap()).unwrap();
-
-    let export_result =
-      web_assembly_module_exports_fn.call(tc_scope, receiver.into(), &[value]);
-
-    if tc_scope.has_caught() {
-      let exception = tc_scope.exception().unwrap();
-      return exception_to_err_result(tc_scope, exception, false, false);
-    }
-
-    let exports: Vec<WebAssemblyExportDescriptor> =
-      serde_v8::from_v8(tc_scope, export_result.unwrap()).unwrap();
-
-    Ok(WasmModuleAnalysis { imports, exports })
-  }
-}
-
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.
 pub type CustomModuleEvaluationCb = Box<
   dyn Fn(
     &mut v8::HandleScope,
-    CustomModuleEvaluationCtx,
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
