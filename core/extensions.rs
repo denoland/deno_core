@@ -397,22 +397,6 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
-      /// Legacy function for extension instantiation.
-      /// Please use `init_ops_and_esm` or `init_ops` instead
-      ///
-      /// # Returns
-      /// an Extension object that can be used during instantiation of a JsRuntime
-      #[deprecated(since="0.216.0", note="please use `init_ops_and_esm` or `init_ops` instead")]
-      pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
-      $( where $( $bound : $bound_type ),+ )?
-      {
-        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
-        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
-        Self::with_customizer(&mut ext);
-        ext
-      }
-
-      #[allow(dead_code)]
       /// Initialize this extension for runtime or snapshot creation. Use this
       /// function if the runtime or snapshot is not created from a (separate)
       /// snapshot, or that snapshot does not contain this extension. Otherwise
