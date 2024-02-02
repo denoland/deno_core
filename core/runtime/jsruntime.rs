@@ -271,7 +271,7 @@ const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
 
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
-pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
+pub(crate) static CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
   core
   "00_primordials.js",
   "00_infra.js",
@@ -279,14 +279,14 @@ pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_fi
 
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
-pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
+pub(crate) static BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
   core
   "01_core.js",
   "02_error.js",
 );
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
-pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
+pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   include_js_files!(core "mod.js",);
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
@@ -1076,8 +1076,8 @@ impl JsRuntime {
     // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
     // instead of explicitly changing the `.loader` field?
     let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    *module_map.loader.borrow_mut() = ext_loader;
+    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions)?);
+    *module_map.loader.borrow_mut() = ext_loader.clone();
 
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
@@ -1094,6 +1094,10 @@ impl JsRuntime {
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
+    Rc::try_unwrap(ext_loader)
+      .map_err(drop)
+      .unwrap()
+      .finalize()?;
 
     Ok(())
   }
@@ -2226,6 +2230,7 @@ fn mark_as_loaded_from_fs_during_snapshot(
   files_loaded: &mut Vec<&'static str>,
   source: &ExtensionFileSourceCode,
 ) {
+  #[allow(deprecated)]
   if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) = source {
     files_loaded.push(path);
   }

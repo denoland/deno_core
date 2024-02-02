@@ -11,7 +11,6 @@ use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use futures::future::poll_fn;
 use rstest::rstest;
-use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
@@ -1014,7 +1013,7 @@ async fn test_dynamic_import_module_error_stack() {
 
 Caused by:
     Top-level await promise never resolved
-        at mod:tla:3:13"#
+        at mod:tla:3:11"#
 )]
 async fn tla_in_esm_extensions_panics() {
   #[op2(async)]
@@ -1022,33 +1021,26 @@ async fn tla_in_esm_extensions_panics() {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
 
-  let extension = Extension {
-    name: "test_ext",
-    ops: Cow::Borrowed(&[op_wait::DECL]),
-    esm_files: Cow::Borrowed(&[
-      ExtensionFileSource {
-        specifier: "mod:tla",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          r#"
-            const { op_wait } = Deno.core.ensureFastOps();
-            await op_wait(0);
-            export const TEST = "foo";
-        "#,
-        ),
-      },
-      ExtensionFileSource {
-        specifier: "mod:test",
-        code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:tla';"),
-      },
-    ]),
-    esm_entry_point: Some("mod:test"),
-    ..Default::default()
-  };
+  deno_core::extension!(
+    test_ext,
+    ops = [op_wait],
+    esm_entry_point = "mod:test",
+    esm = [
+      "mod:test" = { source = "import 'mod:tla';" },
+      "mod:tla" = {
+        source = r#"
+          const { op_wait } = Deno.core.ensureFastOps();
+          await op_wait(0);
+          export const TEST = "foo";
+      "#
+      }
+    ],
+  );
 
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
-    extensions: vec![extension],
+    extensions: vec![test_ext::init_ops_and_esm()],
     ..Default::default()
   });
 }
@@ -1058,8 +1050,8 @@ async fn tla_in_esm_extensions_panics() {
 #[tokio::test]
 #[should_panic(
   expected = r#"Failed to initialize a JsRuntime: Error: This fails
-    at a (mod:error:2:34)
-    at mod:error:3:13"#
+    at a (mod:error:2:30)
+    at mod:error:3:9"#
 )]
 async fn esm_extensions_throws() {
   #[op2(async)]
@@ -1067,32 +1059,25 @@ async fn esm_extensions_throws() {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
 
-  let extension = Extension {
-    name: "test_ext",
-    ops: Cow::Borrowed(&[op_wait::DECL]),
-    esm_files: Cow::Borrowed(&[
-      ExtensionFileSource {
-        specifier: "mod:error",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          r#"
-            function a() { throw new Error("This fails") };
-            a();
-          "#,
-        ),
-      },
-      ExtensionFileSource {
-        specifier: "mod:test",
-        code: ExtensionFileSourceCode::IncludedInBinary("import 'mod:error';"),
-      },
-    ]),
-    esm_entry_point: Some("mod:test"),
-    ..Default::default()
-  };
+  deno_core::extension!(
+    test_ext,
+    ops = [op_wait],
+    esm_entry_point = "mod:test",
+    esm = [
+      "mod:test" = { source = "import 'mod:error';" },
+      "mod:error" = {
+        source = r#"
+        function a() { throw new Error("This fails") };
+        a();
+      "#
+      }
+    ],
+  );
 
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
-    extensions: vec![extension],
+    extensions: vec![test_ext::init_ops_and_esm()],
     ..Default::default()
   });
 }

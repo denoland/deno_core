@@ -5,17 +5,18 @@ use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
 use std::borrow::Cow;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use v8::fast_api::FastFunction;
-use v8::ExternalReference;
 use v8::MapFnTo;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum ExtensionFileSourceCode {
   /// Source code is included in the binary produced. Either by being defined
   /// inline, or included using `include_str!()`. If you are snapshotting, this
   /// will result in two copies of the source code being included - one in the
   /// snapshot, the other the static string in the `Extension`.
+  #[deprecated = "Use ExtensionFileSource::new"]
   IncludedInBinary(&'static str),
 
   // Source code is loaded from a file on disk. It's meant to be used if the
@@ -23,24 +24,90 @@ pub enum ExtensionFileSourceCode {
   // during the build time and they will only be present in the V8 snapshot.
   LoadedFromFsDuringSnapshot(&'static str), // <- Path
 
+  // Source code was loaded from memory. It's meant to be used if the
+  // embedder is creating snapshots. Files will be loaded from memory
+  // during the build time and they will only be present in the V8 snapshot.
+  LoadedFromMemoryDuringSnapshot(&'static str),
+
   /// Source code may be computed at runtime.
   Computed(Arc<str>),
+}
+
+#[allow(deprecated)]
+impl std::fmt::Debug for ExtensionFileSourceCode {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match *self {
+      Self::IncludedInBinary(..) => write!(f, "IncludedInBinary(..)"),
+      Self::LoadedFromFsDuringSnapshot(path) => {
+        write!(f, "LoadedFromFsDuringSnapshot({path})")
+      }
+      Self::LoadedFromMemoryDuringSnapshot(..) => {
+        write!(f, "LoadedFromMemoryDuringSnapshot(..)")
+      }
+      Self::Computed(..) => write!(f, "Computed(..)"),
+    }
+  }
 }
 
 #[derive(Clone, Debug)]
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
   pub code: ExtensionFileSourceCode,
+  _unconstructable_use_new: PhantomData<()>,
 }
 
 impl ExtensionFileSource {
+  pub const fn new(specifier: &'static str, code: &'static str) -> Self {
+    #[allow(deprecated)]
+    Self {
+      specifier,
+      code: ExtensionFileSourceCode::IncludedInBinary(code),
+      _unconstructable_use_new: PhantomData,
+    }
+  }
+
+  pub const fn new_computed(specifier: &'static str, code: Arc<str>) -> Self {
+    #[allow(deprecated)]
+    Self {
+      specifier,
+      code: ExtensionFileSourceCode::Computed(code),
+      _unconstructable_use_new: PhantomData,
+    }
+  }
+
+  pub const fn loaded_during_snapshot(
+    specifier: &'static str,
+    path: &'static str,
+  ) -> Self {
+    #[allow(deprecated)]
+    Self {
+      specifier,
+      code: ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path),
+      _unconstructable_use_new: PhantomData,
+    }
+  }
+
+  pub const fn loaded_from_memory_during_snapshot(
+    specifier: &'static str,
+    code: &'static str,
+  ) -> Self {
+    #[allow(deprecated)]
+    Self {
+      specifier,
+      code: ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code),
+      _unconstructable_use_new: PhantomData,
+    }
+  }
+
   fn find_non_ascii(s: &str) -> String {
     s.chars().filter(|c| !c.is_ascii()).collect::<String>()
   }
 
+  #[allow(deprecated)]
   pub fn load(&self) -> Result<ModuleCodeString, Error> {
     match &self.code {
-      ExtensionFileSourceCode::IncludedInBinary(code) => {
+      ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code)
+      | ExtensionFileSourceCode::IncludedInBinary(code) => {
         debug_assert!(
           code.is_ascii(),
           "Extension code must be 7-bit ASCII: {} (found {})",
@@ -274,8 +341,8 @@ macro_rules! or {
 ///  * config: a structure-like definition for configuration parameters which will be required when initializing this extension, eg: `config = { my_param: Option<usize> }`
 ///  * middleware: an [`OpDecl`] middleware function with the signature `fn (OpDecl) -> OpDecl`
 ///  * state: a state initialization function, with the signature `fn (&mut OpState, ...) -> ()`, where `...` are parameters matching the fields of the config struct
-///  * global_template_middleware: a global template middleware function (see [`ExtensionBuilder::global_template_middleware`])
-///  * global_object_middleware: a global object middleware function (see [`ExtensionBuilder::global_object_middleware`])
+///  * global_template_middleware: a global template middleware function (see [`Extension::global_template_middleware`])
+///  * global_object_middleware: a global object middleware function (see [`Extension::global_object_middleware`])
 ///  * docs: comma separated list of toplevel #[doc=...] tags to be applied to the extension's resulting struct
 #[macro_export]
 macro_rules! extension {
@@ -287,9 +354,9 @@ macro_rules! extension {
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
     $(, esm_entry_point = $esm_entry_point:expr )?
-    $(, esm = [ $( dir $dir_esm:expr , )? $( $esm:literal $( with_specifier $esm_specifier:expr )? ),* $(,)? ] )?
-    $(, lazy_loaded_esm = [ $( dir $dir_lazy_loaded_esm:expr , )? $( $lazy_loaded_esm:literal $( with_specifier $lazy_loaded_esm_specifier:expr )? ),* $(,)? ] )?
-    $(, js = [ $( dir $dir_js:expr , )? $( $js:literal ),* $(,)? ] )?
+    $(, esm = [ $($esm:tt)* ] )?
+    $(, lazy_loaded_esm = [ $($lazy_loaded_esm:tt)* ] )?
+    $(, js = [ $($js:tt)* ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
     $(, state = $state_fn:expr )?
@@ -330,16 +397,16 @@ macro_rules! extension {
           // Use intermediary `const`s here to disable user expressions which
           // can't be evaluated at compile-time.
           js_files: {
-            const V: ::std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = ::std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_js , )? $( $js , )* ))?, []));
-            V
+            const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_js_files!( $name $($($js)*)? );
+            ::std::borrow::Cow::Borrowed(JS)
           },
           esm_files: {
-            const V: ::std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = ::std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_js_files!( $name $( dir $dir_esm , )? $( $esm $( with_specifier $esm_specifier )? , )* ))?, []));
-            V
+            const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_js_files!( $name $($($esm)*)? );
+            ::std::borrow::Cow::Borrowed(JS)
           },
           lazy_loaded_esm_files: {
-            const V: ::std::borrow::Cow<'static, [$crate::ExtensionFileSource]> = ::std::borrow::Cow::Borrowed(&$crate::or!($($crate::include_lazy_loaded_js_files!( $name $( dir $dir_lazy_loaded_esm , )? $( $lazy_loaded_esm $( with_specifier $lazy_loaded_esm_specifier )? , )* ))?, []));
-            V
+            const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_lazy_loaded_js_files!( $name $($($lazy_loaded_esm)*)? );
+            ::std::borrow::Cow::Borrowed(JS)
           },
           esm_entry_point: {
             const V: ::std::option::Option<&'static ::std::primitive::str> = $crate::or!($(::std::option::Option::Some($esm_entry_point))?, ::std::option::Option::None);
@@ -395,22 +462,6 @@ macro_rules! extension {
       #[allow(clippy::redundant_closure_call)]
       fn with_customizer(ext: &mut $crate::Extension) {
         $( ($customizer_fn)(ext); )?
-      }
-
-      #[allow(dead_code)]
-      /// Legacy function for extension instantiation.
-      /// Please use `init_ops_and_esm` or `init_ops` instead
-      ///
-      /// # Returns
-      /// an Extension object that can be used during instantiation of a JsRuntime
-      #[deprecated(since="0.216.0", note="please use `init_ops_and_esm` or `init_ops` instead")]
-      pub fn init_js_only $( <  $( $param : $type + 'static ),* > )? () -> $crate::Extension
-      $( where $( $bound : $bound_type ),+ )?
-      {
-        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
-        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
-        Self::with_customizer(&mut ext);
-        ext
       }
 
       #[allow(dead_code)]
@@ -529,28 +580,6 @@ impl Default for Extension {
 // Note: this used to be a trait, but we "downgraded" it to a single concrete type
 // for the initial iteration, it will likely become a trait in the future
 impl Extension {
-  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
-  #[allow(deprecated)]
-  pub fn builder(name: &'static str) -> ExtensionBuilder {
-    ExtensionBuilder {
-      name,
-      ..Default::default()
-    }
-  }
-
-  #[deprecated(note = "Use Extension { ..., ..Default::default() }")]
-  #[allow(deprecated)]
-  pub fn builder_with_deps(
-    name: &'static str,
-    deps: &'static [&'static str],
-  ) -> ExtensionBuilder {
-    ExtensionBuilder {
-      name,
-      deps,
-      ..Default::default()
-    }
-  }
-
   /// Check if dependencies have been loaded, and errors if either:
   /// - The extension is depending on itself or an extension with the same name.
   /// - A dependency hasn't been loaded yet.
@@ -573,15 +602,15 @@ impl Extension {
   /// returns JS source code to be loaded into the isolate (either at snapshotting,
   /// or at startup).  as a vector of a tuple of the file name, and the source code.
   pub fn get_js_sources(&self) -> &[ExtensionFileSource] {
-    self.js_files.as_ref()
+    &self.js_files
   }
 
   pub fn get_esm_sources(&self) -> &[ExtensionFileSource] {
-    self.esm_files.as_ref()
+    &self.esm_files
   }
 
   pub fn get_lazy_loaded_esm_sources(&self) -> &[ExtensionFileSource] {
-    self.lazy_loaded_esm_files.as_ref()
+    &self.lazy_loaded_esm_files
   }
 
   pub fn get_esm_entry_point(&self) -> Option<&'static str> {
@@ -641,132 +670,71 @@ impl Extension {
   }
 }
 
-// Provides a convenient builder pattern to declare Extensions
-#[derive(Default)]
-pub struct ExtensionBuilder {
-  js: Vec<ExtensionFileSource>,
-  esm: Vec<ExtensionFileSource>,
-  lazy_loaded_esm: Vec<ExtensionFileSource>,
-  esm_entry_point: Option<&'static str>,
-  ops: Vec<OpDecl>,
-  state: Option<Box<OpStateFn>>,
-  middleware: Option<Box<OpMiddlewareFn>>,
-  global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
-  global_object_middleware: Option<GlobalObjectMiddlewareFn>,
-  external_references: Vec<ExternalReference<'static>>,
-  name: &'static str,
-  deps: &'static [&'static str],
-}
-
-impl ExtensionBuilder {
-  pub fn js(&mut self, js_files: Vec<ExtensionFileSource>) -> &mut Self {
-    self.js.extend(js_files);
-    self
-  }
-
-  pub fn esm(&mut self, esm_files: Vec<ExtensionFileSource>) -> &mut Self {
-    self.esm.extend(esm_files);
-    self
-  }
-
-  pub fn lazy_loaded_esm(
-    &mut self,
-    lazy_loaded_esm_files: Vec<ExtensionFileSource>,
-  ) -> &mut Self {
-    self.lazy_loaded_esm.extend(lazy_loaded_esm_files);
-    self
-  }
-
-  pub fn esm_entry_point(&mut self, entry_point: &'static str) -> &mut Self {
-    self.esm_entry_point = Some(entry_point);
-    self
-  }
-
-  pub fn ops(&mut self, ops: Vec<OpDecl>) -> &mut Self {
-    self.ops.extend(ops);
-    self
-  }
-
-  pub fn state<F>(&mut self, op_state_fn: F) -> &mut Self
-  where
-    F: FnOnce(&mut OpState) + 'static,
-  {
-    self.state = Some(Box::new(op_state_fn));
-    self
-  }
-
-  pub fn middleware<F>(&mut self, middleware_fn: F) -> &mut Self
-  where
-    F: Fn(OpDecl) -> OpDecl + 'static,
-  {
-    self.middleware = Some(Box::new(middleware_fn));
-    self
-  }
-
-  pub fn global_template_middleware<F>(
-    &mut self,
-    middleware_fn: GlobalTemplateMiddlewareFn,
-  ) -> &mut Self {
-    self.global_template_middleware = Some(middleware_fn);
-    self
-  }
-
-  pub fn global_object_middleware<F>(
-    &mut self,
-    middleware_fn: GlobalObjectMiddlewareFn,
-  ) -> &mut Self {
-    self.global_object_middleware = Some(middleware_fn);
-    self
-  }
-
-  pub fn external_references(
-    &mut self,
-    external_references: Vec<ExternalReference<'static>>,
-  ) -> &mut Self {
-    self.external_references.extend(external_references);
-    self
-  }
-
-  /// Consume the [`ExtensionBuilder`] and return an [`Extension`].
-  pub fn take(self) -> Extension {
-    Extension {
-      name: self.name,
-      deps: self.deps,
-      js_files: Cow::Owned(self.js),
-      esm_files: Cow::Owned(self.esm),
-      lazy_loaded_esm_files: Cow::Owned(self.lazy_loaded_esm),
-      esm_entry_point: self.esm_entry_point,
-      ops: Cow::Owned(self.ops),
-      external_references: Cow::Owned(self.external_references),
-      global_template_middleware: self.global_template_middleware,
-      global_object_middleware: self.global_object_middleware,
-      op_state_fn: self.state,
-      middleware_fn: self.middleware,
-      enabled: true,
-    }
-  }
-
-  pub fn build(&mut self) -> Extension {
-    Extension {
-      name: self.name,
-      deps: std::mem::take(&mut self.deps),
-      js_files: Cow::Owned(std::mem::take(&mut self.js)),
-      esm_files: Cow::Owned(std::mem::take(&mut self.esm)),
-      lazy_loaded_esm_files: Cow::Owned(std::mem::take(
-        &mut self.lazy_loaded_esm,
-      )),
-      esm_entry_point: self.esm_entry_point.take(),
-      ops: Cow::Owned(std::mem::take(&mut self.ops)),
-      external_references: Cow::Owned(std::mem::take(
-        &mut self.external_references,
-      )),
-      global_template_middleware: self.global_template_middleware.take(),
-      global_object_middleware: self.global_object_middleware.take(),
-      op_state_fn: self.state.take(),
-      middleware_fn: self.middleware.take(),
-      enabled: true,
-    }
-  }
+/// Helps embed JS files in an extension. Returns a vector of
+/// [`ExtensionFileSource`], that represents the filename and source code.
+///
+/// ```
+/// # use deno_core::include_js_files_doctest as include_js_files;
+/// // Example (for "my_extension"):
+/// let files = include_js_files!(
+///   my_extension
+///   "01_hello.js",
+///   "02_goodbye.js",
+/// );
+///
+/// // Produces following specifiers:
+/// // - "ext:my_extension/01_hello.js"
+/// // - "ext:my_extension/02_goodbye.js"
+/// ```
+///
+/// An optional "dir" option can be specified to prefix all files with a
+/// directory name.
+///
+/// ```
+/// # use deno_core::include_js_files_doctest as include_js_files;
+/// // Example with "dir" option (for "my_extension"):
+/// include_js_files!(
+///   my_extension
+///   dir "js",
+///   "01_hello.js",
+///   "02_goodbye.js",
+/// );
+/// // Produces following specifiers:
+/// // - "ext:my_extension/js/01_hello.js"
+/// // - "ext:my_extension/js/02_goodbye.js"
+/// ```
+///
+/// You may also override the specifiers for each file like so:
+///
+/// ```
+/// # use deno_core::include_js_files_doctest as include_js_files;
+/// // Example with "dir" option (for "my_extension"):
+/// include_js_files!(
+///   my_extension
+///   "module:hello" = "01_hello.js",
+///   "module:goodbye" = "02_goodbye.js",
+/// );
+/// // Produces following specifiers:
+/// // - "module:hello"
+/// // - "module:goodbye"
+/// ```
+#[macro_export]
+macro_rules! include_js_files {
+  // Valid inputs:
+  //  - "file"
+  //  - "file" with_specifier "specifier"
+  //  - "specifier" = "file"
+  //  - "specifier" = { source = "source" }
+  ($name:ident $( dir $dir:literal, )? $(
+    $s1:literal
+    $(with_specifier $s2:literal)?
+    $(= $config:tt)?
+  ),* $(,)?) => {
+    $crate::__extension_include_js_files_detect!(name=$name, dir=$crate::__extension_root_dir!($($dir)?), $([
+      // These entries will be parsed in __extension_include_js_files_inner
+      $s1 $(with_specifier $s2)? $(= $config)?
+    ]),*)
+  };
 }
 
 /// Helps embed JS files in an extension. Returns a vector of
@@ -776,99 +744,154 @@ impl ExtensionBuilder {
 /// An optional "dir" option can be specified to prefix all files with a
 /// directory name.
 ///
-/// ```ignore
-/// /// Example (for "my_extension"):
-/// include_js_files!(
-///   "01_hello.js",
-///   "02_goodbye.js",
-/// )
-/// // Produces following specifiers:
-/// // - "ext:my_extension/01_hello.js"
-/// // - "ext:my_extension/02_goodbye.js"
-///
-/// /// Example with "dir" option (for "my_extension"):
-/// include_js_files!(
-///   dir "js",
-///   "01_hello.js",
-///   "02_goodbye.js",
-/// )
-/// // Produces following specifiers:
-/// - "ext:my_extension/js/01_hello.js"
-/// - "ext:my_extension/js/02_goodbye.js"
-/// ```
-#[cfg(not(feature = "include_js_files_for_snapshotting"))]
-#[macro_export]
-macro_rules! include_js_files {
-  ($name:ident dir $dir:expr, $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
-    [
-      $($crate::ExtensionFileSource {
-        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
-        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
-          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
-        ),
-      },)+
-    ]
-  };
-
-  ($name:ident $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
-    [
-      $($crate::ExtensionFileSource {
-        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
-        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
-          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file))
-        ),
-      },)+
-    ]
-  };
-}
-
-#[cfg(feature = "include_js_files_for_snapshotting")]
-#[macro_export]
-macro_rules! include_js_files {
-  ($name:ident dir $dir:expr, $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
-    [
-      $($crate::ExtensionFileSource {
-        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
-        code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
-          concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file)
-        ),
-      },)+
-    ]
-  };
-
-  ($name:ident $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
-    [
-      $($crate::ExtensionFileSource {
-        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
-        code: $crate::ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(
-          concat!(env!("CARGO_MANIFEST_DIR"), "/", $file)
-        ),
-      },)+
-    ]
-  };
-}
-
+/// See [`include_js_files!`] for details on available options.
 #[macro_export]
 macro_rules! include_lazy_loaded_js_files {
-  ($name:ident dir $dir:expr, $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
+  ($name:ident $( dir $dir:literal, )? $(
+    $s1:literal
+    $(with_specifier $s2:literal)?
+    $(= $config:tt)?
+  ),* $(,)?) => {
+    $crate::__extension_include_js_files_inner!(mode=included, name=$name, dir=$crate::__extension_root_dir!($($dir)?), $([
+      // These entries will be parsed in __extension_include_js_files_inner
+      $s1 $(with_specifier $s2)? $(= $config)?
+    ]),*)
+  };
+}
+
+/// Used for doctests only. Won't try to load anything from disk.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! include_js_files_doctest {
+  ($name:ident $( dir $dir:literal, )? $(
+    $s1:literal
+    $(with_specifier $s2:literal)?
+    $(= $config:tt)?
+  ),* $(,)?) => {
+    $crate::__extension_include_js_files_inner!(mode=loaded, name=$name, dir=$crate::__extension_root_dir!($($dir)?), $([
+      $s1 $(with_specifier $s2)? $(= $config)?
+    ]),*)
+  };
+}
+
+/// When `#[cfg(not(feature = "include_js_files_for_snapshotting"))]` matches, ie: the `include_js_files_for_snapshotting`
+/// feature is not set, we want all JS files to be included.
+///
+/// Maps `(...)` to `(mode=included, ...)`
+#[cfg(not(feature = "include_js_files_for_snapshotting"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __extension_include_js_files_detect {
+  ($($rest:tt)*) => { $crate::__extension_include_js_files_inner!(mode=included, $($rest)*) };
+}
+
+/// When `#[cfg(feature = "include_js_files_for_snapshotting")]` matches, ie: the `include_js_files_for_snapshotting`
+/// feature is set, we want the pathnames for the JS files to be included and not the file contents.
+///
+/// Maps `(...)` to `(mode=loaded, ...)`
+#[cfg(feature = "include_js_files_for_snapshotting")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __extension_include_js_files_detect {
+  ($($rest:tt)*) => { $crate::__extension_include_js_files_inner!(mode=loaded, $($rest)*) };
+}
+
+/// This is the core of the [`include_js_files!`] and [`include_lazy_loaded_js_files`] macros. The first
+/// rule is the entry point that receives a list of unparsed file entries. Each entry is extracted and
+/// then parsed with the `@parse_item` rules.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __extension_include_js_files_inner {
+  // Entry point: (mode=, name=, dir=, [... files])
+  (mode=$mode:ident, name=$name:ident, dir=$dir:expr, $([
+    $s1:literal
+    $(with_specifier $s2:literal)?
+    $(= $config:tt)?
+  ]),*) => {
     [
-      $($crate::ExtensionFileSource {
-        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
-        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
-          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir, "/", $file))
-        ),
-      },)+
+      $(
+        $crate::__extension_include_js_files_inner!(
+          @parse_item
+          mode=$mode,
+          name=$name,
+          dir=$dir,
+          $s1 $(with_specifier $s2)? $(= $config)?
+        )
+      ),*
     ]
   };
 
-  ($name:ident $($file:literal $(with_specifier $esm_specifier:expr)?,)+) => {
-    [
-      $($crate::ExtensionFileSource {
-        specifier: $crate::or!($($esm_specifier)?, concat!("ext:", stringify!($name), "/", $file)),
-        code: $crate::ExtensionFileSourceCode::IncludedInBinary(
-          include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file))
-        ),
-      },)+
-    ]
+  // @parse_item macros will parse a single file entry, and then call @item macros with the destructured data
+
+  // "file" -> Include a file, use the generated specifier
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $file:literal) => {
+    $crate::__extension_include_js_files_inner!(@item mode=$mode, dir=$dir, specifier=concat!("ext:", stringify!($name), "/", $file), file=$file)
   };
+  // "file" with_specifier "specifier" -> Include a file, use the provided specifier
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $file:literal with_specifier $specifier:literal) => {
+    {
+      #[deprecated="When including JS files 'file with_specifier specifier' is deprecated: use 'specifier = file' instead"]
+      struct WithSpecifierIsDeprecated {}
+      _ = WithSpecifierIsDeprecated {};
+      $crate::__extension_include_js_files_inner!(@item mode=$mode, dir=$dir, specifier=$specifier, file=$file)
+    }
+  };
+  // "specifier" = "file" -> Include a file, use the provided specifier
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $specifier:literal = $file:literal) => {
+    $crate::__extension_include_js_files_inner!(@item mode=$mode, dir=$dir, specifier=$specifier, file=$file)
+  };
+  // "specifier" = { source = "source" } -> Include a file, use the provided specifier
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $specifier:literal = { source = $source:literal }) => {
+    $crate::__extension_include_js_files_inner!(@item mode=$mode, specifier=$specifier, source=$source)
+  };
+
+  // @item macros generate the final output
+
+  // loaded, source
+  (@item mode=loaded, specifier=$specifier:expr, source=$source:expr) => {
+    $crate::ExtensionFileSource::loaded_from_memory_during_snapshot($specifier, $source)
+  };
+  // loaded, file
+  (@item mode=loaded, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
+    $crate::ExtensionFileSource::loaded_during_snapshot($specifier, concat!($dir, "/", $file))
+  };
+  // included, source
+  (@item mode=included, specifier=$specifier:expr, source=$source:expr) => {
+    $crate::ExtensionFileSource::new($specifier, $source)
+  };
+  // included, file
+  (@item mode=included, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
+    $crate::ExtensionFileSource::new($specifier, include_str!(concat!($dir, "/", $file)))
+  };
+}
+
+/// Given an optional `$dir`, generates a crate-relative root directory.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __extension_root_dir {
+  () => {
+    env!("CARGO_MANIFEST_DIR")
+  };
+  ($dir:expr) => {
+    concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir)
+  };
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn test_include_js() {
+    let files = include_js_files!(prefix "00_infra.js", "01_core.js",);
+    assert_eq!("ext:prefix/00_infra.js", files[0].specifier);
+    assert_eq!("ext:prefix/01_core.js", files[1].specifier);
+
+    let files = include_js_files!(prefix dir ".", "00_infra.js", "01_core.js",);
+    assert_eq!("ext:prefix/00_infra.js", files[0].specifier);
+    assert_eq!("ext:prefix/01_core.js", files[1].specifier);
+
+    let files = include_js_files!(prefix
+      "a" = { source = "b" }
+    );
+    assert_eq!("a", files[0].specifier);
+  }
 }
