@@ -38,6 +38,7 @@ use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
+use indexmap::IndexMap;
 use log::debug;
 use v8::Function;
 use v8::PromiseState;
@@ -1670,28 +1671,27 @@ pub fn module_origin<'a>(
   )
 }
 
-fn aggregate_wasm_module_imports(
-  imports: &[wasm_dep_analyzer::Import],
-) -> HashMap<String, Vec<String>> {
-  let mut imports_map = HashMap::default();
-
-  for import in imports {
-    let entry = imports_map
-      .entry(import.module.to_string())
-      .or_insert(vec![]);
-    entry.push(import.name.to_string());
-  }
-
-  imports_map
-}
-
-fn render_js_wasm_module(
-  specifier: &str,
-  wasm_module_analysis: WasmDeps,
-) -> String {
+fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
   // NOTE(bartlomieju): it's unlikely the generated file will have more lines,
   // but it's better to overallocate than to have to mem copy.
   let mut src = Vec::with_capacity(512);
+
+  fn aggregate_wasm_module_imports(
+    imports: &[wasm_dep_analyzer::Import],
+  ) -> IndexMap<String, Vec<String>> {
+    let mut imports_map = IndexMap::default();
+
+    for import in imports.iter().filter(|i| {
+      matches!(i.import_type, wasm_dep_analyzer::ImportType::Function(..))
+    }) {
+      let entry = imports_map
+        .entry(import.module.to_string())
+        .or_insert(vec![]);
+      entry.push(import.name.to_string());
+    }
+
+    imports_map
+  }
 
   src.push(format!(
     r#"import wasmMod from "{}" with {{ type: "$$deno-core-internal-wasm-module" }};"#,
@@ -1699,9 +1699,8 @@ fn render_js_wasm_module(
   ));
 
   // TODO(bartlomieju): handle imports collisions?
-  if !wasm_module_analysis.imports.is_empty() {
-    let aggregated_imports =
-      aggregate_wasm_module_imports(&wasm_module_analysis.imports);
+  if !wasm_deps.imports.is_empty() {
+    let aggregated_imports = aggregate_wasm_module_imports(&wasm_deps.imports);
 
     for (key, value) in aggregated_imports.iter() {
       src.push(format!(
@@ -1735,8 +1734,10 @@ fn render_js_wasm_module(
     )
   }
 
-  if !wasm_module_analysis.exports.is_empty() {
-    for export_desc in &wasm_module_analysis.exports {
+  if !wasm_deps.exports.is_empty() {
+    for export_desc in wasm_deps.exports.iter().filter(|e| {
+      matches!(e.export_type, wasm_dep_analyzer::ExportType::Function)
+    }) {
       if export_desc.name == "default" {
         src.push(format!(
           "export default modInstance.exports.{};",
@@ -1752,4 +1753,104 @@ fn render_js_wasm_module(
   }
 
   src.join("\n")
+}
+
+#[test]
+fn test_render_js_wasm_module() {
+  let deps = WasmDeps {
+    imports: vec![],
+    exports: vec![],
+  };
+  let rendered = render_js_wasm_module("./foo.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+const modInstance = await import.meta.wasmInstantiate(wasmMod);"#,
+  );
+
+  let deps = WasmDeps {
+    imports: vec![
+      wasm_dep_analyzer::Import {
+        name: "foo",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Tag(
+          wasm_dep_analyzer::TagType {
+            kind: 1,
+            type_index: 1,
+          },
+        ),
+      },
+      wasm_dep_analyzer::Import {
+        name: "bar",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(1),
+      },
+      wasm_dep_analyzer::Import {
+        name: "fizz",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(2),
+      },
+      wasm_dep_analyzer::Import {
+        name: "buzz",
+        module: "./buzz.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(3),
+      },
+    ],
+    exports: vec![
+      wasm_dep_analyzer::Export {
+        name: "export1",
+        index: 0,
+        export_type: wasm_dep_analyzer::ExportType::Function,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export2",
+        index: 1,
+        export_type: wasm_dep_analyzer::ExportType::Table,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export3",
+        index: 2,
+        export_type: wasm_dep_analyzer::ExportType::Memory,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export4",
+        index: 3,
+        export_type: wasm_dep_analyzer::ExportType::Global,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export5",
+        index: 4,
+        export_type: wasm_dep_analyzer::ExportType::Tag,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export6",
+        index: 5,
+        export_type: wasm_dep_analyzer::ExportType::Unknown,
+      },
+      wasm_dep_analyzer::Export {
+        name: "default",
+        index: 6,
+        export_type: wasm_dep_analyzer::ExportType::Function,
+      },
+    ],
+  };
+  let rendered = render_js_wasm_module("./foo.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+import { bar, fizz } from "./import.js";
+import { buzz } from "./buzz.js";
+const importsObject = {
+  "./import.js": {
+    bar,
+    fizz,
+  },
+  "./buzz.js": {
+    buzz,
+  },
+};
+const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);
+export const export1 = modInstance.exports.export1;
+export default modInstance.exports.default;"#,
+  );
 }

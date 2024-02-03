@@ -35,6 +35,7 @@ deno_core_icudata = { workspace = true, optional = true }
 deno_ops.workspace = true
 deno_unsync.workspace = true
 futures.workspace = true
+indexmap = "2.1.0"
 libc.workspace = true
 log.workspace = true
 memoffset.workspace = true

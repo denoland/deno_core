@@ -286,6 +286,7 @@ dependencies = [
  "deno_unsync",
  "fastrand",
  "futures",
+ "indexmap",
  "libc",
  "log",
  "memoffset",
