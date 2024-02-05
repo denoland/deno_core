@@ -98,4 +98,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Print success
+        if: ${{ success() && !cancelled() }}
         run: echo Success ✅
+      - name: Print failure
+        if: ${{ !success() || cancelled() }}
+        run: echo Failure ❌
