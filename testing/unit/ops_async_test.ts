@@ -71,7 +71,10 @@ test(async function testAsyncOpCallTrace() {
   Deno.core.setOpCallTracingEnabled(true);
   barrierCreate("barrier", 2);
   try {
+    const tracesBefore = Deno.core.getAllOpCallTraces();
     let p1 = barrierAwait("barrier");
+    const tracesAfter = Deno.core.getAllOpCallTraces();
+    assertEquals(tracesAfter.size, tracesBefore.size + 1);
     assertStackTraceEquals(
       Deno.core.getOpCallTraceForPromise(p1),
       `

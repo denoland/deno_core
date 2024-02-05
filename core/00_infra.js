@@ -112,6 +112,10 @@
   let opCallTracingEnabled = false;
   const opCallTraces = new SafeMap();
 
+  function getAllOpCallTraces() {
+    return new Map(opCallTraces);
+  }
+
   function setOpCallTracingEnabled(enabled) {
     opCallTracingEnabled = enabled;
   }
@@ -470,7 +474,7 @@
     registerErrorClass,
     setOpCallTracingEnabled,
     isOpCallTracingEnabled,
-    opCallTraces,
+    getAllOpCallTraces,
     getOpCallTraceForPromise,
     handleOpCallTracing,
     setUpAsyncStub,
