@@ -22,7 +22,7 @@ declare namespace Deno {
     function isOpCallTracingEnabled(): boolean;
     function getOpCallTraceForPromise<T>(promise: Promise<T>): string | null;
     function getAllOpCallTraces(): Map<number, string>;
-    
+
     /**
      * List of all registered ops, in the form of a map that maps op
      * name to function.
