@@ -8,6 +8,7 @@ use crate::io::ResourceId;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
+use crate::CancelHandle;
 use crate::JsBuffer;
 use crate::Op;
 use crate::OpDecl;
@@ -54,6 +55,7 @@ builtin_ops! {
   op_format_file_name,
   op_str_byte_length,
   op_panic,
+  op_cancel_handle,
   ops_builtin_types::op_is_any_array_buffer,
   ops_builtin_types::op_is_arguments_object,
   ops_builtin_types::op_is_array_buffer,
@@ -371,4 +373,11 @@ fn op_str_byte_length(
   } else {
     0
   }
+}
+
+/// Creates a [`CancelHandle`] resource that can be used to cancel invocations of certain ops.
+#[op2(fast)]
+#[smi]
+pub fn op_cancel_handle(state: &mut OpState) -> u32 {
+  state.resource_table.add(CancelHandle::new())
 }

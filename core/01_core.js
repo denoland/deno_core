@@ -429,6 +429,7 @@
     op_timer_ref,
     op_timer_unref,
     op_unref_op,
+    op_cancel_handle,
 
     op_is_any_array_buffer,
     op_is_arguments_object,
@@ -659,6 +660,7 @@
     propWritableLazyLoaded,
     propNonEnumerableLazyLoaded,
     createLazyLoader,
+    createCancelHandle: () => op_cancel_handle(),
   });
 
   const internals = {};

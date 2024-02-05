@@ -322,6 +322,8 @@ declare namespace Deno {
     type LazyLoader<T> = () => T;
     function createLazyLoader<T = unknown>(specifier: string): LazyLoader<T>;
 
+    function createCancelHandle(): number;
+
     const build: {
       target: string;
       arch: string;
