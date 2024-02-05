@@ -18,9 +18,28 @@ declare namespace Deno {
      * if there are only "unref" promises left. */
     function unrefOpPromise<T>(promise: Promise<T>): void;
 
+    /**
+     * Enables collection of stack traces of all async ops. This allows for
+     * debugging of where a given async op was started. Deno CLI uses this for
+     * improving error message in op sanitizer errors for `deno test`.
+     *
+     * **NOTE:** enabling tracing has a significant negative performance impact.
+     */
     function setOpCallTracingEnabled(enabled: boolean);
+
     function isOpCallTracingEnabled(): boolean;
+
+    /**
+     * Returns the origin stack trace of the given async op promise. The promise
+     * must be ongoing.
+     */
     function getOpCallTraceForPromise<T>(promise: Promise<T>): string | null;
+
+    /**
+     * Returns a map containing traces for all ongoing async ops. The key is the promise id.
+     * Tracing only occurs when `Deno.core.setOpCallTracingEnabled()` was previously
+     * enabled.
+     */
     function getAllOpCallTraces(): Map<number, string>;
 
     /**
@@ -212,29 +231,6 @@ declare namespace Deno {
     ): Uint8Array;
 
     function deserialize(buffer: Uint8Array, options?: any): any;
-
-    /**
-     * Enables collection of stack traces of all async ops. This allows for
-     * debugging of where a given async op was started. Deno CLI uses this for
-     * improving error message in op sanitizer errors for `deno test`.
-     *
-     * **NOTE:** enabling tracing has a significant negative performance impact.
-     * To get high level metrics on async ops with no added performance cost,
-     * use `Deno.core.metrics()`.
-     */
-    function enableOpCallTracing(): void;
-
-    export interface OpCallTrace {
-      opName: string;
-      stack: string;
-    }
-
-    /**
-     * A map containing traces for all ongoing async ops. The key is the op id.
-     * Tracing only occurs when `Deno.core.enableOpCallTracing()` was previously
-     * enabled.
-     */
-    const opCallTraces: Map<number, OpCallTrace>;
 
     /**
      * Adds a callback for the given Promise event. If this function is called
