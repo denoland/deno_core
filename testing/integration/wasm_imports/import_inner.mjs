@@ -1,5 +1,5 @@
-import { sleep } from "./import_inner_inner.mjs";
-export { add } from "./import_inner_inner.mjs";
+import { sleep } from "./lib.mjs";
+export { add } from "./lib.mjs";
 
 console.log("import_inner.js before");
 

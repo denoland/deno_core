@@ -1,4 +1,4 @@
-console.log("import_inner_inner.js before");
+console.log("lib.js before");
 
 export async function sleep(timeout) {
   return new Promise((resolve) => {
@@ -12,7 +12,7 @@ export async function sleep(timeout) {
 }
 await sleep(100);
 
-console.log("import_inner_inner.js after");
+console.log("lib.js after");
 
 const abc = 1 + 2;
 export function add(a, b) {
