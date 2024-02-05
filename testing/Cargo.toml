@@ -23,4 +23,3 @@ pretty_assertions.workspace = true
 prettyplease.workspace = true
 testing_macros.workspace = true
 tokio.workspace = true
-wasmer = "4.2.5"
