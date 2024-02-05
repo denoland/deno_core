@@ -21,11 +21,6 @@ mod recursive_load;
 #[cfg(all(test, not(miri)))]
 mod tests;
 
-#[cfg(test)]
-pub use loaders::ModuleLoadEventCounts;
-#[cfg(test)]
-pub use loaders::TestingModuleLoader;
-
 pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::ExtModuleLoaderCb;
 pub use loaders::FsModuleLoader;
