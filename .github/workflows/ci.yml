@@ -98,14 +98,6 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() }}
     steps:
-      - name: Print status
-        run: |
-          echo Job status
-          echo ----------
-          echo
-          echo Cancelled: ${{ cancelled() }}
-          echo Success: ${{ success() }}
-          echo failure: ${{ failure() }}
       - name: Print cancelled
         if: ${{ cancelled() }}
         run: echo Cancelled 💀 && exit 1
@@ -113,5 +105,5 @@ jobs:
         if: ${{ !success() }}
         run: echo Failure ❌ && exit 1
       - name: Print success
-        if: ${{ success() && !cancelled() }}
+        if: ${{ success() }}
         run: echo Success ✅
