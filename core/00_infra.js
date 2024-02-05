@@ -112,12 +112,24 @@
   let opCallTracingEnabled = false;
   const opCallTraces = new SafeMap();
 
-  function enableOpCallTracing() {
-    opCallTracingEnabled = true;
+  function getAllOpCallTraces() {
+    return new Map(opCallTraces);
+  }
+
+  function setOpCallTracingEnabled(enabled) {
+    opCallTracingEnabled = enabled;
   }
 
   function isOpCallTracingEnabled() {
     return opCallTracingEnabled;
+  }
+
+  function getOpCallTraceForPromise(promise) {
+    const trace = MapPrototypeGet(opCallTraces, promise[promiseIdSymbol]);
+    if (trace) {
+      return trace.stack;
+    }
+    return null;
   }
 
   function handleOpCallTracing(opName, promiseId, p) {
@@ -460,9 +472,10 @@
     registerErrorBuilder,
     buildCustomError,
     registerErrorClass,
-    enableOpCallTracing,
+    setOpCallTracingEnabled,
     isOpCallTracingEnabled,
-    opCallTraces,
+    getAllOpCallTraces,
+    getOpCallTraceForPromise,
     handleOpCallTracing,
     setUpAsyncStub,
     getPromise,

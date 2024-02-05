@@ -16,8 +16,8 @@ export function barrierCreate(name: string, count: number) {
   op_async_barrier_create(name, count);
 }
 
-export async function barrierAwait(name: string) {
-  await op_async_barrier_await(name);
+export function barrierAwait(name: string) {
+  return op_async_barrier_await(name);
 }
 
 export async function asyncYield() {
