@@ -54,12 +54,8 @@ impl<T> ModuleNameTypeMap<T> {
     ModuleName: std::borrow::Borrow<Q>,
     Q: std::cmp::Eq + std::hash::Hash + ?Sized,
   {
-    let Some(index) = self.map_index(ty) else {
-      return None;
-    };
-    let Some(map) = self.submaps.get(index) else {
-      return None;
-    };
+    let index = self.map_index(ty)?;
+    let map = self.submaps.get(index)?;
     map.get(name)
   }
 
