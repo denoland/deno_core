@@ -192,8 +192,7 @@ fn bench_op(
   // Prime the optimizer
   runtime
     .execute_script("", FastString::Owned(harness.into()))
-    .map_err(err_mapper)
-    .unwrap();
+    .map_err(err_mapper).unwrap();
   let bench = runtime.execute_script("", ascii_str!("bench")).unwrap();
   let mut scope = runtime.handle_scope();
   #[allow(clippy::unnecessary_fallible_conversions)]
