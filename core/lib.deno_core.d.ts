@@ -18,7 +18,7 @@ declare namespace Deno {
      * if there are only "unref" promises left. */
     function unrefOpPromise<T>(promise: Promise<T>): void;
 
-    function setOpCallTracingEnabled(boolean);
+    function setOpCallTracingEnabled(enabled: boolean);
     function isOpCallTracingEnabled(): boolean;
     function getOpCallTraceForPromise<T>(promise: Promise<T>): string | null;
     function getAllOpCallTraces(): Map<number, string>;
