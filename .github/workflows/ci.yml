@@ -98,12 +98,8 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() }}
     steps:
-      - name: Print cancelled
-        if: ${{ cancelled() }}
-        run: echo Cancelled 💀 && exit 1
       - name: Print failure
-        if: ${{ !success() }}
+        if: ${{ needs.top.result != 'success' }}
         run: echo Failure ❌ && exit 1
       - name: Print success
-        if: ${{ success() }}
         run: echo Success ✅
