@@ -96,6 +96,10 @@ jobs:
   success:
     needs: top
     runs-on: ubuntu-latest
+    if: ${{ always() }}
     steps:
+      - name: Print failure
+        if: ${{ needs.top.result != 'success' }}
+        run: echo Failure ❌ && exit 1
       - name: Print success
         run: echo Success ✅
