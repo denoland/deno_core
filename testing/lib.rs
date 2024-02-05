@@ -3,8 +3,6 @@
 // Everything runs in test mode
 #![cfg(test)]
 
-use std::path::PathBuf;
-
 mod checkin;
 
 macro_rules! unit_test {
