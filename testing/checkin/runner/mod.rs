@@ -241,7 +241,7 @@ fn get_test_url(test_dir: &Path, test: &str) -> Result<Url, Error> {
     }
   }
   let Some(path) = path else {
-    bail!("Test file not found");
+    bail!("Test file not found: {}.[ts.js.nocompile]", test);
   };
   let path = path.canonicalize()?.to_owned();
   let url = Url::from_file_path(path).unwrap().to_string();

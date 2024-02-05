@@ -85,6 +85,7 @@ impl ModuleLoader for TypescriptModuleLoader {
         | MediaType::Dcts
         | MediaType::Tsx => (ModuleType::JavaScript, true),
         MediaType::Json => (ModuleType::Json, false),
+        MediaType::Wasm => (ModuleType::Wasm, false),
         _ => {
           if path.extension().unwrap_or_default() == "nocompile" {
             (ModuleType::JavaScript, false)
@@ -94,8 +95,9 @@ impl ModuleLoader for TypescriptModuleLoader {
         }
       };
 
-      let code = std::fs::read_to_string(&path)?;
       let code = if should_transpile {
+        let code = std::fs::read_to_string(&path)?;
+
         let parsed = deno_ast::parse_module(ParseParams {
           specifier: module_specifier.to_string(),
           text_info: SourceTextInfo::from_string(code),
@@ -115,15 +117,12 @@ impl ModuleLoader for TypescriptModuleLoader {
           .0
           .borrow_mut()
           .insert(module_specifier.to_string(), source_map.into_bytes());
-        res.text
+        ModuleSourceCode::String(res.text.into())
       } else {
-        code
+        let code = std::fs::read(&path)?;
+        ModuleSourceCode::Bytes(code.into_boxed_slice().into())
       };
-      Ok(ModuleSource::new(
-        module_type,
-        ModuleSourceCode::String(code.into()),
-        module_specifier,
-      ))
+      Ok(ModuleSource::new(module_type, code, module_specifier))
     }
 
     ModuleLoadResponse::Sync(load(source_maps, module_specifier))
