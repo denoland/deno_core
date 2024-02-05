@@ -1,6 +1,6 @@
 console.log("lib.js before");
 
-export async function sleep(timeout) {
+export function sleep(timeout) {
   return new Promise((resolve) => {
     Deno.core.queueTimer(
       Deno.core.getTimerDepth() + 1,
