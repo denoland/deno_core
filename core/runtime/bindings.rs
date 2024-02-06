@@ -23,6 +23,7 @@ use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
 use crate::FastString;
 use crate::JsRuntime;
+use crate::ModuleType;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
@@ -171,6 +172,10 @@ pub mod v8_static_strings {
   pub static DIRNAME: v8::OneByteConst = onebyte_const!("dirname");
   pub static SET_UP_ASYNC_STUB: v8::OneByteConst =
     onebyte_const!("setUpAsyncStub");
+  pub static WEBASSEMBLY: v8::OneByteConst = onebyte_const!("WebAssembly");
+  pub static INSTANTIATE: v8::OneByteConst = onebyte_const!("instantiate");
+  pub static WASM_INSTANTIATE: v8::OneByteConst =
+    onebyte_const!("wasmInstantiate");
 }
 
 /// Create an object on the `globalThis` that looks like this:
@@ -244,7 +249,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
 ) -> Result<(), AnyError> {
-  for file_source in CONTEXT_SETUP_SOURCES {
+  for file_source in &CONTEXT_SETUP_SOURCES {
     let code = file_source.load().unwrap();
     let source_str = code.v8_string(scope).unwrap();
     let name = v8_static_strings::new_from_static_str(
@@ -452,10 +457,14 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
   let module_map = JsRealm::module_map_from(scope);
+  let state = JsRealm::state_from_scope(scope);
 
   let module_global = v8::Global::new(scope, module);
   let name = module_map
     .get_name_by_module(&module_global)
+    .expect("Module not found");
+  let module_type = module_map
+    .get_type_by_module(&module_global)
     .expect("Module not found");
 
   let url_key = v8_static_strings::new(scope, &v8_static_strings::URL);
@@ -466,6 +475,19 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let main = module_map.is_main_module(&module_global);
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
+
+  // Add special method that allows WASM module to instantiate themselves.
+  if module_type == ModuleType::Wasm {
+    let wasm_instantiate_key =
+      v8_static_strings::new(scope, &v8_static_strings::WASM_INSTANTIATE);
+    let f = state.wasm_instantiate_fn.borrow().as_ref().unwrap().clone();
+    let wasm_instantiate_val = v8::Local::new(scope, &*f);
+    meta.create_data_property(
+      scope,
+      wasm_instantiate_key.into(),
+      wasm_instantiate_val.into(),
+    );
+  }
 
   let builder =
     v8::FunctionBuilder::new(import_meta_resolve).data(url_val.into());

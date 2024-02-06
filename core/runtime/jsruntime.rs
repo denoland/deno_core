@@ -271,7 +271,7 @@ const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
 
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
-pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
+pub(crate) static CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
   core
   "00_primordials.js",
   "00_infra.js",
@@ -279,14 +279,14 @@ pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_fi
 
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
-pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
+pub(crate) static BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
   core
   "01_core.js",
   "02_error.js",
 );
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
-pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
+pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   include_js_files!(core "mod.js",);
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
@@ -863,7 +863,7 @@ impl JsRuntime {
         )?;
       }
 
-      js_runtime.store_js_callbacks(&realm);
+      js_runtime.store_js_callbacks(&realm, will_snapshot);
 
       js_runtime.init_extension_js(
         &realm,
@@ -1144,8 +1144,8 @@ impl JsRuntime {
 
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
-  fn store_js_callbacks(&mut self, realm: &JsRealm) {
-    let (event_loop_tick_cb, build_custom_error_cb) = {
+  fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
+    let (event_loop_tick_cb, build_custom_error_cb, wasm_instantiate_fn) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1170,9 +1170,26 @@ impl JsRuntime {
         "Deno.core.buildCustomError",
       );
 
+      let mut wasm_instantiate_fn = None;
+      if !will_snapshot {
+        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
+          scope,
+          global,
+          &v8_static_strings::WEBASSEMBLY,
+          "WebAssembly",
+        );
+        wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
+          scope,
+          web_assembly_object,
+          &v8_static_strings::INSTANTIATE,
+          "WebAssembly.instantiate",
+        ));
+      }
+
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
+        wasm_instantiate_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1187,6 +1204,12 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
+    if let Some(wasm_instantiate_fn) = wasm_instantiate_fn {
+      state_rc
+        .wasm_instantiate_fn
+        .borrow_mut()
+        .replace(Rc::new(wasm_instantiate_fn));
+    }
   }
 
   /// Returns the runtime's op state, which can be used to maintain ops
@@ -2233,6 +2256,7 @@ fn mark_as_loaded_from_fs_during_snapshot(
   files_loaded: &mut Vec<&'static str>,
   source: &ExtensionFileSourceCode,
 ) {
+  #[allow(deprecated)]
   if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) = source {
     files_loaded.push(path);
   }

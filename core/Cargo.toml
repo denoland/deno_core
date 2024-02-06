@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.257.0"
+version = "0.258.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -52,6 +52,7 @@ v8.workspace = true
 
 [dev-dependencies]
 bencher.workspace = true
+criterion.workspace = true
 deno_ast.workspace = true
 fastrand.workspace = true
 pretty_assertions.workspace = true
@@ -78,4 +79,9 @@ harness = false
 [[bench]]
 name = "arena"
 path = "benches/infra/arena.rs"
+harness = false
+
+[[bench]]
+name = "snapshot"
+path = "benches/snapshot/snapshot.rs"
 harness = false

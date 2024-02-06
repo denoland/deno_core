@@ -1138,7 +1138,7 @@ fn parse_attributes(
     return Err(AttributeError::TooManyAttributes);
   }
   Ok(Attributes {
-    primary: Some(*attrs.get(0).unwrap()),
+    primary: Some(*attrs.first().unwrap()),
   })
 }
 

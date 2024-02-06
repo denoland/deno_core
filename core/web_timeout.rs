@@ -117,9 +117,7 @@ impl<'a, T> Iterator for WebTimersIteratorImpl<'a, T> {
   type Item = (u64, bool);
   fn next(&mut self) -> Option<Self::Item> {
     loop {
-      let Some(item) = self.timers.next() else {
-        return None;
-      };
+      let item = self.timers.next()?;
       if self.data.contains_key(&item.1) {
         return Some((item.1, !matches!(item.2, TimerType::Once)));
       }

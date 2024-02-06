@@ -53,6 +53,7 @@ pub(crate) struct ContextState {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) js_wasm_streaming_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) wasm_instantiate_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
@@ -79,6 +80,7 @@ impl ContextState {
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
+      wasm_instantiate_fn: Default::default(),
       op_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
