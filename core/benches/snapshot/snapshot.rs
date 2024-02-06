@@ -110,7 +110,7 @@ fn bench_load_snapshot(c: &mut Criterion) {
 criterion_group!(
   name = benches;
   config = Criterion::default().sample_size(50);
-  targets = 
+  targets =
     bench_take_snapshot_empty,
     bench_take_snapshot,
     bench_load_snapshot,
