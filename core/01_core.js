@@ -404,6 +404,7 @@
     op_destructure_error,
     op_dispatch_exception,
     op_encode,
+    op_encode_binary_string,
     op_eval_context,
     op_event_loop_has_more_work,
     op_get_promise_details,
@@ -591,6 +592,7 @@
     ) => op_eval_context(source, specifier),
     hostObjectBrand,
     encode: (text) => op_encode(text),
+    encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
     decode: (buffer) => op_decode(buffer),
     serialize: (
       value,

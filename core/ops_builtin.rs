@@ -16,6 +16,7 @@ use crate::OpState;
 use crate::Resource;
 use anyhow::Error;
 use bytes::BytesMut;
+use serde_v8::ByteString;
 use std::cell::RefCell;
 use std::io::stderr;
 use std::io::stdout;
@@ -56,6 +57,7 @@ builtin_ops! {
   op_str_byte_length,
   op_panic,
   op_cancel_handle,
+  op_encode_binary_string,
   ops_builtin_types::op_is_any_array_buffer,
   ops_builtin_types::op_is_arguments_object,
   ops_builtin_types::op_is_array_buffer,
@@ -380,4 +382,10 @@ fn op_str_byte_length(
 #[smi]
 pub fn op_cancel_handle(state: &mut OpState) -> u32 {
   state.resource_table.add(CancelHandle::new())
+}
+
+#[op2]
+#[serde]
+fn op_encode_binary_string(#[buffer] s: &[u8]) -> ByteString {
+  ByteString::from(s)
 }

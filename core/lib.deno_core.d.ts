@@ -324,6 +324,8 @@ declare namespace Deno {
 
     function createCancelHandle(): number;
 
+    function encodeBinaryString(data: Uint8Array): string;
+
     const build: {
       target: string;
       arch: string;
