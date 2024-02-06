@@ -108,10 +108,12 @@ fn bench_load_snapshot(c: &mut Criterion) {
 }
 
 criterion_group!(
-  benches,
-  bench_take_snapshot_empty,
-  bench_take_snapshot,
-  bench_load_snapshot,
+  name = benches;
+  config = Criterion::default().sample_size(50);
+  targets = 
+    bench_take_snapshot_empty,
+    bench_take_snapshot,
+    bench_load_snapshot,
 );
 
 criterion_main!(benches);
