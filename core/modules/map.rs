@@ -23,8 +23,10 @@ use crate::runtime::JsRealm;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::JsRuntime;
+use crate::ModuleCodeBytes;
 use crate::ModuleLoadResponse;
 use crate::ModuleSource;
+use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
 use anyhow::bail;
 use anyhow::Context as _;
@@ -36,9 +38,11 @@ use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
+use indexmap::IndexMap;
 use log::debug;
 use v8::Function;
 use v8::PromiseState;
+use wasm_dep_analyzer::WasmDeps;
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -298,7 +302,6 @@ impl ModuleMap {
       );
       return Ok(module_id);
     }
-
     let module_id = match module_type {
       ModuleType::JavaScript => {
         let code =
@@ -314,9 +317,12 @@ impl ModuleMap {
         )?
       }
       ModuleType::Wasm => {
-        return Err(ModuleError::Other(generic_error(
-          "Importing Wasm modules is currently not supported.",
-        )));
+        let ModuleSourceCode::Bytes(code) = code else {
+          return Err(ModuleError::Other(generic_error(
+            "Source code for Wasm module must be provided as bytes",
+          )));
+        };
+        self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
       ModuleType::Json => {
         let code =
@@ -596,6 +602,53 @@ impl ModuleMap {
     );
 
     Ok(id)
+  }
+
+  pub(crate) fn new_wasm_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: ModuleName,
+    source: ModuleCodeBytes,
+    is_dynamic_import: bool,
+  ) -> Result<ModuleId, ModuleError> {
+    let bytes = source.as_bytes();
+    let wasm_module_analysis = WasmDeps::parse(bytes).map_err(|e| {
+      let err = Error::from(e);
+      ModuleError::Other(err)
+    })?;
+
+    let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
+      return Err(ModuleError::Other(generic_error(format!(
+        "Failed to compile WASM module '{}'",
+        name.as_str()
+      ))));
+    };
+    let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
+
+    let js_wasm_module_source =
+      render_js_wasm_module(name.as_str(), wasm_module_analysis);
+
+    let synthetic_module_type =
+      ModuleType::Other("$$deno-core-internal-wasm-module".into());
+
+    let (name1, name2) = name.into_cheap_copy();
+    let value = v8::Local::new(scope, wasm_module_value);
+    let exports = vec![(FastString::StaticAscii("default"), value)];
+    let _synthetic_mod_id = self.new_synthetic_module(
+      scope,
+      name1,
+      synthetic_module_type,
+      exports,
+    )?;
+
+    self.new_module_from_js_source(
+      scope,
+      false,
+      ModuleType::Wasm,
+      name2,
+      js_wasm_module_source.into(),
+      is_dynamic_import,
+    )
   }
 
   pub(crate) fn new_json_module(
@@ -1616,4 +1669,188 @@ pub fn module_origin<'a>(
     false,
     true,
   )
+}
+
+fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
+  // NOTE(bartlomieju): it's unlikely the generated file will have more lines,
+  // but it's better to overallocate than to have to mem copy.
+  let mut src = Vec::with_capacity(512);
+
+  fn aggregate_wasm_module_imports(
+    imports: &[wasm_dep_analyzer::Import],
+  ) -> IndexMap<String, Vec<String>> {
+    let mut imports_map = IndexMap::default();
+
+    for import in imports.iter().filter(|i| {
+      matches!(i.import_type, wasm_dep_analyzer::ImportType::Function(..))
+    }) {
+      let entry = imports_map
+        .entry(import.module.to_string())
+        .or_insert(vec![]);
+      entry.push(import.name.to_string());
+    }
+
+    imports_map
+  }
+
+  src.push(format!(
+    r#"import wasmMod from "{}" with {{ type: "$$deno-core-internal-wasm-module" }};"#,
+    specifier,
+  ));
+
+  // TODO(bartlomieju): handle imports collisions?
+  if !wasm_deps.imports.is_empty() {
+    let aggregated_imports = aggregate_wasm_module_imports(&wasm_deps.imports);
+
+    for (key, value) in aggregated_imports.iter() {
+      src.push(format!(
+        r#"import {{ {} }} from "{}";"#,
+        value.join(", "),
+        key
+      ));
+    }
+
+    src.push("const importsObject = {".to_string());
+
+    for (key, value) in aggregated_imports.iter() {
+      src.push(format!("  \"{}\": {{", key).to_string());
+
+      for el in value {
+        src.push(format!("    {},", el));
+      }
+
+      src.push("  },".to_string());
+    }
+
+    src.push("};".to_string());
+
+    src.push(
+      "const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);".to_string(),
+    )
+  } else {
+    src.push(
+      "const modInstance = await import.meta.wasmInstantiate(wasmMod);"
+        .to_string(),
+    )
+  }
+
+  if !wasm_deps.exports.is_empty() {
+    for export_desc in wasm_deps.exports.iter().filter(|e| {
+      matches!(e.export_type, wasm_dep_analyzer::ExportType::Function)
+    }) {
+      if export_desc.name == "default" {
+        src.push(format!(
+          "export default modInstance.exports.{};",
+          export_desc.name
+        ));
+      } else {
+        src.push(format!(
+          "export const {} = modInstance.exports.{};",
+          export_desc.name, export_desc.name
+        ));
+      }
+    }
+  }
+
+  src.join("\n")
+}
+
+#[test]
+fn test_render_js_wasm_module() {
+  let deps = WasmDeps {
+    imports: vec![],
+    exports: vec![],
+  };
+  let rendered = render_js_wasm_module("./foo.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+const modInstance = await import.meta.wasmInstantiate(wasmMod);"#,
+  );
+
+  let deps = WasmDeps {
+    imports: vec![
+      wasm_dep_analyzer::Import {
+        name: "foo",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Tag(
+          wasm_dep_analyzer::TagType {
+            kind: 1,
+            type_index: 1,
+          },
+        ),
+      },
+      wasm_dep_analyzer::Import {
+        name: "bar",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(1),
+      },
+      wasm_dep_analyzer::Import {
+        name: "fizz",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(2),
+      },
+      wasm_dep_analyzer::Import {
+        name: "buzz",
+        module: "./buzz.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(3),
+      },
+    ],
+    exports: vec![
+      wasm_dep_analyzer::Export {
+        name: "export1",
+        index: 0,
+        export_type: wasm_dep_analyzer::ExportType::Function,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export2",
+        index: 1,
+        export_type: wasm_dep_analyzer::ExportType::Table,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export3",
+        index: 2,
+        export_type: wasm_dep_analyzer::ExportType::Memory,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export4",
+        index: 3,
+        export_type: wasm_dep_analyzer::ExportType::Global,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export5",
+        index: 4,
+        export_type: wasm_dep_analyzer::ExportType::Tag,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export6",
+        index: 5,
+        export_type: wasm_dep_analyzer::ExportType::Unknown,
+      },
+      wasm_dep_analyzer::Export {
+        name: "default",
+        index: 6,
+        export_type: wasm_dep_analyzer::ExportType::Function,
+      },
+    ],
+  };
+  let rendered = render_js_wasm_module("./foo.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+import { bar, fizz } from "./import.js";
+import { buzz } from "./buzz.js";
+const importsObject = {
+  "./import.js": {
+    bar,
+    fizz,
+  },
+  "./buzz.js": {
+    buzz,
+  },
+};
+const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);
+export const export1 = modInstance.exports.export1;
+export default modInstance.exports.default;"#,
+  );
 }
