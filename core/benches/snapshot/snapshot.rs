@@ -18,7 +18,7 @@ macro_rules! fake_extensions {
             $name,
             ops = [ ops::$name ],
             esm_entry_point = concat!("ext:", stringify!($name), "/file.js"),
-            esm = [ dir "benches/snapshot", "file.js" ]
+            esm = [ dir "benches/snapshot", "file.js", "file2.js" ]
           );
 
           mod ops {
@@ -81,18 +81,18 @@ fn bench_take_snapshot(c: &mut Criterion) {
 
 fn bench_load_snapshot(c: &mut Criterion) {
   c.bench_function("load snapshot", |b| {
+    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      extensions: make_extensions(),
+      startup_snapshot: None,
+      ..Default::default()
+    });
+    let snapshot = runtime.snapshot();
+    let snapshot_slice =
+      Box::leak(snapshot.deref().to_vec().into_boxed_slice());
+
     b.iter_custom(|iters| {
       let mut total = 0;
       for _ in 0..iters {
-        let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-          extensions: make_extensions(),
-          startup_snapshot: None,
-          ..Default::default()
-        });
-        let snapshot = runtime.snapshot();
-        let snapshot_slice =
-          Box::leak(snapshot.deref().to_vec().into_boxed_slice());
-
         let now = Instant::now();
         let runtime = JsRuntime::new(RuntimeOptions {
           extensions: make_extensions_ops(),
