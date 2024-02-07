@@ -207,6 +207,10 @@ impl OpDecl {
     Self {
       slow_fn: bindings::op_disabled_fn.map_fn_to(),
       slow_fn_with_metrics: bindings::op_disabled_fn.map_fn_to(),
+      // TODO(bartlomieju): Currently this fast fn won't throw like `op_disabled_fn`;
+      // ideally we would add a fallback that would throw, but it's unclear
+      // if disabled op (that throws in JS) would ever get optimized to become
+      // a fast function.
       fast_fn: if self.fast_fn.is_some() {
         Some(FastFunction {
           args: &[],
