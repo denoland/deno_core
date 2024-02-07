@@ -222,7 +222,7 @@ impl OpDecl {
           args: &[],
           function: noop as _,
           repr: v8::fast_api::Int64Representation::Number,
-          return_type: v8::fast_api::CType::Bool,
+          return_type: v8::fast_api::CType::Void,
         })
       } else {
         None
