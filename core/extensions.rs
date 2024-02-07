@@ -156,7 +156,7 @@ pub type GlobalTemplateMiddlewareFn =
 pub type GlobalObjectMiddlewareFn =
   for<'s> fn(&mut v8::HandleScope<'s>, v8::Local<'s, v8::Object>);
 
-fn noop() {}
+extern "C" fn noop() {}
 
 #[derive(Copy, Clone)]
 pub struct OpDecl {
