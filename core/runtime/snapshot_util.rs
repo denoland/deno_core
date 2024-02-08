@@ -151,10 +151,13 @@ pub(crate) struct SnapshottedData {
   pub module_map_data: v8::Global<v8::Array>,
   pub module_handles: Vec<v8::Global<v8::Module>>,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
+  pub extension_metadata: Vec<ExtensionSnapshotMetadata>,
 }
 
 static MODULE_MAP_CONTEXT_DATA_INDEX: usize = 0;
 static JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX: usize = 1;
+// NOTE(bartlomieju): this is only used in debug builds
+static EXTENSION_METADATA_INDEX: usize = 2;
 
 pub(crate) fn get_snapshotted_data(
   scope: &mut v8::HandleScope<()>,
@@ -195,9 +198,28 @@ pub(crate) fn get_snapshotted_data(
     Err(err) => data_error_to_panic(err),
   };
 
+  let extension_metadata = match scope
+    .get_context_data_from_snapshot_once::<v8::Value>(EXTENSION_METADATA_INDEX)
+  {
+    Ok(val) => {
+      #[cfg(debug_assertions)]
+      {
+        let v8_str: v8::Local<v8::String> = val.try_into().unwrap();
+        let rust_str = v8_str.to_rust_string_lossy(&mut scope);
+        parse_extension_and_ops_data(rust_str).unwrap()
+      }
+
+      #[cfg(not(debug_assertions))]
+      {
+        ExtensionSnapshotMetadata::default()
+      }
+    }
+    Err(err) => data_error_to_panic(err),
+  };
+
   // Over allocate so executing a few scripts doesn't have to resize this vec.
   let mut module_handles = Vec::with_capacity(next_module_id as usize + 16);
-  for i in 2..=next_module_id + 1 {
+  for i in 3..=next_module_id + 1 {
     match scope.get_context_data_from_snapshot_once::<v8::Module>(i as usize) {
       Ok(val) => {
         let module_global = v8::Global::new(&mut scope, val);
@@ -211,6 +233,7 @@ pub(crate) fn get_snapshotted_data(
     module_map_data: v8::Global::new(&mut scope, val),
     module_handles,
     js_handled_promise_rejection_cb,
+    extension_metadata,
   }
 }
 
@@ -236,11 +259,25 @@ pub(crate) fn set_snapshotted_data(
     scope.add_context_data(local_context, local_handled_promise_rejection_cb);
   assert_eq!(offset, JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX);
 
+  #[cfg(debug_assertions)]
+  let extension_metadata_val: v8::Local<v8::Data> = {
+    let rust_str =
+      extension_and_ops_data_for_snapshot(&snapshotted_data.extension_metadata);
+    v8::String::new(scope, &rust_str).unwrap().into()
+  };
+
+  #[cfg(not(debug_assertions))]
+  let extension_metadata_val: v8::Local<v8::Data> = v8::undefined(scope).into();
+
+  let offset =
+    scope.add_context_data(local_context, extension_metadata_val.into());
+  assert_eq!(offset, EXTENSION_METADATA_INDEX);
+
   for (index, handle) in snapshotted_data.module_handles.into_iter().enumerate()
   {
     let module_handle = v8::Local::new(scope, handle);
     let offset = scope.add_context_data(local_context, module_handle);
-    assert_eq!(offset, index + 2);
+    assert_eq!(offset, index + 3);
   }
 }
 
@@ -275,8 +312,8 @@ pub(crate) fn create_snapshot_creator(
   }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct ExtensionSnapshotMetadata {
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ExtensionSnapshotMetadata {
   ext_name: String,
   op_names: Vec<String>,
   external_ref_count: usize,

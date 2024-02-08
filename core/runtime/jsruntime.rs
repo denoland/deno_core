@@ -1845,6 +1845,8 @@ impl JsRuntimeForSnapshot {
         module_map_data: module_map_snapshotted_data.module_map_data,
         module_handles: module_map_snapshotted_data.module_handles,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        // TODO(bartlomieju):
+        extension_metadata: vec![],
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());
