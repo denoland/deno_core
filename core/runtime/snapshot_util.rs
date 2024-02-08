@@ -270,3 +270,131 @@ pub(crate) fn create_snapshot_creator(
     v8::Isolate::snapshot_creator(Some(external_refs))
   }
 }
+
+#[derive(Debug, PartialEq)]
+struct ExtensionWithOps {
+  ext_name: String,
+  op_names: Vec<String>,
+}
+type ExtensionAndOpsData = Vec<ExtensionWithOps>;
+
+fn extension_and_ops_data_for_snapshot(data: &ExtensionAndOpsData) -> String {
+  let mut result = String::new();
+
+  result.push_str("EXT_COUNT:");
+  result.push_str(&data.len().to_string());
+  result.push(';');
+
+  for ext_data in data {
+    let ExtensionWithOps { ext_name, op_names } = ext_data;
+
+    let op_count = op_names.len();
+
+    result.push_str("EXT:");
+    result.push_str(&ext_name);
+    result.push_str(":");
+    result.push_str(&op_count.to_string());
+    result.push(';');
+    if !op_names.is_empty() {
+      result.push_str("OPS:");
+      for (idx, op_name) in op_names.iter().enumerate() {
+        result.push_str(op_name);
+        if idx != (op_count - 1) {
+          result.push(',');
+        }
+      }
+      result.push(';');
+    }
+  }
+
+  result
+}
+
+fn parse_extension_and_ops_data(
+  input: String,
+) -> Result<ExtensionAndOpsData, anyhow::Error> {
+  let mut data = Vec::new();
+  let mut current_ext: Option<String> = None;
+  let mut current_ops: Vec<String> = Vec::new();
+
+  for token in input.split(|c| c == ';' || c == ':') {
+    match token {
+      "EXT" => {
+        if let Some(ext_name) = current_ext.take() {
+          data.push(ExtensionWithOps {
+            ext_name,
+            op_names: current_ops.clone(),
+          });
+          current_ops.clear();
+        }
+      }
+      "" => {
+        // TODO: parse error
+        ()
+      }
+      _ if current_ext.is_none() => {
+        current_ext = Some(token.to_string());
+      }
+      _ => {
+        current_ops.push(token.to_string());
+      }
+    }
+  }
+
+  if let Some(ext_name) = current_ext.take() {
+    data.push(ExtensionWithOps {
+      ext_name,
+      op_names: current_ops,
+    });
+  }
+
+  Ok(data)
+}
+
+macro_rules! svec {
+  ($($x:expr),* $(,)?) => (vec![$($x.to_string()),*]);
+}
+
+#[test]
+fn extension_and_ops_data_for_snapshot_test() {
+  let expected = "EXT_COUNT:6;EXT:deno_core:3;OPS:op_name1,op_name2,op_name3;EXT:ext1:3;OPS:op_ext1_1,op_ext1_2,op_ext1_3;EXT:ext2:2;OPS:op_ext2_1,op_ext2_2;EXT:ext3:1;OPS:op_ext3_1;EXT:ext4:5;OPS:op_ext4_1,op_ext4_2,op_ext4_3,op_ext4_4,op_ext4_5;EXT:ext5:0;";
+
+  let data = vec![
+    ExtensionWithOps {
+      ext_name: "deno_core".to_string(),
+      op_names: svec!["op_name1", "op_name2", "op_name3"],
+    },
+    ExtensionWithOps {
+      ext_name: "ext1".to_string(),
+      op_names: svec!["op_ext1_1", "op_ext1_2", "op_ext1_3"],
+    },
+    ExtensionWithOps {
+      ext_name: "ext2".to_string(),
+      op_names: svec!["op_ext2_1", "op_ext2_2"],
+    },
+    ExtensionWithOps {
+      ext_name: "ext3".to_string(),
+      op_names: svec!["op_ext3_1"],
+    },
+    ExtensionWithOps {
+      ext_name: "ext4".to_string(),
+      op_names: svec![
+        "op_ext4_1",
+        "op_ext4_2",
+        "op_ext4_3",
+        "op_ext4_4",
+        "op_ext4_5",
+      ],
+    },
+    ExtensionWithOps {
+      ext_name: "ext5".to_string(),
+      op_names: vec![],
+    },
+  ];
+
+  let actual = extension_and_ops_data_for_snapshot(&data);
+  pretty_assertions::assert_eq!(actual, expected);
+
+  let parsed = parse_extension_and_ops_data(actual).unwrap();
+  assert_eq!(parsed, data);
+}
