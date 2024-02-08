@@ -4,6 +4,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use anyhow::bail;
+
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
@@ -316,11 +318,38 @@ fn parse_extension_and_ops_data(
   let mut data = Vec::new();
   let mut current_ext: Option<String> = None;
   let mut current_ops: Vec<String> = Vec::new();
+  let mut current_ops_count = 0;
+  let mut current_ops_count_next = false;
+  let mut ext_count = 0;
+  let mut ext_count_next = false;
 
   for token in input.split(|c| c == ';' || c == ':') {
+    if ext_count_next {
+      ext_count_next = false;
+      // TODO: handle error
+      ext_count = token.parse().unwrap();
+      continue;
+    } else if current_ops_count_next {
+      current_ops_count_next = false;
+      // TODO: handle error
+      current_ops_count = token.parse().unwrap();
+      continue;
+    }
     match token {
+      "EXT_COUNT" => {
+        ext_count_next = true;
+      }
       "EXT" => {
         if let Some(ext_name) = current_ext.take() {
+          if current_ops.len() != current_ops_count {
+            eprintln!("current ops {:#?}", current_ops);
+            bail!(
+              "Mismatch in ops count for ext: {}; expected: {}, found: {}",
+              ext_name,
+              current_ops_count,
+              current_ops.len()
+            );
+          }
           data.push(ExtensionWithOps {
             ext_name,
             op_names: current_ops.clone(),
@@ -334,6 +363,7 @@ fn parse_extension_and_ops_data(
       }
       _ if current_ext.is_none() => {
         current_ext = Some(token.to_string());
+        current_ops_count_next = true;
       }
       _ => {
         current_ops.push(token.to_string());
@@ -346,6 +376,14 @@ fn parse_extension_and_ops_data(
       ext_name,
       op_names: current_ops,
     });
+  }
+
+  if data.len() != ext_count {
+    bail!(
+      "Mismatch in extension count, found: {}, expected: {}",
+      data.len(),
+      ext_count
+    );
   }
 
   Ok(data)
