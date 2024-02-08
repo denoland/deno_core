@@ -279,6 +279,7 @@ pub(crate) fn create_snapshot_creator(
 struct ExtensionSnapshotMetadata {
   ext_name: String,
   op_names: Vec<String>,
+  external_ref_count: usize,
 }
 type SnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
 
@@ -298,24 +299,28 @@ macro_rules! svec {
 
 #[test]
 fn extension_and_ops_data_for_snapshot_test() {
-  let expected = r#"[{"ext_name":"deno_core","op_names":["op_name1","op_name2","op_name3"]},{"ext_name":"ext1","op_names":["op_ext1_1","op_ext1_2","op_ext1_3"]},{"ext_name":"ext2","op_names":["op_ext2_1","op_ext2_2"]},{"ext_name":"ext3","op_names":["op_ext3_1"]},{"ext_name":"ext4","op_names":["op_ext4_1","op_ext4_2","op_ext4_3","op_ext4_4","op_ext4_5"]},{"ext_name":"ext5","op_names":[]}]"#;
+  let expected = r#"[{"ext_name":"deno_core","op_names":["op_name1","op_name2","op_name3"],"external_ref_count":0},{"ext_name":"ext1","op_names":["op_ext1_1","op_ext1_2","op_ext1_3"],"external_ref_count":0},{"ext_name":"ext2","op_names":["op_ext2_1","op_ext2_2"],"external_ref_count":0},{"ext_name":"ext3","op_names":["op_ext3_1"],"external_ref_count":5},{"ext_name":"ext4","op_names":["op_ext4_1","op_ext4_2","op_ext4_3","op_ext4_4","op_ext4_5"],"external_ref_count":0},{"ext_name":"ext5","op_names":[],"external_ref_count":0}]"#;
 
   let data = vec![
     ExtensionSnapshotMetadata {
       ext_name: "deno_core".to_string(),
       op_names: svec!["op_name1", "op_name2", "op_name3"],
+      external_ref_count: 0,
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext1".to_string(),
       op_names: svec!["op_ext1_1", "op_ext1_2", "op_ext1_3"],
+      external_ref_count: 0,
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext2".to_string(),
       op_names: svec!["op_ext2_1", "op_ext2_2"],
+      external_ref_count: 0,
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext3".to_string(),
       op_names: svec!["op_ext3_1"],
+      external_ref_count: 5,
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext4".to_string(),
@@ -326,10 +331,12 @@ fn extension_and_ops_data_for_snapshot_test() {
         "op_ext4_4",
         "op_ext4_5",
       ],
+      external_ref_count: 0,
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext5".to_string(),
       op_names: vec![],
+      external_ref_count: 0,
     },
   ];
 
