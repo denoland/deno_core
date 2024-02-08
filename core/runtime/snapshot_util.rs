@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::bail;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
@@ -273,120 +275,21 @@ pub(crate) fn create_snapshot_creator(
   }
 }
 
-#[derive(Debug, PartialEq)]
-struct ExtensionWithOps {
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct ExtensionSnapshotMetadata {
   ext_name: String,
   op_names: Vec<String>,
 }
-type ExtensionAndOpsData = Vec<ExtensionWithOps>;
+type SnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
 
-fn extension_and_ops_data_for_snapshot(data: &ExtensionAndOpsData) -> String {
-  let mut result = String::new();
-
-  result.push_str("EXT_COUNT:");
-  result.push_str(&data.len().to_string());
-  result.push(';');
-
-  for ext_data in data {
-    let ExtensionWithOps { ext_name, op_names } = ext_data;
-
-    let op_count = op_names.len();
-
-    result.push_str("EXT:");
-    result.push_str(&ext_name);
-    result.push_str(":");
-    result.push_str(&op_count.to_string());
-    result.push(';');
-    if !op_names.is_empty() {
-      result.push_str("OPS:");
-      for (idx, op_name) in op_names.iter().enumerate() {
-        result.push_str(op_name);
-        if idx != (op_count - 1) {
-          result.push(',');
-        }
-      }
-      result.push(';');
-    }
-  }
-
-  result
+fn extension_and_ops_data_for_snapshot(data: &SnapshotMetadata) -> String {
+  serde_json::to_string(data).unwrap()
 }
 
 fn parse_extension_and_ops_data(
   input: String,
-) -> Result<ExtensionAndOpsData, anyhow::Error> {
-  let mut data = Vec::new();
-  let mut current_ext: Option<String> = None;
-  let mut current_ops: Vec<String> = Vec::new();
-  let mut current_ops_count = 0;
-  let mut current_ops_count_next = false;
-  let mut ext_count = 0;
-  let mut ext_count_next = false;
-
-  for token in input.split(|c| c == ';' || c == ':') {
-    if ext_count_next {
-      ext_count_next = false;
-      // TODO: handle error
-      ext_count = token.parse().unwrap();
-      continue;
-    } else if current_ops_count_next {
-      current_ops_count_next = false;
-      // TODO: handle error
-      current_ops_count = token.parse().unwrap();
-      continue;
-    }
-    match token {
-      "EXT_COUNT" => {
-        ext_count_next = true;
-      }
-      "EXT" => {
-        if let Some(ext_name) = current_ext.take() {
-          if current_ops.len() != current_ops_count {
-            eprintln!("current ops {:#?}", current_ops);
-            bail!(
-              "Mismatch in ops count for ext: {}; expected: {}, found: {}",
-              ext_name,
-              current_ops_count,
-              current_ops.len()
-            );
-          }
-          data.push(ExtensionWithOps {
-            ext_name,
-            op_names: current_ops.clone(),
-          });
-          current_ops.clear();
-        }
-      }
-      "" => {
-        // TODO: parse error
-        ()
-      }
-      _ if current_ext.is_none() => {
-        current_ext = Some(token.to_string());
-        current_ops_count_next = true;
-      }
-      _ => {
-        current_ops.push(token.to_string());
-      }
-    }
-  }
-
-  if let Some(ext_name) = current_ext.take() {
-    data.push(ExtensionWithOps {
-      ext_name,
-      op_names: current_ops,
-    });
-  }
-
-  if data.len() != ext_count {
-    bail!(
-      "Mismatch in extension count, found: {}, expected: {}",
-      data.len(),
-      ext_count
-    );
-  }
-
-  Ok(data)
+) -> Result<SnapshotMetadata, anyhow::Error> {
+  Ok(serde_json::from_str(&input)?)
 }
 
 macro_rules! svec {
@@ -395,26 +298,26 @@ macro_rules! svec {
 
 #[test]
 fn extension_and_ops_data_for_snapshot_test() {
-  let expected = "EXT_COUNT:6;EXT:deno_core:3;OPS:op_name1,op_name2,op_name3;EXT:ext1:3;OPS:op_ext1_1,op_ext1_2,op_ext1_3;EXT:ext2:2;OPS:op_ext2_1,op_ext2_2;EXT:ext3:1;OPS:op_ext3_1;EXT:ext4:5;OPS:op_ext4_1,op_ext4_2,op_ext4_3,op_ext4_4,op_ext4_5;EXT:ext5:0;";
+  let expected = r#"[{"ext_name":"deno_core","op_names":["op_name1","op_name2","op_name3"]},{"ext_name":"ext1","op_names":["op_ext1_1","op_ext1_2","op_ext1_3"]},{"ext_name":"ext2","op_names":["op_ext2_1","op_ext2_2"]},{"ext_name":"ext3","op_names":["op_ext3_1"]},{"ext_name":"ext4","op_names":["op_ext4_1","op_ext4_2","op_ext4_3","op_ext4_4","op_ext4_5"]},{"ext_name":"ext5","op_names":[]}]"#;
 
   let data = vec![
-    ExtensionWithOps {
+    ExtensionSnapshotMetadata {
       ext_name: "deno_core".to_string(),
       op_names: svec!["op_name1", "op_name2", "op_name3"],
     },
-    ExtensionWithOps {
+    ExtensionSnapshotMetadata {
       ext_name: "ext1".to_string(),
       op_names: svec!["op_ext1_1", "op_ext1_2", "op_ext1_3"],
     },
-    ExtensionWithOps {
+    ExtensionSnapshotMetadata {
       ext_name: "ext2".to_string(),
       op_names: svec!["op_ext2_1", "op_ext2_2"],
     },
-    ExtensionWithOps {
+    ExtensionSnapshotMetadata {
       ext_name: "ext3".to_string(),
       op_names: svec!["op_ext3_1"],
     },
-    ExtensionWithOps {
+    ExtensionSnapshotMetadata {
       ext_name: "ext4".to_string(),
       op_names: svec![
         "op_ext4_1",
@@ -424,7 +327,7 @@ fn extension_and_ops_data_for_snapshot_test() {
         "op_ext4_5",
       ],
     },
-    ExtensionWithOps {
+    ExtensionSnapshotMetadata {
       ext_name: "ext5".to_string(),
       op_names: vec![],
     },
