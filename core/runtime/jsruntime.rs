@@ -378,7 +378,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) source_mapper: RefCell<SourceMapper<Box<dyn SourceMapGetter>>>,
+  pub(crate) source_mapper: RefCell<SourceMapper<Rc<dyn SourceMapGetter>>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -395,7 +395,7 @@ pub struct JsRuntimeState {
 #[derive(Default)]
 pub struct RuntimeOptions {
   /// Source map reference for errors.
-  pub source_map_getter: Option<Box<dyn SourceMapGetter>>,
+  pub source_map_getter: Option<Rc<dyn SourceMapGetter>>,
 
   /// Allows to map error type to a string "class" used to represent
   /// error in JavaScript.
