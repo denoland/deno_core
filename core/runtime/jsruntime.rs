@@ -797,6 +797,12 @@ impl JsRuntime {
       };
       module_map
         .update_with_snapshotted_data(scope, module_map_snapshotted_data);
+
+      state_rc
+        .source_mapper
+        .borrow_mut()
+        .ext_source_maps
+        .extend(snapshotted_data.ext_source_maps);
     }
 
     context.set_slot(scope, module_map.clone());
@@ -1866,11 +1872,19 @@ impl JsRuntimeForSnapshot {
           .borrow()
           .clone()
       };
+      let ext_source_maps = self
+        .inner
+        .state
+        .source_mapper
+        .borrow()
+        .ext_source_maps
+        .to_owned();
 
       let snapshotted_data = SnapshottedData {
         module_map_data: module_map_snapshotted_data.module_map_data,
         module_handles: module_map_snapshotted_data.module_handles,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        ext_source_maps,
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());

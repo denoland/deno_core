@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -147,10 +148,12 @@ pub(crate) struct SnapshottedData {
   pub module_map_data: v8::Global<v8::Array>,
   pub module_handles: Vec<v8::Global<v8::Module>>,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
+  pub ext_source_maps: HashMap<String, Vec<u8>>,
 }
 
 static MODULE_MAP_CONTEXT_DATA_INDEX: usize = 0;
 static JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX: usize = 1;
+static EXT_SOURCE_MAPS_DATA_INDEX: usize = 2;
 
 pub(crate) fn get_snapshotted_data(
   scope: &mut v8::HandleScope<()>,
@@ -191,9 +194,30 @@ pub(crate) fn get_snapshotted_data(
     Err(err) => data_error_to_panic(err),
   };
 
+  let mut ext_source_maps = HashMap::new();
+  match scope.get_context_data_from_snapshot_once::<v8::Array>(
+    EXT_SOURCE_MAPS_DATA_INDEX,
+  ) {
+    Ok(val) => {
+      for i in (0..val.length()).step_by(2) {
+        let key: v8::Local<v8::String> =
+          val.get_index(&mut scope, i).unwrap().try_into().unwrap();
+        let value: v8::Local<v8::String> = val
+          .get_index(&mut scope, i + 1)
+          .unwrap()
+          .try_into()
+          .unwrap();
+        let key = key.to_rust_string_lossy(&mut scope);
+        let value = value.to_rust_string_lossy(&mut scope);
+        ext_source_maps.insert(key, value.into_bytes());
+      }
+    }
+    Err(err) => data_error_to_panic(err),
+  }
+
   // Over allocate so executing a few scripts doesn't have to resize this vec.
   let mut module_handles = Vec::with_capacity(next_module_id as usize + 16);
-  for i in 2..=next_module_id + 1 {
+  for i in 3..=next_module_id + 2 {
     match scope.get_context_data_from_snapshot_once::<v8::Module>(i as usize) {
       Ok(val) => {
         let module_global = v8::Global::new(&mut scope, val);
@@ -207,6 +231,7 @@ pub(crate) fn get_snapshotted_data(
     module_map_data: v8::Global::new(&mut scope, val),
     module_handles,
     js_handled_promise_rejection_cb,
+    ext_source_maps,
   }
 }
 
@@ -216,6 +241,7 @@ pub(crate) fn set_snapshotted_data(
   snapshotted_data: SnapshottedData,
 ) {
   let local_context = v8::Local::new(scope, context);
+  let scope = &mut v8::ContextScope::new(scope, local_context);
   let local_data = v8::Local::new(scope, snapshotted_data.module_map_data);
   let offset = scope.add_context_data(local_context, local_data);
   assert_eq!(offset, MODULE_MAP_CONTEXT_DATA_INDEX);
@@ -232,11 +258,22 @@ pub(crate) fn set_snapshotted_data(
     scope.add_context_data(local_context, local_handled_promise_rejection_cb);
   assert_eq!(offset, JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX);
 
+  let mut ext_source_maps =
+    Vec::with_capacity(snapshotted_data.ext_source_maps.len() * 2);
+  for (key, value) in snapshotted_data.ext_source_maps.iter() {
+    let value = std::str::from_utf8(value).unwrap();
+    ext_source_maps.push(v8::String::new(scope, key).unwrap().into());
+    ext_source_maps.push(v8::String::new(scope, value).unwrap().into());
+  }
+  let ext_source_maps = v8::Array::new_with_elements(scope, &ext_source_maps);
+  let offset = scope.add_context_data(local_context, ext_source_maps);
+  assert_eq!(offset, EXT_SOURCE_MAPS_DATA_INDEX);
+
   for (index, handle) in snapshotted_data.module_handles.into_iter().enumerate()
   {
     let module_handle = v8::Local::new(scope, handle);
     let offset = scope.add_context_data(local_context, module_handle);
-    assert_eq!(offset, index + 2);
+    assert_eq!(offset, index + 3);
   }
 }
 
