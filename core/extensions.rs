@@ -161,6 +161,8 @@ pub type GlobalTemplateMiddlewareFn =
 pub type GlobalObjectMiddlewareFn =
   for<'s> fn(&mut v8::HandleScope<'s>, v8::Local<'s, v8::Object>);
 
+extern "C" fn noop() {}
+
 #[derive(Copy, Clone)]
 pub struct OpDecl {
   pub name: &'static str,
@@ -210,8 +212,30 @@ impl OpDecl {
     Self {
       slow_fn: bindings::op_disabled_fn.map_fn_to(),
       slow_fn_with_metrics: bindings::op_disabled_fn.map_fn_to(),
-      fast_fn: None,
-      fast_fn_with_metrics: None,
+      // TODO(bartlomieju): Currently this fast fn won't throw like `op_disabled_fn`;
+      // ideally we would add a fallback that would throw, but it's unclear
+      // if disabled op (that throws in JS) would ever get optimized to become
+      // a fast function.
+      fast_fn: if self.fast_fn.is_some() {
+        Some(FastFunction {
+          args: &[],
+          function: noop as _,
+          repr: v8::fast_api::Int64Representation::Number,
+          return_type: v8::fast_api::CType::Void,
+        })
+      } else {
+        None
+      },
+      fast_fn_with_metrics: if self.fast_fn_with_metrics.is_some() {
+        Some(FastFunction {
+          args: &[],
+          function: noop as _,
+          repr: v8::fast_api::Int64Representation::Number,
+          return_type: v8::fast_api::CType::Void,
+        })
+      } else {
+        None
+      },
       ..self
     }
   }
