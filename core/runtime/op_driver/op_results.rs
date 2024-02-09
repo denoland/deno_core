@@ -48,8 +48,6 @@ pub trait OpMappingContext:
     scope: &mut <Self as OpMappingContextLifetime<'s>>::Context,
     r: R,
   ) -> UnmappedResult<'s, Self>;
-
-  fn unerase_mapping_fn_raw<R: 'static>(f: *const fn()) -> Self::MappingFn<R>;
 }
 
 #[derive(Default)]
@@ -92,11 +90,6 @@ impl OpMappingContext for V8OpMappingContext {
   }
 
   #[inline(always)]
-  fn unerase_mapping_fn_raw<R: 'static>(f: *const fn()) -> Self::MappingFn<R> {
-    unsafe { std::mem::transmute(f) }
-  }
-
-  #[inline(always)]
   fn unerase_mapping_fn<'s, R: 'static>(
     f: *const fn(),
     scope: &mut <Self as OpMappingContextLifetime<'s>>::Context,
@@ -136,9 +129,6 @@ impl<C: OpMappingContext> PendingOp<C> {
 
 #[derive(Clone, Copy)]
 pub struct PendingOpInfo(pub PromiseId, pub OpId);
-
-#[derive(Clone, Copy)]
-pub struct PendingOpMappingRawInfo(pub PendingOpInfo, pub *const fn());
 
 pub struct PendingOpMappingInfo<
   C: OpMappingContext,
