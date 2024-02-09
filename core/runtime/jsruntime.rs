@@ -9,6 +9,7 @@ use super::op_driver::OpDriver;
 use super::setup;
 use super::snapshot_util;
 use super::stats::RuntimeActivityStatsFactory;
+use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
@@ -28,7 +29,6 @@ use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
-use crate::modules::ModuleMapSnapshottedData;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops_metrics::dispatch_metrics_async;
@@ -762,15 +762,14 @@ impl JsRuntime {
       import_meta_resolve_cb,
     ));
 
-    if let Some(snapshotted_data) = snapshotted_data {
+    if let Some((snapshotted_data, data_store)) = snapshotted_data {
       *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
         snapshotted_data.js_handled_promise_rejection_cb;
-      let module_map_snapshotted_data = ModuleMapSnapshottedData {
-        module_map_data: snapshotted_data.module_map_data,
-        module_handles: snapshotted_data.module_handles,
-      };
-      module_map
-        .update_with_snapshotted_data(scope, module_map_snapshotted_data);
+      module_map.update_with_snapshotted_data(
+        scope,
+        &mut data_store,
+        snapshotted_data.module_map_data,
+      );
     }
 
     context.set_slot(scope, module_map.clone());
@@ -1826,10 +1825,12 @@ impl JsRuntimeForSnapshot {
 
     // Serialize the module map and store its data in the snapshot.
     {
-      let module_map_snapshotted_data = {
+      let mut data_store = SnapshotStoreDataStore::default();
+      let module_map_data = {
         let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(
           &mut realm.handle_scope(self.v8_isolate()),
+          &mut data_store,
         )
       };
       let maybe_js_handled_promise_rejection_cb = {
@@ -1842,8 +1843,7 @@ impl JsRuntimeForSnapshot {
       };
 
       let snapshotted_data = SnapshottedData {
-        module_map_data: module_map_snapshotted_data.module_map_data,
-        module_handles: module_map_snapshotted_data.module_handles,
+        module_map_data,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
       };
 
@@ -1852,6 +1852,7 @@ impl JsRuntimeForSnapshot {
         &mut scope,
         realm.context().clone(),
         snapshotted_data,
+        data_store,
       );
     }
     drop(realm);

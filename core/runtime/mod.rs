@@ -38,6 +38,9 @@ pub use snapshot_util::get_js_files;
 pub use snapshot_util::CreateSnapshotOptions;
 pub use snapshot_util::CreateSnapshotOutput;
 pub use snapshot_util::FilterFn;
+pub(crate) use snapshot_util::SnapshotDataId;
+pub(crate) use snapshot_util::SnapshotLoadDataStore;
+pub(crate) use snapshot_util::SnapshotStoreDataStore;
 pub(crate) use snapshot_util::SnapshottedData;
 
 pub use bindings::script_origin;

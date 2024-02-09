@@ -1,4 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use super::module_map_data::ModuleMapSnapshotData;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
@@ -20,6 +21,8 @@ use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
+use crate::runtime::SnapshotLoadDataStore;
+use crate::runtime::SnapshotStoreDataStore;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::JsRuntime;
@@ -51,7 +54,6 @@ use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
-use super::module_map_data::ModuleMapSnapshottedData;
 use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
@@ -180,12 +182,13 @@ impl ModuleMap {
   pub(crate) fn update_with_snapshotted_data(
     &self,
     scope: &mut v8::HandleScope,
-    data: ModuleMapSnapshottedData,
+    data_store: &mut SnapshotLoadDataStore,
+    data: ModuleMapSnapshotData,
   ) {
     self
       .data
       .borrow_mut()
-      .update_with_snapshotted_data(scope, data);
+      .update_with_snapshotted_data(scope, data_store, data);
   }
 
   /// Get module id, following all aliases in case of module specifier
@@ -230,8 +233,13 @@ impl ModuleMap {
   pub(crate) fn serialize_for_snapshotting(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> ModuleMapSnapshottedData {
-    self.data.borrow().serialize_for_snapshotting(scope)
+    data_store: &mut SnapshotStoreDataStore,
+  ) -> ModuleMapSnapshotData {
+    let data = std::mem::take(&mut *self.data.borrow_mut());
+    self
+      .data
+      .take()
+      .serialize_for_snapshotting(scope, data_store)
   }
 
   #[cfg(test)]

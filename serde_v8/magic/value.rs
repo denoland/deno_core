@@ -15,9 +15,12 @@ pub struct Value<'s> {
 }
 impl_magic!(Value<'_>);
 
-impl<'s> From<v8::Local<'s, v8::Value>> for Value<'s> {
-  fn from(v8_value: v8::Local<'s, v8::Value>) -> Self {
-    Self { v8_value }
+impl<'s, T> From<v8::Local<'s, T>> for Value<'s>
+where
+  v8::Local<'s, T>: Into<v8::Local<'s, v8::Value>>,
+{
+  fn from(v: v8::Local<'s, T>) -> Self {
+    Self { v8_value: v.into() }
   }
 }
 
