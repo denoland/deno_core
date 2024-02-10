@@ -150,8 +150,19 @@ pub(crate) struct ModuleMapData {
 pub(crate) struct ModuleMapSnapshotData {
   next_load_id: i32,
   main_module_id: Option<i32>,
-  modules: Vec<(i32, String, Vec<ModuleRequest>, ModuleType, SnapshotDataId)>,
-  by_name: Vec<(String, RequestedModuleType, Option<String>, Option<i32>)>,
+  modules: Vec<(
+    i32,
+    FastString,
+    Vec<ModuleRequest>,
+    ModuleType,
+    SnapshotDataId,
+  )>,
+  by_name: Vec<(
+    FastString,
+    RequestedModuleType,
+    Option<FastString>,
+    Option<i32>,
+  )>,
 }
 
 impl ModuleMapData {
@@ -308,7 +319,7 @@ impl ModuleMapData {
       let module_handle = data_store.register(module);
       ser.modules.push((
         info.id as _,
-        info.name.as_str().to_owned(),
+        info.name,
         info.requests,
         info.module_type.clone(),
         module_handle,
@@ -317,15 +328,10 @@ impl ModuleMapData {
 
     self.by_name.drain(|_, module_type, name, module| {
       let (alias, id) = match module {
-        SymbolicModule::Alias(alias) => (Some(alias.as_str().to_owned()), None),
+        SymbolicModule::Alias(alias) => (Some(alias), None),
         SymbolicModule::Mod(id) => (None, Some(id as i32)),
       };
-      ser.by_name.push((
-        name.as_str().to_owned(),
-        module_type.clone(),
-        alias,
-        id,
-      ));
+      ser.by_name.push((name, module_type.clone(), alias, id));
     });
 
     ser
