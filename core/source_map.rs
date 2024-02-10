@@ -5,6 +5,7 @@
 use crate::resolve_url;
 pub use sourcemap::SourceMap;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::str;
 
 pub trait SourceMapGetter {
@@ -17,7 +18,7 @@ pub trait SourceMapGetter {
   ) -> Option<String>;
 }
 
-impl<T> SourceMapGetter for Box<T>
+impl<T> SourceMapGetter for Rc<T>
 where
   T: SourceMapGetter + ?Sized,
 {
