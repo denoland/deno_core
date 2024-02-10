@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// A symbolic module entity.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum SymbolicModule {
   /// This module is an alias to another module.
   /// This is useful such that multiple names could point to
@@ -150,19 +150,9 @@ pub(crate) struct ModuleMapData {
 pub(crate) struct ModuleMapSnapshotData {
   next_load_id: i32,
   main_module_id: Option<i32>,
-  modules: Vec<(
-    i32,
-    FastString,
-    Vec<ModuleRequest>,
-    ModuleType,
-    SnapshotDataId,
-  )>,
-  by_name: Vec<(
-    FastString,
-    RequestedModuleType,
-    Option<FastString>,
-    Option<i32>,
-  )>,
+  modules: Vec<ModuleInfo>,
+  module_handles: Vec<SnapshotDataId>,
+  by_name: Vec<(FastString, RequestedModuleType, SymbolicModule)>,
 }
 
 impl ModuleMapData {
@@ -306,32 +296,24 @@ impl ModuleMapData {
     self,
     data_store: &mut SnapshotStoreDataStore,
   ) -> ModuleMapSnapshotData {
-    let mut ser = ModuleMapSnapshotData {
-      next_load_id: self.next_load_id,
-      main_module_id: self.main_module_id.map(|x| x as _),
-      ..Default::default()
-    };
-
     debug_assert_eq!(self.by_name.len(), self.handles.len());
     debug_assert_eq!(self.info.len(), self.handles.len());
 
-    for (info, module) in self.info.into_iter().zip(self.handles) {
-      let module_handle = data_store.register(module);
-      ser.modules.push((
-        info.id as _,
-        info.name,
-        info.requests,
-        info.module_type.clone(),
-        module_handle,
-      ));
-    }
+    let mut ser = ModuleMapSnapshotData {
+      next_load_id: self.next_load_id,
+      main_module_id: self.main_module_id.map(|x| x as _),
+      modules: self.info,
+      ..Default::default()
+    };
+
+    ser.module_handles = self
+      .handles
+      .into_iter()
+      .map(|v| data_store.register(v))
+      .collect();
 
     self.by_name.drain(|_, module_type, name, module| {
-      let (alias, id) = match module {
-        SymbolicModule::Alias(alias) => (Some(alias), None),
-        SymbolicModule::Mod(id) => (None, Some(id as i32)),
-      };
-      ser.by_name.push((name, module_type.clone(), alias, id));
+      ser.by_name.push((name, module_type.clone(), module));
     });
 
     ser
@@ -345,34 +327,19 @@ impl ModuleMapData {
   ) {
     self.next_load_id = data.next_load_id;
     self.main_module_id = data.main_module_id.map(|x| x as _);
+    self.info = data.modules;
+    self.handles.reserve(data.module_handles.len());
+    self.handles_inverted.reserve(data.module_handles.len());
 
-    for (id, b, requests, module_type, module_handle) in data.modules {
+    for module_handle in data.module_handles {
+      let id = self.handles.len();
       let module = data_store.get::<v8::Module>(scope, module_handle);
       self.handles_inverted.insert(module.clone(), id as _);
       self.handles.push(module);
-      self.info.push(ModuleInfo {
-        id: id as _,
-        main: Some(id as usize) == self.main_module_id,
-        module_type,
-        name: FastString::from(b),
-        requests,
-      });
     }
 
-    for (name, module_type, c, d) in data.by_name {
-      match (c, d) {
-        (Some(id), None) => self.by_name.insert(
-          &module_type,
-          FastString::from(name),
-          SymbolicModule::Alias(id.into()),
-        ),
-        (None, Some(id)) => self.by_name.insert(
-          &module_type,
-          FastString::from(name),
-          SymbolicModule::Mod(id as _),
-        ),
-        _ => unreachable!(),
-      };
+    for (name, module_type, module) in data.by_name {
+      self.by_name.insert(&module_type, name, module)
     }
   }
 

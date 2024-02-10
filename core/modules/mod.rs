@@ -510,7 +510,7 @@ pub(crate) struct ModuleRequest {
   pub requested_module_type: RequestedModuleType,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ModuleInfo {
   #[allow(unused)]
   pub id: ModuleId,
