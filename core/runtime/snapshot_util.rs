@@ -206,10 +206,10 @@ pub(crate) struct SnapshottedData {
 }
 
 #[derive(Serialize, Deserialize)]
-struct RawSnapshottedData<'s> {
+struct RawSnapshottedData {
   data_count: u32,
   module_map_data: ModuleMapSnapshotData,
-  js_handled_promise_rejection_cb: Option<serde_v8::Value<'s>>,
+  js_handled_promise_rejection_cb: Option<SnapshotDataId>,
 }
 
 static RAW_SNAPSHOTTED_DATA_INDEX: usize = 0;
@@ -218,9 +218,9 @@ pub(crate) fn get_snapshotted_data(
   scope: &mut v8::HandleScope<()>,
   context: v8::Local<v8::Context>,
 ) -> (SnapshottedData, SnapshotLoadDataStore) {
-  let mut scope = &mut v8::ContextScope::new(scope, context);
+  let scope = &mut v8::ContextScope::new(scope, context);
 
-  let result = scope.get_context_data_from_snapshot_once::<v8::Value>(
+  let result = scope.get_context_data_from_snapshot_once::<v8::ArrayBuffer>(
     RAW_SNAPSHOTTED_DATA_INDEX,
   );
   let val = match result {
@@ -228,14 +228,21 @@ pub(crate) fn get_snapshotted_data(
     Err(err) => data_error_to_panic(err),
   };
 
+  let slice = val.data().unwrap().as_ptr();
+  let len = val.byte_length();
+  let slice = unsafe {
+    std::ptr::slice_from_raw_parts_mut(slice as *mut u8, len)
+      .as_mut()
+      .unwrap()
+  };
   let raw_data: RawSnapshottedData =
-    serde_v8::from_v8(scope, val).expect("Failed to deserialize snapshot data");
+    serde_json::from_slice(slice).expect("Failed to deserialize snapshot data");
   let mut data = SnapshotLoadDataStore::default();
   for i in 0..raw_data.data_count {
     let item = scope
       .get_context_data_from_snapshot_once::<v8::Data>(i as usize + 1)
       .unwrap();
-    let item = v8::Global::new(&mut scope, item);
+    let item = v8::Global::new(scope, item);
     data.data.push(Some(item));
   }
 
@@ -244,7 +251,7 @@ pub(crate) fn get_snapshotted_data(
       module_map_data: raw_data.module_map_data,
       js_handled_promise_rejection_cb: raw_data
         .js_handled_promise_rejection_cb
-        .map(|x| x.try_as_global(scope).unwrap()),
+        .map(|x| data.get(scope, x)),
     },
     data,
   )
@@ -263,11 +270,14 @@ pub(crate) fn set_snapshotted_data(
     module_map_data: snapshotted_data.module_map_data,
     js_handled_promise_rejection_cb: snapshotted_data
       .js_handled_promise_rejection_cb
-      .map(|v| v8::Local::new(scope, v).into()),
+      .map(|v| data_store.register(v)),
   };
 
-  let local_data = serde_v8::to_v8(scope, raw_snapshot_data).unwrap();
-  let offset = scope.add_context_data(local_context, local_data);
+  let local_data = serde_json::to_vec(&raw_snapshot_data).unwrap();
+  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(local_data);
+  let data =
+    v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
+  let offset = scope.add_context_data(local_context, data);
   assert_eq!(offset, RAW_SNAPSHOTTED_DATA_INDEX);
 
   for data in data_store.data.drain(..) {

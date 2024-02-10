@@ -46,6 +46,7 @@ impl<T> Default for ModuleNameTypeMap<T> {
 }
 
 impl<T> ModuleNameTypeMap<T> {
+  #[cfg(debug_assertions)]
   pub fn len(&self) -> usize {
     self.len
   }
@@ -62,12 +63,6 @@ impl<T> ModuleNameTypeMap<T> {
     let index = self.map_index(ty)?;
     let map = self.submaps.get(index)?;
     map.get(name)
-  }
-
-  pub fn clear(&mut self) {
-    self.len = 0;
-    self.map_index.clear();
-    self.submaps.clear();
   }
 
   pub fn insert(
@@ -301,11 +296,13 @@ impl ModuleMapData {
     self,
     data_store: &mut SnapshotStoreDataStore,
   ) -> ModuleMapSnapshotData {
-    let mut ser = ModuleMapSnapshotData::default();
+    let mut ser = ModuleMapSnapshotData {
+      next_load_id: self.next_load_id,
+      main_module_id: self.main_module_id.map(|x| x as _),
+      ..Default::default()
+    };
 
-    ser.next_load_id = self.next_load_id;
-    ser.main_module_id = self.main_module_id.map(|x| x as _);
-
+    debug_assert_eq!(self.by_name.len(), self.handles.len());
     debug_assert_eq!(self.info.len(), self.handles.len());
 
     for (info, module) in self.info.into_iter().zip(self.handles) {
