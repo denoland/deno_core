@@ -145,6 +145,7 @@ mod tests {
   fn test_conversions_compile() {
     // SAFETY: We don't run this test -- it's just to make sure this code compiles
     #[allow(invalid_value)]
+    #[allow(clippy::unnecessary_fallible_conversions)]
     unsafe {
       let value: v8::Local<v8::Function> = std::mem::zeroed();
 

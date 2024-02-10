@@ -235,8 +235,16 @@ pub(crate) fn get_snapshotted_data(
       .as_mut()
       .unwrap()
   };
+
+  #[cfg(all(
+    feature = "snapshot_data_json",
+    not(feature = "snapshot_data_bincode")
+  ))]
+  let raw_data: RawSnapshottedData = serde_json::from_slice(slice).unwrap();
+  #[cfg(feature = "snapshot_data_bincode")]
   let raw_data: RawSnapshottedData =
-    serde_json::from_slice(slice).expect("Failed to deserialize snapshot data");
+    bincode::deserialize(slice).expect("Failed to deserialize snapshot data");
+
   let mut data = SnapshotLoadDataStore::default();
   for i in 0..raw_data.data_count {
     let item = scope
@@ -273,7 +281,14 @@ pub(crate) fn set_snapshotted_data(
       .map(|v| data_store.register(v)),
   };
 
+  #[cfg(all(
+    feature = "snapshot_data_json",
+    not(feature = "snapshot_data_bincode")
+  ))]
   let local_data = serde_json::to_vec(&raw_snapshot_data).unwrap();
+  #[cfg(feature = "snapshot_data_bincode")]
+  let local_data = bincode::serialize(&raw_snapshot_data).unwrap();
+
   let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(local_data);
   let data =
     v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
