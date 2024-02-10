@@ -46,7 +46,6 @@ impl<T> Default for ModuleNameTypeMap<T> {
 }
 
 impl<T> ModuleNameTypeMap<T> {
-  #[cfg(debug_assertions)]
   pub fn len(&self) -> usize {
     self.len
   }
