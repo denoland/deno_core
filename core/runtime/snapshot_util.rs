@@ -24,9 +24,13 @@ pub struct SnapshotLoadDataStore {
 }
 
 impl SnapshotLoadDataStore {
-  pub fn get<T>(&mut self, id: SnapshotDataId) -> v8::Global<T>
+  pub fn get<'s, T>(
+    &mut self,
+    scope: &mut v8::HandleScope<'s>,
+    id: SnapshotDataId,
+  ) -> v8::Global<T>
   where
-    v8::Global<T>: From<v8::Global<v8::Data>>,
+    v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Data>>,
   {
     let Some(data) = self.data.get_mut(id as usize) else {
       panic!("Attempted to read snapshot data out of range: {id}");
@@ -34,12 +38,14 @@ impl SnapshotLoadDataStore {
     let Some(data) = data.take() else {
       panic!("Attempted to read the snapshot data at index {id} twice");
     };
-    data.try_into().unwrap_or_else(|_| {
+    let local = v8::Local::new(scope, data);
+    let local = v8::Local::<T>::try_from(local).unwrap_or_else(|_| {
       panic!(
         "Invalid data type at index {id}, expected '{}'",
         std::any::type_name::<T>()
       )
-    })
+    });
+    v8::Global::new(scope, local)
   }
 }
 
@@ -49,8 +55,17 @@ pub struct SnapshotStoreDataStore {
 }
 
 impl SnapshotStoreDataStore {
-  pub fn register<T>(&mut self, global: v8::Global<T>) -> SnapshotDataId {
-    unimplemented!()
+  pub fn register<T>(&mut self, global: v8::Global<T>) -> SnapshotDataId
+  where
+    for<'s> v8::Local<'s, v8::Data>: From<v8::Local<'s, T>>,
+  {
+    let id = self.data.len();
+    // TODO(mmastrac): v8::Global needs From/Into
+    // SAFETY: Because we've tested that Local<Data>: From<Local<T>>, we can assume this is safe.
+    unsafe {
+      self.data.push(std::mem::transmute(global));
+    }
+    id as _
   }
 }
 
@@ -203,7 +218,7 @@ pub(crate) fn get_snapshotted_data(
   scope: &mut v8::HandleScope<()>,
   context: v8::Local<v8::Context>,
 ) -> (SnapshottedData, SnapshotLoadDataStore) {
-  let mut scope = v8::ContextScope::new(scope, context);
+  let mut scope = &mut v8::ContextScope::new(scope, context);
 
   let result = scope.get_context_data_from_snapshot_once::<v8::Value>(
     RAW_SNAPSHOTTED_DATA_INDEX,
@@ -218,7 +233,7 @@ pub(crate) fn get_snapshotted_data(
   let mut data = SnapshotLoadDataStore::default();
   for i in 0..raw_data.data_count {
     let item = scope
-      .get_context_data_from_snapshot_once::<v8::Data>(i as _ + 1)
+      .get_context_data_from_snapshot_once::<v8::Data>(i as usize + 1)
       .unwrap();
     let item = v8::Global::new(&mut scope, item);
     data.data.push(Some(item));
@@ -229,19 +244,17 @@ pub(crate) fn get_snapshotted_data(
       module_map_data: raw_data.module_map_data,
       js_handled_promise_rejection_cb: raw_data
         .js_handled_promise_rejection_cb
-        .map(|x| {
-          v8::Global::new(&mut scope, x.v8_value.try_into().unwrap()).into()
-        }),
+        .map(|x| x.try_as_global(scope).unwrap()),
     },
     data,
   )
 }
 
 pub(crate) fn set_snapshotted_data(
-  scope: &mut v8::HandleScope<()>,
+  scope: &mut v8::HandleScope,
   context: v8::Global<v8::Context>,
   snapshotted_data: SnapshottedData,
-  data_store: SnapshotStoreDataStore,
+  mut data_store: SnapshotStoreDataStore,
 ) {
   let local_context = v8::Local::new(scope, context);
 

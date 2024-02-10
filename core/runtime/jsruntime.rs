@@ -762,7 +762,7 @@ impl JsRuntime {
       import_meta_resolve_cb,
     ));
 
-    if let Some((snapshotted_data, data_store)) = snapshotted_data {
+    if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
       *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
         snapshotted_data.js_handled_promise_rejection_cb;
       module_map.update_with_snapshotted_data(

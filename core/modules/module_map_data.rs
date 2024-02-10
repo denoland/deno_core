@@ -307,8 +307,10 @@ impl ModuleMapData {
     ser.next_load_id = self.next_load_id;
     ser.main_module_id = self.main_module_id.map(|x| x as _);
 
-    for (i, info) in self.info.into_iter().enumerate() {
-      let module_handle = data_store.register(self.handles[i]);
+    debug_assert_eq!(self.info.len(), self.handles.len());
+
+    for (info, module) in self.info.into_iter().zip(self.handles) {
+      let module_handle = data_store.register(module);
       ser.modules.push((
         info.id as _,
         info.name.as_str().to_owned(),
@@ -344,8 +346,8 @@ impl ModuleMapData {
     self.main_module_id = data.main_module_id.map(|x| x as _);
 
     for (id, b, requests, module_type, module_handle) in data.modules {
-      let module = data_store.get(module_handle);
-      self.handles_inverted.insert(module, id as _);
+      let module = data_store.get::<v8::Module>(scope, module_handle);
+      self.handles_inverted.insert(module.clone(), id as _);
       self.handles.push(module);
       self.info.push(ModuleInfo {
         id: id as _,

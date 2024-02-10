@@ -236,10 +236,7 @@ impl ModuleMap {
     data_store: &mut SnapshotStoreDataStore,
   ) -> ModuleMapSnapshotData {
     let data = std::mem::take(&mut *self.data.borrow_mut());
-    self
-      .data
-      .take()
-      .serialize_for_snapshotting(scope, data_store)
+    data.serialize_for_snapshotting(scope, data_store)
   }
 
   #[cfg(test)]
