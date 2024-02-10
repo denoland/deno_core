@@ -298,8 +298,7 @@ impl ModuleMapData {
   }
 
   pub fn serialize_for_snapshotting(
-    mut self,
-    scope: &mut v8::HandleScope,
+    self,
     data_store: &mut SnapshotStoreDataStore,
   ) -> ModuleMapSnapshotData {
     let mut ser = ModuleMapSnapshotData::default();

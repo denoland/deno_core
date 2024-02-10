@@ -232,11 +232,10 @@ impl ModuleMap {
 
   pub(crate) fn serialize_for_snapshotting(
     &self,
-    scope: &mut v8::HandleScope,
     data_store: &mut SnapshotStoreDataStore,
   ) -> ModuleMapSnapshotData {
     let data = std::mem::take(&mut *self.data.borrow_mut());
-    data.serialize_for_snapshotting(scope, data_store)
+    data.serialize_for_snapshotting(data_store)
   }
 
   #[cfg(test)]

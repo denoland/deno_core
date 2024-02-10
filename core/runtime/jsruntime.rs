@@ -1828,10 +1828,7 @@ impl JsRuntimeForSnapshot {
       let mut data_store = SnapshotStoreDataStore::default();
       let module_map_data = {
         let module_map = realm.0.module_map();
-        module_map.serialize_for_snapshotting(
-          &mut realm.handle_scope(self.v8_isolate()),
-          &mut data_store,
-        )
+        module_map.serialize_for_snapshotting(&mut data_store)
       };
       let maybe_js_handled_promise_rejection_cb = {
         let context_state = &realm.0.context_state;
