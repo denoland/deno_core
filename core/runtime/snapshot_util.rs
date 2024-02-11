@@ -31,8 +31,18 @@ pub struct CreateSnapshotOutput {
 #[must_use = "The files listed by create_snapshot should be printed as 'cargo:rerun-if-changed' lines"]
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
+  warmup_script: Option<&'static str>,
 ) -> CreateSnapshotOutput {
   let mut mark = Instant::now();
+
+  // Get the extensions for a second pass if we want to warm up the snapshot.
+  let warmup_exts = warmup_script.map(|_| {
+    create_snapshot_options
+      .extensions
+      .iter()
+      .map(|e| e.for_warmup())
+      .collect::<Vec<_>>()
+  });
 
   let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: create_snapshot_options.startup_snapshot,
@@ -57,8 +67,30 @@ pub fn create_snapshot(
     with_runtime_cb(&mut js_runtime);
   }
 
-  let snapshot = js_runtime.snapshot();
+  let mut snapshot = js_runtime.snapshot();
+  if let Some(warmup_script) = warmup_script {
+    let warmup_exts = warmup_exts.unwrap();
+
+    // Warm up the snapshot bootstrap.
+    //
+    // - Create a new isolate with cold snapshot blob.
+    // - Run warmup script in new context.
+    // - Serialize the new context into a new snapshot blob.
+    let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
+      extensions: warmup_exts,
+      skip_op_registration: true,
+      ..Default::default()
+    });
+    js_runtime
+      .execute_script_static("warmup", warmup_script)
+      .unwrap();
+
+    snapshot = js_runtime.snapshot();
+  }
+
   let snapshot_slice: &[u8] = &snapshot;
+
   println!(
     "Snapshot size: {}, took {:#?} ({})",
     snapshot_slice.len(),
