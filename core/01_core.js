@@ -362,7 +362,9 @@
         typeof arg === "number" || arg === null || arg === undefined
       ) {
         return arg;
-      } else if (TypedArrayPrototypeSymbolToStringTag(arg) === "Uint8Array") {
+      } else if (
+        TypedArrayPrototypeGetSymbolToStringTag(arg) === "Uint8Array"
+      ) {
         `Uint8Array(${TypedArrayPrototypeGetLength(arg)}) [${
           TypedArrayPrototypeJoin(TypedArrayPrototypeSlice(arg, 0, 10), ", ")
         }]`;
