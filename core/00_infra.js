@@ -123,7 +123,7 @@
     const promise = new Promise((resolve) => {
       promiseRing[idx] = resolve;
     });
-    let wrappedPromise = PromisePrototypeThen(
+    const wrappedPromise = PromisePrototypeThen(
       promise,
       unwrapOpError(),
     );
@@ -180,7 +180,7 @@
       if (res.code) {
         err.code = res.code;
       }
-      // Strip unwrapOpResult() and errorBuilder() calls from stack trace
+      // Strip eventLoopTick() calls from stack trace
       ErrorCaptureStackTrace(err, eventLoopTick);
       throw err;
     };
