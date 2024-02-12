@@ -19,7 +19,7 @@
     TypedArrayPrototypeGetLength,
     TypedArrayPrototypeJoin,
     TypedArrayPrototypeSlice,
-    TypedArrayPrototypeSymbolToStringTag,
+    TypedArrayPrototypeGetSymbolToStringTag,
     TypeError,
   } = window.__bootstrap.primordials;
   const {
@@ -356,40 +356,44 @@
   // It's not fully fledged and is meant to make debugging slightly easier when working with
   // only `deno_core` crate.
   class CoreConsole {
-    #stringify = (arg) => {
-      if (
-        typeof arg === "string" || typeof arg === "boolean" ||
-        typeof arg === "number" || arg === null || arg === undefined
-      ) {
-        return arg;
-      } else if (TypedArrayPrototypeSymbolToStringTag(arg) === "Uint8Array") {
-        `Uint8Array(${TypedArrayPrototypeGetLength(arg)}) [${
-          TypedArrayPrototypeJoin(TypedArrayPrototypeSlice(arg, 0, 10), ", ")
-        }]`;
-      }
-      return JSON.stringify(arg, undefined, 2);
-    };
-
     log = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
 
     debug = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
 
     warn = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
 
     error = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, true);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
   }
+
+  const consoleStringify = (...args) => args.map(consoleStringifyArg).join(" ");
+
+  const consoleStringifyArg = (arg) => {
+    if (
+      typeof arg === "string" || typeof arg === "boolean" ||
+      typeof arg === "number" || arg === null || arg === undefined
+    ) {
+      return arg;
+    }
+    const tag = TypedArrayPrototypeGetSymbolToStringTag(arg);
+    if (op_is_typed_array(arg)) {
+      return `${tag}(${TypedArrayPrototypeGetLength(arg)}) [${
+        TypedArrayPrototypeJoin(TypedArrayPrototypeSlice(arg, 0, 10), ", ")
+      }]`;
+    }
+    if (tag !== undefined) {
+      tag + " " + JSON.stringify(arg, undefined, 2);
+    } else {
+      return JSON.stringify(arg, undefined, 2);
+    }
+  };
 
   const v8Console = globalThis.console;
   const coreConsole = new CoreConsole();
@@ -570,6 +574,7 @@
     unrefOpPromise,
     setReportExceptionCallback,
     setPromiseHooks,
+    consoleStringify,
     close,
     tryClose,
     read,
