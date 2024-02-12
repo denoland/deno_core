@@ -14,6 +14,7 @@ use crate::source_map::SourceMapApplication;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
+use crate::PromiseId;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -41,6 +42,47 @@ pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().insert(promise_id);
+}
+
+#[op2]
+pub fn op_opcall_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.opcall_tracing_set_enabled(enabled);
+}
+
+#[op2]
+pub fn op_opcall_tracing_submit(
+  scope: &mut v8::HandleScope,
+  #[smi] promise: PromiseId,
+  #[string] trace: String,
+) {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.opcall_tracing_submit_trace(promise, trace);
+}
+
+#[op2]
+#[serde]
+pub fn op_opcall_tracing_get_all(
+  scope: &mut v8::HandleScope,
+) -> Vec<(String, String)> {
+  let context_state = JsRealm::state_from_scope(scope);
+  // This is pretty inefficient, but so is opcall tracing
+  let traces = context_state.opcall_tracing_get_all();
+  let mut out = Vec::with_capacity(traces.len());
+  for (key, value) in traces {
+    out.push((key.to_string(), value));
+  }
+  out
+}
+
+#[op2]
+#[string]
+pub fn op_opcall_tracing_get(
+  scope: &mut v8::HandleScope,
+  #[smi] promise: PromiseId,
+) -> Option<String> {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.opcall_tracing_get(promise)
 }
 
 /// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
