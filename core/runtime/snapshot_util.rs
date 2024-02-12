@@ -33,7 +33,10 @@ impl SnapshotLoadDataStore {
     v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Data>>,
   {
     let Some(data) = self.data.get_mut(id as usize) else {
-      panic!("Attempted to read snapshot data out of range: {id}");
+      panic!(
+        "Attempted to read snapshot data out of range: {id} (of {})",
+        self.data.len()
+      );
     };
     let Some(data) = data.take() else {
       panic!("Attempted to read the snapshot data at index {id} twice");
@@ -305,12 +308,13 @@ pub(crate) fn set_snapshotted_data(
 ) {
   let local_context = v8::Local::new(scope, context);
 
+  let js_handled_promise_rejection_cb = snapshotted_data
+    .js_handled_promise_rejection_cb
+    .map(|v| data_store.register(v));
   let raw_snapshot_data = RawSnapshottedData {
     data_count: data_store.data.len() as _,
     module_map_data: snapshotted_data.module_map_data,
-    js_handled_promise_rejection_cb: snapshotted_data
-      .js_handled_promise_rejection_cb
-      .map(|v| data_store.register(v)),
+    js_handled_promise_rejection_cb,
   };
 
   #[cfg(all(
