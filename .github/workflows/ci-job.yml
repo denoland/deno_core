@@ -41,7 +41,7 @@ jobs:
 
       - name: Install ARM runner tools
         if: ${{ inputs.os == 'ubuntu-22.04-arm64' }}
-        run: sudo apt-get install -y unzip
+        run: sudo apt-get install -y unzip clang-16 lld-16
 
       - name: Install Rust
         uses: dsherret/rust-toolchain-file@v1
