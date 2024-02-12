@@ -1,4 +1,10 @@
 Hello, world
-1,2,3
-[object Object]
-1,2,3
+[
+  1,
+  2,
+  3
+]
+{
+  "foo": "bar"
+}
+Uint8Array(3) [1, 2, 3]
