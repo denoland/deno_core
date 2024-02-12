@@ -39,6 +39,9 @@ jobs:
       - name: Clone repository
         uses: actions/checkout@v3
 
+      - name: Install ARM runner tools
+        run: apt-get install -y unzip
+
       - name: Install Rust
         uses: dsherret/rust-toolchain-file@v1
 
