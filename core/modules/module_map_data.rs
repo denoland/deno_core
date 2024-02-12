@@ -7,13 +7,18 @@ use crate::modules::ModuleLoadId;
 use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
+use crate::runtime::SnapshotDataId;
+use crate::runtime::SnapshotLoadDataStore;
+use crate::runtime::SnapshotStoreDataStore;
 use crate::ExtensionFileSource;
+use serde::Deserialize;
+use serde::Serialize;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 /// A symbolic module entity.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum SymbolicModule {
   /// This module is an alias to another module.
   /// This is useful such that multiple names could point to
@@ -59,12 +64,6 @@ impl<T> ModuleNameTypeMap<T> {
     map.get(name)
   }
 
-  pub fn clear(&mut self) {
-    self.len = 0;
-    self.map_index.clear();
-    self.submaps.clear();
-  }
-
   pub fn insert(
     &mut self,
     module_type: &RequestedModuleType,
@@ -92,25 +91,20 @@ impl<T> ModuleNameTypeMap<T> {
     }
   }
 
-  /// Rather than providing an iterator, we provide a walk method. This is mainly because Rust
+  /// Rather than providing an iterator, we provide a drain method. This is mainly because Rust
   /// doesn't have generators.
-  pub fn walk(
-    &self,
-    mut f: impl FnMut(usize, &RequestedModuleType, &ModuleName, &T),
+  pub fn drain(
+    mut self,
+    mut f: impl FnMut(usize, &RequestedModuleType, ModuleName, T),
   ) {
     let mut i = 0;
-    for (ty, value) in self.map_index.iter() {
-      for (key, value) in self.submaps.get(*value).unwrap() {
-        f(i, ty, key, value);
+    for (ty, value) in self.map_index.into_iter() {
+      for (key, value) in self.submaps.get_mut(value).unwrap().drain() {
+        f(i, &ty, key, value);
         i += 1;
       }
     }
   }
-}
-
-pub(crate) struct ModuleMapSnapshottedData {
-  pub module_map_data: v8::Global<v8::Array>,
-  pub module_handles: Vec<v8::Global<v8::Module>>,
 }
 
 /// An array of tuples that provide module exports.
@@ -149,6 +143,16 @@ pub(crate) struct ModuleMapData {
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+}
+
+/// Snapshot-compatible representation of this data.
+#[derive(Default, Serialize, Deserialize)]
+pub(crate) struct ModuleMapSnapshotData {
+  next_load_id: i32,
+  main_module_id: Option<i32>,
+  modules: Vec<ModuleInfo>,
+  module_handles: Vec<SnapshotDataId>,
+  by_name: Vec<(FastString, RequestedModuleType, SymbolicModule)>,
 }
 
 impl ModuleMapData {
@@ -289,234 +293,54 @@ impl ModuleMapData {
   }
 
   pub fn serialize_for_snapshotting(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> ModuleMapSnapshottedData {
-    let data = self;
-    let array = v8::Array::new(scope, 3);
+    self,
+    data_store: &mut SnapshotStoreDataStore,
+  ) -> ModuleMapSnapshotData {
+    debug_assert_eq!(self.by_name.len(), self.handles.len());
+    debug_assert_eq!(self.info.len(), self.handles.len());
 
-    let next_load_id = v8::Integer::new(scope, data.next_load_id);
-    array.set_index(scope, 0, next_load_id.into());
+    let mut ser = ModuleMapSnapshotData {
+      next_load_id: self.next_load_id,
+      main_module_id: self.main_module_id.map(|x| x as _),
+      modules: self.info,
+      ..Default::default()
+    };
 
-    if let Some(main_module_id) = data.main_module_id {
-      let main_module_id = v8::Integer::new(scope, main_module_id as i32);
-      array.set_index(scope, 1, main_module_id.into());
-    }
+    ser.module_handles = self
+      .handles
+      .into_iter()
+      .map(|v| data_store.register(v))
+      .collect();
 
-    let info_arr = v8::Array::new(scope, data.info.len() as i32);
-    for (i, info) in data.info.iter().enumerate() {
-      let module_info_arr = v8::Array::new(scope, 4);
-
-      let id = v8::Integer::new(scope, info.id as i32);
-      module_info_arr.set_index(scope, 0, id.into());
-
-      let name = info.name.v8(scope);
-      module_info_arr.set_index(scope, 1, name.into());
-
-      let array_len = 2 * info.requests.len() as i32;
-      let requests_arr = v8::Array::new(scope, array_len);
-      for (i, request) in info.requests.iter().enumerate() {
-        let specifier = v8::String::new_from_one_byte(
-          scope,
-          request.specifier.as_bytes(),
-          v8::NewStringType::Normal,
-        )
-        .unwrap();
-        requests_arr.set_index(scope, 2 * i as u32, specifier.into());
-        let value = request.requested_module_type.to_v8(scope);
-        requests_arr.set_index(scope, (2 * i) as u32 + 1, value);
-      }
-      module_info_arr.set_index(scope, 2, requests_arr.into());
-
-      let module_type = info.module_type.to_v8(scope);
-      module_info_arr.set_index(scope, 3, module_type);
-
-      info_arr.set_index(scope, i as u32, module_info_arr.into());
-    }
-    array.set_index(scope, 2, info_arr.into());
-
-    let length = self.by_name.len();
-    let by_name_array = v8::Array::new(scope, length.try_into().unwrap());
-    self.by_name.walk(|i, module_type, name, module| {
-      let arr = v8::Array::new(scope, 3);
-
-      let specifier = name.v8(scope);
-      arr.set_index(scope, 0, specifier.into());
-      let value = module_type.to_v8(scope);
-      arr.set_index(scope, 1, value);
-
-      let symbolic_module: v8::Local<v8::Value> = match module {
-        SymbolicModule::Alias(alias) => {
-          let alias = v8::String::new_from_one_byte(
-            scope,
-            alias.as_bytes(),
-            v8::NewStringType::Normal,
-          )
-          .unwrap();
-          alias.into()
-        }
-        SymbolicModule::Mod(id) => {
-          let id = v8::Integer::new(scope, *id as i32);
-          id.into()
-        }
-      };
-      arr.set_index(scope, 2, symbolic_module);
-
-      by_name_array.set_index(scope, i as u32, arr.into());
+    self.by_name.drain(|_, module_type, name, module| {
+      ser.by_name.push((name, module_type.clone(), module));
     });
-    array.set_index(scope, 3, by_name_array.into());
 
-    let array_global = v8::Global::new(scope, array);
-
-    let handles = data.handles.clone();
-    ModuleMapSnapshottedData {
-      module_map_data: array_global,
-      module_handles: handles,
-    }
+    ser
   }
 
   pub fn update_with_snapshotted_data(
     &mut self,
     scope: &mut v8::HandleScope,
-    snapshotted_data: ModuleMapSnapshottedData,
+    data_store: &mut SnapshotLoadDataStore,
+    data: ModuleMapSnapshotData,
   ) {
-    let local_data: v8::Local<v8::Array> =
-      v8::Local::new(scope, snapshotted_data.module_map_data);
+    self.next_load_id = data.next_load_id;
+    self.main_module_id = data.main_module_id.map(|x| x as _);
+    self.info = data.modules;
+    self.handles.reserve(data.module_handles.len());
+    self.handles_inverted.reserve(data.module_handles.len());
 
-    {
-      let next_load_id = local_data.get_index(scope, 0).unwrap();
-      assert!(next_load_id.is_int32());
-      let integer = next_load_id.to_integer(scope).unwrap();
-      let val = integer.int32_value(scope).unwrap();
-      self.next_load_id = val;
+    for module_handle in data.module_handles {
+      let id = self.handles.len();
+      let module = data_store.get::<v8::Module>(scope, module_handle);
+      self.handles_inverted.insert(module.clone(), id as _);
+      self.handles.push(module);
     }
 
-    {
-      let main_module_id = local_data.get_index(scope, 1).unwrap();
-      if !main_module_id.is_undefined() {
-        let integer = main_module_id
-          .to_integer(scope)
-          .map(|v| v.int32_value(scope).unwrap() as usize);
-        self.main_module_id = integer;
-      }
+    for (name, module_type, module) in data.by_name {
+      self.by_name.insert(&module_type, name, module)
     }
-
-    {
-      let info_val = local_data.get_index(scope, 2).unwrap();
-
-      let info_arr: v8::Local<v8::Array> = info_val.try_into().unwrap();
-      let len = info_arr.length() as usize;
-      // Over allocate so executing a few scripts doesn't have to resize this vec.
-      let mut info = Vec::with_capacity(len + 16);
-
-      for i in 0..len {
-        let module_info_arr: v8::Local<v8::Array> = info_arr
-          .get_index(scope, i as u32)
-          .unwrap()
-          .try_into()
-          .unwrap();
-        let id = module_info_arr
-          .get_index(scope, 0)
-          .unwrap()
-          .to_integer(scope)
-          .unwrap()
-          .value() as ModuleId;
-
-        let name = module_info_arr
-          .get_index(scope, 1)
-          .unwrap()
-          .to_rust_string_lossy(scope)
-          .into();
-
-        let requests_arr: v8::Local<v8::Array> = module_info_arr
-          .get_index(scope, 2)
-          .unwrap()
-          .try_into()
-          .unwrap();
-        let len = (requests_arr.length() as usize) / 2;
-        let mut requests = Vec::with_capacity(len);
-        for i in 0..len {
-          let specifier = requests_arr
-            .get_index(scope, (2 * i) as u32)
-            .unwrap()
-            .to_rust_string_lossy(scope);
-          let value =
-            requests_arr.get_index(scope, (2 * i + 1) as u32).unwrap();
-          let requested_module_type =
-            RequestedModuleType::try_from_v8(scope, value).unwrap();
-          requests.push(ModuleRequest {
-            specifier,
-            requested_module_type,
-          });
-        }
-
-        let value = module_info_arr.get_index(scope, 3).unwrap();
-        let module_type = ModuleType::try_from_v8(scope, value).unwrap();
-
-        let main = self.main_module_id == Some(id);
-        let module_info = ModuleInfo {
-          id,
-          main,
-          name,
-          requests,
-          module_type,
-        };
-        info.push(module_info);
-      }
-      self.info = info;
-    }
-
-    self.by_name.clear();
-
-    {
-      let by_name_arr: v8::Local<v8::Array> =
-        local_data.get_index(scope, 3).unwrap().try_into().unwrap();
-      let len = by_name_arr.length() as usize;
-
-      for i in 0..len {
-        let arr: v8::Local<v8::Array> = by_name_arr
-          .get_index(scope, i as u32)
-          .unwrap()
-          .try_into()
-          .unwrap();
-
-        let specifier =
-          arr.get_index(scope, 0).unwrap().to_rust_string_lossy(scope);
-        let requested_module_type = match arr
-          .get_index(scope, 1)
-          .unwrap()
-          .to_integer(scope)
-          .unwrap()
-          .value()
-        {
-          0 => RequestedModuleType::None,
-          1 => RequestedModuleType::Json,
-          _ => unreachable!(),
-        };
-
-        let symbolic_module_val = arr.get_index(scope, 2).unwrap();
-        let val = if symbolic_module_val.is_number() {
-          SymbolicModule::Mod(
-            symbolic_module_val
-              .to_integer(scope)
-              .unwrap()
-              .value()
-              .try_into()
-              .unwrap(),
-          )
-        } else {
-          SymbolicModule::Alias(
-            symbolic_module_val.to_rust_string_lossy(scope).into(),
-          )
-        };
-
-        self
-          .by_name
-          .insert(&requested_module_type, specifier.into(), val);
-      }
-    }
-
-    self.handles = snapshotted_data.module_handles;
   }
 
   // TODO(mmastrac): this is better than giving the entire crate access to the internals.

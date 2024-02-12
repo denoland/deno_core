@@ -1,5 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use serde::Deserializer;
+use serde::Serializer;
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -222,6 +224,27 @@ impl From<String> for FastString {
 impl From<Arc<str>> for FastString {
   fn from(value: Arc<str>) -> Self {
     FastString::Arc(value)
+  }
+}
+
+impl serde::Serialize for FastString {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: Serializer,
+  {
+    serializer.serialize_str(self.as_str())
+  }
+}
+
+type DeserializeProxy<'de> = &'de str;
+
+impl<'de> serde::Deserialize<'de> for FastString {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: Deserializer<'de>,
+  {
+    DeserializeProxy::<'de>::deserialize(deserializer)
+      .map(|v| v.to_owned().into())
   }
 }
 
