@@ -383,8 +383,8 @@
       return arg;
     }
     const tag = TypedArrayPrototypeGetSymbolToStringTag(arg);
-    if (tag === "Uint8Array") {
-      return `Uint8Array(${TypedArrayPrototypeGetLength(arg)}) [${
+    if (op_is_typed_array(arg)) {
+      return `${tag}(${TypedArrayPrototypeGetLength(arg)}) [${
         TypedArrayPrototypeJoin(TypedArrayPrototypeSlice(arg, 0, 10), ", ")
       }]`;
     }
