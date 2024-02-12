@@ -585,7 +585,7 @@ impl Extension {
   // Produces a new extension that is suitable for use during the warmup phase.
   //
   // JS sources are not included, and ops are include for external references only.
-  pub fn for_warmup(&self) -> Extension {
+  pub(crate) fn for_warmup(&self) -> Extension {
     Self {
       op_state_fn: None,
       middleware_fn: None,
