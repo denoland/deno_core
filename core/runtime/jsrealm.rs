@@ -12,10 +12,12 @@ use crate::ops::OpCtx;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
 use crate::GetErrorClassFn;
+use crate::PromiseId;
 use anyhow::Error;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
@@ -56,6 +58,8 @@ pub(crate) struct ContextState {
   pub(crate) wasm_instantiate_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
+  pub(crate) opcall_tracing_enabled: Cell<bool>,
+  pub(crate) opcall_traces: RefCell<HashMap<i32, String>>,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
@@ -81,12 +85,37 @@ impl ContextState {
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       wasm_instantiate_fn: Default::default(),
+      opcall_traces: Default::default(),
+      opcall_tracing_enabled: Default::default(),
       op_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
       unrefed_ops: Default::default(),
     }
+  }
+
+  pub fn opcall_tracing_set_enabled(&self, enabled: bool) {
+    self.opcall_tracing_enabled.set(enabled);
+    if !enabled {
+      self.opcall_traces.borrow_mut().clear();
+    }
+  }
+
+  pub fn opcall_tracing_submit_trace(
+    &self,
+    promise_id: PromiseId,
+    trace: String,
+  ) {
+    self.opcall_traces.borrow_mut().insert(promise_id, trace);
+  }
+
+  pub fn opcall_tracing_get_all(&self) -> HashMap<PromiseId, String> {
+    self.opcall_traces.borrow().clone()
+  }
+
+  pub fn opcall_tracing_get(&self, promise_id: PromiseId) -> Option<String> {
+    self.opcall_traces.borrow().get(&promise_id).cloned()
   }
 }
 

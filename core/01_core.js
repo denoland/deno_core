@@ -6,6 +6,7 @@
     ArrayPrototypeMap,
     ArrayPrototypePush,
     Error,
+    ErrorCaptureStackTrace,
     FunctionPrototypeBind,
     ObjectAssign,
     ObjectFreeze,
@@ -14,6 +15,8 @@
     ObjectHasOwn,
     Proxy,
     setQueueMicrotask,
+    SafeMap,
+    StringPrototypeSlice,
     Symbol,
     SymbolFor,
     TypedArrayPrototypeGetLength,
@@ -24,11 +27,97 @@
   } = window.__bootstrap.primordials;
   const {
     ops,
-    getPromise,
     hasPromise,
     promiseIdSymbol,
     registerErrorClass,
+    __setOpCallTracingEnabled,
+    __initializeCoreMethods,
+    __resolvePromise,
   } = window.Deno.core;
+  const {
+    op_abort_wasm_streaming,
+    op_current_user_call_site,
+    op_decode,
+    op_deserialize,
+    op_destructure_error,
+    op_dispatch_exception,
+    op_encode,
+    op_encode_binary_string,
+    op_eval_context,
+    op_event_loop_has_more_work,
+    op_get_promise_details,
+    op_get_proxy_details,
+    op_has_tick_scheduled,
+    op_lazy_load_esm,
+    op_memory_usage,
+    op_op_names,
+    op_panic,
+    op_print,
+    op_queue_microtask,
+    op_ref_op,
+    op_resources,
+    op_run_microtasks,
+    op_serialize,
+    op_set_handled_promise_rejection_handler,
+    op_set_has_tick_scheduled,
+    op_set_promise_hooks,
+    op_set_wasm_streaming_callback,
+    op_str_byte_length,
+    op_timer_cancel,
+    op_timer_queue,
+    op_timer_ref,
+    op_timer_unref,
+    op_unref_op,
+    op_cancel_handle,
+    op_opcall_tracing_enable,
+    op_opcall_tracing_submit,
+    op_opcall_tracing_get_all,
+    op_opcall_tracing_get,
+
+    op_is_any_array_buffer,
+    op_is_arguments_object,
+    op_is_array_buffer,
+    op_is_array_buffer_view,
+    op_is_async_function,
+    op_is_big_int_object,
+    op_is_boolean_object,
+    op_is_boxed_primitive,
+    op_is_data_view,
+    op_is_date,
+    op_is_generator_function,
+    op_is_generator_object,
+    op_is_map,
+    op_is_map_iterator,
+    op_is_module_namespace_object,
+    op_is_native_error,
+    op_is_number_object,
+    op_is_promise,
+    op_is_proxy,
+    op_is_reg_exp,
+    op_is_set,
+    op_is_set_iterator,
+    op_is_shared_array_buffer,
+    op_is_string_object,
+    op_is_symbol_object,
+    op_is_typed_array,
+    op_is_weak_map,
+    op_is_weak_set,
+  } = ensureFastOps();
+
+  // core/infra collaborative code
+  delete window.Deno.core.__setOpCallTracingEnabled;
+  delete window.Deno.core.__initializeCoreMethods;
+  delete window.Deno.core.__resolvePromise;
+  __initializeCoreMethods(
+    eventLoopTick,
+    submitOpCallTrace,
+  );
+
+  function submitOpCallTrace(id) {
+    const error = new Error();
+    ErrorCaptureStackTrace(error, submitOpCallTrace);
+    op_opcall_tracing_submit(id, StringPrototypeSlice(error.stack, 6));
+  }
 
   let unhandledPromiseRejectionHandler = () => false;
   let timerDepth = 0;
@@ -53,8 +142,7 @@
     for (let i = 0; i < arguments.length - 3; i += 2) {
       const promiseId = arguments[i];
       const res = arguments[i + 1];
-      const promise = getPromise(promiseId);
-      promise.resolve(res);
+      __resolvePromise(promiseId, res);
     }
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
@@ -400,72 +488,6 @@
   globalThis.console = coreConsole;
   wrapConsole(coreConsole, v8Console);
 
-  const {
-    op_abort_wasm_streaming,
-    op_current_user_call_site,
-    op_decode,
-    op_deserialize,
-    op_destructure_error,
-    op_dispatch_exception,
-    op_encode,
-    op_encode_binary_string,
-    op_eval_context,
-    op_event_loop_has_more_work,
-    op_get_promise_details,
-    op_get_proxy_details,
-    op_has_tick_scheduled,
-    op_lazy_load_esm,
-    op_memory_usage,
-    op_op_names,
-    op_panic,
-    op_print,
-    op_queue_microtask,
-    op_ref_op,
-    op_resources,
-    op_run_microtasks,
-    op_serialize,
-    op_set_handled_promise_rejection_handler,
-    op_set_has_tick_scheduled,
-    op_set_promise_hooks,
-    op_set_wasm_streaming_callback,
-    op_str_byte_length,
-    op_timer_cancel,
-    op_timer_queue,
-    op_timer_ref,
-    op_timer_unref,
-    op_unref_op,
-    op_cancel_handle,
-
-    op_is_any_array_buffer,
-    op_is_arguments_object,
-    op_is_array_buffer,
-    op_is_array_buffer_view,
-    op_is_async_function,
-    op_is_big_int_object,
-    op_is_boolean_object,
-    op_is_boxed_primitive,
-    op_is_data_view,
-    op_is_date,
-    op_is_generator_function,
-    op_is_generator_object,
-    op_is_map,
-    op_is_map_iterator,
-    op_is_module_namespace_object,
-    op_is_native_error,
-    op_is_number_object,
-    op_is_promise,
-    op_is_proxy,
-    op_is_reg_exp,
-    op_is_set,
-    op_is_set_iterator,
-    op_is_shared_array_buffer,
-    op_is_string_object,
-    op_is_symbol_object,
-    op_is_typed_array,
-    op_is_weak_map,
-    op_is_weak_set,
-  } = ensureFastOps();
-
   function propWritable(value) {
     return {
       value,
@@ -586,6 +608,17 @@
     writeSync,
     shutdown,
     print: (msg, isErr) => op_print(msg, isErr),
+    setOpCallTracingEnabled: (enabled) => {
+      __setOpCallTracingEnabled(enabled);
+      op_opcall_tracing_enable(enabled);
+    },
+    isOpCallTracingEnabled: () => false,
+    getAllOpCallTraces: () => {
+      const traces = op_opcall_tracing_get_all();
+      return new SafeMap(traces);
+    },
+    getOpCallTraceForPromise: (promise) =>
+      op_opcall_tracing_get(promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
     runMicrotasks: () => op_run_microtasks(),
