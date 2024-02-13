@@ -2172,7 +2172,7 @@ impl JsRuntime {
       }
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
-      context_state.opcall_traces.borrow_mut().remove(&promise_id);
+      context_state.opcall_traces.complete(promise_id);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(res.unwrap_or_else(std::convert::identity));

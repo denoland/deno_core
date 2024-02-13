@@ -45,3 +45,17 @@ export function assertArrayEquals(a1, a2) {
     assertEquals(a1[index], a2[index]);
   }
 }
+
+/**
+ * Assert that two stack traces match, minus the line numbers.
+ */
+export function assertStackTraceEquals(stack1: string, stack2: string) {
+  function normalize(s: string) {
+    return s.replace(/[ ]+/g, " ")
+      .replace(/^ /g, "")
+      .replace(/\d+:\d+/g, "line:col")
+      .trim();
+  }
+
+  assertEquals(normalize(stack1), normalize(stack2));
+}
