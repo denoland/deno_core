@@ -8,8 +8,51 @@ use crate::PromiseId;
 use crate::ResourceId;
 use bit_set::BitSet;
 use serde::Serialize;
+use std::cell::Cell;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
+
+#[derive(Default)]
+pub struct OpCallTraces {
+  enabled: Cell<bool>,
+  traces: RefCell<HashMap<PromiseId, String>>,
+}
+
+impl OpCallTraces {
+  pub(crate) fn set_enabled(&self, enabled: bool) {
+    self.enabled.set(enabled);
+    if !enabled {
+      self.traces.borrow_mut().clear();
+    }
+  }
+
+  pub(crate) fn submit(&self, promise_id: PromiseId, trace: String) {
+    self.traces.borrow_mut().insert(promise_id, trace);
+  }
+
+  pub(crate) fn complete(&self, promise_id: PromiseId) {
+    self.traces.borrow_mut().remove(&promise_id);
+  }
+
+  pub fn is_enabled(&self) -> bool {
+    self.enabled.get()
+  }
+
+  pub fn count(&self) -> usize {
+    self.traces.borrow().len()
+  }
+
+  pub fn get_all(&self, mut f: impl FnMut(PromiseId, &str)) {
+    for (key, value) in self.traces.borrow().iter() {
+      f(*key, value.as_str())
+    }
+  }
+
+  pub fn get(&self, promise_id: PromiseId) -> Option<String> {
+    self.traces.borrow().get(&promise_id).cloned()
+  }
+}
 
 #[derive(Clone)]
 pub struct RuntimeActivityStatsFactory {
