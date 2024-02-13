@@ -77,7 +77,7 @@ deno_core::extension!(
     "checkin:testing" = "testing.ts",
     "checkin:timers" = "timers.ts",
     "checkin:worker" = "worker.ts",
-    "checkin:throwInExt" = "throwInExt.ts",
+    "checkin:throw" = "throw.ts",
   ],
   state = |state| {
     state.put(TestFunctions::default());

@@ -4,9 +4,9 @@
  * This is needed to test that stack traces in extensions are correct.
  */
 export function throwInExt() {
-  innertTrowInExt();
+  innerThrowInExt();
 }
 
-function innertTrowInExt() {
+function innerThrowInExt() {
   throw new Error("Failed");
 }
