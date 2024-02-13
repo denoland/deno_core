@@ -94,10 +94,13 @@ impl<G: SourceMapGetter> SourceMapper<G> {
     let getter = self.getter.as_ref();
     let maybe_source_map =
       self.maps.entry(file_name.to_owned()).or_insert_with(|| {
-        let raw_source_map = None
-          .or_else(|| self.ext_source_maps.get(file_name).cloned())
-          .or_else(|| getter.and_then(|g| g.get_source_map(file_name)));
-        SourceMap::from_slice(&raw_source_map?).ok()
+        None
+          .or_else(|| {
+            SourceMap::from_slice(self.ext_source_maps.get(file_name)?).ok()
+          })
+          .or_else(|| {
+            SourceMap::from_slice(&getter?.get_source_map(file_name)?).ok()
+          })
       });
 
     let Some(source_map) = maybe_source_map.as_ref() else {
