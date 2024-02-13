@@ -53,6 +53,7 @@ impl std::fmt::Debug for ExtensionFileSourceCode {
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
   pub code: ExtensionFileSourceCode,
+  pub source_map: Option<Vec<u8>>,
   _unconstructable_use_new: PhantomData<()>,
 }
 
@@ -62,6 +63,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::IncludedInBinary(code),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }
@@ -71,6 +73,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::Computed(code),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }
@@ -83,6 +86,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }
@@ -95,6 +99,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }

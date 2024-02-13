@@ -162,10 +162,13 @@ pub fn maybe_transpile_source(
   let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
     imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
     inline_source_map: false,
+    source_map: true,
+    inline_sources: true,
     ..Default::default()
   })?;
 
   source.code =
     ExtensionFileSourceCode::Computed(transpiled_source.text.into());
+  source.source_map = Some(transpiled_source.source_map.unwrap().into_bytes());
   Ok(())
 }

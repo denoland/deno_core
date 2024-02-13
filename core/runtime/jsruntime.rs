@@ -605,12 +605,38 @@ impl JsRuntime {
     let mut op_state = OpState::new(options.feature_checker.take());
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
+    let mut source_mapper = SourceMapper::new(options.source_map_getter);
+    for extension in &extensions {
+      for esm in extension.get_esm_sources() {
+        if let Some(source_map) = &esm.source_map {
+          source_mapper
+            .ext_source_maps
+            .insert(esm.specifier.to_owned(), source_map.to_owned());
+        }
+      }
+      for js in extension.get_js_sources() {
+        if let Some(source_map) = &js.source_map {
+          source_mapper
+            .ext_source_maps
+            .insert(js.specifier.to_owned(), source_map.to_owned());
+        }
+      }
+      for lazy_loaded_esm in extension.get_lazy_loaded_esm_sources() {
+        if let Some(source_map) = &lazy_loaded_esm.source_map {
+          source_mapper.ext_source_maps.insert(
+            lazy_loaded_esm.specifier.to_owned(),
+            source_map.to_owned(),
+          );
+        }
+      }
+    }
+
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
     // later, after `JsRuntime` is all set up...
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
-      source_mapper: RefCell::new(SourceMapper::new(options.source_map_getter)),
+      source_mapper: RefCell::new(source_mapper),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       wait_for_inspector_disconnect_callback: options
@@ -770,6 +796,12 @@ impl JsRuntime {
         &mut data_store,
         snapshotted_data.module_map_data,
       );
+
+      state_rc
+        .source_mapper
+        .borrow_mut()
+        .ext_source_maps
+        .extend(snapshotted_data.ext_source_maps);
     }
 
     context.set_slot(scope, module_map.clone());
@@ -1838,10 +1870,18 @@ impl JsRuntimeForSnapshot {
           .borrow()
           .clone()
       };
+      let ext_source_maps = self
+        .inner
+        .state
+        .source_mapper
+        .borrow()
+        .ext_source_maps
+        .to_owned();
 
       let snapshotted_data = SnapshottedData {
         module_map_data,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        ext_source_maps,
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());

@@ -55,6 +55,7 @@ pub struct SourceMapper<G: SourceMapGetter> {
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
   getter: Option<G>,
+  pub(crate) ext_source_maps: HashMap<String, Vec<u8>>,
   // This is not the right place for this, but it's the easiest way to make
   // op_apply_source_map a fast op. This stashing should happen in #[op2].
   pub(crate) stashed_file_name: Option<String>,
@@ -65,6 +66,7 @@ impl<G: SourceMapGetter> SourceMapper<G> {
     Self {
       maps: Default::default(),
       source_lines: Default::default(),
+      ext_source_maps: Default::default(),
       getter,
       stashed_file_name: Default::default(),
     }
@@ -92,8 +94,13 @@ impl<G: SourceMapGetter> SourceMapper<G> {
     let getter = self.getter.as_ref();
     let maybe_source_map =
       self.maps.entry(file_name.to_owned()).or_insert_with(|| {
-        let raw_source_map = getter.and_then(|it| it.get_source_map(file_name));
-        SourceMap::from_slice(&raw_source_map?).ok()
+        None
+          .or_else(|| {
+            SourceMap::from_slice(self.ext_source_maps.get(file_name)?).ok()
+          })
+          .or_else(|| {
+            SourceMap::from_slice(&getter?.get_source_map(file_name)?).ok()
+          })
       });
 
     let Some(source_map) = maybe_source_map.as_ref() else {

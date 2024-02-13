@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -238,6 +239,7 @@ fn data_error_to_panic(err: v8::DataError) -> ! {
 pub(crate) struct SnapshottedData {
   pub module_map_data: ModuleMapSnapshotData,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
+  pub ext_source_maps: HashMap<String, Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -245,6 +247,7 @@ struct RawSnapshottedData {
   data_count: u32,
   module_map_data: ModuleMapSnapshotData,
   js_handled_promise_rejection_cb: Option<SnapshotDataId>,
+  ext_source_maps: HashMap<String, Vec<u8>>,
 }
 
 static RAW_SNAPSHOTTED_DATA_INDEX: usize = 0;
@@ -295,6 +298,7 @@ pub(crate) fn get_snapshotted_data(
       js_handled_promise_rejection_cb: raw_data
         .js_handled_promise_rejection_cb
         .map(|x| data.get(scope, x)),
+      ext_source_maps: raw_data.ext_source_maps,
     },
     data,
   )
@@ -315,6 +319,7 @@ pub(crate) fn set_snapshotted_data(
     data_count: data_store.data.len() as _,
     module_map_data: snapshotted_data.module_map_data,
     js_handled_promise_rejection_cb,
+    ext_source_maps: snapshotted_data.ext_source_maps,
   };
 
   #[cfg(all(
