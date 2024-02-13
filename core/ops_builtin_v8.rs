@@ -54,7 +54,7 @@ pub fn op_opcall_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
 pub fn op_opcall_tracing_submit(
   scope: &mut v8::HandleScope,
   #[smi] promise: PromiseId,
-  #[string] trace: String,
+  #[string] trace: &str,
 ) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.opcall_traces.submit(promise, trace);
@@ -79,13 +79,15 @@ pub fn op_opcall_tracing_get_all<'s>(
 }
 
 #[op2]
-#[string]
-pub fn op_opcall_tracing_get(
-  scope: &mut v8::HandleScope,
+pub fn op_opcall_tracing_get<'s>(
+  scope: &mut v8::HandleScope<'s>,
   #[smi] promise: PromiseId,
-) -> Option<String> {
+) -> v8::Local<'s, v8::Value> {
+  use serde_v8::Serializable;
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.opcall_traces.get(promise)
+  context_state
+    .opcall_traces
+    .get(promise, |mut x| x.to_v8(scope).unwrap())
 }
 
 /// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`

@@ -8,15 +8,17 @@ use crate::PromiseId;
 use crate::ResourceId;
 use bit_set::BitSet;
 use serde::Serialize;
+use serde::Serializer;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::rc::Rc;
 
 #[derive(Default)]
 pub struct OpCallTraces {
   enabled: Cell<bool>,
-  traces: RefCell<HashMap<PromiseId, String>>,
+  traces: RefCell<HashMap<PromiseId, Rc<str>>>,
 }
 
 impl OpCallTraces {
@@ -27,8 +29,8 @@ impl OpCallTraces {
     }
   }
 
-  pub(crate) fn submit(&self, promise_id: PromiseId, trace: String) {
-    self.traces.borrow_mut().insert(promise_id, trace);
+  pub(crate) fn submit(&self, promise_id: PromiseId, trace: &str) {
+    self.traces.borrow_mut().insert(promise_id, trace.into());
   }
 
   pub(crate) fn complete(&self, promise_id: PromiseId) {
@@ -45,12 +47,20 @@ impl OpCallTraces {
 
   pub fn get_all(&self, mut f: impl FnMut(PromiseId, &str)) {
     for (key, value) in self.traces.borrow().iter() {
-      f(*key, value.as_str())
+      f(*key, value.as_ref())
     }
   }
 
-  pub fn get(&self, promise_id: PromiseId) -> Option<String> {
-    self.traces.borrow().get(&promise_id).cloned()
+  pub fn capture(&self) -> HashMap<PromiseId, Rc<str>> {
+    self.traces.borrow().clone()
+  }
+
+  pub fn get<T>(
+    &self,
+    promise_id: PromiseId,
+    f: impl FnOnce(Option<&str>) -> T,
+  ) -> T {
+    f(self.traces.borrow().get(&promise_id).map(|x| x.as_ref()))
   }
 }
 
@@ -149,15 +159,18 @@ impl RuntimeActivityStatsFactory {
       TimerStats::default()
     };
 
-    let ops = if filter.include_ops {
-      self.context_state.pending_ops.stats(&filter.op_filter)
+    let (ops, opcall_traces) = if filter.include_ops {
+      let ops = self.context_state.pending_ops.stats(&filter.op_filter);
+      let opcall_traces = self.context_state.opcall_traces.capture();
+      (ops, opcall_traces)
     } else {
-      OpInflightStats::default()
+      (OpInflightStats::default(), HashMap::default())
     };
 
     RuntimeActivityStats {
       context_state: self.context_state.clone(),
       ops,
+      opcall_traces,
       resources,
       timers,
     }
@@ -182,15 +195,43 @@ pub struct TimerStats {
 pub struct RuntimeActivityStats {
   context_state: Rc<ContextState>,
   pub(super) ops: OpInflightStats,
+  pub(super) opcall_traces: HashMap<PromiseId, Rc<str>>,
   pub(super) resources: ResourceOpenStats,
   pub(super) timers: TimerStats,
+}
+
+/// Contains an opcall stack trace.
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct OpCallTrace(Rc<str>);
+
+impl Serialize for OpCallTrace {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: Serializer,
+  {
+    self.0.as_ref().serialize(serializer)
+  }
+}
+
+impl Deref for OpCallTrace {
+  type Target = str;
+  fn deref(&self) -> &Self::Target {
+    self.0.as_ref()
+  }
+}
+
+impl From<&Rc<str>> for OpCallTrace {
+  fn from(value: &Rc<str>) -> Self {
+    Self(value.clone())
+  }
 }
 
 /// The type of runtime activity being tracked.
 #[derive(Debug, Serialize)]
 pub enum RuntimeActivity {
-  /// An async op, including the promise ID and op name.
-  AsyncOp(PromiseId, &'static str),
+  /// An async op, including the promise ID and op name, with an optional opcall trace.
+  AsyncOp(PromiseId, &'static str, Option<OpCallTrace>),
   /// A resource, including the resource ID and name.
   Resource(ResourceId, String),
   /// A timer, including the timer ID.
@@ -225,14 +266,29 @@ impl RuntimeActivityStats {
   /// Capture the data within this [`RuntimeActivityStats`] as a [`RuntimeActivitySnapshot`]
   /// with details of activity.
   pub fn dump(&self) -> RuntimeActivitySnapshot {
+    let has_traces = !self.opcall_traces.is_empty();
     let mut v = Vec::with_capacity(
       self.ops.ops.len()
         + self.resources.resources.len()
         + self.timers.timers.len(),
     );
     let ops = &self.context_state.op_ctxs;
-    for op in self.ops.ops.iter() {
-      v.push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
+    if has_traces {
+      for op in self.ops.ops.iter() {
+        v.push(RuntimeActivity::AsyncOp(
+          op.0,
+          ops[op.1 as usize].decl.name,
+          self.opcall_traces.get(&op.0).map(|x| x.into()),
+        ));
+      }
+    } else {
+      for op in self.ops.ops.iter() {
+        v.push(RuntimeActivity::AsyncOp(
+          op.0,
+          ops[op.1 as usize].decl.name,
+          None,
+        ));
+      }
     }
     for resource in self.resources.resources.iter() {
       v.push(RuntimeActivity::Resource(resource.0, resource.1.clone()))
@@ -261,15 +317,21 @@ impl RuntimeActivityStats {
         // continuing op
       } else {
         // before, but not after
-        disappeared
-          .push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
+        disappeared.push(RuntimeActivity::AsyncOp(
+          op.0,
+          ops[op.1 as usize].decl.name,
+          before.opcall_traces.get(&op.0).map(|x| x.into()),
+        ));
       }
     }
     for op in after.ops.ops.iter() {
       if a.contains(op.0 as usize) {
         // after but not before
-        appeared
-          .push(RuntimeActivity::AsyncOp(op.0, ops[op.1 as usize].decl.name));
+        appeared.push(RuntimeActivity::AsyncOp(
+          op.0,
+          ops[op.1 as usize].decl.name,
+          after.opcall_traces.get(&op.0).map(|x| x.into()),
+        ));
       }
     }
 

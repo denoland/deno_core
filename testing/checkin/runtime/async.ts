@@ -88,6 +88,18 @@ export class StatsCollection {
     return this.countResourceActivity("AsyncOp");
   }
 
+  countOpsWithTraces(): number {
+    let count = 0;
+    for (const item of this.data) {
+      if ("AsyncOp" in item) {
+        if (typeof item["AsyncOp"][2] === "string") {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
   countResources(): number {
     return this.countResourceActivity("Resource");
   }
@@ -95,6 +107,10 @@ export class StatsCollection {
   countTimers(): number {
     return this.countResourceActivity("Timer") +
       this.countResourceActivity("Interval");
+  }
+
+  get rawData() {
+    return this.data;
   }
 
   get empty(): boolean {
