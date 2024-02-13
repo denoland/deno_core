@@ -19,8 +19,8 @@ macro_rules! fake_extensions {
           deno_core::extension!(
             $name,
             ops = [ ops::$name ],
-            esm_entry_point = concat!("ext:", stringify!($name), "/file.ts"),
-            esm = [ dir "benches/snapshot", "file.ts", "file2.ts" ]
+            esm_entry_point = concat!("ext:", stringify!($name), "/file.js"),
+            esm = [ dir "benches/snapshot", "file.js", "file2.js" ]
           );
 
           mod ops {
@@ -91,12 +91,14 @@ fn bench_take_snapshot_empty(c: &mut Criterion) {
 }
 
 fn bench_take_snapshot(c: &mut Criterion) {
-  c.bench_function("take snapshot", |b| {
+  fn inner(b: &mut Bencher, transpile: bool) {
     b.iter_custom(|iters| {
       let mut total = 0;
       for _ in 0..iters {
         let mut extensions = make_extensions();
-        transpile_extensions(&mut extensions);
+        if transpile {
+          transpile_extensions(&mut extensions);
+        }
         let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
           startup_snapshot: None,
           extensions,
@@ -108,13 +110,20 @@ fn bench_take_snapshot(c: &mut Criterion) {
       }
       Duration::from_nanos(total as _)
     });
-  });
+  }
+
+  let mut group = c.benchmark_group("take snapshot");
+  group.bench_function("plain", |b| inner(b, false));
+  group.bench_function("transpiled", |b| inner(b, true));
+  group.finish();
 }
 
 fn bench_load_snapshot(c: &mut Criterion) {
-  c.bench_function("load snapshot", |b| {
+  fn inner(b: &mut Bencher, transpile: bool) {
     let mut extensions = make_extensions();
-    transpile_extensions(&mut extensions);
+    if transpile {
+      transpile_extensions(&mut extensions);
+    }
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
       extensions,
       startup_snapshot: None,
@@ -138,7 +147,12 @@ fn bench_load_snapshot(c: &mut Criterion) {
       }
       Duration::from_nanos(total as _)
     });
-  });
+  }
+
+  let mut group = c.benchmark_group("load snapshot");
+  group.bench_function("plain", |b| inner(b, false));
+  group.bench_function("transpiled", |b| inner(b, true));
+  group.finish();
 }
 
 criterion_group!(
