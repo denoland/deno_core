@@ -31,19 +31,6 @@ macro_rules! integration_test {
   };
 }
 
-macro_rules! integration_test_with_snapshot {
-  ($($id:ident,)*) => {
-    mod integration_with_snapshot {
-      $(
-        #[test]
-        fn $id() {
-          $crate::checkin::runner::run_integration_test_with_snapshot(stringify!($id));
-        }
-      )*
-    }
-  };
-}
-
 // Test individual bits of functionality. These files are loaded from the unit/ dir.
 unit_test!(
   encode_decode_test,
@@ -79,5 +66,3 @@ integration_test!(
   worker_terminate,
   worker_terminate_op,
 );
-
-integration_test_with_snapshot!(error_ext_stack,);

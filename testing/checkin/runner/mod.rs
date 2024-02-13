@@ -85,51 +85,6 @@ deno_core::extension!(
   }
 );
 
-fn create_runtime_with_snapshot(
-  output: Output,
-  parent: Option<WorkerCloseWatcher>,
-) -> (JsRuntime, WorkerHostSide) {
-  let (worker, worker_host_side) = worker_create(parent);
-  let mut extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm()];
-
-  for extension in &mut extensions_for_snapshot {
-    use ts_module_loader::maybe_transpile_source;
-    for source in extension.esm_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-    for source in extension.js_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-  }
-
-  let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
-    extensions: extensions_for_snapshot,
-    ..Default::default()
-  });
-
-  let snapshot = runtime_for_snapshot.snapshot();
-
-  let extensions = vec![checkin_runtime::init_ops()];
-  let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions,
-    startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
-    module_loader: Some(Rc::new(
-      ts_module_loader::TypescriptModuleLoader::default(),
-    )),
-    get_error_class_fn: Some(&|error| {
-      deno_core::error::get_custom_error_class(error).unwrap_or("Error")
-    }),
-    shared_array_buffer_store: Some(CrossIsolateStore::default()),
-    ..Default::default()
-  });
-
-  let stats = runtime.runtime_activity_stats_factory();
-  runtime.op_state().borrow_mut().put(stats);
-  runtime.op_state().borrow_mut().put(worker);
-  runtime.op_state().borrow_mut().put(output);
-  (runtime, worker_host_side)
-}
-
 fn create_runtime(
   output: Output,
   parent: Option<WorkerCloseWatcher>,
@@ -206,11 +161,6 @@ fn run_async(f: impl Future<Output = Result<(), Error>>) {
 /// and compares its output with the `.out` file in the same directory.
 pub fn run_integration_test(test: &str) {
   let (runtime, _) = create_runtime(Output::default(), None);
-  run_async(run_integration_test_task(runtime, test.to_owned()));
-}
-
-pub fn run_integration_test_with_snapshot(test: &str) {
-  let (runtime, _) = create_runtime_with_snapshot(Output::default(), None);
   run_async(run_integration_test_task(runtime, test.to_owned()));
 }
 
