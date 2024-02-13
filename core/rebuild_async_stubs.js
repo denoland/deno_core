@@ -17,14 +17,11 @@ function __TEMPLATE__(__ARGS_PARAM__) {
     ErrorCaptureStackTrace(err, __TEMPLATE__);
     return PromiseReject(err);
   }
+  if (isOpCallTracingEnabled) {
+    submitOpCallTrace(id);
+  }
   nextPromiseId = (id + 1) & 0xffffffff;
-  let promise = PromisePrototypeThen(
-    setPromise(id),
-    unwrapOpError(core_.eventLoopTick),
-  );
-  promise = handleOpCallTracing(opName, id, promise);
-  promise[promiseIdSymbol] = id;
-  return promise;
+  return setPromise(id);
 }
 
 const infraJsPath = new URL("00_infra.js", import.meta.url);

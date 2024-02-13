@@ -21,23 +21,12 @@
     RangeError,
     ReferenceError,
     SafeMap,
-    SafePromisePrototypeFinally,
-    StringPrototypeSlice,
     StringPrototypeSplit,
     SymbolFor,
     SyntaxError,
     TypeError,
     URIError,
   } = window.__bootstrap.primordials;
-  // TODO(bartlomieju): not ideal - effectively we have circular dependency between
-  // 00_infra.js and 01_core.js. Figure out how to fix it.
-  // We have two proposals:
-  //  1. Move `eventLoopTick` function to this file and add `setUpEventLoopTick`
-  //     that would be called by `01_core.js` and forward `op_run_microtasks`
-  //     and `op_dispatch_exception` so we can save references to them.
-  //  2. Add `captureStackTrace` function that will perform stack trace capturing
-  //     and can define which function should the trace hide.
-  const core_ = window.Deno.core;
 
   let nextPromiseId = 0;
   const promiseMap = new SafeMap();
@@ -47,6 +36,19 @@
   // TODO(bartlomieju): it future use `v8::Private` so it's not visible
   // to users. Currently missing bindings.
   const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
+
+  let isOpCallTracingEnabled = false;
+  let submitOpCallTrace;
+  let eventLoopTick;
+
+  function __setOpCallTracingEnabled(enabled) {
+    isOpCallTracingEnabled = enabled;
+  }
+
+  function __initializeCoreMethods(eventLoopTick_, submitOpCallTrace_) {
+    eventLoopTick = eventLoopTick_;
+    submitOpCallTrace = submitOpCallTrace_;
+  }
 
   const build = {
     target: "unknown",
@@ -109,42 +111,6 @@
     errorMap[className] = errorBuilder;
   }
 
-  let opCallTracingEnabled = false;
-  const opCallTraces = new SafeMap();
-
-  function getAllOpCallTraces() {
-    return new Map(opCallTraces);
-  }
-
-  function setOpCallTracingEnabled(enabled) {
-    opCallTracingEnabled = enabled;
-  }
-
-  function isOpCallTracingEnabled() {
-    return opCallTracingEnabled;
-  }
-
-  function getOpCallTraceForPromise(promise) {
-    const trace = MapPrototypeGet(opCallTraces, promise[promiseIdSymbol]);
-    if (trace) {
-      return trace.stack;
-    }
-    return null;
-  }
-
-  function handleOpCallTracing(opName, promiseId, p) {
-    if (opCallTracingEnabled) {
-      const stack = StringPrototypeSlice(new Error().stack, 6);
-      MapPrototypeSet(opCallTraces, promiseId, { opName, stack });
-      return SafePromisePrototypeFinally(
-        p,
-        () => MapPrototypeDelete(opCallTraces, promiseId),
-      );
-    } else {
-      return p;
-    }
-  }
-
   function setPromise(promiseId) {
     const idx = promiseId % RING_SIZE;
     // Move old promise from ring to map
@@ -153,11 +119,19 @@
       const oldPromiseId = promiseId - RING_SIZE;
       MapPrototypeSet(promiseMap, oldPromiseId, oldPromise);
     }
-    // Set new promise
-    return promiseRing[idx] = newPromise();
+
+    const promise = new Promise((resolve) => {
+      promiseRing[idx] = resolve;
+    });
+    const wrappedPromise = PromisePrototypeThen(
+      promise,
+      unwrapOpError(),
+    );
+    wrappedPromise[promiseIdSymbol] = promiseId;
+    return wrappedPromise;
   }
 
-  function getPromise(promiseId) {
+  function __resolvePromise(promiseId, res) {
     // Check if out of ring bounds, fallback to map
     const outOfBounds = promiseId < nextPromiseId - RING_SIZE;
     if (outOfBounds) {
@@ -166,27 +140,17 @@
         throw "Missing promise in map @ " + promiseId;
       }
       MapPrototypeDelete(promiseMap, promiseId);
-      return promise;
+      promise(res);
+    } else {
+      // Otherwise take from ring
+      const idx = promiseId % RING_SIZE;
+      const promise = promiseRing[idx];
+      if (!promise) {
+        throw "Missing promise in ring @ " + promiseId;
+      }
+      promiseRing[idx] = NO_PROMISE;
+      promise(res);
     }
-    // Otherwise take from ring
-    const idx = promiseId % RING_SIZE;
-    const promise = promiseRing[idx];
-    if (!promise) {
-      throw "Missing promise in ring @ " + promiseId;
-    }
-    promiseRing[idx] = NO_PROMISE;
-    return promise;
-  }
-
-  function newPromise() {
-    let resolve, reject;
-    const promise = new Promise((resolve_, reject_) => {
-      resolve = resolve_;
-      reject = reject_;
-    });
-    promise.resolve = resolve;
-    promise.reject = reject;
-    return promise;
   }
 
   function hasPromise(promiseId) {
@@ -200,7 +164,7 @@
     return promiseRing[idx] != NO_PROMISE;
   }
 
-  function unwrapOpError(hideFunction) {
+  function unwrapOpError() {
     return (res) => {
       // .$err_class_name is a special key that should only exist on errors
       const className = res?.$err_class_name;
@@ -216,8 +180,8 @@
       if (res.code) {
         err.code = res.code;
       }
-      // Strip unwrapOpResult() and errorBuilder() calls from stack trace
-      ErrorCaptureStackTrace(err, hideFunction);
+      // Strip eventLoopTick() calls from stack trace
+      ErrorCaptureStackTrace(err, eventLoopTick);
       throw err;
     };
   }
@@ -240,14 +204,11 @@
             ErrorCaptureStackTrace(err, async_op_0);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 1:
@@ -262,14 +223,11 @@
             ErrorCaptureStackTrace(err, async_op_1);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 2:
@@ -284,14 +242,11 @@
             ErrorCaptureStackTrace(err, async_op_2);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 3:
@@ -306,14 +261,11 @@
             ErrorCaptureStackTrace(err, async_op_3);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 4:
@@ -328,14 +280,11 @@
             ErrorCaptureStackTrace(err, async_op_4);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 5:
@@ -350,14 +299,11 @@
             ErrorCaptureStackTrace(err, async_op_5);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 6:
@@ -372,14 +318,11 @@
             ErrorCaptureStackTrace(err, async_op_6);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 7:
@@ -394,14 +337,11 @@
             ErrorCaptureStackTrace(err, async_op_7);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 8:
@@ -416,14 +356,11 @@
             ErrorCaptureStackTrace(err, async_op_8);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       case 9:
@@ -438,14 +375,11 @@
             ErrorCaptureStackTrace(err, async_op_9);
             return PromiseReject(err);
           }
+          if (isOpCallTracingEnabled) {
+            submitOpCallTrace(id);
+          }
           nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(core_.eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
+          return setPromise(id);
         };
         break;
       /* END TEMPLATE */
@@ -472,15 +406,12 @@
     registerErrorBuilder,
     buildCustomError,
     registerErrorClass,
-    setOpCallTracingEnabled,
-    isOpCallTracingEnabled,
-    getAllOpCallTraces,
-    getOpCallTraceForPromise,
-    handleOpCallTracing,
     setUpAsyncStub,
-    getPromise,
     hasPromise,
     promiseIdSymbol,
+    __resolvePromise,
+    __setOpCallTracingEnabled,
+    __initializeCoreMethods,
   });
 
   ObjectAssign(globalThis.__bootstrap, { core });

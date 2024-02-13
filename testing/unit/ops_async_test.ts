@@ -78,7 +78,6 @@ test(async function testAsyncOpCallTrace() {
     assertStackTraceEquals(
       Deno.core.getOpCallTraceForPromise(p1),
       `
-      at handleOpCallTracing (ext:core/00_infra.js:line:col)
       at op_async_barrier_await (ext:core/00_infra.js:line:col)
       at barrierAwait (checkin:async:line:col)
       at testAsyncOpCallTrace (test:///unit/ops_async_test.ts:line:col)

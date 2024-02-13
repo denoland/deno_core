@@ -5,6 +5,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use serde::Deserialize;
+use serde::Serialize;
+
+use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
@@ -12,6 +16,62 @@ use crate::Snapshot;
 
 pub type CompressionCb = dyn Fn(&mut Vec<u8>, &[u8]);
 pub type WithRuntimeCb = dyn Fn(&mut JsRuntimeForSnapshot);
+
+pub type SnapshotDataId = u32;
+
+#[derive(Default)]
+pub struct SnapshotLoadDataStore {
+  data: Vec<Option<v8::Global<v8::Data>>>,
+}
+
+impl SnapshotLoadDataStore {
+  pub fn get<'s, T>(
+    &mut self,
+    scope: &mut v8::HandleScope<'s>,
+    id: SnapshotDataId,
+  ) -> v8::Global<T>
+  where
+    v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Data>>,
+  {
+    let Some(data) = self.data.get_mut(id as usize) else {
+      panic!(
+        "Attempted to read snapshot data out of range: {id} (of {})",
+        self.data.len()
+      );
+    };
+    let Some(data) = data.take() else {
+      panic!("Attempted to read the snapshot data at index {id} twice");
+    };
+    let local = v8::Local::new(scope, data);
+    let local = v8::Local::<T>::try_from(local).unwrap_or_else(|_| {
+      panic!(
+        "Invalid data type at index {id}, expected '{}'",
+        std::any::type_name::<T>()
+      )
+    });
+    v8::Global::new(scope, local)
+  }
+}
+
+#[derive(Default)]
+pub struct SnapshotStoreDataStore {
+  data: Vec<v8::Global<v8::Data>>,
+}
+
+impl SnapshotStoreDataStore {
+  pub fn register<T>(&mut self, global: v8::Global<T>) -> SnapshotDataId
+  where
+    for<'s> v8::Local<'s, v8::Data>: From<v8::Local<'s, T>>,
+  {
+    let id = self.data.len();
+    // TODO(mmastrac): v8::Global needs From/Into
+    // SAFETY: Because we've tested that Local<Data>: From<Local<T>>, we can assume this is safe.
+    unsafe {
+      self.data.push(std::mem::transmute(global));
+    }
+    id as _
+  }
+}
 
 pub struct CreateSnapshotOptions {
   pub cargo_manifest_dir: &'static str,
@@ -32,8 +92,18 @@ pub struct CreateSnapshotOutput {
 #[must_use = "The files listed by create_snapshot should be printed as 'cargo:rerun-if-changed' lines"]
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
+  warmup_script: Option<&'static str>,
 ) -> CreateSnapshotOutput {
   let mut mark = Instant::now();
+
+  // Get the extensions for a second pass if we want to warm up the snapshot.
+  let warmup_exts = warmup_script.map(|_| {
+    create_snapshot_options
+      .extensions
+      .iter()
+      .map(|e| e.for_warmup())
+      .collect::<Vec<_>>()
+  });
 
   let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: create_snapshot_options.startup_snapshot,
@@ -58,8 +128,30 @@ pub fn create_snapshot(
     with_runtime_cb(&mut js_runtime);
   }
 
-  let snapshot = js_runtime.snapshot();
+  let mut snapshot = js_runtime.snapshot();
+  if let Some(warmup_script) = warmup_script {
+    let warmup_exts = warmup_exts.unwrap();
+
+    // Warm up the snapshot bootstrap.
+    //
+    // - Create a new isolate with cold snapshot blob.
+    // - Run warmup script in new context.
+    // - Serialize the new context into a new snapshot blob.
+    let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
+      extensions: warmup_exts,
+      skip_op_registration: true,
+      ..Default::default()
+    });
+    js_runtime
+      .execute_script_static("warmup", warmup_script)
+      .unwrap();
+
+    snapshot = js_runtime.snapshot();
+  }
+
   let snapshot_slice: &[u8] = &snapshot;
+
   println!(
     "Snapshot size: {}, took {:#?} ({})",
     snapshot_slice.len(),
@@ -145,135 +237,108 @@ fn data_error_to_panic(err: v8::DataError) -> ! {
 }
 
 pub(crate) struct SnapshottedData {
-  pub module_map_data: v8::Global<v8::Array>,
-  pub module_handles: Vec<v8::Global<v8::Module>>,
+  pub module_map_data: ModuleMapSnapshotData,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
   pub ext_source_maps: HashMap<String, Vec<u8>>,
 }
 
-static MODULE_MAP_CONTEXT_DATA_INDEX: usize = 0;
-static JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX: usize = 1;
-static EXT_SOURCE_MAPS_DATA_INDEX: usize = 2;
+#[derive(Serialize, Deserialize)]
+struct RawSnapshottedData {
+  data_count: u32,
+  module_map_data: ModuleMapSnapshotData,
+  js_handled_promise_rejection_cb: Option<SnapshotDataId>,
+  ext_source_maps: HashMap<String, Vec<u8>>,
+}
+
+static RAW_SNAPSHOTTED_DATA_INDEX: usize = 0;
 
 pub(crate) fn get_snapshotted_data(
   scope: &mut v8::HandleScope<()>,
   context: v8::Local<v8::Context>,
-) -> SnapshottedData {
-  let mut scope = v8::ContextScope::new(scope, context);
+) -> (SnapshottedData, SnapshotLoadDataStore) {
+  let scope = &mut v8::ContextScope::new(scope, context);
 
-  // The 0th element is the module map itself, followed by X number of module
-  // handles. We need to deserialize the "next_module_id" field from the
-  // map to see how many module handles we expect.
-  let result = scope.get_context_data_from_snapshot_once::<v8::Array>(
-    MODULE_MAP_CONTEXT_DATA_INDEX,
+  let result = scope.get_context_data_from_snapshot_once::<v8::ArrayBuffer>(
+    RAW_SNAPSHOTTED_DATA_INDEX,
   );
-
   let val = match result {
     Ok(v) => v,
     Err(err) => data_error_to_panic(err),
   };
 
-  let next_module_id = {
-    let info_data: v8::Local<v8::Array> =
-      val.get_index(&mut scope, 2).unwrap().try_into().unwrap();
-    info_data.length()
+  let slice = val.data().unwrap().as_ptr();
+  let len = val.byte_length();
+  let slice = unsafe {
+    std::ptr::slice_from_raw_parts_mut(slice as *mut u8, len)
+      .as_mut()
+      .unwrap()
   };
 
-  let js_handled_promise_rejection_cb = match scope
-    .get_context_data_from_snapshot_once::<v8::Value>(
-      JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX,
-    ) {
-    Ok(val) => {
-      if val.is_undefined() {
-        None
-      } else {
-        let fn_: v8::Local<v8::Function> = val.try_into().unwrap();
-        Some(v8::Global::new(&mut scope, fn_))
-      }
-    }
-    Err(err) => data_error_to_panic(err),
-  };
+  #[cfg(all(
+    feature = "snapshot_data_json",
+    not(feature = "snapshot_data_bincode")
+  ))]
+  let raw_data: RawSnapshottedData = serde_json::from_slice(slice).unwrap();
+  #[cfg(feature = "snapshot_data_bincode")]
+  let raw_data: RawSnapshottedData =
+    bincode::deserialize(slice).expect("Failed to deserialize snapshot data");
 
-  let mut ext_source_maps = HashMap::new();
-  match scope.get_context_data_from_snapshot_once::<v8::Array>(
-    EXT_SOURCE_MAPS_DATA_INDEX,
-  ) {
-    Ok(val) => {
-      for i in (0..val.length()).step_by(2) {
-        let key: v8::Local<v8::String> =
-          val.get_index(&mut scope, i).unwrap().try_into().unwrap();
-        let value: v8::Local<v8::String> = val
-          .get_index(&mut scope, i + 1)
-          .unwrap()
-          .try_into()
-          .unwrap();
-        let key = key.to_rust_string_lossy(&mut scope);
-        let value = value.to_rust_string_lossy(&mut scope);
-        ext_source_maps.insert(key, value.into_bytes());
-      }
-    }
-    Err(err) => data_error_to_panic(err),
+  let mut data = SnapshotLoadDataStore::default();
+  for i in 0..raw_data.data_count {
+    let item = scope
+      .get_context_data_from_snapshot_once::<v8::Data>(i as usize + 1)
+      .unwrap();
+    let item = v8::Global::new(scope, item);
+    data.data.push(Some(item));
   }
 
-  // Over allocate so executing a few scripts doesn't have to resize this vec.
-  let mut module_handles = Vec::with_capacity(next_module_id as usize + 16);
-  for i in 3..=next_module_id + 2 {
-    match scope.get_context_data_from_snapshot_once::<v8::Module>(i as usize) {
-      Ok(val) => {
-        let module_global = v8::Global::new(&mut scope, val);
-        module_handles.push(module_global);
-      }
-      Err(err) => data_error_to_panic(err),
-    }
-  }
-
-  SnapshottedData {
-    module_map_data: v8::Global::new(&mut scope, val),
-    module_handles,
-    js_handled_promise_rejection_cb,
-    ext_source_maps,
-  }
+  (
+    SnapshottedData {
+      module_map_data: raw_data.module_map_data,
+      js_handled_promise_rejection_cb: raw_data
+        .js_handled_promise_rejection_cb
+        .map(|x| data.get(scope, x)),
+      ext_source_maps: raw_data.ext_source_maps,
+    },
+    data,
+  )
 }
 
 pub(crate) fn set_snapshotted_data(
-  scope: &mut v8::HandleScope<()>,
+  scope: &mut v8::HandleScope,
   context: v8::Global<v8::Context>,
   snapshotted_data: SnapshottedData,
+  mut data_store: SnapshotStoreDataStore,
 ) {
   let local_context = v8::Local::new(scope, context);
-  let scope = &mut v8::ContextScope::new(scope, local_context);
-  let local_data = v8::Local::new(scope, snapshotted_data.module_map_data);
-  let offset = scope.add_context_data(local_context, local_data);
-  assert_eq!(offset, MODULE_MAP_CONTEXT_DATA_INDEX);
 
-  let local_handled_promise_rejection_cb: v8::Local<v8::Value> =
-    if let Some(handled_promise_rejection_cb) =
-      snapshotted_data.js_handled_promise_rejection_cb
-    {
-      v8::Local::new(scope, handled_promise_rejection_cb).into()
-    } else {
-      v8::undefined(scope).into()
-    };
-  let offset =
-    scope.add_context_data(local_context, local_handled_promise_rejection_cb);
-  assert_eq!(offset, JS_HANDLED_PROMISE_REJECTION_CB_DATA_INDEX);
+  let js_handled_promise_rejection_cb = snapshotted_data
+    .js_handled_promise_rejection_cb
+    .map(|v| data_store.register(v));
+  let raw_snapshot_data = RawSnapshottedData {
+    data_count: data_store.data.len() as _,
+    module_map_data: snapshotted_data.module_map_data,
+    js_handled_promise_rejection_cb,
+    ext_source_maps: snapshotted_data.ext_source_maps,
+  };
 
-  let mut ext_source_maps =
-    Vec::with_capacity(snapshotted_data.ext_source_maps.len() * 2);
-  for (key, value) in snapshotted_data.ext_source_maps.iter() {
-    let value = std::str::from_utf8(value).unwrap();
-    ext_source_maps.push(v8::String::new(scope, key).unwrap().into());
-    ext_source_maps.push(v8::String::new(scope, value).unwrap().into());
-  }
-  let ext_source_maps = v8::Array::new_with_elements(scope, &ext_source_maps);
-  let offset = scope.add_context_data(local_context, ext_source_maps);
-  assert_eq!(offset, EXT_SOURCE_MAPS_DATA_INDEX);
+  #[cfg(all(
+    feature = "snapshot_data_json",
+    not(feature = "snapshot_data_bincode")
+  ))]
+  let local_data = serde_json::to_vec(&raw_snapshot_data).unwrap();
+  #[cfg(feature = "snapshot_data_bincode")]
+  let local_data = bincode::serialize(&raw_snapshot_data).unwrap();
 
-  for (index, handle) in snapshotted_data.module_handles.into_iter().enumerate()
-  {
-    let module_handle = v8::Local::new(scope, handle);
-    let offset = scope.add_context_data(local_context, module_handle);
-    assert_eq!(offset, index + 3);
+  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(local_data);
+  let data =
+    v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
+  let offset = scope.add_context_data(local_context, data);
+  assert_eq!(offset, RAW_SNAPSHOTTED_DATA_INDEX);
+
+  for data in data_store.data.drain(..) {
+    let data = v8::Local::new(scope, data);
+    scope.add_context_data(local_context, data);
   }
 }
 

@@ -57,6 +57,9 @@ jobs:
             linux:
               os: ubuntu-latest
               jobs: [lint, lint-deps, test, test-miri, test-ops, test-publish]
+            linux-arm:
+              os: ubuntu-22.04-arm64
+              jobs: [lint, test, test-miri]
             macos:
               os: macOS-latest
               jobs: [lint, test]
