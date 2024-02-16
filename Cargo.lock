@@ -118,6 +118,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -409,10 +418,11 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.260.0"
+version = "0.262.0"
 dependencies = [
  "anyhow",
  "bencher",
+ "bincode",
  "bit-set",
  "bit-vec",
  "bytes",
@@ -476,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.136.0"
+version = "0.138.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -1468,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.169.0"
+version = "0.171.0"
 dependencies = [
  "bencher",
  "bytes",
@@ -2232,9 +2242,9 @@ checksum = "f00cc9702ca12d3c81455259621e676d0f7251cec66a21e98fe2e9a37db93b2a"
 
 [[package]]
 name = "v8"
-version = "0.83.1"
+version = "0.83.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "546dcbb978f58aea3ad9286bd1df553f4ab7bbdc2e191cd4ae6c9a98fa95d1cd"
+checksum = "9f6c8a960dd2eb74b22eda64f7e9f3d1688f82b80202828dc0425ebdeda826ef"
 dependencies = [
  "bitflags 2.4.2",
  "fslock",

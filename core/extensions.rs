@@ -53,6 +53,7 @@ impl std::fmt::Debug for ExtensionFileSourceCode {
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
   pub code: ExtensionFileSourceCode,
+  pub source_map: Option<Vec<u8>>,
   _unconstructable_use_new: PhantomData<()>,
 }
 
@@ -62,6 +63,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::IncludedInBinary(code),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }
@@ -71,6 +73,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::Computed(code),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }
@@ -83,6 +86,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }
@@ -95,6 +99,7 @@ impl ExtensionFileSource {
     Self {
       specifier,
       code: ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code),
+      source_map: None,
       _unconstructable_use_new: PhantomData,
     }
   }
@@ -579,6 +584,29 @@ pub struct Extension {
   pub op_state_fn: Option<Box<OpStateFn>>,
   pub middleware_fn: Option<Box<OpMiddlewareFn>>,
   pub enabled: bool,
+}
+
+impl Extension {
+  // Produces a new extension that is suitable for use during the warmup phase.
+  //
+  // JS sources are not included, and ops are include for external references only.
+  pub(crate) fn for_warmup(&self) -> Extension {
+    Self {
+      op_state_fn: None,
+      middleware_fn: None,
+      name: self.name,
+      deps: self.deps,
+      js_files: Cow::Borrowed(&[]),
+      esm_files: Cow::Borrowed(&[]),
+      lazy_loaded_esm_files: Cow::Borrowed(&[]),
+      esm_entry_point: None,
+      ops: self.ops.clone(),
+      external_references: self.external_references.clone(),
+      global_template_middleware: self.global_template_middleware,
+      global_object_middleware: self.global_object_middleware,
+      enabled: self.enabled,
+    }
+  }
 }
 
 impl Default for Extension {

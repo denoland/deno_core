@@ -9,6 +9,7 @@ use super::op_driver::OpDriver;
 use super::setup;
 use super::snapshot_util;
 use super::stats::RuntimeActivityStatsFactory;
+use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
@@ -28,7 +29,6 @@ use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
-use crate::modules::ModuleMapSnapshottedData;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops_metrics::dispatch_metrics_async;
@@ -378,7 +378,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) source_mapper: RefCell<SourceMapper<Box<dyn SourceMapGetter>>>,
+  pub(crate) source_mapper: RefCell<SourceMapper<Rc<dyn SourceMapGetter>>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -395,7 +395,7 @@ pub struct JsRuntimeState {
 #[derive(Default)]
 pub struct RuntimeOptions {
   /// Source map reference for errors.
-  pub source_map_getter: Option<Box<dyn SourceMapGetter>>,
+  pub source_map_getter: Option<Rc<dyn SourceMapGetter>>,
 
   /// Allows to map error type to a string "class" used to represent
   /// error in JavaScript.
@@ -605,12 +605,38 @@ impl JsRuntime {
     let mut op_state = OpState::new(options.feature_checker.take());
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
+    let mut source_mapper = SourceMapper::new(options.source_map_getter);
+    for extension in &extensions {
+      for esm in extension.get_esm_sources() {
+        if let Some(source_map) = &esm.source_map {
+          source_mapper
+            .ext_source_maps
+            .insert(esm.specifier.to_owned(), source_map.to_owned());
+        }
+      }
+      for js in extension.get_js_sources() {
+        if let Some(source_map) = &js.source_map {
+          source_mapper
+            .ext_source_maps
+            .insert(js.specifier.to_owned(), source_map.to_owned());
+        }
+      }
+      for lazy_loaded_esm in extension.get_lazy_loaded_esm_sources() {
+        if let Some(source_map) = &lazy_loaded_esm.source_map {
+          source_mapper.ext_source_maps.insert(
+            lazy_loaded_esm.specifier.to_owned(),
+            source_map.to_owned(),
+          );
+        }
+      }
+    }
+
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
     // later, after `JsRuntime` is all set up...
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let state_rc = Rc::new(JsRuntimeState {
-      source_mapper: RefCell::new(SourceMapper::new(options.source_map_getter)),
+      source_mapper: RefCell::new(source_mapper),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       wait_for_inspector_disconnect_callback: options
@@ -762,15 +788,20 @@ impl JsRuntime {
       import_meta_resolve_cb,
     ));
 
-    if let Some(snapshotted_data) = snapshotted_data {
+    if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
       *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
         snapshotted_data.js_handled_promise_rejection_cb;
-      let module_map_snapshotted_data = ModuleMapSnapshottedData {
-        module_map_data: snapshotted_data.module_map_data,
-        module_handles: snapshotted_data.module_handles,
-      };
-      module_map
-        .update_with_snapshotted_data(scope, module_map_snapshotted_data);
+      module_map.update_with_snapshotted_data(
+        scope,
+        &mut data_store,
+        snapshotted_data.module_map_data,
+      );
+
+      state_rc
+        .source_mapper
+        .borrow_mut()
+        .ext_source_maps
+        .extend(snapshotted_data.ext_source_maps);
     }
 
     context.set_slot(scope, module_map.clone());
@@ -1826,11 +1857,10 @@ impl JsRuntimeForSnapshot {
 
     // Serialize the module map and store its data in the snapshot.
     {
-      let module_map_snapshotted_data = {
+      let mut data_store = SnapshotStoreDataStore::default();
+      let module_map_data = {
         let module_map = realm.0.module_map();
-        module_map.serialize_for_snapshotting(
-          &mut realm.handle_scope(self.v8_isolate()),
-        )
+        module_map.serialize_for_snapshotting(&mut data_store)
       };
       let maybe_js_handled_promise_rejection_cb = {
         let context_state = &realm.0.context_state;
@@ -1840,11 +1870,18 @@ impl JsRuntimeForSnapshot {
           .borrow()
           .clone()
       };
+      let ext_source_maps = self
+        .inner
+        .state
+        .source_mapper
+        .borrow()
+        .ext_source_maps
+        .to_owned();
 
       let snapshotted_data = SnapshottedData {
-        module_map_data: module_map_snapshotted_data.module_map_data,
-        module_handles: module_map_snapshotted_data.module_handles,
+        module_map_data,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        ext_source_maps,
         // TODO(bartlomieju):
         extension_metadata: vec![],
       };
@@ -1854,6 +1891,7 @@ impl JsRuntimeForSnapshot {
         &mut scope,
         realm.context().clone(),
         snapshotted_data,
+        data_store,
       );
     }
     drop(realm);
@@ -2136,6 +2174,7 @@ impl JsRuntime {
       }
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+      context_state.opcall_traces.complete(promise_id);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(res.unwrap_or_else(std::convert::identity));

@@ -145,7 +145,7 @@ fn main() -> Result<(), Error> {
     module_loader: Some(Rc::new(TypescriptModuleLoader {
       source_maps: source_map_store.clone(),
     })),
-    source_map_getter: Some(Box::new(source_map_store)),
+    source_map_getter: Some(Rc::new(source_map_store)),
     ..Default::default()
   });
 

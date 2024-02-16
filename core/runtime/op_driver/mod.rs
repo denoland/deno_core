@@ -187,12 +187,6 @@ mod tests {
       let f: Self::MappingFn<R> = unsafe { std::mem::transmute(f) };
       f(r)
     }
-
-    fn unerase_mapping_fn_raw<R: 'static>(
-      f: *const fn(),
-    ) -> Self::MappingFn<R> {
-      unsafe { std::mem::transmute(f) }
-    }
   }
 
   fn submit_task(

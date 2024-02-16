@@ -49,11 +49,13 @@ unit_test!(
 // Test the load and run of an entire file within the `checkin` infrastructure.
 // These files are loaded from the system/ dir.
 integration_test!(
+  builtin_console_test,
   dyn_import_circular,
   dyn_import_op,
   error_async_stack,
   error_rejection_catch,
   error_rejection_order,
+  error_ext_stack,
   error_with_stack,
   error_without_stack,
   smoke_test,

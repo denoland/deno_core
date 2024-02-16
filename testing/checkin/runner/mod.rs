@@ -4,8 +4,10 @@ use anyhow::Error;
 use deno_core::url::Url;
 use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
+use deno_core::JsRuntimeForSnapshot;
 use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
+use deno_core::Snapshot;
 use futures::Future;
 use pretty_assertions::assert_eq;
 use std::path::Path;
@@ -75,6 +77,7 @@ deno_core::extension!(
     "checkin:testing" = "testing.ts",
     "checkin:timers" = "timers.ts",
     "checkin:worker" = "worker.ts",
+    "checkin:throw" = "throw.ts",
   ],
   state = |state| {
     state.put(TestFunctions::default());
@@ -87,9 +90,9 @@ fn create_runtime(
   parent: Option<WorkerCloseWatcher>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let mut extensions = vec![checkin_runtime::init_ops_and_esm()];
+  let mut extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm()];
 
-  for extension in &mut extensions {
+  for extension in &mut extensions_for_snapshot {
     use ts_module_loader::maybe_transpile_source;
     for source in extension.esm_files.to_mut() {
       maybe_transpile_source(source).unwrap();
@@ -99,8 +102,17 @@ fn create_runtime(
     }
   }
 
+  let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
+    extensions: extensions_for_snapshot,
+    ..Default::default()
+  });
+
+  let snapshot = runtime_for_snapshot.snapshot();
+
+  let extensions = vec![checkin_runtime::init_ops()];
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
+    startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),
@@ -110,6 +122,7 @@ fn create_runtime(
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   });
+
   let stats = runtime.runtime_activity_stats_factory();
   runtime.op_state().borrow_mut().put(stats);
   runtime.op_state().borrow_mut().put(worker);
