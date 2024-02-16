@@ -1,6 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use anyhow::bail;
 use anyhow::Error;
+use deno_core::snapshot::create_snapshot;
+use deno_core::snapshot::CreateSnapshotOptions;
+use deno_core::snapshot::SnapshotInMemorySerializer;
 use deno_core::url::Url;
 use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
@@ -107,12 +110,12 @@ fn create_runtime(
     ..Default::default()
   });
 
-  let snapshot = runtime_for_snapshot.snapshot();
+  let snapshot = runtime_for_snapshot.snapshot().boxed();
 
   let extensions = vec![checkin_runtime::init_ops()];
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
-    startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
+    startup_snapshot: Some(Snapshot::Boxed(snapshot)),
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),

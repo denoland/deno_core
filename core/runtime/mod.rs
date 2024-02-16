@@ -8,7 +8,7 @@ pub mod op_driver;
 pub mod ops;
 pub mod ops_rust_to_v8;
 mod setup;
-mod snapshot_util;
+mod snapshot;
 pub mod stats;
 
 #[cfg(all(test, not(miri)))]
@@ -30,17 +30,22 @@ pub use jsruntime::JsRuntimeState;
 pub use jsruntime::PollEventLoopOptions;
 pub use jsruntime::RuntimeOptions;
 pub use jsruntime::SharedArrayBufferStore;
-pub use jsruntime::Snapshot;
 #[cfg(test)]
 pub(crate) use jsruntime::NO_OF_BUILTIN_MODULES;
-pub use snapshot_util::create_snapshot;
-pub use snapshot_util::get_js_files;
-pub use snapshot_util::CreateSnapshotOptions;
-pub use snapshot_util::CreateSnapshotOutput;
-pub use snapshot_util::FilterFn;
-pub(crate) use snapshot_util::SnapshotDataId;
-pub(crate) use snapshot_util::SnapshotLoadDataStore;
-pub(crate) use snapshot_util::SnapshotStoreDataStore;
-pub(crate) use snapshot_util::SnapshottedData;
+pub use snapshot::create_snapshot;
+pub use snapshot::get_js_files;
+pub use snapshot::CreateSnapshotOptions;
+pub use snapshot::CreateSnapshotOutput;
+pub use snapshot::FilterFn;
+pub use snapshot::Snapshot;
+pub use snapshot::SnapshotBulkCompressingSerializer;
+pub use snapshot::SnapshotData;
+pub(crate) use snapshot::SnapshotDataId;
+pub use snapshot::SnapshotFileSerializer;
+pub use snapshot::SnapshotInMemorySerializer;
+pub(crate) use snapshot::SnapshotLoadDataStore;
+pub use snapshot::SnapshotSerializer;
+pub(crate) use snapshot::SnapshotStoreDataStore;
+pub(crate) use snapshot::SnapshottedData;
 
 pub use bindings::script_origin;

@@ -99,15 +99,32 @@ fn test_snapshot_callbacks() {
 }
 
 #[test]
-fn test_from_boxed_snapshot() {
+fn test_from_snapshot_boxed() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
-    let snap: &[u8] = &runtime.snapshot();
-    Vec::from(snap).into_boxed_slice()
+    runtime.snapshot().boxed()
   };
 
   let snapshot = Snapshot::Boxed(snapshot);
+  let mut runtime2 = JsRuntime::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    ..Default::default()
+  });
+  runtime2
+    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .unwrap();
+}
+
+#[test]
+fn test_from_snapshot_static() {
+  let snapshot = {
+    let mut runtime = JsRuntimeForSnapshot::new(Default::default());
+    runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+    runtime.snapshot().leak()
+  };
+
+  let snapshot = Snapshot::Static(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()

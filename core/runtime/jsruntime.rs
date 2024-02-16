@@ -7,8 +7,9 @@ use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
 use super::setup;
-use super::snapshot_util;
+use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
+use super::SnapshotData;
 use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::error::exception_to_err_result;
@@ -46,6 +47,7 @@ use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
 use crate::OpState;
+use crate::Snapshot;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
@@ -74,12 +76,6 @@ use v8::Isolate;
 
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
-
-pub enum Snapshot {
-  Static(&'static [u8]),
-  JustCreated(v8::StartupData),
-  Boxed(Box<[u8]>),
-}
 
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
@@ -218,11 +214,6 @@ impl InitMode {
         skip_op_registration: options.skip_op_registration,
       },
     }
-  }
-
-  #[inline]
-  pub fn is_from_snapshot(&self) -> bool {
-    matches!(self, Self::FromSnapshot { .. })
   }
 
   #[inline]
@@ -677,10 +668,15 @@ impl JsRuntime {
     let external_refs =
       bindings::create_external_references(&op_ctxs, &additional_references);
 
+    let (maybe_startup_snapshot, sidecar_data) = options
+      .startup_snapshot
+      .take()
+      .map(Snapshot::deconstruct)
+      .unzip();
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
-      options.startup_snapshot.take(),
+      maybe_startup_snapshot,
       external_refs,
     );
 
@@ -735,9 +731,10 @@ impl JsRuntime {
       );
 
       // Get module map data from the snapshot
-      if init_mode.is_from_snapshot() {
-        snapshotted_data =
-          Some(snapshot_util::get_snapshotted_data(scope, context));
+      if let Some(raw_data) = sidecar_data {
+        snapshotted_data = Some(snapshot::load_snapshotted_data_from_snapshot(
+          scope, context, raw_data,
+        ));
       }
 
       v8::Global::new(scope, context)
@@ -1842,7 +1839,7 @@ impl JsRuntimeForSnapshot {
   /// Takes a snapshot and consumes the runtime.
   ///
   /// `Error` can usually be downcast to `JsError`.
-  pub fn snapshot(mut self) -> v8::StartupData {
+  pub fn snapshot(mut self) -> SnapshotData {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
 
@@ -1856,7 +1853,8 @@ impl JsRuntimeForSnapshot {
     }
 
     // Serialize the module map and store its data in the snapshot.
-    {
+    // TODO(mmastrac): This should deconstruct the realm completely.
+    let sidecar_data = {
       let mut data_store = SnapshotStoreDataStore::default();
       let module_map_data = {
         let module_map = realm.0.module_map();
@@ -1885,21 +1883,22 @@ impl JsRuntimeForSnapshot {
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());
-      snapshot_util::set_snapshotted_data(
+      snapshot::store_snapshotted_data_for_snapshot(
         &mut scope,
         realm.context().clone(),
         snapshotted_data,
         data_store,
-      );
-    }
+      )
+    };
     drop(realm);
 
-    self
+    let v8 = self
       .0
       .inner
       .prepare_for_snapshot()
       .create_blob(v8::FunctionCodeHandling::Keep)
-      .unwrap()
+      .unwrap();
+    SnapshotData { v8, sidecar_data }
   }
 }
 

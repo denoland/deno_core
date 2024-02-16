@@ -7,7 +7,6 @@ use deno_core::JsRuntime;
 use deno_core::JsRuntimeForSnapshot;
 use deno_core::RuntimeOptions;
 use deno_core::Snapshot;
-use std::ops::Deref;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -129,9 +128,7 @@ fn bench_load_snapshot(c: &mut Criterion) {
       startup_snapshot: None,
       ..Default::default()
     });
-    let snapshot = runtime.snapshot();
-    let snapshot_slice =
-      Box::leak(snapshot.deref().to_vec().into_boxed_slice());
+    let snapshot = runtime.snapshot().leak();
 
     b.iter_custom(|iters| {
       let mut total = 0;
@@ -139,7 +136,7 @@ fn bench_load_snapshot(c: &mut Criterion) {
         let now = Instant::now();
         let runtime = JsRuntime::new(RuntimeOptions {
           extensions: make_extensions_ops(),
-          startup_snapshot: Some(Snapshot::Static(snapshot_slice)),
+          startup_snapshot: Some(Snapshot::Static(snapshot)),
           ..Default::default()
         });
         total += now.elapsed().as_nanos();
