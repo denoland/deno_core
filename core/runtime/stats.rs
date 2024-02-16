@@ -12,6 +12,7 @@ use serde::Serializer;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -201,7 +202,7 @@ pub struct RuntimeActivityStats {
 }
 
 /// Contains an opcall stack trace.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct OpCallTrace(Rc<str>);
 
@@ -211,6 +212,12 @@ impl Serialize for OpCallTrace {
     S: Serializer,
   {
     self.0.as_ref().serialize(serializer)
+  }
+}
+
+impl Display for OpCallTrace {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(self.0.as_ref())
   }
 }
 
@@ -394,6 +401,12 @@ impl RuntimeActivityStats {
 pub struct RuntimeActivityDiff {
   pub appeared: Vec<RuntimeActivity>,
   pub disappeared: Vec<RuntimeActivity>,
+}
+
+impl RuntimeActivityDiff {
+  pub fn is_empty(&self) -> bool {
+    self.appeared.is_empty() && self.disappeared.is_empty()
+  }
 }
 
 #[derive(Debug, Serialize)]
