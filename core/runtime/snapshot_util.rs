@@ -241,7 +241,6 @@ pub(crate) struct SnapshottedData {
   pub module_map_data: ModuleMapSnapshotData,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
   pub ext_source_maps: HashMap<String, Vec<u8>>,
-  // pub extension_metadata: Vec<ExtensionSnapshotMetadata>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -284,25 +283,6 @@ pub(crate) fn get_snapshotted_data(
   #[cfg(feature = "snapshot_data_bincode")]
   let raw_data: RawSnapshottedData =
     bincode::deserialize(slice).expect("Failed to deserialize snapshot data");
-
-  // let extension_metadata = match scope
-  //   .get_context_data_from_snapshot_once::<v8::Value>(EXTENSION_METADATA_INDEX)
-  // {
-  //   Ok(val) => {
-  //     #[cfg(debug_assertions)]
-  //     {
-  //       let v8_str: v8::Local<v8::String> = val.try_into().unwrap();
-  //       let rust_str = v8_str.to_rust_string_lossy(&mut scope);
-  //       parse_extension_and_ops_data(rust_str).unwrap()
-  //     }
-
-  //     #[cfg(not(debug_assertions))]
-  //     {
-  //       ExtensionSnapshotMetadata::default()
-  //     }
-  //   }
-  //   Err(err) => data_error_to_panic(err),
-  // };
 
   let mut data = SnapshotLoadDataStore::default();
   for i in 0..raw_data.data_count {
@@ -392,76 +372,4 @@ pub(crate) fn create_snapshot_creator(
   } else {
     v8::Isolate::snapshot_creator(Some(external_refs))
   }
-}
-
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ExtensionSnapshotMetadata {
-  ext_name: String,
-  op_names: Vec<String>,
-  external_ref_count: usize,
-}
-type SnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
-
-fn extension_and_ops_data_for_snapshot(data: &SnapshotMetadata) -> String {
-  serde_json::to_string(data).unwrap()
-}
-
-fn parse_extension_and_ops_data(
-  input: String,
-) -> Result<SnapshotMetadata, anyhow::Error> {
-  Ok(serde_json::from_str(&input)?)
-}
-
-macro_rules! svec {
-  ($($x:expr),* $(,)?) => (vec![$($x.to_string()),*]);
-}
-
-#[test]
-fn extension_and_ops_data_for_snapshot_test() {
-  let expected = r#"[{"ext_name":"deno_core","op_names":["op_name1","op_name2","op_name3"],"external_ref_count":0},{"ext_name":"ext1","op_names":["op_ext1_1","op_ext1_2","op_ext1_3"],"external_ref_count":0},{"ext_name":"ext2","op_names":["op_ext2_1","op_ext2_2"],"external_ref_count":0},{"ext_name":"ext3","op_names":["op_ext3_1"],"external_ref_count":5},{"ext_name":"ext4","op_names":["op_ext4_1","op_ext4_2","op_ext4_3","op_ext4_4","op_ext4_5"],"external_ref_count":0},{"ext_name":"ext5","op_names":[],"external_ref_count":0}]"#;
-
-  let data = vec![
-    ExtensionSnapshotMetadata {
-      ext_name: "deno_core".to_string(),
-      op_names: svec!["op_name1", "op_name2", "op_name3"],
-      external_ref_count: 0,
-    },
-    ExtensionSnapshotMetadata {
-      ext_name: "ext1".to_string(),
-      op_names: svec!["op_ext1_1", "op_ext1_2", "op_ext1_3"],
-      external_ref_count: 0,
-    },
-    ExtensionSnapshotMetadata {
-      ext_name: "ext2".to_string(),
-      op_names: svec!["op_ext2_1", "op_ext2_2"],
-      external_ref_count: 0,
-    },
-    ExtensionSnapshotMetadata {
-      ext_name: "ext3".to_string(),
-      op_names: svec!["op_ext3_1"],
-      external_ref_count: 5,
-    },
-    ExtensionSnapshotMetadata {
-      ext_name: "ext4".to_string(),
-      op_names: svec![
-        "op_ext4_1",
-        "op_ext4_2",
-        "op_ext4_3",
-        "op_ext4_4",
-        "op_ext4_5",
-      ],
-      external_ref_count: 0,
-    },
-    ExtensionSnapshotMetadata {
-      ext_name: "ext5".to_string(),
-      op_names: vec![],
-      external_ref_count: 0,
-    },
-  ];
-
-  let actual = extension_and_ops_data_for_snapshot(&data);
-  pretty_assertions::assert_eq!(actual, expected);
-
-  let parsed = parse_extension_and_ops_data(actual).unwrap();
-  assert_eq!(parsed, data);
 }
