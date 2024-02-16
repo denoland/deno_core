@@ -44,7 +44,9 @@ pub(crate) enum V8StartupData {
 }
 
 impl Snapshot {
-  pub(crate) fn deconstruct(self) -> (V8StartupData, SerializableSnapshotSidecarData) {
+  pub(crate) fn deconstruct(
+    self,
+  ) -> (V8StartupData, SerializableSnapshotSidecarData) {
     if let Snapshot::JustCreated(snapshot) = self {
       (
         V8StartupData::JustCreated(snapshot.v8),
@@ -56,16 +58,18 @@ impl Snapshot {
           let len = usize::from_le_bytes(
             slice[slice.len() - ULEN..].try_into().unwrap(),
           );
-          let data =
-            SerializableSnapshotSidecarData::from_slice(&slice[len..slice.len() - ULEN]);
+          let data = SerializableSnapshotSidecarData::from_slice(
+            &slice[len..slice.len() - ULEN],
+          );
           (V8StartupData::Static(&slice[0..len]), data)
         }
         Snapshot::Boxed(slice) => {
           let len = usize::from_le_bytes(
             slice[slice.len() - ULEN..].try_into().unwrap(),
           );
-          let data =
-            SerializableSnapshotSidecarData::from_slice(&slice[len..slice.len() - ULEN]);
+          let data = SerializableSnapshotSidecarData::from_slice(
+            &slice[len..slice.len() - ULEN],
+          );
           let mut v8 = Vec::from(slice);
           v8.truncate(len);
           let v8 = v8.into_boxed_slice();
@@ -482,8 +486,9 @@ impl SerializableSnapshotSidecarData {
       feature = "snapshot_data_json",
       not(feature = "snapshot_data_bincode")
     ))]
-    let raw_data: SerializableSnapshotSidecarData = serde_json::from_slice(slice)
-      .expect("Failed to deserialize snapshot data");
+    let raw_data: SerializableSnapshotSidecarData =
+      serde_json::from_slice(slice)
+        .expect("Failed to deserialize snapshot data");
 
     #[cfg(feature = "snapshot_data_bincode")]
     let raw_data: SerializableSnapshotSidecarData =
