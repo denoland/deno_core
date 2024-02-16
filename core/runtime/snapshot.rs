@@ -194,6 +194,7 @@ mod sealed {
   /// Allows us to consume `self` in a boxed trait. This is required to allow
   /// [`SnapshotSerializer`] to be boxed.
   pub trait SnapshotSerializerSized: SnapshotSerializer + Unpin {
+    #[allow(clippy::type_complexity)]
     fn get_finalizer(
       &mut self,
     ) -> fn(

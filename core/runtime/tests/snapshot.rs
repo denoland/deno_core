@@ -150,7 +150,7 @@ fn test_snapshot_creator() {
       with_runtime_cb: Some(Box::new(|runtime| {
         runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
       })),
-      serializer: Box::new(SnapshotInMemorySerializer::default()),
+      serializer: Box::<SnapshotInMemorySerializer>::default(),
     },
     None,
   )
