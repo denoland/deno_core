@@ -3,6 +3,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::extensions::Extension;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
@@ -186,12 +189,12 @@ pub struct ExtensionSnapshotMetadata {
 
 type ExtensionSetSnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
 
-macro_rules! svec {
+#[test]
+fn extension_and_ops_data_for_snapshot_test() {
+  macro_rules! svec {
   ($($x:expr),* $(,)?) => (vec![$($x.to_string()),*]);
 }
 
-#[test]
-fn extension_and_ops_data_for_snapshot_test() {
   let expected = r#"[{"ext_name":"deno_core","op_names":["op_name1","op_name2","op_name3"],"external_ref_count":0},{"ext_name":"ext1","op_names":["op_ext1_1","op_ext1_2","op_ext1_3"],"external_ref_count":0},{"ext_name":"ext2","op_names":["op_ext2_1","op_ext2_2"],"external_ref_count":0},{"ext_name":"ext3","op_names":["op_ext3_1"],"external_ref_count":5},{"ext_name":"ext4","op_names":["op_ext4_1","op_ext4_2","op_ext4_3","op_ext4_4","op_ext4_5"],"external_ref_count":0},{"ext_name":"ext5","op_names":[],"external_ref_count":0}]"#;
 
   let data = vec![
@@ -233,9 +236,10 @@ fn extension_and_ops_data_for_snapshot_test() {
     },
   ];
 
-  let actual = extension_and_ops_data_for_snapshot(&data);
+  let actual = serde_json::to_string(&data).unwrap();
   pretty_assertions::assert_eq!(actual, expected);
 
-  let parsed = parse_extension_and_ops_data(actual).unwrap();
+  let parsed: ExtensionSetSnapshotMetadata =
+    serde_json::from_str(&actual).unwrap();
   assert_eq!(parsed, data);
 }
