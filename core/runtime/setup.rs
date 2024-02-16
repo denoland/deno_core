@@ -1,11 +1,11 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::Snapshot;
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
 
 use super::bindings;
-use super::snapshot_util;
+use super::snapshot;
+use super::snapshot::V8StartupData;
 use std::option::Option;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -111,14 +111,11 @@ pub fn create_isolate_ptr() -> *mut v8::OwnedIsolate {
 pub fn create_isolate(
   will_snapshot: bool,
   maybe_create_params: Option<v8::CreateParams>,
-  maybe_startup_snapshot: Option<Snapshot>,
+  maybe_startup_snapshot: Option<V8StartupData>,
   external_refs: &'static v8::ExternalReferences,
 ) -> v8::OwnedIsolate {
   let mut isolate = if will_snapshot {
-    snapshot_util::create_snapshot_creator(
-      external_refs,
-      maybe_startup_snapshot,
-    )
+    snapshot::create_snapshot_creator(external_refs, maybe_startup_snapshot)
   } else {
     let mut params = maybe_create_params
       .unwrap_or_default()
@@ -130,9 +127,9 @@ pub fn create_isolate(
     let has_snapshot = maybe_startup_snapshot.is_some();
     if let Some(snapshot) = maybe_startup_snapshot {
       params = match snapshot {
-        Snapshot::Static(data) => params.snapshot_blob(data),
-        Snapshot::JustCreated(data) => params.snapshot_blob(data),
-        Snapshot::Boxed(data) => params.snapshot_blob(data),
+        V8StartupData::Static(data) => params.snapshot_blob(data),
+        V8StartupData::JustCreated(data) => params.snapshot_blob(data),
+        V8StartupData::Boxed(data) => params.snapshot_blob(data),
       };
     }
     static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
