@@ -7,6 +7,10 @@ use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
 
+use self::runtime::create_snapshot;
+use self::runtime::CreateSnapshotOptions;
+use self::runtime::SnapshotInMemorySerializer;
+
 #[test]
 fn will_snapshot() {
   let snapshot = {
@@ -125,6 +129,35 @@ fn test_from_snapshot_static() {
   };
 
   let snapshot = Snapshot::Static(snapshot);
+  let mut runtime2 = JsRuntime::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    ..Default::default()
+  });
+  runtime2
+    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .unwrap();
+}
+
+/// Smoke test for create_snapshot.
+#[test]
+fn test_snapshot_creator() {
+  let output = create_snapshot(
+    CreateSnapshotOptions {
+      cargo_manifest_dir: "",
+      startup_snapshot: None,
+      skip_op_registration: false,
+      extensions: vec![],
+      with_runtime_cb: Some(Box::new(|runtime| {
+        runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+      })),
+      serializer: Box::new(SnapshotInMemorySerializer::default()),
+    },
+    None,
+  )
+  .unwrap();
+
+  let snapshot = Snapshot::Boxed(output.output);
+
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()

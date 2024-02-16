@@ -11,7 +11,8 @@ mod setup;
 mod snapshot;
 pub mod stats;
 
-#[cfg(all(test, not(miri)))]
+// #[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod tests;
 
 pub const V8_WRAPPER_TYPE_INDEX: i32 = 0;

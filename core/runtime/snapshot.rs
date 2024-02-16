@@ -183,29 +183,44 @@ pub trait SnapshotSerializer: Debug {
   fn finalize(self) -> std::io::Result<Self::Output>;
 }
 
-/// Allows us to consume `self` in a boxed trait. This is required to allow
-/// [`SnapshotSerializer`] to be boxed.
-pub trait SnapshotSerializerSized: SnapshotSerializer {
-  fn finalize_mut(this: &mut Option<Self>) -> std::io::Result<Self::Output>
-  where
-    Self: Sized;
-}
+mod sealed {
+  use super::SnapshotSerializer;
+  use std::any::Any;
 
-impl<T, S: SnapshotSerializer<Output = T> + Sized> SnapshotSerializerSized
-  for S
-{
-  fn finalize_mut(this: &mut Option<Self>) -> std::io::Result<Self::Output>
-  where
-    Self: Sized,
+  /// Allows us to consume `self` in a boxed trait. This is required to allow
+  /// [`SnapshotSerializer`] to be boxed.
+  pub trait SnapshotSerializerSized: SnapshotSerializer + Unpin {
+    fn get_finalizer(
+      &mut self,
+    ) -> fn(
+      Box<dyn SnapshotSerializerSized<Output = Self::Output> + 'static>,
+    ) -> std::io::Result<Self::Output>;
+  }
+
+  impl<T, S: SnapshotSerializer<Output = T> + Unpin + Any + 'static>
+    SnapshotSerializerSized for S
   {
-    this.take().unwrap().finalize()
+    fn get_finalizer(
+      &mut self,
+    ) -> fn(
+      Box<dyn SnapshotSerializerSized<Output = Self::Output> + 'static>,
+    ) -> std::io::Result<Self::Output> {
+      |b| {
+        // SAFETY: We know that get_finalizer was called on a type of S through dynamic dispatch, so we can
+        // safely transmute this pointer from fat to thin and then finalize it.
+        let our_type = unsafe { Box::<S>::from_raw(Box::into_raw(b) as _) };
+        our_type.finalize()
+      }
+    }
   }
 }
 
-impl<T> SnapshotSerializer for Box<dyn SnapshotSerializerSized<Output = T>> {
+impl<T> SnapshotSerializer
+  for Box<dyn sealed::SnapshotSerializerSized<Output = T> + 'static>
+{
   type Output = T;
-  fn finalize(self) -> std::io::Result<Self::Output> {
-    Self::finalize_mut(&mut Some(self))
+  fn finalize(mut self) -> std::io::Result<Self::Output> {
+    (self.get_finalizer())(self)
   }
   fn initialize(&mut self, approximate_length: usize) -> std::io::Result<()> {
     (**self).initialize(approximate_length)
@@ -332,7 +347,7 @@ pub struct CreateSnapshotOptions<T> {
   pub startup_snapshot: Option<Snapshot>,
   pub skip_op_registration: bool,
   pub extensions: Vec<Extension>,
-  pub serializer: Box<dyn SnapshotSerializerSized<Output = T>>,
+  pub serializer: Box<dyn sealed::SnapshotSerializerSized<Output = T>>,
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
 }
 
