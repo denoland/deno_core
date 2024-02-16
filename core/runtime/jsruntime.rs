@@ -1853,7 +1853,10 @@ impl JsRuntimeForSnapshot {
     }
 
     // Serialize the module map and store its data in the snapshot.
-    // TODO(mmastrac): This should deconstruct the realm completely.
+    // TODO(mmastrac): This should deconstruct the realm into sidecar data rather than
+    // extracting it from the realm and then tearing the realm down. IE, this should
+    // probably be a method on `JsRealm` with a self-consuming parameter signature:
+    // `fn into_sidecar_data(self) -> ...`.
     let sidecar_data = {
       let mut data_store = SnapshotStoreDataStore::default();
       let module_map_data = {

@@ -44,7 +44,7 @@ pub(crate) enum V8StartupData {
 }
 
 impl Snapshot {
-  pub(crate) fn deconstruct(self) -> (V8StartupData, RawSnapshottedData) {
+  pub(crate) fn deconstruct(self) -> (V8StartupData, SerializableSnapshotSidecarData) {
     if let Snapshot::JustCreated(snapshot) = self {
       (
         V8StartupData::JustCreated(snapshot.v8),
@@ -57,7 +57,7 @@ impl Snapshot {
             slice[slice.len() - ULEN..].try_into().unwrap(),
           );
           let data =
-            RawSnapshottedData::from_slice(&slice[len..slice.len() - ULEN]);
+            SerializableSnapshotSidecarData::from_slice(&slice[len..slice.len() - ULEN]);
           (V8StartupData::Static(&slice[0..len]), data)
         }
         Snapshot::Boxed(slice) => {
@@ -65,7 +65,7 @@ impl Snapshot {
             slice[slice.len() - ULEN..].try_into().unwrap(),
           );
           let data =
-            RawSnapshottedData::from_slice(&slice[len..slice.len() - ULEN]);
+            SerializableSnapshotSidecarData::from_slice(&slice[len..slice.len() - ULEN]);
           let mut v8 = Vec::from(slice);
           v8.truncate(len);
           let v8 = v8.into_boxed_slice();
@@ -80,7 +80,7 @@ impl Snapshot {
 /// An opaque blob of snapshot data that can be serialized to a [`SnapshotSerializer`].
 pub struct SnapshotData {
   pub(crate) v8: v8::StartupData,
-  pub(crate) sidecar_data: RawSnapshottedData,
+  pub(crate) sidecar_data: SerializableSnapshotSidecarData,
 }
 
 impl SnapshotData {
@@ -467,25 +467,26 @@ pub(crate) struct SnapshottedData {
   pub ext_source_maps: HashMap<String, Vec<u8>>,
 }
 
+/// Snapshot sidecar data that is safe to serialize via serde.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct RawSnapshottedData {
+pub(crate) struct SerializableSnapshotSidecarData {
   data_count: u32,
   module_map_data: ModuleMapSnapshotData,
   js_handled_promise_rejection_cb: Option<SnapshotDataId>,
   ext_source_maps: HashMap<String, Vec<u8>>,
 }
 
-impl RawSnapshottedData {
+impl SerializableSnapshotSidecarData {
   fn from_slice(slice: &[u8]) -> Self {
     #[cfg(all(
       feature = "snapshot_data_json",
       not(feature = "snapshot_data_bincode")
     ))]
-    let raw_data: RawSnapshottedData = serde_json::from_slice(slice)
+    let raw_data: SerializableSnapshotSidecarData = serde_json::from_slice(slice)
       .expect("Failed to deserialize snapshot data");
 
     #[cfg(feature = "snapshot_data_bincode")]
-    let raw_data: RawSnapshottedData =
+    let raw_data: SerializableSnapshotSidecarData =
       bincode::deserialize(slice).expect("Failed to deserialize snapshot data");
 
     raw_data
@@ -509,7 +510,7 @@ impl RawSnapshottedData {
 pub(crate) fn load_snapshotted_data_from_snapshot(
   scope: &mut v8::HandleScope<()>,
   context: v8::Local<v8::Context>,
-  raw_data: RawSnapshottedData,
+  raw_data: SerializableSnapshotSidecarData,
 ) -> (SnapshottedData, SnapshotLoadDataStore) {
   let scope = &mut v8::ContextScope::new(scope, context);
   let mut data = SnapshotLoadDataStore::default();
@@ -540,12 +541,12 @@ pub(crate) fn store_snapshotted_data_for_snapshot(
   context: v8::Global<v8::Context>,
   snapshotted_data: SnapshottedData,
   mut data_store: SnapshotStoreDataStore,
-) -> RawSnapshottedData {
+) -> SerializableSnapshotSidecarData {
   let context = v8::Local::new(scope, context);
   let js_handled_promise_rejection_cb = snapshotted_data
     .js_handled_promise_rejection_cb
     .map(|v| data_store.register(v));
-  let raw_snapshot_data = RawSnapshottedData {
+  let raw_snapshot_data = SerializableSnapshotSidecarData {
     data_count: data_store.data.len() as _,
     module_map_data: snapshotted_data.module_map_data,
     js_handled_promise_rejection_cb,
