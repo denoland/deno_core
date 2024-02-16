@@ -674,8 +674,20 @@ impl JsRuntime {
       global_object_middlewares,
       additional_references,
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
-    let external_refs =
-      bindings::create_external_references(&op_ctxs, &additional_references);
+
+    let external_refs = {
+      let mut registry = bindings::ExternalRefRegistry::new(op_ctxs.len());
+
+      for ctx in op_ctxs.iter() {
+        ctx.register_external_refs(&mut registry);
+      }
+
+      for additional_ref in additional_references {
+        registry.register(additional_ref);
+      }
+
+      registry.finalize()
+    };
 
     let mut isolate = setup::create_isolate(
       will_snapshot,

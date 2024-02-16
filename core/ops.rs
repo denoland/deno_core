@@ -5,6 +5,7 @@ use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
+use crate::runtime::bindings::ExternalRefRegistry;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::FeatureChecker;
@@ -180,6 +181,40 @@ impl OpCtx {
   /// Get the [`JsRuntimeState`] for this op.
   pub(crate) fn runtime_state(&self) -> &JsRuntimeState {
     &self.runtime_state
+  }
+
+  pub(crate) fn register_external_refs(
+    &self,
+    registry: &mut ExternalRefRegistry,
+  ) {
+    let ctx_ptr = self as *const OpCtx as _;
+    registry.register(v8::ExternalReference { pointer: ctx_ptr });
+
+    if self.metrics_enabled() {
+      registry.register(v8::ExternalReference {
+        function: self.decl.slow_fn_with_metrics,
+      });
+      if let Some(fast_fn) = &self.decl.fast_fn_with_metrics {
+        registry.register(v8::ExternalReference {
+          pointer: fast_fn.function as _,
+        });
+        registry.register(v8::ExternalReference {
+          pointer: self.fast_fn_c_info.unwrap().as_ptr() as _,
+        });
+      }
+    } else {
+      registry.register(v8::ExternalReference {
+        function: self.decl.slow_fn,
+      });
+      if let Some(fast_fn) = &self.decl.fast_fn {
+        registry.register(v8::ExternalReference {
+          pointer: fast_fn.function as _,
+        });
+        registry.register(v8::ExternalReference {
+          pointer: self.fast_fn_c_info.unwrap().as_ptr() as _,
+        });
+      }
+    }
   }
 }
 

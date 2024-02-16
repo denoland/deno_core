@@ -25,73 +25,54 @@ use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
 
-pub(crate) fn create_external_references(
-  ops: &[OpCtx],
-  additional_references: &[v8::ExternalReference],
-) -> &'static v8::ExternalReferences {
-  // Overallocate a bit, it's better than having to resize the vector.
-  let mut references =
-    Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
+pub(crate) struct ExternalRefRegistry<'r> {
+  refs: Vec<v8::ExternalReference<'r>>,
+}
 
-  references.push(v8::ExternalReference {
-    function: call_console.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: import_meta_resolve.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: catch_dynamic_import_promise_error.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: empty_fn.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: op_disabled_fn.map_fn_to(),
-  });
-
-  let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
-    synthetic_module_evaluation_steps.map_fn_to();
-  references.push(v8::ExternalReference {
-    pointer: syn_module_eval_fn as *mut c_void,
-  });
-
-  for ctx in ops {
-    if ctx.metrics_enabled() {
-      let ctx_ptr = ctx as *const OpCtx as _;
-      references.push(v8::ExternalReference { pointer: ctx_ptr });
-      references.push(v8::ExternalReference {
-        function: ctx.decl.slow_fn_with_metrics,
-      });
-      if let Some(fast_fn) = &ctx.decl.fast_fn_with_metrics {
-        references.push(v8::ExternalReference {
-          pointer: fast_fn.function as _,
-        });
-        references.push(v8::ExternalReference {
-          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
-        });
-      }
-    } else {
-      let ctx_ptr = ctx as *const OpCtx as _;
-      references.push(v8::ExternalReference { pointer: ctx_ptr });
-      references.push(v8::ExternalReference {
-        function: ctx.decl.slow_fn,
-      });
-      if let Some(fast_fn) = &ctx.decl.fast_fn {
-        references.push(v8::ExternalReference {
-          pointer: fast_fn.function as _,
-        });
-        references.push(v8::ExternalReference {
-          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
-        });
-      }
-    }
+impl<'r> ExternalRefRegistry<'r> {
+  pub fn new(no_of_ops: usize) -> Self {
+    let mut registry = Self {
+      // Overallocate a bit, it's better than having to resize the vector.
+      refs: Vec::with_capacity(6 + (no_of_ops * 4) + 16),
+    };
+    registry.add_deno_core_refs();
+    registry
   }
 
-  references.extend_from_slice(additional_references);
+  /// Register refs for `deno_core` built-in APIs.
+  fn add_deno_core_refs(&mut self) {
+    self.register(v8::ExternalReference {
+      function: call_console.map_fn_to(),
+    });
+    self.register(v8::ExternalReference {
+      function: import_meta_resolve.map_fn_to(),
+    });
+    self.register(v8::ExternalReference {
+      function: catch_dynamic_import_promise_error.map_fn_to(),
+    });
+    self.register(v8::ExternalReference {
+      function: empty_fn.map_fn_to(),
+    });
+    self.register(v8::ExternalReference {
+      function: op_disabled_fn.map_fn_to(),
+    });
 
-  let refs = v8::ExternalReferences::new(&references);
-  let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
-  refs
+    let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
+      synthetic_module_evaluation_steps.map_fn_to();
+    self.register(v8::ExternalReference {
+      pointer: syn_module_eval_fn as *mut c_void,
+    });
+  }
+
+  pub fn register(&mut self, ref_: v8::ExternalReference<'r>) {
+    self.refs.push(ref_);
+  }
+
+  pub fn finalize(self) -> &'static v8::ExternalReferences {
+    let refs = v8::ExternalReferences::new(&self.refs);
+    let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
+    refs
+  }
 }
 
 // TODO(nayeemrmn): Move to runtime and/or make `pub(crate)`.
