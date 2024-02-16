@@ -183,6 +183,8 @@ pub trait SnapshotSerializer: Debug {
   fn finalize(self) -> std::io::Result<Self::Output>;
 }
 
+/// Allows us to consume `self` in a boxed trait. This is required to allow
+/// [`SnapshotSerializer`] to be boxed.
 pub trait SnapshotSerializerSized: SnapshotSerializer {
   fn finalize_mut(this: &mut Option<Self>) -> std::io::Result<Self::Output>
   where
@@ -206,10 +208,10 @@ impl<T> SnapshotSerializer for Box<dyn SnapshotSerializerSized<Output = T>> {
     Self::finalize_mut(&mut Some(self))
   }
   fn initialize(&mut self, approximate_length: usize) -> std::io::Result<()> {
-    (&mut **self).initialize(approximate_length)
+    (**self).initialize(approximate_length)
   }
   fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<()> {
-    (&mut **self).process_chunk(chunk)
+    (**self).process_chunk(chunk)
   }
 }
 

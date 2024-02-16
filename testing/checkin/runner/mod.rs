@@ -1,9 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use anyhow::bail;
 use anyhow::Error;
-use deno_core::snapshot::create_snapshot;
-use deno_core::snapshot::CreateSnapshotOptions;
-use deno_core::snapshot::SnapshotInMemorySerializer;
 use deno_core::url::Url;
 use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
