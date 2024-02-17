@@ -268,6 +268,17 @@ impl OpDecl {
     };
     f
   }
+
+  // TODO(bartlomieju): deduplicate all these literals - hoist them to statics?
+  // They are also duplicated in `ops.rs`.
+  pub(crate) fn get_external_refs_names(&self) -> Vec<String> {
+    let mut names = vec!["ctx_ptr".to_string(), "op_slow_fn".to_string()];
+    if self.fast_fn.is_some() {
+      names.push("op_fast_fn".to_string());
+      names.push("op_fast_fn_c_info".to_string());
+    }
+    names
+  }
 }
 
 /// Declares a block of Deno `#[op]`s. The first parameter determines the name of the

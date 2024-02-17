@@ -85,29 +85,37 @@ pub fn create_snapshot_metadata(
 ) -> ExtensionSetSnapshotMetadata {
   let mut data = Vec::with_capacity(1 + extensions.len());
 
+  // TODO(bartlomieju): arguable we shouldn't store this data for `deno_core`,
+  // as it is controlled by us and can't really be screwed up during setup.
   data.push(ExtensionSnapshotMetadata {
     ext_name: "deno_core".to_string(),
     op_names: deno_core_ops
       .iter()
       .map(|decl| decl.name.to_string())
       .collect(),
-    external_ref_count: 0,
+    // External refs for deno_core are not really important.
+    external_refs: vec![],
   });
 
   for ext in extensions {
     let ext_name = ext.name.to_string();
     let ext_ops = ext.init_ops();
     let op_names = ext_ops.iter().map(|decl| decl.name.to_string()).collect();
-    let mut external_ref_count = ext_ops
+    let mut external_refs: Vec<String> = ext_ops
       .iter()
-      .map(|decl| if decl.fast_fn.is_some() { 4 } else { 2 })
-      .sum::<usize>();
-    external_ref_count += ext.get_external_references().len();
+      .flat_map(|decl| decl.get_external_refs_names())
+      .collect();
+    let additional_ext_refs: Vec<String> = ext
+      .get_external_references()
+      .iter()
+      .map(|ext_ref| ext_ref.display_name.to_string())
+      .collect();
+    external_refs.extend_from_slice(&additional_ext_refs);
 
     data.push(ExtensionSnapshotMetadata {
       ext_name,
       op_names,
-      external_ref_count,
+      external_refs,
     });
   }
 
@@ -220,7 +228,7 @@ pub fn get_middlewares_and_external_refs(
 pub struct ExtensionSnapshotMetadata {
   ext_name: String,
   op_names: Vec<String>,
-  external_ref_count: usize,
+  external_refs: Vec<String>,
 }
 
 pub type ExtensionSetSnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
@@ -237,22 +245,28 @@ fn extension_and_ops_data_for_snapshot_test() {
     ExtensionSnapshotMetadata {
       ext_name: "deno_core".to_string(),
       op_names: svec!["op_name1", "op_name2", "op_name3"],
-      external_ref_count: 0,
+      external_refs: vec![],
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext1".to_string(),
       op_names: svec!["op_ext1_1", "op_ext1_2", "op_ext1_3"],
-      external_ref_count: 0,
+      external_refs: vec![],
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext2".to_string(),
       op_names: svec!["op_ext2_1", "op_ext2_2"],
-      external_ref_count: 0,
+      external_refs: vec![],
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext3".to_string(),
       op_names: svec!["op_ext3_1"],
-      external_ref_count: 5,
+      external_refs: svec![
+        "op_ctx",
+        "op_slow_fn",
+        "op_fast_fn",
+        "op_fast_fn_c_info",
+        "some_additional_ref"
+      ],
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext4".to_string(),
@@ -263,12 +277,12 @@ fn extension_and_ops_data_for_snapshot_test() {
         "op_ext4_4",
         "op_ext4_5",
       ],
-      external_ref_count: 0,
+      external_refs: vec![],
     },
     ExtensionSnapshotMetadata {
       ext_name: "ext5".to_string(),
       op_names: vec![],
-      external_ref_count: 0,
+      external_refs: vec![],
     },
   ];
 

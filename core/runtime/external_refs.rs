@@ -11,7 +11,7 @@ use crate::modules::synthetic_module_evaluation_steps;
 
 #[derive(Clone, Copy)]
 pub struct ExternalReference<'r> {
-  display_name: &'static str,
+  pub(crate) display_name: &'static str,
   v8_external_ref: v8::ExternalReference<'r>,
 }
 
