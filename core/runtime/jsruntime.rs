@@ -646,10 +646,8 @@ impl JsRuntime {
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
     // and get ready to actually create V8 isolate...
-    let ext_snapshot_metadata = extension_set::create_snapshot_metadata(
-      crate::ops_builtin::BUILTIN_OPS,
-      &mut extensions,
-    );
+    let ext_snapshot_metadata =
+      extension_set::create_snapshot_metadata(&mut extensions);
     let op_decls =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
 
@@ -693,6 +691,8 @@ impl JsRuntime {
       .map(Snapshot::deconstruct)
       .unzip();
 
+    // TODO(bartlomieju): improve the assertion here - probably need a helper
+    // function that will validate it.
     if let Some(raw_data) = sidecar_data.as_ref() {
       assert_eq!(&raw_data.ext_metadata, &ext_snapshot_metadata);
     }
