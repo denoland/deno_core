@@ -646,10 +646,12 @@ impl JsRuntime {
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
     // and get ready to actually create V8 isolate...
-    let ext_snapshot_metadata =
-      extension_set::create_snapshot_metadata(&mut extensions);
     let op_decls =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
+    // TODO(bartlomieju): this is wrong, because ops might have been disabled or altered by a macroware in `init_ops` -
+    // we might want to return `ext_snapshot_metadata` from `init_ops`?
+    let ext_snapshot_metadata =
+      extension_set::create_snapshot_metadata(&mut extensions);
 
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
