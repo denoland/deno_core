@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 pub(crate) mod bindings;
 pub(crate) mod exception_state;
+pub(crate) mod external_refs;
 mod jsrealm;
 mod jsruntime;
 pub mod op_driver;

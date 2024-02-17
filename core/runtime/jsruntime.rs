@@ -4,6 +4,7 @@ use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
+use super::external_refs::ExternalRefRegistry;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
 use super::setup;
@@ -667,14 +668,16 @@ impl JsRuntime {
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
     let external_refs = {
-      let mut registry = bindings::ExternalRefRegistry::new(op_ctxs.len());
+      let mut registry = ExternalRefRegistry::new(op_ctxs.len());
 
       for ctx in op_ctxs.iter() {
         ctx.register_external_refs(&mut registry);
       }
 
       for additional_ref in additional_references {
-        registry.register(additional_ref);
+        // TODO(bartlomieju): `Extension::get_external_references()` should accept
+        // a struct that has both name and v8::ExternalReference
+        registry.register("ext_additional_ref", additional_ref);
       }
 
       registry.finalize()
