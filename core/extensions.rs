@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::modules::ModuleCodeString;
 use crate::runtime::bindings;
+use crate::runtime::external_refs::ExternalReference;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
@@ -578,7 +579,7 @@ pub struct Extension {
   pub lazy_loaded_esm_files: Cow<'static, [ExtensionFileSource]>,
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
-  pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
+  pub external_references: Cow<'static, [ExternalReference<'static>]>,
   pub global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
   pub global_object_middleware: Option<GlobalObjectMiddlewareFn>,
   pub op_state_fn: Option<Box<OpStateFn>>,
@@ -707,9 +708,7 @@ impl Extension {
     self.global_object_middleware
   }
 
-  pub fn get_external_references(
-    &mut self,
-  ) -> &[v8::ExternalReference<'static>] {
+  pub fn get_external_references(&mut self) -> &[ExternalReference<'static>] {
     self.external_references.as_ref()
   }
 

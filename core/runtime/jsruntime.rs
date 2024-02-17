@@ -675,9 +675,7 @@ impl JsRuntime {
       }
 
       for additional_ref in additional_references {
-        // TODO(bartlomieju): `Extension::get_external_references()` should accept
-        // a struct that has both name and v8::ExternalReference
-        registry.register("ext_additional_ref", additional_ref);
+        registry.register(additional_ref);
       }
 
       registry.finalize()

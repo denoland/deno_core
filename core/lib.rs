@@ -131,6 +131,7 @@ pub use crate::ops_metrics::OpMetricsSource;
 pub use crate::ops_metrics::OpMetricsSummary;
 pub use crate::ops_metrics::OpMetricsSummaryTracker;
 pub use crate::path::strip_unc_prefix;
+pub use crate::runtime::external_refs::ExternalReference;
 pub use crate::runtime::stats;
 pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::CreateRealmOptions;
