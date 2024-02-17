@@ -17,6 +17,7 @@ use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
 use crate::extension_set;
+use crate::extension_set::ExtensionSetSnapshotMetadata;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::include_js_files;
@@ -305,6 +306,7 @@ pub struct JsRuntime {
   files_loaded_from_fs_during_snapshot: Vec<&'static str>,
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
+  ext_snapshot_metadata: Option<ExtensionSetSnapshotMetadata>,
 }
 
 /// The runtime type used for snapshot creation.
@@ -643,6 +645,10 @@ impl JsRuntime {
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
     // and get ready to actually create V8 isolate...
+    let ext_snapshot_metadata = extension_set::create_snapshot_metadata(
+      crate::ops_builtin::BUILTIN_OPS,
+      &mut extensions,
+    );
     let op_decls =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
 
@@ -673,6 +679,11 @@ impl JsRuntime {
       .take()
       .map(Snapshot::deconstruct)
       .unzip();
+
+    if let Some(raw_data) = sidecar_data.as_ref() {
+      assert_eq!(&raw_data.ext_metadata, &ext_snapshot_metadata);
+    }
+
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
@@ -832,6 +843,7 @@ impl JsRuntime {
       allocations: IsolateAllocations::default(),
       files_loaded_from_fs_during_snapshot: vec![],
       is_main_runtime: options.is_main,
+      ext_snapshot_metadata: Some(ext_snapshot_metadata),
     };
 
     let mut files_loaded = Vec::with_capacity(128);
@@ -1842,6 +1854,7 @@ impl JsRuntimeForSnapshot {
   pub fn snapshot(mut self) -> SnapshotData {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
+    let ext_snapshot_metadata = self.ext_snapshot_metadata.take().unwrap();
 
     let realm = JsRealm::clone(&self.inner.main_realm);
 
@@ -1891,6 +1904,7 @@ impl JsRuntimeForSnapshot {
         realm.context().clone(),
         snapshotted_data,
         data_store,
+        ext_snapshot_metadata,
       )
     };
     drop(realm);

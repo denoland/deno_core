@@ -10,6 +10,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use crate::extension_set::ExtensionSetSnapshotMetadata;
 use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
@@ -479,6 +480,8 @@ pub(crate) struct SerializableSnapshotSidecarData {
   module_map_data: ModuleMapSnapshotData,
   js_handled_promise_rejection_cb: Option<SnapshotDataId>,
   ext_source_maps: HashMap<String, Vec<u8>>,
+  // TODO(bartlomieju): make debug only
+  pub ext_metadata: ExtensionSetSnapshotMetadata,
 }
 
 impl SerializableSnapshotSidecarData {
@@ -547,6 +550,7 @@ pub(crate) fn store_snapshotted_data_for_snapshot(
   context: v8::Global<v8::Context>,
   snapshotted_data: SnapshottedData,
   mut data_store: SnapshotStoreDataStore,
+  ext_metadata: ExtensionSetSnapshotMetadata,
 ) -> SerializableSnapshotSidecarData {
   let context = v8::Local::new(scope, context);
   let js_handled_promise_rejection_cb = snapshotted_data
@@ -557,6 +561,7 @@ pub(crate) fn store_snapshotted_data_for_snapshot(
     module_map_data: snapshotted_data.module_map_data,
     js_handled_promise_rejection_cb,
     ext_source_maps: snapshotted_data.ext_source_maps,
+    ext_metadata,
   };
 
   for data in data_store.data.drain(..) {

@@ -78,6 +78,41 @@ pub fn init_ops(
   ops
 }
 
+pub fn create_snapshot_metadata(
+  deno_core_ops: &'static [OpDecl],
+  extensions: &mut [Extension],
+) -> ExtensionSetSnapshotMetadata {
+  let mut data = Vec::with_capacity(1 + extensions.len());
+
+  data.push(ExtensionSnapshotMetadata {
+    ext_name: "deno_core".to_string(),
+    op_names: deno_core_ops
+      .iter()
+      .map(|decl| decl.name.to_string())
+      .collect(),
+    external_ref_count: 0,
+  });
+
+  for ext in extensions {
+    let ext_name = ext.name.to_string();
+    let ext_ops = ext.init_ops();
+    let op_names = ext_ops.iter().map(|decl| decl.name.to_string()).collect();
+    let mut external_ref_count = ext_ops
+      .iter()
+      .map(|decl| if decl.fast_fn.is_some() { 4 } else { 2 })
+      .sum::<usize>();
+    external_ref_count += ext.get_external_references().len();
+
+    data.push(ExtensionSnapshotMetadata {
+      ext_name,
+      op_names,
+      external_ref_count,
+    });
+  }
+
+  data
+}
+
 /// This functions panics if any of the extensions is missing its dependencies.
 #[cfg(debug_assertions)]
 fn check_extensions_dependencies(exts: &[Extension]) {
@@ -187,7 +222,7 @@ pub struct ExtensionSnapshotMetadata {
   external_ref_count: usize,
 }
 
-type ExtensionSetSnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
+pub type ExtensionSetSnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
 
 #[test]
 fn extension_and_ops_data_for_snapshot_test() {
