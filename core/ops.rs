@@ -5,6 +5,7 @@ use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
+use crate::runtime::external_refs;
 use crate::runtime::external_refs::ExternalRefRegistry;
 use crate::runtime::external_refs::ExternalReference;
 use crate::runtime::JsRuntimeState;
@@ -190,26 +191,26 @@ impl OpCtx {
   ) {
     let ctx_ptr = self as *const OpCtx as _;
     registry.register(ExternalReference::new(
-      "ctx_ptr",
+      external_refs::NAME_CTX_PTR,
       v8::ExternalReference { pointer: ctx_ptr },
     ));
 
     if self.metrics_enabled() {
       registry.register(ExternalReference::new(
-        "op_slow_fn",
+        external_refs::NAME_OP_SLOW_FN,
         v8::ExternalReference {
           function: self.decl.slow_fn_with_metrics,
         },
       ));
       if let Some(fast_fn) = &self.decl.fast_fn_with_metrics {
         registry.register(ExternalReference::new(
-          "op_fast_fn",
+          external_refs::NAME_OP_FAST_FN,
           v8::ExternalReference {
             pointer: fast_fn.function as _,
           },
         ));
         registry.register(ExternalReference::new(
-          "op_fast_fn_c_info",
+          external_refs::NAME_OP_FAST_FN_C_INFO,
           v8::ExternalReference {
             pointer: self.fast_fn_c_info.unwrap().as_ptr() as _,
           },
@@ -217,20 +218,20 @@ impl OpCtx {
       }
     } else {
       registry.register(ExternalReference::new(
-        "op_slow_fn",
+        external_refs::NAME_OP_SLOW_FN,
         v8::ExternalReference {
           function: self.decl.slow_fn,
         },
       ));
       if let Some(fast_fn) = &self.decl.fast_fn {
         registry.register(ExternalReference::new(
-          "op_fast_fn",
+          external_refs::NAME_OP_FAST_FN,
           v8::ExternalReference {
             pointer: fast_fn.function as _,
           },
         ));
         registry.register(ExternalReference::new(
-          "op_fast_fn_c_info",
+          external_refs::NAME_OP_FAST_FN_C_INFO,
           v8::ExternalReference {
             pointer: self.fast_fn_c_info.unwrap().as_ptr() as _,
           },

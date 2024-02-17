@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::modules::ModuleCodeString;
 use crate::runtime::bindings;
+use crate::runtime::external_refs;
 use crate::runtime::external_refs::ExternalReference;
 use crate::OpState;
 use anyhow::Context as _;
@@ -269,13 +270,16 @@ impl OpDecl {
     f
   }
 
-  // TODO(bartlomieju): deduplicate all these literals - hoist them to statics?
-  // They are also duplicated in `ops.rs`.
+  // TODO(bartlomieju): probably make it only available in debug build
+  /// List of names for external references provided by this op.
   pub(crate) fn get_external_refs_names(&self) -> Vec<String> {
-    let mut names = vec!["ctx_ptr".to_string(), "op_slow_fn".to_string()];
+    let mut names = vec![
+      external_refs::NAME_CTX_PTR.to_string(),
+      external_refs::NAME_OP_SLOW_FN.to_string(),
+    ];
     if self.fast_fn.is_some() {
-      names.push("op_fast_fn".to_string());
-      names.push("op_fast_fn_c_info".to_string());
+      names.push(external_refs::NAME_OP_FAST_FN.to_string());
+      names.push(external_refs::NAME_OP_FAST_FN_C_INFO.to_string());
     }
     names
   }

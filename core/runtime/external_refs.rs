@@ -9,6 +9,11 @@ use super::bindings::import_meta_resolve;
 use super::bindings::op_disabled_fn;
 use crate::modules::synthetic_module_evaluation_steps;
 
+pub const NAME_CTX_PTR: &str = "ctx_ptr";
+pub const NAME_OP_SLOW_FN: &str = "op_slow_fn";
+pub const NAME_OP_FAST_FN: &str = "op_fast_fn";
+pub const NAME_OP_FAST_FN_C_INFO: &str = "op_fast_fn_c_info";
+
 #[derive(Clone, Copy)]
 pub struct ExternalReference<'r> {
   pub(crate) display_name: &'static str,
