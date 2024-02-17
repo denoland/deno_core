@@ -82,28 +82,16 @@ pub fn init_ops(
 pub fn create_snapshot_metadata(
   extensions: &mut [Extension],
 ) -> ExtensionSetSnapshotMetadata {
-  let mut data = Vec::with_capacity(1 + extensions.len());
+  let mut data = Vec::with_capacity(extensions.len());
 
   for ext in extensions {
-    let ext_name = ext.name.to_string();
-    let ext_ops = ext.init_ops();
-    let op_names: Vec<String> =
-      ext_ops.iter().map(|decl| decl.name.to_string()).collect();
-    let external_refs = ext.get_external_refs_names();
-
-    if op_names.is_empty() && external_refs.is_empty() {
-      // If an extension has no ops and no external refs, it's a JS source
-      // only extension. There are often times where embedders want to provide
-      // some additional source code. The order of such extension in the list
-      // is not important and we can skip them.
-      continue;
+    // If an extension has no ops and no external refs, it's a JS source
+    // only extension. There are often times where embedders want to provide
+    // some additional source code. The order of such extension in the list
+    // is not important and we can skip them.
+    if let Some(metadata) = ext.get_extension_snapshot_metadata() {
+      data.push(metadata);
     }
-
-    data.push(ExtensionSnapshotMetadata {
-      ext_name,
-      op_names,
-      external_refs,
-    });
   }
 
   data
@@ -213,9 +201,9 @@ pub fn get_middlewares_and_external_refs(
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionSnapshotMetadata {
-  ext_name: String,
-  op_names: Vec<String>,
-  external_refs: Vec<String>,
+  pub ext_name: String,
+  pub op_names: Vec<String>,
+  pub external_refs: Vec<String>,
 }
 
 pub type ExtensionSetSnapshotMetadata = Vec<ExtensionSnapshotMetadata>;

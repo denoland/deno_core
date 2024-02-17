@@ -1,3 +1,4 @@
+use crate::extension_set::ExtensionSnapshotMetadata;
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use crate::modules::ModuleCodeString;
 use crate::runtime::bindings;
@@ -728,11 +729,14 @@ impl Extension {
   }
 
   // TODO(bartlomieju): probably make it only available in debug build
-  /// List of names for external references provided by all the ops and additional
-  /// external references in this extension.
-  pub(crate) fn get_external_refs_names(&self) -> Vec<String> {
+  pub(crate) fn get_extension_snapshot_metadata(
+    &self,
+  ) -> Option<ExtensionSnapshotMetadata> {
+    let ext_name = self.name.to_string();
     let ops = self.ops.as_ref();
-    let mut external_refs_names: Vec<String> = ops
+    let op_names: Vec<String> =
+      ops.iter().map(|decl| decl.name.to_string()).collect();
+    let mut external_refs: Vec<String> = ops
       .iter()
       .flat_map(|decl| decl.get_external_refs_names())
       .collect();
@@ -742,8 +746,17 @@ impl Extension {
       .iter()
       .map(|ext_ref| ext_ref.display_name.to_string())
       .collect();
-    external_refs_names.extend_from_slice(&additional_ext_refs);
-    external_refs_names
+    external_refs.extend_from_slice(&additional_ext_refs);
+
+    if op_names.is_empty() && external_refs.is_empty() {
+      return None;
+    }
+
+    Some(ExtensionSnapshotMetadata {
+      ext_name,
+      op_names,
+      external_refs,
+    })
   }
 
   pub fn enabled(self, enabled: bool) -> Self {
