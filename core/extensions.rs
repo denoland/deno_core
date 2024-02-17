@@ -727,6 +727,25 @@ impl Extension {
     self.external_references.as_ref()
   }
 
+  // TODO(bartlomieju): probably make it only available in debug build
+  /// List of names for external references provided by all the ops and additional
+  /// external references in this extension.
+  pub(crate) fn get_external_refs_names(&self) -> Vec<String> {
+    let ops = self.ops.as_ref();
+    let mut external_refs_names: Vec<String> = ops
+      .iter()
+      .flat_map(|decl| decl.get_external_refs_names())
+      .collect();
+    let additional_ext_refs: Vec<String> = self
+      .external_references
+      .as_ref()
+      .iter()
+      .map(|ext_ref| ext_ref.display_name.to_string())
+      .collect();
+    external_refs_names.extend_from_slice(&additional_ext_refs);
+    external_refs_names
+  }
+
   pub fn enabled(self, enabled: bool) -> Self {
     Self { enabled, ..self }
   }

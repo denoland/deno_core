@@ -89,16 +89,7 @@ pub fn create_snapshot_metadata(
     let ext_ops = ext.init_ops();
     let op_names: Vec<String> =
       ext_ops.iter().map(|decl| decl.name.to_string()).collect();
-    let mut external_refs: Vec<String> = ext_ops
-      .iter()
-      .flat_map(|decl| decl.get_external_refs_names())
-      .collect();
-    let additional_ext_refs: Vec<String> = ext
-      .get_external_references()
-      .iter()
-      .map(|ext_ref| ext_ref.display_name.to_string())
-      .collect();
-    external_refs.extend_from_slice(&additional_ext_refs);
+    let external_refs = ext.get_external_refs_names();
 
     if op_names.is_empty() && external_refs.is_empty() {
       // If an extension has no ops and no external refs, it's a JS source
