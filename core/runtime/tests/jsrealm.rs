@@ -2,10 +2,10 @@
 use crate::error;
 use crate::modules::StaticModuleLoader;
 use crate::op2;
+use crate::snapshot::Snapshot;
 use crate::JsRuntime;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
-use crate::Snapshot;
 use futures::future::poll_fn;
 use std::rc::Rc;
 use std::task::Poll;

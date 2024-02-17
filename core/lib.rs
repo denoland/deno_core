@@ -174,13 +174,18 @@ pub mod _ops {
   pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
 }
 
-// TODO(mmastrac): Temporary while we move code around
-pub mod snapshot_util {
+pub mod snapshot {
   pub use crate::runtime::create_snapshot;
   pub use crate::runtime::get_js_files;
   pub use crate::runtime::CreateSnapshotOptions;
   pub use crate::runtime::CreateSnapshotOutput;
   pub use crate::runtime::FilterFn;
+  pub use crate::runtime::Snapshot;
+  pub use crate::runtime::SnapshotBulkCompressingSerializer;
+  pub use crate::runtime::SnapshotData;
+  pub use crate::runtime::SnapshotFileSerializer;
+  pub use crate::runtime::SnapshotInMemorySerializer;
+  pub use crate::runtime::SnapshotSerializer;
 }
 
 /// A helper macro that will return a call site in Rust code. Should be
