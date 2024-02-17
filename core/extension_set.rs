@@ -97,6 +97,7 @@ pub fn create_snapshot_metadata(
     external_refs: vec![],
   });
 
+  // TODO(bartlomieju): don't store info if extension if source code only.
   for ext in extensions {
     let ext_name = ext.name.to_string();
     let ext_ops = ext.init_ops();
@@ -239,7 +240,7 @@ fn extension_and_ops_data_for_snapshot_test() {
   ($($x:expr),* $(,)?) => (vec![$($x.to_string()),*]);
 }
 
-  let expected = r#"[{"ext_name":"deno_core","op_names":["op_name1","op_name2","op_name3"],"external_ref_count":0},{"ext_name":"ext1","op_names":["op_ext1_1","op_ext1_2","op_ext1_3"],"external_ref_count":0},{"ext_name":"ext2","op_names":["op_ext2_1","op_ext2_2"],"external_ref_count":0},{"ext_name":"ext3","op_names":["op_ext3_1"],"external_ref_count":5},{"ext_name":"ext4","op_names":["op_ext4_1","op_ext4_2","op_ext4_3","op_ext4_4","op_ext4_5"],"external_ref_count":0},{"ext_name":"ext5","op_names":[],"external_ref_count":0}]"#;
+  let expected = r#"[{"ext_name":"deno_core","op_names":["op_name1","op_name2","op_name3"],"external_refs":[]},{"ext_name":"ext1","op_names":["op_ext1_1","op_ext1_2","op_ext1_3"],"external_refs":[]},{"ext_name":"ext2","op_names":["op_ext2_1","op_ext2_2"],"external_refs":[]},{"ext_name":"ext3","op_names":["op_ext3_1"],"external_refs":["op_ctx","op_slow_fn","op_fast_fn","op_fast_fn_c_info","some_additional_ref"]},{"ext_name":"ext4","op_names":["op_ext4_1","op_ext4_2","op_ext4_3","op_ext4_4","op_ext4_5"],"external_refs":[]},{"ext_name":"ext5","op_names":[],"external_refs":[]}]"#;
 
   let data = vec![
     ExtensionSnapshotMetadata {
