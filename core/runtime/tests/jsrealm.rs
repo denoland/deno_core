@@ -128,8 +128,14 @@ async fn js_realm_ref_unref_ops() {
 #[test]
 fn es_snapshot() {
   let startup_data = {
+    #[op2(fast)]
+    fn op_some_op() {
+      // noop
+    }
+
     deno_core::extension!(
       module_snapshot,
+      ops = [op_some_op],
       esm_entry_point = "mod:test",
       esm = ["mod:test" =
         { source = "globalThis.TEST = 'foo'; export const TEST = 'bar';" },]
@@ -142,8 +148,10 @@ fn es_snapshot() {
     });
     runtime.snapshot()
   };
+  deno_core::extension!(module_snapshot,);
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
+    extensions: vec![module_snapshot::init_ops_and_esm()],
     startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
     ..Default::default()
   });

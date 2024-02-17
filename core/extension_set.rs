@@ -206,7 +206,95 @@ pub struct ExtensionSnapshotMetadata {
   pub external_refs: Vec<String>,
 }
 
+impl ExtensionSnapshotMetadata {
+  /// Returns `None` is validation is successful, returns a vector of string
+  /// errors if validation fails.
+  fn validate_against_expected(
+    &self,
+    expected: &ExtensionSnapshotMetadata,
+  ) -> Option<Vec<String>> {
+    if self.ext_name != expected.ext_name {
+      return Some(vec![format!(
+        "Expected {} extension, but found {}",
+        expected.ext_name, self.ext_name
+      )]);
+    }
+
+    // TODO: check for ops len mismatch, then compare ordering of the ops
+    if self.op_names.len() != expected.op_names.len() {
+      return Some(vec![format!(
+        "Mismatch in ops, expected {} ops, but found {} ops",
+        expected.op_names.len(),
+        self.op_names.len(),
+      )]);
+    }
+
+    if self.op_names != expected.op_names {
+      return Some(vec![format!(
+        "Mismatch in op ordering, expected:\n{}but found:\n{}",
+        expected.op_names.join("\n"),
+        self.op_names.join("\n"),
+      )]);
+    }
+
+    // TODO: check for external reference mismatch, then compare ordering of refs
+    if self.external_refs.len() != expected.external_refs.len() {
+      return Some(vec![format!(
+        "Mismatch in external refs, expected {} refs, but found {} refs",
+        expected.external_refs.len(),
+        self.external_refs.len(),
+      )]);
+    }
+
+    if self.external_refs != expected.external_refs {
+      return Some(vec![format!(
+        "Mismatch in external ref ordering, expected:\n{}but found:\n{}",
+        expected.external_refs.join("\n"),
+        self.external_refs.join("\n"),
+      )]);
+    }
+
+    None
+  }
+}
+
 pub type ExtensionSetSnapshotMetadata = Vec<ExtensionSnapshotMetadata>;
+
+// Panics if the metadata doesn't match. This is a panic because it means
+// that the runtime has been misconfigured.
+pub fn compare_snapshot_metadata(
+  metadata_from_snapshot: &ExtensionSetSnapshotMetadata,
+  expected_metadata: &ExtensionSetSnapshotMetadata,
+) {
+  // TODO(bartlomieju): verify if this is true.
+  // First let's create a slice from expected_metadata, equal to the length
+  // of the snapshotted metadata - there might be additional extensions registered
+  // during runtime.
+  if expected_metadata.len() < metadata_from_snapshot.len() {
+    let msg = format!("Snapshot metadata validation failed:\nSnapshot contains following extensions:\n{}\nThese extension were registered on startup:\n{}", metadata_from_snapshot.iter().map(|metadata| format!(" - {}", metadata.ext_name)).collect::<Vec<String>>().join("\n"),
+    expected_metadata.iter().map(|metadata| format!(" - {}", metadata.ext_name)).collect::<Vec<String>>().join("\n"));
+    panic!("{}", msg);
+  }
+
+  let expected_metadata = &expected_metadata[..metadata_from_snapshot.len()];
+
+  let mut validation_errors = vec![];
+
+  for (snapshotted, expected) in
+    metadata_from_snapshot.iter().zip(expected_metadata)
+  {
+    if let Some(ext_errors) = snapshotted.validate_against_expected(expected) {
+      validation_errors.extend_from_slice(&ext_errors);
+    }
+  }
+
+  if !validation_errors.is_empty() {
+    let mut error_msg =
+      vec!["Snapshot metadata validation failed:".to_string()];
+    error_msg.extend_from_slice(&validation_errors);
+    panic!("{}", error_msg.join("\n"))
+  }
+}
 
 #[test]
 fn extension_and_ops_data_for_snapshot_test() {

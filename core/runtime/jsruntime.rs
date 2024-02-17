@@ -696,7 +696,10 @@ impl JsRuntime {
     // TODO(bartlomieju): improve the assertion here - probably need a helper
     // function that will validate it.
     if let Some(raw_data) = sidecar_data.as_ref() {
-      assert_eq!(&raw_data.ext_metadata, &ext_snapshot_metadata);
+      extension_set::compare_snapshot_metadata(
+        &raw_data.ext_metadata,
+        &ext_snapshot_metadata,
+      );
     }
 
     let mut isolate = setup::create_isolate(
