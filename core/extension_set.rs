@@ -11,6 +11,7 @@ use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpMiddlewareFn;
 use crate::ops::OpCtx;
+use crate::runtime::external_refs::ExternalReference;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::GetErrorClassFn;
@@ -188,7 +189,7 @@ pub fn get_middlewares_and_external_refs(
 ) -> (
   Vec<GlobalTemplateMiddlewareFn>,
   Vec<GlobalObjectMiddlewareFn>,
-  Vec<v8::ExternalReference<'static>>,
+  Vec<ExternalReference<'static>>,
 ) {
   // TODO(bartlomieju): these numbers were chosen arbitrarily. This is a very
   // niche features and it's unlikely a lot of extensions use it.

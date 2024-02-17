@@ -5,7 +5,6 @@ use std::option::Option;
 use std::os::raw::c_void;
 use std::path::PathBuf;
 use url::Url;
-use v8::MapFnTo;
 
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use crate::error::has_call_site;
@@ -15,7 +14,6 @@ use crate::error::AnyError;
 use crate::error::JsStackFrame;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
-use crate::modules::synthetic_module_evaluation_steps;
 use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
@@ -24,75 +22,6 @@ use crate::runtime::JsRealm;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
-
-pub(crate) fn create_external_references(
-  ops: &[OpCtx],
-  additional_references: &[v8::ExternalReference],
-) -> &'static v8::ExternalReferences {
-  // Overallocate a bit, it's better than having to resize the vector.
-  let mut references =
-    Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
-
-  references.push(v8::ExternalReference {
-    function: call_console.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: import_meta_resolve.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: catch_dynamic_import_promise_error.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: empty_fn.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
-    function: op_disabled_fn.map_fn_to(),
-  });
-
-  let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
-    synthetic_module_evaluation_steps.map_fn_to();
-  references.push(v8::ExternalReference {
-    pointer: syn_module_eval_fn as *mut c_void,
-  });
-
-  for ctx in ops {
-    if ctx.metrics_enabled() {
-      let ctx_ptr = ctx as *const OpCtx as _;
-      references.push(v8::ExternalReference { pointer: ctx_ptr });
-      references.push(v8::ExternalReference {
-        function: ctx.decl.slow_fn_with_metrics,
-      });
-      if let Some(fast_fn) = &ctx.decl.fast_fn_with_metrics {
-        references.push(v8::ExternalReference {
-          pointer: fast_fn.function as _,
-        });
-        references.push(v8::ExternalReference {
-          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
-        });
-      }
-    } else {
-      let ctx_ptr = ctx as *const OpCtx as _;
-      references.push(v8::ExternalReference { pointer: ctx_ptr });
-      references.push(v8::ExternalReference {
-        function: ctx.decl.slow_fn,
-      });
-      if let Some(fast_fn) = &ctx.decl.fast_fn {
-        references.push(v8::ExternalReference {
-          pointer: fast_fn.function as _,
-        });
-        references.push(v8::ExternalReference {
-          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
-        });
-      }
-    }
-  }
-
-  references.extend_from_slice(additional_references);
-
-  let refs = v8::ExternalReferences::new(&references);
-  let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
-  refs
-}
 
 // TODO(nayeemrmn): Move to runtime and/or make `pub(crate)`.
 pub fn script_origin<'a>(
@@ -540,7 +469,7 @@ fn maybe_add_import_meta_filename_dirname(
   meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
 }
 
-fn import_meta_resolve(
+pub(crate) fn import_meta_resolve(
   scope: &mut v8::HandleScope,
   args: v8::FunctionCallbackArguments,
   mut rv: v8::ReturnValue,
@@ -579,7 +508,7 @@ fn import_meta_resolve(
   };
 }
 
-fn empty_fn(
+pub(crate) fn empty_fn(
   _scope: &mut v8::HandleScope,
   _args: v8::FunctionCallbackArguments,
   _rv: v8::ReturnValue,
@@ -605,7 +534,7 @@ pub fn create_empty_fn<'s>(
   empty_fn.get_function(scope)
 }
 
-fn catch_dynamic_import_promise_error(
+pub(crate) fn catch_dynamic_import_promise_error(
   scope: &mut v8::HandleScope,
   args: v8::FunctionCallbackArguments,
   _rv: v8::ReturnValue,
@@ -683,7 +612,7 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 ///
 /// Inspired by:
 /// https://github.com/nodejs/node/blob/1317252dfe8824fd9cfee125d2aaa94004db2f3b/src/inspector_js_api.cc#L194-L222
-fn call_console(
+pub(crate) fn call_console(
   scope: &mut v8::HandleScope,
   args: v8::FunctionCallbackArguments,
   _rv: v8::ReturnValue,
