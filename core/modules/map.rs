@@ -544,7 +544,7 @@ impl ModuleMap {
         .get_specifier()
         .to_rust_string_lossy(tc_scope);
 
-      let import_attributes = module_request.get_import_assertions();
+      let import_attributes = module_request.get_import_attributes();
 
       let attributes = parse_import_attributes(
         tc_scope,
