@@ -17,7 +17,6 @@ use crate::futures::stream::StreamExt;
 use crate::futures::task;
 use crate::futures::task::Context;
 use crate::futures::task::Poll;
-use crate::serde_json;
 use crate::serde_json::json;
 use crate::serde_json::Value;
 use anyhow::Error;

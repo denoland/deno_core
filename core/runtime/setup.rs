@@ -6,7 +6,6 @@ use crate::V8_WRAPPER_TYPE_INDEX;
 use super::bindings;
 use super::snapshot;
 use super::snapshot::V8StartupData;
-use std::option::Option;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;

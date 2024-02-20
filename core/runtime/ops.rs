@@ -8,7 +8,6 @@ use serde_v8::V8Sliceable;
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
-use std::option::Option;
 use std::ptr::NonNull;
 use v8::WriteOptions;
 
