@@ -64,7 +64,6 @@ use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::option::Option;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;

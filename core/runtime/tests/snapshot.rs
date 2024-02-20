@@ -6,6 +6,8 @@ use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use self::runtime::create_snapshot;
 use self::runtime::CreateSnapshotOptions;
@@ -155,6 +157,43 @@ fn test_snapshot_creator() {
     None,
   )
   .unwrap();
+
+  let snapshot = Snapshot::Boxed(output.output);
+
+  let mut runtime2 = JsRuntime::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    ..Default::default()
+  });
+  runtime2
+    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .unwrap();
+}
+
+#[test]
+fn test_snapshot_creator_warmup() {
+  let counter = Rc::new(RefCell::new(0));
+
+  let c = counter.clone();
+  let output = create_snapshot(
+    CreateSnapshotOptions {
+      cargo_manifest_dir: "",
+      startup_snapshot: None,
+      skip_op_registration: false,
+      extensions: vec![],
+      with_runtime_cb: Some(Box::new(move |runtime| {
+        c.replace_with(|&mut c| c + 1);
+
+        runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+      })),
+      serializer: Box::<SnapshotInMemorySerializer>::default(),
+    },
+    Some("const b = 'Hello'"),
+  )
+  .unwrap();
+
+  // `with_runtime_cb` executes twice, once for snapshot creation
+  // and one for the warmup.
+  assert_eq!(*counter.borrow(), 2);
 
   let snapshot = Snapshot::Boxed(output.output);
 

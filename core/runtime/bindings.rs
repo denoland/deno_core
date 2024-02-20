@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
 use log::debug;
-use std::option::Option;
 use std::os::raw::c_void;
 use std::path::PathBuf;
 use url::Url;

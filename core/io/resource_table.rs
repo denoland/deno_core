@@ -8,7 +8,6 @@ use crate::error::custom_error;
 use anyhow::Error;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::iter::Iterator;
 use std::rc::Rc;
 
 /// A `ResourceId` is an integer value referencing a resource. It could be
