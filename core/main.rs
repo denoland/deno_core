@@ -3,7 +3,6 @@
 use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
-use deno_core::v8;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;

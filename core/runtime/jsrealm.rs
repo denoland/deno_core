@@ -20,7 +20,6 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
-use std::option::Option;
 use std::rc::Rc;
 use std::sync::Arc;
 use v8::Handle;

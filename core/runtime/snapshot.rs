@@ -399,7 +399,7 @@ pub fn create_snapshot<T>(
     .map(PathBuf::from)
     .collect::<Vec<_>>();
 
-  if let Some(with_runtime_cb) = create_snapshot_options.with_runtime_cb {
+  if let Some(ref with_runtime_cb) = create_snapshot_options.with_runtime_cb {
     with_runtime_cb(&mut js_runtime);
   }
 
@@ -418,6 +418,11 @@ pub fn create_snapshot<T>(
       skip_op_registration: true,
       ..Default::default()
     });
+
+    if let Some(with_runtime_cb) = create_snapshot_options.with_runtime_cb {
+      with_runtime_cb(&mut js_runtime);
+    }
+
     js_runtime.execute_script_static("warmup", warmup_script)?;
 
     snapshot = js_runtime.snapshot();
