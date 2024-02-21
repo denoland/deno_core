@@ -7,7 +7,16 @@ use url::Url;
 use v8::MapFnTo;
 
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
-use super::jsruntime::CONTEXT_SETUP_SOURCES2;
+use super::jsruntime::CORE_SOURCE;
+use super::jsruntime::ERROR_SOURCE;
+use super::jsruntime::INFRA_SOURCE;
+use super::jsruntime::INFRA_SOURCE_ONEBYTE;
+use super::jsruntime::INFRA_SPECIFIER;
+use super::jsruntime::INFRA_SPECIFIER_ONEBYTE;
+use super::jsruntime::PRIMORDIALS_SOURCE;
+use super::jsruntime::PRIMORDIALS_SOURCE_ONEBYTE;
+use super::jsruntime::PRIMORDIALS_SPECIFIER;
+use super::jsruntime::PRIMORDIALS_SPECIFIER_ONEBYTE;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -47,6 +56,19 @@ pub(crate) fn create_external_references(
   });
   references.push(v8::ExternalReference {
     function: op_disabled_fn.map_fn_to(),
+  });
+
+  references.push(v8::ExternalReference {
+    pointer: PRIMORDIALS_SOURCE.as_ptr() as *mut c_void,
+  });
+  references.push(v8::ExternalReference {
+    pointer: INFRA_SOURCE.as_ptr() as *mut c_void,
+  });
+  references.push(v8::ExternalReference {
+    pointer: CORE_SOURCE.as_ptr() as *mut c_void,
+  });
+  references.push(v8::ExternalReference {
+    pointer: ERROR_SOURCE.as_ptr() as *mut c_void,
   });
 
   let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
@@ -249,41 +271,50 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
 ) -> Result<(), AnyError> {
-  for file_source in &CONTEXT_SETUP_SOURCES {
-    let code = file_source.load().unwrap();
-    let source_str = code.v8_string(scope).unwrap();
-    let name = v8_static_strings::new_from_static_str(
-      scope,
-      file_source.specifier.as_bytes(),
-    );
-    let origin = script_origin(scope, name);
-    // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
-    let script = v8::Script::compile(scope, source_str, Some(&origin))
-      .with_context(|| format!("Failed to parse {}", file_source.specifier))?;
-    script.run(scope).with_context(|| {
-      format!("Failed to execute {}", file_source.specifier)
-    })?;
-  }
+  // for file_source in &CONTEXT_SETUP_SOURCES {
+  //   let code = file_source.load().unwrap();
+  //   let source_str = code.v8_string(scope).unwrap();
+  //   let name = v8_static_strings::new_from_static_str(
+  //     scope,
+  //     file_source.specifier.as_bytes(),
+  //   );
+  //   let origin = script_origin(scope, name);
+  //   // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+  //   let script = v8::Script::compile(scope, source_str, Some(&origin))
+  //     .with_context(|| format!("Failed to parse {}", file_source.specifier))?;
+  //   script.run(scope).with_context(|| {
+  //     format!("Failed to execute {}", file_source.specifier)
+  //   })?;
+  // }
 
-  for (specifier, code) in CONTEXT_SETUP_SOURCES2 {
-    let specifier_onebyte =
-      v8::String::create_external_onebyte_const(specifier.as_bytes());
-    let code_onebyte =
-      v8::String::create_external_onebyte_const(code.as_bytes());
+  let name =
+    v8::String::new_from_onebyte_const(scope, &PRIMORDIALS_SPECIFIER_ONEBYTE)
+      .unwrap();
+  let source_str =
+    v8::String::new_from_onebyte_const(scope, &PRIMORDIALS_SOURCE_ONEBYTE)
+      .unwrap();
 
-    let name =
-      v8::String::new_from_onebyte_const(scope, &specifier_onebyte).unwrap();
-    let source_str =
-      v8::String::new_from_onebyte_const(scope, &code_onebyte).unwrap();
+  let origin = script_origin(scope, name);
+  // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+  let script = v8::Script::compile(scope, source_str, Some(&origin))
+    .with_context(|| format!("Failed to parse {}", PRIMORDIALS_SPECIFIER))?;
+  script
+    .run(scope)
+    .with_context(|| format!("Failed to execute {}", PRIMORDIALS_SPECIFIER))?;
 
-    let origin = script_origin(scope, name);
-    // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
-    let script = v8::Script::compile(scope, source_str, Some(&origin))
-      .with_context(|| format!("Failed to parse {}", specifier))?;
-    script
-      .run(scope)
-      .with_context(|| format!("Failed to execute {}", specifier))?;
-  }
+  let name =
+    v8::String::new_from_onebyte_const(scope, &INFRA_SPECIFIER_ONEBYTE)
+      .unwrap();
+  let source_str =
+    v8::String::new_from_onebyte_const(scope, &INFRA_SOURCE_ONEBYTE).unwrap();
+
+  let origin = script_origin(scope, name);
+  // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+  let script = v8::Script::compile(scope, source_str, Some(&origin))
+    .with_context(|| format!("Failed to parse {}", INFRA_SPECIFIER))?;
+  script
+    .run(scope)
+    .with_context(|| format!("Failed to execute {}", INFRA_SPECIFIER))?;
 
   Ok(())
 }

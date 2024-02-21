@@ -3,10 +3,13 @@
 use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
+use deno_core::snapshot::CreateSnapshotOptions;
+use deno_core::snapshot::SnapshotFileSerializer;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
+use deno_core::JsRuntimeForSnapshot;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
 use std::borrow::Cow;
@@ -69,6 +72,9 @@ fn text_module(
   )))
 }
 
+// TODO(bartlomieju): figure out how we can incorporate snapshotting here
+// static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
+
 fn main() -> Result<(), Error> {
   let args: Vec<String> = std::env::args().collect();
   eprintln!(
@@ -81,7 +87,26 @@ fn main() -> Result<(), Error> {
   let main_url = &args[1];
   println!("Run {main_url}");
 
+  // TODO(bartlomieju): figure out how we can incorporate snapshotting here
+  // deno_core::snapshot::create_snapshot(
+  //   CreateSnapshotOptions {
+  //     serializer: Box::new(SnapshotFileSerializer::new(
+  //       std::fs::File::create("./snapshot.bin").unwrap(),
+  //     )),
+  //     extensions: vec![],
+  //     cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+  //     startup_snapshot: None,
+  //     with_runtime_cb: None,
+  //     skip_op_registration: false,
+  //   },
+  //   None,
+  // )
+  // .unwrap();
+  // return Ok(());
+
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
+    // TODO(bartlomieju): figure out how we can incorporate snapshotting here
+    // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     ..Default::default()
