@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use url::Url;
 use v8::MapFnTo;
 
+use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
@@ -29,8 +30,12 @@ pub(crate) fn create_external_references(
   additional_references: &[v8::ExternalReference],
 ) -> &'static v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
-  let mut references =
-    Vec::with_capacity(6 + (ops.len() * 4) + additional_references.len());
+  let mut references = Vec::with_capacity(
+    6 + CONTEXT_SETUP_SOURCES.len()
+      + BUILTIN_SOURCES.len()
+      + (ops.len() * 4)
+      + additional_references.len(),
+  );
 
   references.push(v8::ExternalReference {
     function: call_console.map_fn_to(),
@@ -47,12 +52,25 @@ pub(crate) fn create_external_references(
   references.push(v8::ExternalReference {
     function: op_disabled_fn.map_fn_to(),
   });
-
   let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
     synthetic_module_evaluation_steps.map_fn_to();
   references.push(v8::ExternalReference {
     pointer: syn_module_eval_fn as *mut c_void,
   });
+
+  // Using v8::OneByteConst and passing external references to the source code
+  // allows V8 to take an optimized path when deserializing the snapshot.
+  for source_file in &CONTEXT_SETUP_SOURCES {
+    references.push(v8::ExternalReference {
+      pointer: source_file.source.as_ptr() as *mut c_void,
+    });
+  }
+
+  for source_file in &BUILTIN_SOURCES {
+    references.push(v8::ExternalReference {
+      pointer: source_file.source.as_ptr() as *mut c_void,
+    });
+  }
 
   for ctx in ops {
     if ctx.metrics_enabled() {
@@ -248,21 +266,27 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
 ) -> Result<(), AnyError> {
-  for file_source in &CONTEXT_SETUP_SOURCES {
-    let code = file_source.load().unwrap();
-    let source_str = code.v8_string(scope);
-    let name = v8_static_strings::new_from_static_str(
+  for source_file in &CONTEXT_SETUP_SOURCES {
+    let name = v8::String::new_from_onebyte_const(
       scope,
-      file_source.specifier.as_bytes(),
-    );
+      &source_file.specifier_onebyte_const,
+    )
+    .unwrap();
+    let source_str = v8::String::new_from_onebyte_const(
+      scope,
+      &source_file.source_onebyte_const,
+    )
+    .unwrap();
+
     let origin = script_origin(scope, name);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source_str, Some(&origin))
-      .with_context(|| format!("Failed to parse {}", file_source.specifier))?;
+      .with_context(|| format!("Failed to parse {}", source_file.specifier))?;
     script.run(scope).with_context(|| {
-      format!("Failed to execute {}", file_source.specifier)
+      format!("Failed to execute {}", source_file.specifier)
     })?;
   }
+
   Ok(())
 }
 

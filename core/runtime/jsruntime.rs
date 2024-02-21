@@ -50,6 +50,7 @@ use crate::OpState;
 use crate::Snapshot;
 use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::Context as _;
 use anyhow::Error;
 use futures::future::poll_fn;
 use futures::task::AtomicWaker;
@@ -259,21 +260,43 @@ impl Future for RcPromiseFuture {
 
 const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
 
+pub(crate) struct InternalSourceFile {
+  pub specifier: &'static str,
+  pub specifier_onebyte_const: v8::OneByteConst,
+  pub source: &'static [u8],
+  pub source_onebyte_const: v8::OneByteConst,
+}
+
+macro_rules! internal_source_file {
+  ($str_:literal) => {{
+    let specifier = concat!("ext:core/", $str_);
+    let source = include_bytes!(concat!("../", $str_));
+
+    InternalSourceFile {
+      specifier,
+      specifier_onebyte_const: v8::String::create_external_onebyte_const(
+        specifier.as_bytes(),
+      ),
+      source,
+      source_onebyte_const: v8::String::create_external_onebyte_const(source),
+    }
+  }};
+}
+
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
-pub(crate) static CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
-  core
-  "00_primordials.js",
-  "00_infra.js",
-);
+pub(crate) static CONTEXT_SETUP_SOURCES: [InternalSourceFile; 2] = [
+  internal_source_file!("00_primordials.js"),
+  internal_source_file!("00_infra.js"),
+];
 
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
-pub(crate) static BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
-  core
-  "01_core.js",
-  "02_error.js",
-);
+pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 2] = [
+  internal_source_file!("01_core.js"),
+  internal_source_file!("02_error.js"),
+];
+
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
 pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
@@ -1000,20 +1023,34 @@ impl JsRuntime {
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), Error> {
-    for file_source in &BUILTIN_SOURCES {
-      mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-      realm.execute_script(
-        self.v8_isolate(),
-        file_source.specifier,
-        file_source.load()?,
-      )?;
+    let scope = &mut realm.handle_scope(self.v8_isolate());
+
+    for source_file in &BUILTIN_SOURCES {
+      let name = v8::String::new_from_onebyte_const(
+        scope,
+        &source_file.specifier_onebyte_const,
+      )
+      .unwrap();
+      let source_str = v8::String::new_from_onebyte_const(
+        scope,
+        &source_file.source_onebyte_const,
+      )
+      .unwrap();
+
+      let origin = bindings::script_origin(scope, name);
+      let script = v8::Script::compile(scope, source_str, Some(&origin))
+        .with_context(|| {
+          format!("Failed to parse {}", source_file.specifier)
+        })?;
+      script.run(scope).with_context(|| {
+        format!("Failed to execute {}", source_file.specifier)
+      })?;
     }
 
     for file_source in &BUILTIN_ES_MODULES {
       mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-      let mut scope = realm.handle_scope(self.v8_isolate());
       module_map.lazy_load_es_module_from_code(
-        &mut scope,
+        scope,
         file_source.specifier,
         file_source.load()?,
       )?;
