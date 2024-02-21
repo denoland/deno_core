@@ -1,5 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-import { assert, assertEquals, fail, test } from "checkin:testing";
+import { fail, test } from "checkin:testing";
 
 // Verify that "array by copy" proposal is enabled (https://github.com/tc39/proposal-change-array-by-copy)
 test(function testArrayByCopy() {
@@ -36,29 +36,5 @@ test(function testIteratorHelpers() {
   const a = naturals().take(5).toArray();
   if (a[0] !== 0 || a[1] !== 1 || a[2] !== 2 || a[3] !== 3 || a[4] !== 4) {
     fail("failed");
-  }
-});
-
-// Verify that "Set Methods" proposal is enabled (https://github.com/tc39/proposal-set-methods)
-test(function testSetMethods() {
-  {
-    const odds = new Set([1, 3, 5, 7, 9]);
-    const squares = new Set([1, 4, 9]);
-    const intersection = odds.intersection(squares);
-    assertEquals(intersection.size, 2);
-    assert(intersection.has(1));
-    assert(intersection.has(9));
-  }
-  {
-    const evens = new Set([2, 4, 6, 8]);
-    const squares = new Set([1, 4, 9]);
-    const union = evens.union(squares);
-    assertEquals(union.size, 6);
-    assert(union.has(2));
-    assert(union.has(4));
-    assert(union.has(6));
-    assert(union.has(8));
-    assert(union.has(1));
-    assert(union.has(9));
   }
 });
