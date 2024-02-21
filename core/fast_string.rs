@@ -27,7 +27,9 @@ pub enum FastString {
   Static(&'static str),
 
   /// Created from static data, known to contain only ASCII chars.
-  StaticAscii(&'static str),
+  /// For extra optimization when snapshotting, external references should
+  /// be provided for these strings.
+  StaticAscii(&'static str, v8::OneByteConst),
 
   /// An owned chunk of data. Note that we use `Box` rather than `Vec` to avoid the
   /// storage overhead.
@@ -55,7 +57,10 @@ impl FastString {
   /// so, will take the slower path when used in v8.
   pub const fn from_static(s: &'static str) -> Self {
     if Self::is_ascii(s.as_bytes()) {
-      Self::StaticAscii(s)
+      Self::StaticAscii(
+        s,
+        v8::String::create_external_onebyte_const(s.as_bytes()),
+      )
     } else {
       Self::Static(s)
     }
@@ -65,7 +70,10 @@ impl FastString {
   /// will abort.
   pub const fn ensure_static_ascii(s: &'static str) -> Self {
     if Self::is_ascii(s.as_bytes()) {
-      Self::StaticAscii(s)
+      Self::StaticAscii(
+        s,
+        v8::String::create_external_onebyte_const(s.as_bytes()),
+      )
     } else {
       panic!("This string contained non-ASCII characters and cannot be created with ensure_static_ascii")
     }
@@ -76,7 +84,16 @@ impl FastString {
   pub fn into_cheap_copy(self) -> (Self, Self) {
     match self {
       Self::Static(s) => (Self::Static(s), Self::Static(s)),
-      Self::StaticAscii(s) => (Self::StaticAscii(s), Self::StaticAscii(s)),
+      Self::StaticAscii(s, _onebyte) => (
+        Self::StaticAscii(
+          s,
+          v8::String::create_external_onebyte_const(s.as_bytes()),
+        ),
+        Self::StaticAscii(
+          s,
+          v8::String::create_external_onebyte_const(s.as_bytes()),
+        ),
+      ),
       Self::Arc(s) => (Self::Arc(s.clone()), Self::Arc(s)),
       Self::Owned(s) => {
         let s: Arc<str> = s.into();
@@ -89,7 +106,10 @@ impl FastString {
   pub fn try_clone(&self) -> Option<Self> {
     match self {
       Self::Static(s) => Some(Self::Static(s)),
-      Self::StaticAscii(s) => Some(Self::StaticAscii(s)),
+      Self::StaticAscii(s, _onebyte) => Some(Self::StaticAscii(
+        s,
+        v8::String::create_external_onebyte_const(s.as_bytes()),
+      )),
       Self::Arc(s) => Some(Self::Arc(s.clone())),
       Self::Owned(_s) => None,
     }
@@ -97,7 +117,7 @@ impl FastString {
 
   pub const fn try_static_ascii(&self) -> Option<&'static [u8]> {
     match self {
-      Self::StaticAscii(s) => Some(s.as_bytes()),
+      Self::StaticAscii(s, _) => Some(s.as_bytes()),
       _ => None,
     }
   }
@@ -108,7 +128,7 @@ impl FastString {
       Self::Arc(s) => s.as_bytes(),
       Self::Owned(s) => s.as_bytes(),
       Self::Static(s) => s.as_bytes(),
-      Self::StaticAscii(s) => s.as_bytes(),
+      Self::StaticAscii(s, _) => s.as_bytes(),
     }
   }
 
@@ -118,7 +138,7 @@ impl FastString {
       Self::Arc(s) => s,
       Self::Owned(s) => s,
       Self::Static(s) => s,
-      Self::StaticAscii(s) => s,
+      Self::StaticAscii(s, _) => s,
     }
   }
 
@@ -141,7 +161,12 @@ impl FastString {
   pub fn truncate(&mut self, index: usize) {
     match self {
       Self::Static(b) => *self = Self::Static(&b[..index]),
-      Self::StaticAscii(b) => *self = Self::StaticAscii(&b[..index]),
+      Self::StaticAscii(b, _) => {
+        *self = Self::StaticAscii(
+          &b[..index],
+          v8::String::create_external_onebyte_const(b[..index].as_bytes()),
+        )
+      }
       Self::Owned(b) => *self = Self::Owned(b[..index].to_owned().into()),
       // We can't do much if we have an Arc<str>, so we'll just take ownership of the truncated version
       Self::Arc(s) => *self = s[..index].to_owned().into(),
@@ -175,7 +200,7 @@ impl Debug for FastString {
 
 impl Default for FastString {
   fn default() -> Self {
-    Self::StaticAscii("")
+    Self::StaticAscii("", v8::String::create_external_onebyte_const(b""))
   }
 }
 

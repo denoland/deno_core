@@ -811,7 +811,13 @@ pub fn create_exports_for_ops_virtual_module<'s>(
       op_fn = result.try_into().unwrap()
     }
 
-    exports.push((FastString::StaticAscii(op_ctx.decl.name), op_fn.into()));
+    exports.push((
+      FastString::StaticAscii(
+        op_ctx.decl.name,
+        v8::String::create_external_onebyte_const(op_ctx.decl.name.as_bytes()),
+      ),
+      op_fn.into(),
+    ));
   }
 
   exports

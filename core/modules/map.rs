@@ -357,7 +357,13 @@ impl ModuleMap {
           // synthetic module.
           CustomModuleEvaluationKind::Synthetic(value_global) => {
             let value = v8::Local::new(scope, value_global);
-            let exports = vec![(FastString::StaticAscii("default"), value)];
+            let exports = vec![(
+              FastString::StaticAscii(
+                "default",
+                v8::String::create_external_onebyte_const(b"default"),
+              ),
+              value,
+            )];
             self.new_synthetic_module(
               scope,
               module_url_found,
@@ -375,7 +381,13 @@ impl ModuleMap {
           ) => {
             let (url1, url2) = module_url_found.into_cheap_copy();
             let value = v8::Local::new(scope, synthetic_value);
-            let exports = vec![(FastString::StaticAscii("default"), value)];
+            let exports = vec![(
+              FastString::StaticAscii(
+                "default",
+                v8::String::create_external_onebyte_const(b"default"),
+              ),
+              value,
+            )];
             let _synthetic_mod_id = self.new_synthetic_module(
               scope,
               url1,
@@ -625,7 +637,13 @@ impl ModuleMap {
         return Err(ModuleError::Exception(exception));
       }
     };
-    let exports = vec![(FastString::StaticAscii("default"), parsed_json)];
+    let exports = vec![(
+      FastString::StaticAscii(
+        "default",
+        v8::String::create_external_onebyte_const(b"default"),
+      ),
+      parsed_json,
+    )];
     self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
   }
 

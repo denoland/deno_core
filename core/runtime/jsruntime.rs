@@ -980,7 +980,12 @@ impl JsRuntime {
     let mod_id = module_map
       .new_synthetic_module(
         scope,
-        FastString::StaticAscii(VIRTUAL_OPS_MODULE_NAME),
+        FastString::StaticAscii(
+          VIRTUAL_OPS_MODULE_NAME,
+          v8::String::create_external_onebyte_const(
+            VIRTUAL_OPS_MODULE_NAME.as_bytes(),
+          ),
+        ),
         crate::ModuleType::JavaScript,
         synthetic_module_exports,
       )
