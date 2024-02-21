@@ -7,6 +7,7 @@ use url::Url;
 use v8::MapFnTo;
 
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
+use super::jsruntime::CONTEXT_SETUP_SOURCES2;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -263,6 +264,27 @@ pub(crate) fn initialize_primordials_and_infra(
       format!("Failed to execute {}", file_source.specifier)
     })?;
   }
+
+  for (specifier, code) in CONTEXT_SETUP_SOURCES2 {
+    let specifier_onebyte =
+      v8::String::create_external_onebyte_const(specifier.as_bytes());
+    let code_onebyte =
+      v8::String::create_external_onebyte_const(code.as_bytes());
+
+    let name =
+      v8::String::new_from_onebyte_const(scope, &specifier_onebyte).unwrap();
+    let source_str =
+      v8::String::new_from_onebyte_const(scope, &code_onebyte).unwrap();
+
+    let origin = script_origin(scope, name);
+    // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
+    let script = v8::Script::compile(scope, source_str, Some(&origin))
+      .with_context(|| format!("Failed to parse {}", specifier))?;
+    script
+      .run(scope)
+      .with_context(|| format!("Failed to execute {}", specifier))?;
+  }
+
   Ok(())
 }
 

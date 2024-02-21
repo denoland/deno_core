@@ -267,6 +267,14 @@ pub(crate) static CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_f
   "00_infra.js",
 );
 
+pub(crate) static CONTEXT_SETUP_SOURCES2: [(&str, &str); 2] = [
+  (
+    "ext:core/00_primordials.js",
+    include_str!("../00_primordials.js"),
+  ),
+  ("ext:core/00_infra.js", include_str!("../00_infra.js")),
+];
+
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
 pub(crate) static BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
