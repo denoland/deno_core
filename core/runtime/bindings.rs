@@ -250,7 +250,7 @@ pub(crate) fn initialize_primordials_and_infra(
 ) -> Result<(), AnyError> {
   for file_source in &CONTEXT_SETUP_SOURCES {
     let code = file_source.load().unwrap();
-    let source_str = code.v8_string(scope).unwrap();
+    let source_str = code.v8_string(scope);
     let name = v8_static_strings::new_from_static_str(
       scope,
       file_source.specifier.as_bytes(),
