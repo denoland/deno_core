@@ -124,7 +124,7 @@ impl FastString {
 
   /// Create a v8 string from this [`FastString`]. If the string is static and contains only ASCII characters,
   /// an external one-byte static is created.
-  pub fn v8<'a>(
+  pub fn v8_string<'a>(
     &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> v8::Local<'a, v8::String> {
@@ -145,21 +145,6 @@ impl FastString {
       Self::Owned(b) => *self = Self::Owned(b[..index].to_owned().into()),
       // We can't do much if we have an Arc<str>, so we'll just take ownership of the truncated version
       Self::Arc(s) => *self = s[..index].to_owned().into(),
-    }
-  }
-
-  pub(crate) fn v8_string<'a>(
-    &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Option<v8::Local<'a, v8::String>> {
-    if let Some(code) = self.try_static_ascii() {
-      v8::String::new_external_onebyte_static(scope, code)
-    } else {
-      v8::String::new_from_utf8(
-        scope,
-        self.as_bytes(),
-        v8::NewStringType::Normal,
-      )
     }
   }
 }

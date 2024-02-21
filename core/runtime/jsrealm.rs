@@ -297,7 +297,7 @@ impl JsRealm {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let scope = &mut self.0.handle_scope(isolate);
 
-    let source = source_code.v8_string(scope).unwrap();
+    let source = source_code.v8_string(scope);
     debug_assert!(name.is_ascii());
     let name =
       v8::String::new_external_onebyte_static(scope, name.as_bytes()).unwrap();

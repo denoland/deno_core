@@ -407,7 +407,7 @@ impl ModuleMap {
     module_type: ModuleType,
     exports: Vec<(FastString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
+    let name_str = name.v8_string(scope);
 
     let export_names = exports
       .iter()
@@ -511,8 +511,8 @@ impl ModuleMap {
       }
     }
 
-    let name_str = name.v8(scope);
-    let source_str = source.v8(scope);
+    let name_str = name.v8_string(scope);
+    let source_str = source.v8_string(scope);
 
     let origin = module_origin(scope, name_str);
     let source = v8::script_compiler::Source::new(source_str, Some(&origin));
