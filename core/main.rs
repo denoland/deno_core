@@ -3,13 +3,10 @@
 use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
-use deno_core::snapshot::CreateSnapshotOptions;
-use deno_core::snapshot::SnapshotFileSerializer;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
-use deno_core::JsRuntimeForSnapshot;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
 use std::borrow::Cow;
