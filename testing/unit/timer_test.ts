@@ -86,3 +86,32 @@ test(async function testMicrotaskOrdering() {
   await promise;
   assertEquals(s, "promise\nno promise\n");
 });
+
+test(async function testTimerException() {
+  const { promise, resolve } = Promise.withResolvers<Error>();
+  globalThis.onerror = (e: ErrorEvent) => {
+    resolve(e.error);
+    e.preventDefault();
+  };
+  try {
+    setTimeout(() => {
+      throw new Error("timeout error");
+    });
+    assertEquals("timeout error", (await promise).message);
+  } finally {
+    globalThis.onerror = null;
+  }
+});
+
+test(async function testTimerThis() {
+  const { promise, resolve, reject } = Promise.withResolvers();
+  setTimeout(function () {
+    try {
+      assertEquals(this, globalThis);
+      resolve(0);
+    } catch (e) {
+      reject(e);
+    }
+  }, 1);
+  await promise;
+});
