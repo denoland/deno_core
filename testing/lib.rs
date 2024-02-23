@@ -47,7 +47,7 @@ unit_test!(
 );
 
 // Test the load and run of an entire file within the `checkin` infrastructure.
-// These files are loaded from the system/ dir.
+// These files are loaded from the integration/ dir.
 integration_test!(
   builtin_console_test,
   dyn_import_circular,
