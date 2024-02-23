@@ -46,7 +46,7 @@ declare namespace __bootstrap {
    * primordials.StringPrototypeStartsWith('thing', 'hello')
    * ```
    */
-  declare namespace primordials {
+  namespace primordials {
     type UncurryThis<T extends (this: unknown, ...args: unknown[]) => unknown> =
       (self: ThisParameterType<T>, ...args: Parameters<T>) => ReturnType<T>;
     type UncurryThisStaticApply<
