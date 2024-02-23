@@ -11,4 +11,8 @@ use std::borrow::BorrowMut;
 struct Something {}
 
 #[op2(fast)]
-fn op_state_rc(#[state] _arg: &Something, #[state] _arg_opt: Option<&Something>) {}
+fn op_state_rc(
+  #[state] _arg: &Something,
+  #[state] _arg_opt: Option<&Something>,
+) {
+}

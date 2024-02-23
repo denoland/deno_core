@@ -2,9 +2,9 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use std::rc::Rc;
-use std::cell::RefCell;
 use deno_core::OpState;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[op2(fast)]
 fn op_state_rc(_state: Rc<RefCell<OpState>>) {}

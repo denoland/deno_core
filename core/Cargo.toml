@@ -29,9 +29,9 @@ unsafe_use_unprotected_platform = []
 
 [dependencies]
 anyhow.workspace = true
+bincode = { workspace = true, optional = true }
 bit-set.workspace = true
 bit-vec.workspace = true
-bincode = { workspace = true, optional = true }
 bytes.workspace = true
 cooked-waker.workspace = true
 deno_core_icudata = { workspace = true, optional = true }

@@ -6,5 +6,5 @@ use std::borrow::Cow;
 
 #[op2(fast)]
 fn op_string_cow(#[string] s: Cow<str>) -> u32 {
-    s.len() as _
+  s.len() as _
 }

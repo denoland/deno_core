@@ -7,5 +7,5 @@ pub type ResourceId = i16;
 #[op2(async)]
 #[smi]
 pub async fn op_async(#[smi] rid: ResourceId) -> std::io::Result<ResourceId> {
-    Ok(rid as _)
+  Ok(rid as _)
 }
