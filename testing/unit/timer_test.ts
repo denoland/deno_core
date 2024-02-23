@@ -62,3 +62,27 @@ test(async function testTimerDepth() {
   }, 1);
   await promise;
 });
+
+// The timers must drain the microtask queue before attempting to run the
+// next timer.
+test(async function testMicrotaskOrdering() {
+  const { promise, resolve } = Promise.withResolvers();
+  let s = "";
+  let i = 0;
+  setTimeout(() => {
+    Promise.resolve().then(() => {
+      s += "promise\n";
+    });
+    if (++i == 2) {
+      resolve(0);
+    }
+  });
+  setTimeout(() => {
+    s += "no promise\n";
+    if (++i == 2) {
+      resolve(0);
+    }
+  });
+  await promise;
+  assertEquals(s, "promise\nno promise\n");
+});

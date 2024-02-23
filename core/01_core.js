@@ -179,6 +179,7 @@
       for (let i = 0; i < timers.length; i += 2) {
         timerDepth = timers[i];
         timers[i + 1]();
+        op_run_microtasks();
       }
       timerDepth = 0;
     }
