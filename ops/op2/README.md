@@ -42,7 +42,7 @@ the function will return `None` and the future will be handled by Deno's pending
 op system.
 
 ```rust,ignore
-fn op_xyz(promise_id: i32, /* ... */) -> Option<X> {}
+fn op_xyz(promise_id: i32 /* ... */) -> Option<X> {}
 ```
 
 ### Eager `async` calls: `async`

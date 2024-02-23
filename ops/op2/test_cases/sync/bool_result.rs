@@ -6,5 +6,5 @@ use deno_core::error::AnyError;
 
 #[op2(fast)]
 pub fn op_bool(arg: bool) -> Result<bool, AnyError> {
-    Ok(arg)
+  Ok(arg)
 }

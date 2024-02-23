@@ -7,5 +7,5 @@ use deno_core::JsBuffer;
 #[op2(async)]
 #[buffer]
 pub async fn op_async_v8_buffer(#[buffer] buf: JsBuffer) -> JsBuffer {
-    buf
+  buf
 }

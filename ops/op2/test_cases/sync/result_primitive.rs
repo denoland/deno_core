@@ -6,5 +6,5 @@ use deno_core::error::AnyError;
 
 #[op2(fast)]
 pub fn op_u32_with_result() -> Result<u32, AnyError> {
-    Ok(0)
+  Ok(0)
 }
