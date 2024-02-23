@@ -4,6 +4,8 @@
 // <reference path="../core/internal.d.ts" />
 /// <reference lib="dom" />
 
+// deno-lint-ignore-file no-explicit-any
+
 // Types and method unavailable in TypeScript by default.
 interface PromiseConstructor {
   withResolvers<T>(): {
