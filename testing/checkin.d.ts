@@ -24,3 +24,28 @@ declare namespace Deno {
   export function refTimer(id);
   export function unrefTimer(id);
 }
+
+declare module 'ext:core/mod.js' {
+  const core: any;
+}
+
+declare module 'ext:core/ops' {
+  function op_log_debug(...any): any;
+  function op_log_info(...any): any;
+
+  function op_test_register(...any): any;
+
+  function op_async_throw_error_deferred(...any): any;
+  function op_async_throw_error_eager(...any): any;
+  function op_async_throw_error_lazy(...any): any;
+  function op_error_context_async(...any): any;
+  function op_error_context_sync(...any): any;
+  function op_error_custom_sync(...any): any;
+
+  function op_worker_await_close(...any): any;
+  function op_worker_parent(...any): any;
+  function op_worker_recv(...any): any;
+  function op_worker_send(...any): any;
+  function op_worker_spawn(...any): any;
+  function op_worker_terminate(...any): any;
+}

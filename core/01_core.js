@@ -378,7 +378,7 @@
     );
   }
 
-  function ensureFastOps(keep) {
+  function ensureFastOps(keep = false) {
     return new Proxy({}, {
       get(_target, opName) {
         const op = ops[opName];

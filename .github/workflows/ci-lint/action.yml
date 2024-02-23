@@ -7,6 +7,8 @@ runs:
       run: |
         cargo fmt -- --check
         deno fmt --check ./core/ ./ops/ ./serde_v8/
+        npm install -g typescript
+        tsc --noEmit -p testing/tsconfig.json
     - name: Lint
       shell: bash
       run: |
