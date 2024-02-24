@@ -8,17 +8,20 @@ use deno_core::v8;
 
 #[op2(fast)]
 pub fn op_fast(x: u32) -> u32 {
-    x
+  x
 }
 
 #[op2(fast)]
-fn op_buffers(#[buffer] _a: &[u8], #[buffer(copy)] _b: Vec<u8>) {
-}
+fn op_buffers(#[buffer] _a: &[u8], #[buffer(copy)] _b: Vec<u8>) {}
 
 struct Something {}
 
 #[op2(fast)]
-fn op_state_rc(#[state] _arg: &Something, #[state] _arg_opt: Option<&Something>) {}
+fn op_state_rc(
+  #[state] _arg: &Something,
+  #[state] _arg_opt: Option<&Something>,
+) {
+}
 
 #[op2(fast)]
 fn op_v8_1(_s: v8::Local<v8::String>) {}
@@ -36,12 +39,22 @@ pub type Uint32 = u32;
 
 #[op2(fast)]
 #[smi]
-fn op_smi_unsigned_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[smi] d: Uint32) -> Uint32 {
+fn op_smi_unsigned_return(
+  #[smi] a: Int16,
+  #[smi] b: Int32,
+  #[smi] c: Uint16,
+  #[smi] d: Uint32,
+) -> Uint32 {
   a as Uint32 + b as Uint32 + c as Uint32 + d as Uint32
 }
 
 #[op2(fast)]
 #[smi]
-fn op_smi_signed_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[smi] d: Uint32) -> Int32 {
+fn op_smi_signed_return(
+  #[smi] a: Int16,
+  #[smi] b: Int32,
+  #[smi] c: Uint16,
+  #[smi] d: Uint32,
+) -> Int32 {
   a as Int32 + b as Int32 + c as Int32 + d as Int32
 }

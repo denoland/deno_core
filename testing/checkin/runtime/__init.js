@@ -18,6 +18,24 @@ globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
 globalThis.Worker = worker.Worker;
 globalThis.throwInExt = throw_.throwInExt;
+Reflect.defineProperty(globalThis, "onerror", {
+  set: (cb) => {
+    if (cb) {
+      Deno.core.setReportExceptionCallback((error) => {
+        let defaultPrevented = false;
+        cb({
+          error,
+          preventDefault: () => defaultPrevented = true,
+        });
+        if (!defaultPrevented) {
+          Deno.core.reportUnhandledException(error);
+        }
+      });
+    } else {
+      Deno.core.setReportExceptionCallback(null);
+    }
+  },
+});
 Reflect.defineProperty(globalThis, "onunhandledrejection", {
   set: (cb) => {
     if (cb) {

@@ -5,21 +5,21 @@ version = "0.2.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 readme = "README.md"
 repository.workspace = true
 description = "Compile-test runner for deno_ops"
-publish = false
 
 [lib]
 
 [dev-dependencies]
-trybuild = "1.0"
+bytes.workspace = true
+deno_core.workspace = true
+deno_ops.workspace = true
 pretty_assertions.workspace = true
 prettyplease = "0.2.9"
-testing_macros = "0.2.11"
-deno_ops.workspace = true
-deno_core.workspace = true
-syn.workspace = true
-bytes.workspace = true
-serde.workspace = true
 rustversion = "1.0"
+serde.workspace = true
+syn.workspace = true
+testing_macros = "0.2.11"
+trybuild = "1.0"

@@ -4,10 +4,9 @@ mod shared_arena;
 mod shared_atomic_arena;
 mod unique_arena;
 
-use std::{
-  alloc::{handle_alloc_error, Layout},
-  ptr::NonNull,
-};
+use std::alloc::handle_alloc_error;
+use std::alloc::Layout;
+use std::ptr::NonNull;
 
 pub use raw_arena::*;
 pub use shared_arena::*;

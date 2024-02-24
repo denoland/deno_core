@@ -129,7 +129,8 @@ mod tests {
   use bytes::Bytes;
 
   use super::*;
-  use std::{mem, sync::Arc};
+  use std::mem;
+  use std::sync::Arc;
 
   const HELLO: &str = "hello";
 

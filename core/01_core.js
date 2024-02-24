@@ -178,7 +178,13 @@
     if (timers) {
       for (let i = 0; i < timers.length; i += 2) {
         timerDepth = timers[i];
-        timers[i + 1]();
+        try {
+          const f = timers[i + 1];
+          f.call(window);
+        } catch (e) {
+          reportExceptionCallback(e);
+        }
+        op_run_microtasks();
       }
       timerDepth = 0;
     }
@@ -243,7 +249,9 @@
     };
   }
 
-  let reportExceptionCallback = undefined;
+  let reportExceptionCallback = (error) => {
+    op_dispatch_exception(error, false);
+  };
 
   // Used to report errors thrown from functions passed to `queueMicrotask()`.
   // The callback will be passed the thrown error. For example, you can use this
@@ -251,10 +259,16 @@
   // In other words, set the implementation for
   // https://html.spec.whatwg.org/multipage/webappapis.html#report-the-exception
   function setReportExceptionCallback(cb) {
-    if (typeof cb != "function") {
-      throw new TypeError("expected a function");
+    if (cb === null || cb === undefined) {
+      reportExceptionCallback = (error) => {
+        op_dispatch_exception(error, false);
+      };
+    } else {
+      if (typeof cb != "function") {
+        throw new TypeError("expected a function");
+      }
+      reportExceptionCallback = cb;
     }
-    reportExceptionCallback = cb;
   }
 
   function queueMicrotask(cb) {
@@ -265,11 +279,7 @@
       try {
         cb();
       } catch (error) {
-        if (reportExceptionCallback) {
-          reportExceptionCallback(error);
-        } else {
-          throw error;
-        }
+        reportExceptionCallback(error);
       }
     });
   }
