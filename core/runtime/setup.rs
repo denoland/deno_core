@@ -127,7 +127,6 @@ pub fn create_isolate(
     if let Some(snapshot) = maybe_startup_snapshot {
       params = match snapshot {
         V8StartupData::Static(data) => params.snapshot_blob(data),
-        V8StartupData::JustCreated(data) => params.snapshot_blob(data),
         V8StartupData::Boxed(data) => params.snapshot_blob(data),
       };
     }

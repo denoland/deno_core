@@ -144,7 +144,7 @@ fn es_snapshot() {
   };
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
-    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    startup_snapshot: Some(Snapshot::Boxed(startup_data)),
     ..Default::default()
   });
 

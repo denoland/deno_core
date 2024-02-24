@@ -11,7 +11,6 @@ use std::rc::Rc;
 
 use self::runtime::create_snapshot;
 use self::runtime::CreateSnapshotOptions;
-use self::runtime::SnapshotInMemorySerializer;
 
 #[test]
 fn will_snapshot() {
@@ -21,7 +20,7 @@ fn will_snapshot() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(snapshot);
+  let snapshot = Snapshot::Boxed(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -41,7 +40,7 @@ fn will_snapshot2() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(startup_data);
+  let snapshot = Snapshot::Boxed(startup_data);
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -55,7 +54,7 @@ fn will_snapshot2() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(startup_data);
+  let snapshot = Snapshot::Boxed(startup_data);
   {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       startup_snapshot: Some(snapshot),
@@ -94,7 +93,7 @@ fn test_snapshot_callbacks() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(snapshot);
+  let snapshot = Snapshot::Boxed(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -109,7 +108,7 @@ fn test_from_snapshot_boxed() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
-    runtime.snapshot().boxed()
+    runtime.snapshot()
   };
 
   let snapshot = Snapshot::Boxed(snapshot);
@@ -127,7 +126,8 @@ fn test_from_snapshot_static() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
-    runtime.snapshot().leak()
+    let data = runtime.snapshot();
+    Box::leak(data)
   };
 
   let snapshot = Snapshot::Static(snapshot);
@@ -152,7 +152,6 @@ fn test_snapshot_creator() {
       with_runtime_cb: Some(Box::new(|runtime| {
         runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
       })),
-      serializer: Box::<SnapshotInMemorySerializer>::default(),
     },
     None,
   )
@@ -185,7 +184,6 @@ fn test_snapshot_creator_warmup() {
 
         runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
       })),
-      serializer: Box::<SnapshotInMemorySerializer>::default(),
     },
     Some("const b = 'Hello'"),
   )
@@ -297,7 +295,7 @@ fn es_snapshot() {
   let snapshot = runtime.snapshot();
 
   let mut runtime2 = JsRuntimeForSnapshot::new(RuntimeOptions {
-    startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
+    startup_snapshot: Some(Snapshot::Boxed(snapshot)),
     extensions: vec![Extension {
       name: "test_ext",
       ops: Cow::Borrowed(&[op_test::DECL]),
@@ -316,7 +314,7 @@ fn es_snapshot() {
   let snapshot2 = runtime2.snapshot();
 
   let mut runtime3 = JsRuntime::new(RuntimeOptions {
-    startup_snapshot: Some(Snapshot::JustCreated(snapshot2)),
+    startup_snapshot: Some(Snapshot::Boxed(snapshot2)),
     extensions: vec![Extension {
       name: "test_ext",
       ops: Cow::Borrowed(&[op_test::DECL]),
@@ -362,7 +360,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
-    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    startup_snapshot: Some(Snapshot::Boxed(startup_data)),
     ..Default::default()
   });
   let realm = runtime.main_realm();

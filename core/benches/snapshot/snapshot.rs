@@ -128,7 +128,8 @@ fn bench_load_snapshot(c: &mut Criterion) {
       startup_snapshot: None,
       ..Default::default()
     });
-    let snapshot = runtime.snapshot().leak();
+    let snapshot = runtime.snapshot();
+    let snapshot = Box::leak(snapshot);
 
     b.iter_custom(|iters| {
       let mut total = 0;

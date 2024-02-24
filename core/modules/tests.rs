@@ -1428,7 +1428,7 @@ fn dynamic_imports_snapshot() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(snapshot);
+  let snapshot = Snapshot::Boxed(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -1471,7 +1471,7 @@ fn import_meta_snapshot() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(snapshot);
+  let snapshot = Snapshot::Boxed(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
