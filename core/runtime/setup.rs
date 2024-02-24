@@ -5,7 +5,7 @@ use crate::V8_WRAPPER_TYPE_INDEX;
 
 use super::bindings;
 use super::snapshot;
-use super::snapshot::V8StartupData;
+use super::snapshot::V8Snapshot;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
@@ -110,7 +110,7 @@ pub fn create_isolate_ptr() -> *mut v8::OwnedIsolate {
 pub fn create_isolate(
   will_snapshot: bool,
   maybe_create_params: Option<v8::CreateParams>,
-  maybe_startup_snapshot: Option<V8StartupData>,
+  maybe_startup_snapshot: Option<V8Snapshot>,
   external_refs: &'static v8::ExternalReferences,
 ) -> v8::OwnedIsolate {
   let mut isolate = if will_snapshot {
@@ -125,9 +125,7 @@ pub fn create_isolate(
       .external_references(&**external_refs);
     let has_snapshot = maybe_startup_snapshot.is_some();
     if let Some(snapshot) = maybe_startup_snapshot {
-      params = match snapshot {
-        V8StartupData::Static(data) => params.snapshot_blob(data),
-      };
+      params = params.snapshot_blob(snapshot.0);
     }
     static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
     static SNAPSHOW_INIT_MUT: Mutex<()> = Mutex::new(());

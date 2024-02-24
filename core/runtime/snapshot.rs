@@ -20,23 +20,19 @@ pub type SnapshotDataId = u32;
 /// We use this constant a few times
 const ULEN: usize = std::mem::size_of::<usize>();
 
-// TODO(bartlomieju): remove?
 /// The v8 lifetime is different than the sidecar data, so we
 /// allow for it to be split out.
-pub(crate) enum V8StartupData {
-  /// Embedded in static data.
-  Static(&'static [u8]),
-}
+pub(crate) struct V8Snapshot(pub(crate) &'static [u8]);
 
 pub(crate) fn deconstruct(
   slice: &'static [u8],
-) -> (V8StartupData, SerializableSnapshotSidecarData) {
+) -> (V8Snapshot, SerializableSnapshotSidecarData) {
   let len =
     usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
   let data = SerializableSnapshotSidecarData::from_slice(
     &slice[len..slice.len() - ULEN],
   );
-  (V8StartupData::Static(&slice[0..len]), data)
+  (V8Snapshot(&slice[0..len]), data)
 }
 
 pub(crate) fn serialize(
@@ -332,17 +328,13 @@ pub(crate) fn store_snapshotted_data_for_snapshot(
 /// Returns an isolate set up for snapshotting.
 pub(crate) fn create_snapshot_creator(
   external_refs: &'static v8::ExternalReferences,
-  maybe_startup_snapshot: Option<V8StartupData>,
+  maybe_startup_snapshot: Option<V8Snapshot>,
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
-    match snapshot {
-      V8StartupData::Static(snapshot) => {
-        v8::Isolate::snapshot_creator_from_existing_snapshot(
-          snapshot,
-          Some(external_refs),
-        )
-      }
-    }
+    v8::Isolate::snapshot_creator_from_existing_snapshot(
+      snapshot.0,
+      Some(external_refs),
+    )
   } else {
     v8::Isolate::snapshot_creator(Some(external_refs))
   }
