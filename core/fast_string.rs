@@ -29,6 +29,8 @@ pub enum FastString {
   /// Created from static data, known to contain only ASCII chars.
   StaticAscii(&'static str),
 
+  ExternalRefBacked(&'static str, &'static v8::OneByteConst),
+
   /// An owned chunk of data. Note that we use `Box` rather than `Vec` to avoid the
   /// storage overhead.
   Owned(Box<str>),
@@ -82,6 +84,10 @@ impl FastString {
         let s: Arc<str> = s.into();
         (Self::Arc(s.clone()), Self::Arc(s))
       }
+      Self::ExternalRefBacked(s, onebyte) => (
+        Self::ExternalRefBacked(s, onebyte),
+        Self::ExternalRefBacked(s, onebyte),
+      ),
     }
   }
 
@@ -92,6 +98,7 @@ impl FastString {
       Self::StaticAscii(s) => Some(Self::StaticAscii(s)),
       Self::Arc(s) => Some(Self::Arc(s.clone())),
       Self::Owned(_s) => None,
+      Self::ExternalRefBacked(_, _) => None,
     }
   }
 
@@ -109,6 +116,7 @@ impl FastString {
       Self::Owned(s) => s.as_bytes(),
       Self::Static(s) => s.as_bytes(),
       Self::StaticAscii(s) => s.as_bytes(),
+      Self::ExternalRefBacked(s, _) => s.as_bytes(),
     }
   }
 
@@ -119,6 +127,7 @@ impl FastString {
       Self::Owned(s) => s,
       Self::Static(s) => s,
       Self::StaticAscii(s) => s,
+      Self::ExternalRefBacked(s, _) => s,
     }
   }
 
@@ -128,6 +137,11 @@ impl FastString {
     &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> v8::Local<'a, v8::String> {
+    if let Self::ExternalRefBacked(_code, v8_onebyte_const) = self {
+      return v8::String::new_from_onebyte_const(scope, v8_onebyte_const)
+        .unwrap();
+    }
+
     match self.try_static_ascii() {
       Some(s) => v8::String::new_external_onebyte_static(scope, s).unwrap(),
       None => {
@@ -145,6 +159,7 @@ impl FastString {
       Self::Owned(b) => *self = Self::Owned(b[..index].to_owned().into()),
       // We can't do much if we have an Arc<str>, so we'll just take ownership of the truncated version
       Self::Arc(s) => *self = s[..index].to_owned().into(),
+      Self::ExternalRefBacked(_, _) => unreachable!(),
     }
   }
 }
