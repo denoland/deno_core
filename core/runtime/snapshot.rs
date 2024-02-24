@@ -4,8 +4,6 @@ use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -81,47 +79,32 @@ impl Snapshot {
   }
 }
 
-/// An opaque blob of snapshot data that can be serialized to a [`SnapshotSerializer`].
+/// An opaque blob of snapshot data.
 pub struct SnapshotData {
   pub(crate) v8: v8::StartupData,
   pub(crate) sidecar_data: SerializableSnapshotSidecarData,
 }
 
 impl SnapshotData {
-  /// Serialize this data into a [`SnapshotSerializer`].
-  pub fn serialize<T>(
-    self,
-    mut serializer: impl SnapshotSerializer<Output = T>,
-  ) -> std::io::Result<T> {
-    let sidecar_data = self.sidecar_data.into_bytes();
-    let len = ULEN + self.v8.len() + sidecar_data.len();
-    serializer.initialize(len)?;
-    let v8_size: usize = self.v8.len();
-    serializer.process_chunk(&self.v8)?;
-    serializer.process_chunk(&sidecar_data)?;
-    serializer.process_chunk(&v8_size.to_le_bytes())?;
-    serializer.finalize()
-  }
-
+  // TODO(bartlomieju): make it `#[cfg(test)]`
   /// Create a static slice for a snapshot by leaking data.
   pub fn leak(self) -> &'static [u8] {
-    let slice = Box::leak(
-      self
-        .serialize(SnapshotInMemorySerializer::default())
-        .unwrap(),
-    );
-    slice
+    let boxed = self.boxed();
+    Box::leak(boxed)
   }
 
   /// Create a boxed slice for a snapshot.
   pub fn boxed(self) -> Box<[u8]> {
-    self
-      .serialize(SnapshotInMemorySerializer::default())
-      .unwrap()
-  }
+    let v8_data_len = self.v8.len();
+    let sidecar_data = self.sidecar_data.into_bytes();
+    let mut data = Vec::with_capacity(v8_data_len + sidecar_data.len() + ULEN);
 
-  pub fn v8_len(&self) -> usize {
-    self.v8.len()
+    // add ulen
+    data.extend_from_slice(&self.v8.to_vec());
+    data.extend_from_slice(&sidecar_data);
+    data.extend_from_slice(&v8_data_len.to_le_bytes());
+
+    data.into_boxed_slice()
   }
 }
 
@@ -179,200 +162,28 @@ impl SnapshotStoreDataStore {
   }
 }
 
-/// Handles the serialization of the snapshot.
-pub trait SnapshotSerializer: Debug {
-  type Output;
-  fn initialize(&mut self, approximate_length: usize) -> std::io::Result<()>;
-  fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<()>;
-  fn finalize(self) -> std::io::Result<Self::Output>;
-}
-
-mod sealed {
-  use super::SnapshotSerializer;
-  use std::any::Any;
-
-  /// Allows us to consume `self` in a boxed trait. This is required to allow
-  /// [`SnapshotSerializer`] to be boxed.
-  pub trait SnapshotSerializerSized: SnapshotSerializer + Unpin {
-    #[allow(clippy::type_complexity)]
-    fn get_finalizer(
-      &mut self,
-    ) -> fn(
-      Box<dyn SnapshotSerializerSized<Output = Self::Output> + 'static>,
-    ) -> std::io::Result<Self::Output>;
-  }
-
-  impl<T, S: SnapshotSerializer<Output = T> + Unpin + Any + 'static>
-    SnapshotSerializerSized for S
-  {
-    fn get_finalizer(
-      &mut self,
-    ) -> fn(
-      Box<dyn SnapshotSerializerSized<Output = Self::Output> + 'static>,
-    ) -> std::io::Result<Self::Output> {
-      |b| {
-        // SAFETY: We know that get_finalizer was called on a type of S through dynamic dispatch, so we can
-        // safely transmute this pointer from fat to thin and then finalize it.
-        let our_type = unsafe { Box::<S>::from_raw(Box::into_raw(b) as _) };
-        our_type.finalize()
-      }
-    }
-  }
-}
-
-impl<T> SnapshotSerializer
-  for Box<dyn sealed::SnapshotSerializerSized<Output = T> + 'static>
-{
-  type Output = T;
-  fn finalize(mut self) -> std::io::Result<Self::Output> {
-    (self.get_finalizer())(self)
-  }
-  fn initialize(&mut self, approximate_length: usize) -> std::io::Result<()> {
-    (**self).initialize(approximate_length)
-  }
-  fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<()> {
-    (**self).process_chunk(chunk)
-  }
-}
-
-/// Serializes the snapshot to a file.
-#[derive(Debug)]
-pub struct SnapshotFileSerializer {
-  file: std::fs::File,
-}
-
-impl SnapshotFileSerializer {
-  pub fn new(file: std::fs::File) -> Self {
-    Self { file }
-  }
-}
-
-impl SnapshotSerializer for SnapshotFileSerializer {
-  type Output = std::fs::File;
-  fn initialize(&mut self, _approximate_length: usize) -> std::io::Result<()> {
-    Ok(())
-  }
-
-  fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<()> {
-    self.file.write_all(chunk)
-  }
-
-  fn finalize(self) -> std::io::Result<Self::Output> {
-    Ok(self.file)
-  }
-}
-
-/// Serializes the snapshot to another serializer, with a bulk compression operation performed on top.
-pub struct SnapshotBulkCompressingSerializer<S: SnapshotSerializer> {
-  serializer: S,
-  compression: Box<dyn FnOnce(Vec<u8>) -> std::io::Result<Vec<u8>>>,
-  accumulator: Vec<u8>,
-}
-
-impl<S: SnapshotSerializer> Debug for SnapshotBulkCompressingSerializer<S> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.write_fmt(format_args!(
-      "SnapshotBulkCompressingSerializer {{ {:?} }}",
-      self.serializer
-    ))
-  }
-}
-
-impl<S: SnapshotSerializer> SnapshotBulkCompressingSerializer<S> {
-  /// Create a new bulk-compressing serializer with a function that accepts
-  /// the uncompressed snapshot data and returns a new [`Vec<u8>`] containing
-  /// the compressed data. The compression function may choose to compress in-place.
-  pub fn new(
-    serializer: S,
-    compression: impl FnOnce(Vec<u8>) -> std::io::Result<Vec<u8>> + 'static,
-  ) -> Self {
-    Self {
-      serializer,
-      compression: Box::new(compression),
-      accumulator: Default::default(),
-    }
-  }
-}
-
-impl<S: SnapshotSerializer> SnapshotSerializer
-  for SnapshotBulkCompressingSerializer<S>
-{
-  type Output = S::Output;
-
-  fn initialize(&mut self, approximate_length: usize) -> std::io::Result<()> {
-    // Approximate 25% compression for a snapshot
-    self.accumulator.reserve_exact(approximate_length);
-    self.serializer.initialize(approximate_length * 3 / 4)
-  }
-
-  fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<()> {
-    self.accumulator.extend(chunk);
-    Ok(())
-  }
-
-  fn finalize(mut self) -> std::io::Result<Self::Output> {
-    let output = (self.compression)(self.accumulator)?;
-    self.serializer.process_chunk(&output)?;
-    self.serializer.finalize()
-  }
-}
-
-/// Serialize a snapshot to memory.
-#[derive(Default)]
-pub struct SnapshotInMemorySerializer {
-  memory: Vec<u8>,
-}
-
-impl Debug for SnapshotInMemorySerializer {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.write_str("SnapshotInMemorySerializer")
-  }
-}
-
-impl SnapshotSerializer for SnapshotInMemorySerializer {
-  type Output = Box<[u8]>;
-
-  fn initialize(&mut self, length: usize) -> std::io::Result<()> {
-    self.memory.reserve_exact(length);
-    Ok(())
-  }
-
-  fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<()> {
-    self.memory.extend(chunk);
-    Ok(())
-  }
-
-  fn finalize(self) -> std::io::Result<Self::Output> {
-    Ok(self.memory.into_boxed_slice())
-  }
-}
-
-pub struct CreateSnapshotOptions<T> {
+pub struct CreateSnapshotOptions {
   pub cargo_manifest_dir: &'static str,
   pub startup_snapshot: Option<Snapshot>,
   pub skip_op_registration: bool,
   pub extensions: Vec<Extension>,
-  pub serializer: Box<dyn sealed::SnapshotSerializerSized<Output = T>>,
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
 }
 
-pub struct CreateSnapshotOutput<T> {
+pub struct CreateSnapshotOutput {
   /// Any files marked as LoadedFromFsDuringSnapshot are collected here and should be
   /// printed as 'cargo:rerun-if-changed' lines from your build script.
   pub files_loaded_during_snapshot: Vec<PathBuf>,
-  pub output: T,
+  pub output: Box<[u8]>,
 }
 
 #[must_use = "The files listed by create_snapshot should be printed as 'cargo:rerun-if-changed' lines"]
-pub fn create_snapshot<T>(
-  create_snapshot_options: CreateSnapshotOptions<T>,
+pub fn create_snapshot(
+  create_snapshot_options: CreateSnapshotOptions,
   warmup_script: Option<&'static str>,
-) -> Result<CreateSnapshotOutput<T>, Error> {
+) -> Result<CreateSnapshotOutput, Error> {
   let mut mark = Instant::now();
-  println!(
-    "Serializing snapshot to {:?}",
-    create_snapshot_options.serializer
-  );
+  println!("Creating a snapshot...",);
 
   // Get the extensions for a second pass if we want to warm up the snapshot.
   let warmup_exts = warmup_script.map(|_| {
@@ -428,14 +239,13 @@ pub fn create_snapshot<T>(
     snapshot = js_runtime.snapshot();
   }
 
+  let output = snapshot.boxed();
   println!(
     "Snapshot size: {}, took {:#?}",
-    snapshot.v8_len(),
+    output.len(),
     mark.elapsed(),
   );
   mark = Instant::now();
-
-  let output = snapshot.serialize(create_snapshot_options.serializer)?;
 
   println!(
     "Snapshot written, took: {:#?}",

@@ -38,13 +38,9 @@ pub use snapshot::CreateSnapshotOptions;
 pub use snapshot::CreateSnapshotOutput;
 pub use snapshot::FilterFn;
 pub use snapshot::Snapshot;
-pub use snapshot::SnapshotBulkCompressingSerializer;
 pub use snapshot::SnapshotData;
 pub(crate) use snapshot::SnapshotDataId;
-pub use snapshot::SnapshotFileSerializer;
-pub use snapshot::SnapshotInMemorySerializer;
 pub(crate) use snapshot::SnapshotLoadDataStore;
-pub use snapshot::SnapshotSerializer;
 pub(crate) use snapshot::SnapshotStoreDataStore;
 pub(crate) use snapshot::SnapshottedData;
 

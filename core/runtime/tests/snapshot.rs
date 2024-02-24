@@ -11,7 +11,6 @@ use std::rc::Rc;
 
 use self::runtime::create_snapshot;
 use self::runtime::CreateSnapshotOptions;
-use self::runtime::SnapshotInMemorySerializer;
 
 #[test]
 fn will_snapshot() {
@@ -152,7 +151,6 @@ fn test_snapshot_creator() {
       with_runtime_cb: Some(Box::new(|runtime| {
         runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
       })),
-      serializer: Box::<SnapshotInMemorySerializer>::default(),
     },
     None,
   )
@@ -185,7 +183,6 @@ fn test_snapshot_creator_warmup() {
 
         runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
       })),
-      serializer: Box::<SnapshotInMemorySerializer>::default(),
     },
     Some("const b = 'Hello'"),
   )
