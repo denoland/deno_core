@@ -86,8 +86,9 @@ pub struct SnapshotData {
 }
 
 impl SnapshotData {
-  // TODO(bartlomieju): make it `#[cfg(test)]`
-  /// Create a static slice for a snapshot by leaking data.
+  /// Create a static slice for a snapshot by leaking data. This method is only
+  // available for testing. Embedders should write the snapshot to a file.
+  #[cfg(test)]
   pub fn leak(self) -> &'static [u8] {
     let boxed = self.boxed();
     Box::leak(boxed)
@@ -100,7 +101,7 @@ impl SnapshotData {
     let mut data = Vec::with_capacity(v8_data_len + sidecar_data.len() + ULEN);
 
     // add ulen
-    data.extend_from_slice(&self.v8.to_vec());
+    data.extend_from_slice(&self.v8);
     data.extend_from_slice(&sidecar_data);
     data.extend_from_slice(&v8_data_len.to_le_bytes());
 
