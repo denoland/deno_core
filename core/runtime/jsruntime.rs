@@ -691,11 +691,14 @@ impl JsRuntime {
     let external_refs =
       bindings::create_external_references(&op_ctxs, &additional_references);
 
-    let (maybe_startup_snapshot, sidecar_data) = options
+    let (maybe_startup_snapshot, sidecar_data, _source_files) = options
       .startup_snapshot
       .take()
-      .map(snapshot::deconstruct)
-      .unzip();
+      .map(|snapshot| {
+        let (a, b, c) = snapshot::deconstruct(snapshot);
+        (Some(a), Some(b), Some(c))
+      })
+      .unwrap_or_else(|| (None, None, None));
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
@@ -1939,7 +1942,8 @@ impl JsRuntimeForSnapshot {
       .create_blob(v8::FunctionCodeHandling::Keep)
       .unwrap();
 
-    snapshot::serialize(v8_data, sidecar_data)
+    // TODO(bartlomieju): add source files here
+    snapshot::serialize(v8_data, sidecar_data, vec![])
   }
 }
 
