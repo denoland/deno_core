@@ -107,7 +107,7 @@ fn create_runtime(
     ..Default::default()
   });
 
-  let snapshot = runtime_for_snapshot.snapshot().boxed();
+  let snapshot = runtime_for_snapshot.snapshot();
 
   let extensions = vec![checkin_runtime::init_ops()];
   let mut runtime = JsRuntime::new(RuntimeOptions {

@@ -38,7 +38,6 @@ pub use snapshot::CreateSnapshotOptions;
 pub use snapshot::CreateSnapshotOutput;
 pub use snapshot::FilterFn;
 pub use snapshot::Snapshot;
-pub use snapshot::SnapshotData;
 pub(crate) use snapshot::SnapshotDataId;
 pub(crate) use snapshot::SnapshotLoadDataStore;
 pub(crate) use snapshot::SnapshotStoreDataStore;

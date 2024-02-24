@@ -9,7 +9,6 @@ use super::op_driver::OpDriver;
 use super::setup;
 use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
-use super::SnapshotData;
 use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::error::exception_to_err_result;
@@ -1875,7 +1874,7 @@ impl JsRuntimeForSnapshot {
   /// Takes a snapshot and consumes the runtime.
   ///
   /// `Error` can usually be downcast to `JsError`.
-  pub fn snapshot(mut self) -> SnapshotData {
+  pub fn snapshot(mut self) -> Box<[u8]> {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
 
@@ -1937,7 +1936,8 @@ impl JsRuntimeForSnapshot {
       .prepare_for_snapshot()
       .create_blob(v8::FunctionCodeHandling::Keep)
       .unwrap();
-    SnapshotData { v8, sidecar_data }
+
+    snapshot::serialize(v8, sidecar_data)
   }
 }
 

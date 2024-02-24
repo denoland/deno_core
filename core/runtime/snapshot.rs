@@ -24,8 +24,6 @@ const ULEN: usize = std::mem::size_of::<usize>();
 pub enum Snapshot {
   /// Embedded in static data.
   Static(&'static [u8]),
-  /// Freshly created, unserialized.
-  JustCreated(SnapshotData),
   /// Freshly created, serialized as a boxed slice.
   Boxed(Box<[u8]>),
 }
@@ -35,8 +33,6 @@ pub enum Snapshot {
 pub(crate) enum V8StartupData {
   /// Embedded in static data.
   Static(&'static [u8]),
-  /// Freshly created, unserialized.
-  JustCreated(v8::StartupData),
   /// Freshly created, serialized as a boxed slice.
   Boxed(Box<[u8]>),
 }
@@ -45,68 +41,44 @@ impl Snapshot {
   pub(crate) fn deconstruct(
     self,
   ) -> (V8StartupData, SerializableSnapshotSidecarData) {
-    if let Snapshot::JustCreated(snapshot) = self {
-      (
-        V8StartupData::JustCreated(snapshot.v8),
-        snapshot.sidecar_data,
-      )
-    } else {
-      match self {
-        Snapshot::Static(slice) => {
-          let len = usize::from_le_bytes(
-            slice[slice.len() - ULEN..].try_into().unwrap(),
-          );
-          let data = SerializableSnapshotSidecarData::from_slice(
-            &slice[len..slice.len() - ULEN],
-          );
-          (V8StartupData::Static(&slice[0..len]), data)
-        }
-        Snapshot::Boxed(slice) => {
-          let len = usize::from_le_bytes(
-            slice[slice.len() - ULEN..].try_into().unwrap(),
-          );
-          let data = SerializableSnapshotSidecarData::from_slice(
-            &slice[len..slice.len() - ULEN],
-          );
-          let mut v8 = Vec::from(slice);
-          v8.truncate(len);
-          let v8 = v8.into_boxed_slice();
-          (V8StartupData::Boxed(v8), data)
-        }
-        Snapshot::JustCreated(..) => unreachable!(),
+    match self {
+      Snapshot::Static(slice) => {
+        let len =
+          usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
+        let data = SerializableSnapshotSidecarData::from_slice(
+          &slice[len..slice.len() - ULEN],
+        );
+        (V8StartupData::Static(&slice[0..len]), data)
+      }
+      Snapshot::Boxed(slice) => {
+        let len =
+          usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
+        let data = SerializableSnapshotSidecarData::from_slice(
+          &slice[len..slice.len() - ULEN],
+        );
+        let mut v8 = Vec::from(slice);
+        v8.truncate(len);
+        let v8 = v8.into_boxed_slice();
+        (V8StartupData::Boxed(v8), data)
       }
     }
   }
 }
 
-/// An opaque blob of snapshot data.
-pub struct SnapshotData {
-  pub(crate) v8: v8::StartupData,
-  pub(crate) sidecar_data: SerializableSnapshotSidecarData,
-}
+pub(crate) fn serialize(
+  v8_data: v8::StartupData,
+  sidecar_data: SerializableSnapshotSidecarData,
+) -> Box<[u8]> {
+  let v8_data_len = v8_data.len();
+  let sidecar_data = sidecar_data.into_bytes();
+  let mut data = Vec::with_capacity(v8_data_len + sidecar_data.len() + ULEN);
 
-impl SnapshotData {
-  /// Create a static slice for a snapshot by leaking data. This method is only
-  // available for testing. Embedders should write the snapshot to a file.
-  #[cfg(test)]
-  pub fn leak(self) -> &'static [u8] {
-    let boxed = self.boxed();
-    Box::leak(boxed)
-  }
+  // add ulen
+  data.extend_from_slice(&v8_data);
+  data.extend_from_slice(&sidecar_data);
+  data.extend_from_slice(&v8_data_len.to_le_bytes());
 
-  /// Create a boxed slice for a snapshot.
-  pub fn boxed(self) -> Box<[u8]> {
-    let v8_data_len = self.v8.len();
-    let sidecar_data = self.sidecar_data.into_bytes();
-    let mut data = Vec::with_capacity(v8_data_len + sidecar_data.len() + ULEN);
-
-    // add ulen
-    data.extend_from_slice(&self.v8);
-    data.extend_from_slice(&sidecar_data);
-    data.extend_from_slice(&v8_data_len.to_le_bytes());
-
-    data.into_boxed_slice()
-  }
+  data.into_boxed_slice()
 }
 
 #[derive(Default)]
@@ -225,7 +197,7 @@ pub fn create_snapshot(
     // - Run warmup script in new context.
     // - Serialize the new context into a new snapshot blob.
     let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
+      startup_snapshot: Some(Snapshot::Boxed(snapshot)),
       extensions: warmup_exts,
       skip_op_registration: true,
       ..Default::default()
@@ -240,10 +212,9 @@ pub fn create_snapshot(
     snapshot = js_runtime.snapshot();
   }
 
-  let output = snapshot.boxed();
   println!(
     "Snapshot size: {}, took {:#?}",
-    output.len(),
+    snapshot.len(),
     mark.elapsed(),
   );
   mark = Instant::now();
@@ -255,7 +226,7 @@ pub fn create_snapshot(
 
   Ok(CreateSnapshotOutput {
     files_loaded_during_snapshot,
-    output,
+    output: snapshot,
   })
 }
 
@@ -391,12 +362,6 @@ pub(crate) fn create_snapshot_creator(
   if let Some(snapshot) = maybe_startup_snapshot {
     match snapshot {
       V8StartupData::Boxed(snapshot) => {
-        v8::Isolate::snapshot_creator_from_existing_snapshot(
-          snapshot,
-          Some(external_refs),
-        )
-      }
-      V8StartupData::JustCreated(snapshot) => {
         v8::Isolate::snapshot_creator_from_existing_snapshot(
           snapshot,
           Some(external_refs),
