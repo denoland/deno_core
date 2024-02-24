@@ -140,7 +140,6 @@ pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::PollEventLoopOptions;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
-pub use crate::runtime::Snapshot;
 pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::source_map::SourceMapGetter;
@@ -180,7 +179,6 @@ pub mod snapshot {
   pub use crate::runtime::CreateSnapshotOptions;
   pub use crate::runtime::CreateSnapshotOutput;
   pub use crate::runtime::FilterFn;
-  pub use crate::runtime::Snapshot;
 }
 
 /// A helper macro that will return a call site in Rust code. Should be

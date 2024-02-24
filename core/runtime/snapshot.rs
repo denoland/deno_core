@@ -20,14 +20,6 @@ pub type SnapshotDataId = u32;
 /// We use this constant a few times
 const ULEN: usize = std::mem::size_of::<usize>();
 
-/// The input snapshot source for a runtime.
-pub enum Snapshot {
-  /// Embedded in static data.
-  Static(&'static [u8]),
-  /// Freshly created, serialized as a boxed slice.
-  Boxed(Box<[u8]>),
-}
-
 // TODO(bartlomieju): remove?
 /// The v8 lifetime is different than the sidecar data, so we
 /// allow for it to be split out.
