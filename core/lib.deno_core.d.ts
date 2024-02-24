@@ -8,7 +8,7 @@
 declare namespace Deno {
   namespace core {
     /** Returns a proxy that generates the fast versions of sync and async ops. */
-    function ensureFastOps(): any;
+    function ensureFastOps(keep?: boolean): any;
 
     /** Mark following promise as "ref", ie. event loop won't exit
      * until all "ref" promises are resolved. All async ops are "ref" by default. */

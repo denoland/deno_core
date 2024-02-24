@@ -10,6 +10,7 @@ import * as throw_ from "checkin:throw";
 testing;
 async;
 error;
+throw_;
 
 globalThis.console = console.console;
 globalThis.setTimeout = timers.setTimeout;
@@ -17,7 +18,6 @@ globalThis.setInterval = timers.setInterval;
 globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
 globalThis.Worker = worker.Worker;
-globalThis.throwInExt = throw_.throwInExt;
 Reflect.defineProperty(globalThis, "onerror", {
   set: (cb) => {
     if (cb) {

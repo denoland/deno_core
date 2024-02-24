@@ -7,6 +7,10 @@ runs:
       run: |
         cargo fmt -- --check
         deno fmt --check ./core/ ./ops/ ./serde_v8/
+    - name: tsc
+      shell: bash
+      run: |
+        deno run --allow-read --allow-env npm:typescript@5.3.3/tsc --noEmit -p testing/tsconfig.json
     - name: Lint
       shell: bash
       run: |

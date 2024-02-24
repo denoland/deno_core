@@ -3,7 +3,7 @@
 /**
  * This is needed to test that stack traces in extensions are correct.
  */
-export function throwInExt() {
+export function throwExceptionFromExtension() {
   innerThrowInExt();
 }
 
