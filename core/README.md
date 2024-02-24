@@ -18,7 +18,7 @@ it must be executed in the context of Rust's future executor (eg. tokio, smol).
 
 Rust functions can be registered in JavaScript using `deno_core::Extension`. A
 conventional way to write ops is using the
-[`deno_ops`](https://github.com/denoland/deno/blob/main/ops) crate.
+[`deno_ops`](../ops/README.md) crate.
 
 Documentation for this crate is thin at the moment. Please see
 [hello_world.rs](./examples/hello_world.rs)
