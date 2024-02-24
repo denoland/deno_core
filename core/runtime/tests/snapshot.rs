@@ -20,7 +20,7 @@ fn will_snapshot() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -40,7 +40,7 @@ fn will_snapshot2() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(startup_data);
+  let snapshot = Box::leak(startup_data);
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -54,7 +54,7 @@ fn will_snapshot2() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(startup_data);
+  let snapshot = Box::leak(startup_data);
   {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       startup_snapshot: Some(snapshot),
@@ -93,7 +93,7 @@ fn test_snapshot_callbacks() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -104,33 +104,14 @@ fn test_snapshot_callbacks() {
 }
 
 #[test]
-fn test_from_snapshot_boxed() {
+fn test_from_snapshot() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(snapshot);
-  let mut runtime2 = JsRuntime::new(RuntimeOptions {
-    startup_snapshot: Some(snapshot),
-    ..Default::default()
-  });
-  runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
-    .unwrap();
-}
-
-#[test]
-fn test_from_snapshot_static() {
-  let snapshot = {
-    let mut runtime = JsRuntimeForSnapshot::new(Default::default());
-    runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
-    let data = runtime.snapshot();
-    Box::leak(data)
-  };
-
-  let snapshot = Snapshot::Static(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -157,7 +138,7 @@ fn test_snapshot_creator() {
   )
   .unwrap();
 
-  let snapshot = Snapshot::Boxed(output.output);
+  let snapshot = Box::leak(output.output);
 
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
@@ -193,7 +174,7 @@ fn test_snapshot_creator_warmup() {
   // and one for the warmup.
   assert_eq!(*counter.borrow(), 2);
 
-  let snapshot = Snapshot::Boxed(output.output);
+  let snapshot = Box::leak(output.output);
 
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
@@ -293,9 +274,10 @@ fn es_snapshot() {
   runtime.module_map().assert_module_map(&modules);
 
   let snapshot = runtime.snapshot();
+  let snapshot = Box::leak(snapshot);
 
   let mut runtime2 = JsRuntimeForSnapshot::new(RuntimeOptions {
-    startup_snapshot: Some(Snapshot::Boxed(snapshot)),
+    startup_snapshot: Some(snapshot),
     extensions: vec![Extension {
       name: "test_ext",
       ops: Cow::Borrowed(&[op_test::DECL]),
@@ -312,9 +294,10 @@ fn es_snapshot() {
   runtime2.module_map().assert_module_map(&modules);
 
   let snapshot2 = runtime2.snapshot();
+  let snapshot2 = Box::leak(snapshot2);
 
   let mut runtime3 = JsRuntime::new(RuntimeOptions {
-    startup_snapshot: Some(Snapshot::Boxed(snapshot2)),
+    startup_snapshot: Some(snapshot2),
     extensions: vec![Extension {
       name: "test_ext",
       ops: Cow::Borrowed(&[op_test::DECL]),
@@ -358,9 +341,11 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     runtime.snapshot()
   };
 
+  let snapshot = Box::leak(startup_data);
+
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
-    startup_snapshot: Some(Snapshot::Boxed(startup_data)),
+    startup_snapshot: Some(snapshot),
     ..Default::default()
   });
   let realm = runtime.main_realm();

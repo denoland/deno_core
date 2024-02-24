@@ -28,41 +28,23 @@ pub enum Snapshot {
   Boxed(Box<[u8]>),
 }
 
+// TODO(bartlomieju): remove?
 /// The v8 lifetime is different than the sidecar data, so we
 /// allow for it to be split out.
 pub(crate) enum V8StartupData {
   /// Embedded in static data.
   Static(&'static [u8]),
-  /// Freshly created, serialized as a boxed slice.
-  Boxed(Box<[u8]>),
 }
 
-impl Snapshot {
-  pub(crate) fn deconstruct(
-    self,
-  ) -> (V8StartupData, SerializableSnapshotSidecarData) {
-    match self {
-      Snapshot::Static(slice) => {
-        let len =
-          usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
-        let data = SerializableSnapshotSidecarData::from_slice(
-          &slice[len..slice.len() - ULEN],
-        );
-        (V8StartupData::Static(&slice[0..len]), data)
-      }
-      Snapshot::Boxed(slice) => {
-        let len =
-          usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
-        let data = SerializableSnapshotSidecarData::from_slice(
-          &slice[len..slice.len() - ULEN],
-        );
-        let mut v8 = Vec::from(slice);
-        v8.truncate(len);
-        let v8 = v8.into_boxed_slice();
-        (V8StartupData::Boxed(v8), data)
-      }
-    }
-  }
+pub(crate) fn deconstruct(
+  slice: &'static [u8],
+) -> (V8StartupData, SerializableSnapshotSidecarData) {
+  let len =
+    usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
+  let data = SerializableSnapshotSidecarData::from_slice(
+    &slice[len..slice.len() - ULEN],
+  );
+  (V8StartupData::Static(&slice[0..len]), data)
 }
 
 pub(crate) fn serialize(
@@ -137,7 +119,7 @@ impl SnapshotStoreDataStore {
 
 pub struct CreateSnapshotOptions {
   pub cargo_manifest_dir: &'static str,
-  pub startup_snapshot: Option<Snapshot>,
+  pub startup_snapshot: Option<&'static [u8]>,
   pub skip_op_registration: bool,
   pub extensions: Vec<Extension>,
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
@@ -189,6 +171,7 @@ pub fn create_snapshot(
 
   let mut snapshot = js_runtime.snapshot();
   if let Some(warmup_script) = warmup_script {
+    let leaked_snapshot = Box::leak(snapshot);
     let warmup_exts = warmup_exts.unwrap();
 
     // Warm up the snapshot bootstrap.
@@ -197,7 +180,7 @@ pub fn create_snapshot(
     // - Run warmup script in new context.
     // - Serialize the new context into a new snapshot blob.
     let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      startup_snapshot: Some(Snapshot::Boxed(snapshot)),
+      startup_snapshot: Some(leaked_snapshot),
       extensions: warmup_exts,
       skip_op_registration: true,
       ..Default::default()
@@ -361,12 +344,6 @@ pub(crate) fn create_snapshot_creator(
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
     match snapshot {
-      V8StartupData::Boxed(snapshot) => {
-        v8::Isolate::snapshot_creator_from_existing_snapshot(
-          snapshot,
-          Some(external_refs),
-        )
-      }
       V8StartupData::Static(snapshot) => {
         v8::Isolate::snapshot_creator_from_existing_snapshot(
           snapshot,

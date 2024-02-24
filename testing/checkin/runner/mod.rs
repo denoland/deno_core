@@ -7,7 +7,6 @@ use deno_core::JsRuntime;
 use deno_core::JsRuntimeForSnapshot;
 use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
-use deno_core::Snapshot;
 use futures::Future;
 use pretty_assertions::assert_eq;
 use std::path::Path;
@@ -108,11 +107,11 @@ fn create_runtime(
   });
 
   let snapshot = runtime_for_snapshot.snapshot();
-
+  let snapshot = Box::leak(snapshot);
   let extensions = vec![checkin_runtime::init_ops()];
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
-    startup_snapshot: Some(Snapshot::Boxed(snapshot)),
+    startup_snapshot: Some(snapshot),
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),

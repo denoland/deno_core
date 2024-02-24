@@ -23,7 +23,6 @@ use crate::ModuleSpecifier;
 use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
-use crate::Snapshot;
 use anyhow::bail;
 use anyhow::Error;
 use deno_ops::op2;
@@ -1428,7 +1427,7 @@ fn dynamic_imports_snapshot() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -1471,7 +1470,7 @@ fn import_meta_snapshot() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()

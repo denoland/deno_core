@@ -46,7 +46,6 @@ use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
 use crate::OpState;
-use crate::Snapshot;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context as _;
@@ -434,7 +433,10 @@ pub struct RuntimeOptions {
   pub extensions: Vec<Extension>,
 
   /// V8 snapshot that should be loaded on startup.
-  pub startup_snapshot: Option<Snapshot>,
+  ///
+  /// For testing, use `runtime.snapshot()` and then [`Box::leak`] to acquire
+  // a static slice.
+  pub startup_snapshot: Option<&'static [u8]>,
 
   /// Should op registration be skipped?
   pub skip_op_registration: bool,
@@ -692,7 +694,7 @@ impl JsRuntime {
     let (maybe_startup_snapshot, sidecar_data) = options
       .startup_snapshot
       .take()
-      .map(Snapshot::deconstruct)
+      .map(snapshot::deconstruct)
       .unzip();
     let mut isolate = setup::create_isolate(
       will_snapshot,

@@ -6,7 +6,6 @@ use deno_core::ExtensionFileSourceCode;
 use deno_core::JsRuntime;
 use deno_core::JsRuntimeForSnapshot;
 use deno_core::RuntimeOptions;
-use deno_core::Snapshot;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -137,7 +136,7 @@ fn bench_load_snapshot(c: &mut Criterion) {
         let now = Instant::now();
         let runtime = JsRuntime::new(RuntimeOptions {
           extensions: make_extensions_ops(),
-          startup_snapshot: Some(Snapshot::Static(snapshot)),
+          startup_snapshot: Some(snapshot),
           ..Default::default()
         });
         total += now.elapsed().as_nanos();
