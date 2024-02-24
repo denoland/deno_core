@@ -688,10 +688,8 @@ impl JsRuntime {
       global_object_middlewares,
       additional_references,
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
-    let external_refs =
-      bindings::create_external_references(&op_ctxs, &additional_references);
 
-    let (maybe_startup_snapshot, sidecar_data, _source_files) = options
+    let (maybe_startup_snapshot, sidecar_data, source_files) = options
       .startup_snapshot
       .take()
       .map(|snapshot| {
@@ -699,6 +697,13 @@ impl JsRuntime {
         (Some(a), Some(b), Some(c))
       })
       .unwrap_or_else(|| (None, None, None));
+
+    let external_refs = bindings::create_external_references(
+      &op_ctxs,
+      &additional_references,
+      source_files.unwrap_or_default(),
+    );
+
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
