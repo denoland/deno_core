@@ -10,11 +10,7 @@ runs:
     - name: tsc
       shell: bash
       run: |
-        # If npm is installed, run tsc
-        if command -v npm &> /dev/null; then
-          npm install -g typescript
-          tsc --noEmit -p testing/tsconfig.json
-        fi
+        deno run --allow-read --allow-env npm:typescript@5.3.3/tsc --noEmit -p testing/tsconfig.json
     - name: Lint
       shell: bash
       run: |
