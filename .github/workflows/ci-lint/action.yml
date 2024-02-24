@@ -14,7 +14,7 @@ runs:
         if command -v npm &> /dev/null; then
           npm install -g typescript
           tsc --noEmit -p testing/tsconfig.json
-        done
+        fi
     - name: Lint
       shell: bash
       run: |
