@@ -1930,14 +1930,14 @@ impl JsRuntimeForSnapshot {
     };
     drop(realm);
 
-    let v8 = self
+    let v8_data = self
       .0
       .inner
       .prepare_for_snapshot()
       .create_blob(v8::FunctionCodeHandling::Keep)
       .unwrap();
 
-    snapshot::serialize(v8, sidecar_data)
+    snapshot::serialize(v8_data, sidecar_data)
   }
 }
 
