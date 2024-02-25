@@ -270,9 +270,9 @@ macro_rules! internal_source_file {
     static SOURCE: &[u8] = include_bytes!(concat!("../", $str_));
 
     static SPECIFIER_OBC: v8::OneByteConst =
-        v8::String::create_external_onebyte_const(SPECIFIER.as_bytes());
+      v8::String::create_external_onebyte_const(SPECIFIER.as_bytes());
     static SOURCE_OBC: v8::OneByteConst =
-        v8::String::create_external_onebyte_const(SOURCE);
+      v8::String::create_external_onebyte_const(SOURCE);
     InternalSourceFile {
       specifier: SPECIFIER,
       specifier_onebyte_const: &SPECIFIER_OBC,
