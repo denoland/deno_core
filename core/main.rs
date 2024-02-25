@@ -81,7 +81,7 @@ static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
 //     "ext:testing_snapshotting/main.js",
 //     SOURCE_CODE,
 //     &ONEBYTE_CONST,
-//   )];
+// )];
 
 fn main() -> Result<(), Error> {
   let args: Vec<String> = std::env::args().collect();

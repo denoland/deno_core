@@ -138,6 +138,7 @@ impl FastString {
     scope: &mut v8::HandleScope<'a>,
   ) -> v8::Local<'a, v8::String> {
     if let Self::ExternalRefBacked(_code, v8_onebyte_const) = self {
+      eprintln!("v8_string returns new_from_onebyte_const");
       return v8::String::new_from_onebyte_const(scope, v8_onebyte_const)
         .unwrap();
     }

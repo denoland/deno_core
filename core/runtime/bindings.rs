@@ -28,7 +28,7 @@ use crate::ModuleType;
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
   additional_references: &[v8::ExternalReference],
-  source_files: Vec<&'static [u8]>,
+  source_files: Vec<&v8::OneByteConst>,
 ) -> &'static v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references = Vec::with_capacity(
@@ -64,13 +64,15 @@ pub(crate) fn create_external_references(
   // allows V8 to take an optimized path when deserializing the snapshot.
   for source_file in &CONTEXT_SETUP_SOURCES {
     references.push(v8::ExternalReference {
-      pointer: source_file.source.as_ptr() as *mut c_void,
+      pointer: &source_file.source_onebyte_const as *const v8::OneByteConst
+        as *mut c_void,
     });
   }
 
   for source_file in &BUILTIN_SOURCES {
     references.push(v8::ExternalReference {
-      pointer: source_file.source.as_ptr() as *mut c_void,
+      pointer: &source_file.source_onebyte_const as *const v8::OneByteConst
+        as *mut c_void,
     });
   }
 
@@ -108,9 +110,11 @@ pub(crate) fn create_external_references(
 
   references.extend_from_slice(additional_references);
 
+  eprintln!("source files {}", source_files.len());
   for source_file in source_files {
+    eprintln!("source file ptr {:?}", source_file);
     references.push(v8::ExternalReference {
-      pointer: source_file.as_ptr() as _,
+      pointer: source_file as *const v8::OneByteConst as *mut c_void,
     })
   }
 

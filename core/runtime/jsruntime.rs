@@ -712,15 +712,20 @@ impl JsRuntime {
         external_ref_backed_sources
           .iter()
           .map(|c| {
-            let ExtensionFileSourceCode::ExternalRefBacked(source, _) = c
+            let ExtensionFileSourceCode::ExternalRefBacked(_source, onebyte) =
+              c
             else {
               unreachable!()
             };
-            source.as_bytes()
+            *onebyte
           })
           .collect::<Vec<_>>()
       } else {
-        source_files.unwrap_or_default()
+        if let Some(sf) = source_files.as_ref() {
+          sf.iter().map(|(_, o)| o).collect()
+        } else {
+          vec![]
+        }
       },
     );
 

@@ -1,2 +1,2 @@
-console.log("globalThis.foo:", globalThis.foo);
-globalThis.testingSnapshot();
+console.log("globalThis.tsInstalled:", globalThis.tsInstalled);
+globalThis.testingSnapshot;

@@ -29,7 +29,7 @@ pub(crate) fn deconstruct(
 ) -> (
   V8Snapshot,
   SerializableSnapshotSidecarData,
-  Vec<&'static [u8]>,
+  Vec<(&'static [u8], v8::OneByteConst)>,
 ) {
   let lengths = &slice[slice.len() - 4 * ULEN..];
 
@@ -70,7 +70,8 @@ pub(crate) fn deconstruct(
     //   "source file {}",
     //   String::from_utf8(source_file.to_vec()).unwrap()
     // );
-    files.push(source_file);
+    let onebyte_const = v8::String::create_external_onebyte_const(source_file);
+    files.push((source_file, onebyte_const));
     current_offset = current_offset + source_file_len;
   }
 
