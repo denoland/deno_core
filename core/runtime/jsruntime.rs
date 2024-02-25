@@ -260,23 +260,23 @@ const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
 
 pub(crate) struct InternalSourceFile {
   pub specifier: &'static str,
-  pub specifier_onebyte_const: v8::OneByteConst,
-  pub source: &'static [u8],
-  pub source_onebyte_const: v8::OneByteConst,
+  pub specifier_onebyte_const: &'static v8::OneByteConst,
+  pub source_onebyte_const: &'static v8::OneByteConst,
 }
 
 macro_rules! internal_source_file {
   ($str_:literal) => {{
-    let specifier = concat!("ext:core/", $str_);
-    let source = include_bytes!(concat!("../", $str_));
+    static SPECIFIER: &str = concat!("ext:core/", $str_);
+    static SOURCE: &[u8] = include_bytes!(concat!("../", $str_));
 
+    static SPECIFIER_OBC: v8::OneByteConst =
+        v8::String::create_external_onebyte_const(SPECIFIER.as_bytes());
+    static SOURCE_OBC: v8::OneByteConst =
+        v8::String::create_external_onebyte_const(SOURCE);
     InternalSourceFile {
-      specifier,
-      specifier_onebyte_const: v8::String::create_external_onebyte_const(
-        specifier.as_bytes(),
-      ),
-      source,
-      source_onebyte_const: v8::String::create_external_onebyte_const(source),
+      specifier: SPECIFIER,
+      specifier_onebyte_const: &SPECIFIER_OBC,
+      source_onebyte_const: &SOURCE_OBC,
     }
   }};
 }
