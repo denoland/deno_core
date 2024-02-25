@@ -70,7 +70,17 @@ fn text_module(
 }
 
 // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-// static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
+static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
+
+static SOURCE_CODE: &str = include_str!("./testing_snapshotting.js");
+static ONEBYTE_CONST: v8::OneByteConst =
+  v8::String::create_external_onebyte_const(SOURCE_CODE.as_bytes());
+static ESM_FILES: &[deno_core::ExtensionFileSource] =
+  &[deno_core::ExtensionFileSource::external_ref_backed(
+    "ext:testing_snapshotting/main.js",
+    SOURCE_CODE,
+    &ONEBYTE_CONST,
+  )];
 
 fn main() -> Result<(), Error> {
   let args: Vec<String> = std::env::args().collect();
@@ -85,12 +95,25 @@ fn main() -> Result<(), Error> {
   println!("Run {main_url}");
 
   // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-  // deno_core::snapshot::create_snapshot(
-  //   CreateSnapshotOptions {
-  //     serializer: Box::new(SnapshotFileSerializer::new(
-  //       std::fs::File::create("./snapshot.bin").unwrap(),
-  //     )),
-  //     extensions: vec![],
+
+  // let ext = deno_core::Extension {
+  //   name: "testing_snapshotting",
+  //   deps: &[],
+  //   js_files: Cow::Borrowed(&[]),
+  //   esm_files: Cow::Borrowed(ESM_FILES),
+  //   lazy_loaded_esm_files: Cow::Borrowed(&[]),
+  //   esm_entry_point: Some("ext:testing_snapshotting/main.js"),
+  //   ops: Cow::Borrowed(&[]),
+  //   external_references: Cow::Borrowed(&[]),
+  //   global_template_middleware: None,
+  //   global_object_middleware: None,
+  //   op_state_fn: None,
+  //   middleware_fn: None,
+  //   enabled: true,
+  // };
+  // let output = deno_core::snapshot::create_snapshot(
+  //   deno_core::snapshot::CreateSnapshotOptions {
+  //     extensions: vec![ext],
   //     cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
   //     startup_snapshot: None,
   //     with_runtime_cb: None,
@@ -99,11 +122,12 @@ fn main() -> Result<(), Error> {
   //   None,
   // )
   // .unwrap();
+  // std::fs::write("./snapshot.bin", output.output).unwrap();
   // return Ok(());
 
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-    // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
+    startup_snapshot: Some(SNAPSHOT_BYTES),
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     ..Default::default()

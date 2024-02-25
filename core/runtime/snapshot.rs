@@ -47,25 +47,31 @@ pub(crate) fn deconstruct(
   );
   let source_files_bytes = &slice[v8_data_len + sidecar_data_len
     ..v8_data_len + sidecar_data_len + source_files_len];
-  let source_files_offsets =
+  let source_files_lengths =
     &slice[v8_data_len + sidecar_data_len + source_files_len
       ..v8_data_len
         + sidecar_data_len
         + source_files_len
         + source_code_offsets_len];
 
-  let no_of_files = source_files_offsets.len() / ULEN;
+  let no_of_files = source_files_lengths.len() / ULEN;
   let mut files = vec![];
   let mut current_offset = 0;
-  for _i in 0..no_of_files {
-    let next_offset = usize::from_le_bytes(
-      source_files_offsets[current_offset..current_offset + ULEN]
+  for i in 0..no_of_files {
+    let source_file_len = usize::from_le_bytes(
+      source_files_lengths[i * ULEN..((i + 1) * ULEN)]
         .try_into()
         .unwrap(),
     );
-    let source_file = &source_files_bytes[current_offset..next_offset];
+    // eprintln!("Found one file of len {}", source_file_len);
+    let source_file =
+      &source_files_bytes[current_offset..current_offset + source_file_len];
+    // eprintln!(
+    //   "source file {}",
+    //   String::from_utf8(source_file.to_vec()).unwrap()
+    // );
     files.push(source_file);
-    current_offset = next_offset;
+    current_offset = current_offset + source_file_len;
   }
 
   (v8_snapshot, data, files)
@@ -80,13 +86,13 @@ pub(crate) fn serialize(
   let sidecar_data = sidecar_data.into_bytes();
   let sidecar_data_len = sidecar_data.len();
   let source_files_len: usize = source_files.iter().map(|sf| sf.len()).sum();
-  let source_code_offsets_len = source_files.len() * ULEN;
+  let source_code_lengths_len = source_files.len() * ULEN;
 
   let mut data = Vec::with_capacity(
     v8_data_len
       + sidecar_data_len
       + source_files_len
-      + source_code_offsets_len
+      + source_code_lengths_len
       + ULEN * 4,
   );
 
@@ -94,7 +100,7 @@ pub(crate) fn serialize(
   // - `v8::StartupData` (X bytes)
   // - `SerializableSnapshotSidecardData` (Y bytes)
   // - source code bytes (Z bytes)
-  // - source code offsets (A bytes)
+  // - source code lengths (A bytes)
   // - length of `v8::StartupData` (`ULEN` bytes)
   // - length of `SerializableSnapshotSidecardData` (`ULEN` bytes)
   // - length of source code bytes (`ULEN` bytes)
@@ -102,18 +108,16 @@ pub(crate) fn serialize(
   data.extend_from_slice(&v8_data);
   data.extend_from_slice(&sidecar_data);
 
-  let mut current_offset = v8_data_len + sidecar_data_len;
-  let mut offsets = vec![];
+  let mut source_code_lengths = vec![];
   for source_file in source_files {
     data.extend_from_slice(&source_file);
-    offsets.extend_from_slice(&current_offset.to_le_bytes());
-    current_offset += source_file.len();
+    source_code_lengths.extend_from_slice(&source_file.len().to_le_bytes());
   }
-  data.extend_from_slice(&offsets);
+  data.extend_from_slice(&source_code_lengths);
   data.extend_from_slice(&v8_data_len.to_le_bytes());
   data.extend_from_slice(&sidecar_data_len.to_le_bytes());
   data.extend_from_slice(&source_files_len.to_le_bytes());
-  data.extend_from_slice(&source_code_offsets_len.to_le_bytes());
+  data.extend_from_slice(&source_code_lengths_len.to_le_bytes());
 
   data.into_boxed_slice()
 }
