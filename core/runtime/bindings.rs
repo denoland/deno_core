@@ -271,12 +271,12 @@ pub(crate) fn initialize_primordials_and_infra(
   for source_file in &CONTEXT_SETUP_SOURCES {
     let name = v8::String::new_from_onebyte_const(
       scope,
-      &source_file.specifier_onebyte_const,
+      source_file.specifier_onebyte_const,
     )
     .unwrap();
     let source_str = v8::String::new_from_onebyte_const(
       scope,
-      &source_file.source_onebyte_const,
+      source_file.source_onebyte_const,
     )
     .unwrap();
 

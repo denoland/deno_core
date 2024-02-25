@@ -1029,12 +1029,12 @@ impl JsRuntime {
     for source_file in &BUILTIN_SOURCES {
       let name = v8::String::new_from_onebyte_const(
         scope,
-        &source_file.specifier_onebyte_const,
+        source_file.specifier_onebyte_const,
       )
       .unwrap();
       let source_str = v8::String::new_from_onebyte_const(
         scope,
-        &source_file.source_onebyte_const,
+        source_file.source_onebyte_const,
       )
       .unwrap();
 
