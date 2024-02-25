@@ -58,17 +58,19 @@ pub(crate) fn create_external_references(
     pointer: syn_module_eval_fn as *mut c_void,
   });
 
-  // Using v8::OneByteConst and passing external references to the source code
+  // Using v8::OneByteConst and passing external references to it
   // allows V8 to take an optimized path when deserializing the snapshot.
   for source_file in &CONTEXT_SETUP_SOURCES {
     references.push(v8::ExternalReference {
-      pointer: source_file.source.as_ptr() as *mut c_void,
+      pointer: source_file.source_onebyte_const as *const v8::OneByteConst
+        as *mut c_void,
     });
   }
 
   for source_file in &BUILTIN_SOURCES {
     references.push(v8::ExternalReference {
-      pointer: source_file.source.as_ptr() as *mut c_void,
+      pointer: source_file.source_onebyte_const as *const v8::OneByteConst
+        as *mut c_void,
     });
   }
 
@@ -269,12 +271,12 @@ pub(crate) fn initialize_primordials_and_infra(
   for source_file in &CONTEXT_SETUP_SOURCES {
     let name = v8::String::new_from_onebyte_const(
       scope,
-      &source_file.specifier_onebyte_const,
+      source_file.specifier_onebyte_const,
     )
     .unwrap();
     let source_str = v8::String::new_from_onebyte_const(
       scope,
-      &source_file.source_onebyte_const,
+      source_file.source_onebyte_const,
     )
     .unwrap();
 
