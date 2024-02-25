@@ -72,15 +72,16 @@ fn text_module(
 // TODO(bartlomieju): figure out how we can incorporate snapshotting here
 static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
 
-static SOURCE_CODE: &str = include_str!("./testing_snapshotting.js");
-static ONEBYTE_CONST: v8::OneByteConst =
-  v8::String::create_external_onebyte_const(SOURCE_CODE.as_bytes());
-static ESM_FILES: &[deno_core::ExtensionFileSource] =
-  &[deno_core::ExtensionFileSource::external_ref_backed(
-    "ext:testing_snapshotting/main.js",
-    SOURCE_CODE,
-    &ONEBYTE_CONST,
-  )];
+// static SOURCE_CODE: &str = include_str!("./testing_snapshotting.js");
+// #[allow(long_running_const_eval)]
+// static ONEBYTE_CONST: v8::OneByteConst =
+//   v8::String::create_external_onebyte_const(SOURCE_CODE.as_bytes());
+// static ESM_FILES: &[deno_core::ExtensionFileSource] =
+//   &[deno_core::ExtensionFileSource::external_ref_backed(
+//     "ext:testing_snapshotting/main.js",
+//     SOURCE_CODE,
+//     &ONEBYTE_CONST,
+//   )];
 
 fn main() -> Result<(), Error> {
   let args: Vec<String> = std::env::args().collect();
