@@ -713,7 +713,7 @@
       return id;
     },
     // TODO(mmastrac): Hook up associatedOp to tracing
-    queueSystemTimer: (associatedOp, repeat, timeout, task) =>
+    queueSystemTimer: (_associatedOp, repeat, timeout, task) =>
       op_timer_queue_system(repeat, timeout, task),
     queueImmediate: (task) => op_timer_queue_immediate(task),
     cancelTimer: (id) => op_timer_cancel(id),

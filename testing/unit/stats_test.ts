@@ -68,7 +68,7 @@ test(function testTimers() {
   assert(diff.empty);
 });
 
-async function enableTracingForTest(f: () => Promise<void>) {
+async function enableTracingForTest(f: () => Promise<void> | void) {
   const oldTracingState = Deno.core.isLeakTracingEnabled();
   Deno.core.setLeakTracingEnabled(true);
   try {
@@ -107,7 +107,7 @@ test(async function testAsyncLeakTrace() {
 });
 
 test(async function testTimeoutLeakTrace() {
-  await enableTracingForTest(async () => {
+  await enableTracingForTest(() => {
     const tracesBefore = Deno.core.getAllLeakTraces();
     using statsBefore = StatsFactory.capture();
     const t1 = setTimeout(() => {}, 100_000);
@@ -124,7 +124,7 @@ test(async function testTimeoutLeakTrace() {
 });
 
 test(async function testIntervalLeakTrace() {
-  await enableTracingForTest(async () => {
+  await enableTracingForTest(() => {
     const tracesBefore = Deno.core.getAllLeakTraces();
     using statsBefore = StatsFactory.capture();
     const t1 = setInterval(() => {}, 100_000);
