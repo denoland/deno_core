@@ -68,31 +68,24 @@ export class StatsDiff {
   }
 }
 
+export enum LeakType {
+  AsyncOp = "AsyncOp",
+  Resource = "Resource",
+  Timer = "Timer",
+  Interval = "Interval"
+};
+
 // This contains an array of serialized RuntimeActivity structs.
 export class StatsCollection {
   // deno-lint-ignore no-explicit-any
   constructor(private data: any[]) {
   }
 
-  private countResourceActivity(type: string): number {
+  count(...types: LeakType[]): number {
     let count = 0;
     for (const item of this.data) {
-      if (type in item) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  countOps(): number {
-    return this.countResourceActivity("AsyncOp");
-  }
-
-  countOpsWithTraces(): number {
-    let count = 0;
-    for (const item of this.data) {
-      if ("AsyncOp" in item) {
-        if (typeof item["AsyncOp"][2] === "string") {
+      for (const type of types) {
+        if (type in item) {
           count++;
         }
       }
@@ -100,13 +93,18 @@ export class StatsCollection {
     return count;
   }
 
-  countResources(): number {
-    return this.countResourceActivity("Resource");
-  }
-
-  countTimers(): number {
-    return this.countResourceActivity("Timer") +
-      this.countResourceActivity("Interval");
+  countWithTraces(...types: LeakType[]): number {
+    let count = 0;
+    for (const item of this.data) {
+      for (const type of types) {
+        if (type in item) {
+          if (typeof item[type][2] === "string") {
+            count++;
+          }
+        }
+      }
+    }
+    return count;
   }
 
   get rawData() {

@@ -32,8 +32,8 @@
     registerErrorClass,
   } = window.Deno.core;
   const {
-    __setOpCallTracingEnabled,
-    __isOpCallTracingEnabled,
+    __setLeakTracingEnabled,
+    __isLeakTracingEnabled,
     __initializeCoreMethods,
     __resolvePromise,
   } = window.__infra;
@@ -112,18 +112,18 @@
 
   __initializeCoreMethods(
     eventLoopTick,
-    submitOpCallTrace,
+    submitLeakTrace,
   );
 
-  function submitOpCallTrace(id) {
+  function submitLeakTrace(id) {
     const error = new Error();
-    ErrorCaptureStackTrace(error, submitOpCallTrace);
+    ErrorCaptureStackTrace(error, submitLeakTrace);
     op_opcall_tracing_submit(0, id, StringPrototypeSlice(error.stack, 6));
   }
 
   function submitTimerTrace(id, repeat) {
     const error = new Error();
-    ErrorCaptureStackTrace(error, submitOpCallTrace);
+    ErrorCaptureStackTrace(error, submitLeakTrace);
     op_opcall_tracing_submit(repeat ? 2 : 1, id, StringPrototypeSlice(error.stack, 6));
   }
 
@@ -626,16 +626,16 @@
     writeSync,
     shutdown,
     print: (msg, isErr) => op_print(msg, isErr),
-    setOpCallTracingEnabled: (enabled) => {
-      __setOpCallTracingEnabled(enabled);
+    setLeakTracingEnabled: (enabled) => {
+      __setLeakTracingEnabled(enabled);
       op_opcall_tracing_enable(enabled);
     },
-    isOpCallTracingEnabled: () => __isOpCallTracingEnabled(),
-    getAllOpCallTraces: () => {
+    isLeakTracingEnabled: () => __isLeakTracingEnabled(),
+    getAllLeakTraces: () => {
       const traces = op_opcall_tracing_get_all();
       return new SafeMap(traces);
     },
-    getOpCallTraceForPromise: (promise) =>
+    getLeakTraceForPromise: (promise) =>
       op_opcall_tracing_get(promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
@@ -704,7 +704,7 @@
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
     queueUserTimer: (depth, repeat, timeout, task) => {
       const id = op_timer_queue(depth, repeat, timeout, task);
-      if (__isOpCallTracingEnabled()) {
+      if (__isLeakTracingEnabled()) {
         submitTimerTrace(id, repeat);
       }
       return id;

@@ -37,21 +37,21 @@
   // to users. Currently missing bindings.
   const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
 
-  let isOpCallTracingEnabled = false;
-  let submitOpCallTrace;
+  let isLeakTracingEnabled = false;
+  let submitLeakTrace;
   let eventLoopTick;
 
-  function __setOpCallTracingEnabled(enabled) {
-    isOpCallTracingEnabled = enabled;
+  function __setLeakTracingEnabled(enabled) {
+    isLeakTracingEnabled = enabled;
   }
 
-  function __isOpCallTracingEnabled() {
-    return isOpCallTracingEnabled;
+  function __isLeakTracingEnabled() {
+    return isLeakTracingEnabled;
   }
 
-  function __initializeCoreMethods(eventLoopTick_, submitOpCallTrace_) {
+  function __initializeCoreMethods(eventLoopTick_, submitLeakTrace_) {
     eventLoopTick = eventLoopTick_;
-    submitOpCallTrace = submitOpCallTrace_;
+    submitLeakTrace = submitLeakTrace_;
   }
 
   const build = {
@@ -208,8 +208,8 @@
             ErrorCaptureStackTrace(err, async_op_0);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -227,8 +227,8 @@
             ErrorCaptureStackTrace(err, async_op_1);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -246,8 +246,8 @@
             ErrorCaptureStackTrace(err, async_op_2);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -265,8 +265,8 @@
             ErrorCaptureStackTrace(err, async_op_3);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -284,8 +284,8 @@
             ErrorCaptureStackTrace(err, async_op_4);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -303,8 +303,8 @@
             ErrorCaptureStackTrace(err, async_op_5);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -322,8 +322,8 @@
             ErrorCaptureStackTrace(err, async_op_6);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -341,8 +341,8 @@
             ErrorCaptureStackTrace(err, async_op_7);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -360,8 +360,8 @@
             ErrorCaptureStackTrace(err, async_op_8);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -379,8 +379,8 @@
             ErrorCaptureStackTrace(err, async_op_9);
             return PromiseReject(err);
           }
-          if (isOpCallTracingEnabled) {
-            submitOpCallTrace(id);
+          if (isLeakTracingEnabled) {
+            submitLeakTrace(id);
           }
           nextPromiseId = (id + 1) & 0xffffffff;
           return setPromise(id);
@@ -417,8 +417,8 @@
 
   const infra = {
     __resolvePromise,
-    __setOpCallTracingEnabled,
-    __isOpCallTracingEnabled,
+    __setLeakTracingEnabled,
+    __isLeakTracingEnabled,
     __initializeCoreMethods,
   };
 

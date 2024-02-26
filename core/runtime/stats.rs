@@ -16,26 +16,39 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::rc::Rc;
 
+type ActivityId = usize;
+
 #[derive(Default)]
 pub struct OpCallTraces {
   enabled: Cell<bool>,
-  traces: RefCell<HashMap<PromiseId, Rc<str>>>,
+  traces: RefCell<
+    [HashMap<ActivityId, Rc<str>>; RuntimeActivityType::MAX_TYPE as usize],
+  >,
 }
 
 impl OpCallTraces {
   pub(crate) fn set_enabled(&self, enabled: bool) {
     self.enabled.set(enabled);
     if !enabled {
-      self.traces.borrow_mut().clear();
+      *self.traces.borrow_mut() = Default::default();
     }
   }
 
-  pub(crate) fn submit(&self, promise_id: PromiseId, trace: &str) {
-    self.traces.borrow_mut().insert(promise_id, trace.into());
+  pub(crate) fn submit(
+    &self,
+    activity_type: RuntimeActivityType,
+    id: ActivityId,
+    trace: &str,
+  ) {
+    self.traces.borrow_mut()[activity_type as usize].insert(id, trace.into());
   }
 
-  pub(crate) fn complete(&self, promise_id: PromiseId) {
-    self.traces.borrow_mut().remove(&promise_id);
+  pub(crate) fn complete(
+    &self,
+    activity_type: RuntimeActivityType,
+    id: ActivityId,
+  ) {
+    self.traces.borrow_mut()[activity_type as usize].remove(&id);
   }
 
   pub fn is_enabled(&self) -> bool {
@@ -46,22 +59,31 @@ impl OpCallTraces {
     self.traces.borrow().len()
   }
 
-  pub fn get_all(&self, mut f: impl FnMut(PromiseId, &str)) {
-    for (key, value) in self.traces.borrow().iter() {
-      f(*key, value.as_ref())
+  pub fn get_all(
+    &self,
+    mut f: impl FnMut(RuntimeActivityType, ActivityId, &str),
+  ) {
+    let traces = self.traces.borrow();
+    for i in 0..RuntimeActivityType::MAX_TYPE {
+      for (key, value) in traces[i as usize].iter() {
+        f(RuntimeActivityType::from_u8(i), *key, value.as_ref())
+      }
     }
   }
 
-  pub fn capture(&self) -> HashMap<PromiseId, Rc<str>> {
+  pub fn capture(&self) -> [HashMap<ActivityId, Rc<str>>; 4] {
     self.traces.borrow().clone()
   }
 
   pub fn get<T>(
     &self,
-    promise_id: PromiseId,
+    activity_type: RuntimeActivityType,
+    id: ActivityId,
     f: impl FnOnce(Option<&str>) -> T,
   ) -> T {
-    f(self.traces.borrow().get(&promise_id).map(|x| x.as_ref()))
+    f(self.traces.borrow()[activity_type as u8 as usize]
+      .get(&id)
+      .map(|x| x.as_ref()))
   }
 }
 
@@ -165,7 +187,7 @@ impl RuntimeActivityStatsFactory {
       let opcall_traces = self.context_state.opcall_traces.capture();
       (ops, opcall_traces)
     } else {
-      (OpInflightStats::default(), HashMap::default())
+      (Default::default(), Default::default())
     };
 
     RuntimeActivityStats {
@@ -196,7 +218,7 @@ pub struct TimerStats {
 pub struct RuntimeActivityStats {
   context_state: Rc<ContextState>,
   pub(super) ops: OpInflightStats,
-  pub(super) opcall_traces: HashMap<PromiseId, Rc<str>>,
+  pub(super) opcall_traces: [HashMap<ActivityId, Rc<str>>; 4],
   pub(super) resources: ResourceOpenStats,
   pub(super) timers: TimerStats,
 }
@@ -238,13 +260,13 @@ impl From<&Rc<str>> for OpCallTrace {
 #[derive(Debug, Serialize)]
 pub enum RuntimeActivity {
   /// An async op, including the promise ID and op name, with an optional opcall trace.
-  AsyncOp(PromiseId, &'static str, Option<OpCallTrace>),
+  AsyncOp(PromiseId, Option<OpCallTrace>, &'static str),
   /// A resource, including the resource ID and name.
-  Resource(ResourceId, String),
+  Resource(ResourceId, Option<OpCallTrace>, String),
   /// A timer, including the timer ID.
-  Timer(usize),
+  Timer(usize, Option<OpCallTrace>),
   /// An interval, including the interval ID.
-  Interval(usize),
+  Interval(usize, Option<OpCallTrace>),
 }
 
 impl RuntimeActivity {
@@ -262,6 +284,7 @@ impl RuntimeActivity {
 #[derive(
   Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize,
 )]
+#[repr(u8)]
 pub enum RuntimeActivityType {
   AsyncOp,
   Resource,
@@ -269,7 +292,31 @@ pub enum RuntimeActivityType {
   Interval,
 }
 
+impl RuntimeActivityType {
+  const MAX_TYPE: u8 = 4;
+
+  pub(crate) fn from_u8(value: u8) -> Self {
+    match value {
+      0 => Self::AsyncOp,
+      1 => Self::Resource,
+      2 => Self::Timer,
+      3 => Self::Interval,
+      _ => unreachable!(),
+    }
+  }
+}
+
 impl RuntimeActivityStats {
+  fn trace_for(
+    &self,
+    activity_type: RuntimeActivityType,
+    id: ActivityId,
+  ) -> Option<OpCallTrace> {
+    self.opcall_traces[activity_type as u8 as usize]
+      .get(&id)
+      .map(|x| x.into())
+  }
+
   /// Capture the data within this [`RuntimeActivityStats`] as a [`RuntimeActivitySnapshot`]
   /// with details of activity.
   pub fn dump(&self) -> RuntimeActivitySnapshot {
@@ -284,27 +331,48 @@ impl RuntimeActivityStats {
       for op in self.ops.ops.iter() {
         v.push(RuntimeActivity::AsyncOp(
           op.0,
+          self.trace_for(RuntimeActivityType::AsyncOp, op.0 as _),
           ops[op.1 as usize].decl.name,
-          self.opcall_traces.get(&op.0).map(|x| x.into()),
         ));
       }
     } else {
       for op in self.ops.ops.iter() {
         v.push(RuntimeActivity::AsyncOp(
           op.0,
-          ops[op.1 as usize].decl.name,
           None,
+          ops[op.1 as usize].decl.name,
         ));
       }
     }
     for resource in self.resources.resources.iter() {
-      v.push(RuntimeActivity::Resource(resource.0, resource.1.clone()))
+      v.push(RuntimeActivity::Resource(
+        resource.0,
+        None,
+        resource.1.clone(),
+      ))
     }
-    for i in 0..self.timers.timers.len() {
-      if self.timers.repeats.contains(i) {
-        v.push(RuntimeActivity::Interval(self.timers.timers[i]));
-      } else {
-        v.push(RuntimeActivity::Timer(self.timers.timers[i]));
+    if has_traces {
+      for i in 0..self.timers.timers.len() {
+        let id = self.timers.timers[i];
+        if self.timers.repeats.contains(i) {
+          v.push(RuntimeActivity::Interval(
+            id,
+            self.trace_for(RuntimeActivityType::Interval, id),
+          ));
+        } else {
+          v.push(RuntimeActivity::Timer(
+            id,
+            self.trace_for(RuntimeActivityType::Interval, id),
+          ));
+        }
+      }
+    } else {
+      for i in 0..self.timers.timers.len() {
+        if self.timers.repeats.contains(i) {
+          v.push(RuntimeActivity::Interval(self.timers.timers[i], None));
+        } else {
+          v.push(RuntimeActivity::Timer(self.timers.timers[i], None));
+        }
       }
     }
     RuntimeActivitySnapshot { active: v }
@@ -326,8 +394,8 @@ impl RuntimeActivityStats {
         // before, but not after
         disappeared.push(RuntimeActivity::AsyncOp(
           op.0,
+          before.trace_for(RuntimeActivityType::AsyncOp, op.0 as _),
           ops[op.1 as usize].decl.name,
-          before.opcall_traces.get(&op.0).map(|x| x.into()),
         ));
       }
     }
@@ -336,8 +404,8 @@ impl RuntimeActivityStats {
         // after but not before
         appeared.push(RuntimeActivity::AsyncOp(
           op.0,
+          after.trace_for(RuntimeActivityType::AsyncOp, op.0 as _),
           ops[op.1 as usize].decl.name,
-          after.opcall_traces.get(&op.0).map(|x| x.into()),
         ));
       }
     }
@@ -351,13 +419,13 @@ impl RuntimeActivityStats {
         // continuing op
       } else {
         // before, but not after
-        disappeared.push(RuntimeActivity::Resource(op.0, op.1.clone()));
+        disappeared.push(RuntimeActivity::Resource(op.0, None, op.1.clone()));
       }
     }
     for op in after.resources.resources.iter() {
       if a.contains(op.0 as usize) {
         // after but not before
-        appeared.push(RuntimeActivity::Resource(op.0, op.1.clone()));
+        appeared.push(RuntimeActivity::Resource(op.0, None, op.1.clone()));
       }
     }
 
@@ -372,9 +440,15 @@ impl RuntimeActivityStats {
       } else {
         // before, but not after
         if before.timers.repeats.contains(index) {
-          disappeared.push(RuntimeActivity::Interval(timer));
+          disappeared.push(RuntimeActivity::Interval(
+            timer,
+            before.trace_for(RuntimeActivityType::Interval, timer),
+          ));
         } else {
-          disappeared.push(RuntimeActivity::Timer(timer));
+          disappeared.push(RuntimeActivity::Timer(
+            timer,
+            before.trace_for(RuntimeActivityType::Timer, timer),
+          ));
         }
       }
     }
@@ -383,9 +457,15 @@ impl RuntimeActivityStats {
       if a.contains(timer) {
         // after but not before
         if after.timers.repeats.contains(index) {
-          appeared.push(RuntimeActivity::Interval(timer));
+          appeared.push(RuntimeActivity::Interval(
+            timer,
+            after.trace_for(RuntimeActivityType::Interval, timer),
+          ));
         } else {
-          appeared.push(RuntimeActivity::Timer(timer));
+          appeared.push(RuntimeActivity::Timer(
+            timer,
+            after.trace_for(RuntimeActivityType::Timer, timer),
+          ));
         }
       }
     }

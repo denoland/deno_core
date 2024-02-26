@@ -38,6 +38,7 @@ use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapGetter;
 use crate::source_map::SourceMapper;
+use crate::stats::RuntimeActivityType;
 use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
@@ -2212,7 +2213,9 @@ impl JsRuntime {
       }
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
-      context_state.opcall_traces.complete(promise_id);
+      context_state
+        .opcall_traces
+        .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(res.unwrap_or_else(std::convert::identity));

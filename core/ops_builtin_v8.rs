@@ -11,10 +11,10 @@ use crate::runtime::script_origin;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::source_map::SourceMapApplication;
+use crate::stats::RuntimeActivityType;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
-use crate::PromiseId;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -53,12 +53,16 @@ pub fn op_opcall_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
 #[op2]
 pub fn op_opcall_tracing_submit(
   scope: &mut v8::HandleScope,
-  #[smi] kind: u32,
-  #[smi] promise: PromiseId,
+  #[smi] kind: u8,
+  #[smi] id: i32,
   #[string] trace: &str,
 ) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.opcall_traces.submit(promise, trace);
+  context_state.opcall_traces.submit(
+    RuntimeActivityType::from_u8(kind),
+    id as _,
+    trace,
+  );
 }
 
 #[op2]
@@ -69,9 +73,9 @@ pub fn op_opcall_tracing_get_all<'s>(
   let context_state = JsRealm::state_from_scope(scope);
   // This is relatively inefficient, but so is opcall tracing
   let mut out = Vec::with_capacity(context_state.opcall_traces.count());
-  context_state.opcall_traces.get_all(|promise, trace| {
+  context_state.opcall_traces.get_all(|kind, id, trace| {
     out.push(
-      serde_v8::to_v8(scope, (promise.to_string(), trace.to_owned()))
+      serde_v8::to_v8(scope, (kind as u8, id.to_string(), trace.to_owned()))
         .unwrap()
         .into(),
     );
@@ -82,13 +86,16 @@ pub fn op_opcall_tracing_get_all<'s>(
 #[op2]
 pub fn op_opcall_tracing_get<'s>(
   scope: &mut v8::HandleScope<'s>,
-  #[smi] promise: PromiseId,
+  #[smi] kind: u8,
+  #[smi] id: i32,
 ) -> v8::Local<'s, v8::Value> {
   use serde_v8::Serializable;
   let context_state = JsRealm::state_from_scope(scope);
-  context_state
-    .opcall_traces
-    .get(promise, |mut x| x.to_v8(scope).unwrap())
+  context_state.opcall_traces.get(
+    RuntimeActivityType::from_u8(kind),
+    id as _,
+    |mut x| x.to_v8(scope).unwrap(),
+  )
 }
 
 /// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
