@@ -1,5 +1,10 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-import { barrierAwait, barrierCreate, LeakType, StatsFactory } from "checkin:async";
+import {
+  barrierAwait,
+  barrierCreate,
+  LeakType,
+  StatsFactory,
+} from "checkin:async";
 import {
   assert,
   assertEquals,
@@ -19,7 +24,10 @@ test(async function testStatsOps() {
   const promise2 = barrierAwait("barrier");
   assertEquals(2, StatsFactory.capture().dump().count(LeakType.AsyncOp));
   // No traces here at all, even though we have ops
-  assertEquals(0, StatsFactory.capture().dump().countWithTraces(LeakType.AsyncOp));
+  assertEquals(
+    0,
+    StatsFactory.capture().dump().countWithTraces(LeakType.AsyncOp),
+  );
   using statsMiddle = StatsFactory.capture();
   const diffMiddle = StatsFactory.diff(statsBefore, statsMiddle);
   assertEquals(0, diffMiddle.disappeared.count(LeakType.AsyncOp));
@@ -58,7 +66,10 @@ test(function testTimers() {
 
   using statsMiddle = StatsFactory.capture();
   const diffMiddle = StatsFactory.diff(statsBefore, statsMiddle);
-  assertEquals(0, diffMiddle.disappeared.count(LeakType.Timer, LeakType.Interval));
+  assertEquals(
+    0,
+    diffMiddle.disappeared.count(LeakType.Timer, LeakType.Interval),
+  );
   assertEquals(2, diffMiddle.appeared.count(LeakType.Timer, LeakType.Interval));
   clearTimeout(timeout);
   clearInterval(interval);

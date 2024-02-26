@@ -72,8 +72,8 @@ export enum LeakType {
   AsyncOp = "AsyncOp",
   Resource = "Resource",
   Timer = "Timer",
-  Interval = "Interval"
-};
+  Interval = "Interval",
+}
 
 // This contains an array of serialized RuntimeActivity structs.
 export class StatsCollection {
@@ -99,7 +99,11 @@ export class StatsCollection {
     for (const item of this.data) {
       for (const type of types) {
         if (type in item) {
-          if (typeof item[type][1] === "string") {
+          // Make sure it's a non-empty stack trace
+          if (
+            typeof item[type][1] === "string" &&
+            item[type][1].trim().length() > 0
+          ) {
             count++;
           }
         }

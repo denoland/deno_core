@@ -125,7 +125,7 @@
 
   function submitTimerTrace(id) {
     const error = new Error();
-    ErrorCaptureStackTrace(error, submitLeakTrace);
+    ErrorCaptureStackTrace(error, submitTimerTrace);
     // We submit interval and timer traces as type "Timer"
     op_opcall_tracing_submit(2, id, StringPrototypeSlice(error.stack, 6));
   }
