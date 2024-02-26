@@ -37,7 +37,7 @@ declare namespace Deno {
 
     /**
      * Returns a map containing traces for all ongoing async ops. The key is the promise id.
-     * Tracing only occurs when `Deno.core.setOpCallTracingEnabled()` was previously
+     * Tracing only occurs when `Deno.core.setLeakTracingEnabled()` was previously
      * enabled.
      */
     function getAllLeakTraces(): Map<number, string>;

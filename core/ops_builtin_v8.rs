@@ -47,7 +47,7 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 #[op2]
 pub fn op_opcall_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.opcall_traces.set_enabled(enabled);
+  context_state.activity_traces.set_enabled(enabled);
 }
 
 #[op2]
@@ -58,7 +58,7 @@ pub fn op_opcall_tracing_submit(
   #[string] trace: &str,
 ) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.opcall_traces.submit(
+  context_state.activity_traces.submit(
     RuntimeActivityType::from_u8(kind),
     id as _,
     trace,
@@ -72,8 +72,8 @@ pub fn op_opcall_tracing_get_all<'s>(
 ) -> Vec<serde_v8::Value<'s>> {
   let context_state = JsRealm::state_from_scope(scope);
   // This is relatively inefficient, but so is opcall tracing
-  let mut out = Vec::with_capacity(context_state.opcall_traces.count());
-  context_state.opcall_traces.get_all(|kind, id, trace| {
+  let mut out = Vec::with_capacity(context_state.activity_traces.count());
+  context_state.activity_traces.get_all(|kind, id, trace| {
     out.push(
       serde_v8::to_v8(scope, (kind as u8, id.to_string(), trace.to_owned()))
         .unwrap()
@@ -91,7 +91,7 @@ pub fn op_opcall_tracing_get<'s>(
 ) -> v8::Local<'s, v8::Value> {
   use serde_v8::Serializable;
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.opcall_traces.get(
+  context_state.activity_traces.get(
     RuntimeActivityType::from_u8(kind),
     id as _,
     |mut x| x.to_v8(scope).unwrap(),
@@ -124,7 +124,9 @@ pub fn op_timer_queue(
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
-  context_state.opcall_traces.complete(RuntimeActivityType::Timer, id as _);
+  context_state
+    .activity_traces
+    .complete(RuntimeActivityType::Timer, id as _);
 }
 
 #[op2]

@@ -2214,7 +2214,7 @@ impl JsRuntime {
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
       context_state
-        .opcall_traces
+        .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
@@ -2272,13 +2272,15 @@ impl JsRuntime {
 
     let timers =
       if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
-        let traces_enabled = context_state.opcall_traces.is_enabled();
+        let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 2) as _);
         #[allow(clippy::needless_range_loop)]
         for i in 0..timers.len() {
           if traces_enabled {
             // Timer and interval traces both use RuntimeActivityType::Timer
-            context_state.opcall_traces.complete(RuntimeActivityType::Timer, timers[i].0 as _);
+            context_state
+              .activity_traces
+              .complete(RuntimeActivityType::Timer, timers[i].0 as _);
           }
           let value = v8::Integer::new(scope, timers[i].1 .1 as _);
           arr.set_index(scope, (i * 2) as _, value.into());

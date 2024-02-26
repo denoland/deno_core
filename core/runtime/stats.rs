@@ -28,14 +28,14 @@ const NO_TRACES: [BTreeMap<ActivityId, Rc<str>>;
 ];
 
 #[derive(Default)]
-pub struct OpCallTraces {
+pub struct RuntimeActivityTraces {
   enabled: Cell<bool>,
   traces: RefCell<
     [BTreeMap<ActivityId, Rc<str>>; RuntimeActivityType::MAX_TYPE as usize],
   >,
 }
 
-impl OpCallTraces {
+impl RuntimeActivityTraces {
   pub(crate) fn set_enabled(&self, enabled: bool) {
     self.enabled.set(enabled);
     if !enabled {
@@ -49,7 +49,11 @@ impl OpCallTraces {
     id: ActivityId,
     trace: &str,
   ) {
-    debug_assert_ne!(activity_type, RuntimeActivityType::Interval, "Use Timer for for timers and intervals");
+    debug_assert_ne!(
+      activity_type,
+      RuntimeActivityType::Interval,
+      "Use Timer for for timers and intervals"
+    );
     self.traces.borrow_mut()[activity_type as usize].insert(id, trace.into());
   }
 
@@ -199,10 +203,10 @@ impl RuntimeActivityStatsFactory {
       TimerStats::default()
     };
 
-    let (ops, opcall_traces) = if filter.include_ops {
+    let (ops, activity_traces) = if filter.include_ops {
       let ops = self.context_state.pending_ops.stats(&filter.op_filter);
-      let opcall_traces = self.context_state.opcall_traces.capture();
-      (ops, opcall_traces)
+      let activity_traces = self.context_state.activity_traces.capture();
+      (ops, activity_traces)
     } else {
       (Default::default(), Default::default())
     };
@@ -210,7 +214,7 @@ impl RuntimeActivityStatsFactory {
     RuntimeActivityStats {
       context_state: self.context_state.clone(),
       ops,
-      opcall_traces,
+      activity_traces,
       resources,
       timers,
     }
@@ -235,7 +239,7 @@ pub struct TimerStats {
 pub struct RuntimeActivityStats {
   context_state: Rc<ContextState>,
   pub(super) ops: OpInflightStats,
-  pub(super) opcall_traces: [BTreeMap<ActivityId, Rc<str>>; 4],
+  pub(super) activity_traces: [BTreeMap<ActivityId, Rc<str>>; 4],
   pub(super) resources: ResourceOpenStats,
   pub(super) timers: TimerStats,
 }
@@ -243,9 +247,9 @@ pub struct RuntimeActivityStats {
 /// Contains an opcall stack trace.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct OpCallTrace(Rc<str>);
+pub struct RuntimeActivityTrace(Rc<str>);
 
-impl Serialize for OpCallTrace {
+impl Serialize for RuntimeActivityTrace {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
     S: Serializer,
@@ -254,20 +258,20 @@ impl Serialize for OpCallTrace {
   }
 }
 
-impl Display for OpCallTrace {
+impl Display for RuntimeActivityTrace {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.write_str(self.0.as_ref())
   }
 }
 
-impl Deref for OpCallTrace {
+impl Deref for RuntimeActivityTrace {
   type Target = str;
   fn deref(&self) -> &Self::Target {
     self.0.as_ref()
   }
 }
 
-impl From<&Rc<str>> for OpCallTrace {
+impl From<&Rc<str>> for RuntimeActivityTrace {
   fn from(value: &Rc<str>) -> Self {
     Self(value.clone())
   }
@@ -277,13 +281,13 @@ impl From<&Rc<str>> for OpCallTrace {
 #[derive(Debug, Serialize)]
 pub enum RuntimeActivity {
   /// An async op, including the promise ID and op name, with an optional opcall trace.
-  AsyncOp(PromiseId, Option<OpCallTrace>, &'static str),
+  AsyncOp(PromiseId, Option<RuntimeActivityTrace>, &'static str),
   /// A resource, including the resource ID and name.
-  Resource(ResourceId, Option<OpCallTrace>, String),
+  Resource(ResourceId, Option<RuntimeActivityTrace>, String),
   /// A timer, including the timer ID.
-  Timer(usize, Option<OpCallTrace>),
+  Timer(usize, Option<RuntimeActivityTrace>),
   /// An interval, including the interval ID.
-  Interval(usize, Option<OpCallTrace>),
+  Interval(usize, Option<RuntimeActivityTrace>),
 }
 
 impl RuntimeActivity {
@@ -328,9 +332,13 @@ impl RuntimeActivityStats {
     &self,
     activity_type: RuntimeActivityType,
     id: ActivityId,
-  ) -> Option<OpCallTrace> {
-    debug_assert_ne!(activity_type, RuntimeActivityType::Interval, "Use Timer for for timers and intervals");
-    self.opcall_traces[activity_type as u8 as usize]
+  ) -> Option<RuntimeActivityTrace> {
+    debug_assert_ne!(
+      activity_type,
+      RuntimeActivityType::Interval,
+      "Use Timer for for timers and intervals"
+    );
+    self.activity_traces[activity_type as u8 as usize]
       .get(&id)
       .map(|x| x.into())
   }
@@ -338,7 +346,7 @@ impl RuntimeActivityStats {
   /// Capture the data within this [`RuntimeActivityStats`] as a [`RuntimeActivitySnapshot`]
   /// with details of activity.
   pub fn dump(&self) -> RuntimeActivitySnapshot {
-    let has_traces = !self.opcall_traces.is_empty();
+    let has_traces = !self.activity_traces.is_empty();
     let mut v = Vec::with_capacity(
       self.ops.ops.len()
         + self.resources.resources.len()
