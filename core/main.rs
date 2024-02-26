@@ -81,7 +81,19 @@ fn main() -> Result<(), Error> {
     println!("Usage: cargo run -- <path_to_module>");
     std::process::exit(1);
   }
-  let main_url = &args[1];
+  let mut load_snapshot = None;
+  let mut main_url = &args[1];
+  // TODO(bartlomieju): just use clap, please...
+  if main_url == "--snapshot" {
+    if args.len() < 4 {
+      println!(
+        "Usage: cargo run -- --snapshot ./snapshot.bin <path_to_module>"
+      );
+      std::process::exit(1);
+    }
+    load_snapshot = Some(&args[2]);
+    main_url = &args[1]
+  }
   println!("Run {main_url}");
 
   // TODO(bartlomieju): figure out how we can incorporate snapshotting here
@@ -101,9 +113,21 @@ fn main() -> Result<(), Error> {
   // .unwrap();
   // return Ok(());
 
+  let startup_snapshot: Option<&'static [u8]> =
+    if let Some(snapshot_path) = load_snapshot {
+      let data = std::fs::read(snapshot_path).with_context(|| {
+        format!("Failed to load snapshot from: {}", snapshot_path)
+      })?;
+      let boxed_data = data.into_boxed_slice();
+      // Leak so we can obtain a static reference to the slice.
+      let static_data = Box::leak(boxed_data);
+      Some(static_data)
+    } else {
+      None
+    };
+
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
-    // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-    // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
+    startup_snapshot,
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     ..Default::default()
