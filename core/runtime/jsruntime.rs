@@ -61,6 +61,7 @@ use std::any::Any;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
@@ -2245,11 +2246,16 @@ impl JsRuntime {
       .borrow_mut()
       .is_empty()
     {
-      let mut rejections =
+      // Avoid holding the pending rejection lock longer than necessary
+      let mut pending_rejections =
         exception_state.pending_promise_rejections.borrow_mut();
+      let mut rejections = VecDeque::default();
+      std::mem::swap(&mut *pending_rejections, &mut rejections);
+      drop(pending_rejections);
+
       let arr = v8::Array::new(scope, (rejections.len() * 2) as i32);
       let mut index = 0;
-      for rejection in rejections.drain(..) {
+      for rejection in rejections.into_iter() {
         let value = v8::Local::new(scope, rejection.0);
         arr.set_index(scope, index, value.into());
         index += 1;
@@ -2257,7 +2263,6 @@ impl JsRuntime {
         arr.set_index(scope, index, value);
         index += 1;
       }
-      drop(rejections);
       arr.into()
     } else {
       undefined

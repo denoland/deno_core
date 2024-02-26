@@ -144,6 +144,8 @@ impl ExceptionState {
         let previous_len = rejections.len();
         rejections.retain(|(key, _)| key != &promise_global);
         if rejections.len() == previous_len {
+          // Don't hold the lock while we go back into v8
+          drop(rejections);
           // The unhandled rejection was already delivered, so this means we need to deliver a
           // "rejectionhandled" event if anyone cares.
           if self.js_handled_promise_rejection_cb.borrow().is_some() {
