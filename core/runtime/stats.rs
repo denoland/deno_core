@@ -244,7 +244,7 @@ pub struct RuntimeActivityStats {
   pub(super) timers: TimerStats,
 }
 
-/// Contains an opcall stack trace.
+/// Contains a runtime activity (op, timer, resource, etc.) stack trace.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct RuntimeActivityTrace(Rc<str>);
@@ -280,13 +280,13 @@ impl From<&Rc<str>> for RuntimeActivityTrace {
 /// The type of runtime activity being tracked.
 #[derive(Debug, Serialize)]
 pub enum RuntimeActivity {
-  /// An async op, including the promise ID and op name, with an optional opcall trace.
+  /// An async op, including the promise ID and op name, with an optional trace.
   AsyncOp(PromiseId, Option<RuntimeActivityTrace>, &'static str),
-  /// A resource, including the resource ID and name.
+  /// A resource, including the resource ID and name, with an optional trace.
   Resource(ResourceId, Option<RuntimeActivityTrace>, String),
-  /// A timer, including the timer ID.
+  /// A timer, including the timer ID, with an optional trace.
   Timer(usize, Option<RuntimeActivityTrace>),
-  /// An interval, including the interval ID.
+  /// An interval, including the interval ID, with an optional trace.
   Interval(usize, Option<RuntimeActivityTrace>),
 }
 

@@ -45,13 +45,13 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 }
 
 #[op2]
-pub fn op_opcall_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
+pub fn op_leak_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.set_enabled(enabled);
 }
 
 #[op2]
-pub fn op_opcall_tracing_submit(
+pub fn op_leak_tracing_submit(
   scope: &mut v8::HandleScope,
   #[smi] kind: u8,
   #[smi] id: i32,
@@ -67,11 +67,11 @@ pub fn op_opcall_tracing_submit(
 
 #[op2]
 #[serde]
-pub fn op_opcall_tracing_get_all<'s>(
+pub fn op_leak_tracing_get_all<'s>(
   scope: &mut v8::HandleScope<'s>,
 ) -> Vec<serde_v8::Value<'s>> {
   let context_state = JsRealm::state_from_scope(scope);
-  // This is relatively inefficient, but so is opcall tracing
+  // This is relatively inefficient, but so is leak tracing
   let mut out = Vec::with_capacity(context_state.activity_traces.count());
   context_state.activity_traces.get_all(|kind, id, trace| {
     out.push(
@@ -84,7 +84,7 @@ pub fn op_opcall_tracing_get_all<'s>(
 }
 
 #[op2]
-pub fn op_opcall_tracing_get<'s>(
+pub fn op_leak_tracing_get<'s>(
   scope: &mut v8::HandleScope<'s>,
   #[smi] kind: u8,
   #[smi] id: i32,

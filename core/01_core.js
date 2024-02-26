@@ -74,10 +74,10 @@
     op_timer_unref,
     op_unref_op,
     op_cancel_handle,
-    op_opcall_tracing_enable,
-    op_opcall_tracing_submit,
-    op_opcall_tracing_get_all,
-    op_opcall_tracing_get,
+    op_leak_tracing_enable,
+    op_leak_tracing_submit,
+    op_leak_tracing_get_all,
+    op_leak_tracing_get,
 
     op_is_any_array_buffer,
     op_is_arguments_object,
@@ -120,14 +120,14 @@
   function submitLeakTrace(id) {
     const error = new Error();
     ErrorCaptureStackTrace(error, submitLeakTrace);
-    op_opcall_tracing_submit(0, id, StringPrototypeSlice(error.stack, 6));
+    op_leak_tracing_submit(0, id, StringPrototypeSlice(error.stack, 6));
   }
 
   function submitTimerTrace(id) {
     const error = new Error();
     ErrorCaptureStackTrace(error, submitTimerTrace);
     // We submit interval and timer traces as type "Timer"
-    op_opcall_tracing_submit(2, id, StringPrototypeSlice(error.stack, 6));
+    op_leak_tracing_submit(2, id, StringPrototypeSlice(error.stack, 6));
   }
 
   let unhandledPromiseRejectionHandler = () => false;
@@ -631,15 +631,15 @@
     print: (msg, isErr) => op_print(msg, isErr),
     setLeakTracingEnabled: (enabled) => {
       __setLeakTracingEnabled(enabled);
-      op_opcall_tracing_enable(enabled);
+      op_leak_tracing_enable(enabled);
     },
     isLeakTracingEnabled: () => __isLeakTracingEnabled(),
     getAllLeakTraces: () => {
-      const traces = op_opcall_tracing_get_all();
+      const traces = op_leak_tracing_get_all();
       return new SafeMap(traces);
     },
     getLeakTraceForPromise: (promise) =>
-      op_opcall_tracing_get(0, promise[promiseIdSymbol]),
+      op_leak_tracing_get(0, promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
     runMicrotasks: () => op_run_microtasks(),
