@@ -124,6 +124,7 @@ pub fn op_timer_queue(
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
+  context_state.opcall_traces.complete(RuntimeActivityType::Timer, id as _);
 }
 
 #[op2]

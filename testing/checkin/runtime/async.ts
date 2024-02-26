@@ -79,6 +79,7 @@ export enum LeakType {
 export class StatsCollection {
   // deno-lint-ignore no-explicit-any
   constructor(private data: any[]) {
+    console.log(data);
   }
 
   count(...types: LeakType[]): number {
@@ -98,7 +99,7 @@ export class StatsCollection {
     for (const item of this.data) {
       for (const type of types) {
         if (type in item) {
-          if (typeof item[type][2] === "string") {
+          if (typeof item[type][1] === "string") {
             count++;
           }
         }

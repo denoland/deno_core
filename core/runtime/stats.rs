@@ -11,18 +11,27 @@ use serde::Serialize;
 use serde::Serializer;
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::rc::Rc;
 
 type ActivityId = usize;
 
+/// Fast, const no-trace collection of hashes.
+const NO_TRACES: [BTreeMap<ActivityId, Rc<str>>;
+  RuntimeActivityType::MAX_TYPE as usize] = [
+  BTreeMap::new(),
+  BTreeMap::new(),
+  BTreeMap::new(),
+  BTreeMap::new(),
+];
+
 #[derive(Default)]
 pub struct OpCallTraces {
   enabled: Cell<bool>,
   traces: RefCell<
-    [HashMap<ActivityId, Rc<str>>; RuntimeActivityType::MAX_TYPE as usize],
+    [BTreeMap<ActivityId, Rc<str>>; RuntimeActivityType::MAX_TYPE as usize],
   >,
 }
 
@@ -40,6 +49,7 @@ impl OpCallTraces {
     id: ActivityId,
     trace: &str,
   ) {
+    debug_assert_ne!(activity_type, RuntimeActivityType::Interval, "Use Timer for for timers and intervals");
     self.traces.borrow_mut()[activity_type as usize].insert(id, trace.into());
   }
 
@@ -71,8 +81,15 @@ impl OpCallTraces {
     }
   }
 
-  pub fn capture(&self) -> [HashMap<ActivityId, Rc<str>>; 4] {
-    self.traces.borrow().clone()
+  pub fn capture(
+    &self,
+  ) -> [BTreeMap<ActivityId, Rc<str>>; RuntimeActivityType::MAX_TYPE as usize]
+  {
+    if self.is_enabled() {
+      self.traces.borrow().clone()
+    } else {
+      NO_TRACES
+    }
   }
 
   pub fn get<T>(
@@ -218,7 +235,7 @@ pub struct TimerStats {
 pub struct RuntimeActivityStats {
   context_state: Rc<ContextState>,
   pub(super) ops: OpInflightStats,
-  pub(super) opcall_traces: [HashMap<ActivityId, Rc<str>>; 4],
+  pub(super) opcall_traces: [BTreeMap<ActivityId, Rc<str>>; 4],
   pub(super) resources: ResourceOpenStats,
   pub(super) timers: TimerStats,
 }
@@ -312,6 +329,7 @@ impl RuntimeActivityStats {
     activity_type: RuntimeActivityType,
     id: ActivityId,
   ) -> Option<OpCallTrace> {
+    debug_assert_ne!(activity_type, RuntimeActivityType::Interval, "Use Timer for for timers and intervals");
     self.opcall_traces[activity_type as u8 as usize]
       .get(&id)
       .map(|x| x.into())
@@ -357,12 +375,12 @@ impl RuntimeActivityStats {
         if self.timers.repeats.contains(i) {
           v.push(RuntimeActivity::Interval(
             id,
-            self.trace_for(RuntimeActivityType::Interval, id),
+            self.trace_for(RuntimeActivityType::Timer, id),
           ));
         } else {
           v.push(RuntimeActivity::Timer(
             id,
-            self.trace_for(RuntimeActivityType::Interval, id),
+            self.trace_for(RuntimeActivityType::Timer, id),
           ));
         }
       }
@@ -442,7 +460,7 @@ impl RuntimeActivityStats {
         if before.timers.repeats.contains(index) {
           disappeared.push(RuntimeActivity::Interval(
             timer,
-            before.trace_for(RuntimeActivityType::Interval, timer),
+            before.trace_for(RuntimeActivityType::Timer, timer),
           ));
         } else {
           disappeared.push(RuntimeActivity::Timer(
@@ -459,7 +477,7 @@ impl RuntimeActivityStats {
         if after.timers.repeats.contains(index) {
           appeared.push(RuntimeActivity::Interval(
             timer,
-            after.trace_for(RuntimeActivityType::Interval, timer),
+            after.trace_for(RuntimeActivityType::Timer, timer),
           ));
         } else {
           appeared.push(RuntimeActivity::Timer(

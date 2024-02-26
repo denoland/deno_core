@@ -106,7 +106,7 @@ test(async function testAsyncLeakTrace() {
   });
 });
 
-test(async function testTimeLeakTrace() {
+test(async function testTimeoutLeakTrace() {
   await enableTracingForTest(async () => {
     const tracesBefore = Deno.core.getAllLeakTraces();
     using statsBefore = StatsFactory.capture();
@@ -118,5 +118,24 @@ test(async function testTimeLeakTrace() {
 
     assertEquals(tracesAfter.size, tracesBefore.size + 1);
     clearTimeout(t1);
+    const tracesFinal = Deno.core.getAllLeakTraces();
+    assertEquals(tracesFinal.size, 0);
+  });
+});
+
+test(async function testIntervalLeakTrace() {
+  await enableTracingForTest(async () => {
+    const tracesBefore = Deno.core.getAllLeakTraces();
+    using statsBefore = StatsFactory.capture();
+    const t1 = setInterval(() => {}, 100_000);
+    const tracesAfter = Deno.core.getAllLeakTraces();
+    using statsAfter = StatsFactory.capture();
+    const diff = StatsFactory.diff(statsBefore, statsAfter);
+    assertEquals(diff.appeared.countWithTraces(LeakType.Interval), 1);
+
+    assertEquals(tracesAfter.size, tracesBefore.size + 1);
+    clearInterval(t1);
+    const tracesFinal = Deno.core.getAllLeakTraces();
+    assertEquals(tracesFinal.size, 0);
   });
 });

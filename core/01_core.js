@@ -121,10 +121,11 @@
     op_opcall_tracing_submit(0, id, StringPrototypeSlice(error.stack, 6));
   }
 
-  function submitTimerTrace(id, repeat) {
+  function submitTimerTrace(id) {
     const error = new Error();
     ErrorCaptureStackTrace(error, submitLeakTrace);
-    op_opcall_tracing_submit(repeat ? 2 : 1, id, StringPrototypeSlice(error.stack, 6));
+    // We submit interval and timer traces as type "Timer"
+    op_opcall_tracing_submit(2, id, StringPrototypeSlice(error.stack, 6));
   }
 
   let unhandledPromiseRejectionHandler = () => false;
@@ -636,7 +637,7 @@
       return new SafeMap(traces);
     },
     getLeakTraceForPromise: (promise) =>
-      op_opcall_tracing_get(promise[promiseIdSymbol]),
+      op_opcall_tracing_get(0, promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
     runMicrotasks: () => op_run_microtasks(),
@@ -705,7 +706,7 @@
     queueUserTimer: (depth, repeat, timeout, task) => {
       const id = op_timer_queue(depth, repeat, timeout, task);
       if (__isLeakTracingEnabled()) {
-        submitTimerTrace(id, repeat);
+        submitTimerTrace(id);
       }
       return id;
     },
