@@ -164,35 +164,31 @@ pub mod v8_static_strings {
   }
 
   macro_rules! onebyte_const {
-    ($str_:literal) => {
-      v8::String::create_external_onebyte_const($str_.as_bytes())
+    ($ident:ident, $str_:literal) => {
+      pub static $ident: v8::OneByteConst =
+        v8::String::create_external_onebyte_const($str_.as_bytes());
     };
   }
 
-  pub static DENO: v8::OneByteConst = onebyte_const!("Deno");
-  pub static CORE: v8::OneByteConst = onebyte_const!("core");
-  pub static OPS: v8::OneByteConst = onebyte_const!("ops");
-  pub static URL: v8::OneByteConst = onebyte_const!("url");
-  pub static MAIN: v8::OneByteConst = onebyte_const!("main");
-  pub static RESOLVE: v8::OneByteConst = onebyte_const!("resolve");
-  pub static MESSAGE: v8::OneByteConst = onebyte_const!("message");
-  pub static CODE: v8::OneByteConst = onebyte_const!("code");
-  pub static ERR_MODULE_NOT_FOUND: v8::OneByteConst =
-    onebyte_const!("ERR_MODULE_NOT_FOUND");
-  pub static EVENT_LOOP_TICK: v8::OneByteConst =
-    onebyte_const!("eventLoopTick");
-  pub static BUILD_CUSTOM_ERROR: v8::OneByteConst =
-    onebyte_const!("buildCustomError");
-  pub static CONSOLE: v8::OneByteConst = onebyte_const!("console");
-  pub static CALL_CONSOLE: v8::OneByteConst = onebyte_const!("callConsole");
-  pub static FILENAME: v8::OneByteConst = onebyte_const!("filename");
-  pub static DIRNAME: v8::OneByteConst = onebyte_const!("dirname");
-  pub static SET_UP_ASYNC_STUB: v8::OneByteConst =
-    onebyte_const!("setUpAsyncStub");
-  pub static WEBASSEMBLY: v8::OneByteConst = onebyte_const!("WebAssembly");
-  pub static INSTANTIATE: v8::OneByteConst = onebyte_const!("instantiate");
-  pub static WASM_INSTANTIATE: v8::OneByteConst =
-    onebyte_const!("wasmInstantiate");
+  onebyte_const!(DENO, "Deno");
+  onebyte_const!(CORE, "core");
+  onebyte_const!(OPS, "ops");
+  onebyte_const!(URL, "url");
+  onebyte_const!(MAIN, "main");
+  onebyte_const!(RESOLVE, "resolve");
+  onebyte_const!(MESSAGE, "message");
+  onebyte_const!(CODE, "code");
+  onebyte_const!(ERR_MODULE_NOT_FOUND, "ERR_MODULE_NOT_FOUND");
+  onebyte_const!(EVENT_LOOP_TICK, "eventLoopTick");
+  onebyte_const!(BUILD_CUSTOM_ERROR, "buildCustomError");
+  onebyte_const!(CONSOLE, "console");
+  onebyte_const!(CALL_CONSOLE, "callConsole");
+  onebyte_const!(FILENAME, "filename");
+  onebyte_const!(DIRNAME, "dirname");
+  onebyte_const!(SET_UP_ASYNC_STUB, "setUpAsyncStub");
+  onebyte_const!(WEBASSEMBLY, "WebAssembly");
+  onebyte_const!(INSTANTIATE, "instantiate");
+  onebyte_const!(WASM_INSTANTIATE, "wasmInstantiate");
 }
 
 /// Create an object on the `globalThis` that looks like this:
