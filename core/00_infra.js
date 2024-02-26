@@ -33,7 +33,7 @@
   const RING_SIZE = 4 * 1024;
   const NO_PROMISE = null; // Alias to null is faster than plain nulls
   const promiseRing = ArrayPrototypeFill(new Array(RING_SIZE), NO_PROMISE);
-  // TODO(bartlomieju): it future use `v8::Private` so it's not visible
+  // TODO(bartlomieju): in the future use `v8::Private` so it's not visible
   // to users. Currently missing bindings.
   const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
 
@@ -43,6 +43,10 @@
 
   function __setOpCallTracingEnabled(enabled) {
     isOpCallTracingEnabled = enabled;
+  }
+
+  function __isOpCallTracingEnabled() {
+    return isOpCallTracingEnabled;
   }
 
   function __initializeCoreMethods(eventLoopTick_, submitOpCallTrace_) {
@@ -409,11 +413,16 @@
     setUpAsyncStub,
     hasPromise,
     promiseIdSymbol,
-    __resolvePromise,
-    __setOpCallTracingEnabled,
-    __initializeCoreMethods,
   });
 
+  const infra = {
+    __resolvePromise,
+    __setOpCallTracingEnabled,
+    __isOpCallTracingEnabled,
+    __initializeCoreMethods,
+  };
+
+  ObjectAssign(globalThis, { __infra: infra });
   ObjectAssign(globalThis.__bootstrap, { core });
   ObjectAssign(globalThis.Deno, { core });
 })(globalThis);

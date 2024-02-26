@@ -30,10 +30,13 @@
     hasPromise,
     promiseIdSymbol,
     registerErrorClass,
+  } = window.Deno.core;
+  const {
     __setOpCallTracingEnabled,
+    __isOpCallTracingEnabled,
     __initializeCoreMethods,
     __resolvePromise,
-  } = window.Deno.core;
+  } = window.__infra;
   const {
     op_abort_wasm_streaming,
     op_current_user_call_site,
@@ -105,9 +108,8 @@
   } = ensureFastOps();
 
   // core/infra collaborative code
-  delete window.Deno.core.__setOpCallTracingEnabled;
-  delete window.Deno.core.__initializeCoreMethods;
-  delete window.Deno.core.__resolvePromise;
+  delete window.__infra;
+
   __initializeCoreMethods(
     eventLoopTick,
     submitOpCallTrace,
@@ -116,7 +118,13 @@
   function submitOpCallTrace(id) {
     const error = new Error();
     ErrorCaptureStackTrace(error, submitOpCallTrace);
-    op_opcall_tracing_submit(id, StringPrototypeSlice(error.stack, 6));
+    op_opcall_tracing_submit(0, id, StringPrototypeSlice(error.stack, 6));
+  }
+
+  function submitTimerTrace(id, repeat) {
+    const error = new Error();
+    ErrorCaptureStackTrace(error, submitOpCallTrace);
+    op_opcall_tracing_submit(repeat ? 2 : 1, id, StringPrototypeSlice(error.stack, 6));
   }
 
   let unhandledPromiseRejectionHandler = () => false;
@@ -622,7 +630,7 @@
       __setOpCallTracingEnabled(enabled);
       op_opcall_tracing_enable(enabled);
     },
-    isOpCallTracingEnabled: () => false,
+    isOpCallTracingEnabled: () => __isOpCallTracingEnabled(),
     getAllOpCallTraces: () => {
       const traces = op_opcall_tracing_get_all();
       return new SafeMap(traces);
@@ -694,8 +702,15 @@
       unhandledPromiseRejectionHandler = handler,
     reportUnhandledException: (e) => op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
-    queueTimer: (depth, repeat, timeout, task) =>
-      op_timer_queue(depth, repeat, timeout, task),
+    queueUserTimer: (depth, repeat, timeout, task) => {
+      const id = op_timer_queue(depth, repeat, timeout, task);
+      if (__isOpCallTracingEnabled()) {
+        submitTimerTrace(id, repeat);
+      }
+      return id;
+    },
+    queueSystemTimer: (repeat, timeout, task) =>
+      op_timer_queue(0, repeat, timeout, task),
     cancelTimer: (id) => op_timer_cancel(id),
     refTimer: (id) => op_timer_ref(id),
     unrefTimer: (id) => op_timer_unref(id),

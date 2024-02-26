@@ -53,6 +53,7 @@ pub fn op_opcall_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
 #[op2]
 pub fn op_opcall_tracing_submit(
   scope: &mut v8::HandleScope,
+  #[smi] kind: u32,
   #[smi] promise: PromiseId,
   #[string] trace: &str,
 ) {

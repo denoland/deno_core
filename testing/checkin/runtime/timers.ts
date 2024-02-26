@@ -4,7 +4,7 @@
  * Call a callback function after a delay.
  */
 export function setTimeout(callback, delay = 0) {
-  return Deno.core.queueTimer(
+  return Deno.core.queueUserTimer(
     Deno.core.getTimerDepth() + 1,
     false,
     delay,
@@ -16,7 +16,7 @@ export function setTimeout(callback, delay = 0) {
  * Call a callback function after a delay.
  */
 export function setInterval(callback, delay = 0) {
-  return Deno.core.queueTimer(
+  return Deno.core.queueUserTimer(
     Deno.core.getTimerDepth() + 1,
     true,
     delay,

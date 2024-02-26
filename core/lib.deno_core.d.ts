@@ -142,9 +142,20 @@ declare namespace Deno {
     /** Set a value telling the runtime if there are "next ticks" scheduled */
     function setHasNextTickScheduled(value: boolean): void;
 
-    /** Enqueue a timer at the given depth, optionally repeating. */
-    function queueTimer(
+    /** Enqueue a user timer at the given depth, optionally repeating. User
+     * timers may generate call traces for sanitization, and may be clamped
+     * depending on the depth of nesting. */
+    function queueUserTimer(
       depth: number,
+      repeat: boolean,
+      delay: number,
+      callback: () => void,
+    ): number;
+
+    /** Enqueue a system timer at the given depth, optionally repeating. System
+     * timers do not generate call traces, and are never clamped at any nesting
+     * depth. */
+    function queueSystemTimer(
       repeat: boolean,
       delay: number,
       callback: () => void,
