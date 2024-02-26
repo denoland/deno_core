@@ -120,6 +120,36 @@ pub fn op_timer_queue(
   }
 }
 
+/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
+/// timers to exist).
+#[op2]
+pub fn op_timer_queue_system(
+  scope: &mut v8::HandleScope,
+  repeat: bool,
+  timeout_ms: f64,
+  #[global] task: v8::Global<v8::Function>,
+) -> f64 {
+  let context_state = JsRealm::state_from_scope(scope);
+  if repeat {
+    context_state
+      .timers
+      .queue_timer_repeat(timeout_ms as _, (task, 0)) as _
+  } else {
+    context_state.timers.queue_timer(timeout_ms as _, (task, 0)) as _
+  }
+}
+
+/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
+/// timers to exist).
+#[op2]
+pub fn op_timer_queue_immediate(
+  scope: &mut v8::HandleScope,
+  #[global] task: v8::Global<v8::Function>,
+) -> f64 {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.timers.queue_timer(0, (task, 0)) as _
+}
+
 #[op2]
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);

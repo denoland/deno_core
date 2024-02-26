@@ -68,6 +68,8 @@
     op_str_byte_length,
     op_timer_cancel,
     op_timer_queue,
+    op_timer_queue_system,
+    op_timer_queue_immediate,
     op_timer_ref,
     op_timer_unref,
     op_unref_op,
@@ -710,8 +712,10 @@
       }
       return id;
     },
-    queueSystemTimer: (repeat, timeout, task) =>
-      op_timer_queue(0, repeat, timeout, task),
+    // TODO(mmastrac): Hook up associatedOp to tracing
+    queueSystemTimer: (associatedOp, repeat, timeout, task) =>
+      op_timer_queue_system(repeat, timeout, task),
+    queueImmediate: (task) => op_timer_queue_immediate(task),
     cancelTimer: (id) => op_timer_cancel(id),
     refTimer: (id) => op_timer_ref(id),
     unrefTimer: (id) => op_timer_unref(id),
