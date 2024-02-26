@@ -17,8 +17,8 @@ function __TEMPLATE__(__ARGS_PARAM__) {
     ErrorCaptureStackTrace(err, __TEMPLATE__);
     return PromiseReject(err);
   }
-  if (isOpCallTracingEnabled) {
-    submitOpCallTrace(id);
+  if (isLeakTracingEnabled) {
+    submitLeakTrace(id);
   }
   nextPromiseId = (id + 1) & 0xffffffff;
   return setPromise(id);

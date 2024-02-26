@@ -11,10 +11,10 @@ use crate::runtime::script_origin;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::source_map::SourceMapApplication;
+use crate::stats::RuntimeActivityType;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
-use crate::PromiseId;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -45,32 +45,37 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
 }
 
 #[op2]
-pub fn op_opcall_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
+pub fn op_leak_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.opcall_traces.set_enabled(enabled);
+  context_state.activity_traces.set_enabled(enabled);
 }
 
 #[op2]
-pub fn op_opcall_tracing_submit(
+pub fn op_leak_tracing_submit(
   scope: &mut v8::HandleScope,
-  #[smi] promise: PromiseId,
+  #[smi] kind: u8,
+  #[smi] id: i32,
   #[string] trace: &str,
 ) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.opcall_traces.submit(promise, trace);
+  context_state.activity_traces.submit(
+    RuntimeActivityType::from_u8(kind),
+    id as _,
+    trace,
+  );
 }
 
 #[op2]
 #[serde]
-pub fn op_opcall_tracing_get_all<'s>(
+pub fn op_leak_tracing_get_all<'s>(
   scope: &mut v8::HandleScope<'s>,
 ) -> Vec<serde_v8::Value<'s>> {
   let context_state = JsRealm::state_from_scope(scope);
-  // This is relatively inefficient, but so is opcall tracing
-  let mut out = Vec::with_capacity(context_state.opcall_traces.count());
-  context_state.opcall_traces.get_all(|promise, trace| {
+  // This is relatively inefficient, but so is leak tracing
+  let mut out = Vec::with_capacity(context_state.activity_traces.count());
+  context_state.activity_traces.get_all(|kind, id, trace| {
     out.push(
-      serde_v8::to_v8(scope, (promise.to_string(), trace.to_owned()))
+      serde_v8::to_v8(scope, (kind as u8, id.to_string(), trace.to_owned()))
         .unwrap()
         .into(),
     );
@@ -79,19 +84,23 @@ pub fn op_opcall_tracing_get_all<'s>(
 }
 
 #[op2]
-pub fn op_opcall_tracing_get<'s>(
+pub fn op_leak_tracing_get<'s>(
   scope: &mut v8::HandleScope<'s>,
-  #[smi] promise: PromiseId,
+  #[smi] kind: u8,
+  #[smi] id: i32,
 ) -> v8::Local<'s, v8::Value> {
   use serde_v8::Serializable;
   let context_state = JsRealm::state_from_scope(scope);
-  context_state
-    .opcall_traces
-    .get(promise, |mut x| x.to_v8(scope).unwrap())
+  context_state.activity_traces.get(
+    RuntimeActivityType::from_u8(kind),
+    id as _,
+    |mut x| x.to_v8(scope).unwrap(),
+  )
 }
 
-/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
-/// timers to exist).
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
 #[op2]
 pub fn op_timer_queue(
   scope: &mut v8::HandleScope,
@@ -112,10 +121,45 @@ pub fn op_timer_queue(
   }
 }
 
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
+#[op2]
+pub fn op_timer_queue_system(
+  scope: &mut v8::HandleScope,
+  repeat: bool,
+  timeout_ms: f64,
+  #[global] task: v8::Global<v8::Function>,
+) -> f64 {
+  let context_state = JsRealm::state_from_scope(scope);
+  if repeat {
+    context_state
+      .timers
+      .queue_timer_repeat(timeout_ms as _, (task, 0)) as _
+  } else {
+    context_state.timers.queue_timer(timeout_ms as _, (task, 0)) as _
+  }
+}
+
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
+#[op2]
+pub fn op_timer_queue_immediate(
+  scope: &mut v8::HandleScope,
+  #[global] task: v8::Global<v8::Function>,
+) -> f64 {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.timers.queue_timer(0, (task, 0)) as _
+}
+
 #[op2]
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
+  context_state
+    .activity_traces
+    .complete(RuntimeActivityType::Timer, id as _);
 }
 
 #[op2]

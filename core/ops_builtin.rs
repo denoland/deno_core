@@ -88,6 +88,8 @@ builtin_ops! {
   ops_builtin_types::op_is_weak_set,
   ops_builtin_v8::op_set_handled_promise_rejection_handler,
   ops_builtin_v8::op_timer_queue,
+  ops_builtin_v8::op_timer_queue_system,
+  ops_builtin_v8::op_timer_queue_immediate,
   ops_builtin_v8::op_timer_cancel,
   ops_builtin_v8::op_timer_ref,
   ops_builtin_v8::op_timer_unref,
@@ -120,10 +122,10 @@ builtin_ops! {
   ops_builtin_v8::op_set_format_exception_callback,
   ops_builtin_v8::op_event_loop_has_more_work,
   ops_builtin_v8::op_arraybuffer_was_detached,
-  ops_builtin_v8::op_opcall_tracing_enable,
-  ops_builtin_v8::op_opcall_tracing_submit,
-  ops_builtin_v8::op_opcall_tracing_get_all,
-  ops_builtin_v8::op_opcall_tracing_get
+  ops_builtin_v8::op_leak_tracing_enable,
+  ops_builtin_v8::op_leak_tracing_submit,
+  ops_builtin_v8::op_leak_tracing_get_all,
+  ops_builtin_v8::op_leak_tracing_get
 }
 
 #[op2(fast)]
