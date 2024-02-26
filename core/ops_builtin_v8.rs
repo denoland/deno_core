@@ -98,8 +98,9 @@ pub fn op_leak_tracing_get<'s>(
   )
 }
 
-/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
-/// timers to exist).
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
 #[op2]
 pub fn op_timer_queue(
   scope: &mut v8::HandleScope,
@@ -120,8 +121,9 @@ pub fn op_timer_queue(
   }
 }
 
-/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
-/// timers to exist).
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
 #[op2]
 pub fn op_timer_queue_system(
   scope: &mut v8::HandleScope,
@@ -139,8 +141,9 @@ pub fn op_timer_queue_system(
   }
 }
 
-/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
-/// timers to exist).
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
 #[op2]
 pub fn op_timer_queue_immediate(
   scope: &mut v8::HandleScope,
