@@ -102,7 +102,7 @@ export class StatsCollection {
           // Make sure it's a non-empty stack trace
           if (
             typeof item[type][1] === "string" &&
-            item[type][1].trim().length() > 0
+            item[type][1].trim().length > 0
           ) {
             count++;
           }
