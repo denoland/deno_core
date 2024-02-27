@@ -353,6 +353,7 @@ impl<T: Clone> WebTimers<T> {
 
     let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once));
     std::mem::swap(&mut split, &mut timers);
+    let mut tombstones = self.tombstone_count.get();
     for TimerKey(_, id, timer_type) in split {
       if let TimerType::Repeat(interval) = timer_type {
         if let Some((data, _)) = data.get(&id) {
@@ -365,7 +366,7 @@ impl<T: Clone> WebTimers<T> {
             timer_type,
           ));
         } else {
-          self.tombstone_count.set(self.tombstone_count.get() - 1);
+          tombstones -= 1;
         }
       } else if let Some((data, unrefd)) = data.remove(&id) {
         if unrefd {
@@ -373,7 +374,7 @@ impl<T: Clone> WebTimers<T> {
         }
         output.push((id, data));
       } else {
-        self.tombstone_count.set(self.tombstone_count.get() - 1);
+        tombstones -= 1;
       }
     }
 
@@ -387,13 +388,17 @@ impl<T: Clone> WebTimers<T> {
           break;
         } else {
           timers.pop_first();
+          tombstones -= 1;
         }
       }
       if let Some(TimerKey(k, ..)) = timers.first() {
         self.sleep.change(*k);
       }
+      self.tombstone_count.set(tombstones);
       return Poll::Pending;
     }
+
+    self.tombstone_count.set(tombstones);
 
     if data.is_empty() {
       // When the # of running timers hits zero, clear the timer tree and
@@ -479,9 +484,19 @@ mod tests {
     let len = timers.len();
     let mut v = vec![];
     while !timers.is_empty() {
-      let mut batch = poll_fn(|cx| timers.poll_timers(cx)).await;
+      let mut batch = poll_fn(|cx| {
+        timers.assert_consistent();
+        timers.poll_timers(cx)
+      })
+      .await;
       v.append(&mut batch);
-      eprintln!("{}", v.len());
+      eprintln!(
+        "{} ({} {} {})",
+        v.len(),
+        timers.len(),
+        timers.data_map.borrow().len(),
+        timers.tombstone_count.get()
+      );
       timers.assert_consistent();
     }
     assert_eq!(v.len(), len);
@@ -501,19 +516,37 @@ mod tests {
 
   #[rstest]
   #[test]
-  fn test_timer_cancel_1(#[values(0, 1)] which: u64) {
+  fn test_timer_cancel_1(#[values(0, 1, 2, 3)] which: u64) {
     async_test(async {
       let timers = WebTimers::<()>::default();
-      for i in 0..2 {
-        let id = timers.queue_timer(i * 100, ());
+      for i in 0..4 {
+        let id = timers.queue_timer(i * 25, ());
         if i == which {
           assert!(timers.cancel_timer(id).is_some());
         }
       }
-      assert_eq!(timers.len(), 1);
+      assert_eq!(timers.len(), 3);
 
       let v = poll_all(&timers).await;
-      assert_eq!(v.len(), 1);
+      assert_eq!(v.len(), 3);
+    })
+  }
+
+  #[rstest]
+  #[test]
+  fn test_timer_cancel_2(#[values(0, 1, 2)] which: u64) {
+    async_test(async {
+      let timers = WebTimers::<()>::default();
+      for i in 0..4 {
+        let id = timers.queue_timer(i * 25, ());
+        if i == which || i == which + 1 {
+          assert!(timers.cancel_timer(id).is_some());
+        }
+      }
+      assert_eq!(timers.len(), 2);
+
+      let v = poll_all(&timers).await;
+      assert_eq!(v.len(), 2);
     })
   }
 
@@ -602,8 +635,8 @@ mod tests {
       for _ in 0..TEN_THOUSAND {
         ids.push(timers.queue_timer(1, ()));
       }
-      for _ in 0..10 {
-        timers.queue_timer(1000, ());
+      for i in 0..10 {
+        timers.queue_timer(i * 25, ());
       }
       for id in ids {
         timers.cancel_timer(id);
