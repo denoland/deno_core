@@ -326,7 +326,11 @@ impl<T: Clone> WebTimers<T> {
       if data_map.is_empty() {
         // When the # of running timers hits zero, clear the timer tree and
         // tombstone count.
-        self.unrefd_count.set(0);
+        debug_assert_eq!(self.unrefd_count.get(), if unrefd { 1 } else { 0 });
+        debug_assert_eq!(
+          self.tombstone_count.get() + 1,
+          self.timers.borrow().len()
+        );
         self.timers.borrow_mut().clear();
         self.tombstone_count.set(0);
         self.sleep.clear();
@@ -413,6 +417,7 @@ impl<T: Clone> WebTimers<T> {
       if self.tombstone_count.get() > data.len()
         && self.tombstone_count.get() > COMPACTION_MINIMUM
       {
+        debug_assert_eq!(self.tombstone_count.get() + data.len(), timers.len());
         self.tombstone_count.set(0);
         timers.retain(|k| data.contains_key(&k.1));
       }
