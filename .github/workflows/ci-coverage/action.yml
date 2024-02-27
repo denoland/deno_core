@@ -1,4 +1,4 @@
-name: Lint
+name: Coverage
 runs:
   using: "composite"
   steps:
