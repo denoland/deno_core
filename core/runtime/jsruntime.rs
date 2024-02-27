@@ -38,6 +38,7 @@ use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapGetter;
 use crate::source_map::SourceMapper;
+use crate::stats::RuntimeActivityType;
 use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
@@ -59,6 +60,7 @@ use std::any::Any;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
@@ -260,23 +262,23 @@ const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
 
 pub(crate) struct InternalSourceFile {
   pub specifier: &'static str,
-  pub specifier_onebyte_const: v8::OneByteConst,
-  pub source: &'static [u8],
-  pub source_onebyte_const: v8::OneByteConst,
+  pub specifier_onebyte_const: &'static v8::OneByteConst,
+  pub source_onebyte_const: &'static v8::OneByteConst,
 }
 
 macro_rules! internal_source_file {
   ($str_:literal) => {{
-    let specifier = concat!("ext:core/", $str_);
-    let source = include_bytes!(concat!("../", $str_));
+    static SPECIFIER: &str = concat!("ext:core/", $str_);
+    static SOURCE: &[u8] = include_bytes!(concat!("../", $str_));
 
+    static SPECIFIER_OBC: v8::OneByteConst =
+      v8::String::create_external_onebyte_const(SPECIFIER.as_bytes());
+    static SOURCE_OBC: v8::OneByteConst =
+      v8::String::create_external_onebyte_const(SOURCE);
     InternalSourceFile {
-      specifier,
-      specifier_onebyte_const: v8::String::create_external_onebyte_const(
-        specifier.as_bytes(),
-      ),
-      source,
-      source_onebyte_const: v8::String::create_external_onebyte_const(source),
+      specifier: SPECIFIER,
+      specifier_onebyte_const: &SPECIFIER_OBC,
+      source_onebyte_const: &SOURCE_OBC,
     }
   }};
 }
@@ -1063,12 +1065,12 @@ impl JsRuntime {
     for source_file in &BUILTIN_SOURCES {
       let name = v8::String::new_from_onebyte_const(
         scope,
-        &source_file.specifier_onebyte_const,
+        source_file.specifier_onebyte_const,
       )
       .unwrap();
       let source_str = v8::String::new_from_onebyte_const(
         scope,
-        &source_file.source_onebyte_const,
+        source_file.source_onebyte_const,
       )
       .unwrap();
 
@@ -2259,7 +2261,9 @@ impl JsRuntime {
       }
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
-      context_state.opcall_traces.complete(promise_id);
+      context_state
+        .activity_traces
+        .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(res.unwrap_or_else(std::convert::identity));
@@ -2294,11 +2298,16 @@ impl JsRuntime {
       .borrow_mut()
       .is_empty()
     {
-      let mut rejections =
+      // Avoid holding the pending rejection lock longer than necessary
+      let mut pending_rejections =
         exception_state.pending_promise_rejections.borrow_mut();
+      let mut rejections = VecDeque::default();
+      std::mem::swap(&mut *pending_rejections, &mut rejections);
+      drop(pending_rejections);
+
       let arr = v8::Array::new(scope, (rejections.len() * 2) as i32);
       let mut index = 0;
-      for rejection in rejections.drain(..) {
+      for rejection in rejections.into_iter() {
         let value = v8::Local::new(scope, rejection.0);
         arr.set_index(scope, index, value.into());
         index += 1;
@@ -2306,7 +2315,6 @@ impl JsRuntime {
         arr.set_index(scope, index, value);
         index += 1;
       }
-      drop(rejections);
       arr.into()
     } else {
       undefined
@@ -2316,9 +2324,16 @@ impl JsRuntime {
 
     let timers =
       if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
+        let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 2) as _);
         #[allow(clippy::needless_range_loop)]
         for i in 0..timers.len() {
+          if traces_enabled {
+            // Timer and interval traces both use RuntimeActivityType::Timer
+            context_state
+              .activity_traces
+              .complete(RuntimeActivityType::Timer, timers[i].0 as _);
+          }
           let value = v8::Integer::new(scope, timers[i].1 .1 as _);
           arr.set_index(scope, (i * 2) as _, value.into());
           let value = v8::Local::new(scope, timers[i].1 .0.clone());

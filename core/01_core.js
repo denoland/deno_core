@@ -30,10 +30,13 @@
     hasPromise,
     promiseIdSymbol,
     registerErrorClass,
-    __setOpCallTracingEnabled,
+  } = window.Deno.core;
+  const {
+    __setLeakTracingEnabled,
+    __isLeakTracingEnabled,
     __initializeCoreMethods,
     __resolvePromise,
-  } = window.Deno.core;
+  } = window.__infra;
   const {
     op_abort_wasm_streaming,
     op_current_user_call_site,
@@ -65,14 +68,16 @@
     op_str_byte_length,
     op_timer_cancel,
     op_timer_queue,
+    op_timer_queue_system,
+    op_timer_queue_immediate,
     op_timer_ref,
     op_timer_unref,
     op_unref_op,
     op_cancel_handle,
-    op_opcall_tracing_enable,
-    op_opcall_tracing_submit,
-    op_opcall_tracing_get_all,
-    op_opcall_tracing_get,
+    op_leak_tracing_enable,
+    op_leak_tracing_submit,
+    op_leak_tracing_get_all,
+    op_leak_tracing_get,
 
     op_is_any_array_buffer,
     op_is_arguments_object,
@@ -105,18 +110,26 @@
   } = ensureFastOps();
 
   // core/infra collaborative code
-  delete window.Deno.core.__setOpCallTracingEnabled;
-  delete window.Deno.core.__initializeCoreMethods;
-  delete window.Deno.core.__resolvePromise;
+  delete window.__infra;
+
   __initializeCoreMethods(
     eventLoopTick,
-    submitOpCallTrace,
+    submitLeakTrace,
   );
 
-  function submitOpCallTrace(id) {
+  function submitLeakTrace(id) {
     const error = new Error();
-    ErrorCaptureStackTrace(error, submitOpCallTrace);
-    op_opcall_tracing_submit(id, StringPrototypeSlice(error.stack, 6));
+    ErrorCaptureStackTrace(error, submitLeakTrace);
+    // "Error\n".length == 6
+    op_leak_tracing_submit(0, id, StringPrototypeSlice(error.stack, 6));
+  }
+
+  function submitTimerTrace(id) {
+    const error = new Error();
+    ErrorCaptureStackTrace(error, submitTimerTrace);
+    // We submit interval and timer traces as type "Timer"
+    // "Error\n".length == 6
+    op_leak_tracing_submit(2, id, StringPrototypeSlice(error.stack, 6));
   }
 
   let unhandledPromiseRejectionHandler = () => false;
@@ -618,17 +631,17 @@
     writeSync,
     shutdown,
     print: (msg, isErr) => op_print(msg, isErr),
-    setOpCallTracingEnabled: (enabled) => {
-      __setOpCallTracingEnabled(enabled);
-      op_opcall_tracing_enable(enabled);
+    setLeakTracingEnabled: (enabled) => {
+      __setLeakTracingEnabled(enabled);
+      op_leak_tracing_enable(enabled);
     },
-    isOpCallTracingEnabled: () => false,
-    getAllOpCallTraces: () => {
-      const traces = op_opcall_tracing_get_all();
+    isLeakTracingEnabled: () => __isLeakTracingEnabled(),
+    getAllLeakTraces: () => {
+      const traces = op_leak_tracing_get_all();
       return new SafeMap(traces);
     },
-    getOpCallTraceForPromise: (promise) =>
-      op_opcall_tracing_get(promise[promiseIdSymbol]),
+    getLeakTraceForPromise: (promise) =>
+      op_leak_tracing_get(0, promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
     runMicrotasks: () => op_run_microtasks(),
@@ -694,8 +707,17 @@
       unhandledPromiseRejectionHandler = handler,
     reportUnhandledException: (e) => op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
-    queueTimer: (depth, repeat, timeout, task) =>
-      op_timer_queue(depth, repeat, timeout, task),
+    queueUserTimer: (depth, repeat, timeout, task) => {
+      const id = op_timer_queue(depth, repeat, timeout, task);
+      if (__isLeakTracingEnabled()) {
+        submitTimerTrace(id);
+      }
+      return id;
+    },
+    // TODO(mmastrac): Hook up associatedOp to tracing
+    queueSystemTimer: (_associatedOp, repeat, timeout, task) =>
+      op_timer_queue_system(repeat, timeout, task),
+    queueImmediate: (task) => op_timer_queue_immediate(task),
     cancelTimer: (id) => op_timer_cancel(id),
     refTimer: (id) => op_timer_ref(id),
     unrefTimer: (id) => op_timer_unref(id),

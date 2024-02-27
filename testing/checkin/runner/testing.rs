@@ -43,7 +43,7 @@ impl TestData {
       .get(&key)
       .unwrap_or_else(|| {
         panic!(
-          "Unable to locate {} of type {}",
+          "Unable to locate '{}' of type {}",
           key.0,
           std::any::type_name::<T>()
         )
@@ -53,11 +53,14 @@ impl TestData {
   }
 
   pub fn take<T: 'static + Any>(&mut self, name: String) -> T {
-    *self
-      .data
-      .remove(&(name, TypeId::of::<T>()))
-      .unwrap()
-      .downcast()
-      .unwrap()
+    let key = (name, TypeId::of::<T>());
+    let Some(res) = self.data.remove(&key) else {
+      panic!(
+        "Failed to remove '{}' of type {}",
+        key.0,
+        std::any::type_name::<T>()
+      );
+    };
+    *res.downcast().unwrap()
   }
 }

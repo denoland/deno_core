@@ -9,7 +9,7 @@ use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
-use crate::stats::OpCallTraces;
+use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
 use crate::GetErrorClassFn;
@@ -56,7 +56,7 @@ pub(crate) struct ContextState {
   pub(crate) wasm_instantiate_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
-  pub(crate) opcall_traces: OpCallTraces,
+  pub(crate) activity_traces: RuntimeActivityTraces,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
@@ -82,7 +82,7 @@ impl ContextState {
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       wasm_instantiate_fn: Default::default(),
-      opcall_traces: Default::default(),
+      activity_traces: Default::default(),
       op_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),

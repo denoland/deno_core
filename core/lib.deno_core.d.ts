@@ -19,28 +19,28 @@ declare namespace Deno {
     function unrefOpPromise<T>(promise: Promise<T>): void;
 
     /**
-     * Enables collection of stack traces of all async ops. This allows for
+     * Enables collection of stack traces for sanitizers. This allows for
      * debugging of where a given async op was started. Deno CLI uses this for
-     * improving error message in op sanitizer errors for `deno test`.
+     * improving error message in sanitizer errors for `deno test`.
      *
      * **NOTE:** enabling tracing has a significant negative performance impact.
      */
-    function setOpCallTracingEnabled(enabled: boolean);
+    function setLeakTracingEnabled(enabled: boolean);
 
-    function isOpCallTracingEnabled(): boolean;
+    function isLeakTracingEnabled(): boolean;
 
     /**
      * Returns the origin stack trace of the given async op promise. The promise
      * must be ongoing.
      */
-    function getOpCallTraceForPromise<T>(promise: Promise<T>): string | null;
+    function getLeakTraceForPromise<T>(promise: Promise<T>): string | null;
 
     /**
      * Returns a map containing traces for all ongoing async ops. The key is the promise id.
-     * Tracing only occurs when `Deno.core.setOpCallTracingEnabled()` was previously
+     * Tracing only occurs when `Deno.core.setLeakTracingEnabled()` was previously
      * enabled.
      */
-    function getAllOpCallTraces(): Map<number, string>;
+    function getAllLeakTraces(): Map<number, string>;
 
     /**
      * List of all registered ops, in the form of a map that maps op
@@ -142,9 +142,32 @@ declare namespace Deno {
     /** Set a value telling the runtime if there are "next ticks" scheduled */
     function setHasNextTickScheduled(value: boolean): void;
 
-    /** Enqueue a timer at the given depth, optionally repeating. */
-    function queueTimer(
+    /** Enqueue an immediate callback. Immediate callbacks always execute in
+     * the next timer phase.
+     */
+    function queueImmediate(
       depth: number,
+      repeat: boolean,
+      delay: number,
+      callback: () => void,
+    ): number;
+
+    /** Enqueue a user timer at the given depth, optionally repeating. User
+     * timers may generate call traces for sanitization, and may be clamped
+     * depending on the depth of nesting. */
+    function queueUserTimer(
+      depth: number,
+      repeat: boolean,
+      delay: number,
+      callback: () => void,
+    ): number;
+
+    /** Enqueue a system timer at the given depth, optionally repeating. System
+     * timers do not generate call traces, and are never clamped at any nesting
+     * depth. System timers are also associated with an op to provide contextual
+     * information. */
+    function queueSystemTimer(
+      associatedOp: Function,
       repeat: boolean,
       delay: number,
       callback: () => void,

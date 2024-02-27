@@ -28,11 +28,11 @@ declare namespace Deno {
   export function unrefTimer(id);
 }
 
-declare module 'ext:core/mod.js' {
+declare module "ext:core/mod.js" {
   const core: any;
 }
 
-declare module 'ext:core/ops' {
+declare module "ext:core/ops" {
   function op_log_debug(...any): any;
   function op_log_info(...any): any;
 
