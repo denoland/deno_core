@@ -1,0 +1,15 @@
+name: Lint
+runs:
+  using: "composite"
+  steps:
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
+    - name: Generate code coverage
+      shell: bash
+      run: |
+        cargo llvm-cov --workspace --release --all-features --bins --tests --examples --exclude deno_ops_compile_test_runner --lcov --output-path lcov.info
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: lcov.info
+        fail_ci_if_error: true
