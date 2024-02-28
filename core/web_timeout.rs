@@ -33,6 +33,15 @@ enum TimerType {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct TimerKey(Instant, u64, TimerType);
 
+struct TimerData<T> {
+  data: T,
+  unrefd: bool,
+  #[cfg(any(windows, test))]
+  high_res: bool,
+  #[cfg(not(any(windows, test)))]
+  high_res: (),
+}
+
 /// Implements much of the specification described by https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html.
 ///
 /// To ensure that we perform well in the face of large numbers of timers, this implementation assumes
@@ -67,7 +76,7 @@ pub(crate) struct WebTimers<T> {
   next_id: Cell<WebTimerId>,
   timers: RefCell<BTreeSet<TimerKey>>,
   /// We choose a `BTreeMap` over `HashMap` because of memory performance.
-  data_map: RefCell<BTreeMap<WebTimerId, (T, bool)>>,
+  data_map: RefCell<BTreeMap<WebTimerId, TimerData<T>>>,
   /// How may deleted entries are in the timers BTreeMap? We use this to determine
   /// when there's too much garbage and need to rebuild the map.
   tombstone_count: Cell<usize>,
@@ -76,6 +85,8 @@ pub(crate) struct WebTimers<T> {
   /// A boxed MutableSleep that will allow us to change the Tokio sleep timeout as needed.
   /// Because this is boxed, we can "safely" unsafely poll it.
   sleep: Box<MutableSleep>,
+  /// The high-res timer lock. No-op on platforms other than Windows.
+  high_res_timer_lock: HighResTimerLock,
 }
 
 impl<T> Default for WebTimers<T> {
@@ -87,12 +98,13 @@ impl<T> Default for WebTimers<T> {
       tombstone_count: Default::default(),
       unrefd_count: Default::default(),
       sleep: MutableSleep::new(),
+      high_res_timer_lock: Default::default(),
     }
   }
 }
 
 pub(crate) struct WebTimersIterator<'a, T> {
-  data: Ref<'a, BTreeMap<WebTimerId, (T, bool)>>,
+  data: Ref<'a, BTreeMap<WebTimerId, TimerData<T>>>,
   timers: Ref<'a, BTreeSet<TimerKey>>,
 }
 
@@ -109,7 +121,7 @@ impl<'a, T> IntoIterator for &'a WebTimersIterator<'a, T> {
 }
 
 pub(crate) struct WebTimersIteratorImpl<'a, T> {
-  data: &'a BTreeMap<WebTimerId, (T, bool)>,
+  data: &'a BTreeMap<WebTimerId, TimerData<T>>,
   timers: btree_set::Iter<'a, TimerKey>,
 }
 
@@ -257,7 +269,9 @@ impl<T: Clone> WebTimers<T> {
 
   /// Refs a timer by ID. Invalid IDs are ignored.
   pub fn ref_timer(&self, id: WebTimerId) {
-    if let Some((_, unrefd)) = self.data_map.borrow_mut().get_mut(&id) {
+    if let Some(TimerData { unrefd, .. }) =
+      self.data_map.borrow_mut().get_mut(&id)
+    {
       if std::mem::replace(unrefd, false) {
         self.unrefd_count.set(self.unrefd_count.get() - 1);
       }
@@ -266,7 +280,9 @@ impl<T: Clone> WebTimers<T> {
 
   /// Unrefs a timer by ID. Invalid IDs are ignored.
   pub fn unref_timer(&self, id: WebTimerId) {
-    if let Some((_, unrefd)) = self.data_map.borrow_mut().get_mut(&id) {
+    if let Some(TimerData { unrefd, .. }) =
+      self.data_map.borrow_mut().get_mut(&id)
+    {
       if !std::mem::replace(unrefd, true) {
         self.unrefd_count.set(self.unrefd_count.get() + 1);
       }
@@ -289,6 +305,9 @@ impl<T: Clone> WebTimers<T> {
     timeout_ms: u64,
     data: T,
   ) -> WebTimerId {
+    #[allow(clippy::let_unit_value)]
+    let high_res = self.high_res_timer_lock.maybe_lock(timeout_ms);
+
     let id = self.next_id.get() + 1;
     self.next_id.set(id);
 
@@ -314,7 +333,14 @@ impl<T: Clone> WebTimers<T> {
     timers.insert(TimerKey(deadline, id, timer_type));
 
     let mut data_map = self.data_map.borrow_mut();
-    data_map.insert(id, (data, false));
+    data_map.insert(
+      id,
+      TimerData {
+        data,
+        unrefd: false,
+        high_res,
+      },
+    );
     id
   }
 
@@ -322,19 +348,33 @@ impl<T: Clone> WebTimers<T> {
   /// with the given ID was found.
   pub fn cancel_timer(&self, timer: u64) -> Option<T> {
     let mut data_map = self.data_map.borrow_mut();
-    if let Some((data, unrefd)) = data_map.remove(&timer) {
+    if let Some(TimerData {
+      data,
+      unrefd,
+      high_res,
+    }) = data_map.remove(&timer)
+    {
       if data_map.is_empty() {
         // When the # of running timers hits zero, clear the timer tree and
-        // tombstone count.
+        // tombstone count. When debug assertions are enabled, we do a
+        // consistency check.
         debug_assert_eq!(self.unrefd_count.get(), if unrefd { 1 } else { 0 });
         debug_assert_eq!(
           self.tombstone_count.get() + 1,
           self.timers.borrow().len()
         );
+        #[cfg(all(windows, test))]
+        debug_assert_eq!(
+          self.high_res_timer_lock.is_locked(),
+          if high_res { true } else { false }
+        );
+        self.high_res_timer_lock.clear();
+        self.unrefd_count.set(0);
         self.timers.borrow_mut().clear();
         self.tombstone_count.set(0);
         self.sleep.clear();
       } else {
+        self.high_res_timer_lock.maybe_unlock(high_res);
         if unrefd {
           self.unrefd_count.set(self.unrefd_count.get() - 1);
         }
@@ -360,7 +400,7 @@ impl<T: Clone> WebTimers<T> {
     let mut tombstones = self.tombstone_count.get();
     for TimerKey(_, id, timer_type) in split {
       if let TimerType::Repeat(interval) = timer_type {
-        if let Some((data, _)) = data.get(&id) {
+        if let Some(TimerData { data, .. }) = data.get(&id) {
           output.push((id, data.clone()));
           timers.insert(TimerKey(
             now
@@ -372,7 +412,13 @@ impl<T: Clone> WebTimers<T> {
         } else {
           tombstones -= 1;
         }
-      } else if let Some((data, unrefd)) = data.remove(&id) {
+      } else if let Some(TimerData {
+        data,
+        unrefd,
+        high_res,
+      }) = data.remove(&id)
+      {
+        self.high_res_timer_lock.maybe_unlock(high_res);
         if unrefd {
           self.unrefd_count.set(self.unrefd_count.get() - 1);
         }
@@ -448,21 +494,117 @@ impl<T: Clone> WebTimers<T> {
   #[cfg(test)]
   pub fn assert_consistent(&self) {
     if self.data_map.borrow().is_empty() {
-      // If the data map is empty, we should have no timers, no tombstones and no unref'd count
+      // If the data map is empty, we should have no timers, no tombstones, no unref'd count, no high-res lock
       assert_eq!(self.timers.borrow().len(), 0);
       assert_eq!(self.tombstone_count.get(), 0);
       assert_eq!(self.unrefd_count.get(), 0);
+      assert!(!self.high_res_timer_lock.is_locked());
     } else {
       assert_eq!(
         self.timers.borrow().len(),
         self.data_map.borrow().len() + self.tombstone_count.get()
       );
       assert!(self.unrefd_count.get() <= self.data_map.borrow().len());
+      // The high-res lock count must be <= the number of remaining timers
+      assert!(self.high_res_timer_lock.lock_count.get() <= self.len());
     }
   }
 
   pub fn has_pending_timers(&self) -> bool {
     self.len() > self.unref_len()
+  }
+}
+
+#[cfg(windows)]
+#[link(name = "winmm")]
+extern "C" {
+  fn timeBeginPeriod(n: u32);
+  fn timeEndPeriod(n: u32);
+}
+
+#[derive(Default)]
+struct HighResTimerLock {
+  #[cfg(any(windows, test))]
+  lock_count: Cell<usize>,
+}
+
+impl HighResTimerLock {
+  /// If a timer is requested with <=100ms resolution, request the high-res timer. Since the default
+  /// Windows timer period is 15ms, this means a 100ms timer could fire at 115ms (15% late). We assume that
+  /// timers longer than 100ms are a reasonable cutoff here.
+  ///
+  /// The high-res timers on Windows are still limited. Unfortunately this means that our shortest duration 4ms timers
+  /// can still be 25% late, but without a more complex timer system or spinning on the clock itself, we're somewhat
+  /// bounded by the OS' scheduler itself.
+  #[cfg(any(windows, test))]
+  const LOW_RES_TIMER_RESOLUTION: u64 = 100;
+
+  #[cfg(any(windows, test))]
+  #[inline(always)]
+  fn maybe_unlock(&self, high_res: bool) {
+    if high_res {
+      let old = self.lock_count.get();
+      debug_assert!(old > 0);
+      let new = old - 1;
+      self.lock_count.set(new);
+      #[cfg(windows)]
+      if new == 0 {
+        // SAFETY: Windows API
+        unsafe {
+          timeEndPeriod(1);
+        }
+      }
+    }
+  }
+
+  #[cfg(not(any(windows, test)))]
+  #[inline(always)]
+  fn maybe_unlock(&self, _high_res: ()) {}
+
+  #[cfg(any(windows, test))]
+  #[inline(always)]
+  fn maybe_lock(&self, timeout_ms: u64) -> bool {
+    if timeout_ms <= Self::LOW_RES_TIMER_RESOLUTION {
+      let old = self.lock_count.get();
+      #[cfg(windows)]
+      if old == 0 {
+        // SAFETY: Windows API
+        unsafe {
+          timeBeginPeriod(1);
+        }
+      }
+      self.lock_count.set(old + 1);
+      true
+    } else {
+      false
+    }
+  }
+
+  #[cfg(not(any(windows, test)))]
+  #[inline(always)]
+  fn maybe_lock(&self, _timeout_ms: u64) {}
+
+  #[cfg(any(windows, test))]
+  #[inline(always)]
+  fn clear(&self) {
+    #[cfg(windows)]
+    if self.lock_count.get() > 0 {
+      // SAFETY: Windows API
+      unsafe {
+        timeEndPeriod(1);
+      }
+    }
+
+    self.lock_count.set(0);
+  }
+
+  #[cfg(not(any(windows, test)))]
+  #[inline(always)]
+  fn clear(&self) {}
+
+  #[cfg(test)]
+  fn is_locked(&self) -> bool {
+    self.lock_count.get() > 0
   }
 }
 
@@ -516,6 +658,20 @@ mod tests {
 
       let v = poll_all(&timers).await;
       assert_eq!(v.len(), 1);
+    });
+  }
+
+  #[test]
+  fn test_high_res_lock() {
+    async_test(async {
+      let timers = WebTimers::<()>::default();
+      assert!(!timers.high_res_timer_lock.is_locked());
+      let _a = timers.queue_timer(1, ());
+      assert!(timers.high_res_timer_lock.is_locked());
+
+      let v = poll_all(&timers).await;
+      assert_eq!(v.len(), 1);
+      assert!(!timers.high_res_timer_lock.is_locked());
     });
   }
 
