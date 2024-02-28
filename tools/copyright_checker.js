@@ -90,12 +90,6 @@ async function fixFile(commentPrefix, file) {
   return await checkFile(commentPrefix, file);
 }
 
-  fileText = newContents.join('\n');
-  
-  await Deno.writeTextFile(file, fileText);
-  return await checkFile(commentPrefix, file);
-}
-
 async function checkFile(commentPrefix, file) {
   const fileLines = (await readFirstPartOfFile(file)).split('\n');
   for (const line of fileLines) {
