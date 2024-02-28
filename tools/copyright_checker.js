@@ -24,10 +24,11 @@ const COPYRIGHT_LINE =
 
 // Acceptable content before the copyright line
 const ACCEPTABLE_LINES =
-/^(\/\/ deno-lint-.*|\/\/ Copyright.*|\/\/ Ported.*|\s*|#!\/.*)$/;
+  /^(\/\/ deno-lint-.*|\/\/ Copyright.*|\/\/ Ported.*|\s*|#!\/.*)$/;
 
 const MISSING_ERROR_MSG = "Copyright header is missing";
-const BAD_LINE_ERROR_MSG = "Unacceptable line appeared before copyright message";
+const BAD_LINE_ERROR_MSG =
+  "Unacceptable line appeared before copyright message";
 const DATE_ERROR_MSG = "Copyright header is out-of-date";
 
 const buffer = new Uint8Array(1024);
@@ -91,7 +92,7 @@ async function fixFile(commentPrefix, file) {
 }
 
 async function checkFile(commentPrefix, file) {
-  const fileLines = (await readFirstPartOfFile(file)).split('\n');
+  const fileLines = (await readFirstPartOfFile(file)).split("\n");
   for (const line of fileLines) {
     // Exact match :+1:
     if (line == `${commentPrefix} ${COPYRIGHT_LINE}`) {
@@ -108,7 +109,7 @@ async function checkFile(commentPrefix, file) {
       continue;
     }
 
-    if (COPYRIGHT_REGEX.test((await readFirstPartOfFile(file)))) {
+    if (COPYRIGHT_REGEX.test(await readFirstPartOfFile(file))) {
       return BAD_LINE_ERROR_MSG + " (" + line + ")";
     } else {
       return DATE_ERROR_MSG + " (" + line + ")";
@@ -157,7 +158,9 @@ export async function checkCopyright(fix = false) {
     // show all the errors at the same time to prevent overlap with
     // other running scripts that may be outputting
     console.error(errors.join("\n"));
-    throw new Error(`Copyright checker had ${errors.length} errors. Use --fix to repair.`);
+    throw new Error(
+      `Copyright checker had ${errors.length} errors. Use --fix to repair.`,
+    );
   }
 }
 
