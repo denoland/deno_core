@@ -24,7 +24,7 @@ const COPYRIGHT_LINE =
 
 // Acceptable content before the copyright line
 const ACCEPTABLE_LINES =
-  /^(\/\/ deno-lint-.*|\/\/ Copyright.*|\/\/ Ported.*|\s*|#!\/.*)$/;
+  /^(\/\/ deno-lint-.*|\/\/ Copyright.*|\/\/ Ported.*|#!\/.*)$/;
 
 const MISSING_ERROR_MSG = "Copyright header is missing";
 const BAD_LINE_ERROR_MSG = "Unacceptable line appeared before copyright message";
