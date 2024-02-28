@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { fail, test } from "checkin:testing";
 
 // Verify that "array by copy" proposal is enabled (https://github.com/tc39/proposal-change-array-by-copy)

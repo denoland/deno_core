@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::v8_static_strings;

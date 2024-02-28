@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::V8_WRAPPER_OBJECT_INDEX;
 use crate::V8_WRAPPER_TYPE_INDEX;
