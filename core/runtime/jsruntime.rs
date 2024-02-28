@@ -2275,10 +2275,12 @@ impl JsRuntime {
 
     args.push(rejections);
 
+    // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
+    // storing the exception-reporting callback.
     let timers =
       if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
         let traces_enabled = context_state.activity_traces.is_enabled();
-        let arr = v8::Array::new(scope, (timers.len() * 2) as _);
+        let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
         for i in 0..timers.len() {
           if traces_enabled {
@@ -2287,10 +2289,13 @@ impl JsRuntime {
               .activity_traces
               .complete(RuntimeActivityType::Timer, timers[i].0 as _);
           }
+          // depth, id, function
           let value = v8::Integer::new(scope, timers[i].1 .1 as _);
-          arr.set_index(scope, (i * 2) as _, value.into());
+          arr.set_index(scope, (i * 3) as _, value.into());
+          let value = v8::Number::new(scope, timers[i].0 as _);
+          arr.set_index(scope, (i * 3 + 1) as _, value.into());
           let value = v8::Local::new(scope, timers[i].1 .0.clone());
-          arr.set_index(scope, (i * 2 + 1) as _, value.into());
+          arr.set_index(scope, (i * 3 + 2) as _, value.into());
         }
         arr.into()
       } else {

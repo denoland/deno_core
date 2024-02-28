@@ -115,3 +115,23 @@ test(async function testTimerThis() {
   }, 1);
   await promise;
 });
+
+test(async function testCancellationDuringDispatch() {
+  const timers: number[] = [];
+  let timeouts = 0;
+
+  // If a timer is ready to be dispatched, but is cancelled during the
+  // dispatch of a previous timer that is also ready, that timer should
+  // not be dispatched.
+  function onTimeout() {
+    ++timeouts;
+    for (let i = 1; i < timers.length; i++) {
+      clearTimeout(timers[i]);
+    }
+  }
+  for (let i = 0; i < 10; i++) {
+    timers[i] = setTimeout(onTimeout, 1);
+  }
+  await new Promise((r) => setTimeout(r, 10));
+  assertEquals(timeouts, 1);
+});
