@@ -126,9 +126,9 @@ export async function checkCopyright(fix = false) {
   const sourceFilesSet = new Set(sourceFiles);
 
   for (const file of sourceFilesSet) {
-    let error;
     if (file.endsWith("Cargo.toml")) {
-      if (error = await checkFile("#", file)) {
+      const error = await checkFile("#", file);
+      if (error) {
         if (fix) {
           await fixFile("#", file);
         } else {
@@ -137,7 +137,8 @@ export async function checkCopyright(fix = false) {
       }
       continue;
     }
-    if (error = await checkFile("//", file)) {
+    const error = await checkFile("//", file);
+    if (error) {
       if (fix) {
         await fixFile("//", file);
       } else {
