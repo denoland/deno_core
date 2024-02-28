@@ -463,6 +463,9 @@ impl<T: Clone> WebTimers<T> {
       if self.tombstone_count.get() > data.len()
         && self.tombstone_count.get() > COMPACTION_MINIMUM
       {
+        // Run a consistency check on tombstone count before we zero it out. Note that
+        // we aren't changing unref or high-res timer lock counts here, so we don't
+        // check consistency of those.
         debug_assert_eq!(self.tombstone_count.get() + data.len(), timers.len());
         self.tombstone_count.set(0);
         timers.retain(|k| data.contains_key(&k.1));
