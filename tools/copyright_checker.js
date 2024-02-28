@@ -50,7 +50,16 @@ async function fixFile(commentPrefix, file) {
   }
   const newContents = [];
   let found = false;
-  for (const line of fileText.split('\n')) {
+  let nonBlank = false;
+  for (const line of fileText.split("\n")) {
+    if (line.length == 0) {
+      if (!nonBlank) {
+        console.error("Trimming empty space before copyright");
+        continue;
+      }
+    } else {
+      nonBlank = true;
+    }
     if (COPYRIGHT_REGEX.test(line)) {
       if (found) {
         console.error(`Removing duplicate copyright line in ${file}`);
@@ -74,6 +83,12 @@ async function fixFile(commentPrefix, file) {
     }
     newContents.push(line);
   }
+
+  fileText = newContents.join("\n");
+
+  await Deno.writeTextFile(file, fileText);
+  return await checkFile(commentPrefix, file);
+}
 
   fileText = newContents.join('\n');
   
