@@ -5,6 +5,18 @@ import { getSources, ROOT_PATH } from "./util.js";
 
 const copyrightYear = 2024;
 
+const SOURCES = [
+  // js and ts
+  "*.js",
+  "*.ts",
+
+  // rust
+  "*.rs",
+
+  // toml
+  "*Cargo.toml",
+];
+
 const COPYRIGHT_REGEX =
   /^(#|\/\/) Copyright \d+-\d+ the Deno authors. All rights reserved. MIT license./;
 const COPYRIGHT_LINE =
@@ -98,17 +110,7 @@ async function checkFile(commentPrefix, file) {
 }
 
 export async function checkCopyright(fix = false) {
-  const sourceFiles = await getSources(ROOT_PATH, [
-    // js and ts
-    "*.js",
-    "*.ts",
-
-    // rust
-    "*.rs",
-
-    // toml
-    "*Cargo.toml",
-  ]);
+  const sourceFiles = await getSources(ROOT_PATH, SOURCES);
 
   const errors = [];
   const sourceFilesSet = new Set(sourceFiles);
