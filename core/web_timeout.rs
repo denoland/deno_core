@@ -364,10 +364,7 @@ impl<T: Clone> WebTimers<T> {
           self.timers.borrow().len()
         );
         #[cfg(all(windows, test))]
-        debug_assert_eq!(
-          self.high_res_timer_lock.is_locked(),
-          if high_res { true } else { false }
-        );
+        debug_assert_eq!(self.high_res_timer_lock.is_locked(), high_res);
         self.high_res_timer_lock.clear();
         self.unrefd_count.set(0);
         self.timers.borrow_mut().clear();
