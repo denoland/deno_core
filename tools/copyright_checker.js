@@ -148,7 +148,7 @@ export async function checkCopyright(fix = false) {
     // show all the errors at the same time to prevent overlap with
     // other running scripts that may be outputting
     console.error(errors.join("\n"));
-    throw new Error(`Copyright checker had ${errors.length} errors.`);
+    throw new Error(`Copyright checker had ${errors.length} errors. Use --fix to repair.`);
   }
 }
 
