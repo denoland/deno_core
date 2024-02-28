@@ -16,6 +16,7 @@
     Proxy,
     setQueueMicrotask,
     SafeMap,
+    Set,
     StringPrototypeSlice,
     Symbol,
     SymbolFor,
@@ -134,6 +135,8 @@
 
   let unhandledPromiseRejectionHandler = () => false;
   let timerDepth = 0;
+  let timersRunning = false;
+  const cancelledTimers = new Set();
 
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
@@ -189,17 +192,24 @@
 
     const timers = arguments[arguments.length - 2];
     if (timers) {
-      for (let i = 0; i < timers.length; i += 2) {
+      timersRunning = true;
+      for (let i = 0; i < timers.length; i += 3) {
         timerDepth = timers[i];
+        const id = timers[i + 1];
+        if (cancelledTimers.has(id)) {
+          continue;
+        }
         try {
-          const f = timers[i + 1];
+          const f = timers[i + 2];
           f.call(window);
         } catch (e) {
           reportExceptionCallback(e);
         }
         op_run_microtasks();
       }
+      timersRunning = false;
       timerDepth = 0;
+      cancelledTimers.clear();
     }
 
     // If we have any rejections for this tick, attempt to process them
@@ -718,7 +728,12 @@
     queueSystemTimer: (_associatedOp, repeat, timeout, task) =>
       op_timer_queue_system(repeat, timeout, task),
     queueImmediate: (task) => op_timer_queue_immediate(task),
-    cancelTimer: (id) => op_timer_cancel(id),
+    cancelTimer: (id) => {
+      if (timersRunning) {
+        cancelledTimers.add(id);
+      }
+      op_timer_cancel(id);
+    },
     refTimer: (id) => op_timer_ref(id),
     unrefTimer: (id) => op_timer_unref(id),
     getTimerDepth: () => timerDepth,
