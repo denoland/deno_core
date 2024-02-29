@@ -1,5 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::module_map_data::ModuleMapSnapshotData;
+use super::IntoModuleCodeString;
+use super::IntoModuleName;
+use crate::ascii_str;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
@@ -24,7 +27,7 @@ use crate::runtime::JsRealm;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
 use crate::ExtensionFileSource;
-use crate::FastString;
+use crate::FastStaticString;
 use crate::JsRuntime;
 use crate::ModuleLoadResponse;
 use crate::ModuleSource;
@@ -195,7 +198,7 @@ impl ModuleMap {
   /// that had been redirected.
   pub(crate) fn get_id(
     &self,
-    name: impl AsRef<str>,
+    name: &str,
     requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId> {
     self.data.borrow().get_id(name, requested_module_type)
@@ -357,7 +360,7 @@ impl ModuleMap {
           // synthetic module.
           CustomModuleEvaluationKind::Synthetic(value_global) => {
             let value = v8::Local::new(scope, value_global);
-            let exports = vec![(FastString::StaticAscii("default"), value)];
+            let exports = vec![(ascii_str!("default"), value)];
             self.new_synthetic_module(
               scope,
               module_url_found,
@@ -375,7 +378,7 @@ impl ModuleMap {
           ) => {
             let (url1, url2) = module_url_found.into_cheap_copy();
             let value = v8::Local::new(scope, synthetic_value);
-            let exports = vec![(FastString::StaticAscii("default"), value)];
+            let exports = vec![(ascii_str!("default"), value)];
             let _synthetic_mod_id = self.new_synthetic_module(
               scope,
               url1,
@@ -403,21 +406,16 @@ impl ModuleMap {
   pub fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
-    name: ModuleName,
+    name: impl IntoModuleName,
     module_type: ModuleType,
-    exports: Vec<(FastString, v8::Local<v8::Value>)>,
+    exports: Vec<(FastStaticString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
     let name_str = name.v8_string(scope);
 
     let export_names = exports
       .iter()
-      .map(|(name, _)| {
-        if let Some(buffer) = name.try_static_ascii() {
-          v8::String::new_external_onebyte_static(scope, buffer).unwrap()
-        } else {
-          v8::String::new(scope, name.as_str()).unwrap()
-        }
-      })
+      .map(|(name, _)| name.v8_string(scope))
       .collect::<Vec<_>>();
     let module = v8::Module::create_synthetic_module(
       scope,
@@ -464,16 +462,17 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     main: bool,
-    name: ModuleName,
-    source: ModuleCodeString,
+    name: impl IntoModuleName,
+    source: impl IntoModuleCodeString,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
     self.new_module_from_js_source(
       scope,
       main,
       ModuleType::JavaScript,
-      name,
-      source,
+      name.into_module_name(),
+      source.into_module_code(),
       is_dynamic_import,
     )
   }
@@ -605,9 +604,11 @@ impl ModuleMap {
   pub(crate) fn new_json_module(
     &self,
     scope: &mut v8::HandleScope,
-    name: ModuleName,
-    code: ModuleCodeString,
+    name: impl IntoModuleName,
+    code: impl IntoModuleCodeString,
   ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
+    let code = code.into_module_code();
     let source_str = v8::String::new_from_utf8(
       scope,
       strip_bom(code.as_bytes()),
@@ -625,7 +626,7 @@ impl ModuleMap {
         return Err(ModuleError::Exception(exception));
       }
     };
-    let exports = vec![(FastString::StaticAscii("default"), parsed_json)];
+    let exports = vec![(ascii_str!("default"), parsed_json)];
     self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
   }
 
@@ -816,7 +817,7 @@ impl ModuleMap {
         if self
           .data
           .borrow()
-          .is_registered(module_specifier, requested_module_type)
+          .is_registered(module_specifier.as_str(), requested_module_type)
         {
           async move { (load.id, Ok(load)) }.boxed_local()
         } else {
@@ -1473,7 +1474,7 @@ impl ModuleMap {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
-      .new_es_module(scope, false, specifier.into(), source_code, false)
+      .new_es_module(scope, false, specifier, source_code, false)
       .map_err(|e| e.into_any_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {

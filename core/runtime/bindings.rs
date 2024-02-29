@@ -21,7 +21,7 @@ use crate::modules::ModuleMap;
 use crate::ops::OpCtx;
 use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
-use crate::FastString;
+use crate::FastStaticString;
 use crate::JsRuntime;
 use crate::ModuleType;
 
@@ -801,7 +801,7 @@ pub fn create_exports_for_ops_virtual_module<'s>(
   op_ctxs: &[OpCtx],
   scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
-) -> Vec<(FastString, v8::Local<'s, v8::Value>)> {
+) -> Vec<(FastStaticString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
 
   let deno_obj = get(scope, global, &v8_static_strings::DENO, "Deno");
@@ -832,8 +832,7 @@ pub fn create_exports_for_ops_virtual_module<'s>(
         .unwrap();
       op_fn = result.try_into().unwrap()
     }
-
-    exports.push((FastString::StaticAscii(op_ctx.decl.name), op_fn.into()));
+    exports.push((op_ctx.decl.name_fast, op_fn.into()));
   }
 
   exports
