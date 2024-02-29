@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::TokenStream;
 use proc_macro2::TokenTree;
 use proc_macro_rules::rules;

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::generic_error;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
