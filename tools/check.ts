@@ -191,7 +191,9 @@ export async function main(command: string, flag: string) {
       });
     } else {
       await runCommands("Linting", {
-        "deno check tools/": $`deno check ${[...Deno.readDirSync('tools')].map((f) => `tools/${f.name}`)}`,
+        "deno check tools/": $`deno check ${
+          [...Deno.readDirSync("tools")].map((f) => `tools/${f.name}`)
+        }`,
         "copyright": $`tools/copyright_checker.js`,
         "deno lint": $`deno lint`,
         "tsc":
