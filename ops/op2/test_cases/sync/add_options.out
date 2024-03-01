@@ -2,10 +2,10 @@
 pub struct op_test_add_option {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_test_add_option {
+impl ::deno_core::_ops::Op for op_test_add_option {
     const NAME: &'static str = stringify!(op_test_add_option);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_test_add_option),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_test_add_option),
         false,
         false,
         2usize as u8,

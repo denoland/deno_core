@@ -2,10 +2,10 @@
 pub struct op_async_v8_buffer {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_async_v8_buffer {
+impl ::deno_core::_ops::Op for op_async_v8_buffer {
     const NAME: &'static str = stringify!(op_async_v8_buffer);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_async_v8_buffer),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_async_v8_buffer),
         true,
         false,
         2usize as u8,

@@ -2,10 +2,10 @@
 pub struct op_external_with_result {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_external_with_result {
+impl ::deno_core::_ops::Op for op_external_with_result {
     const NAME: &'static str = stringify!(op_external_with_result);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_external_with_result),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_external_with_result),
         false,
         false,
         0usize as u8,

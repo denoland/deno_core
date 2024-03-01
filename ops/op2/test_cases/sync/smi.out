@@ -2,10 +2,10 @@
 struct op_smi_unsigned_return {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_smi_unsigned_return {
+impl ::deno_core::_ops::Op for op_smi_unsigned_return {
     const NAME: &'static str = stringify!(op_smi_unsigned_return);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_smi_unsigned_return),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_smi_unsigned_return),
         false,
         false,
         4usize as u8,
@@ -212,10 +212,10 @@ impl op_smi_unsigned_return {
 struct op_smi_signed_return {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_smi_signed_return {
+impl ::deno_core::_ops::Op for op_smi_signed_return {
     const NAME: &'static str = stringify!(op_smi_signed_return);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_smi_signed_return),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_smi_signed_return),
         false,
         false,
         4usize as u8,
@@ -422,10 +422,10 @@ impl op_smi_signed_return {
 struct op_smi_option {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_smi_option {
+impl ::deno_core::_ops::Op for op_smi_option {
     const NAME: &'static str = stringify!(op_smi_option);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_smi_option),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_smi_option),
         false,
         false,
         1usize as u8,
