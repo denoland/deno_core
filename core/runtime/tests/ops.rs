@@ -49,7 +49,7 @@ async fn test_async_opstate_borrow() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "op_async_borrow.js",
       "const { op_async_borrow } = Deno.core.ensureFastOps(); op_async_borrow();",
     )
@@ -80,7 +80,7 @@ async fn test_sync_op_serialize_object_with_numbers_as_keys() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "op_sync_serialize_object_with_numbers_as_keys.js",
       r#"
 Deno.core.ops.op_sync_serialize_object_with_numbers_as_keys({
@@ -122,7 +122,7 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "op_async_serialize_object_with_numbers_as_keys.js",
       r#"
         const { op_async_serialize_object_with_numbers_as_keys } = Deno.core.ensureFastOps();
@@ -156,7 +156,7 @@ fn test_op_return_serde_v8_error() {
     ..Default::default()
   });
   assert!(runtime
-    .execute_script_static(
+    .execute_script(
       "test_op_return_serde_v8_error.js",
       "Deno.core.ops.op_err()"
     )
@@ -182,7 +182,7 @@ fn test_op_high_arity() {
     ..Default::default()
   });
   let r = runtime
-    .execute_script_static("test.js", "Deno.core.ops.op_add_4(1, 2, 3, 4)")
+    .execute_script("test.js", "Deno.core.ops.op_add_4(1, 2, 3, 4)")
     .unwrap();
   let scope = &mut runtime.handle_scope();
   assert_eq!(r.open(scope).integer_value(scope), Some(10));
@@ -207,7 +207,7 @@ fn test_op_disabled() {
   });
   // Disabled op should be replaced with a function that throws.
   let err = runtime
-    .execute_script_static("test.js", "Deno.core.ops.op_foo()")
+    .execute_script("test.js", "Deno.core.ops.op_foo()")
     .unwrap_err();
   assert!(err.to_string().contains("op is disabled"));
 }
@@ -234,7 +234,7 @@ fn test_op_detached_buffer() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "test.js",
       r#"
       const a1 = new Uint8Array([1,2,3]);
@@ -266,7 +266,7 @@ fn test_op_detached_buffer() {
     .unwrap();
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "test.js",
       r#"
       const wmem = new WebAssembly.Memory({ initial: 1, maximum: 2 });
@@ -349,14 +349,14 @@ fn ops_in_js_have_proper_names() {
     throw new Error();
   }
   "#;
-  runtime.execute_script_static("test", src).unwrap();
+  runtime.execute_script("test", src).unwrap();
 }
 
 #[tokio::test]
 async fn test_ref_unref_ops() {
   let (mut runtime, _dispatch_count) = setup(Mode::AsyncDeferred);
   runtime
-    .execute_script_static(
+    .execute_script(
       "filename.js",
       r#"
       const { op_test } = Deno.core.ensureFastOps();
@@ -371,7 +371,7 @@ async fn test_ref_unref_ops() {
     assert_eq!(realm.num_unrefed_ops(), 0);
   }
   runtime
-    .execute_script_static(
+    .execute_script(
       "filename.js",
       r#"
       Deno.core.unrefOpPromise(p1);
@@ -385,7 +385,7 @@ async fn test_ref_unref_ops() {
     assert_eq!(realm.num_unrefed_ops(), 2);
   }
   runtime
-    .execute_script_static(
+    .execute_script(
       "filename.js",
       r#"
       Deno.core.refOpPromise(p1);
@@ -404,7 +404,7 @@ async fn test_ref_unref_ops() {
 fn test_dispatch() {
   let (mut runtime, dispatch_count) = setup(Mode::Async);
   runtime
-    .execute_script_static(
+    .execute_script(
       "filename.js",
       r#"
       let control = 42;
@@ -424,7 +424,7 @@ fn test_dispatch() {
 fn test_dispatch_no_zero_copy_buf() {
   let (mut runtime, dispatch_count) = setup(Mode::AsyncZeroCopy(false));
   runtime
-    .execute_script_static(
+    .execute_script(
       "filename.js",
       r#"
       const { op_test } = Deno.core.ensureFastOps();
@@ -439,7 +439,7 @@ fn test_dispatch_no_zero_copy_buf() {
 fn test_dispatch_stack_zero_copy_bufs() {
   let (mut runtime, dispatch_count) = setup(Mode::AsyncZeroCopy(true));
   runtime
-    .execute_script_static(
+    .execute_script(
       "filename.js",
       r#"
       const { op_test } = Deno.core.ensureFastOps();
@@ -455,7 +455,7 @@ fn test_dispatch_stack_zero_copy_bufs() {
 fn test_call_site() {
   let (mut runtime, _) = setup(Mode::Async);
   runtime
-    .execute_script_static(
+    .execute_script(
       "file:///filename.js",
       r#"
       const cs = Deno.core.currentUserCallSite();
@@ -634,7 +634,7 @@ pub async fn test_op_metrics() {
   });
 
   let promise = runtime
-  .execute_script_static(
+  .execute_script(
     "filename.js",
     r#"
     const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ensureFastOps();
@@ -706,7 +706,7 @@ pub async fn test_op_metrics_summary_tracker() {
   });
 
   let promise = runtime
-  .execute_script_static(
+  .execute_script(
     "filename.js",
     r#"
     const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ensureFastOps();

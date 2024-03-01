@@ -178,7 +178,7 @@ pub fn create_snapshot(
       with_runtime_cb(&mut js_runtime);
     }
 
-    js_runtime.execute_script_static("warmup", warmup_script)?;
+    js_runtime.execute_script("warmup", warmup_script)?;
 
     snapshot = js_runtime.snapshot();
   }
