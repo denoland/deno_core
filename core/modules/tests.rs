@@ -260,7 +260,7 @@ fn test_recursive_load() {
     ..Default::default()
   });
   let spec = resolve_url("file:///a.js").unwrap();
-  let a_id_fut = runtime.load_main_module_from(&spec);
+  let a_id_fut = runtime.load_main_es_module(&spec);
   let a_id = futures::executor::block_on(a_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -1057,7 +1057,7 @@ fn test_circular_load() {
 
   let fut = async move {
     let spec = resolve_url("file:///circular1.js").unwrap();
-    let result = runtime.load_main_module_from(&spec).await;
+    let result = runtime.load_main_es_module(&spec).await;
     assert!(result.is_ok());
     let circular1_id = result.unwrap();
     #[allow(clippy::let_underscore_future)]
@@ -1138,7 +1138,7 @@ fn test_redirect_load() {
   let fut =
     async move {
       let spec = resolve_url("file:///redirect1.js").unwrap();
-      let result = runtime.load_main_module_from(&spec).await;
+      let result = runtime.load_main_es_module(&spec).await;
       assert!(result.is_ok());
       let redirect1_id = result.unwrap();
       #[allow(clippy::let_underscore_future)]
@@ -1205,7 +1205,7 @@ async fn slow_never_ready_modules() {
 
   poll_fn(move |cx| {
     let spec = resolve_url("file:///main.js").unwrap();
-    let mut recursive_load = runtime.load_main_module_from(&spec).boxed_local();
+    let mut recursive_load = runtime.load_main_es_module(&spec).boxed_local();
 
     let result = recursive_load.poll_unpin(cx);
     assert!(result.is_pending());
@@ -1249,7 +1249,7 @@ async fn loader_disappears_after_error() {
   });
 
   let spec = resolve_url("file:///bad_import.js").unwrap();
-  let result = runtime.load_main_module_from(&spec).await;
+  let result = runtime.load_main_es_module(&spec).await;
   let err = result.unwrap_err();
   assert_eq!(
     err.downcast_ref::<MockError>().unwrap(),
@@ -1279,7 +1279,7 @@ fn recursive_load_main_with_code() {
   // The behavior should be very similar to /a.js.
   let spec = resolve_url("file:///main_with_code.js").unwrap();
   let main_id_fut = runtime
-    .load_main_module(&spec, MAIN_WITH_CODE_SRC)
+    .load_main_es_module_from_code(&spec, MAIN_WITH_CODE_SRC)
     .boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
@@ -1362,8 +1362,7 @@ fn main_and_side_module() {
     ..Default::default()
   });
 
-  let main_id_fut =
-    runtime.load_main_module_from(&main_specifier).boxed_local();
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -1372,13 +1371,11 @@ fn main_and_side_module() {
     .unwrap();
 
   // Try to add another main module - it should error.
-  let side_id_fut =
-    runtime.load_main_module_from(&side_specifier).boxed_local();
+  let side_id_fut = runtime.load_main_es_module(&side_specifier).boxed_local();
   futures::executor::block_on(side_id_fut).unwrap_err();
 
   // And now try to load it as a side module
-  let side_id_fut =
-    runtime.load_side_module_from(&side_specifier).boxed_local();
+  let side_id_fut = runtime.load_side_es_module(&side_specifier).boxed_local();
   let side_id = futures::executor::block_on(side_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -1406,7 +1403,7 @@ fn dynamic_imports_snapshot() {
     // The behavior should be very similar to /a.js.
     let spec = resolve_url("file:///main_with_code.js").unwrap();
     let main_id_fut = runtime
-      .load_main_module(&spec, MAIN_WITH_CODE_SRC)
+      .load_main_es_module_from_code(&spec, MAIN_WITH_CODE_SRC)
       .boxed_local();
     let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
@@ -1446,7 +1443,7 @@ fn import_meta_snapshot() {
     // The behavior should be very similar to /a.js.
     let spec = resolve_url("file:///main_with_code.js").unwrap();
     let main_id_fut = runtime
-      .load_main_module(&spec, MAIN_WITH_CODE_SRC)
+      .load_main_es_module_from_code(&spec, MAIN_WITH_CODE_SRC)
       .boxed_local();
     let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
@@ -1573,7 +1570,7 @@ async fn no_duplicate_loads() {
   });
 
   let spec = resolve_url("file:///main.js").unwrap();
-  let a_id = runtime.load_main_module_from(&spec).await.unwrap();
+  let a_id = runtime.load_main_es_module(&spec).await.unwrap();
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(a_id);
   runtime.run_event_loop(Default::default()).await.unwrap();
@@ -1616,7 +1613,10 @@ async fn import_meta_resolve_cb() {
     if (!caught) throw new Error("d");
   "#;
 
-  let a_id = runtime.load_main_module(&spec, source).await.unwrap();
+  let a_id = runtime
+    .load_main_es_module_from_code(&spec, source)
+    .await
+    .unwrap();
   let local = LocalSet::new();
   let a = local.spawn_local(runtime.mod_evaluate(a_id));
   let b = local.spawn_local(async move {
@@ -1645,8 +1645,7 @@ fn builtin_core_module() {
     ..Default::default()
   });
 
-  let main_id_fut =
-    runtime.load_main_module_from(&main_specifier).boxed_local();
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -1678,8 +1677,7 @@ fn import_meta_filename_dirname() {
     ..Default::default()
   });
 
-  let main_id_fut =
-    runtime.load_main_module_from(&main_specifier).boxed_local();
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]

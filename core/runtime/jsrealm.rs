@@ -339,7 +339,7 @@ impl JsRealm {
   ///
   /// User must call [`ModuleMap::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub(crate) async fn load_main_module(
+  pub(crate) async fn load_main_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -384,7 +384,7 @@ impl JsRealm {
   // TODO(bartlomieju): create a separate method to execute code synchronously
   // from a loader? Would simplify JsRuntime code and not require running in
   // a `block_on`.
-  pub(crate) async fn load_side_module(
+  pub(crate) async fn load_side_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -427,7 +427,7 @@ impl JsRealm {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub(crate) fn lazy_load_es_module_from_code(
+  pub(crate) fn lazy_load_es_module_with_code(
     &self,
     isolate: &mut v8::Isolate,
     module_specifier: ModuleName,
@@ -435,7 +435,7 @@ impl JsRealm {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);
-    module_map_rc.lazy_load_es_module_from_code(
+    module_map_rc.lazy_load_es_module_with_code(
       scope,
       module_specifier.as_str(),
       code,

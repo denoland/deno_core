@@ -1054,7 +1054,7 @@ impl JsRuntime {
 
     for file_source in &BUILTIN_ES_MODULES {
       mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-      module_map.lazy_load_es_module_from_code(
+      module_map.lazy_load_es_module_with_code(
         scope,
         file_source.specifier,
         file_source.load()?,
@@ -1093,7 +1093,7 @@ impl JsRuntime {
       for file_source in extension.get_esm_sources() {
         mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
         realm
-          .load_side_module(
+          .load_side_es_module_from_code(
             self.v8_isolate(),
             &ModuleSpecifier::parse(file_source.specifier)?,
             None,
@@ -2087,7 +2087,7 @@ impl JsRuntime {
   ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_main_module(
+  pub async fn load_main_es_module_from_code(
     &mut self,
     specifier: &ModuleSpecifier,
     code: impl IntoModuleCodeString,
@@ -2096,7 +2096,11 @@ impl JsRuntime {
     self
       .inner
       .main_realm
-      .load_main_module(isolate, specifier, Some(code.into_module_code()))
+      .load_main_es_module_from_code(
+        isolate,
+        specifier,
+        Some(code.into_module_code()),
+      )
       .await
   }
 
@@ -2108,7 +2112,7 @@ impl JsRuntime {
   ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_main_module_from(
+  pub async fn load_main_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
   ) -> Result<ModuleId, Error> {
@@ -2116,7 +2120,7 @@ impl JsRuntime {
     self
       .inner
       .main_realm
-      .load_main_module(isolate, specifier, None)
+      .load_main_es_module_from_code(isolate, specifier, None)
       .await
   }
 
@@ -2133,7 +2137,7 @@ impl JsRuntime {
   ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_side_module(
+  pub async fn load_side_es_module_from_code(
     &mut self,
     specifier: &ModuleSpecifier,
     code: impl IntoModuleCodeString,
@@ -2142,7 +2146,11 @@ impl JsRuntime {
     self
       .inner
       .main_realm
-      .load_side_module(isolate, specifier, Some(code.into_module_code()))
+      .load_side_es_module_from_code(
+        isolate,
+        specifier,
+        Some(code.into_module_code()),
+      )
       .await
   }
 
@@ -2154,7 +2162,7 @@ impl JsRuntime {
   ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_side_module_from(
+  pub async fn load_side_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
   ) -> Result<ModuleId, Error> {
@@ -2162,7 +2170,7 @@ impl JsRuntime {
     self
       .inner
       .main_realm
-      .load_side_module(isolate, specifier, None)
+      .load_side_es_module_from_code(isolate, specifier, None)
       .await
   }
 
@@ -2173,13 +2181,13 @@ impl JsRuntime {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub fn lazy_load_es_module_from_code(
+  pub fn lazy_load_es_module_with_code(
     &mut self,
     specifier: impl IntoModuleName,
     code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
-    self.inner.main_realm.lazy_load_es_module_from_code(
+    self.inner.main_realm.lazy_load_es_module_with_code(
       isolate,
       specifier.into_module_name(),
       code.into_module_code(),

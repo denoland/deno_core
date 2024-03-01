@@ -126,7 +126,7 @@ async fn run_worker_task(
   mut shutdown_rx: UnboundedReceiver<()>,
 ) -> Result<(), Error> {
   let url = Url::try_from(base_url.as_str())?.join(&main_script)?;
-  let module = runtime.load_main_module_from(&url).await?;
+  let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   // We need this structure for the shutdown code to ensure that the output is
   // consistent whether the v8 termination signal is sent, or the shutdown_rx is

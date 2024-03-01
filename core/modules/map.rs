@@ -1466,7 +1466,7 @@ impl ModuleMap {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub(crate) fn lazy_load_es_module_from_code(
+  pub(crate) fn lazy_load_es_module_with_code(
     &self,
     scope: &mut v8::HandleScope,
     module_specifier: &str,
@@ -1557,7 +1557,7 @@ impl ModuleMap {
       ModuleLoadResponse::Async(fut) => futures::executor::block_on(fut),
     }?;
 
-    self.lazy_load_es_module_from_code(
+    self.lazy_load_es_module_with_code(
       scope,
       module_specifier,
       ModuleSource::get_string_source(specifier.as_str(), source.code)?,

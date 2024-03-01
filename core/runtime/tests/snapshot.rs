@@ -201,12 +201,12 @@ fn es_snapshot() {
 
     let id = if main {
       futures::executor::block_on(
-        runtime.load_main_module(&specifier, source_code),
+        runtime.load_main_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     } else {
       futures::executor::block_on(
-        runtime.load_side_module(&specifier, source_code),
+        runtime.load_side_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     };
@@ -245,7 +245,7 @@ fn es_snapshot() {
   });
 
   let specifier = crate::resolve_url("file:///0.js").unwrap();
-  let id = futures::executor::block_on(runtime.load_side_module(
+  let id = futures::executor::block_on(runtime.load_side_es_module_from_code(
     &specifier,
     r#"export function f0() { return "hello world" }"#,
   ))

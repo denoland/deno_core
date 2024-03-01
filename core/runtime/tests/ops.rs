@@ -504,7 +504,7 @@ await op_void_async_deferred();
   });
 
   let id = runtime
-    .load_main_module_from(&Url::parse("http://x/main.js").unwrap())
+    .load_main_es_module(&Url::parse("http://x/main.js").unwrap())
     .await
     .unwrap();
   let mut rx = runtime.mod_evaluate(id);

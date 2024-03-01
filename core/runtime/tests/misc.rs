@@ -435,7 +435,7 @@ fn test_get_module_namespace() {
   "#;
 
   let module_id = futures::executor::block_on(
-    runtime.load_main_module(&specifier, source_code),
+    runtime.load_main_es_module_from_code(&specifier, source_code),
   )
   .unwrap();
 
@@ -783,7 +783,8 @@ fn terminate_during_module_eval() {
   let specifier = crate::resolve_url("file:///main.js").unwrap();
 
   let module_id = futures::executor::block_on(
-    runtime.load_main_module(&specifier, "Deno.core.print('hello\\n')"),
+    runtime
+      .load_main_es_module_from_code(&specifier, "Deno.core.print('hello\\n')"),
   )
   .unwrap();
 
@@ -850,7 +851,10 @@ async fn test_promise_rejection_handler_generic(
 
   let future = if module {
     let id = runtime
-      .load_main_module(&Url::parse("file:///test.js").unwrap(), script)
+      .load_main_es_module_from_code(
+        &Url::parse("file:///test.js").unwrap(),
+        script,
+      )
       .await
       .unwrap();
     Some(runtime.mod_evaluate(id))
@@ -926,7 +930,7 @@ async fn test_stalled_tla() {
     ..Default::default()
   });
   let module_id = runtime
-    .load_main_module_from(&crate::resolve_url("file:///test.js").unwrap())
+    .load_main_es_module(&crate::resolve_url("file:///test.js").unwrap())
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
@@ -976,7 +980,7 @@ async fn test_dynamic_import_module_error_stack() {
   });
 
   let module_id = runtime
-    .load_main_module_from(&crate::resolve_url("file:///main.js").unwrap())
+    .load_main_es_module(&crate::resolve_url("file:///main.js").unwrap())
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
