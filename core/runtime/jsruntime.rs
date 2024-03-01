@@ -1282,40 +1282,13 @@ impl JsRuntime {
   pub fn execute_script(
     &mut self,
     name: &'static str,
-    source_code: ModuleCodeString,
+    source_code: impl Into<ModuleCodeString>,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
       .main_realm
       .execute_script(isolate, name, source_code)
-  }
-
-  /// Executes traditional JavaScript code (traditional = not ES modules).
-  ///
-  /// The execution takes place on the current main realm, so it is possible
-  /// to maintain local JS state and invoke this method multiple times.
-  ///
-  /// `name` can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
-  ///
-  ///   - "/some/file/path.js"
-  ///   - "<anon>"
-  ///   - "[native code]"
-  ///
-  /// The same `name` value can be used for multiple executions.
-  ///
-  /// `Error` can usually be downcast to `JsError`.
-  pub fn execute_script_static(
-    &mut self,
-    name: &'static str,
-    source_code: &'static str,
-  ) -> Result<v8::Global<v8::Value>, Error> {
-    let isolate = &mut self.inner.v8_isolate;
-    self.inner.main_realm.execute_script(
-      isolate,
-      name,
-      ModuleCodeString::from_static(source_code),
-    )
   }
 
   /// Call a function and return a future resolving with the return value of the

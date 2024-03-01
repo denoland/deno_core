@@ -344,7 +344,7 @@ fn test_mods() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "setup.js",
       r#"
       function assert(cond) {
@@ -426,7 +426,7 @@ fn test_lazy_loaded_esm() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "setup.js",
       r#"
       Deno.core.print("1\n");
@@ -449,7 +449,7 @@ fn test_json_module() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "setup.js",
       r#"
         function assert(cond) {
@@ -942,7 +942,7 @@ async fn dyn_import_err() {
   // Test an erroneous dynamic import where the specified module isn't found.
   poll_fn(move |cx| {
     runtime
-      .execute_script_static(
+      .execute_script(
         "file:///dyn_import2.js",
         r#"
       (async () => {
@@ -974,7 +974,7 @@ async fn dyn_import_ok() {
   poll_fn(move |cx| {
     // Dynamically import mod_b
     runtime
-      .execute_script_static(
+      .execute_script(
         "file:///dyn_import3.js",
         r#"
         (async () => {
@@ -1021,7 +1021,7 @@ async fn dyn_import_borrow_mut_error() {
 
   poll_fn(move |cx| {
     runtime
-      .execute_script_static(
+      .execute_script(
         "file:///dyn_import3.js",
         r#"
         (async () => {
@@ -1434,7 +1434,7 @@ fn dynamic_imports_snapshot() {
   });
 
   //Evaluate the snapshot with an empty function
-  runtime2.execute_script_static("check.js", "true").unwrap();
+  runtime2.execute_script("check.js", "true").unwrap();
 }
 
 #[test]
@@ -1477,7 +1477,7 @@ fn import_meta_snapshot() {
   });
 
   runtime2
-    .execute_script_static(
+    .execute_script(
       "check.js",
       "if (globalThis.url !== 'file:///main_with_code.js') throw Error('x')",
     )

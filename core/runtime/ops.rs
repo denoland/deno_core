@@ -521,7 +521,6 @@ mod tests {
   use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
-  use crate::FastString;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
@@ -659,39 +658,31 @@ mod tests {
     runtime
       .execute_script(
         "",
-        FastString::Owned(
-          format!(
-            r"
-            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
-            function assert(b) {{
-              if (!b) {{
-                op_test_fail();
-              }}
+        format!(r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+          function assert(b) {{
+            if (!b) {{
+              op_test_fail();
             }}
-            function assertErrorContains(e, s) {{
-              assert(String(e).indexOf(s) != -1)
-            }}
-            function log(s) {{
-              op_test_print_debug(String(s))
-            }}
-          "
-          )
-          .into(),
-        ),
+          }}
+          function assertErrorContains(e, s) {{
+            assert(String(e).indexOf(s) != -1)
+          }}
+          function log(s) {{
+            op_test_print_debug(String(s))
+          }}
+        ")
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
-      FastString::Owned(
-        format!(
-          r"
-      for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
-        {test}
-      }}
-    "
-        )
-        .into(),
+      format!(
+        r"
+        for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
+          {test}
+        }}
+      "
       ),
     )?;
     if FAIL.with(|b| b.get()) {
@@ -716,41 +707,33 @@ mod tests {
     runtime
       .execute_script(
         "",
-        FastString::Owned(
-          format!(
-            r"
-            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
-            function assert(b) {{
-              if (!b) {{
-                op_test_fail();
-              }}
+        format!(r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+          function assert(b) {{
+            if (!b) {{
+              op_test_fail();
             }}
-            function assertErrorContains(e, s) {{
-              assert(String(e).indexOf(s) != -1)
-            }}
-            function log(s) {{
-              op_test_print_debug(String(s))
-            }}
-          "
-          )
-          .into(),
-        ),
+          }}
+          function assertErrorContains(e, s) {{
+            assert(String(e).indexOf(s) != -1)
+          }}
+          function log(s) {{
+            op_test_print_debug(String(s))
+          }}
+        ")
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
-      FastString::Owned(
-        format!(
-          r"
-            (async () => {{
-              for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
-                {test}
-              }}
-            }})()
-          "
-        )
-        .into(),
+      format!(
+        r"
+        (async () => {{
+          for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
+            {test}
+          }}
+        }})()
+      "
       ),
     )?;
 

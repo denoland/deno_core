@@ -28,8 +28,7 @@ fn test_set_format_exception_callback_realms() {
               return `{realm_name} / ${{error}}`;
             }});
           "#
-        )
-        .into(),
+        ),
       )
       .unwrap();
   }
@@ -40,7 +39,7 @@ fn test_set_format_exception_callback_realms() {
       let result = realm.execute_script(
         runtime.v8_isolate(),
         "",
-        format!("throw new Error('{realm_name}');").into(),
+        format!("throw new Error('{realm_name}');"),
       );
       assert!(result.is_err());
 
@@ -57,7 +56,7 @@ fn test_set_format_exception_callback_realms() {
         .execute_script(
           runtime.v8_isolate(),
           "",
-          format!("Promise.reject(new Error('{realm_name}'));").into(),
+          format!("Promise.reject(new Error('{realm_name}'));"),
         )
         .unwrap();
 
@@ -91,7 +90,7 @@ async fn js_realm_ref_unref_ops() {
     let main_realm = runtime.main_realm();
 
     main_realm
-      .execute_script_static(
+      .execute_script(
         runtime.v8_isolate(),
         "",
         r#"
@@ -106,7 +105,7 @@ async fn js_realm_ref_unref_ops() {
     ));
 
     main_realm
-      .execute_script_static(
+      .execute_script(
         runtime.v8_isolate(),
         "",
         r#"
@@ -150,9 +149,7 @@ fn es_snapshot() {
 
   // The module was evaluated ahead of time
   {
-    let global_test = runtime
-      .execute_script_static("", "globalThis.TEST")
-      .unwrap();
+    let global_test = runtime.execute_script("", "globalThis.TEST").unwrap();
     let scope = &mut runtime.handle_scope();
     let global_test = v8::Local::new(scope, global_test);
     assert!(global_test.is_string());
@@ -162,10 +159,7 @@ fn es_snapshot() {
   // The module can be imported
   {
     let test_export_promise = runtime
-      .execute_script_static(
-        "",
-        "import('mod:test').then(module => module.TEST)",
-      )
+      .execute_script("", "import('mod:test').then(module => module.TEST)")
       .unwrap();
     #[allow(deprecated)]
     let test_export =

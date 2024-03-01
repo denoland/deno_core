@@ -187,6 +187,14 @@ impl PartialEq for FastString {
 
 impl Eq for FastString {}
 
+/// [`FastString`] can be made cheaply from `&'static str` as we know it's owned and don't need to do an
+/// ASCII check.
+impl From<&'static str> for FastString {
+  fn from(value: &'static str) -> Self {
+    FastString::from_static(value)
+  }
+}
+
 /// [`FastString`] can be made cheaply from [`Url`] as we know it's owned and don't need to do an
 /// ASCII check.
 impl From<Url> for FastString {

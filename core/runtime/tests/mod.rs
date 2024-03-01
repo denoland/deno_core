@@ -88,7 +88,7 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "setup.js",
       r#"
       function assert(cond) {

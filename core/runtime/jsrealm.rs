@@ -261,40 +261,13 @@ impl JsRealm {
   /// The same `name` value can be used for multiple executions.
   ///
   /// `Error` can usually be downcast to `JsError`.
-  #[cfg(test)]
-  pub fn execute_script_static(
-    &self,
-    isolate: &mut v8::Isolate,
-    name: &'static str,
-    source_code: &'static str,
-  ) -> Result<v8::Global<v8::Value>, Error> {
-    self.execute_script(
-      isolate,
-      name,
-      ModuleCodeString::from_static(source_code),
-    )
-  }
-
-  /// Executes traditional JavaScript code (traditional = not ES modules) in the
-  /// realm's context.
-  ///
-  /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].
-  ///
-  /// The `name` parameter can be a filepath or any other string. E.g.:
-  ///
-  ///   - "/some/file/path.js"
-  ///   - "<anon>"
-  ///   - "[native code]"
-  ///
-  /// The same `name` value can be used for multiple executions.
-  ///
-  /// `Error` can usually be downcast to `JsError`.
   pub fn execute_script(
     &self,
     isolate: &mut v8::Isolate,
     name: &'static str,
-    source_code: ModuleCodeString,
+    source_code: impl Into<ModuleCodeString>,
   ) -> Result<v8::Global<v8::Value>, Error> {
+    let source_code = source_code.into();
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.v8_string(scope);
