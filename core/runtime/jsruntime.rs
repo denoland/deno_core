@@ -325,6 +325,9 @@ pub struct JsRuntime {
   // [`JsRuntime::init_extension_js`]. This field is populated only if a
   // snapshot is being created.
   files_loaded_from_fs_during_snapshot: Vec<&'static str>,
+
+  external_ref_backed_sources: Vec<ExtensionFileSourceCode>,
+
   // Marks if this is considered the top-level runtime. Used only by inspector.
   is_main_runtime: bool,
 }
@@ -621,6 +624,7 @@ impl JsRuntime {
     let mut op_state = OpState::new(options.feature_checker.take());
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
+    let mut external_ref_backed_sources = vec![];
     let mut source_mapper = SourceMapper::new(options.source_map_getter);
     for extension in &extensions {
       for esm in extension.get_esm_sources() {
@@ -645,6 +649,8 @@ impl JsRuntime {
           );
         }
       }
+      external_ref_backed_sources
+        .extend_from_slice(&extension.get_external_refs_backed_sources())
     }
 
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
@@ -690,14 +696,41 @@ impl JsRuntime {
       global_object_middlewares,
       additional_references,
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
-    let external_refs =
-      bindings::create_external_references(&op_ctxs, &additional_references);
 
-    let (maybe_startup_snapshot, sidecar_data) = options
+    let (maybe_startup_snapshot, sidecar_data, source_files) = options
       .startup_snapshot
       .take()
-      .map(snapshot::deconstruct)
-      .unzip();
+      .map(|snapshot| {
+        let (a, b, c) = snapshot::deconstruct(snapshot);
+        (Some(a), Some(b), Some(c))
+      })
+      .unwrap_or_else(|| (None, None, None));
+
+    let external_refs = bindings::create_external_references(
+      &op_ctxs,
+      &additional_references,
+      // TODO(bartlomieju): I think this doesn't work for snapshot from a snapshot
+      if will_snapshot {
+        external_ref_backed_sources
+          .iter()
+          .map(|c| {
+            let ExtensionFileSourceCode::ExternalRefBacked(_source, onebyte) =
+              c
+            else {
+              unreachable!()
+            };
+            *onebyte
+          })
+          .collect::<Vec<_>>()
+      } else {
+        if let Some(sf) = source_files.as_ref() {
+          sf.iter().map(|(_, o)| o).collect()
+        } else {
+          vec![]
+        }
+      },
+    );
+
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
@@ -856,6 +889,7 @@ impl JsRuntime {
       },
       allocations: IsolateAllocations::default(),
       files_loaded_from_fs_during_snapshot: vec![],
+      external_ref_backed_sources,
       is_main_runtime: options.is_main,
     };
 
@@ -1855,6 +1889,18 @@ impl JsRuntimeForSnapshot {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
 
+    let source_files_to_snapshot = self
+      .external_ref_backed_sources
+      .iter()
+      .map(|c| {
+        let ExtensionFileSourceCode::ExternalRefBacked(source, _) = c else {
+          unreachable!()
+        };
+        // TODO(bartlomieju): change the signature. It doesn't need to be
+        // Box<[u8]>.
+        source.as_bytes().to_vec().into_boxed_slice()
+      })
+      .collect::<Vec<_>>();
     let realm = JsRealm::clone(&self.inner.main_realm);
 
     // Set the context to be snapshot's default context
@@ -1914,7 +1960,8 @@ impl JsRuntimeForSnapshot {
       .create_blob(v8::FunctionCodeHandling::Keep)
       .unwrap();
 
-    snapshot::serialize(v8_data, sidecar_data)
+    // TODO(bartlomieju): add source files here
+    snapshot::serialize(v8_data, sidecar_data, source_files_to_snapshot)
   }
 }
 

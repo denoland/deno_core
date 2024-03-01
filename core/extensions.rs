@@ -29,6 +29,10 @@ pub enum ExtensionFileSourceCode {
   // during the build time and they will only be present in the V8 snapshot.
   LoadedFromMemoryDuringSnapshot(&'static str),
 
+  // The source is leaked to provide a static str and it will be then included
+  // in the snapshot.
+  ExternalRefBacked(&'static str, &'static v8::OneByteConst),
+
   /// Source code may be computed at runtime.
   Computed(Arc<str>),
 }
@@ -43,6 +47,9 @@ impl std::fmt::Debug for ExtensionFileSourceCode {
       }
       Self::LoadedFromMemoryDuringSnapshot(..) => {
         write!(f, "LoadedFromMemoryDuringSnapshot(..)")
+      }
+      Self::ExternalRefBacked(..) => {
+        write!(f, "ExternalRefBacked(..)")
       }
       Self::Computed(..) => write!(f, "Computed(..)"),
     }
@@ -91,6 +98,20 @@ impl ExtensionFileSource {
     }
   }
 
+  pub const fn external_ref_backed(
+    specifier: &'static str,
+    code: &'static str,
+    onebyte_const: &'static v8::OneByteConst,
+  ) -> Self {
+    #[allow(deprecated)]
+    Self {
+      specifier,
+      code: ExtensionFileSourceCode::ExternalRefBacked(code, &onebyte_const),
+      source_map: None,
+      _unconstructable_use_new: PhantomData,
+    }
+  }
+
   pub const fn loaded_from_memory_during_snapshot(
     specifier: &'static str,
     code: &'static str,
@@ -120,6 +141,15 @@ impl ExtensionFileSource {
           Self::find_non_ascii(code)
         );
         Ok(ModuleCodeString::from_static(code))
+      }
+      ExtensionFileSourceCode::ExternalRefBacked(code, onebyte_const) => {
+        debug_assert!(
+          code.is_ascii(),
+          "Extension code must be 7-bit ASCII: {} (found {})",
+          self.specifier,
+          Self::find_non_ascii(code)
+        );
+        Ok(ModuleCodeString::ExternalRefBacked(code, onebyte_const))
       }
       ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) => {
         let msg = || format!("Failed to read \"{}\"", path);
@@ -661,6 +691,22 @@ impl Extension {
 
   pub fn get_lazy_loaded_esm_sources(&self) -> &[ExtensionFileSource] {
     &self.lazy_loaded_esm_files
+  }
+
+  pub fn get_external_refs_backed_sources(
+    &self,
+  ) -> Vec<ExtensionFileSourceCode> {
+    self
+      .esm_files
+      .iter()
+      .filter_map(|f| {
+        if matches!(f.code, ExtensionFileSourceCode::ExternalRefBacked(_, _)) {
+          Some(f.code.clone())
+        } else {
+          None
+        }
+      })
+      .collect::<Vec<_>>()
   }
 
   pub fn get_esm_entry_point(&self) -> Option<&'static str> {
