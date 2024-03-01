@@ -12,6 +12,7 @@ use super::stats::RuntimeActivityStatsFactory;
 use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::ascii_str;
+use crate::ascii_str_include;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
@@ -263,24 +264,15 @@ impl Future for RcPromiseFuture {
 static VIRTUAL_OPS_MODULE_NAME: FastStaticString = ascii_str!("ext:core/ops");
 
 pub(crate) struct InternalSourceFile {
-  pub specifier: &'static str,
-  pub specifier_onebyte_const: &'static v8::OneByteConst,
-  pub source_onebyte_const: &'static v8::OneByteConst,
+  pub specifier: FastStaticString,
+  pub source: FastStaticString,
 }
 
 macro_rules! internal_source_file {
   ($str_:literal) => {{
-    static SPECIFIER: &str = concat!("ext:core/", $str_);
-    static SOURCE: &[u8] = include_bytes!(concat!("../", $str_));
-
-    static SPECIFIER_OBC: v8::OneByteConst =
-      v8::String::create_external_onebyte_const(SPECIFIER.as_bytes());
-    static SOURCE_OBC: v8::OneByteConst =
-      v8::String::create_external_onebyte_const(SOURCE);
     InternalSourceFile {
-      specifier: SPECIFIER,
-      specifier_onebyte_const: &SPECIFIER_OBC,
-      source_onebyte_const: &SOURCE_OBC,
+      specifier: ascii_str!(concat!("ext:core/", $str_)),
+      source: ascii_str_include!(concat!("../", $str_)),
     }
   }};
 }
@@ -1031,19 +1023,11 @@ impl JsRuntime {
     let scope = &mut realm.handle_scope(self.v8_isolate());
 
     for source_file in &BUILTIN_SOURCES {
-      let name = v8::String::new_from_onebyte_const(
-        scope,
-        source_file.specifier_onebyte_const,
-      )
-      .unwrap();
-      let source_str = v8::String::new_from_onebyte_const(
-        scope,
-        source_file.source_onebyte_const,
-      )
-      .unwrap();
+      let name = source_file.specifier.v8_string(scope);
+      let source = source_file.source.v8_string(scope);
 
       let origin = bindings::script_origin(scope, name);
-      let script = v8::Script::compile(scope, source_str, Some(&origin))
+      let script = v8::Script::compile(scope, source, Some(&origin))
         .with_context(|| {
           format!("Failed to parse {}", source_file.specifier)
         })?;

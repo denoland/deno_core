@@ -62,15 +62,13 @@ pub(crate) fn create_external_references(
   // allows V8 to take an optimized path when deserializing the snapshot.
   for source_file in &CONTEXT_SETUP_SOURCES {
     references.push(v8::ExternalReference {
-      pointer: source_file.source_onebyte_const as *const v8::OneByteConst
-        as *mut c_void,
+      pointer: source_file.source.into_v8_const_ptr() as _,
     });
   }
 
   for source_file in &BUILTIN_SOURCES {
     references.push(v8::ExternalReference {
-      pointer: source_file.source_onebyte_const as *const v8::OneByteConst
-        as *mut c_void,
+      pointer: source_file.source.into_v8_const_ptr() as _,
     });
   }
 
@@ -265,20 +263,12 @@ pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
 ) -> Result<(), AnyError> {
   for source_file in &CONTEXT_SETUP_SOURCES {
-    let name = v8::String::new_from_onebyte_const(
-      scope,
-      source_file.specifier_onebyte_const,
-    )
-    .unwrap();
-    let source_str = v8::String::new_from_onebyte_const(
-      scope,
-      source_file.source_onebyte_const,
-    )
-    .unwrap();
+    let name = source_file.specifier.v8_string(scope);
+    let source = source_file.source.v8_string(scope);
 
     let origin = script_origin(scope, name);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
-    let script = v8::Script::compile(scope, source_str, Some(&origin))
+    let script = v8::Script::compile(scope, source, Some(&origin))
       .with_context(|| format!("Failed to parse {}", source_file.specifier))?;
     script.run(scope).with_context(|| {
       format!("Failed to execute {}", source_file.specifier)

@@ -69,11 +69,21 @@ impl FastStaticString {
   ) -> v8::Local<'s, v8::String> {
     FastString::from(*self).v8_string(scope)
   }
+
+  pub const fn into_v8_const_ptr(&self) -> *const v8::OneByteConst {
+    self.s as _
+  }
 }
 
 impl From<&'static v8::OneByteConst> for FastStaticString {
   fn from(s: &'static v8::OneByteConst) -> Self {
     Self::new(s)
+  }
+}
+
+impl Into<*const v8::OneByteConst> for FastStaticString {
+  fn into(self) -> *const v8::OneByteConst {
+    self.into_v8_const_ptr()
   }
 }
 
@@ -424,7 +434,7 @@ macro_rules! ascii_str_include {
 /// This macro creates a [`FastStaticString`] that may be converted to a [`FastString`] via [`Into::into`].
 #[macro_export]
 macro_rules! ascii_str {
-  ($str:literal) => {{
+  ($str:expr) => {{
     const C: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const($str.as_bytes());
     unsafe { std::mem::transmute::<_, $crate::FastStaticString>(&C) }
@@ -500,6 +510,8 @@ mod tests {
   fn test_const() {
     const _: (&str, FastStaticString) = __op_name_fast!(op_name);
     const _: FastStaticString = ascii_str!("hmm");
+    const _: FastStaticString = ascii_str!(concat!("hmm", "hmmmmm"));
     const _: FastStaticString = ascii_str_include!("Cargo.toml");
+    const _: FastStaticString = ascii_str_include!(concat!("./", "Cargo.toml"));
   }
 }
