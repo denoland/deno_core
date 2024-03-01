@@ -12,7 +12,7 @@ description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and T
 
 [[bin]]
 name = "dcore"
-path = "main.rs"
+path = "dcore/mod.rs"
 
 [lib]
 path = "lib.rs"
@@ -53,7 +53,8 @@ tokio.workspace = true
 url.workspace = true
 v8.workspace = true
 
-# make optional, just for dcore, trim features as much as possible
+# TODO(mmastrac): make these optional, they should be used only if we're compiling
+# 'dcore' bin target; try to trim enabled features.
 fastwebsockets = { version = "0.6", features = ["upgrade", "unstable-split"] }
 http = "1.0"
 http-body-util = "0.1"
