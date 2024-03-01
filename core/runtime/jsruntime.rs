@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
-use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
@@ -9,6 +8,7 @@ use super::op_driver::OpDriver;
 use super::setup;
 use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
+use super::v8_static_strings::*;
 use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::ascii_str;
@@ -1180,35 +1180,31 @@ impl JsRuntime {
       // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
       // look up them again?
       let deno_obj: v8::Local<v8::Object> =
-        bindings::get(scope, global, v8_static_strings::DENO, "Deno");
+        bindings::get(scope, global, DENO, "Deno");
       let core_obj: v8::Local<v8::Object> =
-        bindings::get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
+        bindings::get(scope, deno_obj, CORE, "Deno.core");
 
       let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
-        v8_static_strings::EVENT_LOOP_TICK,
+        EVENT_LOOP_TICK,
         "Deno.core.eventLoopTick",
       );
       let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
-        v8_static_strings::BUILD_CUSTOM_ERROR,
+        BUILD_CUSTOM_ERROR,
         "Deno.core.buildCustomError",
       );
 
       let mut wasm_instantiate_fn = None;
       if !will_snapshot {
-        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
-          scope,
-          global,
-          v8_static_strings::WEBASSEMBLY,
-          "WebAssembly",
-        );
+        let web_assembly_object: v8::Local<v8::Object> =
+          bindings::get(scope, global, WEBASSEMBLY, "WebAssembly");
         wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
           scope,
           web_assembly_object,
-          v8_static_strings::INSTANTIATE,
+          INSTANTIATE,
           "WebAssembly.instantiate",
         ));
       }

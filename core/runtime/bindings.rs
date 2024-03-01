@@ -8,6 +8,7 @@ use v8::MapFnTo;
 
 use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
+use super::v8_static_strings::*;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -148,38 +149,6 @@ where
     .unwrap_or_else(|_| panic!("unable to convert"))
 }
 
-macro_rules! v8_static_strings {
-  ($($ident:ident = $str:literal),* $(,)?) => {
-    pub mod v8_static_strings {
-      $(
-        pub static $ident: $crate::FastStaticString = $crate::ascii_str!($str);
-      )*
-    }
-  };
-}
-
-v8_static_strings!(
-  DENO = "Deno",
-  CORE = "core",
-  OPS = "ops",
-  URL = "url",
-  MAIN = "main",
-  RESOLVE = "resolve",
-  MESSAGE = "message",
-  CODE = "code",
-  ERR_MODULE_NOT_FOUND = "ERR_MODULE_NOT_FOUND",
-  EVENT_LOOP_TICK = "eventLoopTick",
-  BUILD_CUSTOM_ERROR = "buildCustomError",
-  CONSOLE = "console",
-  CALL_CONSOLE = "callConsole",
-  FILENAME = "filename",
-  DIRNAME = "dirname",
-  SET_UP_ASYNC_STUB = "setUpAsyncStub",
-  WEBASSEMBLY = "WebAssembly",
-  INSTANTIATE = "instantiate",
-  WASM_INSTANTIATE = "wasmInstantiate",
-);
-
 /// Create an object on the `globalThis` that looks like this:
 /// ```ignore
 /// globalThis.Deno = {
@@ -198,7 +167,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   init_mode: InitMode,
 ) {
   let global = context.global(scope);
-  let deno_str = v8_static_strings::DENO.v8_string(scope);
+  let deno_str = DENO.v8_string(scope);
 
   let maybe_deno_obj_val = global.get(scope, deno_str.into());
 
@@ -210,10 +179,10 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   }
 
   let deno_obj = v8::Object::new(scope);
-  let deno_core_key = v8_static_strings::CORE.v8_string(scope);
+  let deno_core_key = CORE.v8_string(scope);
   // Set up `Deno.core.ops` object
   let deno_core_ops_obj = v8::Object::new(scope);
-  let deno_core_ops_key = v8_static_strings::OPS.v8_string(scope);
+  let deno_core_ops_key = OPS.v8_string(scope);
 
   let deno_core_obj = v8::Object::new(scope);
   deno_core_obj
@@ -224,7 +193,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   if init_mode == InitMode::New {
     // Bind `call_console` to Deno.core.callConsole
     let call_console_fn = v8::Function::new(scope, call_console).unwrap();
-    let call_console_key = v8_static_strings::CALL_CONSOLE.v8_string(scope);
+    let call_console_key = CALL_CONSOLE.v8_string(scope);
     deno_core_obj.set(scope, call_console_key.into(), call_console_fn.into());
 
     // Bind v8 console object to Deno.core.console
@@ -232,10 +201,10 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
     let console_obj: v8::Local<v8::Object> = get(
       scope,
       extra_binding_obj,
-      v8_static_strings::CONSOLE,
+      CONSOLE,
       "ExtrasBindingObject.console",
     );
-    let console_key = v8_static_strings::CONSOLE.v8_string(scope);
+    let console_key = CONSOLE.v8_string(scope);
     deno_core_obj.set(scope, console_key.into(), console_obj.into());
   }
 
@@ -275,19 +244,14 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   // Set up JavaScript bindings for the defined op - this will insert proper
   // `v8::Function` into `Deno.core.ops` object. For async ops, there a bit
   // more machinery involved, see comment below.
-  let deno_obj = get(scope, global, v8_static_strings::DENO, "Deno");
-  let deno_core_obj =
-    get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
-  let deno_core_ops_obj: v8::Local<v8::Object> = get(
-    scope,
-    deno_core_obj,
-    v8_static_strings::OPS,
-    "Deno.core.ops",
-  );
+  let deno_obj = get(scope, global, DENO, "Deno");
+  let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");
+  let deno_core_ops_obj: v8::Local<v8::Object> =
+    get(scope, deno_core_obj, OPS, "Deno.core.ops");
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
-    v8_static_strings::SET_UP_ASYNC_STUB,
+    SET_UP_ASYNC_STUB,
     "Deno.core.setUpAsyncStub",
   );
 
@@ -460,19 +424,18 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     .get_type_by_module(&module_global)
     .expect("Module not found");
 
-  let url_key = v8_static_strings::URL.v8_string(scope);
+  let url_key = URL.v8_string(scope);
   let url_val = v8::String::new(scope, &name).unwrap();
   meta.create_data_property(scope, url_key.into(), url_val.into());
 
-  let main_key = v8_static_strings::MAIN.v8_string(scope);
+  let main_key = MAIN.v8_string(scope);
   let main = module_map.is_main_module(&module_global);
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
   // Add special method that allows WASM module to instantiate themselves.
   if module_type == ModuleType::Wasm {
-    let wasm_instantiate_key =
-      v8_static_strings::WASM_INSTANTIATE.v8_string(scope);
+    let wasm_instantiate_key = WASM_INSTANTIATE.v8_string(scope);
     let f = state.wasm_instantiate_fn.borrow().as_ref().unwrap().clone();
     let wasm_instantiate_val = v8::Local::new(scope, &*f);
     meta.create_data_property(
@@ -485,7 +448,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let builder =
     v8::FunctionBuilder::new(import_meta_resolve).data(url_val.into());
   let val = v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
-  let resolve_key = v8_static_strings::RESOLVE.v8_string(scope);
+  let resolve_key = RESOLVE.v8_string(scope);
   meta.set(scope, resolve_key.into(), val.into());
 
   maybe_add_import_meta_filename_dirname(scope, meta, &name);
@@ -517,7 +480,7 @@ fn maybe_add_import_meta_filename_dirname(
   let Some(filename_val) = v8::String::new(scope, &escaped_filename) else {
     return;
   };
-  let filename_key = v8_static_strings::FILENAME.v8_string(scope);
+  let filename_key = FILENAME.v8_string(scope);
   meta.create_data_property(scope, filename_key.into(), filename_val.into());
 
   let dir_path = file_path
@@ -528,7 +491,7 @@ fn maybe_add_import_meta_filename_dirname(
   let Some(dirname_val) = v8::String::new(scope, &escaped_dirname) else {
     return;
   };
-  let dirname_key = v8_static_strings::DIRNAME.v8_string(scope);
+  let dirname_key = DIRNAME.v8_string(scope);
   meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
 }
 
@@ -609,7 +572,7 @@ fn catch_dynamic_import_promise_error(
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
-      let message_key = v8_static_strings::MESSAGE.v8_string(scope);
+      let message_key = MESSAGE.v8_string(scope);
       let message = arg.get(scope, message_key.into()).unwrap();
       let mut message: v8::Local<v8::String> = message.try_into().unwrap();
       if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
@@ -626,8 +589,8 @@ fn catch_dynamic_import_promise_error(
         "ReferenceError" => v8::Exception::reference_error(scope, message),
         _ => v8::Exception::error(scope, message),
       };
-      let code_key = v8_static_strings::CODE.v8_string(scope);
-      let code_value = v8_static_strings::ERR_MODULE_NOT_FOUND.v8_string(scope);
+      let code_key = CODE.v8_string(scope);
+      let code_value = ERR_MODULE_NOT_FOUND.v8_string(scope);
       let exception_obj = exception.to_object(scope).unwrap();
       exception_obj.set(scope, code_key.into(), code_value.into());
       scope.throw_exception(exception);
@@ -773,13 +736,12 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 ) -> Vec<(FastStaticString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
 
-  let deno_obj = get(scope, global, v8_static_strings::DENO, "Deno");
-  let deno_core_obj =
-    get(scope, deno_obj, v8_static_strings::CORE, "Deno.core");
+  let deno_obj = get(scope, global, DENO, "Deno");
+  let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
-    v8_static_strings::SET_UP_ASYNC_STUB,
+    SET_UP_ASYNC_STUB,
     "Deno.core.setUpAsyncStub",
   );
 
