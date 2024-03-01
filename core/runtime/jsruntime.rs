@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
-use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
@@ -9,9 +8,11 @@ use super::op_driver::OpDriver;
 use super::setup;
 use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
+use super::v8_static_strings::*;
 use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::ascii_str;
+use crate::ascii_str_include;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
@@ -263,24 +264,15 @@ impl Future for RcPromiseFuture {
 static VIRTUAL_OPS_MODULE_NAME: FastStaticString = ascii_str!("ext:core/ops");
 
 pub(crate) struct InternalSourceFile {
-  pub specifier: &'static str,
-  pub specifier_onebyte_const: &'static v8::OneByteConst,
-  pub source_onebyte_const: &'static v8::OneByteConst,
+  pub specifier: FastStaticString,
+  pub source: FastStaticString,
 }
 
 macro_rules! internal_source_file {
   ($str_:literal) => {{
-    static SPECIFIER: &str = concat!("ext:core/", $str_);
-    static SOURCE: &[u8] = include_bytes!(concat!("../", $str_));
-
-    static SPECIFIER_OBC: v8::OneByteConst =
-      v8::String::create_external_onebyte_const(SPECIFIER.as_bytes());
-    static SOURCE_OBC: v8::OneByteConst =
-      v8::String::create_external_onebyte_const(SOURCE);
     InternalSourceFile {
-      specifier: SPECIFIER,
-      specifier_onebyte_const: &SPECIFIER_OBC,
-      source_onebyte_const: &SOURCE_OBC,
+      specifier: ascii_str!(concat!("ext:core/", $str_)),
+      source: ascii_str_include!(concat!("../", $str_)),
     }
   }};
 }
@@ -1031,19 +1023,11 @@ impl JsRuntime {
     let scope = &mut realm.handle_scope(self.v8_isolate());
 
     for source_file in &BUILTIN_SOURCES {
-      let name = v8::String::new_from_onebyte_const(
-        scope,
-        source_file.specifier_onebyte_const,
-      )
-      .unwrap();
-      let source_str = v8::String::new_from_onebyte_const(
-        scope,
-        source_file.source_onebyte_const,
-      )
-      .unwrap();
+      let name = source_file.specifier.v8_string(scope);
+      let source = source_file.source.v8_string(scope);
 
       let origin = bindings::script_origin(scope, name);
-      let script = v8::Script::compile(scope, source_str, Some(&origin))
+      let script = v8::Script::compile(scope, source, Some(&origin))
         .with_context(|| {
           format!("Failed to parse {}", source_file.specifier)
         })?;
@@ -1196,35 +1180,31 @@ impl JsRuntime {
       // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
       // look up them again?
       let deno_obj: v8::Local<v8::Object> =
-        bindings::get(scope, global, &v8_static_strings::DENO, "Deno");
+        bindings::get(scope, global, DENO, "Deno");
       let core_obj: v8::Local<v8::Object> =
-        bindings::get(scope, deno_obj, &v8_static_strings::CORE, "Deno.core");
+        bindings::get(scope, deno_obj, CORE, "Deno.core");
 
       let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
-        &v8_static_strings::EVENT_LOOP_TICK,
+        EVENT_LOOP_TICK,
         "Deno.core.eventLoopTick",
       );
       let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
-        &v8_static_strings::BUILD_CUSTOM_ERROR,
+        BUILD_CUSTOM_ERROR,
         "Deno.core.buildCustomError",
       );
 
       let mut wasm_instantiate_fn = None;
       if !will_snapshot {
-        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
-          scope,
-          global,
-          &v8_static_strings::WEBASSEMBLY,
-          "WebAssembly",
-        );
+        let web_assembly_object: v8::Local<v8::Object> =
+          bindings::get(scope, global, WEBASSEMBLY, "WebAssembly");
         wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
           scope,
           web_assembly_object,
-          &v8_static_strings::INSTANTIATE,
+          INSTANTIATE,
           "WebAssembly.instantiate",
         ));
       }
