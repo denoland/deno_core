@@ -136,7 +136,7 @@ fn es_snapshot() {
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
       extensions: vec![module_snapshot::init_ops_and_esm()],
-      module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
+      module_loader: Some(Rc::new(StaticModuleLoader::default())),
       ..Default::default()
     });
     runtime.snapshot()
