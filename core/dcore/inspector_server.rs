@@ -60,7 +60,10 @@ impl InspectorServer {
     tcp_listener.set_nonblocking(true)?;
 
     let thread_handle = thread::spawn(move || {
-      let rt = crate::tokio_util::create_basic_runtime();
+      let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
       let local = tokio::task::LocalSet::new();
       local.block_on(
         &rt,
