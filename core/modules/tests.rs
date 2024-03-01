@@ -442,7 +442,7 @@ fn test_lazy_loaded_esm() {
 
 #[test]
 fn test_json_module() {
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
@@ -552,7 +552,7 @@ fn test_validate_import_attributes_default() {
   // Verify that unless `validate_import_attributes_cb` is passed all import
   // are allowed and don't have any problem executing "invalid" code.
 
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
@@ -610,7 +610,7 @@ fn test_validate_import_attributes_callback() {
     }
   }
 
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     validate_import_attributes_cb: Some(Box::new(validate_import_attributes)),
@@ -679,7 +679,7 @@ fn test_validate_import_attributes_callback2() {
     scope.throw_exception(ex);
   }
 
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
@@ -712,7 +712,7 @@ fn test_validate_import_attributes_callback2() {
 
 #[test]
 fn test_custom_module_type_default() {
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
@@ -778,7 +778,7 @@ fn test_custom_module_type_callback_synthetic() {
     Ok(CustomModuleEvaluationKind::Synthetic(value_global))
   }
 
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
@@ -873,7 +873,7 @@ export const foo = bytes;
     ))
   }
 
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
@@ -933,7 +933,7 @@ export const foo = bytes;
 
 #[tokio::test]
 async fn dyn_import_err() {
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::new([])));
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
