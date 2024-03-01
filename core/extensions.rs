@@ -242,18 +242,16 @@ impl OpDecl {
 
   /// Returns a copy of this `OpDecl` with the implementation function set to the function from another
   /// `OpDecl`.
-  pub const fn with_implementation_from(self, from: &Self) -> Self {
-    Self {
-      slow_fn: from.slow_fn,
-      slow_fn_with_metrics: from.slow_fn_with_metrics,
-      fast_fn: from.fast_fn,
-      fast_fn_with_metrics: from.fast_fn_with_metrics,
-      ..self
-    }
+  pub const fn with_implementation_from(mut self, from: &Self) -> Self {
+    self.slow_fn = from.slow_fn;
+    self.slow_fn_with_metrics = from.slow_fn_with_metrics;
+    self.fast_fn = from.fast_fn;
+    self.fast_fn_with_metrics = from.fast_fn_with_metrics;
+    self
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn(self) -> FastFunction {
+  pub const fn fast_fn(&self) -> FastFunction {
     let Some(f) = self.fast_fn else {
       panic!("Not a fast function");
     };
@@ -261,7 +259,7 @@ impl OpDecl {
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn_with_metrics(self) -> FastFunction {
+  pub const fn fast_fn_with_metrics(&self) -> FastFunction {
     let Some(f) = self.fast_fn_with_metrics else {
       panic!("Not a fast function");
     };

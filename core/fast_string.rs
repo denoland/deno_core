@@ -246,8 +246,15 @@ macro_rules! include_ascii_string {
 /// 7-bit ASCII for optimal v8 performance.
 #[macro_export]
 macro_rules! ascii_str {
-  ($str:literal) => {
+  ($str:expr) => {
     $crate::FastString::ensure_static_ascii($str)
+  };
+}
+
+#[macro_export]
+macro_rules! __op_name_fast {
+  ($op:ident) => {
+    stringify!($op)
   };
 }
 

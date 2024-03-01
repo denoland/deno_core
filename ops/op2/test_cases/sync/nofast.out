@@ -2,10 +2,10 @@
 struct op_nofast {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_nofast {
+impl ::deno_core::_ops::Op for op_nofast {
     const NAME: &'static str = stringify!(op_nofast);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_nofast),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_nofast),
         false,
         false,
         2usize as u8,

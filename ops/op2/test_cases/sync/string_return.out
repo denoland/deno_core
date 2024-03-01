@@ -2,10 +2,10 @@
 pub struct op_string_return {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_string_return {
+impl ::deno_core::_ops::Op for op_string_return {
     const NAME: &'static str = stringify!(op_string_return);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_string_return),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_string_return),
         false,
         false,
         0usize as u8,
@@ -87,10 +87,10 @@ impl op_string_return {
 pub struct op_string_return_ref {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_string_return_ref {
+impl ::deno_core::_ops::Op for op_string_return_ref {
     const NAME: &'static str = stringify!(op_string_return_ref);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_string_return_ref),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_string_return_ref),
         false,
         false,
         0usize as u8,
@@ -172,10 +172,10 @@ impl op_string_return_ref {
 pub struct op_string_return_cow {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_string_return_cow {
+impl ::deno_core::_ops::Op for op_string_return_cow {
     const NAME: &'static str = stringify!(op_string_return_cow);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_string_return_cow),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_string_return_cow),
         false,
         false,
         0usize as u8,

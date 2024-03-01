@@ -2,10 +2,10 @@
 struct op_state_ref {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_state_ref {
+impl ::deno_core::_ops::Op for op_state_ref {
     const NAME: &'static str = stringify!(op_state_ref);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_state_ref),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_state_ref),
         false,
         false,
         1usize as u8,
@@ -144,10 +144,10 @@ impl op_state_ref {
 struct op_state_mut {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_state_mut {
+impl ::deno_core::_ops::Op for op_state_mut {
     const NAME: &'static str = stringify!(op_state_mut);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_state_mut),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_state_mut),
         false,
         false,
         1usize as u8,
@@ -286,10 +286,10 @@ impl op_state_mut {
 struct op_state_and_v8 {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_state_and_v8 {
+impl ::deno_core::_ops::Op for op_state_and_v8 {
     const NAME: &'static str = stringify!(op_state_and_v8);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_state_and_v8),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_state_and_v8),
         false,
         false,
         2usize as u8,
@@ -384,10 +384,10 @@ impl op_state_and_v8 {
 struct op_state_and_v8_local {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_state_and_v8_local {
+impl ::deno_core::_ops::Op for op_state_and_v8_local {
     const NAME: &'static str = stringify!(op_state_and_v8_local);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_state_and_v8_local),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_state_and_v8_local),
         false,
         false,
         2usize as u8,
