@@ -1,5 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+#[path = "dcore/inspector_server.rs"]
+mod inspector_server;
+
 use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
@@ -11,6 +14,8 @@ use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
 use std::borrow::Cow;
 use std::rc::Rc;
+
+use crate::inspector_server::InspectorServer;
 
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
@@ -101,6 +106,9 @@ fn main() -> Result<(), Error> {
   // .unwrap();
   // return Ok(());
 
+  let host = || "127.0.0.1:9229".parse::<SocketAddr>().unwrap();
+  let inspector_server = Arc::new(InspectorServer::new(host, "dcore"));
+
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     // TODO(bartlomieju): figure out how we can incorporate snapshotting here
     // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
@@ -117,6 +125,13 @@ fn main() -> Result<(), Error> {
     main_url,
     &std::env::current_dir().context("Unable to get CWD")?,
   )?;
+
+  server.register_inspector(
+    main_module.to_string(),
+    &mut js_runtime,
+    // make it configurable
+    false,
+  );
 
   let future = async move {
     let mod_id = js_runtime.load_main_module(&main_module, None).await?;
