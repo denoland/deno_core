@@ -1039,7 +1039,7 @@ async fn tla_in_esm_extensions_panics() {
 
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
+    module_loader: Some(Rc::new(StaticModuleLoader::default())),
     extensions: vec![test_ext::init_ops_and_esm()],
     ..Default::default()
   });
@@ -1076,7 +1076,7 @@ async fn esm_extensions_throws() {
 
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
-    module_loader: Some(Rc::new(StaticModuleLoader::new([]))),
+    module_loader: Some(Rc::new(StaticModuleLoader::default())),
     extensions: vec![test_ext::init_ops_and_esm()],
     ..Default::default()
   });

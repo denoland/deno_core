@@ -330,6 +330,7 @@ impl ModuleLoader for FsModuleLoader {
 
 /// A module loader that you can pre-load a number of modules into and resolve from. Useful for testing and
 /// embedding situations where the filesystem and snapshot systems are not usable or a good fit.
+#[derive(Default)]
 pub struct StaticModuleLoader {
   map: HashMap<ModuleSpecifier, ModuleCodeString>,
 }
