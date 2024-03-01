@@ -500,7 +500,6 @@ mod tests {
   fn test_const() {
     const _: (&str, FastStaticString) = __op_name_fast!(op_name);
     const _: FastStaticString = ascii_str!("hmm");
-    const _: FastStaticString =
-      ascii_str_include!("runtime/tests/large_string.txt");
+    const _: FastStaticString = ascii_str_include!("Cargo.toml");
   }
 }
