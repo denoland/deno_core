@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --quiet --allow-read --allow-write --allow-run --allow-env
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 import { $, dax } from "https://deno.land/x/dax@0.39.2/mod.ts";
 
@@ -189,6 +189,7 @@ export async function main(command, flag) {
     const fix = flag == "--fix";
     if (fix) {
       await runCommands("Linting (--fix)", {
+        "copyright": $`tools/copyright_checker.js --fix`,
         "cargo clippy":
           $`cargo clippy --fix --allow-dirty --allow-staged --locked --release --all-features --all-targets -- -D clippy::all`,
       });
