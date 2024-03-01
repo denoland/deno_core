@@ -169,7 +169,7 @@ async fn run_integration_test_task(
 ) -> Result<(), Error> {
   let test_dir = get_test_dir(&["integration", &test]);
   let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_module(&url, None).await?;
+  let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   let mut actual_output = String::new();
   if let Err(e) = runtime
@@ -209,7 +209,7 @@ async fn run_unit_test_task(
 ) -> Result<(), Error> {
   let test_dir = get_test_dir(&["unit"]);
   let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_module(&url, None).await?;
+  let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   runtime
     .run_event_loop(PollEventLoopOptions::default())

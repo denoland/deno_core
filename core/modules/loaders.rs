@@ -2,6 +2,7 @@
 use crate::error::generic_error;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleSource;
 use crate::modules::ModuleSourceFuture;
@@ -338,19 +339,22 @@ pub struct StaticModuleLoader {
 impl StaticModuleLoader {
   /// Create a new [`StaticModuleLoader`] from an `Iterator` of specifiers and code.
   pub fn new(
-    from: impl IntoIterator<Item = (ModuleSpecifier, ModuleCodeString)>,
+    from: impl IntoIterator<Item = (ModuleSpecifier, impl IntoModuleCodeString)>,
   ) -> Self {
     Self {
       map: HashMap::from_iter(
-        from
-          .into_iter()
-          .map(|(url, code)| (url, code.into_cheap_copy().0)),
+        from.into_iter().map(|(url, code)| {
+          (url, code.into_module_code().into_cheap_copy().0)
+        }),
       ),
     }
   }
 
   /// Create a new [`StaticModuleLoader`] from a single code item.
-  pub fn with(specifier: ModuleSpecifier, code: ModuleCodeString) -> Self {
+  pub fn with(
+    specifier: ModuleSpecifier,
+    code: impl IntoModuleCodeString,
+  ) -> Self {
     Self::new([(specifier, code)])
   }
 }

@@ -5,9 +5,11 @@ use super::exception_state::ExceptionState;
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
+use crate::modules::ModuleName;
 use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
@@ -265,12 +267,11 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     name: &'static str,
-    source_code: impl Into<ModuleCodeString>,
+    source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
-    let source_code = source_code.into();
     let scope = &mut self.0.handle_scope(isolate);
 
-    let source = source_code.v8_string(scope);
+    let source = source_code.into_module_code().v8_string(scope);
     debug_assert!(name.is_ascii());
     let name =
       v8::String::new_external_onebyte_static(scope, name.as_bytes()).unwrap();
@@ -338,7 +339,7 @@ impl JsRealm {
   ///
   /// User must call [`ModuleMap::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub(crate) async fn load_main_module(
+  pub(crate) async fn load_main_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -346,11 +347,10 @@ impl JsRealm {
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
-      let specifier = specifier.as_str().to_owned().into();
       let scope = &mut self.handle_scope(isolate);
       // true for main module
       module_map_rc
-        .new_es_module(scope, true, specifier, code, false)
+        .new_es_module(scope, true, specifier.to_owned(), code, false)
         .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
@@ -384,7 +384,7 @@ impl JsRealm {
   // TODO(bartlomieju): create a separate method to execute code synchronously
   // from a loader? Would simplify JsRuntime code and not require running in
   // a `block_on`.
-  pub(crate) async fn load_side_module(
+  pub(crate) async fn load_side_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -392,7 +392,7 @@ impl JsRealm {
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
-      let specifier = specifier.as_str().to_owned().into();
+      let specifier = specifier.to_owned();
       let scope = &mut self.handle_scope(isolate);
       // false for side module (not main module)
       module_map_rc
@@ -427,14 +427,18 @@ impl JsRealm {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub(crate) fn lazy_load_es_module_from_code(
+  pub(crate) fn lazy_load_es_module_with_code(
     &self,
     isolate: &mut v8::Isolate,
-    module_specifier: &str,
+    module_specifier: ModuleName,
     code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);
-    module_map_rc.lazy_load_es_module_from_code(scope, module_specifier, code)
+    module_map_rc.lazy_load_es_module_with_code(
+      scope,
+      module_specifier.as_str(),
+      code,
+    )
   }
 }

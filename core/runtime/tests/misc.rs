@@ -116,8 +116,8 @@ async fn test_wakers_for_async_ops() {
   runtime
     .execute_script(
       "",
-      FastString::from_static(
-        "const { op_async_sleep } = Deno.core.ensureFastOps(); (async () => { await op_async_sleep(); })()",
+      ascii_str!(
+        "const { op_async_sleep } = Deno.core.ensureFastOps(); (async () => { await op_async_sleep(); })()"
       ),
     )
     .unwrap();
@@ -429,15 +429,13 @@ fn test_get_module_namespace() {
   });
 
   let specifier = crate::resolve_url("file:///main.js").unwrap();
-  let source_code = ascii_str!(
-    r#"
+  let source_code = r#"
     export const a = "b";
     export default 1 + 2;
-    "#
-  );
+  "#;
 
   let module_id = futures::executor::block_on(
-    runtime.load_main_module(&specifier, Some(source_code)),
+    runtime.load_main_es_module_from_code(&specifier, source_code),
   )
   .unwrap();
 
@@ -783,10 +781,10 @@ fn terminate_during_module_eval() {
   });
 
   let specifier = crate::resolve_url("file:///main.js").unwrap();
-  let source_code = ascii_str!("Deno.core.print('hello\\n')");
 
   let module_id = futures::executor::block_on(
-    runtime.load_main_module(&specifier, Some(source_code)),
+    runtime
+      .load_main_es_module_from_code(&specifier, "Deno.core.print('hello\\n')"),
   )
   .unwrap();
 
@@ -853,9 +851,9 @@ async fn test_promise_rejection_handler_generic(
 
   let future = if module {
     let id = runtime
-      .load_main_module(
+      .load_main_es_module_from_code(
         &Url::parse("file:///test.js").unwrap(),
-        Some(script.into()),
+        script,
       )
       .await
       .unwrap();
@@ -925,14 +923,14 @@ async fn test_promise_rejection_handler(
 async fn test_stalled_tla() {
   let loader = StaticModuleLoader::with(
     Url::parse("file:///test.js").unwrap(),
-    ascii_str!("await new Promise(() => {});"),
+    "await new Promise(() => {});",
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
   let module_id = runtime
-    .load_main_module(&crate::resolve_url("file:///test.js").unwrap(), None)
+    .load_main_es_module(&crate::resolve_url("file:///test.js").unwrap())
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
@@ -968,15 +966,11 @@ async fn test_dynamic_import_module_error_stack() {
   let loader = StaticModuleLoader::new([
     (
       Url::parse("file:///main.js").unwrap(),
-      ascii_str!(
-        "
-        await import(\"file:///import.js\");
-        "
-      ),
+      "await import(\"file:///import.js\");"
     ),
     (
       Url::parse("file:///import.js").unwrap(),
-      ascii_str!("const { op_async_error } = Deno.core.ensureFastOps(); await op_async_error();"),
+      "const { op_async_error } = Deno.core.ensureFastOps(); await op_async_error();",
     ),
   ]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -986,7 +980,7 @@ async fn test_dynamic_import_module_error_stack() {
   });
 
   let module_id = runtime
-    .load_main_module(&crate::resolve_url("file:///main.js").unwrap(), None)
+    .load_main_es_module(&crate::resolve_url("file:///main.js").unwrap())
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]

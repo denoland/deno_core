@@ -197,17 +197,16 @@ fn es_snapshot() {
       import {{ f{prev} }} from "file:///{prev}.js";
       export function f{i}() {{ return f{prev}() }}
       "#
-    )
-    .into();
+    );
 
     let id = if main {
       futures::executor::block_on(
-        runtime.load_main_module(&specifier, Some(source_code)),
+        runtime.load_main_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     } else {
       futures::executor::block_on(
-        runtime.load_side_module(&specifier, Some(source_code)),
+        runtime.load_side_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     };
@@ -246,11 +245,10 @@ fn es_snapshot() {
   });
 
   let specifier = crate::resolve_url("file:///0.js").unwrap();
-  let source_code =
-    ascii_str!(r#"export function f0() { return "hello world" }"#);
-  let id = futures::executor::block_on(
-    runtime.load_side_module(&specifier, Some(source_code)),
-  )
+  let id = futures::executor::block_on(runtime.load_side_es_module_from_code(
+    &specifier,
+    r#"export function f0() { return "hello world" }"#,
+  ))
   .unwrap();
 
   #[allow(clippy::let_underscore_future)]

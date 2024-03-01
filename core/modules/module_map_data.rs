@@ -57,7 +57,7 @@ impl<T> ModuleNameTypeMap<T> {
   pub fn get<Q>(&self, ty: &RequestedModuleType, name: &Q) -> Option<&T>
   where
     ModuleName: std::borrow::Borrow<Q>,
-    Q: std::cmp::Eq + std::hash::Hash + ?Sized,
+    Q: std::cmp::Eq + std::hash::Hash + std::fmt::Debug + ?Sized,
   {
     let index = self.map_index(ty)?;
     let map = self.submaps.get(index)?;
@@ -192,12 +192,12 @@ impl ModuleMapData {
   /// that had been redirected.
   pub fn get_id(
     &self,
-    name: impl AsRef<str>,
+    name: &str,
     requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId> {
     let map = &self.by_name;
     let first_symbolic_module =
-      map.get(requested_module_type.as_ref(), name.as_ref())?;
+      map.get(requested_module_type.as_ref(), name)?;
     let mut mod_name = match first_symbolic_module {
       SymbolicModule::Mod(mod_id) => return Some(*mod_id),
       SymbolicModule::Alias(target) => target,
@@ -217,11 +217,11 @@ impl ModuleMapData {
 
   pub fn is_registered(
     &self,
-    specifier: impl AsRef<str>,
+    specifier: &str,
     requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> bool {
     self
-      .get_id(specifier.as_ref(), requested_module_type.as_ref())
+      .get_id(specifier, requested_module_type.as_ref())
       .is_some()
   }
 
@@ -363,5 +363,30 @@ impl ModuleMapData {
         Some(&SymbolicModule::Mod(info.id))
       );
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::ascii_str;
+  use url::Url;
+
+  #[cfg(not(miri))]
+  #[test]
+  fn module_name_map_test() {
+    let mut data: ModuleNameTypeMap<usize> = ModuleNameTypeMap::default();
+    data.insert(
+      &RequestedModuleType::Json,
+      ascii_str!("http://example.com/").into(),
+      1,
+    );
+    assert_eq!(
+      Some(&1),
+      data.get(
+        &RequestedModuleType::Json,
+        Url::parse("http://example.com/").unwrap().as_str()
+      )
+    );
   }
 }

@@ -482,22 +482,18 @@ pub async fn test_top_level_await() {
   let loader = StaticModuleLoader::new([
     (
       Url::parse("http://x/main.js").unwrap(),
-      ascii_str!(
-        r#"
+      r#"
 const { op_sleep_forever } = Deno.core.ensureFastOps();
 (async () => await op_sleep_forever())();
 await import('./mod.js');
-    "#
-      ),
+    "#,
     ),
     (
       Url::parse("http://x/mod.js").unwrap(),
-      ascii_str!(
-        r#"
+      r#"
 const { op_void_async_deferred } = Deno.core.ensureFastOps();
 await op_void_async_deferred();
-    "#
-      ),
+    "#,
     ),
   ]);
 
@@ -508,7 +504,7 @@ await op_void_async_deferred();
   });
 
   let id = runtime
-    .load_main_module(&Url::parse("http://x/main.js").unwrap(), None)
+    .load_main_es_module(&Url::parse("http://x/main.js").unwrap())
     .await
     .unwrap();
   let mut rx = runtime.mod_evaluate(id);
