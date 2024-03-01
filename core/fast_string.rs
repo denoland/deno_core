@@ -81,9 +81,9 @@ impl From<&'static v8::OneByteConst> for FastStaticString {
   }
 }
 
-impl Into<*const v8::OneByteConst> for FastStaticString {
-  fn into(self) -> *const v8::OneByteConst {
-    self.into_v8_const_ptr()
+impl From<FastStaticString> for *const v8::OneByteConst {
+  fn from(val: FastStaticString) -> Self {
+    val.into_v8_const_ptr()
   }
 }
 
