@@ -2,6 +2,8 @@
 
 use anyhow::anyhow;
 use anyhow::Context;
+use clap::builder::Arg;
+use clap::builder::Command;
 use deno_core::anyhow::Error;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
@@ -69,19 +71,36 @@ fn text_module(
   )))
 }
 
-// TODO(bartlomieju): figure out how we can incorporate snapshotting here
-// static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
+fn build_cli() -> Command {
+  Command::new("dcore")
+    .arg(
+      Arg::new("snapshot")
+        .long("snapshot")
+        .help("Optional path to a snapshot file that will be loaded on startup")
+        .value_hint(clap::ValueHint::FilePath)
+        .value_parser(clap::value_parser!(String))
+        .require_equals(true),
+    )
+    .arg(
+      Arg::new("file_to_run")
+        .help("A relative or absolute file to a file to run")
+        .value_hint(clap::ValueHint::FilePath)
+        .value_parser(clap::value_parser!(String))
+        .required(true),
+    )
+}
 
 fn main() -> Result<(), Error> {
-  let args: Vec<String> = std::env::args().collect();
   eprintln!(
     "🛑 deno_core binary is meant for development and testing purposes."
   );
-  if args.len() < 2 {
-    println!("Usage: cargo run -- <path_to_module>");
-    std::process::exit(1);
-  }
-  let main_url = &args[1];
+
+  let cli = build_cli();
+  let matches = cli.get_matches();
+
+  let main_url = matches.get_one::<String>("file_to_run").unwrap();
+  let load_snapshot = matches.get_one::<String>("snapshot");
+
   println!("Run {main_url}");
 
   // TODO(bartlomieju): figure out how we can incorporate snapshotting here
@@ -101,9 +120,21 @@ fn main() -> Result<(), Error> {
   // .unwrap();
   // return Ok(());
 
+  let startup_snapshot: Option<&'static [u8]> =
+    if let Some(snapshot_path) = load_snapshot {
+      let data = std::fs::read(snapshot_path).with_context(|| {
+        format!("Failed to load snapshot from: {}", snapshot_path)
+      })?;
+      let boxed_data = data.into_boxed_slice();
+      // Leak so we can obtain a static reference to the slice.
+      let static_data = Box::leak(boxed_data);
+      Some(static_data)
+    } else {
+      None
+    };
+
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
-    // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-    // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
+    startup_snapshot,
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     ..Default::default()

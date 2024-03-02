@@ -26,6 +26,7 @@ v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 unsafe_use_unprotected_platform = []
+dcore = ["clap"]
 
 [dependencies]
 anyhow.workspace = true
@@ -33,6 +34,7 @@ bincode = { workspace = true, optional = true }
 bit-set.workspace = true
 bit-vec.workspace = true
 bytes.workspace = true
+clap = { version = "4.4.18", optional = true }
 cooked-waker.workspace = true
 deno_core_icudata = { workspace = true, optional = true }
 deno_ops.workspace = true
