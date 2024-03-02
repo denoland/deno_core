@@ -383,7 +383,7 @@ async fn server(
 /// and channels. It resolves when either side disconnects, ignoring any
 /// errors.
 ///
-/// The future proxies messages sent and received on a warp WebSocket
+/// The future proxies messages sent and received on a WebSocket
 /// to a UnboundedSender/UnboundedReceiver pair. We need these "unbounded" channel ends to sidestep
 /// Tokio's task budget, which causes issues when JsRuntimeInspector::poll_sessions()
 /// needs to block the thread because JavaScript execution is paused.
