@@ -376,16 +376,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "deno_core",
- "deno_ops",
  "fastwebsockets",
  "futures",
  "http",
  "http-body-util",
  "hyper",
  "hyper-util",
- "serde",
  "serde_json",
- "serde_v8",
  "tokio",
  "uuid",
 ]
