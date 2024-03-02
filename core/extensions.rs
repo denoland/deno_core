@@ -1,6 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
 use crate::runtime::bindings;
+use crate::FastStaticString;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
@@ -17,7 +19,7 @@ pub enum ExtensionFileSourceCode {
   /// will result in two copies of the source code being included - one in the
   /// snapshot, the other the static string in the `Extension`.
   #[deprecated = "Use ExtensionFileSource::new"]
-  IncludedInBinary(&'static str),
+  IncludedInBinary(FastStaticString),
 
   // Source code is loaded from a file on disk. It's meant to be used if the
   // embedder is creating snapshots. Files will be loaded from the filesystem
@@ -27,7 +29,7 @@ pub enum ExtensionFileSourceCode {
   // Source code was loaded from memory. It's meant to be used if the
   // embedder is creating snapshots. Files will be loaded from memory
   // during the build time and they will only be present in the V8 snapshot.
-  LoadedFromMemoryDuringSnapshot(&'static str),
+  LoadedFromMemoryDuringSnapshot(FastStaticString),
 
   /// Source code may be computed at runtime.
   Computed(Arc<str>),
@@ -58,7 +60,7 @@ pub struct ExtensionFileSource {
 }
 
 impl ExtensionFileSource {
-  pub const fn new(specifier: &'static str, code: &'static str) -> Self {
+  pub const fn new(specifier: &'static str, code: FastStaticString) -> Self {
     #[allow(deprecated)]
     Self {
       specifier,
@@ -93,7 +95,7 @@ impl ExtensionFileSource {
 
   pub const fn loaded_from_memory_during_snapshot(
     specifier: &'static str,
-    code: &'static str,
+    code: FastStaticString,
   ) -> Self {
     #[allow(deprecated)]
     Self {
@@ -119,7 +121,7 @@ impl ExtensionFileSource {
           self.specifier,
           Self::find_non_ascii(code)
         );
-        Ok(ModuleCodeString::from_static(code))
+        Ok(IntoModuleCodeString::into_module_code(*code))
       }
       ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) => {
         let msg = || format!("Failed to read \"{}\"", path);
@@ -139,7 +141,7 @@ impl ExtensionFileSource {
           self.specifier,
           Self::find_non_ascii(code)
         );
-        Ok(ModuleCodeString::Arc(code.clone()))
+        Ok(ModuleCodeString::from(code.clone()))
       }
     }
   }
@@ -163,9 +165,10 @@ pub type GlobalObjectMiddlewareFn =
 
 extern "C" fn noop() {}
 
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy)]
 pub struct OpDecl {
   pub name: &'static str,
+  pub(crate) name_fast: FastStaticString,
   pub is_async: bool,
   pub is_reentrant: bool,
   pub arg_count: u8,
@@ -184,7 +187,7 @@ impl OpDecl {
   #[doc(hidden)]
   #[allow(clippy::too_many_arguments)]
   pub const fn new_internal_op2(
-    name: &'static str,
+    name: (&'static str, FastStaticString),
     is_async: bool,
     is_reentrant: bool,
     arg_count: u8,
@@ -195,7 +198,8 @@ impl OpDecl {
   ) -> Self {
     #[allow(deprecated)]
     Self {
-      name,
+      name: name.0,
+      name_fast: name.1,
       is_async,
       is_reentrant,
       arg_count,
@@ -242,18 +246,16 @@ impl OpDecl {
 
   /// Returns a copy of this `OpDecl` with the implementation function set to the function from another
   /// `OpDecl`.
-  pub const fn with_implementation_from(self, from: &Self) -> Self {
-    Self {
-      slow_fn: from.slow_fn,
-      slow_fn_with_metrics: from.slow_fn_with_metrics,
-      fast_fn: from.fast_fn,
-      fast_fn_with_metrics: from.fast_fn_with_metrics,
-      ..self
-    }
+  pub const fn with_implementation_from(mut self, from: &Self) -> Self {
+    self.slow_fn = from.slow_fn;
+    self.slow_fn_with_metrics = from.slow_fn_with_metrics;
+    self.fast_fn = from.fast_fn;
+    self.fast_fn_with_metrics = from.fast_fn_with_metrics;
+    self
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn(self) -> FastFunction {
+  pub const fn fast_fn(&self) -> FastFunction {
     let Some(f) = self.fast_fn else {
       panic!("Not a fast function");
     };
@@ -261,7 +263,7 @@ impl OpDecl {
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn_with_metrics(self) -> FastFunction {
+  pub const fn fast_fn_with_metrics(&self) -> FastFunction {
     let Some(f) = self.fast_fn_with_metrics else {
       panic!("Not a fast function");
     };
@@ -901,7 +903,7 @@ macro_rules! __extension_include_js_files_inner {
 
   // loaded, source
   (@item mode=loaded, specifier=$specifier:expr, source=$source:expr) => {
-    $crate::ExtensionFileSource::loaded_from_memory_during_snapshot($specifier, $source)
+    $crate::ExtensionFileSource::loaded_from_memory_during_snapshot($specifier, $crate::ascii_str!($source))
   };
   // loaded, file
   (@item mode=loaded, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
@@ -909,11 +911,11 @@ macro_rules! __extension_include_js_files_inner {
   };
   // included, source
   (@item mode=included, specifier=$specifier:expr, source=$source:expr) => {
-    $crate::ExtensionFileSource::new($specifier, $source)
+    $crate::ExtensionFileSource::new($specifier, $crate::ascii_str!($source))
   };
   // included, file
   (@item mode=included, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
-    $crate::ExtensionFileSource::new($specifier, include_str!(concat!($dir, "/", $file)))
+    $crate::ExtensionFileSource::new($specifier, $crate::ascii_str_include!(concat!($dir, "/", $file)))
   };
 }
 

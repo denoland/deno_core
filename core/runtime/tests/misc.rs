@@ -29,23 +29,20 @@ fn icu() {
   // rusty_v8/third_party/icu/common/icudtl.dat
   let mut runtime = JsRuntime::new(Default::default());
   runtime
-    .execute_script_static("a.js", "(new Date()).toLocaleString('ja-JP')")
+    .execute_script("a.js", "(new Date()).toLocaleString('ja-JP')")
     .unwrap();
 }
 
 #[test]
 fn test_execute_script_return_value() {
   let mut runtime = JsRuntime::new(Default::default());
-  let value_global =
-    runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+  let value_global = runtime.execute_script("a.js", "a = 1 + 2").unwrap();
   {
     let scope = &mut runtime.handle_scope();
     let value = value_global.open(scope);
     assert_eq!(value.integer_value(scope).unwrap(), 3);
   }
-  let value_global = runtime
-    .execute_script_static("b.js", "b = 'foobar'")
-    .unwrap();
+  let value_global = runtime.execute_script("b.js", "b = 'foobar'").unwrap();
   {
     let scope = &mut runtime.handle_scope();
     let value = value_global.open(scope);
@@ -119,8 +116,8 @@ async fn test_wakers_for_async_ops() {
   runtime
     .execute_script(
       "",
-      FastString::from_static(
-        "const { op_async_sleep } = Deno.core.ensureFastOps(); (async () => { await op_async_sleep(); })()",
+      ascii_str!(
+        "const { op_async_sleep } = Deno.core.ensureFastOps(); (async () => { await op_async_sleep(); })()"
       ),
     )
     .unwrap();
@@ -156,7 +153,7 @@ async fn test_resolve_promise(
   #[case] result: Result<i32, &'static str>,
 ) {
   let mut runtime = JsRuntime::new(Default::default());
-  let value_global = runtime.execute_script_static("a.js", script).unwrap();
+  let value_global = runtime.execute_script("a.js", script).unwrap();
   let resolve = runtime.resolve(value_global);
   let out = runtime
     .with_event_loop_promise(resolve, PollEventLoopOptions::default())
@@ -242,11 +239,11 @@ async fn test_resolve_value_generic(
   let mut runtime = JsRuntime::new(Default::default());
   let result_global = if runner == "script" {
     let value_global: v8::Global<v8::Value> =
-      runtime.execute_script_static("a.js", code).unwrap();
+      runtime.execute_script("a.js", code).unwrap();
     #[allow(deprecated)]
     runtime.resolve_value(value_global).await
   } else if runner == "call" {
-    let value_global = runtime.execute_script_static("a.js", code).unwrap();
+    let value_global = runtime.execute_script("a.js", code).unwrap();
     let function: v8::Global<v8::Function> =
       unsafe { std::mem::transmute(value_global) };
     #[allow(deprecated)]
@@ -289,7 +286,7 @@ fn terminate_execution_webassembly() {
   let v8_isolate_handle = runtime.v8_isolate().thread_safe_handle();
 
   // Run an infinite loop in WebAssembly code, which should be terminated.
-  let promise = runtime.execute_script_static("infinite_wasm_loop.js",
+  let promise = runtime.execute_script("infinite_wasm_loop.js",
                                r#"
                                (async () => {
                                 const wasmCode = new Uint8Array([
@@ -313,7 +310,7 @@ fn terminate_execution_webassembly() {
     assert!(ok);
   });
   let err = runtime
-    .execute_script_static(
+    .execute_script(
       "infinite_wasm_loop2.js",
       "globalThis.wasmInstance.exports.infinite_loop();",
     )
@@ -326,7 +323,7 @@ fn terminate_execution_webassembly() {
 
   // Verify that the isolate usable again.
   runtime
-    .execute_script_static("simple.js", "1 + 1")
+    .execute_script("simple.js", "1 + 1")
     .expect("execution should be possible again");
 
   terminator_thread.join().unwrap();
@@ -347,7 +344,7 @@ fn terminate_execution() {
   });
 
   // Rn an infinite loop, which should be terminated.
-  match isolate.execute_script_static("infinite_loop.js", "for(;;) {}") {
+  match isolate.execute_script("infinite_loop.js", "for(;;) {}") {
     Ok(_) => panic!("execution should be terminated"),
     Err(e) => {
       assert_eq!(e.to_string(), "Uncaught Error: execution terminated")
@@ -361,7 +358,7 @@ fn terminate_execution() {
 
   // Verify that the isolate usable again.
   isolate
-    .execute_script_static("simple.js", "1 + 1")
+    .execute_script("simple.js", "1 + 1")
     .expect("execution should be possible again");
 
   terminator_thread.join().unwrap();
@@ -372,7 +369,7 @@ async fn wasm_streaming_op_invocation_in_import() {
   let (mut runtime, _dispatch_count) = setup(Mode::Async);
 
   // Run an infinite loop in WebAssembly code, which should be terminated.
-  runtime.execute_script_static("setup.js",
+  runtime.execute_script("setup.js",
                                r#"
                                 Deno.core.setWasmStreamingCallback((source, rid) => {
                                   Deno.core.ops.op_wasm_streaming_set_url(rid, "file:///foo.wasm");
@@ -381,7 +378,7 @@ async fn wasm_streaming_op_invocation_in_import() {
                                 });
                                "#).unwrap();
 
-  let promise = runtime.execute_script_static("main.js",
+  let promise = runtime.execute_script("main.js",
                             r#"
                              // (module (import "env" "data" (global i64)))
                              const bytes = new Uint8Array([0,97,115,109,1,0,0,0,2,13,1,3,101,110,118,4,100,97,116,97,3,126,0,0,8,4,110,97,109,101,2,1,0]);
@@ -421,7 +418,7 @@ fn inspector() {
   });
   // This was causing a crash
   runtime.op_state().borrow_mut().put(runtime.inspector());
-  runtime.execute_script_static("check.js", "null").unwrap();
+  runtime.execute_script("check.js", "null").unwrap();
 }
 
 #[test]
@@ -432,15 +429,13 @@ fn test_get_module_namespace() {
   });
 
   let specifier = crate::resolve_url("file:///main.js").unwrap();
-  let source_code = ascii_str!(
-    r#"
+  let source_code = r#"
     export const a = "b";
     export default 1 + 2;
-    "#
-  );
+  "#;
 
   let module_id = futures::executor::block_on(
-    runtime.load_main_module(&specifier, Some(source_code)),
+    runtime.load_main_es_module_from_code(&specifier, source_code),
   )
   .unwrap();
 
@@ -499,7 +494,7 @@ fn test_heap_limits() {
     current_limit * 2
   });
   let err = runtime
-    .execute_script_static(
+    .execute_script(
       "script name",
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
@@ -548,7 +543,7 @@ fn test_heap_limit_cb_multiple() {
   });
 
   let err = runtime
-    .execute_script_static(
+    .execute_script(
       "script name",
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
@@ -566,7 +561,7 @@ async fn test_pump_message_loop() {
   let mut runtime = JsRuntime::new(RuntimeOptions::default());
   poll_fn(move |cx| {
     runtime
-      .execute_script_static(
+      .execute_script(
         "pump_message_loop.js",
         r#"
 function assertEquals(a, b) {
@@ -596,12 +591,12 @@ assertEquals(1, notify_return_value);
 
     // noop script, will resolve promise from first script
     runtime
-      .execute_script_static("pump_message_loop2.js", r#"assertEquals(1, 1);"#)
+      .execute_script("pump_message_loop2.js", r#"assertEquals(1, 1);"#)
       .unwrap();
 
     // check that promise from `Atomics.waitAsync` has been resolved
     runtime
-      .execute_script_static(
+      .execute_script(
         "pump_message_loop3.js",
         r#"assertEquals(globalThis.resolved, true);"#,
       )
@@ -618,7 +613,7 @@ fn test_v8_platform() {
     ..Default::default()
   };
   let mut runtime = JsRuntime::new(options);
-  runtime.execute_script_static("<none>", "").unwrap();
+  runtime.execute_script("<none>", "").unwrap();
 }
 
 #[ignore] // TODO(@littledivy): Fast API ops when snapshot is not loaded.
@@ -626,7 +621,7 @@ fn test_v8_platform() {
 fn test_is_proxy() {
   let mut runtime = JsRuntime::new(RuntimeOptions::default());
   let all_true: v8::Global<v8::Value> = runtime
-    .execute_script_static(
+    .execute_script(
       "is_proxy.js",
       r#"
     (function () {
@@ -658,7 +653,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "macrotasks_and_nextticks.js",
       r#"
       const { op_async_sleep } = Deno.core.ensureFastOps();
@@ -713,7 +708,7 @@ fn test_has_tick_scheduled() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "has_tick_scheduled.js",
       r#"
         Deno.core.setMacrotaskCallback(() => {
@@ -786,10 +781,10 @@ fn terminate_during_module_eval() {
   });
 
   let specifier = crate::resolve_url("file:///main.js").unwrap();
-  let source_code = ascii_str!("Deno.core.print('hello\\n')");
 
   let module_id = futures::executor::block_on(
-    runtime.load_main_module(&specifier, Some(source_code)),
+    runtime
+      .load_main_es_module_from_code(&specifier, "Deno.core.print('hello\\n')"),
   )
   .unwrap();
 
@@ -856,15 +851,15 @@ async fn test_promise_rejection_handler_generic(
 
   let future = if module {
     let id = runtime
-      .load_main_module(
+      .load_main_es_module_from_code(
         &Url::parse("file:///test.js").unwrap(),
-        Some(script.into()),
+        script,
       )
       .await
       .unwrap();
     Some(runtime.mod_evaluate(id))
   } else {
-    runtime.execute_script("", script.into()).unwrap();
+    runtime.execute_script("", script).unwrap();
     None
   };
 
@@ -928,14 +923,14 @@ async fn test_promise_rejection_handler(
 async fn test_stalled_tla() {
   let loader = StaticModuleLoader::with(
     Url::parse("file:///test.js").unwrap(),
-    ascii_str!("await new Promise(() => {});"),
+    "await new Promise(() => {});",
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
   let module_id = runtime
-    .load_main_module(&crate::resolve_url("file:///test.js").unwrap(), None)
+    .load_main_es_module(&crate::resolve_url("file:///test.js").unwrap())
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
@@ -971,15 +966,11 @@ async fn test_dynamic_import_module_error_stack() {
   let loader = StaticModuleLoader::new([
     (
       Url::parse("file:///main.js").unwrap(),
-      ascii_str!(
-        "
-        await import(\"file:///import.js\");
-        "
-      ),
+      "await import(\"file:///import.js\");"
     ),
     (
       Url::parse("file:///import.js").unwrap(),
-      ascii_str!("const { op_async_error } = Deno.core.ensureFastOps(); await op_async_error();"),
+      "const { op_async_error } = Deno.core.ensureFastOps(); await op_async_error();",
     ),
   ]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -989,7 +980,7 @@ async fn test_dynamic_import_module_error_stack() {
   });
 
   let module_id = runtime
-    .load_main_module(&crate::resolve_url("file:///main.js").unwrap(), None)
+    .load_main_es_module(&crate::resolve_url("file:///main.js").unwrap())
     .await
     .unwrap();
   #[allow(clippy::let_underscore_future)]
@@ -1197,7 +1188,7 @@ async fn terminate_execution_run_event_loop_js() {
 
   // Create sleep function that waits for 2 seconds.
   runtime
-    .execute_script_static(
+    .execute_script(
       "sleep_code.js",
       r#"
               const { op_async_sleep } = Deno.core.ensureFastOps(); 
@@ -1217,9 +1208,7 @@ async fn terminate_execution_run_event_loop_js() {
   });
 
   // Start waiting period of 2 seconds.
-  runtime
-    .execute_script_static("sleep.js", "sleep()")
-    .unwrap();
+  runtime.execute_script("sleep.js", "sleep()").unwrap();
 
   let err = runtime
     .run_event_loop(Default::default())
@@ -1234,7 +1223,7 @@ async fn terminate_execution_run_event_loop_js() {
 
   // Verify that the isolate usable again.
   runtime
-    .execute_script_static("simple.js", "1 + 1")
+    .execute_script("simple.js", "1 + 1")
     .expect("execution should be possible again");
 
   terminator_thread.join().unwrap();

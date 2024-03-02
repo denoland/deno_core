@@ -2,10 +2,10 @@
 pub struct op_generics<T> {
     _unconstructable: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Trait> deno_core::_ops::Op for op_generics<T> {
+impl<T: Trait> ::deno_core::_ops::Op for op_generics<T> {
     const NAME: &'static str = stringify!(op_generics);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_generics),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_generics),
         false,
         false,
         0usize as u8,
@@ -120,10 +120,10 @@ impl<T: Trait> op_generics<T> {
 pub struct op_generics_static<T> {
     _unconstructable: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static<T> {
+impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static<T> {
     const NAME: &'static str = stringify!(op_generics_static);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_generics_static),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_generics_static),
         false,
         false,
         0usize as u8,
@@ -238,10 +238,10 @@ impl<T: Trait + 'static> op_generics_static<T> {
 pub struct op_generics_static_where<T> {
     _unconstructable: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Trait + 'static> deno_core::_ops::Op for op_generics_static_where<T> {
+impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static_where<T> {
     const NAME: &'static str = stringify!(op_generics_static_where);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_generics_static_where),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_generics_static_where),
         false,
         false,
         0usize as u8,

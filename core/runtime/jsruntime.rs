@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
-use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
@@ -9,8 +8,11 @@ use super::op_driver::OpDriver;
 use super::setup;
 use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
+use super::v8_static_strings::*;
 use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
+use crate::ascii_str;
+use crate::ascii_str_include;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
@@ -25,7 +27,8 @@ use crate::modules::default_import_meta_resolve_cb;
 use crate::modules::CustomModuleEvaluationCb;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
-use crate::modules::ModuleCodeString;
+use crate::modules::IntoModuleCodeString;
+use crate::modules::IntoModuleName;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
@@ -42,7 +45,7 @@ use crate::stats::RuntimeActivityType;
 use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
-use crate::FastString;
+use crate::FastStaticString;
 use crate::FeatureChecker;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
@@ -258,27 +261,18 @@ impl Future for RcPromiseFuture {
   }
 }
 
-const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
+static VIRTUAL_OPS_MODULE_NAME: FastStaticString = ascii_str!("ext:core/ops");
 
 pub(crate) struct InternalSourceFile {
-  pub specifier: &'static str,
-  pub specifier_onebyte_const: &'static v8::OneByteConst,
-  pub source_onebyte_const: &'static v8::OneByteConst,
+  pub specifier: FastStaticString,
+  pub source: FastStaticString,
 }
 
 macro_rules! internal_source_file {
   ($str_:literal) => {{
-    static SPECIFIER: &str = concat!("ext:core/", $str_);
-    static SOURCE: &[u8] = include_bytes!(concat!("../", $str_));
-
-    static SPECIFIER_OBC: v8::OneByteConst =
-      v8::String::create_external_onebyte_const(SPECIFIER.as_bytes());
-    static SOURCE_OBC: v8::OneByteConst =
-      v8::String::create_external_onebyte_const(SOURCE);
     InternalSourceFile {
-      specifier: SPECIFIER,
-      specifier_onebyte_const: &SPECIFIER_OBC,
-      source_onebyte_const: &SOURCE_OBC,
+      specifier: ascii_str!(concat!("ext:core/", $str_)),
+      source: ascii_str_include!(concat!("../", $str_)),
     }
   }};
 }
@@ -1006,7 +1000,7 @@ impl JsRuntime {
     let mod_id = module_map
       .new_synthetic_module(
         scope,
-        FastString::StaticAscii(VIRTUAL_OPS_MODULE_NAME),
+        VIRTUAL_OPS_MODULE_NAME,
         crate::ModuleType::JavaScript,
         synthetic_module_exports,
       )
@@ -1029,19 +1023,11 @@ impl JsRuntime {
     let scope = &mut realm.handle_scope(self.v8_isolate());
 
     for source_file in &BUILTIN_SOURCES {
-      let name = v8::String::new_from_onebyte_const(
-        scope,
-        source_file.specifier_onebyte_const,
-      )
-      .unwrap();
-      let source_str = v8::String::new_from_onebyte_const(
-        scope,
-        source_file.source_onebyte_const,
-      )
-      .unwrap();
+      let name = source_file.specifier.v8_string(scope);
+      let source = source_file.source.v8_string(scope);
 
       let origin = bindings::script_origin(scope, name);
-      let script = v8::Script::compile(scope, source_str, Some(&origin))
+      let script = v8::Script::compile(scope, source, Some(&origin))
         .with_context(|| {
           format!("Failed to parse {}", source_file.specifier)
         })?;
@@ -1052,7 +1038,7 @@ impl JsRuntime {
 
     for file_source in &BUILTIN_ES_MODULES {
       mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-      module_map.lazy_load_es_module_from_code(
+      module_map.lazy_load_es_module_with_code(
         scope,
         file_source.specifier,
         file_source.load()?,
@@ -1091,7 +1077,7 @@ impl JsRuntime {
       for file_source in extension.get_esm_sources() {
         mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
         realm
-          .load_side_module(
+          .load_side_es_module_from_code(
             self.v8_isolate(),
             &ModuleSpecifier::parse(file_source.specifier)?,
             None,
@@ -1194,35 +1180,31 @@ impl JsRuntime {
       // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
       // look up them again?
       let deno_obj: v8::Local<v8::Object> =
-        bindings::get(scope, global, &v8_static_strings::DENO, "Deno");
+        bindings::get(scope, global, DENO, "Deno");
       let core_obj: v8::Local<v8::Object> =
-        bindings::get(scope, deno_obj, &v8_static_strings::CORE, "Deno.core");
+        bindings::get(scope, deno_obj, CORE, "Deno.core");
 
       let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
-        &v8_static_strings::EVENT_LOOP_TICK,
+        EVENT_LOOP_TICK,
         "Deno.core.eventLoopTick",
       );
       let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
-        &v8_static_strings::BUILD_CUSTOM_ERROR,
+        BUILD_CUSTOM_ERROR,
         "Deno.core.buildCustomError",
       );
 
       let mut wasm_instantiate_fn = None;
       if !will_snapshot {
-        let web_assembly_object: v8::Local<v8::Object> = bindings::get(
-          scope,
-          global,
-          &v8_static_strings::WEBASSEMBLY,
-          "WebAssembly",
-        );
+        let web_assembly_object: v8::Local<v8::Object> =
+          bindings::get(scope, global, WEBASSEMBLY, "WebAssembly");
         wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
           scope,
           web_assembly_object,
-          &v8_static_strings::INSTANTIATE,
+          INSTANTIATE,
           "WebAssembly.instantiate",
         ));
       }
@@ -1265,10 +1247,9 @@ impl JsRuntime {
     state.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
-  /// Executes traditional JavaScript code (traditional = not ES modules).
-  ///
-  /// The execution takes place on the current main realm, so it is possible
-  /// to maintain local JS state and invoke this method multiple times.
+  /// Executes traditional, non-ECMAScript-module JavaScript code, This code executes in
+  /// the global scope by default, and it is possible to maintain local JS state and invoke
+  /// this method multiple times.
   ///
   /// `name` can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
   ///
@@ -1277,44 +1258,23 @@ impl JsRuntime {
   ///   - "[native code]"
   ///
   /// The same `name` value can be used for multiple executions.
+  ///
+  /// The source may be any type that implements the internal [`IntoModuleCodeString`] trait, but
+  /// it is highly recommended that embedders use the [`ascii_str!`] to generate the fastest version
+  /// of strings for v8 to handle. If the strings are not static, you may also pass a [`String`]
+  /// generated by the [`format!`] macro.
   ///
   /// `Error` can usually be downcast to `JsError`.
   pub fn execute_script(
     &mut self,
     name: &'static str,
-    source_code: ModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
-    let isolate = &mut self.inner.v8_isolate;
-    self
-      .inner
-      .main_realm
-      .execute_script(isolate, name, source_code)
-  }
-
-  /// Executes traditional JavaScript code (traditional = not ES modules).
-  ///
-  /// The execution takes place on the current main realm, so it is possible
-  /// to maintain local JS state and invoke this method multiple times.
-  ///
-  /// `name` can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
-  ///
-  ///   - "/some/file/path.js"
-  ///   - "<anon>"
-  ///   - "[native code]"
-  ///
-  /// The same `name` value can be used for multiple executions.
-  ///
-  /// `Error` can usually be downcast to `JsError`.
-  pub fn execute_script_static(
-    &mut self,
-    name: &'static str,
-    source_code: &'static str,
+    source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.execute_script(
       isolate,
       name,
-      ModuleCodeString::from_static(source_code),
+      source_code.into_module_code(),
     )
   }
 
@@ -2100,38 +2060,97 @@ impl JsRuntime {
   /// The module will be marked as "main", and because of that
   /// "import.meta.main" will return true when checked inside that module.
   ///
+  /// The source may be any type that implements the internal [`IntoModuleCodeString`] trait, but
+  /// it is highly recommended that embedders use the [`ascii_str!`] to generate the fastest version
+  /// of strings for v8 to handle. If the strings are not static, you may also pass a [`String`]
+  /// generated by the [`format!`] macro.
+  ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_main_module(
+  pub async fn load_main_es_module_from_code(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCodeString>,
+    code: impl IntoModuleCodeString,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
       .main_realm
-      .load_main_module(isolate, specifier, code)
+      .load_main_es_module_from_code(
+        isolate,
+        specifier,
+        Some(code.into_module_code()),
+      )
       .await
   }
 
-  /// Asynchronously load specified ES module and all of its dependencies.
+  /// Asynchronously load specified module and all of its dependencies, retrieving
+  /// the module from the supplied [`ModuleLoader`].
+  ///
+  /// The module will be marked as "main", and because of that
+  /// "import.meta.main" will return true when checked inside that module.
+  ///
+  /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
+  /// manually after load is finished.
+  pub async fn load_main_es_module(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
+    self
+      .inner
+      .main_realm
+      .load_main_es_module_from_code(isolate, specifier, None)
+      .await
+  }
+
+  /// Asynchronously load specified ES module and all of its dependencies from the
+  /// provided source.
+  ///
+  /// This method is meant to be used when loading some utility code that
+  /// might be later imported by the main module (ie. an entry point module).
+  ///
+  /// The source may be any type that implements the internal [`IntoModuleCodeString`] trait, but
+  /// it is highly recommended that embedders use the [`ascii_str!`] to generate the fastest version
+  /// of strings for v8 to handle. If the strings are not static, you may also pass a [`String`]
+  /// generated by the [`format!`] macro.
+  ///
+  /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
+  /// manually after load is finished.
+  pub async fn load_side_es_module_from_code(
+    &mut self,
+    specifier: &ModuleSpecifier,
+    code: impl IntoModuleCodeString,
+  ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
+    self
+      .inner
+      .main_realm
+      .load_side_es_module_from_code(
+        isolate,
+        specifier,
+        Some(code.into_module_code()),
+      )
+      .await
+  }
+
+  /// Asynchronously load specified ES module and all of its dependencies, retrieving
+  /// the module from the supplied [`ModuleLoader`].
   ///
   /// This method is meant to be used when loading some utility code that
   /// might be later imported by the main module (ie. an entry point module).
   ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_side_module(
+  pub async fn load_side_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
       .main_realm
-      .load_side_module(isolate, specifier, code)
+      .load_side_es_module_from_code(isolate, specifier, None)
       .await
   }
 
@@ -2142,16 +2161,17 @@ impl JsRuntime {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub fn lazy_load_es_module_from_code(
+  pub fn lazy_load_es_module_with_code(
     &mut self,
-    specifier: &str,
-    code: ModuleCodeString,
+    specifier: impl IntoModuleName,
+    code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
-    self
-      .inner
-      .main_realm
-      .lazy_load_es_module_from_code(isolate, specifier, code)
+    self.inner.main_realm.lazy_load_es_module_with_code(
+      isolate,
+      specifier.into_module_name(),
+      code.into_module_code(),
+    )
   }
 
   fn do_js_event_loop_tick_realm(

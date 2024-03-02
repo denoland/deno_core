@@ -2,10 +2,10 @@
 struct op_state_rc {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_state_rc {
+impl ::deno_core::_ops::Op for op_state_rc {
     const NAME: &'static str = stringify!(op_state_rc);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_state_rc),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_state_rc),
         false,
         false,
         1usize as u8,

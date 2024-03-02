@@ -72,6 +72,7 @@ pub use crate::extensions::OpMiddlewareFn;
 pub use crate::external::ExternalDefinition;
 pub use crate::external::ExternalPointer;
 pub use crate::external::Externalizable;
+pub use crate::fast_string::FastStaticString;
 pub use crate::fast_string::FastString;
 pub use crate::feature_checker::FeatureChecker;
 pub use crate::flags::v8_set_flags;

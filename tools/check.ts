@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --quiet --allow-read --allow-write --allow-run --allow-env
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-import { $, dax } from "https://deno.land/x/dax@0.39.2/mod.ts";
+import $, * as dax from "https://deno.land/x/dax@0.39.2/mod.ts";
 
 const isCI = !!Deno.env.get("CI");
 const divider =
@@ -15,12 +15,12 @@ class CommandState {
   success: boolean;
   running: boolean;
 
-  constructor(public name) {
+  constructor(public name: string) {
     this.success = true;
     this.running = true;
   }
 
-  makeReader(which, callback) {
+  makeReader(which: "stdout" | "stderr", callback: () => void) {
     // deno-lint-ignore no-this-alias
     const self = this;
     const textDecoder = new TextDecoderStream();
@@ -79,12 +79,12 @@ async function runCommands(
     return $.progress(mode);
   }
 
-  let pb = makeProgress();
+  const pb = makeProgress();
   const promises: Promise<void>[] = [];
   const processes: Set<CommandState> = new Set();
 
   function updateProgress(final: boolean = false) {
-    if (isCI) {
+    if (!pb) {
       if (final) {
         console.log(divider);
         console.log("Done: " + [...processes.values()].flat().join(", "));
@@ -129,18 +129,14 @@ async function runCommands(
         }
       } catch (e) {
         state.success = false;
-        if (!isCI) {
-          pb.finish();
-        }
-        console.log(`❌ ${state.name} failed!`);
+        $.log(`❌ ${state.name} failed!`);
         if (!e.message.includes("Exited with code")) {
           console.log(e);
         }
-        console.log(divider);
-        console.log(state.stderr.trim());
-        console.log(state.stdout.trim());
-        console.log(divider);
-        pb = makeProgress();
+        $.log(divider);
+        $.log(state.stderr.trim());
+        $.log(state.stdout.trim());
+        $.log(divider);
         updateProgress();
       } finally {
         state.running = false;
@@ -156,7 +152,7 @@ async function runCommands(
 
   updateProgress(true);
 
-  if (!isCI) {
+  if (pb) {
     pb.noClear();
     pb.prefix("Done");
     pb.forceRender();
@@ -170,7 +166,7 @@ async function runCommands(
   }
 }
 
-export async function main(command, flag) {
+export async function main(command: string, flag: string) {
   if (command == "format") {
     const check = flag == "--check";
     if (check) {
@@ -195,6 +191,9 @@ export async function main(command, flag) {
       });
     } else {
       await runCommands("Linting", {
+        "deno check tools/": $`deno check ${
+          [...Deno.readDirSync("tools")].map((f) => `tools/${f.name}`)
+        }`,
         "copyright": $`tools/copyright_checker.js`,
         "deno lint": $`deno lint`,
         "tsc":

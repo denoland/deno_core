@@ -6,6 +6,7 @@ use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
 use crate::modules::CustomModuleEvaluationKind;
+use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
@@ -259,7 +260,7 @@ fn test_recursive_load() {
     ..Default::default()
   });
   let spec = resolve_url("file:///a.js").unwrap();
-  let a_id_fut = runtime.load_main_module(&spec, None);
+  let a_id_fut = runtime.load_main_es_module(&spec);
   let a_id = futures::executor::block_on(a_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -344,7 +345,7 @@ fn test_mods() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "setup.js",
       r#"
       function assert(cond) {
@@ -362,20 +363,17 @@ fn test_mods() {
 
   let (mod_a, mod_b) = {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.js");
     let mod_a = module_map
       .new_es_module(
         scope,
         true,
-        specifier_a,
-        ascii_str!(
-          r#"
-        import { b } from './b.js'
-        if (b() != 'b') throw Error();
-        let control = 42;
-        Deno.core.ops.op_test(control);
-      "#
-        ),
+        "file:///a.js",
+        r#"
+          import { b } from './b.js'
+          if (b() != 'b') throw Error();
+          let control = 42;
+          Deno.core.ops.op_test(control);
+        "#,
         false,
       )
       .unwrap();
@@ -426,7 +424,7 @@ fn test_lazy_loaded_esm() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "setup.js",
       r#"
       Deno.core.print("1\n");
@@ -449,7 +447,7 @@ fn test_json_module() {
   });
 
   runtime
-    .execute_script_static(
+    .execute_script(
       "setup.js",
       r#"
         function assert(cond) {
@@ -722,7 +720,7 @@ fn test_custom_module_type_default() {
 
   let err = {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.png");
+    let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
         scope,
@@ -789,7 +787,7 @@ fn test_custom_module_type_callback_synthetic() {
 
   let err = {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.png");
+    let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
         scope,
@@ -814,7 +812,7 @@ fn test_custom_module_type_callback_synthetic() {
 
   {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///b.png");
+    let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
         scope,
@@ -884,7 +882,7 @@ export const foo = bytes;
 
   let mod_id = {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///b.png");
+    let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
         scope,
@@ -908,7 +906,7 @@ export const foo = bytes;
     &ModuleInfo {
       id: mod_id,
       main: true,
-      name: ascii_str!("file:///b.png"),
+      name: "file:///b.png".into_module_name(),
       requests: vec![ModuleRequest {
         specifier: "file:///b.png".to_string(),
         requested_module_type: RequestedModuleType::Other(
@@ -924,7 +922,7 @@ export const foo = bytes;
     &ModuleInfo {
       id: mod_id - 1,
       main: false,
-      name: ascii_str!("file:///b.png"),
+      name: "file:///b.png".into_module_name(),
       requests: vec![],
       module_type: ModuleType::Other("foobar-synth".into()),
     }
@@ -942,7 +940,7 @@ async fn dyn_import_err() {
   // Test an erroneous dynamic import where the specified module isn't found.
   poll_fn(move |cx| {
     runtime
-      .execute_script_static(
+      .execute_script(
         "file:///dyn_import2.js",
         r#"
       (async () => {
@@ -974,7 +972,7 @@ async fn dyn_import_ok() {
   poll_fn(move |cx| {
     // Dynamically import mod_b
     runtime
-      .execute_script_static(
+      .execute_script(
         "file:///dyn_import3.js",
         r#"
         (async () => {
@@ -1021,7 +1019,7 @@ async fn dyn_import_borrow_mut_error() {
 
   poll_fn(move |cx| {
     runtime
-      .execute_script_static(
+      .execute_script(
         "file:///dyn_import3.js",
         r#"
         (async () => {
@@ -1059,7 +1057,7 @@ fn test_circular_load() {
 
   let fut = async move {
     let spec = resolve_url("file:///circular1.js").unwrap();
-    let result = runtime.load_main_module(&spec, None).await;
+    let result = runtime.load_main_es_module(&spec).await;
     assert!(result.is_ok());
     let circular1_id = result.unwrap();
     #[allow(clippy::let_underscore_future)]
@@ -1140,7 +1138,7 @@ fn test_redirect_load() {
   let fut =
     async move {
       let spec = resolve_url("file:///redirect1.js").unwrap();
-      let result = runtime.load_main_module(&spec, None).await;
+      let result = runtime.load_main_es_module(&spec).await;
       assert!(result.is_ok());
       let redirect1_id = result.unwrap();
       #[allow(clippy::let_underscore_future)]
@@ -1207,8 +1205,7 @@ async fn slow_never_ready_modules() {
 
   poll_fn(move |cx| {
     let spec = resolve_url("file:///main.js").unwrap();
-    let mut recursive_load =
-      runtime.load_main_module(&spec, None).boxed_local();
+    let mut recursive_load = runtime.load_main_es_module(&spec).boxed_local();
 
     let result = recursive_load.poll_unpin(cx);
     assert!(result.is_pending());
@@ -1252,7 +1249,7 @@ async fn loader_disappears_after_error() {
   });
 
   let spec = resolve_url("file:///bad_import.js").unwrap();
-  let result = runtime.load_main_module(&spec, None).await;
+  let result = runtime.load_main_es_module(&spec).await;
   let err = result.unwrap_err();
   assert_eq!(
     err.downcast_ref::<MockError>().unwrap(),
@@ -1262,16 +1259,14 @@ async fn loader_disappears_after_error() {
 
 #[test]
 fn recursive_load_main_with_code() {
-  const MAIN_WITH_CODE_SRC: FastString = ascii_str!(
-    r#"
-import { b } from "/b.js";
-import { c } from "/c.js";
-if (b() != 'b') throw Error();
-if (c() != 'c') throw Error();
-if (!import.meta.main) throw Error();
-if (import.meta.url != 'file:///main_with_code.js') throw Error();
-"#
-  );
+  const MAIN_WITH_CODE_SRC: &str = r#"
+    import { b } from "/b.js";
+    import { c } from "/c.js";
+    if (b() != 'b') throw Error();
+    if (c() != 'c') throw Error();
+    if (!import.meta.main) throw Error();
+    if (import.meta.url != 'file:///main_with_code.js') throw Error();
+  "#;
 
   let loader = MockLoader::new();
   let loads = loader.loads.clone();
@@ -1284,7 +1279,7 @@ if (import.meta.url != 'file:///main_with_code.js') throw Error();
   // The behavior should be very similar to /a.js.
   let spec = resolve_url("file:///main_with_code.js").unwrap();
   let main_id_fut = runtime
-    .load_main_module(&spec, Some(MAIN_WITH_CODE_SRC))
+    .load_main_es_module_from_code(&spec, MAIN_WITH_CODE_SRC)
     .boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
@@ -1367,9 +1362,7 @@ fn main_and_side_module() {
     ..Default::default()
   });
 
-  let main_id_fut = runtime
-    .load_main_module(&main_specifier, None)
-    .boxed_local();
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -1378,15 +1371,11 @@ fn main_and_side_module() {
     .unwrap();
 
   // Try to add another main module - it should error.
-  let side_id_fut = runtime
-    .load_main_module(&side_specifier, None)
-    .boxed_local();
+  let side_id_fut = runtime.load_main_es_module(&side_specifier).boxed_local();
   futures::executor::block_on(side_id_fut).unwrap_err();
 
   // And now try to load it as a side module
-  let side_id_fut = runtime
-    .load_side_module(&side_specifier, None)
-    .boxed_local();
+  let side_id_fut = runtime.load_side_es_module(&side_specifier).boxed_local();
   let side_id = futures::executor::block_on(side_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -1400,11 +1389,9 @@ fn dynamic_imports_snapshot() {
   //TODO: Once the issue with the ModuleNamespaceEntryGetter is fixed, we can maintain a reference to the module
   // and use it when loading the snapshot
   let snapshot = {
-    const MAIN_WITH_CODE_SRC: FastString = ascii_str!(
-      r#"
-    await import("./b.js");
-  "#
-    );
+    const MAIN_WITH_CODE_SRC: &str = r#"
+      await import("./b.js");
+    "#;
 
     let loader = MockLoader::new();
     let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
@@ -1416,7 +1403,7 @@ fn dynamic_imports_snapshot() {
     // The behavior should be very similar to /a.js.
     let spec = resolve_url("file:///main_with_code.js").unwrap();
     let main_id_fut = runtime
-      .load_main_module(&spec, Some(MAIN_WITH_CODE_SRC))
+      .load_main_es_module_from_code(&spec, MAIN_WITH_CODE_SRC)
       .boxed_local();
     let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
@@ -1434,19 +1421,17 @@ fn dynamic_imports_snapshot() {
   });
 
   //Evaluate the snapshot with an empty function
-  runtime2.execute_script_static("check.js", "true").unwrap();
+  runtime2.execute_script("check.js", "true").unwrap();
 }
 
 #[test]
 fn import_meta_snapshot() {
   let snapshot = {
-    const MAIN_WITH_CODE_SRC: ModuleCodeString = ascii_str!(
-      r#"
-  if (import.meta.url != 'file:///main_with_code.js') throw Error();
-  globalThis.meta = import.meta;
-  globalThis.url = import.meta.url;
-  "#
-    );
+    const MAIN_WITH_CODE_SRC: &str = r#"
+      if (import.meta.url != 'file:///main_with_code.js') throw Error();
+      globalThis.meta = import.meta;
+      globalThis.url = import.meta.url;
+    "#;
 
     let loader = MockLoader::new();
     let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
@@ -1458,7 +1443,7 @@ fn import_meta_snapshot() {
     // The behavior should be very similar to /a.js.
     let spec = resolve_url("file:///main_with_code.js").unwrap();
     let main_id_fut = runtime
-      .load_main_module(&spec, Some(MAIN_WITH_CODE_SRC))
+      .load_main_es_module_from_code(&spec, MAIN_WITH_CODE_SRC)
       .boxed_local();
     let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
@@ -1477,7 +1462,7 @@ fn import_meta_snapshot() {
   });
 
   runtime2
-    .execute_script_static(
+    .execute_script(
       "check.js",
       "if (globalThis.url !== 'file:///main_with_code.js') throw Error('x')",
     )
@@ -1585,7 +1570,7 @@ async fn no_duplicate_loads() {
   });
 
   let spec = resolve_url("file:///main.js").unwrap();
-  let a_id = runtime.load_main_module(&spec, None).await.unwrap();
+  let a_id = runtime.load_main_es_module(&spec).await.unwrap();
   #[allow(clippy::let_underscore_future)]
   let _ = runtime.mod_evaluate(a_id);
   runtime.run_event_loop(Default::default()).await.unwrap();
@@ -1616,21 +1601,20 @@ async fn import_meta_resolve_cb() {
 
   let spec = ModuleSpecifier::parse("file:///test.js").unwrap();
   let source = r#"
-  if (import.meta.resolve("foo") !== "foo:bar") throw new Error("a");
-  if (import.meta.resolve("./mod.js") !== "file:///mod.js") throw new Error("b");
-  let caught = false;
-  try {
-    import.meta.resolve("boom!");
-  } catch (e) {
-    if (!(e instanceof TypeError)) throw new Error("c");
-    caught = true;
-  }
-  if (!caught) throw new Error("d");
-  "#
-  .to_string();
+    if (import.meta.resolve("foo") !== "foo:bar") throw new Error("a");
+    if (import.meta.resolve("./mod.js") !== "file:///mod.js") throw new Error("b");
+    let caught = false;
+    try {
+      import.meta.resolve("boom!");
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw new Error("c");
+      caught = true;
+    }
+    if (!caught) throw new Error("d");
+  "#;
 
   let a_id = runtime
-    .load_main_module(&spec, Some(source.into()))
+    .load_main_es_module_from_code(&spec, source)
     .await
     .unwrap();
   let local = LocalSet::new();
@@ -1648,24 +1632,20 @@ async fn import_meta_resolve_cb() {
 fn builtin_core_module() {
   let main_specifier = resolve_url("ext:///main_module.js").unwrap();
 
-  let source_code =
-    r#"import { core, primordials, internals } from "ext:core/mod.js";
-if (typeof core === "undefined") throw new Error("core missing");
-if (typeof primordials === "undefined") throw new Error("core missing");
-if (typeof internals === "undefined") throw new Error("core missing");
-"#
-    .to_string();
-  let loader =
-    StaticModuleLoader::new([(main_specifier.clone(), source_code.into())]);
+  let source_code = r#"
+    import { core, primordials, internals } from "ext:core/mod.js";
+    if (typeof core === "undefined") throw new Error("core missing");
+    if (typeof primordials === "undefined") throw new Error("core missing");
+    if (typeof internals === "undefined") throw new Error("core missing");
+  "#;
+  let loader = StaticModuleLoader::new([(main_specifier.clone(), source_code)]);
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
 
-  let main_id_fut = runtime
-    .load_main_module(&main_specifier, None)
-    .boxed_local();
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -1679,18 +1659,16 @@ fn import_meta_filename_dirname() {
   #[cfg(not(target_os = "windows"))]
   let main_specifier = resolve_url("file:///main_module.js").unwrap();
   #[cfg(not(target_os = "windows"))]
-  let code = ascii_str!(
-    r#"if (import.meta.filename != '/main_module.js') throw Error();
-    if (import.meta.dirname != '/') throw Error();"#
-  );
+  let code = r#"if (import.meta.filename != '/main_module.js') throw Error();
+    if (import.meta.dirname != '/') throw Error();
+  "#;
 
   #[cfg(target_os = "windows")]
   let main_specifier = resolve_url("file:///C:/main_module.js").unwrap();
   #[cfg(target_os = "windows")]
-  let code = ascii_str!(
-    r#"if (import.meta.filename != 'C:\\main_module.js') throw Error();
-    if (import.meta.dirname != 'C:\\') throw Error();"#
-  );
+  let code = r#"if (import.meta.filename != 'C:\\main_module.js') throw Error();
+    if (import.meta.dirname != 'C:\\') throw Error();
+  "#;
 
   let loader = StaticModuleLoader::new([(main_specifier.clone(), code)]);
 
@@ -1699,9 +1677,7 @@ fn import_meta_filename_dirname() {
     ..Default::default()
   });
 
-  let main_id_fut = runtime
-    .load_main_module(&main_specifier, None)
-    .boxed_local();
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
   let main_id = futures::executor::block_on(main_id_fut).unwrap();
 
   #[allow(clippy::let_underscore_future)]

@@ -138,7 +138,7 @@ fn bench_op(
 
   // Prime the optimizer
   runtime
-    .execute_script("", FastString::Owned(harness.into()))
+    .execute_script("", harness)
     .map_err(err_mapper)
     .unwrap();
   let guard = tokio.enter();

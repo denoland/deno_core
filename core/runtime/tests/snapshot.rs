@@ -16,7 +16,7 @@ use self::runtime::CreateSnapshotOptions;
 fn will_snapshot() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
-    runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+    runtime.execute_script("a.js", "a = 1 + 2").unwrap();
     runtime.snapshot()
   };
 
@@ -26,7 +26,7 @@ fn will_snapshot() {
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
@@ -34,9 +34,7 @@ fn will_snapshot() {
 fn will_snapshot2() {
   let startup_data = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
-    runtime
-      .execute_script_static("a.js", "let a = 1 + 2")
-      .unwrap();
+    runtime.execute_script("a.js", "let a = 1 + 2").unwrap();
     runtime.snapshot()
   };
 
@@ -48,9 +46,9 @@ fn will_snapshot2() {
 
   let startup_data = {
     runtime
-      .execute_script_static("check_a.js", "if (a != 3) throw Error('x')")
+      .execute_script("check_a.js", "if (a != 3) throw Error('x')")
       .unwrap();
-    runtime.execute_script_static("b.js", "b = 2 + 3").unwrap();
+    runtime.execute_script("b.js", "b = 2 + 3").unwrap();
     runtime.snapshot()
   };
 
@@ -61,10 +59,10 @@ fn will_snapshot2() {
       ..Default::default()
     });
     runtime
-      .execute_script_static("check_b.js", "if (b != 5) throw Error('x')")
+      .execute_script("check_b.js", "if (b != 5) throw Error('x')")
       .unwrap();
     runtime
-      .execute_script_static("check2.js", "if (!Deno.core) throw Error('x')")
+      .execute_script("check2.js", "if (!Deno.core) throw Error('x')")
       .unwrap();
   }
 }
@@ -74,7 +72,7 @@ fn test_snapshot_callbacks() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime
-      .execute_script_static(
+      .execute_script(
         "a.js",
         r#"
         Deno.core.setMacrotaskCallback(() => {
@@ -99,7 +97,7 @@ fn test_snapshot_callbacks() {
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
@@ -107,7 +105,7 @@ fn test_snapshot_callbacks() {
 fn test_from_snapshot() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
-    runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+    runtime.execute_script("a.js", "a = 1 + 2").unwrap();
     runtime.snapshot()
   };
 
@@ -117,7 +115,7 @@ fn test_from_snapshot() {
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
@@ -131,7 +129,7 @@ fn test_snapshot_creator() {
       skip_op_registration: false,
       extensions: vec![],
       with_runtime_cb: Some(Box::new(|runtime| {
-        runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+        runtime.execute_script("a.js", "a = 1 + 2").unwrap();
       })),
     },
     None,
@@ -145,7 +143,7 @@ fn test_snapshot_creator() {
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
@@ -163,7 +161,7 @@ fn test_snapshot_creator_warmup() {
       with_runtime_cb: Some(Box::new(move |runtime| {
         c.replace_with(|&mut c| c + 1);
 
-        runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+        runtime.execute_script("a.js", "a = 1 + 2").unwrap();
       })),
     },
     Some("const b = 'Hello'"),
@@ -181,7 +179,7 @@ fn test_snapshot_creator_warmup() {
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
@@ -199,17 +197,16 @@ fn es_snapshot() {
       import {{ f{prev} }} from "file:///{prev}.js";
       export function f{i}() {{ return f{prev}() }}
       "#
-    )
-    .into();
+    );
 
     let id = if main {
       futures::executor::block_on(
-        runtime.load_main_module(&specifier, Some(source_code)),
+        runtime.load_main_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     } else {
       futures::executor::block_on(
-        runtime.load_side_module(&specifier, Some(source_code)),
+        runtime.load_side_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     };
@@ -248,11 +245,10 @@ fn es_snapshot() {
   });
 
   let specifier = crate::resolve_url("file:///0.js").unwrap();
-  let source_code =
-    ascii_str!(r#"export function f0() { return "hello world" }"#);
-  let id = futures::executor::block_on(
-    runtime.load_side_module(&specifier, Some(source_code)),
-  )
+  let id = futures::executor::block_on(runtime.load_side_es_module_from_code(
+    &specifier,
+    r#"export function f0() { return "hello world" }"#,
+  ))
   .unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -312,7 +308,7 @@ fn es_snapshot() {
     const mod = await import("file:///400.js");
     return mod.f400() + " " + Deno.core.ops.op_test();
   })();"#;
-  let val = runtime3.execute_script_static(".", source_code).unwrap();
+  let val = runtime3.execute_script(".", source_code).unwrap();
   #[allow(deprecated)]
   let val = futures::executor::block_on(runtime3.resolve_value(val)).unwrap();
   {
@@ -363,7 +359,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 
   // Dynamic imports of ext: from non-ext: modules are not allowed.
   let dyn_import_promise = realm
-    .execute_script_static(
+    .execute_script(
       runtime.v8_isolate(),
       "",
       "import('ext:module_snapshot/test.js')",
@@ -379,7 +375,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 
   // But not a new one
   let dyn_import_promise = realm
-    .execute_script_static(
+    .execute_script(
       runtime.v8_isolate(),
       "",
       "import('ext:module_snapshot/test2.js')",

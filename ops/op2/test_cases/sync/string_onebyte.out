@@ -2,10 +2,10 @@
 struct op_string_onebyte {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_string_onebyte {
+impl ::deno_core::_ops::Op for op_string_onebyte {
     const NAME: &'static str = stringify!(op_string_onebyte);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_string_onebyte),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_string_onebyte),
         false,
         false,
         1usize as u8,

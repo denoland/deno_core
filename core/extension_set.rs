@@ -92,10 +92,7 @@ fn check_no_duplicate_op_names(ops: &[OpDecl]) {
   let mut count_by_name = HashMap::new();
 
   for op in ops.iter() {
-    count_by_name
-      .entry(&op.name)
-      .or_insert(vec![])
-      .push(op.name.to_string());
+    count_by_name.entry(op.name).or_insert(vec![]).push(op.name);
   }
 
   let mut duplicate_ops = vec![];

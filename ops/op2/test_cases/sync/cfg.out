@@ -4,10 +4,10 @@
 pub struct op_maybe_windows {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_maybe_windows {
+impl ::deno_core::_ops::Op for op_maybe_windows {
     const NAME: &'static str = stringify!(op_maybe_windows);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_maybe_windows),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_maybe_windows),
         false,
         false,
         0usize as u8,
@@ -126,10 +126,10 @@ impl op_maybe_windows {
 pub struct op_maybe_windows {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_maybe_windows {
+impl ::deno_core::_ops::Op for op_maybe_windows {
     const NAME: &'static str = stringify!(op_maybe_windows);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_maybe_windows),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_maybe_windows),
         false,
         false,
         0usize as u8,

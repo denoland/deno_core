@@ -3,6 +3,7 @@ use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
+use crate::FastStaticString;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
@@ -12,6 +13,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use url::Url;
 
 mod loaders;
 mod map;
@@ -47,6 +49,76 @@ pub enum ModuleSourceCode {
 
 pub type ModuleCodeString = FastString;
 pub type ModuleName = FastString;
+
+/// Converts various string-like things into `ModuleName`.
+pub trait IntoModuleName {
+  fn into_module_name(self) -> ModuleName;
+}
+
+impl IntoModuleName for ModuleName {
+  fn into_module_name(self) -> ModuleName {
+    self
+  }
+}
+
+impl IntoModuleName for &'static str {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from_static(self)
+  }
+}
+
+impl IntoModuleName for String {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from(self)
+  }
+}
+
+impl IntoModuleName for Url {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from(self)
+  }
+}
+
+impl IntoModuleName for FastStaticString {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from(self)
+  }
+}
+
+/// Converts various string-like things into `ModuleCodeString`.
+pub trait IntoModuleCodeString {
+  fn into_module_code(self) -> ModuleCodeString;
+}
+
+impl IntoModuleCodeString for ModuleCodeString {
+  fn into_module_code(self) -> ModuleCodeString {
+    self
+  }
+}
+
+impl IntoModuleCodeString for &'static str {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from_static(self)
+  }
+}
+
+impl IntoModuleCodeString for String {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from(self)
+  }
+}
+
+impl IntoModuleCodeString for FastStaticString {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from(self)
+  }
+}
+
+impl IntoModuleCodeString for Arc<str> {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from(self)
+  }
+}
 
 #[derive(Debug)]
 pub enum ModuleCodeBytes {
@@ -327,7 +399,7 @@ impl ModuleSource {
   #[cfg(test)]
   pub fn for_test(code: &'static str, file: impl AsRef<str>) -> Self {
     Self {
-      code: ModuleSourceCode::String(FastString::from_static(code)),
+      code: ModuleSourceCode::String(code.into_module_code()),
       module_type: ModuleType::JavaScript,
       module_url_specified: file.as_ref().to_owned().into(),
       module_url_found: None,
@@ -349,7 +421,7 @@ impl ModuleSource {
       Some(found.into())
     };
     Self {
-      code: ModuleSourceCode::String(FastString::from_static(code)),
+      code: ModuleSourceCode::String(code.into_module_code()),
       module_type: ModuleType::JavaScript,
       module_url_specified: specified.into(),
       module_url_found: found,
