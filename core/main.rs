@@ -1,5 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+#[path = "dcore/inspector_server.rs"]
+mod inspector_server;
+
 use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
@@ -10,7 +13,11 @@ use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
 use std::borrow::Cow;
+use std::net::SocketAddr;
 use std::rc::Rc;
+use std::sync::Arc;
+
+use crate::inspector_server::InspectorServer;
 
 fn custom_module_evaluation_cb(
   scope: &mut v8::HandleScope,
@@ -84,6 +91,8 @@ fn main() -> Result<(), Error> {
   let main_url = &args[1];
   println!("Run {main_url}");
 
+  let start_inspector = std::env::var("DCORE_INSPECTOR").ok();
+
   // TODO(bartlomieju): figure out how we can incorporate snapshotting here
   // deno_core::snapshot::create_snapshot(
   //   CreateSnapshotOptions {
@@ -101,11 +110,20 @@ fn main() -> Result<(), Error> {
   // .unwrap();
   // return Ok(());
 
+  let inspector_server = if start_inspector.is_some() {
+    // TODO(bartlomieju): make it configurable
+    let host = "127.0.0.1:9229".parse::<SocketAddr>().unwrap();
+    Some(Arc::new(InspectorServer::new(host, "dcore")?))
+  } else {
+    None
+  };
+
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     // TODO(bartlomieju): figure out how we can incorporate snapshotting here
     // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
+    inspector: inspector_server.is_some(),
     ..Default::default()
   });
 
@@ -117,6 +135,15 @@ fn main() -> Result<(), Error> {
     main_url,
     &std::env::current_dir().context("Unable to get CWD")?,
   )?;
+
+  if let Some(inspector_server) = inspector_server.clone() {
+    inspector_server.register_inspector(
+      main_module.to_string(),
+      &mut js_runtime,
+      // make it configurable
+      false,
+    );
+  }
 
   let future = async move {
     let mod_id = js_runtime.load_main_es_module(&main_module).await?;
