@@ -1,0 +1,50 @@
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+[package]
+name = "dcore"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+readme = "README.md"
+repository.workspace = true
+description = "A simple binary that builds on deno_core"
+
+[[bin]]
+name = "dcore"
+
+[dependencies]
+anyhow.workspace = true
+bincode = { workspace = true, optional = true }
+bit-set.workspace = true
+bit-vec.workspace = true
+bytes.workspace = true
+cooked-waker.workspace = true
+deno_core.workspace = true
+deno_core_icudata = { workspace = true, optional = true }
+deno_ops.workspace = true
+deno_unsync.workspace = true
+futures.workspace = true
+libc.workspace = true
+log.workspace = true
+memoffset.workspace = true
+parking_lot.workspace = true
+pin-project.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
+serde_v8.workspace = true
+smallvec.workspace = true
+sourcemap.workspace = true
+static_assertions.workspace = true
+tokio.workspace = true
+url.workspace = true
+v8.workspace = true
+
+# only required for `dcore` bin target
+fastwebsockets = { version = "0.6", features = ["upgrade", "unstable-split"] }
+http = { version = "1.0" }
+http-body-util = { version = "0.1" }
+hyper = { version = "=1.1.0", features = ["full"] }
+hyper-util = { version = "=0.1.2", features = ["tokio", "server", "server-auto"] }
+uuid = { version = "1.3.0", features = ["v4"] }

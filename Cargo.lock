@@ -371,6 +371,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c297a1c74b71ae29df00c3e22dd9534821d60eb9af5a0192823fa2acea70c2a"
 
 [[package]]
+name = "dcore"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "bit-set",
+ "bit-vec",
+ "bytes",
+ "cooked-waker",
+ "deno_core",
+ "deno_core_icudata",
+ "deno_ops",
+ "deno_unsync",
+ "fastwebsockets",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "log",
+ "memoffset",
+ "parking_lot",
+ "pin-project",
+ "serde",
+ "serde_json",
+ "serde_v8",
+ "smallvec",
+ "sourcemap 7.0.1",
+ "static_assertions",
+ "tokio",
+ "url",
+ "uuid",
+ "v8",
+]
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -433,12 +470,7 @@ dependencies = [
  "deno_ops",
  "deno_unsync",
  "fastrand",
- "fastwebsockets",
  "futures",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
  "libc",
  "log",
  "memoffset",
@@ -455,7 +487,6 @@ dependencies = [
  "tokio",
  "unicycle",
  "url",
- "uuid",
  "v8",
 ]
 

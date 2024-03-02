@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-#[path = "dcore/inspector_server.rs"]
 mod inspector_server;
 
 use anyhow::anyhow;
