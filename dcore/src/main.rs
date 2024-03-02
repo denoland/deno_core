@@ -1,11 +1,9 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-#[path = "dcore/inspector_server.rs"]
-mod inspector_server;
-
 use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::anyhow::Error;
+use deno_core::v8;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::FastString;
 use deno_core::FsModuleLoader;
@@ -17,6 +15,7 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod inspector_server;
 use crate::inspector_server::InspectorServer;
 
 fn custom_module_evaluation_cb(
