@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -107,7 +107,8 @@ where
     static V8_ONCE: std::sync::Once = std::sync::Once::new();
 
     V8_ONCE.call_once(|| {
-      let platform = v8::new_default_platform(0, false).make_shared();
+      let platform =
+        v8::new_unprotected_default_platform(0, false).make_shared();
       v8::V8::initialize_platform(platform);
       v8::V8::initialize();
     });

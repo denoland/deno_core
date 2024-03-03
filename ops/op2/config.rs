@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::TokenStream;
 use proc_macro2::TokenTree;
 use proc_macro_rules::rules;
@@ -176,7 +176,7 @@ mod tests {
   fn test_parse(s: &str, expected: MacroConfig) {
     let item_fn = syn::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))
       .expect("Failed to parse function");
-    let attr = item_fn.attrs.get(0).unwrap();
+    let attr = item_fn.attrs.first().unwrap();
     let config =
       MacroConfig::from_maybe_attribute_tokens(attr.into_token_stream())
         .expect("Failed to parse attribute")

@@ -1,8 +1,8 @@
-# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 [package]
 name = "deno_core"
-version = "0.243.0"
+version = "0.266.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,20 +14,23 @@ description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and T
 path = "lib.rs"
 
 [features]
-default = ["include_icu_data", "v8_use_custom_libcxx", "op_driver_joinset"]
-include_icu_data = []
+default = ["include_icu_data", "v8_use_custom_libcxx", "snapshot_data_json"]
+snapshot_data_json = []
+snapshot_data_bincode = ["bincode"]
+include_icu_data = ["deno_core_icudata"]
 v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
-
-op_driver_joinset = []
+unsafe_use_unprotected_platform = []
 
 [dependencies]
 anyhow.workspace = true
+bincode = { workspace = true, optional = true }
 bit-set.workspace = true
 bit-vec.workspace = true
 bytes.workspace = true
 cooked-waker.workspace = true
+deno_core_icudata = { workspace = true, optional = true }
 deno_ops.workspace = true
 deno_unsync.workspace = true
 futures.workspace = true
@@ -47,14 +50,15 @@ url.workspace = true
 v8.workspace = true
 
 [dev-dependencies]
-deno_ast.workspace = true
 bencher.workspace = true
+criterion.workspace = true
+deno_ast.workspace = true
+fastrand.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
-fastrand.workspace = true
-unicycle = "0"
 rustyline = { version = "13.0.0", default-features = false, features = ["with-file-history"] }
 rustyline-derive = "=0.7.0"
+unicycle = "0"
 
 [[bench]]
 name = "ops_sync"
@@ -78,6 +82,7 @@ name = "arena"
 path = "benches/infra/arena.rs"
 harness = false
 
-[[example]]
-name = "repl"
-path = "examples/repl/mod.rs"
+[[bench]]
+name = "snapshot"
+path = "benches/snapshot/snapshot.rs"
+harness = false

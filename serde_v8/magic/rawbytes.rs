@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 pub(crate) type AtomicPtr<T> = *mut T;
 #[allow(unused)]
 pub(crate) struct RawBytes {
@@ -129,7 +129,8 @@ mod tests {
   use bytes::Bytes;
 
   use super::*;
-  use std::{mem, sync::Arc};
+  use std::mem;
+  use std::sync::Arc;
 
   const HELLO: &str = "hello";
 

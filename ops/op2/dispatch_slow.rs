@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
@@ -503,6 +503,17 @@ pub fn from_arg(
           Err(#err) => {
             #throw_exception;
           }
+        };
+      }
+    }
+    Arg::CppGcResource(ty) => {
+      let throw_exception =
+        throw_type_error(generator_state, format!("expected {}", &ty))?;
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+      quote! {
+        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
+          #throw_exception;
         };
       }
     }

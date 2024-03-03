@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use bencher::*;
 use deno_core::error::generic_error;
 use deno_core::*;
@@ -28,7 +28,7 @@ deno_core::extension!(
 
 #[op2]
 pub fn op_call_promise_resolver(scope: &mut v8::HandleScope, f: &v8::Function) {
-  let recv = v8::undefined(scope).try_into().unwrap();
+  let recv = v8::undefined(scope).into();
   f.call(scope, recv, &[]);
 }
 
@@ -37,7 +37,7 @@ pub fn op_resolve_promise<'s>(
   scope: &'s mut v8::HandleScope,
 ) -> v8::Local<'s, v8::Promise> {
   let resolver = v8::PromiseResolver::new(scope).unwrap();
-  let value = v8::undefined(scope).try_into().unwrap();
+  let value = v8::undefined(scope).into();
   resolver.resolve(scope, value).unwrap();
   resolver.get_promise(scope)
 }
@@ -138,7 +138,7 @@ fn bench_op(
 
   // Prime the optimizer
   runtime
-    .execute_script("", FastString::Owned(harness.into()))
+    .execute_script("", harness)
     .map_err(err_mapper)
     .unwrap();
   let guard = tokio.enter();

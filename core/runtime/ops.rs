@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::ops::*;
 use anyhow::Error;
 use futures::future::Future;
@@ -8,17 +8,27 @@ use serde_v8::V8Sliceable;
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
-use std::option::Option;
 use std::ptr::NonNull;
 use v8::WriteOptions;
 
 use super::op_driver::OpDriver;
-use super::op_driver::RetValMapper;
+use super::op_driver::OpScheduling;
+use super::op_driver::V8RetValMapper;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
 /// so this is a limited resource!
 pub const STRING_STACK_BUFFER_SIZE: usize = 1024 * 8;
+
+fn op_scheduling(lazy: bool, deferred: bool) -> OpScheduling {
+  if lazy {
+    OpScheduling::Lazy
+  } else if deferred {
+    OpScheduling::Deferred
+  } else {
+    OpScheduling::Eager
+  }
+}
 
 #[inline(always)]
 pub fn map_async_op_infallible<R: 'static>(
@@ -27,19 +37,15 @@ pub fn map_async_op_infallible<R: 'static>(
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = R> + 'static,
-  rv_map: RetValMapper<R>,
+  rv_map: V8RetValMapper<R>,
 ) -> Option<R> {
-  let pending_ops = &ctx.context_state().pending_ops;
-  if lazy {
-    pending_ops
-      .submit_op_infallible::<_, true, false>(ctx, promise_id, op, rv_map)
-  } else if deferred {
-    pending_ops
-      .submit_op_infallible::<_, false, true>(ctx, promise_id, op, rv_map)
-  } else {
-    pending_ops
-      .submit_op_infallible::<_, false, false>(ctx, promise_id, op, rv_map)
-  }
+  ctx.op_driver().submit_op_infallible_scheduling(
+    op_scheduling(lazy, deferred),
+    ctx.id,
+    promise_id,
+    op,
+    rv_map,
+  )
 }
 
 #[inline(always)]
@@ -49,19 +55,15 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   deferred: bool,
   promise_id: i32,
   op: impl Future<Output = Result<R, E>> + 'static,
-  rv_map: RetValMapper<R>,
+  rv_map: V8RetValMapper<R>,
 ) -> Option<Result<R, E>> {
-  let pending_ops = &ctx.context_state().pending_ops;
-  if lazy {
-    pending_ops
-      .submit_op_fallible::<_, _, true, false>(ctx, promise_id, op, rv_map)
-  } else if deferred {
-    pending_ops
-      .submit_op_fallible::<_, _, false, true>(ctx, promise_id, op, rv_map)
-  } else {
-    pending_ops
-      .submit_op_fallible::<_, _, false, false>(ctx, promise_id, op, rv_map)
-  }
+  ctx.op_driver().submit_op_fallible_scheduling(
+    op_scheduling(lazy, deferred),
+    ctx.id,
+    promise_id,
+    op,
+    rv_map,
+  )
 }
 
 macro_rules! try_number_some {
@@ -519,7 +521,6 @@ mod tests {
   use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
-  use crate::FastString;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
@@ -595,6 +596,8 @@ mod tests {
       op_buffer_any,
       op_buffer_any_length,
       op_arraybuffer_slice,
+      op_test_get_cppgc_resource,
+      op_test_make_cppgc_resource,
       op_external_make,
       op_external_process,
       op_external_make_ptr,
@@ -655,39 +658,31 @@ mod tests {
     runtime
       .execute_script(
         "",
-        FastString::Owned(
-          format!(
-            r"
-            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
-            function assert(b) {{
-              if (!b) {{
-                op_test_fail();
-              }}
+        format!(r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+          function assert(b) {{
+            if (!b) {{
+              op_test_fail();
             }}
-            function assertErrorContains(e, s) {{
-              assert(String(e).indexOf(s) != -1)
-            }}
-            function log(s) {{
-              op_test_print_debug(String(s))
-            }}
-          "
-          )
-          .into(),
-        ),
+          }}
+          function assertErrorContains(e, s) {{
+            assert(String(e).indexOf(s) != -1)
+          }}
+          function log(s) {{
+            op_test_print_debug(String(s))
+          }}
+        ")
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
-      FastString::Owned(
-        format!(
-          r"
-      for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
-        {test}
-      }}
-    "
-        )
-        .into(),
+      format!(
+        r"
+        for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
+          {test}
+        }}
+      "
       ),
     )?;
     if FAIL.with(|b| b.get()) {
@@ -712,41 +707,33 @@ mod tests {
     runtime
       .execute_script(
         "",
-        FastString::Owned(
-          format!(
-            r"
-            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
-            function assert(b) {{
-              if (!b) {{
-                op_test_fail();
-              }}
+        format!(r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+          function assert(b) {{
+            if (!b) {{
+              op_test_fail();
             }}
-            function assertErrorContains(e, s) {{
-              assert(String(e).indexOf(s) != -1)
-            }}
-            function log(s) {{
-              op_test_print_debug(String(s))
-            }}
-          "
-          )
-          .into(),
-        ),
+          }}
+          function assertErrorContains(e, s) {{
+            assert(String(e).indexOf(s) != -1)
+          }}
+          function log(s) {{
+            op_test_print_debug(String(s))
+          }}
+        ")
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
-      FastString::Owned(
-        format!(
-          r"
-            (async () => {{
-              for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
-                {test}
-              }}
-            }})()
-          "
-        )
-        .into(),
+      format!(
+        r"
+        (async () => {{
+          for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
+            {test}
+          }}
+        }})()
+      "
       ),
     )?;
 
@@ -1854,6 +1841,35 @@ mod tests {
       r"
       const array = op_buffer_bytesmut();
       assert(array.length == 3);",
+    )?;
+    Ok(())
+  }
+
+  pub struct TestResource {
+    pub value: u32,
+  }
+
+  #[op2]
+  pub fn op_test_make_cppgc_resource<'s>(
+    scope: &'s mut v8::HandleScope,
+  ) -> v8::Local<'s, v8::Object> {
+    crate::cppgc::make_cppgc_object(scope, TestResource { value: 42 })
+  }
+
+  #[op2(fast)]
+  #[smi]
+  pub fn op_test_get_cppgc_resource(#[cppgc] resource: &TestResource) -> u32 {
+    resource.value
+  }
+
+  #[test]
+  pub fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      10,
+      "op_test_make_cppgc_resource, op_test_get_cppgc_resource",
+      r"
+      const resource = op_test_make_cppgc_resource();
+      assert(op_test_get_cppgc_resource(resource) == 42);",
     )?;
     Ok(())
   }

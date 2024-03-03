@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::alloc::Layout;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicUsize;
@@ -237,6 +237,17 @@ struct ArenaSharedAtomicDataProtected<T> {
 }
 
 impl<T> ArenaSharedAtomic<T> {
+  /// Returns the constant overhead per allocation to assist with making allocations
+  /// page-aligned.
+  pub const fn overhead() -> usize {
+    Self::allocation_size() - std::mem::size_of::<T>()
+  }
+
+  /// Returns the size of each allocation.
+  pub const fn allocation_size() -> usize {
+    RawArena::<ArenaArcData<T>>::allocation_size()
+  }
+
   pub fn with_capacity(capacity: usize) -> Self {
     unsafe {
       let ptr = alloc();
@@ -393,6 +404,7 @@ impl<T> ArenaSharedAtomic<T> {
   ///
   /// Reservations must be either completed or forgotten, and must be provided to the same
   /// arena that created them.
+  #[inline(always)]
   pub unsafe fn reserve_space(
     &self,
   ) -> Option<ArenaSharedAtomicReservation<T>> {
@@ -427,6 +439,7 @@ impl<T> ArenaSharedAtomic<T> {
   ///
   /// Reservations must be either completed or forgotten, and must be provided to the same
   /// arena that created them.
+  #[inline(always)]
   pub unsafe fn complete_reservation(
     &self,
     reservation: ArenaSharedAtomicReservation<T>,

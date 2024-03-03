@@ -1,13 +1,13 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use bencher::benchmark_group;
 use bencher::benchmark_main;
 use bencher::Bencher;
 
 use serde::Deserialize;
 
-use serde_v8::utils::js_exec;
-use serde_v8::utils::v8_do;
 use serde_v8::ByteString;
+use serde_v8_utilities::js_exec;
+use serde_v8_utilities::v8_do;
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct MathOp {

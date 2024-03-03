@@ -1,9 +1,13 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 "use strict";
 
 ((window) => {
   const core = Deno.core;
-  const ops = core.ops;
+  const {
+    op_format_file_name,
+    op_apply_source_map,
+    op_apply_source_map_filename,
+  } = core.ops;
   const {
     Error,
     ObjectDefineProperties,
@@ -22,7 +26,7 @@
       fileName.startsWith("data:") &&
       fileName.length > DATA_URL_ABBREV_THRESHOLD
     ) {
-      return ops.op_format_file_name(fileName);
+      return op_format_file_name(fileName);
     }
     return fileName;
   }
@@ -151,7 +155,7 @@
         callSite.fileName !== null && callSite.lineNumber !== null &&
         callSite.columnNumber !== null
       ) {
-        res = ops.op_apply_source_map(
+        res = op_apply_source_map(
           callSite.fileName,
           callSite.lineNumber,
           callSite.columnNumber,
@@ -163,7 +167,7 @@
         callSite.columnNumber = applySourceMapRetBuf[1];
       }
       if (res >= 2) {
-        callSite.fileName = ops.op_apply_source_map_filename();
+        callSite.fileName = op_apply_source_map_filename();
       }
       ArrayPrototypePush(error.__callSiteEvals, callSite);
       stack += `\n    at ${formatCallSiteEval(callSite)}`;

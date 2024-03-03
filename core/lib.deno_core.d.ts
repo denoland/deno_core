@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 // deno-lint-ignore-file ban-types no-explicit-any
 
@@ -8,7 +8,7 @@
 declare namespace Deno {
   namespace core {
     /** Returns a proxy that generates the fast versions of sync and async ops. */
-    function ensureFastOps(): any;
+    function ensureFastOps(keep?: boolean): any;
 
     /** Mark following promise as "ref", ie. event loop won't exit
      * until all "ref" promises are resolved. All async ops are "ref" by default. */
@@ -19,16 +19,34 @@ declare namespace Deno {
     function unrefOpPromise<T>(promise: Promise<T>): void;
 
     /**
+     * Enables collection of stack traces for sanitizers. This allows for
+     * debugging of where a given async op was started. Deno CLI uses this for
+     * improving error message in sanitizer errors for `deno test`.
+     *
+     * **NOTE:** enabling tracing has a significant negative performance impact.
+     */
+    function setLeakTracingEnabled(enabled: boolean);
+
+    function isLeakTracingEnabled(): boolean;
+
+    /**
+     * Returns the origin stack trace of the given async op promise. The promise
+     * must be ongoing.
+     */
+    function getLeakTraceForPromise<T>(promise: Promise<T>): string | null;
+
+    /**
+     * Returns a map containing traces for all ongoing async ops. The key is the promise id.
+     * Tracing only occurs when `Deno.core.setLeakTracingEnabled()` was previously
+     * enabled.
+     */
+    function getAllLeakTraces(): Map<number, string>;
+
+    /**
      * List of all registered ops, in the form of a map that maps op
      * name to function.
      */
     const ops: Record<string, (...args: unknown[]) => any>;
-
-    /**
-     * List of all registered async ops, in the form of a map that maps op
-     * name to function.
-     */
-    const asyncOps: Record<string, (...args: unknown[]) => any>;
 
     /**
      * Retrieve a list of all open resources, in the form of a map that maps
@@ -124,9 +142,32 @@ declare namespace Deno {
     /** Set a value telling the runtime if there are "next ticks" scheduled */
     function setHasNextTickScheduled(value: boolean): void;
 
-    /** Enqueue a timer at the given depth, optionally repeating. */
-    function queueTimer(
+    /** Enqueue an immediate callback. Immediate callbacks always execute in
+     * the next timer phase.
+     */
+    function queueImmediate(
       depth: number,
+      repeat: boolean,
+      delay: number,
+      callback: () => void,
+    ): number;
+
+    /** Enqueue a user timer at the given depth, optionally repeating. User
+     * timers may generate call traces for sanitization, and may be clamped
+     * depending on the depth of nesting. */
+    function queueUserTimer(
+      depth: number,
+      repeat: boolean,
+      delay: number,
+      callback: () => void,
+    ): number;
+
+    /** Enqueue a system timer at the given depth, optionally repeating. System
+     * timers do not generate call traces, and are never clamped at any nesting
+     * depth. System timers are also associated with an op to provide contextual
+     * information. */
+    function queueSystemTimer(
+      associatedOp: Function,
       repeat: boolean,
       delay: number,
       callback: () => void,
@@ -201,6 +242,11 @@ declare namespace Deno {
 
     export type UncaughtExceptionCallback = (err: any) => void;
 
+    export class BadResource extends Error {}
+    export const BadResourcePrototype: typeof BadResource.prototype;
+    export class Interrupted extends Error {}
+    export const InterruptedPrototype: typeof Interrupted.prototype;
+
     function serialize(
       value: any,
       options?: any,
@@ -208,29 +254,6 @@ declare namespace Deno {
     ): Uint8Array;
 
     function deserialize(buffer: Uint8Array, options?: any): any;
-
-    /**
-     * Enables collection of stack traces of all async ops. This allows for
-     * debugging of where a given async op was started. Deno CLI uses this for
-     * improving error message in op sanitizer errors for `deno test`.
-     *
-     * **NOTE:** enabling tracing has a significant negative performance impact.
-     * To get high level metrics on async ops with no added performance cost,
-     * use `Deno.core.metrics()`.
-     */
-    function enableOpCallTracing(): void;
-
-    export interface OpCallTrace {
-      opName: string;
-      stack: string;
-    }
-
-    /**
-     * A map containing traces for all ongoing async ops. The key is the op id.
-     * Tracing only occurs when `Deno.core.enableOpCallTracing()` was previously
-     * enabled.
-     */
-    const opCallTraces: Map<number, OpCallTrace>;
 
     /**
      * Adds a callback for the given Promise event. If this function is called
@@ -304,6 +327,27 @@ declare namespace Deno {
       | BigInt64Array;
     function isWeakMap(value: unknown): value is WeakMap<WeakKey, unknown>;
     function isWeakSet(value: unknown): value is WeakSet<WeakKey>;
+
+    function propWritable(value: unknown): PropertyDescriptor;
+    function propNonEnumerable(value: unknown): PropertyDescriptor;
+    function propReadOnly(value: unknown): PropertyDescriptor;
+    function propGetterOnly(value: unknown): PropertyDescriptor;
+
+    function propWritableLazyLoaded<T>(
+      getter: (loadedValue: T) => unknown,
+      loadFn: LazyLoader<T>,
+    ): PropertyDescriptor;
+    function propNonEnumerableLazyLoaded<T>(
+      getter: (loadedValue: T) => unknown,
+      loadFn: LazyLoader<T>,
+    ): PropertyDescriptor;
+
+    type LazyLoader<T> = () => T;
+    function createLazyLoader<T = unknown>(specifier: string): LazyLoader<T>;
+
+    function createCancelHandle(): number;
+
+    function encodeBinaryString(data: Uint8Array): string;
 
     const build: {
       target: string;

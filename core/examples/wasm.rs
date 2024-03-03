@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #![allow(deprecated)]
 use deno_core::*;
 use std::mem::transmute;
@@ -72,6 +72,6 @@ fn main() {
   });
 
   runtime
-    .execute_script("<usage>", include_ascii_string!("wasm.js"))
+    .execute_script("<usage>", ascii_str_include!("wasm.js"))
     .unwrap();
 }

@@ -1,154 +1,142 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 "use strict";
 
 ((window) => {
   const {
-    Array,
-    ArrayPrototypeFill,
     ArrayPrototypeMap,
     ArrayPrototypePush,
     Error,
     ErrorCaptureStackTrace,
     FunctionPrototypeBind,
-    MapPrototypeDelete,
-    MapPrototypeGet,
-    MapPrototypeHas,
-    MapPrototypeSet,
     ObjectAssign,
-    ObjectDefineProperty,
     ObjectFreeze,
     ObjectFromEntries,
     ObjectKeys,
     ObjectHasOwn,
-    Promise,
-    PromiseReject,
-    PromiseResolve,
-    PromisePrototypeThen,
     Proxy,
-    RangeError,
-    ReferenceError,
-    ReflectApply,
-    SafeArrayIterator,
-    SafeMap,
-    SafePromisePrototypeFinally,
-    StringPrototypeSlice,
-    StringPrototypeSplit,
-    SymbolFor,
-    SyntaxError,
-    TypeError,
-    URIError,
     setQueueMicrotask,
+    SafeMap,
+    Set,
+    StringPrototypeSlice,
+    Symbol,
+    SymbolFor,
+    TypedArrayPrototypeGetLength,
+    TypedArrayPrototypeJoin,
+    TypedArrayPrototypeSlice,
+    TypedArrayPrototypeGetSymbolToStringTag,
+    TypeError,
   } = window.__bootstrap.primordials;
-  const { ops, asyncOps } = window.Deno.core;
+  const {
+    ops,
+    hasPromise,
+    promiseIdSymbol,
+    registerErrorClass,
+  } = window.Deno.core;
+  const {
+    __setLeakTracingEnabled,
+    __isLeakTracingEnabled,
+    __initializeCoreMethods,
+    __resolvePromise,
+  } = window.__infra;
+  const {
+    op_abort_wasm_streaming,
+    op_current_user_call_site,
+    op_decode,
+    op_deserialize,
+    op_destructure_error,
+    op_dispatch_exception,
+    op_encode,
+    op_encode_binary_string,
+    op_eval_context,
+    op_event_loop_has_more_work,
+    op_get_promise_details,
+    op_get_proxy_details,
+    op_has_tick_scheduled,
+    op_lazy_load_esm,
+    op_memory_usage,
+    op_op_names,
+    op_panic,
+    op_print,
+    op_queue_microtask,
+    op_ref_op,
+    op_resources,
+    op_run_microtasks,
+    op_serialize,
+    op_set_handled_promise_rejection_handler,
+    op_set_has_tick_scheduled,
+    op_set_promise_hooks,
+    op_set_wasm_streaming_callback,
+    op_str_byte_length,
+    op_timer_cancel,
+    op_timer_queue,
+    op_timer_queue_system,
+    op_timer_queue_immediate,
+    op_timer_ref,
+    op_timer_unref,
+    op_unref_op,
+    op_cancel_handle,
+    op_leak_tracing_enable,
+    op_leak_tracing_submit,
+    op_leak_tracing_get_all,
+    op_leak_tracing_get,
 
-  const build = {
-    target: "unknown",
-    arch: "unknown",
-    os: "unknown",
-    vendor: "unknown",
-    env: undefined,
-  };
+    op_is_any_array_buffer,
+    op_is_arguments_object,
+    op_is_array_buffer,
+    op_is_array_buffer_view,
+    op_is_async_function,
+    op_is_big_int_object,
+    op_is_boolean_object,
+    op_is_boxed_primitive,
+    op_is_data_view,
+    op_is_date,
+    op_is_generator_function,
+    op_is_generator_object,
+    op_is_map,
+    op_is_map_iterator,
+    op_is_module_namespace_object,
+    op_is_native_error,
+    op_is_number_object,
+    op_is_promise,
+    op_is_proxy,
+    op_is_reg_exp,
+    op_is_set,
+    op_is_set_iterator,
+    op_is_shared_array_buffer,
+    op_is_string_object,
+    op_is_symbol_object,
+    op_is_typed_array,
+    op_is_weak_map,
+    op_is_weak_set,
+  } = ensureFastOps();
 
-  function setBuildInfo(target) {
-    const { 0: arch, 1: vendor, 2: os, 3: env } = StringPrototypeSplit(
-      target,
-      "-",
-      4,
-    );
-    build.target = target;
-    build.arch = arch;
-    build.vendor = vendor;
-    build.os = os;
-    build.env = env;
-    ObjectFreeze(build);
+  // core/infra collaborative code
+  delete window.__infra;
+
+  __initializeCoreMethods(
+    eventLoopTick,
+    submitLeakTrace,
+  );
+
+  function submitLeakTrace(id) {
+    const error = new Error();
+    ErrorCaptureStackTrace(error, submitLeakTrace);
+    // "Error\n".length == 6
+    op_leak_tracing_submit(0, id, StringPrototypeSlice(error.stack, 6));
   }
 
-  const errorMap = {};
-  // Builtin v8 / JS errors
-  registerErrorClass("Error", Error);
-  registerErrorClass("RangeError", RangeError);
-  registerErrorClass("ReferenceError", ReferenceError);
-  registerErrorClass("SyntaxError", SyntaxError);
-  registerErrorClass("TypeError", TypeError);
-  registerErrorClass("URIError", URIError);
+  function submitTimerTrace(id) {
+    const error = new Error();
+    ErrorCaptureStackTrace(error, submitTimerTrace);
+    // We submit interval and timer traces as type "Timer"
+    // "Error\n".length == 6
+    op_leak_tracing_submit(2, id, StringPrototypeSlice(error.stack, 6));
+  }
 
   let unhandledPromiseRejectionHandler = () => false;
   let timerDepth = 0;
-
-  let nextPromiseId = 0;
-  const promiseMap = new SafeMap();
-  const RING_SIZE = 4 * 1024;
-  const NO_PROMISE = null; // Alias to null is faster than plain nulls
-  const promiseRing = ArrayPrototypeFill(new Array(RING_SIZE), NO_PROMISE);
-  // TODO(bartlomieju): it future use `v8::Private` so it's not visible
-  // to users. Currently missing bindings.
-  const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
-
-  let opCallTracingEnabled = false;
-  const opCallTraces = new SafeMap();
-
-  function enableOpCallTracing() {
-    opCallTracingEnabled = true;
-  }
-
-  function isOpCallTracingEnabled() {
-    return opCallTracingEnabled;
-  }
-
-  function setPromise(promiseId) {
-    const idx = promiseId % RING_SIZE;
-    // Move old promise from ring to map
-    const oldPromise = promiseRing[idx];
-    if (oldPromise !== NO_PROMISE) {
-      const oldPromiseId = promiseId - RING_SIZE;
-      MapPrototypeSet(promiseMap, oldPromiseId, oldPromise);
-    }
-    // Set new promise
-    return promiseRing[idx] = newPromise();
-  }
-
-  function getPromise(promiseId) {
-    // Check if out of ring bounds, fallback to map
-    const outOfBounds = promiseId < nextPromiseId - RING_SIZE;
-    if (outOfBounds) {
-      const promise = MapPrototypeGet(promiseMap, promiseId);
-      if (!promise) {
-        throw "Missing promise in map @ " + promiseId;
-      }
-      MapPrototypeDelete(promiseMap, promiseId);
-      return promise;
-    }
-    // Otherwise take from ring
-    const idx = promiseId % RING_SIZE;
-    const promise = promiseRing[idx];
-    if (!promise) {
-      throw "Missing promise in ring @ " + promiseId;
-    }
-    promiseRing[idx] = NO_PROMISE;
-    return promise;
-  }
-
-  function newPromise() {
-    let resolve, reject;
-    const promise = new Promise((resolve_, reject_) => {
-      resolve = resolve_;
-      reject = reject_;
-    });
-    promise.resolve = resolve;
-    promise.reject = reject;
-    return promise;
-  }
-
-  function hasPromise(promiseId) {
-    // Check if out of ring bounds, fallback to map
-    const outOfBounds = promiseId < nextPromiseId - RING_SIZE;
-    if (outOfBounds) {
-      return MapPrototypeHas(promiseMap, promiseId);
-    }
-    // Otherwise check it in ring
-    const idx = promiseId % RING_SIZE;
-    return promiseRing[idx] != NO_PROMISE;
-  }
+  let timersRunning = false;
+  const cancelledTimers = new Set();
 
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
@@ -170,8 +158,7 @@
     for (let i = 0; i < arguments.length - 3; i += 2) {
       const promiseId = arguments[i];
       const res = arguments[i + 1];
-      const promise = getPromise(promiseId);
-      promise.resolve(res);
+      __resolvePromise(promiseId, res);
     }
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
@@ -205,11 +192,24 @@
 
     const timers = arguments[arguments.length - 2];
     if (timers) {
-      for (let i = 0; i < timers.length; i += 2) {
+      timersRunning = true;
+      for (let i = 0; i < timers.length; i += 3) {
         timerDepth = timers[i];
-        timers[i + 1]();
+        const id = timers[i + 1];
+        if (cancelledTimers.has(id)) {
+          continue;
+        }
+        try {
+          const f = timers[i + 2];
+          f.call(window);
+        } catch (e) {
+          reportExceptionCallback(e);
+        }
+        op_run_microtasks();
       }
+      timersRunning = false;
       timerDepth = 0;
+      cancelledTimers.clear();
     }
 
     // If we have any rejections for this tick, attempt to process them
@@ -225,321 +225,6 @@
           op_dispatch_exception(err, true);
         }
       }
-    }
-  }
-
-  function registerErrorClass(className, errorClass) {
-    registerErrorBuilder(className, (msg) => new errorClass(msg));
-  }
-
-  function registerErrorBuilder(className, errorBuilder) {
-    if (typeof errorMap[className] !== "undefined") {
-      throw new TypeError(`Error class for "${className}" already registered`);
-    }
-    errorMap[className] = errorBuilder;
-  }
-
-  function buildCustomError(className, message, code) {
-    let error;
-    try {
-      error = errorMap[className]?.(message);
-    } catch (e) {
-      throw new Error(
-        `Unable to build custom error for "${className}"\n  ${e.message}`,
-      );
-    }
-    // Strip buildCustomError() calls from stack trace
-    if (typeof error == "object") {
-      ErrorCaptureStackTrace(error, buildCustomError);
-      if (code) {
-        error.code = code;
-      }
-    }
-    return error;
-  }
-
-  function unwrapOpError(hideFunction) {
-    return (res) => {
-      // .$err_class_name is a special key that should only exist on errors
-      const className = res?.$err_class_name;
-      if (!className) {
-        return res;
-      }
-
-      const errorBuilder = errorMap[className];
-      const err = errorBuilder ? errorBuilder(res.message) : new Error(
-        `Unregistered error class: "${className}"\n  ${res.message}\n  Classes of errors returned from ops should be registered via Deno.core.registerErrorClass().`,
-      );
-      // Set .code if error was a known OS error, see error_codes.rs
-      if (res.code) {
-        err.code = res.code;
-      }
-      // Strip unwrapOpResult() and errorBuilder() calls from stack trace
-      ErrorCaptureStackTrace(err, hideFunction);
-      throw err;
-    };
-  }
-
-  // This function is called once per async stub
-  function asyncStub(opName, args) {
-    setUpAsyncStub(opName);
-    return ReflectApply(ops[opName], undefined, args);
-  }
-
-  function setUpAsyncStub(opName) {
-    const originalOp = asyncOps[opName];
-    let fn;
-    // The body of this switch statement can be generated using the script above.
-    switch (originalOp.length - 1) {
-      /* BEGIN TEMPLATE setUpAsyncStub */
-      /* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */
-      case 0:
-        fn = function async_op_0() {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_0);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 1:
-        fn = function async_op_1(a) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_1);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 2:
-        fn = function async_op_2(a, b) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_2);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 3:
-        fn = function async_op_3(a, b, c) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b, c);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_3);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 4:
-        fn = function async_op_4(a, b, c, d) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b, c, d);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_4);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 5:
-        fn = function async_op_5(a, b, c, d, e) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b, c, d, e);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_5);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 6:
-        fn = function async_op_6(a, b, c, d, e, f) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_6);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 7:
-        fn = function async_op_7(a, b, c, d, e, f, g) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_7);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 8:
-        fn = function async_op_8(a, b, c, d, e, f, g, h) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_8);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      case 9:
-        fn = function async_op_9(a, b, c, d, e, f, g, h, i) {
-          const id = nextPromiseId;
-          try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h, i);
-            if (maybeResult !== undefined) {
-              return PromiseResolve(maybeResult);
-            }
-          } catch (err) {
-            ErrorCaptureStackTrace(err, async_op_9);
-            return PromiseReject(err);
-          }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          let promise = PromisePrototypeThen(
-            setPromise(id),
-            unwrapOpError(eventLoopTick),
-          );
-          promise = handleOpCallTracing(opName, id, promise);
-          promise[promiseIdSymbol] = id;
-          return promise;
-        };
-        break;
-      /* END TEMPLATE */
-
-      default:
-        throw new Error(
-          `Too many arguments for async op codegen (length of ${opName} was ${
-            originalOp.length - 1
-          })`,
-        );
-    }
-    ObjectDefineProperty(fn, "name", {
-      value: opName,
-      configurable: false,
-      writable: false,
-    });
-    return (ops[opName] = fn);
-  }
-
-  function handleOpCallTracing(opName, promiseId, p) {
-    if (opCallTracingEnabled) {
-      const stack = StringPrototypeSlice(new Error().stack, 6);
-      MapPrototypeSet(opCallTraces, promiseId, { opName, stack });
-      return SafePromisePrototypeFinally(
-        p,
-        () => MapPrototypeDelete(opCallTraces, promiseId),
-      );
-    } else {
-      return p;
     }
   }
 
@@ -587,7 +272,9 @@
     };
   }
 
-  let reportExceptionCallback = undefined;
+  let reportExceptionCallback = (error) => {
+    op_dispatch_exception(error, false);
+  };
 
   // Used to report errors thrown from functions passed to `queueMicrotask()`.
   // The callback will be passed the thrown error. For example, you can use this
@@ -595,10 +282,16 @@
   // In other words, set the implementation for
   // https://html.spec.whatwg.org/multipage/webappapis.html#report-the-exception
   function setReportExceptionCallback(cb) {
-    if (typeof cb != "function") {
-      throw new TypeError("expected a function");
+    if (cb === null || cb === undefined) {
+      reportExceptionCallback = (error) => {
+        op_dispatch_exception(error, false);
+      };
+    } else {
+      if (typeof cb != "function") {
+        throw new TypeError("expected a function");
+      }
+      reportExceptionCallback = cb;
     }
-    reportExceptionCallback = cb;
   }
 
   function queueMicrotask(cb) {
@@ -609,11 +302,7 @@
       try {
         cb();
       } catch (error) {
-        if (reportExceptionCallback) {
-          reportExceptionCallback(error);
-        } else {
-          throw error;
-        }
+        reportExceptionCallback(error);
       }
     });
   }
@@ -636,6 +325,9 @@
     }
   }
   const InterruptedPrototype = Interrupted.prototype;
+
+  registerErrorClass("BadResource", BadResource);
+  registerErrorClass("Interrupted", Interrupted);
 
   const promiseHooks = [
     [], // init
@@ -709,28 +401,15 @@
     );
   }
 
-  // Eagerly initialize ops for snapshot purposes
-  for (const opName of new SafeArrayIterator(ObjectKeys(asyncOps))) {
-    setUpAsyncStub(opName);
-  }
-
-  function ensureFastOps(keep) {
+  function ensureFastOps(keep = false) {
     return new Proxy({}, {
       get(_target, opName) {
+        const op = ops[opName];
         if (ops[opName] === undefined) {
           op_panic(`Unknown or disabled op '${opName}'`);
         }
-        let op;
-        if (asyncOps[opName] !== undefined) {
-          op = setUpAsyncStub(opName);
-          if (keep !== true) {
-            delete asyncOps[opName];
-          }
-        } else {
-          op = ops[opName];
-          if (keep !== true) {
-            delete ops[opName];
-          }
+        if (keep !== true) {
+          delete ops[opName];
         }
         return op;
       },
@@ -798,126 +477,159 @@
   // It's not fully fledged and is meant to make debugging slightly easier when working with
   // only `deno_core` crate.
   class CoreConsole {
-    #stringify = (arg) => {
-      if (
-        typeof arg === "string" || typeof arg === "boolean" ||
-        typeof arg === "number" || arg === null || arg === undefined
-      ) {
-        return arg;
-      }
-      return JSON.stringify(arg, undefined, 2);
-    };
-
     log = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
 
     debug = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
 
     warn = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, false);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
 
     error = (...args) => {
-      const stringifiedArgs = args.map(this.#stringify);
-      op_print(`${stringifiedArgs.join(" ")}\n`, true);
+      op_print(`${consoleStringify(...args)}\n`, false);
     };
   }
+
+  const consoleStringify = (...args) => args.map(consoleStringifyArg).join(" ");
+
+  const consoleStringifyArg = (arg) => {
+    if (
+      typeof arg === "string" || typeof arg === "boolean" ||
+      typeof arg === "number" || arg === null || arg === undefined
+    ) {
+      return arg;
+    }
+    const tag = TypedArrayPrototypeGetSymbolToStringTag(arg);
+    if (op_is_typed_array(arg)) {
+      return `${tag}(${TypedArrayPrototypeGetLength(arg)}) [${
+        TypedArrayPrototypeJoin(TypedArrayPrototypeSlice(arg, 0, 10), ", ")
+      }]`;
+    }
+    if (tag !== undefined) {
+      tag + " " + JSON.stringify(arg, undefined, 2);
+    } else {
+      return JSON.stringify(arg, undefined, 2);
+    }
+  };
 
   const v8Console = globalThis.console;
   const coreConsole = new CoreConsole();
   globalThis.console = coreConsole;
   wrapConsole(coreConsole, v8Console);
 
-  const {
-    op_abort_wasm_streaming,
-    op_current_user_call_site,
-    op_decode,
-    op_deserialize,
-    op_destructure_error,
-    op_dispatch_exception,
-    op_encode,
-    op_eval_context,
-    op_event_loop_has_more_work,
-    op_get_promise_details,
-    op_get_proxy_details,
-    op_has_tick_scheduled,
-    op_memory_usage,
-    op_op_names,
-    op_panic,
-    op_print,
-    op_queue_microtask,
-    op_ref_op,
-    op_resources,
-    op_run_microtasks,
-    op_serialize,
-    op_set_handled_promise_rejection_handler,
-    op_set_has_tick_scheduled,
-    op_set_promise_hooks,
-    op_set_wasm_streaming_callback,
-    op_str_byte_length,
-    op_timer_cancel,
-    op_timer_queue,
-    op_timer_ref,
-    op_timer_unref,
-    op_unref_op,
+  function propWritable(value) {
+    return {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    };
+  }
 
-    op_is_any_array_buffer,
-    op_is_arguments_object,
-    op_is_array_buffer,
-    op_is_array_buffer_view,
-    op_is_async_function,
-    op_is_big_int_object,
-    op_is_boolean_object,
-    op_is_boxed_primitive,
-    op_is_data_view,
-    op_is_date,
-    op_is_generator_function,
-    op_is_generator_object,
-    op_is_map,
-    op_is_map_iterator,
-    op_is_module_namespace_object,
-    op_is_native_error,
-    op_is_number_object,
-    op_is_promise,
-    op_is_proxy,
-    op_is_reg_exp,
-    op_is_set,
-    op_is_set_iterator,
-    op_is_shared_array_buffer,
-    op_is_string_object,
-    op_is_symbol_object,
-    op_is_typed_array,
-    op_is_weak_map,
-    op_is_weak_set,
-  } = ensureFastOps();
+  function propNonEnumerable(value) {
+    return {
+      value,
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    };
+  }
+
+  function propReadOnly(value) {
+    return {
+      value,
+      enumerable: true,
+      writable: false,
+      configurable: true,
+    };
+  }
+
+  function propGetterOnly(getter) {
+    return {
+      get: getter,
+      set() {},
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+  function propWritableLazyLoaded(getter, loadFn) {
+    let valueIsSet = false;
+    let value;
+
+    return {
+      get() {
+        const loadedValue = loadFn();
+        if (valueIsSet) {
+          return value;
+        } else {
+          return getter(loadedValue);
+        }
+      },
+      set(v) {
+        loadFn();
+        valueIsSet = true;
+        value = v;
+      },
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+  function propNonEnumerableLazyLoaded(getter, loadFn) {
+    let valueIsSet = false;
+    let value;
+
+    return {
+      get() {
+        const loadedValue = loadFn();
+        if (valueIsSet) {
+          return value;
+        } else {
+          return getter(loadedValue);
+        }
+      },
+      set(v) {
+        loadFn();
+        valueIsSet = true;
+        value = v;
+      },
+      enumerable: false,
+      configurable: true,
+    };
+  }
+
+  function createLazyLoader(specifier) {
+    let value;
+
+    return function lazyLoad() {
+      if (!value) {
+        value = op_lazy_load_esm(specifier);
+      }
+      return value;
+    };
+  }
 
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
-    asyncStub,
+    internalRidSymbol: Symbol("Deno.internal.rid"),
     ensureFastOps,
     resources,
     metrics,
-    registerErrorBuilder,
-    registerErrorClass,
-    buildCustomError,
     eventLoopTick,
     BadResource,
     BadResourcePrototype,
     Interrupted,
     InterruptedPrototype,
-    enableOpCallTracing,
-    isOpCallTracingEnabled,
-    opCallTraces,
     refOpPromise,
     unrefOpPromise,
     setReportExceptionCallback,
     setPromiseHooks,
+    consoleStringify,
     close,
     tryClose,
     read,
@@ -929,6 +641,17 @@
     writeSync,
     shutdown,
     print: (msg, isErr) => op_print(msg, isErr),
+    setLeakTracingEnabled: (enabled) => {
+      __setLeakTracingEnabled(enabled);
+      op_leak_tracing_enable(enabled);
+    },
+    isLeakTracingEnabled: () => __isLeakTracingEnabled(),
+    getAllLeakTraces: () => {
+      const traces = op_leak_tracing_get_all();
+      return new SafeMap(traces);
+    },
+    getLeakTraceForPromise: (promise) =>
+      op_leak_tracing_get(0, promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
     runMicrotasks: () => op_run_microtasks(),
@@ -940,6 +663,7 @@
     ) => op_eval_context(source, specifier),
     hostObjectBrand,
     encode: (text) => op_encode(text),
+    encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
     decode: (buffer) => op_decode(buffer),
     serialize: (
       value,
@@ -993,17 +717,37 @@
       unhandledPromiseRejectionHandler = handler,
     reportUnhandledException: (e) => op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
-    queueTimer: (depth, repeat, timeout, task) =>
-      op_timer_queue(depth, repeat, timeout, task),
-    cancelTimer: (id) => op_timer_cancel(id),
+    queueUserTimer: (depth, repeat, timeout, task) => {
+      const id = op_timer_queue(depth, repeat, timeout, task);
+      if (__isLeakTracingEnabled()) {
+        submitTimerTrace(id);
+      }
+      return id;
+    },
+    // TODO(mmastrac): Hook up associatedOp to tracing
+    queueSystemTimer: (_associatedOp, repeat, timeout, task) =>
+      op_timer_queue_system(repeat, timeout, task),
+    queueImmediate: (task) => op_timer_queue_immediate(task),
+    cancelTimer: (id) => {
+      if (timersRunning) {
+        cancelledTimers.add(id);
+      }
+      op_timer_cancel(id);
+    },
     refTimer: (id) => op_timer_ref(id),
     unrefTimer: (id) => op_timer_unref(id),
     getTimerDepth: () => timerDepth,
-    build,
-    setBuildInfo,
     currentUserCallSite,
     wrapConsole,
     v8Console,
+    propReadOnly,
+    propWritable,
+    propNonEnumerable,
+    propGetterOnly,
+    propWritableLazyLoaded,
+    propNonEnumerableLazyLoaded,
+    createLazyLoader,
+    createCancelHandle: () => op_cancel_handle(),
   });
 
   const internals = {};

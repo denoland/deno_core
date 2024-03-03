@@ -1,0 +1,12 @@
+name: Lint
+runs:
+  using: "composite"
+  steps:
+    - name: Format
+      shell: bash
+      run: |
+        tools/check.ts format --check
+    - name: Lint
+      shell: bash
+      run: |
+        tools/check.ts lint --check

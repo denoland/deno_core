@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::custom_error;
 use crate::error::is_instance_of_error;
 use crate::error::range_error;
@@ -10,8 +10,8 @@ use crate::resolve_url;
 use crate::runtime::script_origin;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
-use crate::source_map::apply_source_map;
 use crate::source_map::SourceMapApplication;
+use crate::stats::RuntimeActivityType;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
@@ -44,8 +44,63 @@ pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   context_state.unrefed_ops.borrow_mut().insert(promise_id);
 }
 
-/// Queue a timer, returning a "large" integer in an f64 (allowing up to `MAX_SAFE_INTEGER`
-/// timers to exist).
+#[op2]
+pub fn op_leak_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.activity_traces.set_enabled(enabled);
+}
+
+#[op2]
+pub fn op_leak_tracing_submit(
+  scope: &mut v8::HandleScope,
+  #[smi] kind: u8,
+  #[smi] id: i32,
+  #[string] trace: &str,
+) {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.activity_traces.submit(
+    RuntimeActivityType::from_u8(kind),
+    id as _,
+    trace,
+  );
+}
+
+#[op2]
+#[serde]
+pub fn op_leak_tracing_get_all<'s>(
+  scope: &mut v8::HandleScope<'s>,
+) -> Vec<serde_v8::Value<'s>> {
+  let context_state = JsRealm::state_from_scope(scope);
+  // This is relatively inefficient, but so is leak tracing
+  let mut out = Vec::with_capacity(context_state.activity_traces.count());
+  context_state.activity_traces.get_all(|kind, id, trace| {
+    out.push(
+      serde_v8::to_v8(scope, (kind as u8, id.to_string(), trace.to_owned()))
+        .unwrap()
+        .into(),
+    );
+  });
+  out
+}
+
+#[op2]
+pub fn op_leak_tracing_get<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  #[smi] kind: u8,
+  #[smi] id: i32,
+) -> v8::Local<'s, v8::Value> {
+  use serde_v8::Serializable;
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.activity_traces.get(
+    RuntimeActivityType::from_u8(kind),
+    id as _,
+    |mut x| x.to_v8(scope).unwrap(),
+  )
+}
+
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
 #[op2]
 pub fn op_timer_queue(
   scope: &mut v8::HandleScope,
@@ -66,10 +121,45 @@ pub fn op_timer_queue(
   }
 }
 
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
+#[op2]
+pub fn op_timer_queue_system(
+  scope: &mut v8::HandleScope,
+  repeat: bool,
+  timeout_ms: f64,
+  #[global] task: v8::Global<v8::Function>,
+) -> f64 {
+  let context_state = JsRealm::state_from_scope(scope);
+  if repeat {
+    context_state
+      .timers
+      .queue_timer_repeat(timeout_ms as _, (task, 0)) as _
+  } else {
+    context_state.timers.queue_timer(timeout_ms as _, (task, 0)) as _
+  }
+}
+
+/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
+/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
+/// `u32`.
+#[op2]
+pub fn op_timer_queue_immediate(
+  scope: &mut v8::HandleScope,
+  #[global] task: v8::Global<v8::Function>,
+) -> f64 {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.timers.queue_timer(0, (task, 0)) as _
+}
+
 #[op2]
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
+  context_state
+    .activity_traces
+    .complete(RuntimeActivityType::Timer, id as _);
 }
 
 #[op2]
@@ -853,8 +943,11 @@ pub fn op_dispatch_exception(
 #[serde]
 pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
   let state = JsRealm::state_from_scope(scope);
-  let ctx = state.op_ctxs.borrow();
-  ctx.iter().map(|o| o.decl.name.to_string()).collect()
+  state
+    .op_ctxs
+    .iter()
+    .map(|o| o.decl.name.to_string())
+    .collect()
 }
 
 #[derive(Deserialize, Serialize)]
@@ -893,36 +986,27 @@ pub fn op_apply_source_map(
   if ret_buf.len() != 8 {
     return Err(type_error("retBuf must be 8 bytes"));
   }
-  if let Some(source_map_getter) = state.source_map_getter.as_ref() {
-    let mut cache = state.source_map_cache.borrow_mut();
-    let application = apply_source_map(
-      file_name,
+  let mut source_mapper = state.source_mapper.borrow_mut();
+  let application =
+    source_mapper.apply_source_map(file_name, line_number, column_number);
+  match application {
+    SourceMapApplication::Unchanged => Ok(0),
+    SourceMapApplication::LineAndColumn {
       line_number,
       column_number,
-      &mut cache,
-      &***source_map_getter,
-    );
-    match application {
-      SourceMapApplication::Unchanged => Ok(0),
-      SourceMapApplication::LineAndColumn {
-        line_number,
-        column_number,
-      } => {
-        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
-        Ok(1)
-      }
-      SourceMapApplication::LineAndColumnAndFileName {
-        line_number,
-        column_number,
-        file_name,
-      } => {
-        write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
-        cache.stashed_file_name.replace(file_name);
-        Ok(2)
-      }
+    } => {
+      write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
+      Ok(1)
     }
-  } else {
-    Ok(0)
+    SourceMapApplication::LineAndColumnAndFileName {
+      line_number,
+      column_number,
+      file_name,
+    } => {
+      write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
+      source_mapper.stashed_file_name.replace(file_name);
+      Ok(2)
+    }
   }
 }
 
@@ -934,7 +1018,7 @@ pub fn op_apply_source_map_filename(
   state: &JsRuntimeState,
 ) -> Result<String, Error> {
   state
-    .source_map_cache
+    .source_mapper
     .borrow_mut()
     .stashed_file_name
     .take()
@@ -967,20 +1051,10 @@ pub fn op_current_user_call_site(
     }
     let line_number = frame.get_line_number() as u32;
     let column_number = frame.get_column() as u32;
-    let application = if let Some(source_map_getter) =
-      js_runtime_state.source_map_getter.as_ref()
-    {
-      let mut cache = js_runtime_state.source_map_cache.borrow_mut();
-      apply_source_map(
-        &file_name,
-        line_number,
-        column_number,
-        &mut cache,
-        &***source_map_getter,
-      )
-    } else {
-      SourceMapApplication::Unchanged
-    };
+    let application = js_runtime_state
+      .source_mapper
+      .borrow_mut()
+      .apply_source_map(&file_name, line_number, column_number);
 
     match application {
       SourceMapApplication::Unchanged => {

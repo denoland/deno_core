@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 
@@ -7,7 +7,7 @@ use std::mem::ManuallyDrop;
 macro_rules! external {
   ($type:ty, $name:literal) => {
     impl $crate::Externalizable for $type {
-      fn external_marker() -> usize {
+      fn external_marker() -> ::core::primitive::usize {
         // Use the address of a static mut as a way to get around lack of usize-sized TypeId. Because it is mutable, the
         // compiler cannot collapse multiple definitions into one.
         static mut DEFINITION: $crate::ExternalDefinition =
@@ -15,12 +15,13 @@ macro_rules! external {
         // SAFETY: Wash the pointer through black_box so the compiler cannot see what we're going to do with it and needs
         // to assume it will be used for valid purposes. We are taking the address of a static item, but we avoid taking an
         // intermediate mutable reference to make this safe.
-        let ptr =
-          std::hint::black_box(unsafe { std::ptr::addr_of_mut!(DEFINITION) });
-        ptr as usize
+        let ptr = ::std::hint::black_box(unsafe {
+          ::std::ptr::addr_of_mut!(DEFINITION)
+        });
+        ptr as ::core::primitive::usize
       }
 
-      fn external_name() -> &'static str {
+      fn external_name() -> &'static ::core::primitive::str {
         $name
       }
     }
@@ -144,11 +145,11 @@ mod tests {
   struct External1(u32);
   external!(External1, "external 1");
 
-  struct External2(u32);
+  struct External2(());
   external!(External2, "external 2");
 
   // Use the same name as External 1
-  struct External1b(u32);
+  struct External1b(());
   external!(External1b, "external 1");
 
   /// Use this to avoid leaking in miri tests

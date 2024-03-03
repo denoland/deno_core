@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 //!  This example shows you how to define ops in Rust and then call them from
 //!  JavaScript.
 
@@ -32,7 +32,7 @@ fn main() {
   // contains a Deno.core object with several functions for interacting with it.
   // You can find its definition in core.js.
   runtime
-    .execute_script_static(
+    .execute_script(
       "<usage>",
       r#"
 // Print helper function, calling Deno.core.print()

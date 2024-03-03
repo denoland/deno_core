@@ -1,8 +1,7 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
-use std::pin::Pin;
 use std::rc::Rc;
 
 use anyhow::bail;
@@ -15,16 +14,15 @@ use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::ExtensionFileSource;
 use deno_core::ExtensionFileSourceCode;
+use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceCode;
-use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
+use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::SourceMapGetter;
-
-use futures::FutureExt;
 
 #[derive(Clone, Default)]
 struct SourceMapStore(Rc<RefCell<HashMap<String, Vec<u8>>>>);
@@ -63,7 +61,8 @@ impl ModuleLoader for TypescriptModuleLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
-  ) -> Pin<Box<ModuleSourceFuture>> {
+    _requested_module_type: RequestedModuleType,
+  ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(
       source_maps: SourceMapStore,
@@ -127,7 +126,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       ))
     }
 
-    futures::future::ready(load(source_maps, module_specifier)).boxed_local()
+    ModuleLoadResponse::Sync(load(source_maps, module_specifier))
   }
 }
 
@@ -163,10 +162,13 @@ pub fn maybe_transpile_source(
   let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
     imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
     inline_source_map: false,
+    source_map: true,
+    inline_sources: true,
     ..Default::default()
   })?;
 
   source.code =
     ExtensionFileSourceCode::Computed(transpiled_source.text.into());
+  source.source_map = Some(transpiled_source.source_map.unwrap().into_bytes());
   Ok(())
 }

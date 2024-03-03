@@ -1,5 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::error::generic_error;
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::map::ModuleMap;
 use crate::modules::ModuleError;
@@ -9,6 +8,7 @@ use crate::modules::ModuleRequest;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_url;
+use crate::ModuleLoadResponse;
 use crate::ModuleLoader;
 use crate::ModuleSource;
 use anyhow::Error;
@@ -53,7 +53,6 @@ pub(crate) struct RecursiveModuleLoad {
   pub id: ModuleLoadId,
   pub root_module_id: Option<ModuleId>,
   init: LoadInit,
-  root_asserted_module_type: Option<RequestedModuleType>,
   state: LoadState,
   module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
@@ -106,7 +105,6 @@ impl RecursiveModuleLoad {
     let mut load = Self {
       id,
       root_module_id: None,
-      root_asserted_module_type: None,
       init,
       state: LoadState::Init,
       module_map_rc: module_map_rc.clone(),
@@ -119,10 +117,9 @@ impl RecursiveModuleLoad {
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
     if let Ok(root_specifier) = load.resolve_root() {
       if let Some(module_id) =
-        module_map_rc.get_id(root_specifier, &requested_module_type)
+        module_map_rc.get_id(root_specifier.as_str(), requested_module_type)
       {
         load.root_module_id = Some(module_id);
-        load.root_asserted_module_type = Some(requested_module_type);
       }
     }
     load
@@ -195,14 +192,6 @@ impl RecursiveModuleLoad {
     module_request: &ModuleRequest,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let requested_module_type = module_request.requested_module_type.clone();
-    if requested_module_type != module_source.module_type {
-      return Err(ModuleError::Other(generic_error(format!(
-        "Expected a \"{}\" module but loaded a \"{}\" module.",
-        requested_module_type, module_source.module_type,
-      ))));
-    }
-
     let module_id = self.module_map_rc.new_module(
       scope,
       self.is_currently_loading_main_module(),
@@ -215,7 +204,6 @@ impl RecursiveModuleLoad {
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
       self.root_module_id = Some(module_id);
-      self.root_asserted_module_type = Some(requested_module_type);
       self.state = LoadState::LoadingImports;
     }
     if self.pending.is_empty() {
@@ -269,6 +257,7 @@ impl RecursiveModuleLoad {
             let referrer = referrer.clone();
             let loader = self.loader.clone();
             let is_dynamic_import = self.is_dynamic_import();
+            let requested_module_type = request.requested_module_type.clone();
             let fut = async move {
               // `visited_as_alias` unlike `visited` is checked as late as
               // possible because it can only be populated after completed
@@ -277,9 +266,17 @@ impl RecursiveModuleLoad {
               if visited_as_alias.borrow().contains(specifier.as_str()) {
                 return Ok(None);
               }
-              let load_result = loader
-                .load(&specifier, Some(&referrer), is_dynamic_import)
-                .await;
+              let load_response = loader.load(
+                &specifier,
+                Some(&referrer),
+                is_dynamic_import,
+                requested_module_type,
+              );
+
+              let load_result = match load_response {
+                ModuleLoadResponse::Sync(result) => result,
+                ModuleLoadResponse::Async(fut) => fut.await,
+              };
               if let Ok(source) = &load_result {
                 if let Some(found_specifier) = &source.module_url_found {
                   visited_as_alias
@@ -320,7 +317,7 @@ impl Stream for RecursiveModuleLoad {
         };
         let module_request = ModuleRequest {
           specifier: module_specifier.to_string(),
-          requested_module_type,
+          requested_module_type: requested_module_type.clone(),
         };
         let load_fut = if let Some(module_id) = inner.root_module_id {
           // If the inner future is already in the map, we might be done (assuming there are no pending
@@ -342,14 +339,18 @@ impl Stream for RecursiveModuleLoad {
           };
           let loader = inner.loader.clone();
           let is_dynamic_import = inner.is_dynamic_import();
+          let requested_module_type = requested_module_type.clone();
           async move {
-            let result = loader
-              .load(
-                &module_specifier,
-                maybe_referrer.as_ref(),
-                is_dynamic_import,
-              )
-              .await;
+            let load_response = loader.load(
+              &module_specifier,
+              maybe_referrer.as_ref(),
+              is_dynamic_import,
+              requested_module_type,
+            );
+            let result = match load_response {
+              ModuleLoadResponse::Sync(result) => result,
+              ModuleLoadResponse::Async(fut) => fut.await,
+            };
             result.map(|s| Some((module_request, s)))
           }
           .boxed_local()

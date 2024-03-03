@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 // Based on https://github.com/nodejs/node/blob/889ad35d3d41e376870f785b0c1b669cb732013d/typings/primordials.d.ts
 // Copyright Joyent, Inc. and other Node contributors.
@@ -46,7 +46,7 @@ declare namespace __bootstrap {
    * primordials.StringPrototypeStartsWith('thing', 'hello')
    * ```
    */
-  declare namespace primordials {
+  namespace primordials {
     type UncurryThis<T extends (this: unknown, ...args: unknown[]) => unknown> =
       (self: ThisParameterType<T>, ...args: Parameters<T>) => ReturnType<T>;
     type UncurryThisStaticApply<

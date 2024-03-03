@@ -1,10 +1,10 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 /**
  * Call a callback function after a delay.
  */
-export function setTimeout(callback, delay) {
-  return Deno.core.queueTimer(
+export function setTimeout(callback, delay = 0) {
+  return Deno.core.queueUserTimer(
     Deno.core.getTimerDepth() + 1,
     false,
     delay,
@@ -15,8 +15,8 @@ export function setTimeout(callback, delay) {
 /**
  * Call a callback function after a delay.
  */
-export function setInterval(callback, delay) {
-  return Deno.core.queueTimer(
+export function setInterval(callback, delay = 0) {
+  return Deno.core.queueUserTimer(
     Deno.core.getTimerDepth() + 1,
     true,
     delay,

@@ -1,25 +1,37 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::bail;
 use anyhow::Error;
 use deno_core::url::Url;
 use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
+use deno_core::JsRuntimeForSnapshot;
 use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
+use futures::Future;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
 use testing::Output;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use crate::checkin::runner::testing::TestData;
 
+use self::ops_worker::worker_create;
+use self::ops_worker::WorkerCloseWatcher;
+use self::ops_worker::WorkerHostSide;
 use self::testing::TestFunctions;
 
 mod ops;
+mod ops_async;
 mod ops_buffer;
+mod ops_error;
+mod ops_io;
+mod ops_worker;
 mod testing;
 mod ts_module_loader;
 
@@ -29,28 +41,57 @@ deno_core::extension!(
     ops::op_log_debug,
     ops::op_log_info,
     ops::op_test_register,
+    ops::op_stats_capture,
+    ops::op_stats_diff,
+    ops::op_stats_dump,
+    ops::op_stats_delete,
+    ops_io::op_pipe_create,
+    ops_async::op_async_yield,
+    ops_async::op_async_barrier_create,
+    ops_async::op_async_barrier_await,
+    ops_async::op_async_spin_on_state,
+    ops_error::op_async_throw_error_eager,
+    ops_error::op_async_throw_error_lazy,
+    ops_error::op_async_throw_error_deferred,
+    ops_error::op_error_custom_sync,
+    ops_error::op_error_context_sync,
+    ops_error::op_error_context_async,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
+    ops_worker::op_worker_spawn,
+    ops_worker::op_worker_send,
+    ops_worker::op_worker_recv,
+    ops_worker::op_worker_parent,
+    ops_worker::op_worker_await_close,
+    ops_worker::op_worker_terminate,
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [
     dir "checkin/runtime",
+    "__bootstrap.js",
     "__init.js",
-    "console.ts" with_specifier "checkin:console",
-    "testing.ts" with_specifier "checkin:testing",
-    "timers.ts" with_specifier "checkin:timers",
+    "checkin:async" = "async.ts",
+    "checkin:console" = "console.ts",
+    "checkin:error" = "error.ts",
+    "checkin:testing" = "testing.ts",
+    "checkin:timers" = "timers.ts",
+    "checkin:worker" = "worker.ts",
+    "checkin:throw" = "throw.ts",
   ],
   state = |state| {
     state.put(TestFunctions::default());
     state.put(TestData::default());
-    state.put(Output::default());
   }
 );
 
-fn create_runtime() -> JsRuntime {
-  let mut extensions = vec![checkin_runtime::init_ops_and_esm()];
+fn create_runtime(
+  output: Output,
+  parent: Option<WorkerCloseWatcher>,
+) -> (JsRuntime, WorkerHostSide) {
+  let (worker, worker_host_side) = worker_create(parent);
+  let mut extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm()];
 
-  for extension in &mut extensions {
+  for extension in &mut extensions_for_snapshot {
     use ts_module_loader::maybe_transpile_source;
     for source in extension.esm_files.to_mut() {
       maybe_transpile_source(source).unwrap();
@@ -60,30 +101,66 @@ fn create_runtime() -> JsRuntime {
     }
   }
 
-  JsRuntime::new(RuntimeOptions {
+  let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
+    extensions: extensions_for_snapshot,
+    ..Default::default()
+  });
+
+  let snapshot = runtime_for_snapshot.snapshot();
+  let snapshot = Box::leak(snapshot);
+  let extensions = vec![checkin_runtime::init_ops()];
+  let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
+    startup_snapshot: Some(snapshot),
     module_loader: Some(Rc::new(
       ts_module_loader::TypescriptModuleLoader::default(),
     )),
     get_error_class_fn: Some(&|error| {
-      deno_core::error::get_custom_error_class(error).unwrap()
+      deno_core::error::get_custom_error_class(error).unwrap_or("Error")
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
-  })
+  });
+
+  let stats = runtime.runtime_activity_stats_factory();
+  runtime.op_state().borrow_mut().put(stats);
+  runtime.op_state().borrow_mut().put(worker);
+  runtime.op_state().borrow_mut().put(output);
+  (runtime, worker_host_side)
+}
+
+fn run_async(f: impl Future<Output = Result<(), Error>>) {
+  let tokio = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .expect("Failed to build a runtime");
+  tokio.block_on(f).expect("Failed to run the given task");
+
+  // We don't have a good way to wait for tokio to go idle here, but we'd like tokio
+  // to poll any remaining tasks to shake out any errors.
+  let handle = tokio.spawn(async {
+    tokio::task::yield_now().await;
+  });
+  _ = tokio.block_on(handle);
+
+  let (tx, rx) = channel::<()>();
+  let timeout = std::thread::spawn(move || {
+    if rx.recv_timeout(Duration::from_secs(10))
+      == Err(RecvTimeoutError::Timeout)
+    {
+      panic!("Failed to shut down the runtime in time");
+    }
+  });
+  drop(tokio);
+  drop(tx);
+  _ = timeout.join();
 }
 
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
 /// and compares its output with the `.out` file in the same directory.
 pub fn run_integration_test(test: &str) {
-  let runtime = create_runtime();
-  let tokio = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .expect("Failed to build a runtime");
-  tokio
-    .block_on(run_integration_test_task(runtime, test.to_owned()))
-    .expect("Failed to complete test");
+  let (runtime, _) = create_runtime(Output::default(), None);
+  run_async(run_integration_test_task(runtime, test.to_owned()));
 }
 
 async fn run_integration_test_task(
@@ -92,28 +169,29 @@ async fn run_integration_test_task(
 ) -> Result<(), Error> {
   let test_dir = get_test_dir(&["integration", &test]);
   let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_module(&url, None).await?;
+  let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   let mut actual_output = String::new();
   if let Err(e) = runtime
     .run_event_loop(PollEventLoopOptions::default())
     .await
   {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
     for line in e.to_string().split('\n') {
-      actual_output += "[ERR] ";
-      actual_output += line;
-      actual_output += "\n";
+      output.line(format!("[ERR] {line}"));
     }
   }
   f.await?;
-  let mut output: Output = runtime.op_state().borrow_mut().take();
-  output.lines.push(String::new());
+  let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
+  lines.push(String::new());
   let mut expected_output = String::new();
   File::open(test_dir.join(format!("{test}.out")))
     .await?
     .read_to_string(&mut expected_output)
     .await?;
-  actual_output += &output.lines.join("\n");
+  actual_output += &lines.join("\n");
   assert_eq!(actual_output, expected_output);
   Ok(())
 }
@@ -121,14 +199,8 @@ async fn run_integration_test_task(
 /// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
 /// then each test is run individually and failures are printed.
 pub fn run_unit_test(test: &str) {
-  let runtime = create_runtime();
-  let tokio = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .expect("Failed to build a runtime");
-  tokio
-    .block_on(run_unit_test_task(runtime, test.to_owned()))
-    .expect("Failed to complete test");
+  let (runtime, _) = create_runtime(Output::default(), None);
+  run_async(run_unit_test_task(runtime, test.to_owned()));
 }
 
 async fn run_unit_test_task(
@@ -137,7 +209,7 @@ async fn run_unit_test_task(
 ) -> Result<(), Error> {
   let test_dir = get_test_dir(&["unit"]);
   let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_module(&url, None).await?;
+  let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   runtime
     .run_event_loop(PollEventLoopOptions::default())

@@ -3,10 +3,10 @@
 pub struct op_has_doc_comment {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_has_doc_comment {
+impl ::deno_core::_ops::Op for op_has_doc_comment {
     const NAME: &'static str = stringify!(op_has_doc_comment);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_has_doc_comment),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_has_doc_comment),
         false,
         false,
         0usize as u8,

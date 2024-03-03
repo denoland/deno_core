@@ -1,0 +1,28 @@
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+[package]
+name = "dcore"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+readme = "README.md"
+repository.workspace = true
+description = "A simple binary that builds on deno_core"
+
+[[bin]]
+name = "dcore"
+
+[dependencies]
+anyhow.workspace = true
+deno_core.workspace = true
+fastwebsockets = { version = "0.6", features = ["upgrade", "unstable-split"] }
+futures.workspace = true
+http = { version = "1.0" }
+http-body-util = { version = "0.1" }
+hyper = { version = "=1.1.0", features = ["full"] }
+hyper-util = { version = "=0.1.2", features = ["tokio", "server", "server-auto"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+tokio.workspace = true
+uuid = { version = "1.3.0", features = ["v4"] }

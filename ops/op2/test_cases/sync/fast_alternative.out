@@ -2,10 +2,10 @@
 struct op_slow {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_slow {
+impl ::deno_core::_ops::Op for op_slow {
     const NAME: &'static str = stringify!(op_slow);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_slow),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_slow),
         false,
         false,
         3usize as u8,
@@ -107,10 +107,10 @@ impl op_slow {
 struct op_fast {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_fast {
+impl ::deno_core::_ops::Op for op_fast {
     const NAME: &'static str = stringify!(op_fast);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_fast),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_fast),
         false,
         false,
         2usize as u8,
@@ -270,10 +270,10 @@ impl op_fast {
 struct op_slow_generic<T> {
     _unconstructable: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Trait> deno_core::_ops::Op for op_slow_generic<T> {
+impl<T: Trait> ::deno_core::_ops::Op for op_slow_generic<T> {
     const NAME: &'static str = stringify!(op_slow_generic);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_slow_generic),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_slow_generic),
         false,
         false,
         3usize as u8,
@@ -375,10 +375,10 @@ impl<T: Trait> op_slow_generic<T> {
 struct op_fast_generic<T> {
     _unconstructable: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Trait> deno_core::_ops::Op for op_fast_generic<T> {
+impl<T: Trait> ::deno_core::_ops::Op for op_fast_generic<T> {
     const NAME: &'static str = stringify!(op_fast_generic);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_fast_generic),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_fast_generic),
         false,
         false,
         2usize as u8,

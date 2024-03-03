@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #![allow(deprecated)]
 use bencher::*;
 use deno_core::error::generic_error;
@@ -191,15 +191,18 @@ fn bench_op(
 
   // Prime the optimizer
   runtime
-    .execute_script("", FastString::Owned(harness.into()))
+    .execute_script("", harness)
     .map_err(err_mapper)
     .unwrap();
   let bench = runtime.execute_script("", ascii_str!("bench")).unwrap();
   let mut scope = runtime.handle_scope();
+  #[allow(clippy::unnecessary_fallible_conversions)]
   let bench: v8::Local<v8::Function> =
-    v8::Local::new(&mut scope, bench).try_into().unwrap();
+    v8::Local::<v8::Value>::new(&mut scope, bench)
+      .try_into()
+      .unwrap();
   b.iter(|| {
-    let recv = v8::undefined(&mut scope).try_into().unwrap();
+    let recv = v8::undefined(&mut scope).into();
     bench.call(&mut scope, recv, &[]);
   });
 }

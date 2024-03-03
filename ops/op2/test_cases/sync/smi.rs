@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
@@ -9,13 +9,23 @@ pub type Uint32 = u32;
 
 #[op2(fast)]
 #[smi]
-fn op_smi_unsigned_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[smi] d: Uint32) -> Uint32 {
+fn op_smi_unsigned_return(
+  #[smi] a: Int16,
+  #[smi] b: Int32,
+  #[smi] c: Uint16,
+  #[smi] d: Uint32,
+) -> Uint32 {
   a as Uint32 + b as Uint32 + c as Uint32 + d as Uint32
 }
 
 #[op2(fast)]
 #[smi]
-fn op_smi_signed_return(#[smi] a: Int16, #[smi] b: Int32, #[smi] c: Uint16, #[smi] d: Uint32) -> Int32 {
+fn op_smi_signed_return(
+  #[smi] a: Int16,
+  #[smi] b: Int32,
+  #[smi] c: Uint16,
+  #[smi] d: Uint32,
+) -> Int32 {
   a as Int32 + b as Int32 + c as Int32 + d as Int32
 }
 

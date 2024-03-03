@@ -1,13 +1,14 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-import { $, Repo } from "./deps.ts";
+import { $, Crate, Repo } from "./deps.ts";
+
+export { Crate };
 
 export class DenoWorkspace {
   #repo: Repo;
 
   static get rootDirPath() {
-    const currentDirPath = $.path.dirname($.path.fromFileUrl(import.meta.url));
-    return $.path.resolve(currentDirPath, "../");
+    return $.path(import.meta).join("../../").resolve().toString();
   }
 
   static async load(): Promise<DenoWorkspace> {
@@ -27,6 +28,10 @@ export class DenoWorkspace {
     return this.#repo;
   }
 
+  static get manifest() {
+    return $.path.join(this.rootDirPath, "Cargo.toml");
+  }
+
   get crates() {
     return this.#repo.crates;
   }
@@ -34,7 +39,7 @@ export class DenoWorkspace {
   /** Gets the deno_core dependency crates that should be published. */
   getDenoCoreDependencyCrates() {
     return this.getDenoCoreCrate()
-      .descendantDependenciesInRepo();
+      .immediateDependenciesInRepo().map((c) => c.crate);
   }
 
   getDenoCoreCrate() {

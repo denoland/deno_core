@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::signature::Arg;
 use super::signature::BufferType;
 use super::signature::NumericArg;

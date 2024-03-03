@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 mod de;
 mod error;
 mod keys;
@@ -6,7 +6,6 @@ mod magic;
 mod payload;
 mod ser;
 mod serializable;
-pub mod utils;
 
 pub use de::from_v8;
 pub use de::from_v8_cached;

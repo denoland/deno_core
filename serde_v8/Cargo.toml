@@ -1,8 +1,8 @@
-# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 [package]
 name = "serde_v8"
-version = "0.152.0"
+version = "0.175.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -24,8 +24,9 @@ v8.workspace = true
 
 [dev-dependencies]
 bencher.workspace = true
-serde_json.workspace = true
 serde_bytes.workspace = true
+serde_json.workspace = true
+serde_v8_utilities = { path = "./utilities" }
 
 [[example]]
 name = "basic"

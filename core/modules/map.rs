@@ -1,4 +1,8 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use super::module_map_data::ModuleMapSnapshotData;
+use super::IntoModuleCodeString;
+use super::IntoModuleName;
+use crate::ascii_str;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
@@ -9,7 +13,7 @@ use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::modules::ImportAttributesKind;
-use crate::modules::ModuleCode;
+use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
@@ -20,16 +24,21 @@ use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
-use crate::runtime::SnapshottedData;
+use crate::runtime::SnapshotLoadDataStore;
+use crate::runtime::SnapshotStoreDataStore;
 use crate::ExtensionFileSource;
+use crate::FastStaticString;
 use crate::JsRuntime;
+use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
 use anyhow::bail;
+use anyhow::Context as _;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
+use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
@@ -48,6 +57,7 @@ use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
+use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
 
@@ -116,27 +126,37 @@ impl ModuleMap {
   }
 
   #[cfg(debug_assertions)]
-  pub(crate) fn assert_all_modules_evaluated(
+  pub(crate) fn check_all_modules_evaluated(
     &self,
     scope: &mut v8::HandleScope,
-  ) {
+  ) -> Result<(), Error> {
     let mut not_evaluated = vec![];
     let data = self.data.borrow();
 
     for (handle, i) in data.handles_inverted.iter() {
       let module = v8::Local::new(scope, handle);
-      if !matches!(module.get_status(), v8::ModuleStatus::Evaluated) {
-        not_evaluated.push(data.info[*i].name.as_str().to_string());
+      match module.get_status() {
+        v8::ModuleStatus::Errored => {
+          return Err(
+            JsError::from_v8_exception(scope, module.get_exception()).into(),
+          );
+        }
+        v8::ModuleStatus::Evaluated => {}
+        _ => {
+          not_evaluated.push(data.info[*i].name.as_str().to_string());
+        }
       }
     }
 
     if !not_evaluated.is_empty() {
-      let mut msg = "Following modules were not evaluated; make sure they are imported from other code:\n".to_string();
+      let mut msg = String::new();
       for m in not_evaluated {
         msg.push_str(&format!("  - {}\n", m));
       }
-      panic!("{}", msg);
+      bail!("Following modules were not evaluated; make sure they are imported from other code:\n {}", msg);
     }
+
+    Ok(())
   }
 
   pub(crate) fn new(
@@ -162,36 +182,23 @@ impl ModuleMap {
     }
   }
 
-  pub(crate) fn new_from_snapshotted_data(
-    loader: Rc<dyn ModuleLoader>,
-    exception_state: Rc<ExceptionState>,
-    import_meta_resolve_cb: ImportMetaResolveCallback,
+  pub(crate) fn update_with_snapshotted_data(
+    &self,
     scope: &mut v8::HandleScope,
-    data: SnapshottedData,
-  ) -> Self {
-    let new = Self::new(loader, exception_state, import_meta_resolve_cb);
-    new
+    data_store: &mut SnapshotLoadDataStore,
+    data: ModuleMapSnapshotData,
+  ) {
+    self
       .data
       .borrow_mut()
-      .update_with_snapshotted_data(scope, data);
-    new
-  }
-
-  fn get_handle_by_name(
-    &self,
-    name: impl AsRef<str>,
-  ) -> Option<v8::Global<v8::Module>> {
-    let id = self
-      .get_id(name.as_ref(), RequestedModuleType::None)
-      .or_else(|| self.get_id(name.as_ref(), RequestedModuleType::Json))?;
-    self.get_handle(id)
+      .update_with_snapshotted_data(scope, data_store, data);
   }
 
   /// Get module id, following all aliases in case of module specifier
   /// that had been redirected.
   pub(crate) fn get_id(
     &self,
-    name: impl AsRef<str>,
+    name: &str,
     requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId> {
     self.data.borrow().get_id(name, requested_module_type)
@@ -212,6 +219,13 @@ impl ModuleMap {
     self.data.borrow().get_name_by_id(id)
   }
 
+  pub(crate) fn get_type_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<ModuleType> {
+    self.data.borrow().get_type_by_module(global)
+  }
+
   pub(crate) fn get_handle(
     &self,
     id: ModuleId,
@@ -221,9 +235,10 @@ impl ModuleMap {
 
   pub(crate) fn serialize_for_snapshotting(
     &self,
-    scope: &mut v8::HandleScope,
-  ) -> SnapshottedData {
-    self.data.borrow().serialize_for_snapshotting(scope)
+    data_store: &mut SnapshotStoreDataStore,
+  ) -> ModuleMapSnapshotData {
+    let data = std::mem::take(&mut *self.data.borrow_mut());
+    data.serialize_for_snapshotting(data_store)
   }
 
   #[cfg(test)]
@@ -233,6 +248,11 @@ impl ModuleMap {
     requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> bool {
     self.data.borrow().is_alias(name, requested_module_type)
+  }
+
+  #[cfg(test)]
+  pub(crate) fn get_data(&self) -> &RefCell<ModuleMapData> {
+    &self.data
   }
 
   #[cfg(test)]
@@ -261,7 +281,7 @@ impl ModuleMap {
         module_url_found.into_cheap_copy();
       self.data.borrow_mut().alias(
         module_url_specified,
-        &module_type.into(),
+        &module_type.clone().into(),
         module_url_found1,
       );
       module_url_found2
@@ -269,7 +289,13 @@ impl ModuleMap {
       module_url_specified
     };
 
-    let requested_module_type = RequestedModuleType::from(module_type);
+    // TODO(bartlomieju): I have a hunch that this is wrong - write a test
+    // that tries to "confuse" the type system, by first requesting a module
+    // with type `RequestedModuleType::Other("foo".into)``, and then the loader
+    // actually returns `ModuleType::Other("bar".into())`. See if it leads to
+    // unexpected result in how `ModuleMap` is structured and verify how
+    // querying the module map works (`ModuleMap::get_by_id`, `ModuleMap::get_by_name`).
+    let requested_module_type = RequestedModuleType::from(module_type.clone());
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
@@ -280,31 +306,117 @@ impl ModuleMap {
       return Ok(module_id);
     }
 
-    let code = ModuleSource::get_string_source(module_url_found.as_str(), code)
-      .map_err(ModuleError::Other)?;
     let module_id = match module_type {
       ModuleType::JavaScript => {
-        self.new_es_module(scope, main, module_url_found, code, dynamic)?
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
+        self.new_module_from_js_source(
+          scope,
+          main,
+          ModuleType::JavaScript,
+          module_url_found,
+          code,
+          dynamic,
+        )?
+      }
+      ModuleType::Wasm => {
+        return Err(ModuleError::Other(generic_error(
+          "Importing Wasm modules is currently not supported.",
+        )));
       }
       ModuleType::Json => {
+        let code =
+          ModuleSource::get_string_source(module_url_found.as_str(), code)
+            .map_err(ModuleError::Other)?;
         self.new_json_module(scope, module_url_found, code)?
+      }
+      ModuleType::Other(module_type) => {
+        let state = JsRuntime::state_from(scope);
+        let custom_module_evaluation_cb =
+          state.custom_module_evaluation_cb.as_ref();
+
+        let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
+          return Err(ModuleError::Other(generic_error(format!(
+            "Importing '{}' modules is not supported",
+            module_type
+          ))));
+        };
+
+        // TODO(bartlomieju): creating a global just to create a local from it
+        // seems superfluous. However, changing `CustomModuleEvaluationCb` to have
+        // a lifetime will have a viral effect and required `JsRuntimeOptions`
+        // to have a callback as well as `JsRuntime`.
+        let module_evaluation_kind = custom_evaluation_cb(
+          scope,
+          module_type.clone(),
+          &module_url_found,
+          code,
+        )
+        .map_err(ModuleError::Other)?;
+
+        match module_evaluation_kind {
+          // Simple case, we just got a single value so we create a regular
+          // synthetic module.
+          CustomModuleEvaluationKind::Synthetic(value_global) => {
+            let value = v8::Local::new(scope, value_global);
+            let exports = vec![(ascii_str!("default"), value)];
+            self.new_synthetic_module(
+              scope,
+              module_url_found,
+              ModuleType::Other(module_type.clone()),
+              exports,
+            )?
+          }
+
+          // Complex case - besides a synthetic module, we will create a new
+          // module from JS code.
+          CustomModuleEvaluationKind::ComputedAndSynthetic(
+            computed_src,
+            synthetic_value,
+            synthetic_module_type,
+          ) => {
+            let (url1, url2) = module_url_found.into_cheap_copy();
+            let value = v8::Local::new(scope, synthetic_value);
+            let exports = vec![(ascii_str!("default"), value)];
+            let _synthetic_mod_id = self.new_synthetic_module(
+              scope,
+              url1,
+              synthetic_module_type,
+              exports,
+            )?;
+            self.new_module_from_js_source(
+              scope,
+              main,
+              ModuleType::Other(module_type.clone()),
+              url2,
+              computed_src,
+              dynamic,
+            )?
+          }
+        }
       }
     };
     Ok(module_id)
   }
 
-  /// Creates a "synthetic module", that contains only a single, "default" export,
-  /// that returns the provided value.
+  /// Creates a "synthetic module", that contains only a single, "default" export.
+  ///
+  /// The module gets instantiated and its ID is returned.
   pub fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
-    name: ModuleName,
+    name: impl IntoModuleName,
     module_type: ModuleType,
-    value: v8::Local<v8::Value>,
+    exports: Vec<(FastStaticString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
+    let name = name.into_module_name();
+    let name_str = name.v8_string(scope);
 
-    let export_names = [v8::String::new(scope, "default").unwrap()];
+    let export_names = exports
+      .iter()
+      .map(|(name, _)| name.v8_string(scope))
+      .collect::<Vec<_>>();
     let module = v8::Module::create_synthetic_module(
       scope,
       name_str,
@@ -313,12 +425,22 @@ impl ModuleMap {
     );
 
     let handle = v8::Global::<v8::Module>::new(scope, module);
-    let value_handle = v8::Global::<v8::Value>::new(scope, value);
+    let mut exports_global = Vec::with_capacity(exports.len());
+
+    for i in 0..exports.len() {
+      let export_name = export_names[i];
+      let (_, export_value) = exports[i];
+      exports_global.push((
+        v8::Global::new(scope, export_name),
+        v8::Global::new(scope, export_value),
+      ));
+    }
+
     self
       .data
       .borrow_mut()
-      .synthetic_module_value_store
-      .insert(handle.clone(), value_handle);
+      .synthetic_module_exports_store
+      .insert(handle.clone(), exports_global);
 
     let id = self.data.borrow_mut().create_module_info(
       name,
@@ -328,20 +450,68 @@ impl ModuleMap {
       vec![],
     );
 
+    // Synthetic modules have no imports so their instantation must never fail.
+    self.instantiate_module(scope, id).unwrap();
+
     Ok(id)
   }
 
+  // TODO(bartlomieju): remove this method or rename it to `new_js_module`.
   /// Create and compile an ES module.
   pub(crate) fn new_es_module(
     &self,
     scope: &mut v8::HandleScope,
     main: bool,
-    name: ModuleName,
-    source: ModuleCode,
+    name: impl IntoModuleName,
+    source: impl IntoModuleCodeString,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
-    let source_str = source.v8(scope);
+    let name = name.into_module_name();
+    self.new_module_from_js_source(
+      scope,
+      main,
+      ModuleType::JavaScript,
+      name.into_module_name(),
+      source.into_module_code(),
+      is_dynamic_import,
+    )
+  }
+
+  /// Provided given JavaScript source code, compile and create a module of given
+  /// type.
+  ///
+  /// Passed type doesn't have to be [`ModuleType::JavaScript`]! This method
+  /// can be used to create "shim" modules, that execute some JS and act as a
+  /// proxy to the actual underlying module (eg. you might create a "shim" for
+  /// WASM module).
+  ///
+  /// Imports in the executed code are parsed (along their import attributes)
+  /// and attached to associated [`ModuleInfo`].
+  ///
+  /// Returns an ID of newly created module.
+  pub(crate) fn new_module_from_js_source(
+    &self,
+    scope: &mut v8::HandleScope,
+    main: bool,
+    module_type: ModuleType,
+    name: ModuleName,
+    source: ModuleCodeString,
+    is_dynamic_import: bool,
+  ) -> Result<ModuleId, ModuleError> {
+    if main {
+      let data = self.data.borrow();
+      if let Some(main_module) = data.main_module_id {
+        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
+        return Err(ModuleError::Other(generic_error(
+          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
+          name.as_ref(),
+          main_name,
+        ))));
+      }
+    }
+
+    let name_str = name.v8_string(scope);
+    let source_str = source.v8_string(scope);
 
     let origin = module_origin(scope, name_str);
     let source = v8::script_compiler::Source::new(source_str, Some(&origin));
@@ -354,13 +524,16 @@ impl ModuleMap {
       assert!(maybe_module.is_none());
       let exception = tc_scope.exception().unwrap();
       let exception = v8::Global::new(tc_scope, exception);
+      // TODO(bartlomieju): add a more concrete variant - like `ModuleError::CompileError`?
       return Err(ModuleError::Exception(exception));
     }
 
     let module = maybe_module.unwrap();
 
-    let mut requests: Vec<ModuleRequest> = vec![];
+    // TODO(bartlomieju): maybe move to a helper function?
     let module_requests = module.get_module_requests();
+    let requests_len = module_requests.length();
+    let mut requests = Vec::with_capacity(requests_len);
     for i in 0..module_requests.length() {
       let module_request = v8::Local::<v8::ModuleRequest>::try_from(
         module_requests.get(tc_scope, i).unwrap(),
@@ -382,7 +555,11 @@ impl ModuleMap {
       // is thrown here
       {
         let state = JsRuntime::state_from(tc_scope);
-        (state.validate_import_attributes_cb)(tc_scope, &attributes);
+        if let Some(validate_import_attributes_cb) =
+          &state.validate_import_attributes_cb
+        {
+          (validate_import_attributes_cb)(tc_scope, &attributes);
+        }
       }
 
       if tc_scope.has_caught() {
@@ -412,22 +589,10 @@ impl ModuleMap {
       requests.push(request);
     }
 
-    if main {
-      let data = self.data.borrow();
-      if let Some(main_module) = data.main_module_id {
-        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
-        return Err(ModuleError::Other(generic_error(
-          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name.as_ref(),
-          main_name,
-        ))));
-      }
-    }
-
     let handle = v8::Global::<v8::Module>::new(tc_scope, module);
     let id = self.data.borrow_mut().create_module_info(
       name,
-      ModuleType::JavaScript,
+      module_type,
       handle,
       main,
       requests,
@@ -439,9 +604,11 @@ impl ModuleMap {
   pub(crate) fn new_json_module(
     &self,
     scope: &mut v8::HandleScope,
-    name: ModuleName,
-    code: ModuleCode,
+    name: impl IntoModuleName,
+    code: impl IntoModuleCodeString,
   ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
+    let code = code.into_module_code();
     let source_str = v8::String::new_from_utf8(
       scope,
       strip_bom(code.as_bytes()),
@@ -459,7 +626,8 @@ impl ModuleMap {
         return Err(ModuleError::Exception(exception));
       }
     };
-    self.new_synthetic_module(tc_scope, name, ModuleType::Json, parsed_json)
+    let exports = vec![(ascii_str!("default"), parsed_json)];
+    self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
   }
 
   pub(crate) fn instantiate_module(
@@ -549,6 +717,7 @@ impl ModuleMap {
     if specifier.starts_with("ext:")
       && !referrer.starts_with("ext:")
       && !referrer.starts_with("node:")
+      && !referrer.starts_with("checkin:")
       && referrer != "."
       && kind != ResolutionKind::MainModule
     {
@@ -591,21 +760,6 @@ impl ModuleMap {
     }
 
     None
-  }
-
-  pub(crate) fn inject_handle(
-    &self,
-    name: ModuleName,
-    module_type: ModuleType,
-    handle: v8::Global<v8::Module>,
-  ) {
-    self.data.borrow_mut().create_module_info(
-      name,
-      module_type,
-      handle,
-      false,
-      vec![],
-    );
   }
 
   pub(crate) fn get_requested_modules(
@@ -663,7 +817,7 @@ impl ModuleMap {
         if self
           .data
           .borrow()
-          .is_registered(module_specifier, requested_module_type)
+          .is_registered(module_specifier.as_str(), requested_module_type)
         {
           async move { (load.id, Ok(load)) }.boxed_local()
         } else {
@@ -825,6 +979,41 @@ impl ModuleMap {
     }
 
     receiver
+  }
+
+  /// Helper function that allows to evaluate a module and ensure it's fully
+  /// evaluated without the need to poll the event loop.
+  ///
+  /// This is useful for evaluating internal modules that can't use Top-Level Await.
+  pub(crate) fn mod_evaluate_sync(
+    self: &Rc<Self>,
+    scope: &mut v8::HandleScope,
+    id: ModuleId,
+  ) -> Result<(), Error> {
+    let mut receiver = self.mod_evaluate(scope, id);
+
+    // After evaluate_pending_module, if the module isn't fully evaluated
+    // and the resolver solved, it means the module or one of its imports
+    // uses TLA.
+    match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      Poll::Ready(result) => {
+        result.with_context(|| {
+          let specifier = self.get_name_by_id(id).unwrap();
+          format!("Couldn't execute '{specifier}'")
+        })?;
+      }
+      Poll::Pending => {
+        // Find the TLA location and return it as an error
+        let messages = self.find_stalled_top_level_await(scope);
+        assert!(!messages.is_empty());
+        let msg = v8::Local::new(scope, &messages[0]);
+        let js_error = JsError::from_v8_message(scope, msg);
+        return Err(Error::from(js_error))
+          .with_context(|| "Top-level await is not allowed in extensions");
+      }
+    }
+
+    Ok(())
   }
 
   fn dynamic_import_module_evaluate(
@@ -1212,24 +1401,6 @@ impl ModuleMap {
     Ok(v8::Global::new(scope, module_namespace))
   }
 
-  /// Clear the module map, meant to be used after initializing extensions.
-  /// Optionally pass a list of exceptions `(old_name, new_name)` representing
-  /// specifiers which will be renamed and preserved in the module map.
-  pub fn clear_module_map(&self, exceptions: &'static [&'static str]) {
-    let handles = exceptions
-      .iter()
-      .map(|mod_name| (self.get_handle_by_name(mod_name).unwrap(), mod_name))
-      .collect::<Vec<_>>();
-    *self.data.borrow_mut() = ModuleMapData::default();
-    for (handle, new_name) in handles {
-      self.inject_handle(
-        ModuleName::from_static(new_name),
-        ModuleType::JavaScript,
-        handle,
-      )
-    }
-  }
-
   fn get_stalled_top_level_await_message_for_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -1239,6 +1410,12 @@ impl ModuleMap {
     let module_handle = data.handles.get(module_id).unwrap();
 
     let module = v8::Local::new(scope, module_handle);
+    // v8::Module::GetStalledTopLevelAwaitMessage() must not be called on
+    // a synthetic module.
+    if module.is_synthetic_module() {
+      return vec![];
+    }
+
     let stalled = module.get_stalled_top_level_await_message(scope);
     let mut messages = vec![];
     for (_, message) in stalled {
@@ -1289,23 +1466,16 @@ impl ModuleMap {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub(crate) fn lazy_load_es_module_from_code(
+  pub(crate) fn lazy_load_es_module_with_code(
     &self,
     scope: &mut v8::HandleScope,
     module_specifier: &str,
-    source_code: ModuleCode,
+    source_code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
-      .new_es_module(scope, false, specifier.into(), source_code, false)
-      .map_err(|e| match e {
-        ModuleError::Exception(exception) => {
-          let exception = v8::Local::new(scope, exception);
-          exception_to_err_result::<()>(scope, exception, false, true)
-            .unwrap_err()
-        }
-        ModuleError::Other(error) => error,
-      })?;
+      .new_es_module(scope, false, specifier, source_code, false)
+      .map_err(|e| e.into_any_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
@@ -1378,11 +1548,16 @@ impl ModuleMap {
     }
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
-    let source = futures::executor::block_on(async {
-      loader.load(&specifier, None, false).await
-    })?;
 
-    self.lazy_load_es_module_from_code(
+    let load_response =
+      loader.load(&specifier, None, false, RequestedModuleType::None);
+
+    let source = match load_response {
+      ModuleLoadResponse::Sync(result) => result,
+      ModuleLoadResponse::Async(fut) => futures::executor::block_on(fut),
+    }?;
+
+    self.lazy_load_es_module_with_code(
       scope,
       module_specifier,
       ModuleSource::get_string_source(specifier.as_str(), source.code)?,
@@ -1393,7 +1568,7 @@ impl ModuleMap {
 // Clippy thinks the return value doesn't need to be an Option, it's unaware
 // of the mapping that MapFnFrom<F> does for ResolveModuleCallback.
 #[allow(clippy::unnecessary_wraps)]
-fn synthetic_module_evaluation_steps<'a>(
+pub(crate) fn synthetic_module_evaluation_steps<'a>(
   context: v8::Local<'a, v8::Context>,
   module: v8::Local<v8::Module>,
 ) -> Option<v8::Local<'a, v8::Value>> {
@@ -1403,23 +1578,26 @@ fn synthetic_module_evaluation_steps<'a>(
   let module_map = JsRealm::module_map_from(tc_scope);
 
   let handle = v8::Global::<v8::Module>::new(tc_scope, module);
-  let value_handle = module_map
+  let exports = module_map
     .data
     .borrow_mut()
-    .synthetic_module_value_store
+    .synthetic_module_exports_store
     .remove(&handle)
     .unwrap();
-  let value_local = v8::Local::new(tc_scope, value_handle);
 
-  let name = v8::String::new(tc_scope, "default").unwrap();
-  // This should never fail
-  assert!(
-    module.set_synthetic_module_export(tc_scope, name, value_local)
-      == Some(true)
-  );
-  assert!(!tc_scope.has_caught());
+  for (export_name, export_value) in exports {
+    let name = v8::Local::new(tc_scope, export_name);
+    let value = v8::Local::new(tc_scope, export_value);
 
-  // Since TLA is active we need to return a promise.
+    // This should never fail
+    assert!(module
+      .set_synthetic_module_export(tc_scope, name, value)
+      .unwrap());
+    assert!(!tc_scope.has_caught());
+  }
+
+  // Since Top-Level Await is active we need to return a promise.
+  // This promise is resolved immediately.
   let resolver = v8::PromiseResolver::new(tc_scope).unwrap();
   let undefined = v8::undefined(tc_scope);
   resolver.resolve(tc_scope, undefined.into());

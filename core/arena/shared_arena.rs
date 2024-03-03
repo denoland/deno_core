@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::alloc::Layout;
 use std::cell::Cell;
 use std::ptr::NonNull;
@@ -221,6 +221,17 @@ struct ArenaSharedData<T> {
 }
 
 impl<T> ArenaShared<T> {
+  /// Returns the constant overhead per allocation to assist with making allocations
+  /// page-aligned.
+  pub const fn overhead() -> usize {
+    Self::allocation_size() - std::mem::size_of::<T>()
+  }
+
+  /// Returns the size of each allocation.
+  pub const fn allocation_size() -> usize {
+    RawArena::<ArenaRcData<T>>::allocation_size()
+  }
+
   pub fn with_capacity(capacity: usize) -> Self {
     unsafe {
       let ptr = alloc();
@@ -356,6 +367,7 @@ impl<T> ArenaShared<T> {
   ///
   /// Reservations must be either completed or forgotten, and must be provided to the same
   /// arena that created them.
+  #[inline(always)]
   pub unsafe fn reserve_space(&self) -> Option<ArenaSharedReservation<T>> {
     let this = &mut *self.ptr.as_ptr();
     let ptr = this.raw_arena.allocate_if_space()?;
@@ -386,6 +398,7 @@ impl<T> ArenaShared<T> {
   ///
   /// Reservations must be either completed or forgotten, and must be provided to the same
   /// arena that created them.
+  #[inline(always)]
   pub unsafe fn complete_reservation(
     &self,
     reservation: ArenaSharedReservation<T>,

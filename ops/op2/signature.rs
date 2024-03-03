@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -138,7 +138,7 @@ impl ToTokens for V8Arg {
   }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Special {
   HandleScope,
   OpState,
@@ -276,6 +276,7 @@ pub enum Arg {
   SerdeV8(String),
   State(RefType, String),
   OptionState(RefType, String),
+  CppGcResource(String),
   WasmMemory(RefType, WasmMemorySource),
   OptionWasmMemory(RefType, WasmMemorySource),
 }
@@ -417,7 +418,7 @@ impl Arg {
       Arg::OptionV8Local(t) => Arg::V8Local(*t),
       Arg::OptionV8Global(t) => Arg::V8Global(*t),
       Arg::OptionNumeric(t, flag) => Arg::Numeric(*t, *flag),
-      Arg::Option(t) => Arg::Special(*t),
+      Arg::Option(t) => Arg::Special(t.clone()),
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
@@ -765,6 +766,8 @@ pub enum AttributeModifier {
   Number,
   /// #[memory], for a WasmMemory-backed buffer
   WasmMemory(WasmMemorySource),
+  /// #[cppgc], for a resource backed managed by cppgc.
+  CppGcResource,
 }
 
 impl AttributeModifier {
@@ -779,6 +782,7 @@ impl AttributeModifier {
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::WasmMemory(..) => "memory",
+      AttributeModifier::CppGcResource => "cppgc",
     }
   }
 }
@@ -859,6 +863,10 @@ pub enum ArgError {
   NotAllowedInThisPosition(String),
   #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
   InvalidDenoCorePrefix(String, String, String),
+  #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
+  ExpectedCppGcReference(String),
+  #[error("Invalid #[cppgc] type '{0}'")]
+  InvalidCppGcType(String),
 }
 
 #[derive(Error, Debug)]
@@ -1130,7 +1138,7 @@ fn parse_attributes(
     return Err(AttributeError::TooManyAttributes);
   }
   Ok(Attributes {
-    primary: Some(*attrs.get(0).unwrap()),
+    primary: Some(*attrs.first().unwrap()),
   })
 }
 
@@ -1171,6 +1179,7 @@ fn parse_attribute(
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
       (#[memory(caller)]) => Some(AttributeModifier::WasmMemory(WasmMemorySource::Caller)),
+      (#[cppgc]) => Some(AttributeModifier::CppGcResource),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
@@ -1366,6 +1375,16 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
+fn parse_cppgc(ty: &Type) -> Result<Arg, ArgError> {
+  match ty {
+    Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
+      Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+    },
+    _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+  }
+}
+
 pub(crate) fn parse_type(
   position: Position,
   attrs: Attributes,
@@ -1376,6 +1395,7 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.primary {
     match primary {
+      AttributeModifier::CppGcResource => return parse_cppgc(ty),
       AttributeModifier::Serde => match ty {
         Type::Tuple(of) => {
           return Ok(Arg::SerdeV8(stringify_token(of)));
@@ -1858,6 +1878,11 @@ mod tests {
   test!(
     fn op_wasm_memory(#[memory(caller)] memory: Option<&[u8]>);
     (OptionWasmMemory(Ref, Caller)) -> Infallible(Void)
+  );
+  expect_fail!(
+    op_cppgc_resource_owned,
+    ArgError("resource", ExpectedCppGcReference("std::fs::File")),
+    fn f(#[cppgc] resource: std::fs::File) {}
   );
 
   // Args

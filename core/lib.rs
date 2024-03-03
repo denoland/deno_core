@@ -1,11 +1,12 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 pub mod arena;
 mod async_cancel;
 mod async_cell;
-mod buffer_strategy;
 pub mod cdp;
+pub mod cppgc;
 pub mod error;
 mod error_codes;
+mod extension_set;
 mod extensions;
 mod external;
 mod fast_string;
@@ -23,7 +24,6 @@ mod ops_builtin_types;
 mod ops_builtin_v8;
 mod ops_metrics;
 mod path;
-mod resources;
 mod runtime;
 mod source_map;
 mod tasks;
@@ -65,7 +65,6 @@ pub use crate::async_cell::RcRef;
 pub use crate::error::GetErrorClassFn;
 pub use crate::error::JsErrorCreateFn;
 pub use crate::extensions::Extension;
-pub use crate::extensions::ExtensionBuilder;
 pub use crate::extensions::ExtensionFileSource;
 pub use crate::extensions::ExtensionFileSourceCode;
 pub use crate::extensions::Op;
@@ -74,6 +73,7 @@ pub use crate::extensions::OpMiddlewareFn;
 pub use crate::external::ExternalDefinition;
 pub use crate::external::ExternalPointer;
 pub use crate::external::Externalizable;
+pub use crate::fast_string::FastStaticString;
 pub use crate::fast_string::FastString;
 pub use crate::feature_checker::FeatureChecker;
 pub use crate::flags::v8_set_flags;
@@ -82,8 +82,16 @@ pub use crate::inspector::InspectorMsgKind;
 pub use crate::inspector::InspectorSessionProxy;
 pub use crate::inspector::JsRuntimeInspector;
 pub use crate::inspector::LocalInspectorSession;
+pub use crate::io::AsyncResult;
 pub use crate::io::BufMutView;
+pub use crate::io::BufMutViewWhole;
 pub use crate::io::BufView;
+pub use crate::io::Resource;
+pub use crate::io::ResourceHandle;
+pub use crate::io::ResourceHandleFd;
+pub use crate::io::ResourceHandleSocket;
+pub use crate::io::ResourceId;
+pub use crate::io::ResourceTable;
 pub use crate::io::WriteOutcome;
 pub use crate::module_specifier::resolve_import;
 pub use crate::module_specifier::resolve_path;
@@ -91,16 +99,20 @@ pub use crate::module_specifier::resolve_url;
 pub use crate::module_specifier::resolve_url_or_path;
 pub use crate::module_specifier::ModuleResolutionError;
 pub use crate::module_specifier::ModuleSpecifier;
+pub use crate::modules::CustomModuleEvaluationKind;
 pub use crate::modules::ExtModuleLoaderCb;
 pub use crate::modules::FsModuleLoader;
-pub use crate::modules::ModuleCode;
+pub use crate::modules::ModuleCodeBytes;
+pub use crate::modules::ModuleCodeString;
 pub use crate::modules::ModuleId;
+pub use crate::modules::ModuleLoadResponse;
 pub use crate::modules::ModuleLoader;
 pub use crate::modules::ModuleSource;
 pub use crate::modules::ModuleSourceCode;
 pub use crate::modules::ModuleSourceFuture;
 pub use crate::modules::ModuleType;
 pub use crate::modules::NoopModuleLoader;
+pub use crate::modules::RequestedModuleType;
 pub use crate::modules::ResolutionKind;
 pub use crate::modules::StaticModuleLoader;
 pub use crate::modules::ValidateImportAttributesCb;
@@ -121,13 +133,7 @@ pub use crate::ops_metrics::OpMetricsSource;
 pub use crate::ops_metrics::OpMetricsSummary;
 pub use crate::ops_metrics::OpMetricsSummaryTracker;
 pub use crate::path::strip_unc_prefix;
-pub use crate::resources::AsyncResult;
-pub use crate::resources::Resource;
-pub use crate::resources::ResourceHandle;
-pub use crate::resources::ResourceHandleFd;
-pub use crate::resources::ResourceHandleSocket;
-pub use crate::resources::ResourceId;
-pub use crate::resources::ResourceTable;
+pub use crate::runtime::stats;
 pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
@@ -136,7 +142,6 @@ pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::PollEventLoopOptions;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
-pub use crate::runtime::Snapshot;
 pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::source_map::SourceMapGetter;
@@ -170,8 +175,7 @@ pub mod _ops {
   pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
 }
 
-// TODO(mmastrac): Temporary while we move code around
-pub mod snapshot_util {
+pub mod snapshot {
   pub use crate::runtime::create_snapshot;
   pub use crate::runtime::get_js_files;
   pub use crate::runtime::CreateSnapshotOptions;
@@ -188,11 +192,11 @@ macro_rules! located_script_name {
   () => {
     concat!(
       "[ext:",
-      std::file!(),
+      ::std::file!(),
       ":",
-      std::line!(),
+      ::std::line!(),
       ":",
-      std::column!(),
+      ::std::column!(),
       "]"
     )
   };

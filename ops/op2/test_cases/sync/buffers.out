@@ -2,10 +2,10 @@
 struct op_buffers {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_buffers {
+impl ::deno_core::_ops::Op for op_buffers {
     const NAME: &'static str = stringify!(op_buffers);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_buffers),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_buffers),
         false,
         false,
         4usize as u8,
@@ -266,10 +266,10 @@ impl op_buffers {
 struct op_buffers_32 {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_buffers_32 {
+impl ::deno_core::_ops::Op for op_buffers_32 {
     const NAME: &'static str = stringify!(op_buffers_32);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_buffers_32),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_buffers_32),
         false,
         false,
         4usize as u8,
@@ -530,10 +530,10 @@ impl op_buffers_32 {
 struct op_buffers_option {
     _unconstructable: ::std::marker::PhantomData<()>,
 }
-impl deno_core::_ops::Op for op_buffers_option {
+impl ::deno_core::_ops::Op for op_buffers_option {
     const NAME: &'static str = stringify!(op_buffers_option);
-    const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        stringify!(op_buffers_option),
+    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        ::deno_core::__op_name_fast!(op_buffers_option),
         false,
         false,
         2usize as u8,

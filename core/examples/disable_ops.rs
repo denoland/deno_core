@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 //!  This example shows you how to define ops in Rust and then call them from
 //!  JavaScript.
 
@@ -24,6 +24,6 @@ fn main() {
 
   // Deno.core.print() will now be a NOP
   runtime
-    .execute_script_static("<usage>", r#"Deno.core.print("I'm broken")"#)
+    .execute_script("<usage>", r#"Deno.core.print("I'm broken")"#)
     .unwrap();
 }

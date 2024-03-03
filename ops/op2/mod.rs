@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -248,10 +248,10 @@ fn generate_op2(
       _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
     }
 
-    impl <#(#generic : #bound),*> deno_core::_ops::Op for #name <#(#generic),*> {
+    impl <#(#generic : #bound),*> ::deno_core::_ops::Op for #name <#(#generic),*> {
       const NAME: &'static str = stringify!(#name);
-      const DECL: deno_core::_ops::OpDecl = deno_core::_ops::OpDecl::new_internal_op2(
-        /*name*/ stringify!(#name),
+      const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+        /*name*/ ::deno_core::__op_name_fast!(#name),
         /*is_async*/ #is_async,
         /*is_reentrant*/ #is_reentrant,
         /*arg_count*/ #arg_count as u8,
@@ -308,7 +308,7 @@ mod tests {
     let source =
       std::fs::read_to_string(&input).expect("Failed to read test file");
 
-    const PRELUDE: &str = r"// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+    const PRELUDE: &str = r"// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();";
 
