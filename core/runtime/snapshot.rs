@@ -232,7 +232,6 @@ pub fn get_js_files(
 
 pub(crate) struct SnapshottedData<'a> {
   pub module_map_data: ModuleMapSnapshotData,
-  pub externals_count: u32,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
   pub ext_source_maps: HashMap<String, Cow<'a, [u8]>>,
 }
@@ -241,7 +240,6 @@ pub(crate) struct SnapshottedData<'a> {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SerializableSnapshotSidecarData<'a> {
   data_count: u32,
-  pub(crate) externals_count: u32,
   module_map_data: ModuleMapSnapshotData,
   js_handled_promise_rejection_cb: Option<SnapshotDataId>,
   ext_source_maps: HashMap<String, Cow<'a, [u8]>>,
@@ -277,7 +275,6 @@ pub(crate) fn load_snapshotted_data_from_snapshot<'a>(
   (
     SnapshottedData {
       module_map_data: raw_data.module_map_data,
-      externals_count: raw_data.externals_count,
       js_handled_promise_rejection_cb: raw_data
         .js_handled_promise_rejection_cb
         .map(|x| data.get(scope, x)),
@@ -301,7 +298,6 @@ pub(crate) fn store_snapshotted_data_for_snapshot<'a>(
     .map(|v| data_store.register(v));
   let raw_snapshot_data = SerializableSnapshotSidecarData {
     data_count: data_store.data.len() as _,
-    externals_count: snapshotted_data.externals_count,
     module_map_data: snapshotted_data.module_map_data,
     js_handled_promise_rejection_cb,
     ext_source_maps: snapshotted_data.ext_source_maps,

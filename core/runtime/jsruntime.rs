@@ -95,7 +95,6 @@ pub type ExtensionTranspiler =
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
 pub(crate) struct IsolateAllocations {
-  pub(crate) external_refs: Option<Box<v8::ExternalReferences>>,
   pub(crate) near_heap_limit_callback_data:
     Option<(Box<RefCell<dyn Any>>, v8::NearHeapLimitCallback)>,
 }
@@ -695,22 +694,8 @@ impl JsRuntime {
       .map(snapshot::deconstruct)
       .unzip();
 
-    isolate_allocations.external_refs = Some(Box::new(
-      bindings::create_external_references(&op_ctxs, &additional_references),
-    ));
-
-    let external_refs: &v8::ExternalReferences =
-      isolate_allocations.external_refs.as_ref().unwrap().as_ref();
-    // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
-    let external_refs_static = unsafe { std::mem::transmute(external_refs) };
-
-    // if let Some(sidecar_data) = &sidecar_data {
-    //   assert_eq!(
-    //     sidecar_data.externals_count as usize + sources.len(),
-    //     isolate_allocations.external_refs.as_ref().unwrap().len(),
-    //     "Externals length mismatch"
-    //   );
-    // }
+    let external_refs_static =
+      bindings::create_external_references(&op_ctxs, &additional_references);
 
     let mut isolate = setup::create_isolate(
       will_snapshot,
@@ -1831,8 +1816,6 @@ impl JsRuntimeForSnapshot {
   pub fn snapshot(mut self) -> Box<[u8]> {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
-    let externals_count =
-      self.0.allocations.external_refs.as_ref().unwrap().len() as _;
     let realm = JsRealm::clone(&self.inner.main_realm);
 
     // Set the context to be snapshot's default context
@@ -1871,7 +1854,6 @@ impl JsRuntimeForSnapshot {
 
       let snapshotted_data = SnapshottedData {
         module_map_data,
-        externals_count,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
         ext_source_maps,
       };
