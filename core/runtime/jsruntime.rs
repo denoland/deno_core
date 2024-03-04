@@ -1080,7 +1080,7 @@ impl JsRuntime {
         .await?;
     }
 
-    // Execute the explicit JS code
+    // Execute extension scripts
     for source in loaded_sources.js {
       realm.execute_script(self.v8_isolate(), source.specifier, source.code)?;
     }
