@@ -240,7 +240,9 @@ fn load(
   transpiler: Option<&ExtensionTranspiler>,
   source: &ExtensionFileSource,
   source_mapper: &mut SourceMapper<Rc<dyn SourceMapGetter>>,
+  load_callback: &mut impl FnMut(&ExtensionFileSource),
 ) -> Result<ModuleCodeString, AnyError> {
+  load_callback(source);
   let mut source_code = source.load()?;
   let mut source_map = None;
   if let Some(transpiler) = transpiler {
@@ -259,6 +261,7 @@ pub fn into_sources(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
   source_mapper: &mut SourceMapper<Rc<dyn SourceMapGetter>>,
+  mut load_callback: impl FnMut(&ExtensionFileSource),
 ) -> Result<LoadedSources, AnyError> {
   let mut sources = LoadedSources::default();
 
@@ -269,7 +272,7 @@ pub fn into_sources(
         .push(FastString::from_static(esm_entry_point));
     }
     for file in &*extension.lazy_loaded_esm_files {
-      let code = load(transpiler, file, source_mapper)?;
+      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
       sources.lazy_esm.push(LoadedSource {
         source_type: ExtensionSourceType::LazyEsm,
         specifier: ModuleName::from_static(file.specifier),
@@ -277,7 +280,7 @@ pub fn into_sources(
       });
     }
     for file in &*extension.js_files {
-      let code = load(transpiler, file, source_mapper)?;
+      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
       sources.js.push(LoadedSource {
         source_type: ExtensionSourceType::Js,
         specifier: ModuleName::from_static(file.specifier),
@@ -285,7 +288,7 @@ pub fn into_sources(
       });
     }
     for file in &*extension.esm_files {
-      let code = load(transpiler, file, source_mapper)?;
+      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
       sources.esm.push(LoadedSource {
         source_type: ExtensionSourceType::Esm,
         specifier: ModuleName::from_static(file.specifier),

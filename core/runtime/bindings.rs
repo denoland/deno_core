@@ -35,7 +35,7 @@ pub(crate) fn create_external_references(
     6 + CONTEXT_SETUP_SOURCES.len()
       + BUILTIN_SOURCES.len()
       + (ops.len() * 4)
-      + additional_references.len()
+      + additional_references.len(),
   );
 
   references.push(v8::ExternalReference {

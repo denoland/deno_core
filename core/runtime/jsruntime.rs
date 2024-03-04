@@ -633,12 +633,16 @@ impl JsRuntime {
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
     // Load the sources and source maps
+    let mut files_loaded = Vec::with_capacity(128);
     let mut source_mapper: SourceMapper<Rc<dyn SourceMapGetter>> =
       SourceMapper::new(options.source_map_getter);
     let sources = extension_set::into_sources(
       options.extension_transpiler.as_deref(),
       &extensions,
       &mut source_mapper,
+      |source| {
+        mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
+      },
     )?;
 
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
@@ -691,11 +695,9 @@ impl JsRuntime {
       .map(snapshot::deconstruct)
       .unzip();
 
-    isolate_allocations.external_refs =
-      Some(Box::new(bindings::create_external_references(
-        &op_ctxs,
-        &additional_references,
-      )));
+    isolate_allocations.external_refs = Some(Box::new(
+      bindings::create_external_references(&op_ctxs, &additional_references),
+    ));
 
     let external_refs: &v8::ExternalReferences =
       isolate_allocations.external_refs.as_ref().unwrap().as_ref();
@@ -870,8 +872,6 @@ impl JsRuntime {
       files_loaded_from_fs_during_snapshot: vec![],
       is_main_runtime: options.is_main,
     };
-
-    let mut files_loaded = Vec::with_capacity(128);
 
     // ...we're almost done with the setup, all that's left is to execute
     // internal JS and then execute code provided by extensions...
