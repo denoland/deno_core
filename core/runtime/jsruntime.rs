@@ -625,7 +625,7 @@ impl JsRuntime {
   ) -> Result<JsRuntime, Error> {
     let init_mode = InitMode::from_options(&options);
     let mut extensions = std::mem::take(&mut options.extensions);
-    let mut isolate_allocations = IsolateAllocations::default();
+    let isolate_allocations = IsolateAllocations::default();
 
     // First let's create an `OpState` and contribute to it from extensions...
     let mut op_state = OpState::new(options.feature_checker.take());
