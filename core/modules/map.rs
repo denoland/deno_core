@@ -1510,7 +1510,11 @@ impl ModuleMap {
     code: ModuleCodeString,
   ) {
     let data = self.data.borrow_mut();
-    data.lazy_esm_sources.borrow_mut().insert(specifier, code);
+    assert!(data
+      .lazy_esm_sources
+      .borrow_mut()
+      .insert(specifier, code)
+      .is_none());
   }
 
   /// Lazy load and evaluate an ES module. Only modules that have been added
