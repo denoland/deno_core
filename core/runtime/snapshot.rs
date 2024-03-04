@@ -230,23 +230,23 @@ pub fn get_js_files(
   js_files
 }
 
-pub(crate) struct SnapshottedData<'a> {
+pub(crate) struct SnapshottedData<'snapshot> {
   pub module_map_data: ModuleMapSnapshotData,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
-  pub ext_source_maps: HashMap<String, Cow<'a, [u8]>>,
+  pub ext_source_maps: HashMap<String, Cow<'snapshot, [u8]>>,
 }
 
 /// Snapshot sidecar data that is safe to serialize via serde.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct SerializableSnapshotSidecarData<'a> {
+pub(crate) struct SerializableSnapshotSidecarData<'snapshot> {
   data_count: u32,
   module_map_data: ModuleMapSnapshotData,
   js_handled_promise_rejection_cb: Option<SnapshotDataId>,
-  ext_source_maps: HashMap<String, Cow<'a, [u8]>>,
+  ext_source_maps: HashMap<String, Cow<'snapshot, [u8]>>,
 }
 
-impl<'a> SerializableSnapshotSidecarData<'a> {
-  fn from_slice(slice: &'a [u8]) -> Self {
+impl<'snapshot> SerializableSnapshotSidecarData<'snapshot> {
+  fn from_slice(slice: &'snapshot [u8]) -> Self {
     bincode::deserialize(slice).expect("Failed to deserialize snapshot data")
   }
 
@@ -257,11 +257,11 @@ impl<'a> SerializableSnapshotSidecarData<'a> {
 
 /// Given the sidecar data and a scope to extract data from, reconstructs the
 /// `SnapshottedData` and `SnapshotLoadDataStore`.
-pub(crate) fn load_snapshotted_data_from_snapshot<'a>(
+pub(crate) fn load_snapshotted_data_from_snapshot<'snapshot>(
   scope: &mut v8::HandleScope<()>,
   context: v8::Local<v8::Context>,
-  raw_data: SerializableSnapshotSidecarData<'a>,
-) -> (SnapshottedData<'a>, SnapshotLoadDataStore) {
+  raw_data: SerializableSnapshotSidecarData<'snapshot>,
+) -> (SnapshottedData<'snapshot>, SnapshotLoadDataStore) {
   let scope = &mut v8::ContextScope::new(scope, context);
   let mut data = SnapshotLoadDataStore::default();
   for i in 0..raw_data.data_count {
@@ -286,12 +286,12 @@ pub(crate) fn load_snapshotted_data_from_snapshot<'a>(
 
 /// Given a `SnapshottedData` and `SnapshotStoreDataStore`, attaches the data to the
 /// context and returns the serialized sidecar data.
-pub(crate) fn store_snapshotted_data_for_snapshot<'a>(
+pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
   scope: &mut v8::HandleScope,
   context: v8::Global<v8::Context>,
-  snapshotted_data: SnapshottedData<'a>,
+  snapshotted_data: SnapshottedData<'snapshot>,
   mut data_store: SnapshotStoreDataStore,
-) -> SerializableSnapshotSidecarData<'a> {
+) -> SerializableSnapshotSidecarData<'snapshot> {
   let context = v8::Local::new(scope, context);
   let js_handled_promise_rejection_cb = snapshotted_data
     .js_handled_promise_rejection_cb
