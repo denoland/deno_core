@@ -1,11 +1,17 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use criterion::*;
+use deno_ast::MediaType;
 use deno_ast::ParseParams;
+use deno_ast::SourceTextInfo;
+use deno_core::error::AnyError;
 use deno_core::Extension;
-use deno_core::ExtensionFileSourceCode;
 use deno_core::JsRuntime;
 use deno_core::JsRuntimeForSnapshot;
+use deno_core::ModuleCodeString;
+use deno_core::ModuleName;
 use deno_core::RuntimeOptions;
+use deno_core::SourceMapData;
+use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -42,32 +48,32 @@ fn make_extensions_ops() -> Vec<Extension> {
   fake_extensions!(init_ops, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
 }
 
-fn transpile_extensions(extensions: &mut Vec<Extension>) {
-  for extension in extensions {
-    for source in extension.esm_files.to_mut() {
-      let code = source.load().unwrap().as_str().to_owned();
-      let transpiled = deno_ast::parse_module(ParseParams {
-        specifier: source.specifier.to_string(),
-        text_info: deno_ast::SourceTextInfo::from_string(code),
-        media_type: deno_ast::MediaType::TypeScript,
-        capture_tokens: false,
-        scope_analysis: false,
-        maybe_syntax: None,
-      })
-      .unwrap()
-      .transpile(&deno_ast::EmitOptions {
-        imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-        inline_source_map: false,
-        source_map: true,
-        inline_sources: true,
-        ..Default::default()
-      })
-      .unwrap();
+pub fn maybe_transpile_source(
+  specifier: ModuleName,
+  source: ModuleCodeString,
+) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
+  let media_type = MediaType::TypeScript;
 
-      source.code = ExtensionFileSourceCode::Computed(transpiled.text.into());
-      source.source_map = Some(transpiled.source_map.unwrap().into_bytes());
-    }
-  }
+  let parsed = deno_ast::parse_module(ParseParams {
+    specifier: specifier.to_string(),
+    text_info: SourceTextInfo::from_string(source.as_str().to_owned()),
+    media_type,
+    capture_tokens: false,
+    scope_analysis: false,
+    maybe_syntax: None,
+  })?;
+  let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
+    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+    inline_source_map: false,
+    source_map: true,
+    inline_sources: true,
+    ..Default::default()
+  })?;
+
+  Ok((
+    transpiled_source.text.into(),
+    transpiled_source.source_map.map(|s| s.into_bytes().into()),
+  ))
 }
 
 fn bench_take_snapshot_empty(c: &mut Criterion) {
@@ -93,12 +99,16 @@ fn bench_take_snapshot(c: &mut Criterion) {
     b.iter_custom(|iters| {
       let mut total = 0;
       for _ in 0..iters {
-        let mut extensions = make_extensions();
-        if transpile {
-          transpile_extensions(&mut extensions);
-        }
+        let extensions = make_extensions();
         let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
           startup_snapshot: None,
+          extension_transpiler: if transpile {
+            Some(Rc::new(|specifier, source| {
+              maybe_transpile_source(specifier, source)
+            }))
+          } else {
+            None
+          },
           extensions,
           ..Default::default()
         });
@@ -118,12 +128,16 @@ fn bench_take_snapshot(c: &mut Criterion) {
 
 fn bench_load_snapshot(c: &mut Criterion) {
   fn inner(b: &mut Bencher, transpile: bool) {
-    let mut extensions = make_extensions();
-    if transpile {
-      transpile_extensions(&mut extensions);
-    }
+    let extensions = make_extensions();
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
       extensions,
+      extension_transpiler: if transpile {
+        Some(Rc::new(|specifier, source| {
+          maybe_transpile_source(specifier, source)
+        }))
+      } else {
+        None
+      },
       startup_snapshot: None,
       ..Default::default()
     });

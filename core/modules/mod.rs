@@ -20,7 +20,8 @@ mod map;
 mod module_map_data;
 mod recursive_load;
 
-#[cfg(all(test, not(miri)))]
+// #[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod tests;
 
 pub(crate) use loaders::ExtModuleLoader;

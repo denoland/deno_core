@@ -10,7 +10,7 @@ use crate::modules::ModuleType;
 use crate::runtime::SnapshotDataId;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
-use crate::ExtensionFileSource;
+use crate::ModuleCodeString;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -142,7 +142,7 @@ pub(crate) struct ModuleMapData {
   /// to evaluate a "synthetic module".
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
-    Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+    Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
 }
 
 /// Snapshot-compatible representation of this data.
@@ -204,7 +204,7 @@ impl ModuleMapData {
     };
     loop {
       let symbolic_module =
-        map.get(requested_module_type.as_ref(), mod_name.as_ref())?;
+        map.get(requested_module_type.as_ref(), mod_name)?;
       match symbolic_module {
         SymbolicModule::Alias(target) => {
           debug_assert!(mod_name != target);

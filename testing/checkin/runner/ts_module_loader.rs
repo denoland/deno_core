@@ -12,16 +12,17 @@ use deno_ast::ParseParams;
 use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
-use deno_core::ExtensionFileSource;
-use deno_core::ExtensionFileSourceCode;
+use deno_core::ModuleCodeString;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
+use deno_core::ModuleName;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
+use deno_core::SourceMapData;
 use deno_core::SourceMapGetter;
 
 #[derive(Clone, Default)]
@@ -131,29 +132,29 @@ impl ModuleLoader for TypescriptModuleLoader {
 }
 
 pub fn maybe_transpile_source(
-  source: &mut ExtensionFileSource,
-) -> Result<(), AnyError> {
+  specifier: ModuleName,
+  source: ModuleCodeString,
+) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
   // Always transpile `checkin:` built-in modules, since they might be TypeScript.
-  let media_type = if source.specifier.starts_with("checkin:") {
+  let media_type = if specifier.starts_with("checkin:") {
     MediaType::TypeScript
   } else {
-    MediaType::from_path(Path::new(&source.specifier))
+    MediaType::from_path(Path::new(&specifier))
   };
 
   match media_type {
     MediaType::TypeScript => {}
-    MediaType::JavaScript => return Ok(()),
-    MediaType::Mjs => return Ok(()),
+    MediaType::JavaScript => return Ok((source, None)),
+    MediaType::Mjs => return Ok((source, None)),
     _ => panic!(
       "Unsupported media type for snapshotting {media_type:?} for file {}",
-      source.specifier
+      specifier
     ),
   }
-  let code = source.load()?;
 
   let parsed = deno_ast::parse_module(ParseParams {
-    specifier: source.specifier.to_string(),
-    text_info: SourceTextInfo::from_string(code.as_str().to_owned()),
+    specifier: specifier.to_string(),
+    text_info: SourceTextInfo::from_string(source.as_str().to_owned()),
     media_type,
     capture_tokens: false,
     scope_analysis: false,
@@ -167,8 +168,8 @@ pub fn maybe_transpile_source(
     ..Default::default()
   })?;
 
-  source.code =
-    ExtensionFileSourceCode::Computed(transpiled_source.text.into());
-  source.source_map = Some(transpiled_source.source_map.unwrap().into_bytes());
-  Ok(())
+  Ok((
+    transpiled_source.text.into(),
+    transpiled_source.source_map.map(|s| s.into_bytes().into()),
+  ))
 }

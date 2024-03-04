@@ -29,13 +29,13 @@ use crate::ModuleType;
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
   additional_references: &[v8::ExternalReference],
-) -> &'static v8::ExternalReferences {
+) -> v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references = Vec::with_capacity(
     6 + CONTEXT_SETUP_SOURCES.len()
       + BUILTIN_SOURCES.len()
       + (ops.len() * 4)
-      + additional_references.len(),
+      + additional_references.len()
   );
 
   references.push(v8::ExternalReference {
@@ -107,9 +107,7 @@ pub(crate) fn create_external_references(
 
   references.extend_from_slice(additional_references);
 
-  let refs = v8::ExternalReferences::new(&references);
-  let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
-  refs
+  v8::ExternalReferences::new(&references)
 }
 
 // TODO(nayeemrmn): Move to runtime and/or make `pub(crate)`.
