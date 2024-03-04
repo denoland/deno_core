@@ -13,7 +13,7 @@ use std::sync::Once;
 
 fn v8_init(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
-  predictable: bool,
+  snapshot: bool,
   expose_natives: bool,
 ) {
   #[cfg(feature = "include_icu_data")]
@@ -31,16 +31,22 @@ fn v8_init(
     " --harmony-iterator-helpers",
     " --harmony-temporal",
   );
-  let predictable_flags = "--predictable --random-seed=42";
+  let snapshot_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";
-
+  let lazy_flags = if cfg!(feature = "lazy_eval_snapshot") {
+    "--lazy=false --lazy-eval=false --lazy-streaming=false"
+  } else {
+    ""
+  };
   #[allow(clippy::useless_format)]
-  let flags = match (predictable, expose_natives) {
+  let flags = match (snapshot, expose_natives) {
     (false, false) => format!("{base_flags}"),
-    (true, false) => format!("{base_flags} {predictable_flags}"),
+    (true, false) => format!("{base_flags} {snapshot_flags} {lazy_flags}"),
     (false, true) => format!("{base_flags} {expose_natives_flags}"),
     (true, true) => {
-      format!("{base_flags} {predictable_flags} {expose_natives_flags}")
+      format!(
+        "{base_flags} {snapshot_flags} {lazy_flags} {expose_natives_flags}"
+      )
     }
   };
   v8::V8::set_flags_from_string(&flags);
@@ -62,22 +68,21 @@ fn v8_init(
 
 pub fn init_v8(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
-  predictable: bool,
+  snapshot: bool,
   expose_natives: bool,
 ) {
   static DENO_INIT: Once = Once::new();
-  static DENO_PREDICTABLE: AtomicBool = AtomicBool::new(false);
-  static DENO_PREDICTABLE_SET: AtomicBool = AtomicBool::new(false);
+  static DENO_SNAPSHOT: AtomicBool = AtomicBool::new(false);
+  static DENO_SNAPSHOT_SET: AtomicBool = AtomicBool::new(false);
 
-  if DENO_PREDICTABLE_SET.load(Ordering::SeqCst) {
-    let current = DENO_PREDICTABLE.load(Ordering::SeqCst);
-    assert_eq!(current, predictable, "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both.");
-    DENO_PREDICTABLE_SET.store(true, Ordering::SeqCst);
-    DENO_PREDICTABLE.store(predictable, Ordering::SeqCst);
+  if DENO_SNAPSHOT_SET.load(Ordering::SeqCst) {
+    let current = DENO_SNAPSHOT.load(Ordering::SeqCst);
+    assert_eq!(current, snapshot, "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both.");
+    DENO_SNAPSHOT_SET.store(true, Ordering::SeqCst);
+    DENO_SNAPSHOT.store(snapshot, Ordering::SeqCst);
   }
 
-  DENO_INIT
-    .call_once(move || v8_init(v8_platform, predictable, expose_natives));
+  DENO_INIT.call_once(move || v8_init(v8_platform, snapshot, expose_natives));
 }
 
 pub fn init_cppgc(isolate: &mut v8::Isolate) -> v8::UniqueRef<v8::cppgc::Heap> {
