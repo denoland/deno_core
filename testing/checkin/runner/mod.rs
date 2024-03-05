@@ -47,6 +47,7 @@ deno_core::extension!(
     ops::op_stats_dump,
     ops::op_stats_delete,
     ops_io::op_pipe_create,
+    ops_io::op_file_open,
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,

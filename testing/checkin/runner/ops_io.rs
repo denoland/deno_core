@@ -1,3 +1,4 @@
+use deno_core::anyhow::Error;
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
 use deno_core::AsyncRefCell;
@@ -8,6 +9,9 @@ use deno_core::Resource;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
 use futures::FutureExt;
+use std::cell::RefCell;
+use std::os::fd::AsRawFd;
+use std::rc::Rc;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::DuplexStream;
@@ -64,4 +68,42 @@ pub fn op_pipe_create(op_state: &mut OpState) -> (ResourceId, ResourceId) {
     tx: AsyncRefCell::new(tx2),
   });
   (rid1, rid2)
+}
+
+struct FileResource {
+  fd: deno_core::ResourceHandleFd,
+}
+
+impl FileResource {
+  fn new(file: tokio::fs::File) -> Self {
+    let fd = file.as_raw_fd();
+    Self { fd }
+  }
+}
+
+impl Resource for FileResource {
+  fn backing_fd(
+    self: std::rc::Rc<Self>,
+  ) -> Option<deno_core::ResourceHandleFd> {
+    Some(self.fd)
+  }
+}
+
+#[op2(async)]
+#[serde]
+pub async fn op_file_open(
+  #[string] path: String,
+  op_state: Rc<RefCell<OpState>>,
+) -> Result<ResourceId, Error> {
+  let tokio_file = tokio::fs::OpenOptions::new()
+    .read(true)
+    .write(false)
+    .create(false)
+    .open(&path)
+    .await?;
+  let rid = op_state
+    .borrow_mut()
+    .resource_table
+    .add(FileResource::new(tokio_file));
+  Ok(rid)
 }
