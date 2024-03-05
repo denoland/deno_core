@@ -21,49 +21,8 @@ use std::sync::Arc;
 mod inspector_server;
 use crate::inspector_server::InspectorServer;
 
-// Uncomment to generate a snapshot
-macro_rules! generate_symbols {
-  ($num:expr) => {
-    static SOURCE_CODE_$num: &str =
-      include_str!(concat!("./snapshot/", stringify!($num), ".js"));
-    static ONEBYTE_CONST_$num: v8::OneByteConst =
-      deno_core::FastStaticString::create_external_onebyte_const(
-        SOURCE_CODE_$num.as_bytes(),
-      );
-    static FAST_STRING_$num: deno_core::FastStaticString =
-      deno_core::FastStaticString::new(&ONEBYTE_CONST_$num);
-  };
-}
-
-// Uncomment to generate a snapshot
-macro_rules! generate_symbols_up_to {
-  ($num:expr) => {
-      $(generate_symbols!($num);)+
-
-      static SOURCE_CODE_MAIN: &str = include_str!("./snapshot/main.js");
-      static ONEBYTE_CONST_MAIN: v8::OneByteConst =
-          deno_core::FastStaticString::create_external_onebyte_const(SOURCE_CODE_MAIN.as_bytes());
-      static FAST_STRING_MAIN: deno_core::FastStaticString =
-          deno_core::FastStaticString::new(&ONEBYTE_CONST_MAIN);
-
-      static ESM_FILES: &[deno_core::ExtensionFileSource] = &[
-          deno_core::ExtensionFileSource::new(
-              "ext:testing_snapshotting/main.js",
-              &FAST_STRING_MAIN,
-          ),
-          $(deno_core::ExtensionFileSource::new(
-              concat!("ext:testing_snapshotting/", stringify!($num), ".js"),
-              &FAST_STRING_$num,
-          ),)+
-      ];
-  };
-}
-
-// Uncomment to generate a snapshot
-generate_symbols_up_to!(50);
-
 // Uncomment to use a snapshot
-// static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
+// static SNAPSHOT_BYTES: &[u8] = include_bytes!("../../snapshot.bin");
 
 fn main() -> Result<(), Error> {
   eprintln!(
@@ -86,40 +45,84 @@ fn main() -> Result<(), Error> {
     None
   };
 
+  deno_core::extension!(
+    snapshot,
+    esm_entry_point = "ext:snapshot/main.js",
+    esm = [
+      dir "src/snapshot",
+      "main.js",
+      "1.js",
+      "2.js",
+      "3.js",
+      "4.js",
+      "5.js",
+      "6.js",
+      "7.js",
+      "8.js",
+      "9.js",
+      "10.js",
+      "11.js",
+      "12.js",
+      "13.js",
+      "14.js",
+      "15.js",
+      "16.js",
+      "17.js",
+      "18.js",
+      "19.js",
+      "20.js",
+      "21.js",
+      "22.js",
+      "23.js",
+      "24.js",
+      "25.js",
+      "26.js",
+      "27.js",
+      "28.js",
+      "29.js",
+      "30.js",
+      "31.js",
+      "32.js",
+      "33.js",
+      "34.js",
+      "35.js",
+      "36.js",
+      "37.js",
+      "38.js",
+      "39.js",
+      "40.js",
+      "41.js",
+      "42.js",
+      "43.js",
+      "44.js",
+      "45.js",
+      "46.js",
+      "47.js",
+      "48.js",
+      "49.js",
+      "50.js",
+    ]
+  );
+
   // Uncomment to generate a snapshot
-  let ext = deno_core::Extension {
-    name: "testing_snapshotting",
-    deps: &[],
-    js_files: Cow::Borrowed(&[]),
-    esm_files: Cow::Borrowed(ESM_FILES),
-    lazy_loaded_esm_files: Cow::Borrowed(&[]),
-    esm_entry_point: Some("ext:testing_snapshotting/main.js"),
-    ops: Cow::Borrowed(&[]),
-    external_references: Cow::Borrowed(&[]),
-    global_template_middleware: None,
-    global_object_middleware: None,
-    op_state_fn: None,
-    middleware_fn: None,
-    enabled: true,
-  };
-  let output = deno_core::snapshot::create_snapshot(
-    deno_core::snapshot::CreateSnapshotOptions {
-      extensions: vec![ext],
-      cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
-      startup_snapshot: None,
-      with_runtime_cb: None,
-      skip_op_registration: false,
-      extension_transpiler: None,
-    },
-    None,
-  )
-  .unwrap();
-  std::fs::write("./snapshot.bin", output.output).unwrap();
-  return Ok(());
+  // let output = deno_core::snapshot::create_snapshot(
+  //   deno_core::snapshot::CreateSnapshotOptions {
+  //     extensions: vec![snapshot::init_ops_and_esm()],
+  //     cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+  //     startup_snapshot: None,
+  //     with_runtime_cb: None,
+  //     skip_op_registration: false,
+  //     extension_transpiler: None,
+  //   },
+  //   None,
+  // )
+  // .unwrap();
+  // std::fs::write("./snapshot.bin", output.output).unwrap();
+  // return Ok(());
 
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     // TODO(bartlomieju): Uncomment to run with snapshot
-    // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
+    // startup_snapshot: Some(SNAPSHOT_BYTES),
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector: inspector_server.is_some(),
