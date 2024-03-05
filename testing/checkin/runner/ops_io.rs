@@ -11,7 +11,6 @@ use deno_core::ResourceId;
 use deno_core::WriteOutcome;
 use futures::FutureExt;
 use std::cell::RefCell;
-use std::os::fd::AsRawFd;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -72,19 +71,19 @@ pub fn op_pipe_create(op_state: &mut OpState) -> (ResourceId, ResourceId) {
 }
 
 struct FileResource {
-  fd: deno_core::ResourceHandleFd,
+  handle: deno_core::ResourceHandle,
 }
 
 impl FileResource {
   fn new(file: tokio::fs::File) -> Self {
-    let fd = file.as_raw_fd();
-    Self { fd }
+    let handle = ResourceHandle::from_fd_like(&file);
+    Self { handle }
   }
 }
 
 impl Resource for FileResource {
   fn backing_handle(self: Rc<Self>) -> Option<ResourceHandle> {
-    Some(ResourceHandle::from_fd_like(&self.fd))
+    Some(self.handle)
   }
 }
 
