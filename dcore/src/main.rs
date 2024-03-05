@@ -21,7 +21,48 @@ use std::sync::Arc;
 mod inspector_server;
 use crate::inspector_server::InspectorServer;
 
-// TODO(bartlomieju): figure out how we can incorporate snapshotting here
+// Uncomment to generate a snapshot
+macro_rules! generate_symbols {
+  ($num:expr) => {
+    static SOURCE_CODE_$num: &str =
+      include_str!(concat!("./snapshot/", stringify!($num), ".js"));
+    static ONEBYTE_CONST_$num: v8::OneByteConst =
+      deno_core::FastStaticString::create_external_onebyte_const(
+        SOURCE_CODE_$num.as_bytes(),
+      );
+    static FAST_STRING_$num: deno_core::FastStaticString =
+      deno_core::FastStaticString::new(&ONEBYTE_CONST_$num);
+  };
+}
+
+// Uncomment to generate a snapshot
+macro_rules! generate_symbols_up_to {
+  ($num:expr) => {
+      $(generate_symbols!($num);)+
+
+      static SOURCE_CODE_MAIN: &str = include_str!("./snapshot/main.js");
+      static ONEBYTE_CONST_MAIN: v8::OneByteConst =
+          deno_core::FastStaticString::create_external_onebyte_const(SOURCE_CODE_MAIN.as_bytes());
+      static FAST_STRING_MAIN: deno_core::FastStaticString =
+          deno_core::FastStaticString::new(&ONEBYTE_CONST_MAIN);
+
+      static ESM_FILES: &[deno_core::ExtensionFileSource] = &[
+          deno_core::ExtensionFileSource::new(
+              "ext:testing_snapshotting/main.js",
+              &FAST_STRING_MAIN,
+          ),
+          $(deno_core::ExtensionFileSource::new(
+              concat!("ext:testing_snapshotting/", stringify!($num), ".js"),
+              &FAST_STRING_$num,
+          ),)+
+      ];
+  };
+}
+
+// Uncomment to generate a snapshot
+generate_symbols_up_to!(50);
+
+// Uncomment to use a snapshot
 // static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
 
 fn main() -> Result<(), Error> {
@@ -45,25 +86,39 @@ fn main() -> Result<(), Error> {
     None
   };
 
-  // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-  // deno_core::snapshot::create_snapshot(
-  //   CreateSnapshotOptions {
-  //     serializer: Box::new(SnapshotFileSerializer::new(
-  //       std::fs::File::create("./snapshot.bin").unwrap(),
-  //     )),
-  //     extensions: vec![],
-  //     cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
-  //     startup_snapshot: None,
-  //     with_runtime_cb: None,
-  //     skip_op_registration: false,
-  //   },
-  //   None,
-  // )
-  // .unwrap();
-  // return Ok(());
+  // Uncomment to generate a snapshot
+  let ext = deno_core::Extension {
+    name: "testing_snapshotting",
+    deps: &[],
+    js_files: Cow::Borrowed(&[]),
+    esm_files: Cow::Borrowed(ESM_FILES),
+    lazy_loaded_esm_files: Cow::Borrowed(&[]),
+    esm_entry_point: Some("ext:testing_snapshotting/main.js"),
+    ops: Cow::Borrowed(&[]),
+    external_references: Cow::Borrowed(&[]),
+    global_template_middleware: None,
+    global_object_middleware: None,
+    op_state_fn: None,
+    middleware_fn: None,
+    enabled: true,
+  };
+  let output = deno_core::snapshot::create_snapshot(
+    deno_core::snapshot::CreateSnapshotOptions {
+      extensions: vec![ext],
+      cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+      startup_snapshot: None,
+      with_runtime_cb: None,
+      skip_op_registration: false,
+      extension_transpiler: None,
+    },
+    None,
+  )
+  .unwrap();
+  std::fs::write("./snapshot.bin", output.output).unwrap();
+  return Ok(());
 
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
-    // TODO(bartlomieju): figure out how we can incorporate snapshotting here
+    // TODO(bartlomieju): Uncomment to run with snapshot
     // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
