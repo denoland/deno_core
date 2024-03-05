@@ -427,6 +427,7 @@
     op_read_sync: readSync,
     op_write_sync: writeSync,
     op_shutdown: shutdown,
+    op_is_terminal: isTerminal,
   } = ensureFastOps(true);
 
   const callSiteRetBuf = new Uint32Array(2);
@@ -640,6 +641,7 @@
     readSync,
     writeSync,
     shutdown,
+    isTerminal,
     print: (msg, isErr) => op_print(msg, isErr),
     setLeakTracingEnabled: (enabled) => {
       __setLeakTracingEnabled(enabled);
