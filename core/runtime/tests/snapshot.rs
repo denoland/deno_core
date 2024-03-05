@@ -392,3 +392,63 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     r#"Uncaught (in promise) TypeError: Importing ext: modules is only allowed from ext: and node: modules. Tried to import ext:module_snapshot/test2.js from (no referrer)"#
   );
 }
+
+#[test]
+pub fn snapshot_with_additions_extensions() {
+  #[op2]
+  #[string]
+  fn op_before() -> String {
+    "before".to_owned()
+  }
+
+  #[op2]
+  #[string]
+  fn op_after() -> String {
+    "after".to_owned()
+  }
+
+  deno_core::extension!(
+    before_snapshot,
+    ops = [op_before],
+    esm_entry_point = "ext:module_snapshot/before.js",
+    esm = ["ext:module_snapshot/before.js" =
+      { source = "globalThis.BEFORE = Deno.core.ops.op_before();" },]
+  );
+  deno_core::extension!(
+    after_snapshot,
+    ops = [op_after],
+    esm_entry_point = "ext:module_snapshot/after.js",
+    esm = ["ext:module_snapshot/after.js" =
+      { source = "globalThis.AFTER = Deno.core.ops.op_after();" },]
+  );
+
+  let snapshot = {
+    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      extensions: vec![before_snapshot::init_ops_and_esm()],
+      ..Default::default()
+    });
+
+    Box::leak(runtime.snapshot())
+  };
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    extensions: vec![
+      before_snapshot::init_ops(),
+      after_snapshot::init_ops_and_esm(),
+    ],
+    ..Default::default()
+  });
+
+  // Make sure the module was evaluated.
+  {
+    let scope = &mut runtime.main_realm().handle_scope(runtime.v8_isolate());
+    let global_test: v8::Local<v8::String> =
+      JsRuntime::eval(scope, "globalThis.BEFORE + '/' + globalThis.AFTER")
+        .unwrap();
+    assert_eq!(
+      serde_v8::to_utf8(global_test.to_string(scope).unwrap(), scope),
+      String::from("before/after"),
+    );
+  }
+}
