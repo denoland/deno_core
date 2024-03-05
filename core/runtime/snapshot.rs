@@ -3,15 +3,19 @@
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Instant;
 
 use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
+
+use super::ExtensionTranspiler;
 
 pub type WithRuntimeCb = dyn Fn(&mut JsRuntimeForSnapshot);
 
@@ -110,6 +114,7 @@ pub struct CreateSnapshotOptions {
   pub startup_snapshot: Option<&'static [u8]>,
   pub skip_op_registration: bool,
   pub extensions: Vec<Extension>,
+  pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
 }
 
@@ -140,6 +145,7 @@ pub fn create_snapshot(
   let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: create_snapshot_options.startup_snapshot,
     extensions: create_snapshot_options.extensions,
+    extension_transpiler: create_snapshot_options.extension_transpiler,
     skip_op_registration: create_snapshot_options.skip_op_registration,
     ..Default::default()
   });
@@ -224,58 +230,38 @@ pub fn get_js_files(
   js_files
 }
 
-pub(crate) struct SnapshottedData {
+pub(crate) struct SnapshottedData<'snapshot> {
   pub module_map_data: ModuleMapSnapshotData,
   pub js_handled_promise_rejection_cb: Option<v8::Global<v8::Function>>,
-  pub ext_source_maps: HashMap<String, Vec<u8>>,
+  pub ext_source_maps: HashMap<String, Cow<'snapshot, [u8]>>,
 }
 
 /// Snapshot sidecar data that is safe to serialize via serde.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct SerializableSnapshotSidecarData {
+pub(crate) struct SerializableSnapshotSidecarData<'snapshot> {
   data_count: u32,
   module_map_data: ModuleMapSnapshotData,
   js_handled_promise_rejection_cb: Option<SnapshotDataId>,
-  ext_source_maps: HashMap<String, Vec<u8>>,
+  ext_source_maps: HashMap<String, Cow<'snapshot, [u8]>>,
 }
 
-impl SerializableSnapshotSidecarData {
-  fn from_slice(slice: &[u8]) -> Self {
-    #[cfg(all(
-      feature = "snapshot_data_json",
-      not(feature = "snapshot_data_bincode")
-    ))]
-    let raw_data: SerializableSnapshotSidecarData =
-      serde_json::from_slice(slice)
-        .expect("Failed to deserialize snapshot data");
-
-    #[cfg(feature = "snapshot_data_bincode")]
-    let raw_data: SerializableSnapshotSidecarData =
-      bincode::deserialize(slice).expect("Failed to deserialize snapshot data");
-
-    raw_data
+impl<'snapshot> SerializableSnapshotSidecarData<'snapshot> {
+  fn from_slice(slice: &'snapshot [u8]) -> Self {
+    bincode::deserialize(slice).expect("Failed to deserialize snapshot data")
   }
 
   fn into_bytes(self) -> Box<[u8]> {
-    #[cfg(all(
-      feature = "snapshot_data_json",
-      not(feature = "snapshot_data_bincode")
-    ))]
-    let local_data = serde_json::to_vec(&self).unwrap();
-    #[cfg(feature = "snapshot_data_bincode")]
-    let local_data = bincode::serialize(&self).unwrap();
-
-    local_data.into_boxed_slice()
+    bincode::serialize(&self).unwrap().into_boxed_slice()
   }
 }
 
 /// Given the sidecar data and a scope to extract data from, reconstructs the
 /// `SnapshottedData` and `SnapshotLoadDataStore`.
-pub(crate) fn load_snapshotted_data_from_snapshot(
+pub(crate) fn load_snapshotted_data_from_snapshot<'snapshot>(
   scope: &mut v8::HandleScope<()>,
   context: v8::Local<v8::Context>,
-  raw_data: SerializableSnapshotSidecarData,
-) -> (SnapshottedData, SnapshotLoadDataStore) {
+  raw_data: SerializableSnapshotSidecarData<'snapshot>,
+) -> (SnapshottedData<'snapshot>, SnapshotLoadDataStore) {
   let scope = &mut v8::ContextScope::new(scope, context);
   let mut data = SnapshotLoadDataStore::default();
   for i in 0..raw_data.data_count {
@@ -300,12 +286,12 @@ pub(crate) fn load_snapshotted_data_from_snapshot(
 
 /// Given a `SnapshottedData` and `SnapshotStoreDataStore`, attaches the data to the
 /// context and returns the serialized sidecar data.
-pub(crate) fn store_snapshotted_data_for_snapshot(
+pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
   scope: &mut v8::HandleScope,
   context: v8::Global<v8::Context>,
-  snapshotted_data: SnapshottedData,
+  snapshotted_data: SnapshottedData<'snapshot>,
   mut data_store: SnapshotStoreDataStore,
-) -> SerializableSnapshotSidecarData {
+) -> SerializableSnapshotSidecarData<'snapshot> {
   let context = v8::Local::new(scope, context);
   let js_handled_promise_rejection_cb = snapshotted_data
     .js_handled_promise_rejection_cb
@@ -317,7 +303,7 @@ pub(crate) fn store_snapshotted_data_for_snapshot(
     ext_source_maps: snapshotted_data.ext_source_maps,
   };
 
-  for data in data_store.data.drain(..) {
+  for data in data_store.data {
     let data = v8::Local::new(scope, data);
     scope.add_context_data(context, data);
   }

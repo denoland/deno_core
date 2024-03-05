@@ -25,6 +25,7 @@ use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
 use self::testing::TestFunctions;
+use self::ts_module_loader::maybe_transpile_source;
 
 mod ops;
 mod ops_async;
@@ -89,20 +90,13 @@ fn create_runtime(
   parent: Option<WorkerCloseWatcher>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let mut extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm()];
-
-  for extension in &mut extensions_for_snapshot {
-    use ts_module_loader::maybe_transpile_source;
-    for source in extension.esm_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-    for source in extension.js_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-  }
+  let extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm()];
 
   let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
     extensions: extensions_for_snapshot,
+    extension_transpiler: Some(Rc::new(|specifier, source| {
+      maybe_transpile_source(specifier, source)
+    })),
     ..Default::default()
   });
 

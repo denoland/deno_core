@@ -4,6 +4,7 @@
 
 use crate::resolve_url;
 pub use sourcemap::SourceMap;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::str;
@@ -51,11 +52,13 @@ pub enum SourceMapApplication {
   },
 }
 
+pub type SourceMapData = Cow<'static, [u8]>;
+
 pub struct SourceMapper<G: SourceMapGetter> {
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
   getter: Option<G>,
-  pub(crate) ext_source_maps: HashMap<String, Vec<u8>>,
+  pub(crate) ext_source_maps: HashMap<String, SourceMapData>,
   // This is not the right place for this, but it's the easiest way to make
   // op_apply_source_map a fast op. This stashing should happen in #[op2].
   pub(crate) stashed_file_name: Option<String>,

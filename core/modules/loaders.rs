@@ -4,13 +4,13 @@ use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
+use crate::modules::ModuleName;
 use crate::modules::ModuleSource;
 use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
-use crate::Extension;
 use crate::ModuleSourceCode;
 
 use anyhow::anyhow;
@@ -123,18 +123,17 @@ pub type ExtModuleLoaderCb =
   Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCodeString, Error>>;
 
 pub(crate) struct ExtModuleLoader {
-  sources: RefCell<HashMap<&'static str, ModuleCodeString>>,
+  sources: RefCell<HashMap<ModuleName, ModuleCodeString>>,
 }
 
 impl ExtModuleLoader {
-  pub fn new(extensions: &'_ [Extension]) -> Result<Self, Error> {
+  pub fn new(
+    loaded_sources: Vec<(ModuleName, ModuleCodeString)>,
+  ) -> Result<Self, Error> {
     // Guesstimate a length
-    let mut sources = HashMap::with_capacity(extensions.len() * 3);
-    for extension in extensions {
-      for esm in extension.get_esm_sources() {
-        let source = esm.load()?;
-        sources.insert(esm.specifier, source);
-      }
+    let mut sources = HashMap::with_capacity(loaded_sources.len());
+    for source in loaded_sources {
+      sources.insert(source.0, source.1);
     }
     Ok(ExtModuleLoader {
       sources: RefCell::new(sources),
@@ -204,12 +203,12 @@ impl ModuleLoader for ExtModuleLoader {
 /// ES modules that were embedded in the binary using `lazy_loaded_esm`
 /// option in `extension!` macro.
 pub(crate) struct LazyEsmModuleLoader {
-  sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+  sources: Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
 }
 
 impl LazyEsmModuleLoader {
   pub fn new(
-    sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+    sources: Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
   ) -> Self {
     LazyEsmModuleLoader { sources }
   }
@@ -232,19 +231,16 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
-    let sources = self.sources.borrow();
-    let source = match sources.get(specifier.as_str()) {
+    let mut sources = self.sources.borrow_mut();
+    let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
       None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the binary.", specifier))),
     };
-    let result = source.load().map(|code| {
-      ModuleSource::new(
-        ModuleType::JavaScript,
-        ModuleSourceCode::String(code),
-        specifier,
-      )
-    });
-    ModuleLoadResponse::Sync(result)
+    ModuleLoadResponse::Sync(Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(source),
+      specifier,
+    )))
   }
 
   fn prepare_load(

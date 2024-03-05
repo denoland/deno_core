@@ -3,6 +3,7 @@
 use serde::Deserializer;
 use serde::Serializer;
 use std::borrow::Borrow;
+use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -308,6 +309,18 @@ impl Hash for FastString {
 impl AsRef<str> for FastString {
   fn as_ref(&self) -> &str {
     self.as_str()
+  }
+}
+
+impl AsRef<[u8]> for FastString {
+  fn as_ref(&self) -> &[u8] {
+    self.as_str().as_ref()
+  }
+}
+
+impl AsRef<OsStr> for FastString {
+  fn as_ref(&self) -> &OsStr {
+    self.as_str().as_ref()
   }
 }
 

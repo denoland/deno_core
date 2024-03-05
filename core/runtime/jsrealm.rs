@@ -6,6 +6,7 @@ use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
+use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
@@ -266,15 +267,13 @@ impl JsRealm {
   pub fn execute_script(
     &self,
     isolate: &mut v8::Isolate,
-    name: &'static str,
+    name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.into_module_code().v8_string(scope);
-    debug_assert!(name.is_ascii());
-    let name =
-      v8::String::new_external_onebyte_static(scope, name.as_bytes()).unwrap();
+    let name = name.into_module_name().v8_string(scope);
     let origin = bindings::script_origin(scope, name);
 
     let tc_scope = &mut v8::TryCatch::new(scope);

@@ -18,6 +18,7 @@ use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
 use crate::extension_set;
+use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::include_js_files;
@@ -32,6 +33,7 @@ use crate::modules::IntoModuleName;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
+use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops_metrics::dispatch_metrics_async;
@@ -39,6 +41,7 @@ use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
+use crate::source_map::SourceMapData;
 use crate::source_map::SourceMapGetter;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
@@ -46,7 +49,9 @@ use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
 use crate::FastStaticString;
+use crate::FastString;
 use crate::FeatureChecker;
+use crate::ModuleCodeString;
 use crate::NoopModuleLoader;
 use crate::OpMetricsEvent;
 use crate::OpState;
@@ -60,6 +65,7 @@ use futures::Future;
 use futures::FutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -79,6 +85,12 @@ use v8::Isolate;
 
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
+
+pub type ExtensionTranspiler =
+  dyn Fn(
+    ModuleName,
+    ModuleCodeString,
+  ) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError>;
 
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
@@ -415,6 +427,9 @@ pub struct RuntimeOptions {
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
 
+  /// If specified, transpiles extensions before loading.
+  pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
+
   /// Provide a function that may optionally provide a metrics collector
   /// for a given op.
   pub op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
@@ -610,36 +625,24 @@ impl JsRuntime {
   ) -> Result<JsRuntime, Error> {
     let init_mode = InitMode::from_options(&options);
     let mut extensions = std::mem::take(&mut options.extensions);
+    let isolate_allocations = IsolateAllocations::default();
 
     // First let's create an `OpState` and contribute to it from extensions...
     let mut op_state = OpState::new(options.feature_checker.take());
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
-    let mut source_mapper = SourceMapper::new(options.source_map_getter);
-    for extension in &extensions {
-      for esm in extension.get_esm_sources() {
-        if let Some(source_map) = &esm.source_map {
-          source_mapper
-            .ext_source_maps
-            .insert(esm.specifier.to_owned(), source_map.to_owned());
-        }
-      }
-      for js in extension.get_js_sources() {
-        if let Some(source_map) = &js.source_map {
-          source_mapper
-            .ext_source_maps
-            .insert(js.specifier.to_owned(), source_map.to_owned());
-        }
-      }
-      for lazy_loaded_esm in extension.get_lazy_loaded_esm_sources() {
-        if let Some(source_map) = &lazy_loaded_esm.source_map {
-          source_mapper.ext_source_maps.insert(
-            lazy_loaded_esm.specifier.to_owned(),
-            source_map.to_owned(),
-          );
-        }
-      }
-    }
+    // Load the sources and source maps
+    let mut files_loaded = Vec::with_capacity(128);
+    let mut source_mapper: SourceMapper<Rc<dyn SourceMapGetter>> =
+      SourceMapper::new(options.source_map_getter);
+    let sources = extension_set::into_sources(
+      options.extension_transpiler.as_deref(),
+      &extensions,
+      &mut source_mapper,
+      |source| {
+        mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
+      },
+    )?;
 
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
     // later, after `JsRuntime` is all set up...
@@ -684,19 +687,21 @@ impl JsRuntime {
       global_object_middlewares,
       additional_references,
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
-    let external_refs =
-      bindings::create_external_references(&op_ctxs, &additional_references);
 
     let (maybe_startup_snapshot, sidecar_data) = options
       .startup_snapshot
       .take()
       .map(snapshot::deconstruct)
       .unzip();
+
+    let external_refs_static =
+      bindings::create_external_references(&op_ctxs, &additional_references);
+
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
       maybe_startup_snapshot,
-      external_refs,
+      external_refs_static,
     );
 
     let cpp_heap = setup::init_cppgc(&mut isolate);
@@ -848,12 +853,10 @@ impl JsRuntime {
         v8_isolate: ManuallyDrop::new(isolate),
         cpp_heap: ManuallyDrop::new(cpp_heap),
       },
-      allocations: IsolateAllocations::default(),
+      allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
       is_main_runtime: options.is_main,
     };
-
-    let mut files_loaded = Vec::with_capacity(128);
 
     // ...we're almost done with the setup, all that's left is to execute
     // internal JS and then execute code provided by extensions...
@@ -886,12 +889,7 @@ impl JsRuntime {
 
       js_runtime.store_js_callbacks(&realm, will_snapshot);
 
-      js_runtime.init_extension_js(
-        &realm,
-        &module_map,
-        extensions,
-        &mut files_loaded,
-      )?;
+      js_runtime.init_extension_js(&realm, &module_map, sources)?;
     }
 
     if will_snapshot {
@@ -1053,56 +1051,44 @@ impl JsRuntime {
     &mut self,
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
-    extensions: Vec<Extension>,
-    files_loaded: &mut Vec<&'static str>,
+    loaded_sources: LoadedSources,
   ) -> Result<(), Error> {
-    // Initialization of JS happens in phases:
-    // 1. Iterate through all extensions:
-    //  a. Execute all extension "script" JS files
-    //  b. Load all extension "module" JS files (but do not execute them yet)
-    //  c. If extension has an "entrypoint" collect it
-    // 2. Execute all collected entrypoints.
-    // 3. Verify that all extension files have been executed.
+    // First, add all the lazy ESM
+    for source in loaded_sources.lazy_esm {
+      module_map.add_lazy_loaded_esm_source(source.specifier, source.code);
+    }
 
-    let mut esm_entrypoints = vec![];
+    // Temporarily override the loader of the `ModuleMap` so we can load
+    // extension code.
 
-    for extension in extensions {
-      // If the extension provides "lazy loaded ES modules" then store them
-      // on the ModuleMap.
-      module_map
-        .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
+    // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
+    // instead of explicitly changing the `.loader` field?
+    let loader = module_map.loader.borrow().clone();
+    let mut modules = Vec::with_capacity(loaded_sources.esm.len());
+    let mut sources = Vec::with_capacity(loaded_sources.esm.len());
+    for esm in loaded_sources.esm {
+      modules.push(ModuleSpecifier::parse(&esm.specifier).unwrap());
+      sources.push((esm.specifier, esm.code));
+    }
+    let ext_loader = Rc::new(ExtModuleLoader::new(sources)?);
+    *module_map.loader.borrow_mut() = ext_loader.clone();
 
-      let maybe_esm_entry_point = extension.get_esm_entry_point();
+    // Next, load the extension modules as side modules (but do not execute them)
+    for module in modules {
+      realm
+        .load_side_es_module_from_code(self.v8_isolate(), &module, None)
+        .await?;
+    }
 
-      for file_source in extension.get_esm_sources() {
-        mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-        realm
-          .load_side_es_module_from_code(
-            self.v8_isolate(),
-            &ModuleSpecifier::parse(file_source.specifier)?,
-            None,
-          )
-          .await?;
-      }
-
-      if let Some(entry_point) = maybe_esm_entry_point {
-        esm_entrypoints.push(entry_point);
-      }
-
-      for file_source in extension.get_js_sources() {
-        mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-        realm.execute_script(
-          self.v8_isolate(),
-          file_source.specifier,
-          file_source.load()?,
-        )?;
-      }
+    // Execute extension scripts
+    for source in loaded_sources.js {
+      realm.execute_script(self.v8_isolate(), source.specifier, source.code)?;
     }
 
     // ...then execute all entry points
-    for specifier in esm_entrypoints {
+    for specifier in loaded_sources.esm_entry_points {
       let Some(mod_id) =
-        module_map.get_id(specifier, RequestedModuleType::None)
+        module_map.get_id(&specifier, RequestedModuleType::None)
       else {
         bail!("{} not present in the module map", specifier);
       };
@@ -1111,33 +1097,6 @@ impl JsRuntime {
       let scope = &mut realm.handle_scope(isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
     }
-
-    Ok(())
-  }
-
-  /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(
-    &mut self,
-    realm: &JsRealm,
-    module_map: &Rc<ModuleMap>,
-    extensions: Vec<Extension>,
-    files_loaded: &mut Vec<&'static str>,
-  ) -> Result<(), Error> {
-    // Temporarily override the loader of the `ModuleMap` so we can load
-    // extension code.
-
-    // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
-    // instead of explicitly changing the `.loader` field?
-    let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions)?);
-    *module_map.loader.borrow_mut() = ext_loader.clone();
-
-    futures::executor::block_on(self.init_extension_js_inner(
-      realm,
-      module_map,
-      extensions,
-      files_loaded,
-    ))?;
 
     #[cfg(debug_assertions)]
     {
@@ -1151,6 +1110,22 @@ impl JsRuntime {
       .map_err(drop)
       .unwrap()
       .finalize()?;
+
+    Ok(())
+  }
+
+  /// Initializes JS of provided Extensions in the given realm.
+  fn init_extension_js(
+    &mut self,
+    realm: &JsRealm,
+    module_map: &Rc<ModuleMap>,
+    loaded_sources: LoadedSources,
+  ) -> Result<(), Error> {
+    futures::executor::block_on(self.init_extension_js_inner(
+      realm,
+      module_map,
+      loaded_sources,
+    ))?;
 
     Ok(())
   }
@@ -1273,7 +1248,7 @@ impl JsRuntime {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.execute_script(
       isolate,
-      name,
+      FastString::from_static(name),
       source_code.into_module_code(),
     )
   }
@@ -1841,7 +1816,6 @@ impl JsRuntimeForSnapshot {
   pub fn snapshot(mut self) -> Box<[u8]> {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
-
     let realm = JsRealm::clone(&self.inner.main_realm);
 
     // Set the context to be snapshot's default context
@@ -1876,7 +1850,7 @@ impl JsRuntimeForSnapshot {
         .source_mapper
         .borrow()
         .ext_source_maps
-        .to_owned();
+        .clone();
 
       let snapshotted_data = SnapshottedData {
         module_map_data,

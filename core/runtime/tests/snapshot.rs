@@ -127,6 +127,7 @@ fn test_snapshot_creator() {
       cargo_manifest_dir: "",
       startup_snapshot: None,
       skip_op_registration: false,
+      extension_transpiler: None,
       extensions: vec![],
       with_runtime_cb: Some(Box::new(|runtime| {
         runtime.execute_script("a.js", "a = 1 + 2").unwrap();
@@ -158,6 +159,7 @@ fn test_snapshot_creator_warmup() {
       startup_snapshot: None,
       skip_op_registration: false,
       extensions: vec![],
+      extension_transpiler: None,
       with_runtime_cb: Some(Box::new(move |runtime| {
         c.replace_with(|&mut c| c + 1);
 

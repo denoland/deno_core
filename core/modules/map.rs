@@ -26,7 +26,6 @@ use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
-use crate::ExtensionFileSource;
 use crate::FastStaticString;
 use crate::JsRuntime;
 use crate::ModuleLoadResponse;
@@ -504,7 +503,7 @@ impl ModuleMap {
         let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
         return Err(ModuleError::Other(generic_error(
           format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name.as_ref(),
+          name,
           main_name,
         ))));
       }
@@ -1505,21 +1504,17 @@ impl ModuleMap {
     Ok(v8::Global::new(scope, mod_ns))
   }
 
-  pub(crate) fn add_lazy_loaded_esm_sources(
+  pub(crate) fn add_lazy_loaded_esm_source(
     &self,
-    sources: &[ExtensionFileSource],
+    specifier: ModuleName,
+    code: ModuleCodeString,
   ) {
-    if sources.is_empty() {
-      return;
-    }
-
     let data = self.data.borrow_mut();
-    data.lazy_esm_sources.borrow_mut().extend(
-      sources
-        .iter()
-        .cloned()
-        .map(|source| (source.specifier, source)),
-    );
+    assert!(data
+      .lazy_esm_sources
+      .borrow_mut()
+      .insert(specifier, code)
+      .is_none());
   }
 
   /// Lazy load and evaluate an ES module. Only modules that have been added
