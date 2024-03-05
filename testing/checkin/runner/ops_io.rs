@@ -6,6 +6,7 @@ use deno_core::BufView;
 use deno_core::OpState;
 use deno_core::RcRef;
 use deno_core::Resource;
+use deno_core::ResourceHandle;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
 use futures::FutureExt;
@@ -82,10 +83,8 @@ impl FileResource {
 }
 
 impl Resource for FileResource {
-  fn backing_fd(
-    self: std::rc::Rc<Self>,
-  ) -> Option<deno_core::ResourceHandleFd> {
-    Some(self.fd)
+  fn backing_handle(self: Rc<Self>) -> Option<ResourceHandle> {
+    Some(ResourceHandle::from_fd_like(&self.fd))
   }
 }
 
