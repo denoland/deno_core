@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-import { fail, test, assert } from "checkin:testing";
+import { assert, fail, test } from "checkin:testing";
 
 // Verify that "array by copy" proposal is enabled (https://github.com/tc39/proposal-change-array-by-copy)
 test(function testArrayByCopy() {
@@ -42,4 +42,4 @@ test(function testIteratorHelpers() {
 // Verify that the "Temporal" proposal is enabled
 test(function testTemporalEnabled() {
   assert(typeof Temporal !== "undefined");
-})
+});
