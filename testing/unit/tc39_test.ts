@@ -41,5 +41,6 @@ test(function testIteratorHelpers() {
 
 // Verify that the "Temporal" proposal is enabled
 test(function testTemporalEnabled() {
+  // @ts-expect-error: Not available in TypeScript yet
   assert(typeof Temporal !== "undefined");
 });
