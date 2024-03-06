@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
 
-const { op_pipe_create } = Deno.core.ensureFastOps();
+const { op_pipe_create, op_file_open } = Deno.core.ensureFastOps();
 
 test(async function testPipe() {
   const [p1, p2] = op_pipe_create();
@@ -46,4 +46,9 @@ test(function opsSyncBadResource() {
   } catch (e) {
     assert(e instanceof Deno.core.BadResource);
   }
+});
+
+test(async function testFileIsNotTerminal() {
+  const file = await op_file_open("./README.md");
+  assert(!Deno.core.isTerminal(file));
 });

@@ -97,6 +97,11 @@ declare namespace Deno {
     function print(message: string, is_err?: boolean): void;
 
     /**
+     * Returns whether the given (file-like) resource is a TTY.
+     */
+    function isTerminal(rid: number): boolean;
+
+    /**
      * Shutdown a resource
      */
     function shutdown(rid: number): Promise<void>;
