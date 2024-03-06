@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-import { fail, test } from "checkin:testing";
+import { assert, fail, test } from "checkin:testing";
 
 // Verify that "array by copy" proposal is enabled (https://github.com/tc39/proposal-change-array-by-copy)
 test(function testArrayByCopy() {
@@ -37,4 +37,10 @@ test(function testIteratorHelpers() {
   if (a[0] !== 0 || a[1] !== 1 || a[2] !== 2 || a[3] !== 3 || a[4] !== 4) {
     fail("failed");
   }
+});
+
+// Verify that the "Temporal" proposal is enabled
+test(function testTemporalEnabled() {
+  // @ts-expect-error: Not available in TypeScript yet
+  assert(typeof Temporal !== "undefined");
 });
