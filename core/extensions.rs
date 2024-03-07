@@ -56,6 +56,7 @@ pub enum ExtensionSourceType {
   LazyEsm,
   Js,
   Esm,
+  Warmup,
 }
 
 #[derive(Clone, Debug)]
@@ -390,6 +391,7 @@ macro_rules! extension {
     $(, esm = [ $($esm:tt)* ] )?
     $(, lazy_loaded_esm = [ $($lazy_loaded_esm:tt)* ] )?
     $(, js = [ $($js:tt)* ] )?
+    $(, warmup = [ $($warmup:tt)* ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
     $(, middleware = $middleware_fn:expr )?
     $(, state = $state_fn:expr )?
@@ -439,6 +441,10 @@ macro_rules! extension {
           },
           lazy_loaded_esm_files: {
             const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_lazy_loaded_js_files!( $name $($($lazy_loaded_esm)*)? );
+            ::std::borrow::Cow::Borrowed(JS)
+          },
+          warmup_files: {
+            const JS: &'static [$crate::ExtensionFileSource] = &$crate::include_js_files!( $name $($($warmup)*)? );
             ::std::borrow::Cow::Borrowed(JS)
           },
           esm_entry_point: {
@@ -580,6 +586,7 @@ pub struct Extension {
   pub js_files: Cow<'static, [ExtensionFileSource]>,
   pub esm_files: Cow<'static, [ExtensionFileSource]>,
   pub lazy_loaded_esm_files: Cow<'static, [ExtensionFileSource]>,
+  pub warmup_files: Cow<'static, [ExtensionFileSource]>,
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
   pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
@@ -603,6 +610,7 @@ impl Extension {
       js_files: Cow::Borrowed(&[]),
       esm_files: Cow::Borrowed(&[]),
       lazy_loaded_esm_files: Cow::Borrowed(&[]),
+      warmup_files: self.warmup_files.clone(),
       esm_entry_point: None,
       ops: self.ops.clone(),
       external_references: self.external_references.clone(),
@@ -621,6 +629,7 @@ impl Default for Extension {
       js_files: Cow::Borrowed(&[]),
       esm_files: Cow::Borrowed(&[]),
       lazy_loaded_esm_files: Cow::Borrowed(&[]),
+      warmup_files: Cow::Borrowed(&[]),
       esm_entry_point: None,
       ops: Cow::Borrowed(&[]),
       external_references: Cow::Borrowed(&[]),
