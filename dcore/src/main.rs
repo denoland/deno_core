@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use anyhow::Context;
 use clap::builder::Arg;
 use clap::builder::Command;
+use clap::ArgAction;
 use clap::ArgMatches;
 use deno_core::anyhow::Error;
 use deno_core::v8;
@@ -45,6 +46,9 @@ fn main() -> Result<(), Error> {
     None
   };
 
+  let create_code_cache = matches.get_one("create-code-cache");
+  let consume_code_cache = matches.get_one("consume-code-cache");
+
   // TODO(bartlomieju): figure out how we can incorporate snapshotting here
   // deno_core::snapshot::create_snapshot(
   //   CreateSnapshotOptions {
@@ -68,6 +72,8 @@ fn main() -> Result<(), Error> {
     module_loader: Some(Rc::new(FsModuleLoader)),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector: inspector_server.is_some(),
+    create_code_cache: create_code_cache == Some(&true),
+    consume_code_cache: consume_code_cache == Some(&true),
     ..Default::default()
   });
 
@@ -99,6 +105,16 @@ fn main() -> Result<(), Error> {
 
 fn build_cli() -> Command {
   Command::new("dcore")
+    .arg(
+      Arg::new("create-code-cache")
+        .long("create-code-cache")
+        .action(ArgAction::SetTrue)
+    )
+    .arg(
+      Arg::new("consume-code-cache")
+        .long("consume-code-cache")
+        .action(ArgAction::SetTrue)
+    )
     .arg(
       Arg::new("inspect")
         .long("inspect")

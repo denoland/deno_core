@@ -109,6 +109,8 @@ pub(crate) struct ModuleMap {
   pending_mod_evaluation: Cell<bool>,
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
+  create_code_cache: bool,
+  consume_code_cache: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -162,6 +164,8 @@ impl ModuleMap {
     loader: Rc<dyn ModuleLoader>,
     exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
+    create_code_cache: bool,
+    consume_code_cache: bool,
   ) -> Self {
     Self {
       loader: loader.into(),
@@ -178,6 +182,8 @@ impl ModuleMap {
       pending_mod_evaluation: Default::default(),
       module_waker: Default::default(),
       data: Default::default(),
+      create_code_cache,
+      consume_code_cache,
     }
   }
 
@@ -513,11 +519,64 @@ impl ModuleMap {
     let source_str = source.v8_string(scope);
 
     let origin = module_origin(scope, name_str);
-    let source = v8::script_compiler::Source::new(source_str, Some(&origin));
+
+    if self.create_code_cache {
+      let context = v8::Context::new(scope);
+      let mut context_scope = v8::ContextScope::new(scope, context);
+      let source = v8::script_compiler::Source::new(source_str, Some(&origin));
+      let maybe_module =
+        v8::script_compiler::compile_module(&mut context_scope, source);
+      let module = maybe_module.unwrap();
+      let code_cache = {
+        let unbound_module_script =
+          module.get_unbound_module_script(&mut context_scope);
+        unbound_module_script.create_code_cache().unwrap().to_vec()
+      };
+
+      let name = name.to_string();
+      let cache_name = name.trim_start_matches("file:///").replace('/', "_");
+      let path = format!("/tmp/code_cache/{}.cache", cache_name);
+
+      if !std::path::Path::new(&"/tmp/code_cache").exists() {
+        std::fs::create_dir_all("/tmp/code_cache").unwrap();
+      }
+
+      std::fs::write(path, code_cache).unwrap();
+    }
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 
-    let maybe_module = v8::script_compiler::compile_module(tc_scope, source);
+    // check cache
+    let str_name = name.to_string();
+    let cache_name = str_name.trim_start_matches("file:///").replace('/', "_");
+    let path = format!("/tmp/code_cache/{}.cache", cache_name);
+
+    let maybe_module = if self.consume_code_cache
+      && std::path::Path::new(&path).exists()
+    {
+      let code_cache = std::fs::read(path).unwrap();
+      let mut source = v8::script_compiler::Source::new_with_cached_data(
+        source_str,
+        Some(&origin),
+        v8::CachedData::new(&code_cache),
+      );
+      let maybe_module = v8::script_compiler::compile_module3(
+        tc_scope,
+        &mut source,
+        v8::script_compiler::CompileOptions::ConsumeCodeCache,
+        v8::script_compiler::NoCacheReason::NoReason,
+      );
+      if let Some(code_cache) = source.get_cached_data() {
+        if code_cache.rejected() {
+          eprintln!("code cache rejected for : {:?}", str_name);
+        }
+      }
+      maybe_module
+    } else {
+      let source = v8::script_compiler::Source::new(source_str, Some(&origin));
+      let maybe_module = v8::script_compiler::compile_module(tc_scope, source);
+      maybe_module
+    };
 
     if tc_scope.has_caught() {
       assert!(maybe_module.is_none());

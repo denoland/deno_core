@@ -519,6 +519,9 @@ pub struct RuntimeOptions {
   /// A callback that allows to evaluate a custom type of a module - eg.
   /// embedders might implement loading WASM or test modules.
   pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
+
+  pub create_code_cache: bool,
+  pub consume_code_cache: bool,
 }
 
 impl RuntimeOptions {
@@ -807,6 +810,8 @@ impl JsRuntime {
       loader,
       exception_state.clone(),
       import_meta_resolve_cb,
+      options.create_code_cache,
+      options.consume_code_cache,
     ));
 
     if let Some((snapshotted_data, mut data_store)) = snapshotted_data {

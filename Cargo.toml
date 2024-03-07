@@ -23,7 +23,7 @@ deno_core = { version = "0.267.0", path = "./core" }
 deno_ops = { version = "0.143.0", path = "./ops" }
 serde_v8 = { version = "0.176.0", path = "./serde_v8" }
 
-v8 = { version = "0.83.2", default-features = false }
+v8 = { version = "0.84.0", default-features = false }
 deno_ast = { version = "=0.32.0", features = ["transpiling"] }
 deno_unsync = "0.3.2"
 deno_core_icudata = "0.0.73"
@@ -86,3 +86,7 @@ codegen-units = 1
 incremental = true
 lto = true
 opt-level = 'z' # Optimize for size
+
+[patch.crates-io]
+# Patch for v8
+v8 = { path = "../rusty_v8" }
