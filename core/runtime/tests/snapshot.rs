@@ -394,7 +394,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 }
 
 #[test]
-pub fn snapshot_with_additions_extensions() {
+pub fn snapshot_with_additional_extensions() {
   #[op2]
   #[string]
   fn op_before() -> String {
@@ -412,14 +412,17 @@ pub fn snapshot_with_additions_extensions() {
     ops = [op_before],
     esm_entry_point = "ext:module_snapshot/before.js",
     esm = ["ext:module_snapshot/before.js" =
-      { source = "globalThis.BEFORE = Deno.core.ops.op_before();" },]
+      // If this throws, we accidentally tried to evaluate this module twice
+      { source = "if (globalThis.before) { throw 'twice?' } globalThis.before = () => { globalThis.BEFORE = Deno.core.ops.op_before(); };" },]
   );
   deno_core::extension!(
     after_snapshot,
     ops = [op_after],
     esm_entry_point = "ext:module_snapshot/after.js",
-    esm = ["ext:module_snapshot/after.js" =
-      { source = "globalThis.AFTER = Deno.core.ops.op_after();" },]
+    esm = ["ext:module_snapshot/after.js" = {
+      source =
+        "globalThis.before(); globalThis.AFTER = Deno.core.ops.op_after();"
+    },]
   );
 
   let snapshot = {

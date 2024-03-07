@@ -95,6 +95,9 @@ pub type ExtensionTranspiler =
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
 pub(crate) struct IsolateAllocations {
+  pub(crate) external_refs: Option<Box<v8::ExternalReferences>>,
+  pub(crate) externalized_sources: Box<[v8::OneByteConst]>,
+  pub(crate) original_sources: Box<[FastString]>,
   pub(crate) near_heap_limit_callback_data:
     Option<(Box<RefCell<dyn Any>>, v8::NearHeapLimitCallback)>,
 }
@@ -137,6 +140,10 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
+  extension_count: usize,
+  op_count: usize,
+  source_count: usize,
+  addl_refs_count: usize,
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
@@ -625,7 +632,7 @@ impl JsRuntime {
   ) -> Result<JsRuntime, Error> {
     let init_mode = InitMode::from_options(&options);
     let mut extensions = std::mem::take(&mut options.extensions);
-    let isolate_allocations = IsolateAllocations::default();
+    let mut isolate_allocations = IsolateAllocations::default();
 
     // First let's create an `OpState` and contribute to it from extensions...
     let mut op_state = OpState::new(options.feature_checker.take());
@@ -635,7 +642,7 @@ impl JsRuntime {
     let mut files_loaded = Vec::with_capacity(128);
     let mut source_mapper: SourceMapper<Rc<dyn SourceMapGetter>> =
       SourceMapper::new(options.source_map_getter);
-    let sources = extension_set::into_sources(
+    let mut sources = extension_set::into_sources(
       options.extension_transpiler.as_deref(),
       &extensions,
       &mut source_mapper,
@@ -688,14 +695,49 @@ impl JsRuntime {
       additional_references,
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
-    let (maybe_startup_snapshot, sidecar_data) = options
+    // Capture the extension, op and source counts
+    let extension_count = extensions.len();
+    let op_count = op_ctxs.len();
+    let source_count = sources.len();
+    let addl_refs_count = additional_references.len();
+
+    let (maybe_startup_snapshot, mut sidecar_data) = options
       .startup_snapshot
       .take()
       .map(snapshot::deconstruct)
       .unzip();
 
-    let external_refs_static =
-      bindings::create_external_references(&op_ctxs, &additional_references);
+    let ops_in_snapshot = sidecar_data
+      .as_ref()
+      .map(|d| d.snapshot_data.op_count)
+      .unwrap_or_default();
+    let sources_in_snapshot = sidecar_data
+      .as_ref()
+      .map(|d| d.snapshot_data.source_count)
+      .unwrap_or_default();
+
+    let snapshot_sources: Vec<&[u8]> = sidecar_data
+      .as_mut()
+      .map(|s| std::mem::take(&mut s.snapshot_data.external_strings))
+      .unwrap_or_default();
+    (
+      isolate_allocations.externalized_sources,
+      isolate_allocations.original_sources,
+    ) = bindings::externalize_sources(&mut sources, snapshot_sources);
+
+    isolate_allocations.external_refs =
+      Some(Box::new(bindings::create_external_references(
+        &op_ctxs,
+        &additional_references,
+        &isolate_allocations.externalized_sources,
+        ops_in_snapshot,
+        sources_in_snapshot,
+      )));
+
+    let external_refs: &v8::ExternalReferences =
+      isolate_allocations.external_refs.as_ref().unwrap().as_ref();
+    // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
+    let external_refs_static = unsafe { std::mem::transmute(external_refs) };
 
     let mut isolate = setup::create_isolate(
       will_snapshot,
@@ -811,18 +853,19 @@ impl JsRuntime {
 
     if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
       *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
-        snapshotted_data.js_handled_promise_rejection_cb;
+        snapshotted_data
+          .js_handled_promise_rejection_cb
+          .map(|cb| data_store.get(scope, cb));
       module_map.update_with_snapshotted_data(
         scope,
         &mut data_store,
         snapshotted_data.module_map_data,
       );
 
-      state_rc
-        .source_mapper
-        .borrow_mut()
-        .ext_source_maps
-        .extend(snapshotted_data.ext_source_maps);
+      let mut mapper = state_rc.source_mapper.borrow_mut();
+      for (key, map) in snapshotted_data.ext_source_maps {
+        mapper.ext_source_maps.insert(key, map.into());
+      }
     }
 
     context.set_slot(scope, module_map.clone());
@@ -848,6 +891,10 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
+        extension_count,
+        op_count,
+        source_count,
+        addl_refs_count,
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
@@ -1816,6 +1863,14 @@ impl JsRuntimeForSnapshot {
   pub fn snapshot(mut self) -> Box<[u8]> {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
+    let externals_count =
+      self.0.allocations.external_refs.as_ref().unwrap().len() as _;
+    let original_sources =
+      std::mem::take(&mut self.0.allocations.original_sources);
+    let external_strings = original_sources
+      .iter()
+      .map(|s| s.as_str().as_bytes())
+      .collect();
     let realm = JsRealm::clone(&self.inner.main_realm);
 
     // Set the context to be snapshot's default context
@@ -1823,6 +1878,15 @@ impl JsRuntimeForSnapshot {
       let mut scope = realm.handle_scope(self.v8_isolate());
       let local_context = v8::Local::new(&mut scope, realm.context());
       scope.set_default_context(local_context);
+    }
+
+    // Borrow the source maps during the snapshot to avoid copies
+    let source_maps = std::mem::take(
+      &mut self.inner.state.source_mapper.borrow_mut().ext_source_maps,
+    );
+    let mut ext_source_maps = HashMap::with_capacity(source_maps.len());
+    for (k, v) in &source_maps {
+      ext_source_maps.insert(k.clone(), v.as_ref());
     }
 
     // Serialize the module map and store its data in the snapshot.
@@ -1843,19 +1907,19 @@ impl JsRuntimeForSnapshot {
           .js_handled_promise_rejection_cb
           .borrow()
           .clone()
-      };
-      let ext_source_maps = self
-        .inner
-        .state
-        .source_mapper
-        .borrow()
-        .ext_source_maps
-        .clone();
+      }
+      .map(|cb| data_store.register(cb));
 
       let snapshotted_data = SnapshottedData {
         module_map_data,
+        externals_count,
+        op_count: self.inner.op_count,
+        addl_refs_count: self.inner.addl_refs_count,
+        source_count: self.inner.source_count,
+        extension_count: self.inner.extension_count,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
         ext_source_maps,
+        external_strings,
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());

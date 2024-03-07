@@ -55,7 +55,7 @@ impl FastStaticString {
     }
     // SAFETY: Workaround compiler error in create_external_onebyte_const for long ascii strings
     unsafe {
-      assert!(s.is_ascii());
+      debug_assert!(s.is_ascii());
       let c = v8::String::create_external_onebyte_const(&[]);
       let mut ptrs: OneByteConst = std::mem::transmute(c);
       ptrs.cached_data = std::mem::transmute(s.as_ptr());

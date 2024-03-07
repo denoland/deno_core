@@ -138,13 +138,62 @@ impl OpCtx {
   }
 
   #[inline(always)]
-  pub fn decl(&self) -> &OpDecl {
+  pub const fn decl(&self) -> &OpDecl {
     &self.decl
   }
 
   #[inline(always)]
-  pub fn metrics_enabled(&self) -> bool {
+  pub const fn metrics_enabled(&self) -> bool {
     self.metrics_fn.is_some()
+  }
+
+  /// Generates four external references for each op. If an op does not have a fastcall, it generates
+  /// "null" slots to avoid changing the size of the external references array.
+  pub const fn external_references(&self) -> [v8::ExternalReference; 4] {
+    extern "C" fn placeholder() {}
+
+    let ctx_ptr = v8::ExternalReference {
+      pointer: self as *const OpCtx as _,
+    };
+    let null = v8::ExternalReference {
+      pointer: placeholder as _,
+    };
+
+    if self.metrics_enabled() {
+      let slow_fn = v8::ExternalReference {
+        function: self.decl.slow_fn_with_metrics,
+      };
+      if let (Some(fast_fn), Some(fast_fn_c_info)) =
+        (&self.decl.fast_fn_with_metrics, &self.fast_fn_c_info)
+      {
+        let fast_fn = v8::ExternalReference {
+          pointer: fast_fn.function as _,
+        };
+        let fast_info = v8::ExternalReference {
+          pointer: fast_fn_c_info.as_ptr() as _,
+        };
+        [ctx_ptr, slow_fn, fast_fn, fast_info]
+      } else {
+        [ctx_ptr, slow_fn, null, null]
+      }
+    } else {
+      let slow_fn = v8::ExternalReference {
+        function: self.decl.slow_fn,
+      };
+      if let (Some(fast_fn), Some(fast_fn_c_info)) =
+        (&self.decl.fast_fn, &self.fast_fn_c_info)
+      {
+        let fast_fn = v8::ExternalReference {
+          pointer: fast_fn.function as _,
+        };
+        let fast_info = v8::ExternalReference {
+          pointer: fast_fn_c_info.as_ptr() as _,
+        };
+        [ctx_ptr, slow_fn, fast_fn, fast_info]
+      } else {
+        [ctx_ptr, slow_fn, null, null]
+      }
+    }
   }
 
   /// This takes the last error from an [`OpCtx`], assuming that no other code anywhere

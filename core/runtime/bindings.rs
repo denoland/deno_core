@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
 use log::debug;
+use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
 use url::Url;
@@ -14,6 +15,7 @@ use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
 use crate::error::AnyError;
 use crate::error::JsStackFrame;
+use crate::extension_set::LoadedSources;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
 use crate::modules::synthetic_module_evaluation_steps;
@@ -23,19 +25,24 @@ use crate::ops::OpCtx;
 use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
 use crate::FastStaticString;
+use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
   additional_references: &[v8::ExternalReference],
-) -> &'static v8::ExternalReferences {
+  sources: &[v8::OneByteConst],
+  ops_in_snapshot: usize,
+  sources_in_snapshot: usize,
+) -> v8::ExternalReferences {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references = Vec::with_capacity(
     6 + CONTEXT_SETUP_SOURCES.len()
       + BUILTIN_SOURCES.len()
       + (ops.len() * 4)
-      + additional_references.len(),
+      + additional_references.len()
+      + sources.len(),
   );
 
   references.push(v8::ExternalReference {
@@ -73,43 +80,86 @@ pub(crate) fn create_external_references(
     });
   }
 
-  for ctx in ops {
-    if ctx.metrics_enabled() {
-      let ctx_ptr = ctx as *const OpCtx as _;
-      references.push(v8::ExternalReference { pointer: ctx_ptr });
-      references.push(v8::ExternalReference {
-        function: ctx.decl.slow_fn_with_metrics,
-      });
-      if let Some(fast_fn) = &ctx.decl.fast_fn_with_metrics {
-        references.push(v8::ExternalReference {
-          pointer: fast_fn.function as _,
-        });
-        references.push(v8::ExternalReference {
-          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
-        });
-      }
-    } else {
-      let ctx_ptr = ctx as *const OpCtx as _;
-      references.push(v8::ExternalReference { pointer: ctx_ptr });
-      references.push(v8::ExternalReference {
-        function: ctx.decl.slow_fn,
-      });
-      if let Some(fast_fn) = &ctx.decl.fast_fn {
-        references.push(v8::ExternalReference {
-          pointer: fast_fn.function as _,
-        });
-        references.push(v8::ExternalReference {
-          pointer: ctx.fast_fn_c_info.unwrap().as_ptr() as _,
-        });
-      }
-    }
-  }
-
   references.extend_from_slice(additional_references);
 
-  let refs = v8::ExternalReferences::new(&references);
-  let refs: &'static v8::ExternalReferences = Box::leak(Box::new(refs));
-  refs
+  for ctx in &ops[..ops_in_snapshot] {
+    references.extend_from_slice(&ctx.external_references());
+  }
+
+  for source in &sources[..sources_in_snapshot] {
+    references.push(v8::ExternalReference {
+      pointer: source as *const _ as _,
+    })
+  }
+
+  for ctx in &ops[ops_in_snapshot..] {
+    references.extend_from_slice(&ctx.external_references());
+  }
+
+  for source in &sources[sources_in_snapshot..] {
+    references.push(v8::ExternalReference {
+      pointer: source as *const _ as _,
+    })
+  }
+
+  v8::ExternalReferences::new(&references)
+}
+
+/// Combine the snapshotted sources (which may be empty) with the loaded sources, and ensure that
+/// each of the loaded source files passed to this function has a correct `v8::OneByteConst` backing
+/// that can be used for compilation.
+pub(crate) fn externalize_sources(
+  sources: &mut LoadedSources,
+  snapshot_sources: Vec<&'static [u8]>,
+) -> (Box<[v8::OneByteConst]>, Box<[FastString]>) {
+  // This is a complex method partly because we're still waiting on the `Copy` trait on v8::OneByteConst
+  // to land.
+
+  // Create an uninitialized Box<[v8::OneByteConst]. This will be simplified when we get Copy on OneByteConst.
+  // Because we don't have that trait, we work around it with [usize; 3].
+  const INIT_VALUE: MaybeUninit<[usize; 3]> =
+    MaybeUninit::<[usize; 3]>::uninit();
+  let externals =
+    vec![INIT_VALUE; sources.len() + snapshot_sources.len()].into_boxed_slice();
+
+  // Keep the original sources around, since we're borrowing from them.
+  let mut original_sources = Vec::with_capacity(sources.len());
+
+  // SAFETY: We are creating `v8::OneByteConst`s here for each of the input sources. Because
+  // we keep the original source alive, we can safely make a `v8::OneByteConst` from _any_
+  // source type. We'll make this lifetime static elsewhere in the code so we can safely
+  // use it with v8 strings.
+  unsafe {
+    let mut externals: Box<[v8::OneByteConst]> = std::mem::transmute(externals);
+
+    // First, add all the snapshot sources. These must be done first because we need
+    // to ensure that snapshotted sources are added to the externalrefs before non-snapshotted
+    // sources so that they line up correct.
+    let offset = 0;
+    for (index, source) in snapshot_sources.iter().enumerate() {
+      externals[index + offset] =
+        FastStaticString::create_external_onebyte_const(source);
+    }
+
+    // Next, add the non-snapshot sources. For each source file, we swap its `code`
+    // member to use this new external string. Note that this is only safe because
+    // we keep the original source alive.
+    let offset = snapshot_sources.len();
+    for (index, source) in sources.into_iter().enumerate() {
+      externals[index + offset] =
+        FastStaticString::create_external_onebyte_const(std::mem::transmute(
+          source.code.as_bytes(),
+        ));
+      let ptr = &externals[index + offset] as *const v8::OneByteConst;
+      let original_source = std::mem::replace(
+        &mut source.code,
+        FastStaticString::from(&*ptr).into(),
+      );
+      original_sources.push(original_source)
+    }
+
+    (externals, original_sources.into_boxed_slice())
+  }
 }
 
 // TODO(nayeemrmn): Move to runtime and/or make `pub(crate)`.
