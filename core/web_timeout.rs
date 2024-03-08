@@ -476,7 +476,6 @@ impl<T: Clone> WebTimers<T> {
   }
 
   /// Is this set of timers empty?
-  #[cfg(test)]
   pub fn is_empty(&self) -> bool {
     self.data_map.borrow().is_empty()
   }
