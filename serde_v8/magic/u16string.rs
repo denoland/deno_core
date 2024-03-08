@@ -3,13 +3,25 @@
 use crate::Error;
 
 use super::transl8::impl_magic;
-use super::transl8::impl_wrapper;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
 
-impl_wrapper!(
-  pub struct U16String(Vec<u16>);
-);
+#[derive(
+  PartialEq,
+  Eq,
+  Clone,
+  Debug,
+  Default,
+  derive_more::Deref,
+  derive_more::DerefMut,
+  derive_more::AsRef,
+  derive_more::AsMut,
+  derive_more::From,
+)]
+#[as_mut(forward)]
+#[as_ref(forward)]
+#[from(forward)]
+pub struct U16String(Vec<u16>);
 impl_magic!(U16String);
 
 impl ToV8 for U16String {
