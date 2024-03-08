@@ -1,24 +1,35 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+use std::mem::size_of;
+use std::ops::Deref;
+use std::ops::DerefMut;
+
+use smallvec::SmallVec;
+
 use super::transl8::FromV8;
 use super::transl8::ToV8;
 use crate::magic::transl8::impl_magic;
 use crate::Error;
-use smallvec::SmallVec;
-use std::mem::size_of;
 
 const USIZE2X: usize = size_of::<usize>() * 2;
 
-#[derive(
-  PartialEq,
-  Eq,
-  Clone,
-  Debug,
-  Default,
-  derive_more::Deref,
-  derive_more::DerefMut,
-)]
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct ByteString(SmallVec<[u8; USIZE2X]>);
 impl_magic!(ByteString);
+
+impl Deref for ByteString {
+  type Target = SmallVec<[u8; USIZE2X]>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for ByteString {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
 
 impl AsRef<[u8]> for ByteString {
   fn as_ref(&self) -> &[u8] {
