@@ -177,8 +177,17 @@ async fn run_integration_test_task(
     for line in e.to_string().split('\n') {
       output.line(format!("[ERR] {line}"));
     }
+  } else {
+    // Only await the module if we didn't fail
+    if let Err(e) = f.await {
+      let state = runtime.op_state().clone();
+      let state = state.borrow();
+      let output: &Output = state.borrow();
+      for line in e.to_string().split('\n') {
+        output.line(format!("[ERR] {line}"));
+      }
+    }
   }
-  f.await?;
   let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
   lines.push(String::new());
   let mut expected_output = String::new();

@@ -1755,7 +1755,7 @@ impl JsRuntime {
     }
 
     if pending_state.has_pending_module_evaluation {
-      if pending_state.has_pending_refed_ops
+      if pending_state.has_pending_ops
         || pending_state.has_pending_dyn_imports
         || pending_state.has_pending_dyn_module_evaluation
         || pending_state.has_pending_background_tasks
@@ -1770,7 +1770,7 @@ impl JsRuntime {
     }
 
     if pending_state.has_pending_dyn_module_evaluation {
-      if pending_state.has_pending_refed_ops
+      if pending_state.has_pending_ops
         || pending_state.has_pending_dyn_imports
         || pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
@@ -1945,6 +1945,7 @@ impl JsRuntimeForSnapshot {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct EventLoopPendingState {
+  has_pending_ops: bool,
   has_pending_refed_ops: bool,
   has_pending_dyn_imports: bool,
   has_pending_dyn_module_evaluation: bool,
@@ -1964,7 +1965,8 @@ impl EventLoopPendingState {
     let num_unrefed_ops = state.unrefed_ops.borrow().len();
     let num_pending_ops = state.pending_ops.len();
     let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
-    let has_pending_timers = state.timers.has_pending_timers();
+    let has_pending_timers = !state.timers.is_empty();
+    let has_pending_refed_timers = state.timers.has_pending_timers();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
@@ -1979,10 +1981,14 @@ impl EventLoopPendingState {
         .pending_handled_promise_rejections
         .borrow()
         .is_empty();
+    let has_pending_refed_ops = has_pending_tasks
+      || has_pending_refed_timers
+      || num_pending_ops > num_unrefed_ops;
     EventLoopPendingState {
-      has_pending_refed_ops: has_pending_tasks
+      has_pending_ops: has_pending_refed_ops
         || has_pending_timers
-        || num_pending_ops > num_unrefed_ops,
+        || (num_pending_ops > 0),
+      has_pending_refed_ops,
       has_pending_dyn_imports,
       has_pending_dyn_module_evaluation,
       has_pending_module_evaluation,
