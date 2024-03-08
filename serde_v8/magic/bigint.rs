@@ -16,11 +16,7 @@ use crate::Error;
   Default,
   derive_more::Deref,
   derive_more::DerefMut,
-  derive_more::AsRef,
-  derive_more::AsMut,
 )]
-#[as_mut(forward)]
-#[as_ref(forward)]
 pub struct BigInt(num_bigint::BigInt);
 impl_magic!(BigInt);
 
