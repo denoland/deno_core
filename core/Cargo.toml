@@ -55,6 +55,8 @@ deno_ast.workspace = true
 fastrand.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
+rustyline = { version = "13.0.0", default-features = false, features = ["with-file-history"] }
+rustyline-derive = "=0.7.0"
 unicycle = "0"
 
 [[bench]]

@@ -2,6 +2,7 @@
 pub mod arena;
 mod async_cancel;
 mod async_cell;
+pub mod cdp;
 pub mod cppgc;
 pub mod error;
 mod error_codes;
