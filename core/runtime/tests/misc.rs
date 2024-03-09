@@ -11,6 +11,7 @@ use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use futures::future::poll_fn;
 use rstest::rstest;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
@@ -1227,4 +1228,82 @@ async fn terminate_execution_run_event_loop_js() {
     .expect("execution should be possible again");
 
   terminator_thread.join().unwrap();
+}
+
+#[tokio::test]
+async fn global_template_middleware() {
+  use v8::MapFnTo;
+
+  static mut CALLS: Vec<String> = Vec::new();
+
+  pub fn descriptor<'s>(
+    _scope: &mut v8::HandleScope<'s>,
+    _key: v8::Local<'s, v8::Name>,
+    _args: v8::PropertyCallbackArguments<'s>,
+    _rv: v8::ReturnValue,
+  ) {
+    unsafe { CALLS.push("descriptor".to_string()) }
+  }
+
+  pub fn setter<'s>(
+    _scope: &mut v8::HandleScope<'s>,
+    _key: v8::Local<'s, v8::Name>,
+    _value: v8::Local<'s, v8::Value>,
+    _args: v8::PropertyCallbackArguments<'s>,
+    _rv: v8::ReturnValue,
+  ) {
+    unsafe {
+      CALLS.push("setter".to_string());
+    }
+  }
+
+  fn definer<'s>(
+    _scope: &mut v8::HandleScope<'s>,
+    _key: v8::Local<'s, v8::Name>,
+    _descriptor: &v8::PropertyDescriptor,
+    _args: v8::PropertyCallbackArguments<'s>,
+    _rv: v8::ReturnValue,
+  ) {
+    unsafe {
+      CALLS.push("definer".to_string());
+    }
+  }
+
+  pub fn gt_middleware<'s>(
+    _scope: &mut v8::HandleScope<'s, ()>,
+    template: v8::Local<'s, v8::ObjectTemplate>,
+  ) -> v8::Local<'s, v8::ObjectTemplate> {
+    let mut config = v8::NamedPropertyHandlerConfiguration::new().flags(
+      v8::PropertyHandlerFlags::NON_MASKING
+        | v8::PropertyHandlerFlags::HAS_NO_SIDE_EFFECT,
+    );
+
+    config = config.descriptor_raw(descriptor.map_fn_to());
+    config = config.setter_raw(setter.map_fn_to());
+    config = config.definer_raw(definer.map_fn_to());
+
+    template.set_named_property_handler(config);
+
+    template
+  }
+
+  deno_core::extension!(test_ext, global_template_middleware = gt_middleware);
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![test_ext::init_ops()],
+    ..Default::default()
+  });
+
+  // Create sleep function that waits for 2 seconds.
+  runtime
+    .execute_script(
+      "check_global_template_middleware.js",
+      r#"Object.defineProperty(globalThis, 'key', { value: 9, enumerable: true, configurable: true, writable: true })"#,
+    )
+    .unwrap();
+
+  let calls_set =
+    unsafe { CALLS.clone().into_iter().collect::<HashSet<String>>() };
+  assert!(calls_set.contains("definer"));
+  assert!(calls_set.contains("setter"));
+  assert!(calls_set.contains("descriptor"));
 }
