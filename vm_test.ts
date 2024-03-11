@@ -1,4 +1,5 @@
 import { isContext, runInNewContext } from "./vm.ts";
+import * as vm from "./vm.ts";
 
 const TEST_FNS = [];
 
@@ -102,6 +103,19 @@ test({
     assertEquals(isContext(globalThis), false);
     const sandbox = runInNewContext("{}");
     assertEquals(isContext(sandbox), false);
+  },
+});
+
+test({
+  name: "vm createContext",
+  fn() {
+    globalThis.globalVar = 3;
+
+    const context = { globalVar: 1 };
+    vm.createContext(context);
+    vm.runInContext("globalVar *= 2", context);
+    assertEquals(context.globalVar, 2);
+    assertEquals(globalThis.globalVar, 2);
   },
 });
 
