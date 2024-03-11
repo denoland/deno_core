@@ -8,6 +8,7 @@ use crate::io::ResourceId;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
+use crate::ops_node_vm;
 use crate::CancelHandle;
 use crate::JsBuffer;
 use crate::Op;
@@ -126,7 +127,8 @@ builtin_ops! {
   ops_builtin_v8::op_leak_tracing_enable,
   ops_builtin_v8::op_leak_tracing_submit,
   ops_builtin_v8::op_leak_tracing_get_all,
-  ops_builtin_v8::op_leak_tracing_get
+  ops_builtin_v8::op_leak_tracing_get,
+  ops_node_vm::op_vm_run_in_new_context
 }
 
 #[op2(fast)]

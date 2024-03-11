@@ -22,6 +22,7 @@ mod ops_builtin;
 mod ops_builtin_types;
 mod ops_builtin_v8;
 mod ops_metrics;
+mod ops_node_vm;
 mod path;
 mod runtime;
 mod source_map;
