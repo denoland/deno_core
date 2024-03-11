@@ -33,8 +33,8 @@ fn v8_init(
   );
   let snapshot_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";
-  let lazy_flags = if cfg!(feature = "lazy_eval_snapshot") {
-    "--lazy=false --lazy-eval=false --lazy-streaming=false"
+  let lazy_flags = if cfg!(feature = "snapshot_flags_eager_parse") {
+    "--no-lazy --no-lazy-eval --no-lazy-streaming"
   } else {
     ""
   };
