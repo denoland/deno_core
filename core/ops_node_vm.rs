@@ -298,19 +298,19 @@ fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
   };
 
   // TODO: https://github.com/denoland/rusty_v8/pull/1426
-  // let indexed_property_handler_config = {
-  //   let mut config = v8::IndexedPropertyHandlerConfiguration::new()
-  //     .flags(v8::PropertyHandlerFlags::HAS_NO_SIDE_EFFECT);
+  let indexed_property_handler_config = {
+    let mut config = v8::IndexedPropertyHandlerConfiguration::new()
+      .flags(v8::PropertyHandlerFlags::HAS_NO_SIDE_EFFECT);
 
-  //   // TODO: use thread locals to avoid rustc bug
-  //   config = config.getter_raw(property_getter.map_fn_to());
-  //   config = config.setter_raw(property_setter.map_fn_to());
-  //   config = config.descriptor_raw(property_descriptor.map_fn_to());
-  //   config = config.deleter_raw(property_deleter.map_fn_to());
-  //   config = config.enumerator_raw(property_enumerator.map_fn_to());
-  //   config = config.definer_raw(property_definer.map_fn_to());
-  //   config
-  // };
+    // TODO: use thread locals to avoid rustc bug
+    config = config.getter(indexed_property_getter);
+    config = config.setter(indexed_property_setter);
+    config = config.descriptor(indexed_property_descriptor);
+    config = config.deleter(indexed_property_deleter);
+    config = config.enumerator(property_enumerator);
+    config = config.definer(indexed_property_definer);
+    config
+  };
 
   // IndexedPropertyHandlerConfiguration indexed_config(
   //     IndexedPropertyGetterCallback,
@@ -402,7 +402,7 @@ pub fn property_deleter<'s>(
 
 pub fn property_enumerator<'s>(
   scope: &mut v8::HandleScope<'s>,
-  _args: v8::PropertyCallbackArguments<'s>,
+  args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
   let ctx =
@@ -457,4 +457,112 @@ pub fn property_descriptor<'s>(
       rv.set(desc);
     }
   }
+}
+
+fn uint32_to_name<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  index: u32,
+) -> v8::Local<'s, v8::Name> {
+  let int = v8::Integer::new_from_unsigned(scope, index);
+  let u32 = v8::Local::<v8::Uint32>::try_from(int).unwrap();
+  u32.to_string(scope).unwrap().into()
+}
+
+fn indexed_property_getter<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  index: u32,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let key = uint32_to_name(scope, index);
+  property_getter(scope, key, args, rv);
+}
+
+fn indexed_property_setter<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  index: u32,
+  value: v8::Local<'s, v8::Value>,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let key = uint32_to_name(scope, index);
+  property_setter(scope, key, value, args, rv);
+}
+
+fn indexed_property_deleter<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  index: u32,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let ctx = ctx.unwrap();
+  // TODO: should use a scope created from `context`?
+  // let context = ctx.context.unwrap();
+  let sandbox = v8::Local::new(scope, ctx.sandbox);
+  let key = uint32_to_name(scope, index);
+  let success = sandbox.delete(scope, key.into()).unwrap_or(false);
+
+  if success {
+    return;
+  }
+
+  // Delete failed on the sandbox, intercept and do not delete on
+  // the global object.
+  rv.set_bool(false);
+}
+
+fn indexed_property_definer<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  index: u32,
+  descriptor: &v8::PropertyDescriptor,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let key = uint32_to_name(scope, index);
+  property_definer(scope, key, descriptor, args, rv);
+}
+
+fn indexed_property_descriptor<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  index: u32,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let key = uint32_to_name(scope, index);
+  property_descriptor(scope, key, args, rv);
 }
