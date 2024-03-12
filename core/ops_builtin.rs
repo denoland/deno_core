@@ -128,7 +128,8 @@ builtin_ops! {
   ops_builtin_v8::op_leak_tracing_submit,
   ops_builtin_v8::op_leak_tracing_get_all,
   ops_builtin_v8::op_leak_tracing_get,
-  ops_node_vm::op_vm_run_in_new_context
+  ops_node_vm::op_vm_run_in_new_context,
+  ops_node_vm::op_vm_make_context
 }
 
 #[op2(fast)]

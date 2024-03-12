@@ -1,5 +1,5 @@
 const core = Deno.core;
-const { op_vm_run_in_new_context } = core.ops;
+const { op_vm_run_in_new_context, op_vm_make_context } = core.ops;
 
 function notImplemented(name) {
   throw new Error(`The API ${name} is not yet implemented`);
@@ -37,8 +37,64 @@ export class Script {
   }
 }
 
-export function createContext(_contextObject, _options) {
-  notImplemented("createContext");
+const kEmptyObject = Object.freeze({ __proto__: null });
+let defaultContextNameIndex = 1;
+export function createContext(contextObject = {}, options = kEmptyObject) {
+  if (isContext(contextObject)) {
+    return contextObject;
+  }
+
+  // TODO: validateObject(options, "options");
+
+  const {
+    name = `VM Context ${defaultContextNameIndex++}`,
+    origin,
+    codeGeneration,
+    microtaskMode,
+    importModuleDynamically,
+  } = options;
+
+  // validateString(name, "options.name");
+  // if (origin !== undefined) {
+  //   validateString(origin, "options.origin");
+  // }
+  // if (codeGeneration !== undefined) {
+  //   validateObject(codeGeneration, "options.codeGeneration");
+  // }
+
+  let strings = true;
+  let wasm = true;
+  if (codeGeneration !== undefined) {
+    ({ strings = true, wasm = true } = codeGeneration);
+    // validateBoolean(strings, "options.codeGeneration.strings");
+    // validateBoolean(wasm, "options.codeGeneration.wasm");
+  }
+
+  // validateOneOf(microtaskMode, "options.microtaskMode", [
+  //   "afterEvaluate",
+  //   undefined,
+  // ]);
+  const microtaskQueue = microtaskMode === "afterEvaluate";
+
+  // const hostDefinedOptionId = getHostDefinedOptionId(
+  //   importModuleDynamically,
+  //   name,
+  // );
+
+  op_vm_make_context(
+    contextObject,
+    name,
+    origin,
+    strings,
+    wasm,
+    microtaskQueue,
+    // hostDefinedOptionId,
+  );
+  // Register the context scope callback after the context was initialized.
+  // if (importModuleDynamically !== undefined) {
+  //   registerImportModuleDynamically(contextObject, importModuleDynamically);
+  // }
+  return contextObject;
 }
 
 export function createScript(code, options) {
