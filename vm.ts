@@ -1,5 +1,6 @@
 const core = Deno.core;
-const { op_vm_run_in_new_context, op_vm_make_context } = core.ops;
+const { op_vm_run_in_new_context, op_vm_make_context, op_vm_is_context } =
+  core.ops;
 
 function notImplemented(name) {
   throw new Error(`The API ${name} is not yet implemented`);
@@ -127,9 +128,8 @@ export function runInThisContext(
   return createScript(code, options).runInThisContext(options);
 }
 
-export function isContext(_maybeContext) {
-  // TODO(@littledivy): Currently we do not expose contexts so this is always false.
-  return false;
+export function isContext(context) {
+  return op_vm_is_context(context);
 }
 
 export function compileFunction(_code, _params, _options) {

@@ -82,6 +82,18 @@ fn make_context<'a>(
 }
 
 #[op2]
+pub fn op_vm_is_context(
+  scope: &mut v8::HandleScope,
+  sandbox: v8::Local<v8::Object>,
+) -> bool {
+  let private_name =
+    v8::String::new_external_onebyte_static(scope, PRIVATE_SYMBOL_NAME)
+      .unwrap();
+  let private_symbol = v8::Private::for_api(scope, Some(private_name));
+  sandbox.has_private(scope, private_symbol).unwrap()
+}
+
+#[op2]
 pub fn op_vm_run_in_new_context<'a>(
   scope: &mut v8::HandleScope<'a>,
   script: v8::Local<v8::String>,
@@ -261,13 +273,14 @@ pub fn op_vm_make_context<'a>(
   Ok(())
 }
 
-fn contextify_context_initialize_global_template(// isolate_data
-) {
+extern "C" fn c_noop(info: *const v8::FunctionCallbackInfo) {}
+
+fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
   // DCHECK(isolate_data->contextify_wrapper_template().IsEmpty());
-  // Local<FunctionTemplate> global_func_template =
-  //     FunctionTemplate::New(isolate_data->isolate());
-  // Local<ObjectTemplate> global_object_template =
-  //     global_func_template->InstanceTemplate();
+
+  let global_func_template =
+    v8::FunctionTemplate::builder_raw(c_noop).build(scope);
+  let global_object_template = global_func_template.instance_template(scope);
 
   let named_property_handler_config = {
     let mut config = v8::NamedPropertyHandlerConfiguration::new()
@@ -283,6 +296,21 @@ fn contextify_context_initialize_global_template(// isolate_data
     config
   };
 
+  // TODO: https://github.com/denoland/rusty_v8/pull/1426
+  // let indexed_property_handler_config = {
+  //   let mut config = v8::IndexedPropertyHandlerConfiguration::new()
+  //     .flags(v8::PropertyHandlerFlags::HAS_NO_SIDE_EFFECT);
+
+  //   // TODO: use thread locals to avoid rustc bug
+  //   config = config.getter_raw(property_getter.map_fn_to());
+  //   config = config.setter_raw(property_setter.map_fn_to());
+  //   config = config.descriptor_raw(property_descriptor.map_fn_to());
+  //   config = config.deleter_raw(property_deleter.map_fn_to());
+  //   config = config.enumerator_raw(property_enumerator.map_fn_to());
+  //   config = config.definer_raw(property_definer.map_fn_to());
+  //   config
+  // };
+
   // IndexedPropertyHandlerConfiguration indexed_config(
   //     IndexedPropertyGetterCallback,
   //     IndexedPropertySetterCallback,
@@ -293,8 +321,11 @@ fn contextify_context_initialize_global_template(// isolate_data
   //     {},
   //     PropertyHandlerFlags::kHasNoSideEffect);
 
-  // global_object_template->SetHandler(config);
-  // global_object_template->SetHandler(indexed_config);
+  global_object_template
+    .set_named_property_handler(named_property_handler_config);
+  // global_object_template
+  //   .set_indexed_property_handler(indexes_property_handler_config);
+
   // isolate_data->set_contextify_global_template(global_object_template);
 
   // Local<FunctionTemplate> wrapper_func_template =
@@ -310,6 +341,17 @@ pub fn property_getter<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx) {
+    return;
+  }
+
+  let ctx = ctx.unwrap();
+  let context = ctx.context;
+  // let sandbox = ctx.sandbox;
+  // let maybe_rv = sandbox.
 }
 
 pub fn property_setter<'s>(
