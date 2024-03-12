@@ -28,6 +28,7 @@ const PRIVATE_SYMBOL_NAME: &[u8] = b"node:contextify:context";
 #[derive(Debug, Clone)]
 struct ContextifyContext {
   context: Option<v8::Global<v8::Context>>,
+  sandbox: v8::Global<v8::Object>,
   // microtask_queue:
 }
 
@@ -63,7 +64,7 @@ impl ContextifyContext {
   }
 
   fn is_still_initializing(
-    maybe_contextify_context: Option<ContextifyContext>,
+    maybe_contextify_context: Option<&ContextifyContext>,
   ) -> bool {
     match maybe_contextify_context {
       Some(ctx_ctx) => ctx_ctx.context.is_some(),
@@ -344,7 +345,7 @@ pub fn property_getter<'s>(
   let ctx =
     ContextifyContext::contextify_context_get_from_this(scope, args.this());
 
-  if ContextifyContext::is_still_initializing(ctx) {
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
   }
 
@@ -377,6 +378,26 @@ pub fn property_deleter<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let ctx = ctx.unwrap();
+  // TODO: should use a scope created from `context`?
+  // let context = ctx.context.unwrap();
+  let sandbox = v8::Local::new(scope, ctx.sandbox);
+  let success = sandbox.delete(scope, key.into()).unwrap_or(false);
+
+  if success {
+    return;
+  }
+
+  // Delete failed on the sandbox, intercept and do not delete on
+  // the global object.
+  rv.set_bool(false);
 }
 
 pub fn property_enumerator<'s>(
@@ -384,6 +405,24 @@ pub fn property_enumerator<'s>(
   _args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let ctx = ctx.unwrap();
+  // TODO: should use a scope created from `context`?
+  // let context = ctx.context.unwrap();
+  let sandbox = v8::Local::new(scope, ctx.sandbox);
+  let Some(properties) = sandbox
+    .get_property_names(scope, v8::GetPropertyNamesArgsBuilder::new().build())
+  else {
+    return;
+  };
+
+  rv.set(properties.into());
 }
 
 pub fn property_definer<'s>(
@@ -398,7 +437,24 @@ pub fn property_definer<'s>(
 pub fn property_descriptor<'s>(
   scope: &mut v8::HandleScope<'s>,
   key: v8::Local<'s, v8::Name>,
-  _args: v8::PropertyCallbackArguments<'s>,
+  args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let ctx = ctx.unwrap();
+  // TODO: should use a scope created from `context`?
+  // let context = ctx.context.unwrap();
+  let sandbox = v8::Local::new(scope, ctx.sandbox);
+
+  if sandbox.has_own_property(scope, key).unwrap_or(false) {
+    if let Some(desc) = sandbox.get_own_property_descriptor(scope, key) {
+      rv.set(desc);
+    }
+  }
 }
