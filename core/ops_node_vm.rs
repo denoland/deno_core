@@ -3,6 +3,7 @@
 use crate::error::AnyError;
 use crate::op2;
 use anyhow::bail;
+use v8::MapFnTo;
 
 pub const VM_CONTEXT_INDEX: usize = 0;
 
@@ -24,9 +25,52 @@ pub const NODE_CONTEXT_TAG: usize = 39;
 const OBJECT_STRING: &str = "Object";
 const PRIVATE_SYMBOL_NAME: &[u8] = b"node:contextify:context";
 
+#[derive(Debug, Clone)]
+struct ContextifyContext {
+  context: Option<v8::Global<v8::Context>>,
+  // microtask_queue:
+}
+
+#[derive(Debug, Clone)]
 struct SandboxObject(v8::Global<v8::Object>);
+#[derive(Debug, Clone)]
 struct AllowCodeGenerationFromString(bool);
+#[derive(Debug, Clone)]
 struct AllowWasmCodeGeneration(bool);
+
+impl ContextifyContext {
+  // TODO: maybe not needed?
+  // fn contextify_context_get(
+  //   scope: &mut v8::HandleScope,
+  //   info: v8::PropertyCallbackInfo,
+  // ) -> Option<ContextifyContext> {
+  //   contextify_context_get_from_this(scope, info.this())
+  // }
+
+  fn contextify_context_get_from_this(
+    scope: &mut v8::HandleScope,
+    object: v8::Local<v8::Object>,
+  ) -> Option<ContextifyContext> {
+    let Some(mut context) = object.get_creation_context(scope) else {
+      return None;
+    };
+
+    // if (!ContextEmbedderTag::IsNodeContext(context)) {
+    //   return nullptr;
+    // }
+
+    context.get_slot::<ContextifyContext>(scope).cloned()
+  }
+
+  fn is_still_initializing(
+    maybe_contextify_context: Option<ContextifyContext>,
+  ) -> bool {
+    match maybe_contextify_context {
+      Some(ctx_ctx) => ctx_ctx.context.is_some(),
+      None => false,
+    }
+  }
+}
 
 fn make_context<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -215,4 +259,104 @@ pub fn op_vm_make_context<'a>(
   todo!();
 
   Ok(())
+}
+
+fn contextify_context_initialize_global_template(// isolate_data
+) {
+  // DCHECK(isolate_data->contextify_wrapper_template().IsEmpty());
+  // Local<FunctionTemplate> global_func_template =
+  //     FunctionTemplate::New(isolate_data->isolate());
+  // Local<ObjectTemplate> global_object_template =
+  //     global_func_template->InstanceTemplate();
+
+  let named_property_handler_config = {
+    let mut config = v8::NamedPropertyHandlerConfiguration::new()
+      .flags(v8::PropertyHandlerFlags::HAS_NO_SIDE_EFFECT);
+
+    // TODO: use thread locals to avoid rustc bug
+    config = config.getter_raw(property_getter.map_fn_to());
+    config = config.setter_raw(property_setter.map_fn_to());
+    config = config.descriptor_raw(property_descriptor.map_fn_to());
+    config = config.deleter_raw(property_deleter.map_fn_to());
+    config = config.enumerator_raw(property_enumerator.map_fn_to());
+    config = config.definer_raw(property_definer.map_fn_to());
+    config
+  };
+
+  // IndexedPropertyHandlerConfiguration indexed_config(
+  //     IndexedPropertyGetterCallback,
+  //     IndexedPropertySetterCallback,
+  //     IndexedPropertyDescriptorCallback,
+  //     IndexedPropertyDeleterCallback,
+  //     PropertyEnumeratorCallback,
+  //     IndexedPropertyDefinerCallback,
+  //     {},
+  //     PropertyHandlerFlags::kHasNoSideEffect);
+
+  // global_object_template->SetHandler(config);
+  // global_object_template->SetHandler(indexed_config);
+  // isolate_data->set_contextify_global_template(global_object_template);
+
+  // Local<FunctionTemplate> wrapper_func_template =
+  //     BaseObject::MakeLazilyInitializedJSTemplate(isolate_data);
+  // Local<ObjectTemplate> wrapper_object_template =
+  //     wrapper_func_template->InstanceTemplate();
+  // isolate_data->set_contextify_wrapper_template(wrapper_object_template);
+}
+
+pub fn property_getter<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  key: v8::Local<'s, v8::Name>,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+}
+
+pub fn property_setter<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  key: v8::Local<'s, v8::Name>,
+  value: v8::Local<'s, v8::Value>,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+}
+
+pub fn property_query<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  key: v8::Local<'s, v8::Name>,
+  _args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+}
+
+pub fn property_deleter<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  key: v8::Local<'s, v8::Name>,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+}
+
+pub fn property_enumerator<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  _args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+}
+
+pub fn property_definer<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  key: v8::Local<'s, v8::Name>,
+  descriptor: &v8::PropertyDescriptor,
+  args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
+}
+
+pub fn property_descriptor<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  key: v8::Local<'s, v8::Name>,
+  _args: v8::PropertyCallbackArguments<'s>,
+  mut rv: v8::ReturnValue,
+) {
 }
