@@ -22,6 +22,11 @@ pub const NODE_CONTEXT_REALM_INDEX: usize = 38;
 pub const NODE_CONTEXT_TAG: usize = 39;
 
 const OBJECT_STRING: &str = "Object";
+const PRIVATE_SYMBOL_NAME: &[u8] = b"node:contextify:context";
+
+struct SandboxObject(v8::Global<v8::Object>);
+struct AllowCodeGenerationFromString(bool);
+struct AllowWasmCodeGeneration(bool);
 
 fn make_context<'a>(
   scope: &mut v8::HandleScope<'a>,
@@ -106,11 +111,16 @@ fn contextify_context_new(
   v8_context.set_security_token(main_context.get_security_token(scope));
 
   // Store sandbox obj here
-  // v8_context.set_aligned_pointer_in_embedder_data(slot, data)
+  let sandbox_obj_global = SandboxObject(v8::Global::new(scope, sandbox_obj));
+  assert!(v8_context.set_slot(scope, sandbox_obj_global));
 
   v8_context.set_allow_generation_from_strings(false);
-  // v8_context.set_aligned_pointer_in_embedder_data(slot, options.allow_code_gen_strings)
-  // v8_context.set_aligned_pointer_in_embedder_data(slot, options.allow_code_gen_wasm);
+  assert!(v8_context.set_slot(
+    scope,
+    AllowCodeGenerationFromString(options.allow_code_gen_strings)
+  ));
+  assert!(v8_context
+    .set_slot(scope, AllowWasmCodeGeneration(options.allow_code_gen_wasm)));
 
   // let info = ContextInfo { name: options.name };
 
@@ -133,7 +143,7 @@ fn contextify_context_new(
         )
         .is_none()
       {
-        bail!("Failed to create new context")
+        bail!("Define new context's own property");
       }
     }
 
@@ -142,6 +152,21 @@ fn contextify_context_new(
     // TODO: assign to context - set up internal fields (not sure if needed), notify inspector about a new context
   }
 
+  // TODO: uncomment once wrapper is done
+  // let private_name =
+  //   v8::String::new_external_onebyte_static(scope, PRIVATE_SYMBOL_NAME)
+  //     .unwrap();
+  // let private_symbol = v8::Private::for_api(scope, Some(private_name));
+  // if sandbox_obj
+  //   .set_private(scope, private_symbol, wrapper)
+  //   .is_none()
+  // {
+  //   bail!("Set private property on contextified object");
+  // };
+
+  // TODO: assign host_defined_option_symbol to the wrapper.
+
+  // result
   Ok(())
 }
 
@@ -179,11 +204,9 @@ pub fn op_vm_make_context<'a>(
 ) -> Result<(), AnyError> {
   // Don't allow contextifying a sandbox multiple times.
   {
-    let private_name = v8::String::new_external_onebyte_static(
-      scope,
-      b"node:contextify:context",
-    )
-    .unwrap();
+    let private_name =
+      v8::String::new_external_onebyte_static(scope, PRIVATE_SYMBOL_NAME)
+        .unwrap();
     let private_symbol = v8::Private::for_api(scope, Some(private_name));
     // TODO: this unwrap might be wrong
     assert!(!sandbox.has_private(scope, private_symbol).unwrap());
