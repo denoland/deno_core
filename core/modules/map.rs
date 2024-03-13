@@ -45,6 +45,7 @@ use log::debug;
 use v8::Function;
 use v8::PromiseState;
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -68,6 +69,12 @@ use super::ImportMetaResolveCallback;
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
   sender: Option<oneshot::Sender<Result<(), Error>>>,
+}
+
+type StoreCodeCacheCallback = Box<dyn Fn(&[u8]) -> Result<(), AnyError>>;
+pub(crate) struct CodeCacheInfo {
+  code_cache: Option<Cow<'static, [u8]>>,
+  store_callback: StoreCodeCacheCallback,
 }
 
 pub const BOM_CHAR: &[u8] = &[0xef, 0xbb, 0xbf];
@@ -109,6 +116,7 @@ pub(crate) struct ModuleMap {
   pending_mod_evaluation: Cell<bool>,
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
+  enable_code_cache: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -162,6 +170,7 @@ impl ModuleMap {
     loader: Rc<dyn ModuleLoader>,
     exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
+    enable_code_cache: bool,
   ) -> Self {
     Self {
       loader: loader.into(),
@@ -178,6 +187,7 @@ impl ModuleMap {
       pending_mod_evaluation: Default::default(),
       module_waker: Default::default(),
       data: Default::default(),
+      enable_code_cache,
     }
   }
 
@@ -271,6 +281,7 @@ impl ModuleMap {
       module_type,
       module_url_found,
       module_url_specified,
+      code_cache,
     } = module_source;
 
     // Register the module in the module map unless it's already there. If the
@@ -310,6 +321,26 @@ impl ModuleMap {
         let code =
           ModuleSource::get_string_source(module_url_found.as_str(), code)
             .map_err(ModuleError::Other)?;
+
+        let (code_cache_info, module_url_found) = if self.enable_code_cache {
+          let (module_url_found1, module_url_found2) =
+            module_url_found.into_cheap_copy();
+          let loader = self.loader.borrow().clone();
+          (
+            Some(CodeCacheInfo {
+              code_cache,
+              store_callback: Box::new(move |cache| {
+                let specifier =
+                  ModuleSpecifier::parse(module_url_found1.as_str()).unwrap();
+                loader.store_code_cache(&specifier, cache)
+              }),
+            }),
+            module_url_found2,
+          )
+        } else {
+          (None, module_url_found)
+        };
+
         self.new_module_from_js_source(
           scope,
           main,
@@ -317,6 +348,7 @@ impl ModuleMap {
           module_url_found,
           code,
           dynamic,
+          code_cache_info,
         )?
       }
       ModuleType::Wasm => {
@@ -384,6 +416,25 @@ impl ModuleMap {
               synthetic_module_type,
               exports,
             )?;
+
+            let (code_cache_info, url2) = if self.enable_code_cache {
+              let (url1, url2) = url2.into_cheap_copy();
+              let loader = self.loader.borrow().clone();
+              (
+                Some(CodeCacheInfo {
+                  code_cache,
+                  store_callback: Box::new(move |cache| {
+                    let specifier =
+                      ModuleSpecifier::parse(url1.as_str()).unwrap();
+                    loader.store_code_cache(&specifier, cache)
+                  }),
+                }),
+                url2,
+              )
+            } else {
+              (None, url2)
+            };
+
             self.new_module_from_js_source(
               scope,
               main,
@@ -391,6 +442,7 @@ impl ModuleMap {
               url2,
               computed_src,
               dynamic,
+              code_cache_info,
             )?
           }
         }
@@ -464,6 +516,7 @@ impl ModuleMap {
     name: impl IntoModuleName,
     source: impl IntoModuleCodeString,
     is_dynamic_import: bool,
+    code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<ModuleId, ModuleError> {
     let name = name.into_module_name();
     self.new_module_from_js_source(
@@ -473,6 +526,7 @@ impl ModuleMap {
       name.into_module_name(),
       source.into_module_code(),
       is_dynamic_import,
+      code_cache_info,
     )
   }
 
@@ -488,6 +542,7 @@ impl ModuleMap {
   /// and attached to associated [`ModuleInfo`].
   ///
   /// Returns an ID of newly created module.
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn new_module_from_js_source(
     &self,
     scope: &mut v8::HandleScope,
@@ -496,6 +551,7 @@ impl ModuleMap {
     name: ModuleName,
     source: ModuleCodeString,
     is_dynamic_import: bool,
+    code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<ModuleId, ModuleError> {
     if main {
       let data = self.data.borrow();
@@ -513,11 +569,37 @@ impl ModuleMap {
     let source_str = source.v8_string(scope);
 
     let origin = module_origin(scope, name_str);
-    let source = v8::script_compiler::Source::new(source_str, Some(&origin));
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 
-    let maybe_module = v8::script_compiler::compile_module(tc_scope, source);
+    let (maybe_module, try_store_code_cache) = code_cache_info
+      .as_ref()
+      .and_then(|code_cache_info| {
+        code_cache_info.code_cache.as_ref().map(|cache| {
+          let mut source = v8::script_compiler::Source::new_with_cached_data(
+            source_str,
+            Some(&origin),
+            v8::CachedData::new(cache),
+          );
+          let maybe_module = v8::script_compiler::compile_module2(
+            tc_scope,
+            &mut source,
+            v8::script_compiler::CompileOptions::ConsumeCodeCache,
+            v8::script_compiler::NoCacheReason::NoReason,
+          );
+          // Check if the provided code cache is rejected by V8.
+          let rejected = match source.get_cached_data() {
+            Some(cached_data) => cached_data.rejected(),
+            _ => true,
+          };
+          (maybe_module, rejected)
+        })
+      })
+      .unwrap_or_else(|| {
+        let source =
+          v8::script_compiler::Source::new(source_str, Some(&origin));
+        (v8::script_compiler::compile_module(tc_scope, source), true)
+      });
 
     if tc_scope.has_caught() {
       assert!(maybe_module.is_none());
@@ -528,6 +610,20 @@ impl ModuleMap {
     }
 
     let module = maybe_module.unwrap();
+
+    if try_store_code_cache {
+      if let Some(code_cache_info) = code_cache_info.as_ref() {
+        let unbound_module_script = module.get_unbound_module_script(tc_scope);
+        let code_cache =
+          unbound_module_script.create_code_cache().ok_or_else(|| {
+            ModuleError::Other(generic_error(
+              "Unable to get code cache from unbound module script",
+            ))
+          })?;
+        (*code_cache_info.store_callback)(&code_cache)
+          .map_err(ModuleError::Other)?;
+      }
+    }
 
     // TODO(bartlomieju): maybe move to a helper function?
     let module_requests = module.get_module_requests();
@@ -1470,10 +1566,18 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     module_specifier: &str,
     source_code: ModuleCodeString,
+    code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
-      .new_es_module(scope, false, specifier, source_code, false)
+      .new_es_module(
+        scope,
+        false,
+        specifier.clone(),
+        source_code,
+        false,
+        code_cache_info,
+      )
       .map_err(|e| e.into_any_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
@@ -1556,6 +1660,17 @@ impl ModuleMap {
       scope,
       module_specifier,
       ModuleSource::get_string_source(specifier.as_str(), source.code)?,
+      if self.enable_code_cache {
+        let loader = self.loader.borrow().clone();
+        Some(CodeCacheInfo {
+          code_cache: source.code_cache,
+          store_callback: Box::new(move |cache| {
+            loader.store_code_cache(&specifier, cache)
+          }),
+        })
+      } else {
+        None
+      },
     )
   }
 }

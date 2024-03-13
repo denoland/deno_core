@@ -26,6 +26,8 @@ use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
 use crate::modules::CustomModuleEvaluationCb;
+use crate::modules::EvalContextGetCodeCacheCb;
+use crate::modules::EvalContextStoreCodeCacheCb;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
 use crate::modules::IntoModuleCodeString;
@@ -412,6 +414,9 @@ pub struct JsRuntimeState {
     Option<WaitForInspectorDisconnectCallback>,
   pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
   pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
+  pub(crate) eval_context_get_code_cache_cb: Option<EvalContextGetCodeCacheCb>,
+  pub(crate) eval_context_set_code_cache_cb:
+    Option<EvalContextStoreCodeCacheCb>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -526,6 +531,16 @@ pub struct RuntimeOptions {
   /// A callback that allows to evaluate a custom type of a module - eg.
   /// embedders might implement loading WASM or test modules.
   pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
+
+  // Controls whether V8 code cache is enabled. Code cache can be applied
+  // to ES modules (loaded through ModuleLoader) and to scripts evaluated
+  // through evalContext.
+  pub enable_code_cache: bool,
+
+  /// Callbacks to retrieve and store code cache for scripts evaluated
+  /// through evalContext.
+  pub eval_context_code_cache_cbs:
+    Option<(EvalContextGetCodeCacheCb, EvalContextStoreCodeCacheCb)>,
 }
 
 impl RuntimeOptions {
@@ -655,6 +670,15 @@ impl JsRuntime {
     // later, after `JsRuntime` is all set up...
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
+    let (eval_context_get_code_cache_cb, eval_context_set_code_cache_cb) =
+      if options.enable_code_cache {
+        options
+          .eval_context_code_cache_cbs
+          .map(|cbs| (Some(cbs.0), Some(cbs.1)))
+          .unwrap_or_default()
+      } else {
+        (None, None)
+      };
     let state_rc = Rc::new(JsRuntimeState {
       source_mapper: RefCell::new(source_mapper),
       shared_array_buffer_store: options.shared_array_buffer_store,
@@ -664,6 +688,8 @@ impl JsRuntime {
       op_state: op_state.clone(),
       validate_import_attributes_cb: options.validate_import_attributes_cb,
       custom_module_evaluation_cb: options.custom_module_evaluation_cb,
+      eval_context_get_code_cache_cb,
+      eval_context_set_code_cache_cb,
       waker,
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
@@ -849,6 +875,7 @@ impl JsRuntime {
       loader,
       exception_state.clone(),
       import_meta_resolve_cb,
+      options.enable_code_cache,
     ));
 
     if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
@@ -1087,6 +1114,7 @@ impl JsRuntime {
         scope,
         file_source.specifier,
         file_source.load()?,
+        None,
       )?;
     }
 

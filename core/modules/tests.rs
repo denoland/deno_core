@@ -51,11 +51,20 @@ use crate::deno_core;
 #[derive(Default)]
 struct MockLoader {
   pub loads: Arc<Mutex<Vec<String>>>,
+  pub code_cache: HashMap<String, Vec<u8>>,
+  pub updated_code_cache: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
 impl MockLoader {
   fn new() -> Rc<Self> {
     Default::default()
+  }
+
+  fn new_with_code_cache(code_cache: HashMap<String, Vec<u8>>) -> Rc<Self> {
+    Rc::new(Self {
+      code_cache,
+      ..Default::default()
+    })
   }
 }
 
@@ -182,6 +191,7 @@ impl std::error::Error for MockError {
 struct DelayedSourceCodeFuture {
   url: String,
   counter: u32,
+  code_cache: Option<Vec<u8>>,
 }
 
 impl Future for DelayedSourceCodeFuture {
@@ -204,6 +214,10 @@ impl Future for DelayedSourceCodeFuture {
         src.0,
         inner.url.as_str(),
         src.1,
+        inner
+          .code_cache
+          .as_ref()
+          .map(|code_cache| Cow::Owned(code_cache.clone())),
       ))),
       None => Poll::Ready(Err(MockError::LoadErr.into())),
     }
@@ -245,9 +259,26 @@ impl ModuleLoader for MockLoader {
     let mut loads = self.loads.lock();
     loads.push(module_specifier.to_string());
     let url = module_specifier.to_string();
+    let code_cache = self.code_cache.get(&url);
     ModuleLoadResponse::Async(
-      DelayedSourceCodeFuture { url, counter: 0 }.boxed(),
+      DelayedSourceCodeFuture {
+        url,
+        counter: 0,
+        code_cache: code_cache.cloned(),
+      }
+      .boxed(),
     )
+  }
+
+  fn store_code_cache(
+    &self,
+    module_specifier: &ModuleSpecifier,
+    code_cache: &[u8],
+  ) -> Result<(), Error> {
+    let mut updated_code_cache = self.updated_code_cache.lock();
+    updated_code_cache
+      .insert(module_specifier.to_string(), code_cache.to_vec());
+    Ok(())
   }
 }
 
@@ -375,6 +406,7 @@ fn test_mods() {
           Deno.core.ops.op_test(control);
         "#,
         false,
+        None,
       )
       .unwrap();
 
@@ -395,6 +427,7 @@ fn test_mods() {
         ascii_str!("file:///b.js"),
         ascii_str!("export function b() { return 'b' }"),
         false,
+        None,
       )
       .unwrap();
     let imports = module_map.get_requested_modules(mod_b).unwrap();
@@ -478,6 +511,7 @@ fn test_json_module() {
         "#
         ),
         false,
+        None,
       )
       .unwrap();
 
@@ -503,6 +537,7 @@ fn test_json_module() {
         "#
         ),
         false,
+        None,
       )
       .unwrap();
 
@@ -565,6 +600,7 @@ fn test_validate_import_attributes_default() {
       ascii_str!("file:///a.js"),
       ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
       false,
+      None,
     )
     .unwrap();
 
@@ -575,6 +611,7 @@ fn test_validate_import_attributes_default() {
       ascii_str!("file:///a.js"),
       ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#),
       false,
+      None,
     )
     .unwrap();
 }
@@ -626,6 +663,7 @@ fn test_validate_import_attributes_callback() {
         ascii_str!("file:///a.js"),
         ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
         false,
+        None,
       )
       .unwrap_err();
 
@@ -650,6 +688,7 @@ fn test_validate_import_attributes_callback() {
         ascii_str!("file:///a.js"),
         ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#),
         false,
+        None,
       )
       .unwrap_err();
 
@@ -695,6 +734,7 @@ fn test_validate_import_attributes_callback2() {
         ascii_str!("file:///a.js"),
         ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
         false,
+        None,
       )
       .unwrap_err();
 
@@ -729,6 +769,7 @@ fn test_custom_module_type_default() {
         ModuleSource {
           code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
           module_url_found: None,
+          code_cache: None,
           module_url_specified: specifier_a,
           module_type: ModuleType::Other("bytes".into()),
         },
@@ -796,6 +837,7 @@ fn test_custom_module_type_callback_synthetic() {
         ModuleSource {
           code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
           module_url_found: None,
+          code_cache: None,
           module_url_specified: specifier_a,
           module_type: ModuleType::Other("foo".into()),
         },
@@ -821,6 +863,7 @@ fn test_custom_module_type_callback_synthetic() {
         ModuleSource {
           code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
           module_url_found: None,
+          code_cache: None,
           module_url_specified: specifier_a,
           module_type: ModuleType::Other("bytes".into()),
         },
@@ -891,6 +934,7 @@ export const foo = bytes;
         ModuleSource {
           code: ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
           module_url_found: None,
+          code_cache: None,
           module_url_specified: specifier_a,
           module_type: ModuleType::Other("foobar".into()),
         },
@@ -1556,6 +1600,7 @@ async fn no_duplicate_loads() {
       let module_source = ModuleSource {
         code: ModuleSourceCode::String(ModuleCodeString::from(source_code)),
         module_type: ModuleType::JavaScript,
+        code_cache: None,
         module_url_specified: module_specifier.clone().into(),
         module_url_found: found_specifier.map(|s| s.into()),
       };
@@ -1684,4 +1729,123 @@ fn import_meta_filename_dirname() {
   let _ = runtime.mod_evaluate(main_id);
   futures::executor::block_on(runtime.run_event_loop(Default::default()))
     .unwrap();
+}
+
+#[test]
+fn test_load_with_code_cache() {
+  let mut code_cache = {
+    let loader = MockLoader::new();
+    let loads = loader.loads.clone();
+    let updated_code_cache = loader.updated_code_cache.clone();
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+      module_loader: Some(loader),
+      enable_code_cache: true,
+      ..Default::default()
+    });
+    let spec = resolve_url("file:///a.js").unwrap();
+    let a_id_fut = runtime.load_main_es_module(&spec);
+    let a_id = futures::executor::block_on(a_id_fut).unwrap();
+
+    #[allow(clippy::let_underscore_future)]
+    let _ = runtime.mod_evaluate(a_id);
+    futures::executor::block_on(runtime.run_event_loop(Default::default()))
+      .unwrap();
+    let l = loads.lock();
+    assert_eq!(
+      l.to_vec(),
+      vec![
+        "file:///a.js",
+        "file:///b.js",
+        "file:///c.js",
+        "file:///d.js"
+      ]
+    );
+
+    let c = updated_code_cache.lock();
+    let mut keys = c.keys().collect::<Vec<_>>();
+    keys.sort();
+    assert_eq!(
+      keys,
+      vec![
+        "file:///a.js",
+        "file:///b.js",
+        "file:///c.js",
+        "file:///d.js"
+      ]
+    );
+    c.clone()
+  };
+
+  {
+    // Create another runtime and try to use the code cache.
+    let loader = MockLoader::new_with_code_cache(code_cache.clone());
+    let loads = loader.loads.clone();
+    let updated_code_cache = loader.updated_code_cache.clone();
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+      module_loader: Some(loader),
+      enable_code_cache: true,
+      ..Default::default()
+    });
+    let spec = resolve_url("file:///a.js").unwrap();
+    let a_id_fut = runtime.load_main_es_module(&spec);
+    let a_id = futures::executor::block_on(a_id_fut).unwrap();
+
+    #[allow(clippy::let_underscore_future)]
+    let _ = runtime.mod_evaluate(a_id);
+    futures::executor::block_on(runtime.run_event_loop(Default::default()))
+      .unwrap();
+    let l = loads.lock();
+    assert_eq!(
+      l.to_vec(),
+      vec![
+        "file:///a.js",
+        "file:///b.js",
+        "file:///c.js",
+        "file:///d.js"
+      ]
+    );
+
+    // Verify that code cache was not updated, which means that provided code cache was used.
+    let c = updated_code_cache.lock();
+    assert!(c.is_empty());
+  }
+
+  {
+    // Create another runtime, and only use code cache for c.js and d.js.
+    code_cache.remove("file:///a.js");
+    code_cache.remove("file:///b.js");
+
+    let loader = MockLoader::new_with_code_cache(code_cache);
+    let loads = loader.loads.clone();
+    let updated_code_cache = loader.updated_code_cache.clone();
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+      module_loader: Some(loader),
+      enable_code_cache: true,
+      ..Default::default()
+    });
+    let spec = resolve_url("file:///a.js").unwrap();
+    let a_id_fut = runtime.load_main_es_module(&spec);
+    let a_id = futures::executor::block_on(a_id_fut).unwrap();
+
+    #[allow(clippy::let_underscore_future)]
+    let _ = runtime.mod_evaluate(a_id);
+    futures::executor::block_on(runtime.run_event_loop(Default::default()))
+      .unwrap();
+    let l = loads.lock();
+    assert_eq!(
+      l.to_vec(),
+      vec![
+        "file:///a.js",
+        "file:///b.js",
+        "file:///c.js",
+        "file:///d.js"
+      ]
+    );
+
+    // Verify that we only used code cache for c.js and d.js, and created new cache for a.js and b.js.
+    let c = updated_code_cache.lock();
+    let mut keys = c.keys().collect::<Vec<_>>();
+    keys.sort();
+    assert_eq!(keys, vec!["file:///a.js", "file:///b.js",]);
+  }
 }

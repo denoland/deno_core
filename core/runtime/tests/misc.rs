@@ -10,7 +10,10 @@ use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use futures::future::poll_fn;
+use parking_lot::Mutex;
 use rstest::rstest;
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -1306,4 +1309,77 @@ async fn global_template_middleware() {
   assert!(calls_set.contains("definer"));
   assert!(calls_set.contains("setter"));
   assert!(calls_set.contains("descriptor"));
+}
+
+#[test]
+fn eval_context_with_code_cache() {
+  let code_cache = {
+    let updated_code_cache = Arc::new(Mutex::new(HashMap::new()));
+
+    let get_code_cache_cb = Box::new(|_: &str| Ok(None));
+
+    let updated_code_cache_clone = updated_code_cache.clone();
+    let set_code_cache_cb =
+      Box::new(move |specifier: &str, code_cache: &[u8]| {
+        let mut c = updated_code_cache_clone.lock();
+        c.insert(specifier.to_string(), code_cache.to_vec());
+        Ok(())
+      });
+
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+      enable_code_cache: true,
+      eval_context_code_cache_cbs: Some((get_code_cache_cb, set_code_cache_cb)),
+      ..Default::default()
+    });
+    runtime
+      .execute_script(
+        "",
+        ascii_str!("Deno.core.evalContext('const i = 10;', 'file:///foo.js');"),
+      )
+      .unwrap();
+
+    let c = updated_code_cache.lock();
+    let mut keys = c.keys().collect::<Vec<_>>();
+    keys.sort();
+    assert_eq!(keys, vec!["file:///foo.js",]);
+    c.clone()
+  };
+
+  {
+    // Create another runtime and try to use the code cache.
+    let updated_code_cache = Arc::new(Mutex::new(HashMap::new()));
+
+    let code_cache_clone = code_cache.clone();
+    let get_code_cache_cb = Box::new(move |specifier: &str| {
+      Ok(
+        code_cache_clone
+          .get(specifier)
+          .map(|code_cache| Cow::Owned(code_cache.clone())),
+      )
+    });
+
+    let updated_code_cache_clone = updated_code_cache.clone();
+    let set_code_cache_cb =
+      Box::new(move |specifier: &str, code_cache: &[u8]| {
+        let mut c = updated_code_cache_clone.lock();
+        c.insert(specifier.to_string(), code_cache.to_vec());
+        Ok(())
+      });
+
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+      enable_code_cache: true,
+      eval_context_code_cache_cbs: Some((get_code_cache_cb, set_code_cache_cb)),
+      ..Default::default()
+    });
+    runtime
+      .execute_script(
+        "",
+        ascii_str!("Deno.core.evalContext('const i = 10;', 'file:///foo.js');"),
+      )
+      .unwrap();
+
+    // Verify that code cache was not updated, which means that provided code cache was used.
+    let c = updated_code_cache.lock();
+    assert!(c.is_empty());
+  }
 }
