@@ -349,7 +349,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       // true for main module
       module_map_rc
-        .new_es_module(scope, true, specifier.to_owned(), code, false)
+        .new_es_module(scope, true, specifier.to_owned(), code, false, None)
         .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
@@ -395,7 +395,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       // false for side module (not main module)
       module_map_rc
-        .new_es_module(scope, false, specifier, code, false)
+        .new_es_module(scope, false, specifier, code, false, None)
         .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
@@ -438,6 +438,7 @@ impl JsRealm {
       scope,
       module_specifier.as_str(),
       code,
+      None,
     )
   }
 }

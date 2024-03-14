@@ -245,14 +245,43 @@ pub fn op_eval_context<'a>(
   source: v8::Local<'a, v8::Value>,
   #[string] specifier: String,
 ) -> Result<EvalContextResult<'a>, Error> {
+  let state = JsRuntime::state_from(scope);
   let tc_scope = &mut v8::TryCatch::new(scope);
   let source = v8::Local::<v8::String>::try_from(source)
     .map_err(|_| type_error("Invalid source"))?;
   let specifier = resolve_url(&specifier)?.to_string();
-  let specifier = v8::String::new(tc_scope, &specifier).unwrap();
-  let origin = script_origin(tc_scope, specifier);
+  let specifier_v8 = v8::String::new(tc_scope, &specifier).unwrap();
+  let origin = script_origin(tc_scope, specifier_v8);
 
-  let script = match v8::Script::compile(tc_scope, source, Some(&origin)) {
+  let (script, try_store_code_cache) = state
+    .eval_context_get_code_cache_cb
+    .as_ref()
+    .and_then(|cb| {
+      cb(&specifier).unwrap().map(|code_cache| {
+        let mut source = v8::script_compiler::Source::new_with_cached_data(
+          source,
+          Some(&origin),
+          v8::CachedData::new(&code_cache),
+        );
+        let script = v8::script_compiler::compile(
+          tc_scope,
+          &mut source,
+          v8::script_compiler::CompileOptions::ConsumeCodeCache,
+          v8::script_compiler::NoCacheReason::NoReason,
+        );
+        // Check if the provided code cache is rejected by V8.
+        let rejected = match source.get_cached_data() {
+          Some(cached_data) => cached_data.rejected(),
+          _ => true,
+        };
+        (script, rejected)
+      })
+    })
+    .unwrap_or_else(|| {
+      (v8::Script::compile(tc_scope, source, Some(&origin)), true)
+    });
+
+  let script = match script {
     Some(s) => s,
     None => {
       assert!(tc_scope.has_caught());
@@ -267,6 +296,16 @@ pub fn op_eval_context<'a>(
       ));
     }
   };
+
+  if try_store_code_cache {
+    if let Some(cb) = state.eval_context_code_cache_ready_cb.as_ref() {
+      let unbound_script = script.get_unbound_script(tc_scope);
+      let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
+        type_error("Unable to get code cache from unbound module script")
+      })?;
+      cb(&specifier, &code_cache);
+    }
+  }
 
   match script.run(tc_scope) {
     Some(result) => Ok(EvalContextResult(Some(result.into()), None)),

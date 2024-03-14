@@ -82,6 +82,18 @@ pub trait ModuleLoader {
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
     async { Ok(()) }.boxed_local()
   }
+
+  /// Called when new v8 code cache is available for this module. Implementors
+  /// can store the provided code cache for future executions of the same module.
+  ///
+  /// It's not required to implement this method.
+  fn code_cache_ready(
+    &self,
+    _module_specifier: &ModuleSpecifier,
+    _code_cache: &[u8],
+  ) -> Pin<Box<dyn Future<Output = ()>>> {
+    async {}.boxed_local()
+  }
 }
 
 /// Placeholder structure used when creating
@@ -186,6 +198,7 @@ impl ModuleLoader for ExtModuleLoader {
       ModuleType::JavaScript,
       ModuleSourceCode::String(source),
       specifier,
+      None,
     )))
   }
 
@@ -240,6 +253,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
       ModuleType::JavaScript,
       ModuleSourceCode::String(source),
       specifier,
+      None,
     )))
   }
 
@@ -316,6 +330,7 @@ impl ModuleLoader for FsModuleLoader {
         module_type,
         ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
         &module_specifier,
+        None,
       );
       Ok(module)
     }
@@ -377,6 +392,7 @@ impl ModuleLoader for StaticModuleLoader {
         ModuleType::JavaScript,
         ModuleSourceCode::String(code.try_clone().unwrap()),
         module_specifier,
+        None,
       ))
     } else {
       Err(generic_error("Module not found"))
