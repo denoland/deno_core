@@ -26,8 +26,8 @@ use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
 use crate::modules::CustomModuleEvaluationCb;
+use crate::modules::EvalContextCodeCacheReadyCb;
 use crate::modules::EvalContextGetCodeCacheCb;
-use crate::modules::EvalContextStoreCodeCacheCb;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
 use crate::modules::IntoModuleCodeString;
@@ -415,8 +415,8 @@ pub struct JsRuntimeState {
   pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
   pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
   pub(crate) eval_context_get_code_cache_cb: Option<EvalContextGetCodeCacheCb>,
-  pub(crate) eval_context_set_code_cache_cb:
-    Option<EvalContextStoreCodeCacheCb>,
+  pub(crate) eval_context_code_cache_ready_cb:
+    Option<EvalContextCodeCacheReadyCb>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -540,7 +540,7 @@ pub struct RuntimeOptions {
   /// Callbacks to retrieve and store code cache for scripts evaluated
   /// through evalContext.
   pub eval_context_code_cache_cbs:
-    Option<(EvalContextGetCodeCacheCb, EvalContextStoreCodeCacheCb)>,
+    Option<(EvalContextGetCodeCacheCb, EvalContextCodeCacheReadyCb)>,
 }
 
 impl RuntimeOptions {
@@ -689,7 +689,7 @@ impl JsRuntime {
       validate_import_attributes_cb: options.validate_import_attributes_cb,
       custom_module_evaluation_cb: options.custom_module_evaluation_cb,
       eval_context_get_code_cache_cb,
-      eval_context_set_code_cache_cb,
+      eval_context_code_cache_ready_cb: eval_context_set_code_cache_cb,
       waker,
       // Some fields are initialized later after isolate is created
       inspector: None.into(),

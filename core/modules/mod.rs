@@ -205,8 +205,7 @@ pub type CustomModuleEvaluationCb = Box<
 pub type EvalContextGetCodeCacheCb =
   Box<dyn Fn(&str) -> Result<Option<Cow<'static, [u8]>>, AnyError>>;
 
-pub type EvalContextStoreCodeCacheCb =
-  Box<dyn Fn(&str, &[u8]) -> Result<(), AnyError>>;
+pub type EvalContextCodeCacheReadyCb = Box<dyn Fn(&str, &[u8])>;
 
 pub enum CustomModuleEvaluationKind {
   /// This evaluation results in a single, "synthetic" module.

@@ -298,16 +298,12 @@ pub fn op_eval_context<'a>(
   };
 
   if try_store_code_cache {
-    if let Some(eval_context_set_code_cache_cb) =
-      state.eval_context_set_code_cache_cb.as_ref()
-    {
+    if let Some(cb) = state.eval_context_code_cache_ready_cb.as_ref() {
       let unbound_script = script.get_unbound_script(tc_scope);
       let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
         type_error("Unable to get code cache from unbound module script")
       })?;
-      eval_context_set_code_cache_cb(&specifier, &code_cache).map_err(
-        |_| type_error("Unable to store code cache from unbound module script"),
-      )?;
+      cb(&specifier, &code_cache);
     }
   }
 

@@ -87,12 +87,12 @@ pub trait ModuleLoader {
   /// can store the provided code cache for future executions of the same module.
   ///
   /// It's not required to implement this method.
-  fn store_code_cache(
+  fn code_cache_ready(
     &self,
     _module_specifier: &ModuleSpecifier,
     _code_cache: &[u8],
-  ) -> Result<(), Error> {
-    Ok(())
+  ) -> Pin<Box<dyn Future<Output = ()>>> {
+    async {}.boxed_local()
   }
 }
 

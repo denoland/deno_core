@@ -64,6 +64,8 @@ use super::RequestedModuleType;
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 
+type CodeCacheReadyFuture = dyn Future<Output = ()>;
+
 use super::ImportMetaResolveCallback;
 
 struct ModEvaluate {
@@ -71,10 +73,11 @@ struct ModEvaluate {
   sender: Option<oneshot::Sender<Result<(), Error>>>,
 }
 
-type StoreCodeCacheCallback = Box<dyn Fn(&[u8]) -> Result<(), AnyError>>;
+type CodeCacheReadyCallback =
+  Box<dyn Fn(&[u8]) -> Pin<Box<dyn Future<Output = ()>>>>;
 pub(crate) struct CodeCacheInfo {
   code_cache: Option<Cow<'static, [u8]>>,
-  store_callback: StoreCodeCacheCallback,
+  ready_callback: CodeCacheReadyCallback,
 }
 
 pub const BOM_CHAR: &[u8] = &[0xef, 0xbb, 0xbf];
@@ -114,6 +117,9 @@ pub(crate) struct ModuleMap {
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
   pending_dyn_mod_evaluations_pending: Cell<bool>,
   pending_mod_evaluation: Cell<bool>,
+  code_cache_ready_futs:
+    RefCell<FuturesUnordered<Pin<Box<CodeCacheReadyFuture>>>>,
+  pending_code_cache_ready: Cell<bool>,
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
   enable_code_cache: bool,
@@ -185,6 +191,8 @@ impl ModuleMap {
       pending_dyn_mod_evaluations: Default::default(),
       pending_dyn_mod_evaluations_pending: Default::default(),
       pending_mod_evaluation: Default::default(),
+      code_cache_ready_futs: Default::default(),
+      pending_code_cache_ready: Default::default(),
       module_waker: Default::default(),
       data: Default::default(),
       enable_code_cache,
@@ -329,10 +337,10 @@ impl ModuleMap {
           (
             Some(CodeCacheInfo {
               code_cache,
-              store_callback: Box::new(move |cache| {
+              ready_callback: Box::new(move |cache| {
                 let specifier =
                   ModuleSpecifier::parse(module_url_found1.as_str()).unwrap();
-                loader.store_code_cache(&specifier, cache)
+                loader.code_cache_ready(&specifier, cache)
               }),
             }),
             module_url_found2,
@@ -423,10 +431,10 @@ impl ModuleMap {
               (
                 Some(CodeCacheInfo {
                   code_cache,
-                  store_callback: Box::new(move |cache| {
+                  ready_callback: Box::new(move |cache| {
                     let specifier =
                       ModuleSpecifier::parse(url1.as_str()).unwrap();
-                    loader.store_code_cache(&specifier, cache)
+                    loader.code_cache_ready(&specifier, cache)
                   }),
                 }),
                 url2,
@@ -551,7 +559,7 @@ impl ModuleMap {
     name: ModuleName,
     source: ModuleCodeString,
     is_dynamic_import: bool,
-    code_cache_info: Option<CodeCacheInfo>,
+    mut code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<ModuleId, ModuleError> {
     if main {
       let data = self.data.borrow();
@@ -612,7 +620,7 @@ impl ModuleMap {
     let module = maybe_module.unwrap();
 
     if try_store_code_cache {
-      if let Some(code_cache_info) = code_cache_info.as_ref() {
+      if let Some(code_cache_info) = code_cache_info.take() {
         let unbound_module_script = module.get_unbound_module_script(tc_scope);
         let code_cache =
           unbound_module_script.create_code_cache().ok_or_else(|| {
@@ -620,8 +628,11 @@ impl ModuleMap {
               "Unable to get code cache from unbound module script",
             ))
           })?;
-        (*code_cache_info.store_callback)(&code_cache)
-          .map_err(ModuleError::Other)?;
+        let fut =
+          async move { (code_cache_info.ready_callback)(&code_cache).await }
+            .boxed_local();
+        self.code_cache_ready_futs.borrow_mut().push(fut);
+        self.pending_code_cache_ready.set(true);
       }
     }
 
@@ -1324,6 +1335,9 @@ impl ModuleMap {
         let poll_imports = self.poll_dyn_imports(cx, scope)?;
         assert!(poll_imports.is_ready());
 
+        let poll_code_cache_ready = self.poll_code_cache_ready(cx)?;
+        assert!(poll_code_cache_ready.is_ready());
+
         if self.evaluate_dyn_imports(scope) {
           has_evaluated = true;
         } else {
@@ -1458,6 +1472,26 @@ impl ModuleMap {
       self
         .pending_dynamic_imports_pending
         .set(!self.pending_dynamic_imports.borrow().is_empty());
+      return Poll::Ready(Ok(()));
+    }
+  }
+
+  fn poll_code_cache_ready(&self, cx: &mut Context) -> Poll<Result<(), Error>> {
+    if !self.pending_code_cache_ready.get() {
+      return Poll::Ready(Ok(()));
+    }
+
+    loop {
+      let poll_result =
+        self.code_cache_ready_futs.borrow_mut().poll_next_unpin(cx);
+
+      if let Poll::Ready(Some(_)) = poll_result {
+        continue;
+      }
+
+      self
+        .pending_code_cache_ready
+        .set(!self.code_cache_ready_futs.borrow().is_empty());
       return Poll::Ready(Ok(()));
     }
   }
@@ -1664,8 +1698,8 @@ impl ModuleMap {
         let loader = self.loader.borrow().clone();
         Some(CodeCacheInfo {
           code_cache: source.code_cache,
-          store_callback: Box::new(move |cache| {
-            loader.store_code_cache(&specifier, cache)
+          ready_callback: Box::new(move |cache| {
+            loader.code_cache_ready(&specifier, cache)
           }),
         })
       } else {

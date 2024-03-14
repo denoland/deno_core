@@ -1323,7 +1323,6 @@ fn eval_context_with_code_cache() {
       Box::new(move |specifier: &str, code_cache: &[u8]| {
         let mut c = updated_code_cache_clone.lock();
         c.insert(specifier.to_string(), code_cache.to_vec());
-        Ok(())
       });
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -1363,7 +1362,6 @@ fn eval_context_with_code_cache() {
       Box::new(move |specifier: &str, code_cache: &[u8]| {
         let mut c = updated_code_cache_clone.lock();
         c.insert(specifier.to_string(), code_cache.to_vec());
-        Ok(())
       });
 
     let mut runtime = JsRuntime::new(RuntimeOptions {

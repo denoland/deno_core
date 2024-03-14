@@ -270,15 +270,15 @@ impl ModuleLoader for MockLoader {
     )
   }
 
-  fn store_code_cache(
+  fn code_cache_ready(
     &self,
     module_specifier: &ModuleSpecifier,
     code_cache: &[u8],
-  ) -> Result<(), Error> {
+  ) -> Pin<Box<dyn Future<Output = ()>>> {
     let mut updated_code_cache = self.updated_code_cache.lock();
     updated_code_cache
       .insert(module_specifier.to_string(), code_cache.to_vec());
-    Ok(())
+    async {}.boxed_local()
   }
 }
 
