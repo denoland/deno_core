@@ -533,8 +533,8 @@ pub struct RuntimeOptions {
   pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
 
   // Controls whether V8 code cache is enabled. Code cache can be applied
-  // to ES modules (loaded through ModuleLoader) and to scripts evaluated
-  // through evalContext.
+  // to ES modules (loaded through `ModuleLoader`) and to scripts evaluated
+  // through `Deno.core.evalContext`.
   pub enable_code_cache: bool,
 
   /// Callbacks to retrieve and store code cache for scripts evaluated
