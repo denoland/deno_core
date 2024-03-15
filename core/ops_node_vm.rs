@@ -48,6 +48,18 @@ impl ContextifyContext {
   //   contextify_context_get_from_this(scope, info.this())
   // }
 
+  fn context(&self, scope: &mut v8::HandleScope) -> v8::Local<v8::Context> {
+    todo!()
+  }
+
+  fn global_proxy(&self, scope: &mut v8::HandleScope) -> v8::Local<v8::Object> {
+    todo!()
+  }
+
+  fn sandbox(&self, scope: &mut v8::HandleScope) -> v8::Local<v8::Object> {
+    todo!()
+  }
+
   fn contextify_context_get_from_this(
     scope: &mut v8::HandleScope,
     object: v8::Local<v8::Object>,
@@ -350,9 +362,21 @@ pub fn property_getter<'s>(
   }
 
   let ctx = ctx.unwrap();
-  let context = ctx.context;
-  // let sandbox = ctx.sandbox;
-  // let maybe_rv = sandbox.
+  // let context = ctx.context;
+  let sandbox = ctx.sandbox(scope);
+  let mut maybe_rv = sandbox.get_real_named_property(scope, key);
+
+  if maybe_rv.is_none() {
+    maybe_rv = ctx.global_proxy(scope).get_real_named_property(scope, key);
+  }
+
+  if let Some(mut rv_) = maybe_rv {
+    if rv_ == sandbox {
+      rv_ = ctx.global_proxy(scope).into();
+    }
+
+    rv.set(rv_);
+  }
 }
 
 pub fn property_setter<'s>(
@@ -362,14 +386,93 @@ pub fn property_setter<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-}
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
 
-pub fn property_query<'s>(
-  scope: &mut v8::HandleScope<'s>,
-  key: v8::Local<'s, v8::Name>,
-  _args: v8::PropertyCallbackArguments<'s>,
-  mut rv: v8::ReturnValue,
-) {
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let ctx = ctx.unwrap();
+  let context = ctx.context(scope);
+  let (attributes, is_declared_on_global_proxy) = match ctx
+    .global_proxy(scope)
+    .get_real_named_property_attributes(scope, key)
+  {
+    Some(attr) => (attr, true),
+    None => (v8::PropertyAttribute::NONE, false),
+  };
+  let mut read_only = attributes.is_read_only();
+
+  let (attributes, is_declared_on_sandbox) = match ctx
+    .sandbox(scope)
+    .get_real_named_property_attributes(scope, key)
+  {
+    Some(attr) => (attr, true),
+    None => (v8::PropertyAttribute::NONE, false),
+  };
+  read_only |= attributes.is_read_only();
+
+  if read_only {
+    return;
+  }
+
+  // true for x = 5
+  // false for this.x = 5
+  // false for Object.defineProperty(this, 'foo', ...)
+  // false for vmResult.x = 5 where vmResult = vm.runInContext();
+  let is_contextual_store = ctx.global_proxy(scope) != args.this();
+
+  // Indicator to not return before setting (undeclared) function declarations
+  // on the sandbox in strict mode, i.e. args.ShouldThrowOnError() = true.
+  // True for 'function f() {}', 'this.f = function() {}',
+  // 'var f = function()'.
+  // In effect only for 'function f() {}' because
+  // var f = function(), is_declared = true
+  // this.f = function() {}, is_contextual_store = false.
+  let is_function = value.is_function();
+
+  let is_declared = is_declared_on_global_proxy || is_declared_on_sandbox;
+  if !is_declared
+    && args.should_throw_on_error()
+    && is_contextual_store
+    && !is_function
+  {
+    return;
+  }
+
+  if !is_declared && key.is_symbol() {
+    return;
+  };
+
+  if ctx.sandbox(scope).set(scope, key.into(), value).is_none() {
+    return;
+  }
+
+  if is_declared_on_sandbox {
+    if let Some(desc) =
+      ctx.sandbox(scope).get_own_property_descriptor(scope, key)
+    {
+      if !desc.is_undefined() {
+        let desc_obj: v8::Local<v8::Object> = desc.try_into().unwrap();
+        // We have to specify the return value for any contextual or get/set
+        // property
+        let get_key =
+          v8::String::new_external_onebyte_static(scope, b"get").unwrap();
+        let set_key =
+          v8::String::new_external_onebyte_static(scope, b"get").unwrap();
+        if desc_obj
+          .has_own_property(scope, get_key.into())
+          .unwrap_or(false)
+          || desc_obj
+            .has_own_property(scope, set_key.into())
+            .unwrap_or(false)
+        {
+          rv.set(value);
+        }
+      }
+    }
+  }
 }
 
 pub fn property_deleter<'s>(
@@ -432,6 +535,63 @@ pub fn property_definer<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
+  let ctx =
+    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+
+  if ContextifyContext::is_still_initializing(ctx.as_ref()) {
+    return;
+  }
+
+  let ctx = ctx.unwrap();
+  let context = ctx.context(scope);
+  let (attributes, is_declared) = match ctx
+    .global_proxy(scope)
+    .get_real_named_property_attributes(scope, key)
+  {
+    Some(attr) => (attr, true),
+    None => (v8::PropertyAttribute::NONE, false),
+  };
+  let mut read_only = attributes.is_read_only();
+
+  // If the property is set on the global as read_only, don't change it on
+  // the global or sandbox.
+  if is_declared && read_only {
+    return;
+  }
+
+  // TODO:
+  // Local<Object> sandbox = ctx->sandbox();
+
+  // auto define_prop_on_sandbox =
+  //     [&] (PropertyDescriptor* desc_for_sandbox) {
+  //       if (desc.has_enumerable()) {
+  //         desc_for_sandbox->set_enumerable(desc.enumerable());
+  //       }
+  //       if (desc.has_configurable()) {
+  //         desc_for_sandbox->set_configurable(desc.configurable());
+  //       }
+  //       // Set the property on the sandbox.
+  //       USE(sandbox->DefineProperty(context, property, *desc_for_sandbox));
+  //     };
+
+  // if (desc.has_get() || desc.has_set()) {
+  //   PropertyDescriptor desc_for_sandbox(
+  //       desc.has_get() ? desc.get() : Undefined(isolate).As<Value>(),
+  //       desc.has_set() ? desc.set() : Undefined(isolate).As<Value>());
+
+  //   define_prop_on_sandbox(&desc_for_sandbox);
+  // } else {
+  //   Local<Value> value =
+  //       desc.has_value() ? desc.value() : Undefined(isolate).As<Value>();
+
+  //   if (desc.has_writable()) {
+  //     PropertyDescriptor desc_for_sandbox(value, desc.writable());
+  //     define_prop_on_sandbox(&desc_for_sandbox);
+  //   } else {
+  //     PropertyDescriptor desc_for_sandbox(value);
+  //     define_prop_on_sandbox(&desc_for_sandbox);
+  //   }
+  // }
 }
 
 pub fn property_descriptor<'s>(
