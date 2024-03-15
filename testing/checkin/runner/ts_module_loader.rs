@@ -124,6 +124,7 @@ impl ModuleLoader for TypescriptModuleLoader {
         module_type,
         ModuleSourceCode::String(code.into()),
         module_specifier,
+        None,
       ))
     }
 

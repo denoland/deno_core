@@ -202,6 +202,11 @@ pub type CustomModuleEvaluationCb = Box<
   ) -> Result<CustomModuleEvaluationKind, AnyError>,
 >;
 
+pub type EvalContextGetCodeCacheCb =
+  Box<dyn Fn(&str) -> Result<Option<Cow<'static, [u8]>>, AnyError>>;
+
+pub type EvalContextCodeCacheReadyCb = Box<dyn Fn(&str, &[u8])>;
+
 pub enum CustomModuleEvaluationKind {
   /// This evaluation results in a single, "synthetic" module.
   Synthetic(v8::Global<v8::Value>),
@@ -353,6 +358,7 @@ impl ModuleType {
 pub struct ModuleSource {
   pub code: ModuleSourceCode,
   pub module_type: ModuleType,
+  pub code_cache: Option<Cow<'static, [u8]>>,
   module_url_specified: ModuleName,
   /// If the module was found somewhere other than the specified address, this will be [`Some`].
   module_url_found: Option<ModuleName>,
@@ -364,11 +370,13 @@ impl ModuleSource {
     module_type: impl Into<ModuleType>,
     code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
+    code_cache: Option<Cow<'static, [u8]>>,
   ) -> Self {
     let module_url_specified = specifier.as_ref().to_owned().into();
     Self {
       code,
       module_type: module_type.into(),
+      code_cache,
       module_url_specified,
       module_url_found: None,
     }
@@ -381,6 +389,7 @@ impl ModuleSource {
     code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
     specifier_found: &ModuleSpecifier,
+    code_cache: Option<Cow<'static, [u8]>>,
   ) -> Self {
     let module_url_found = if specifier == specifier_found {
       None
@@ -391,6 +400,7 @@ impl ModuleSource {
     Self {
       code,
       module_type: module_type.into(),
+      code_cache,
       module_url_specified,
       module_url_found,
     }
@@ -401,6 +411,7 @@ impl ModuleSource {
     Self {
       code: ModuleSourceCode::String(code.into_module_code()),
       module_type: ModuleType::JavaScript,
+      code_cache: None,
       module_url_specified: file.as_ref().to_owned().into(),
       module_url_found: None,
     }
@@ -412,6 +423,7 @@ impl ModuleSource {
     code: &'static str,
     specified: impl AsRef<str>,
     found: impl AsRef<str>,
+    code_cache: Option<Cow<'static, [u8]>>,
   ) -> Self {
     let specified = specified.as_ref().to_string();
     let found = found.as_ref().to_string();
@@ -423,6 +435,7 @@ impl ModuleSource {
     Self {
       code: ModuleSourceCode::String(code.into_module_code()),
       module_type: ModuleType::JavaScript,
+      code_cache,
       module_url_specified: specified.into(),
       module_url_found: found,
     }

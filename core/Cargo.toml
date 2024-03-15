@@ -20,7 +20,7 @@ v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 unsafe_use_unprotected_platform = []
-lazy_eval_snapshot = []
+snapshot_flags_eager_parse = []
 
 [dependencies]
 anyhow.workspace = true
