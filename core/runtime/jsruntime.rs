@@ -65,6 +65,7 @@ use futures::future::poll_fn;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::FutureExt;
+use futures::TryFutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
 
@@ -2124,7 +2125,46 @@ impl JsRuntime {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
-    self.inner.main_realm.0.module_map.mod_evaluate(scope, id)
+    self
+      .inner
+      .main_realm
+      .0
+      .module_map
+      .mod_evaluate(scope, id, false)
+      .map_ok(drop)
+  }
+
+  /// Evaluates an already instantiated ES module, returning its namespace object.
+  ///
+  /// Returns a future that resolves when module promise resolves.
+  /// Implementors must manually call [`JsRuntime::run_event_loop`] to drive
+  /// module evaluation future.
+  ///
+  /// Modules with top-level await are treated like promises, so a `throw` in the top-level
+  /// block of a module is treated as an unhandled rejection. These rejections are provided to
+  /// the unhandled promise rejection handler, which has the opportunity to pass them off to
+  /// error-handling code. If those rejections are not handled (indicated by a `false` return
+  /// from that unhandled promise rejection handler), then the runtime will terminate.
+  ///
+  /// The future provided by `mod_evaluate` will only return errors in the case where
+  /// the runtime is shutdown and no longer available to provide unhandled rejection
+  /// information.
+  ///
+  /// This function panics if module has not been instantiated.
+  pub fn mod_evaluate_namespace(
+    &mut self,
+    id: ModuleId,
+  ) -> impl Future<Output = Result<v8::Global<v8::Object>, Error>> {
+    let isolate = &mut self.inner.v8_isolate;
+    let realm = &self.inner.main_realm;
+    let scope = &mut realm.handle_scope(isolate);
+    self
+      .inner
+      .main_realm
+      .0
+      .module_map
+      .mod_evaluate(scope, id, true)
+      .map_ok(|v| v.unwrap())
   }
 
   /// Asynchronously load specified module and all of its dependencies.
