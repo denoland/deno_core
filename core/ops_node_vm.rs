@@ -148,7 +148,7 @@ struct ContextOptions {
   origin: Option<String>,
   allow_code_gen_strings: bool,
   allow_code_gen_wasm: bool,
-  // own_microtask_queue
+  // own_microtask_queue:
   // host_defined_options_id
 }
 
