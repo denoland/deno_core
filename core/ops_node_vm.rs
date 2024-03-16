@@ -292,10 +292,15 @@ fn contextify_context(
   sandbox: v8::Local<v8::Object>,
   options: ContextOptions,
 ) -> Result<(), AnyError> {
-  // TODO(bartlomieju): I think we can check if this slot exists and run
-  // `contextify_context_initialize_global_template` if it doesn't.
-  let object_template_slot = scope
-    .get_slot::<SlotContextifyGlobalTemplate>()
+  let mut maybe_object_template_slot =
+    scope.get_slot::<SlotContextifyGlobalTemplate>();
+
+  if maybe_object_template_slot.is_none() {
+    contextify_context_initialize_global_template(scope);
+    maybe_object_template_slot =
+      scope.get_slot::<SlotContextifyGlobalTemplate>();
+  }
+  let object_template_slot = maybe_object_template_slot
     .expect("ContextifyGlobalTemplate slot should be already populated.")
     .clone();
   let object_template = v8::Local::new(scope, object_template_slot.0);
@@ -310,12 +315,6 @@ fn contextify_context(
     None,
     // microtask queue
   );
-
-  {
-    let context_scope = &mut v8::ContextScope::new(scope, v8_context);
-    let mut scope = v8::HandleScope::new(context_scope);
-    contextify_context_initialize_global_template(&mut scope);
-  }
 
   contextify_context_new(scope, v8_context, sandbox, options)?;
 
