@@ -285,8 +285,13 @@ fn contextify_context(
   sandbox: v8::Local<v8::Object>,
   options: ContextOptions,
 ) -> Result<(), AnyError> {
-  // TODO: env->contextify_global_template()
-  let object_template = v8::ObjectTemplate::new(scope);
+  // TODO(bartlomieju): I think we can check if this slot exists and run
+  // `contextify_context_initialize_global_template` if it doesn't.
+  let object_template_slot = scope
+    .get_slot::<ContextifyGlobalTemplateSlot>()
+    .expect("ContextifyGlobalTemplate slot should be already populated.")
+    .clone();
+  let object_template = v8::Local::new(scope, object_template_slot.0);
   // TODO: handle snapshot
 
   // TODO: handle microtask queue
@@ -347,6 +352,7 @@ pub fn op_vm_make_context<'a>(
 
 extern "C" fn c_noop(info: *const v8::FunctionCallbackInfo) {}
 
+// TODO(bartlomieju): this should be called once per `v8::Isolate` instance.
 fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
   assert!(scope
     .get_slot::<ContextifyWrapperObjectTemplateSlot>()
