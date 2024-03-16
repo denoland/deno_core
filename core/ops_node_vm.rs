@@ -55,12 +55,12 @@ impl ContextifyContext {
   //   scope: &mut v8::HandleScope,
   //   info: v8::PropertyCallbackInfo,
   // ) -> Option<ContextifyContext> {
-  //   contextify_context_get_from_this(scope, info.this())
+  //   get_from_this(scope, info.this())
   // }
 
   fn context<'s>(
     &self,
-    scope: &'s mut v8::HandleScope,
+    scope: &mut v8::HandleScope<'s>,
   ) -> v8::Local<'s, v8::Context> {
     let ctx = self.context.as_ref().unwrap();
     v8::Local::new(scope, ctx)
@@ -68,18 +68,21 @@ impl ContextifyContext {
 
   fn global_proxy<'s>(
     &self,
-    scope: &'s mut v8::HandleScope,
+    scope: &mut v8::HandleScope<'s>,
   ) -> v8::Local<'s, v8::Object> {
     let ctx = self.context(scope);
     ctx.global(scope)
   }
 
-  fn sandbox(&self, scope: &mut v8::HandleScope) -> v8::Local<v8::Object> {
+  fn sandbox<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> v8::Local<'s, v8::Object> {
     let sandbox = self.sandbox.as_ref().unwrap();
-    v8::Local::new(scope, sandobox)
+    v8::Local::new(scope, sandbox)
   }
 
-  fn contextify_context_get_from_this(
+  fn get_from_this(
     scope: &mut v8::HandleScope,
     object: v8::Local<v8::Object>,
   ) -> Option<ContextifyContext> {
@@ -88,9 +91,7 @@ impl ContextifyContext {
     };
 
     // TODO(bartlomieju): do we really need this check?
-    if context.get_slot::<SlotNodeContext>(scope).is_none() {
-      return None;
-    }
+    context.get_slot::<SlotNodeContext>(scope)?;
 
     // TODO(bartlomieju): maybe it should be an Rc?
     context.get_slot::<ContextifyContext>(scope).cloned()
@@ -330,8 +331,8 @@ fn contextify_context(
 }
 
 #[op2]
-pub fn op_vm_make_context<'a>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn op_vm_make_context(
+  scope: &mut v8::HandleScope,
   sandbox: v8::Local<v8::Object>,
   #[string] name: String,
   #[string] origin: Option<String>,
@@ -433,8 +434,7 @@ pub fn property_getter<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -465,8 +465,7 @@ pub fn property_setter<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -560,8 +559,7 @@ pub fn property_deleter<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -587,8 +585,7 @@ pub fn property_enumerator<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -614,8 +611,7 @@ pub fn property_definer<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -623,13 +619,12 @@ pub fn property_definer<'s>(
 
   let ctx = ctx.unwrap();
   let context = ctx.context(scope);
-  let (attributes, is_declared) = match ctx
-    .global_proxy(scope)
-    .get_real_named_property_attributes(scope, key)
-  {
-    Some(attr) => (attr, true),
-    None => (v8::PropertyAttribute::NONE, false),
-  };
+  let global = ctx.global_proxy(scope);
+  let (attributes, is_declared) =
+    match global.get_real_named_property_attributes(scope, key) {
+      Some(attr) => (attr, true),
+      None => (v8::PropertyAttribute::NONE, false),
+    };
   let mut read_only = attributes.is_read_only();
 
   // If the property is set on the global as read_only, don't change it on
@@ -679,8 +674,7 @@ pub fn property_descriptor<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -711,10 +705,9 @@ fn indexed_property_getter<'s>(
   scope: &mut v8::HandleScope<'s>,
   index: u32,
   args: v8::PropertyCallbackArguments<'s>,
-  mut rv: v8::ReturnValue,
+  rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -729,10 +722,9 @@ fn indexed_property_setter<'s>(
   index: u32,
   value: v8::Local<'s, v8::Value>,
   args: v8::PropertyCallbackArguments<'s>,
-  mut rv: v8::ReturnValue,
+  rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -748,8 +740,7 @@ fn indexed_property_deleter<'s>(
   args: v8::PropertyCallbackArguments<'s>,
   mut rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -776,10 +767,9 @@ fn indexed_property_definer<'s>(
   index: u32,
   descriptor: &v8::PropertyDescriptor,
   args: v8::PropertyCallbackArguments<'s>,
-  mut rv: v8::ReturnValue,
+  rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
@@ -793,10 +783,9 @@ fn indexed_property_descriptor<'s>(
   scope: &mut v8::HandleScope<'s>,
   index: u32,
   args: v8::PropertyCallbackArguments<'s>,
-  mut rv: v8::ReturnValue,
+  rv: v8::ReturnValue,
 ) {
-  let ctx =
-    ContextifyContext::contextify_context_get_from_this(scope, args.this());
+  let ctx = ContextifyContext::get_from_this(scope, args.this());
 
   if ContextifyContext::is_still_initializing(ctx.as_ref()) {
     return;
