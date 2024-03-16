@@ -28,7 +28,8 @@ const PRIVATE_SYMBOL_NAME: &[u8] = b"node:contextify:context";
 #[derive(Debug, Clone)]
 struct ContextifyContext {
   context: Option<v8::Global<v8::Context>>,
-  sandbox: v8::Global<v8::Object>,
+  wrapper: v8::Global<v8::Object>,
+  // sandbox: v8::Global<v8::Object>,
   // microtask_queue:
 }
 
@@ -38,6 +39,15 @@ struct SandboxObject(v8::Global<v8::Object>);
 struct AllowCodeGenerationFromString(bool);
 #[derive(Debug, Clone)]
 struct AllowWasmCodeGeneration(bool);
+
+#[derive(Debug, Clone)]
+struct ContextifyContextSlot(());
+#[derive(Debug, Clone)]
+struct NodeContextSlot;
+#[derive(Debug, Clone)]
+struct ContextifyGlobalTemplateSlot(v8::Global<v8::ObjectTemplate>);
+#[derive(Debug, Clone)]
+struct ContextifyWrapperObjectTemplateSlot(v8::Global<v8::ObjectTemplate>);
 
 impl ContextifyContext {
   // TODO: maybe not needed?
@@ -64,14 +74,16 @@ impl ContextifyContext {
     scope: &mut v8::HandleScope,
     object: v8::Local<v8::Object>,
   ) -> Option<ContextifyContext> {
-    let Some(mut context) = object.get_creation_context(scope) else {
+    let Some(context) = object.get_creation_context(scope) else {
       return None;
     };
 
-    // if (!ContextEmbedderTag::IsNodeContext(context)) {
-    //   return nullptr;
-    // }
+    // TODO(bartlomieju): do we really need this check?
+    if context.get_slot::<NodeContextSlot>(scope).is_none() {
+      return None;
+    }
 
+    // TODO(bartlomieju): maybe it should be an Rc?
     context.get_slot::<ContextifyContext>(scope).cloned()
   }
 
@@ -148,7 +160,10 @@ struct ContextOptions {
   origin: Option<String>,
   allow_code_gen_strings: bool,
   allow_code_gen_wasm: bool,
+  // TODO(bartlomieju): missing bindings in rusty_v8 to support it
   // own_microtask_queue:
+
+  // TODO(bartlomieju):
   // host_defined_options_id
 }
 
@@ -156,14 +171,16 @@ fn create_v8_context<'a>(
   scope: &mut v8::HandleScope<'a>,
   object_template: v8::Local<v8::ObjectTemplate>,
   snapshot_data: Option<&'static [u8]>,
+  // TODO(bartlomieju): missing bindings in rusty_v8 to support it
   // microtask_queue,
 ) -> v8::Local<'a, v8::Context> {
   let scope = &mut v8::EscapableHandleScope::new(scope);
 
   let context = if let Some(snapshot_data) = snapshot_data {
-    v8::Context::new_from_template(scope, object_template)
-  } else {
     v8::Context::from_snapshot(scope, VM_CONTEXT_INDEX).unwrap()
+  } else {
+    // TODO(bartlomieju): missing bindings to pass `microtask_queue`.
+    v8::Context::new_from_template(scope, object_template)
   };
 
   scope.escape(context)
@@ -174,7 +191,7 @@ fn contextify_context_new(
   v8_context: v8::Local<v8::Context>,
   sandbox_obj: v8::Local<v8::Object>,
   options: ContextOptions,
-) -> Result<(), AnyError> {
+) -> Result<ContextifyContext, AnyError> {
   let main_context = scope.get_current_context();
   let new_context_global = v8_context.global(scope);
   v8_context.set_security_token(main_context.get_security_token(scope));
@@ -191,12 +208,9 @@ fn contextify_context_new(
   assert!(v8_context
     .set_slot(scope, AllowWasmCodeGeneration(options.allow_code_gen_wasm)));
 
+  // TODO(bartlomieju): inspector support
   // let info = ContextInfo { name: options.name };
-
-  // let result;
-  // let wrapper;
-
-  {
+  let result = {
     let mut context_scope = v8::ContextScope::new(scope, v8_context);
     let handle_scope = &mut v8::HandleScope::new(&mut context_scope);
     let ctor_name = sandbox_obj.get_constructor_name();
@@ -218,25 +232,52 @@ fn contextify_context_new(
 
     // TODO: handle host_defined_options_id and dynamic import callback
 
-    // TODO: assign to context - set up internal fields (not sure if needed), notify inspector about a new context
-  }
+    // env->AssignToContext();
+    // TODO: notify inspector about a new context
+    {
+      v8_context.set_slot(handle_scope, ContextifyContextSlot(()));
+      v8_context.set_slot(handle_scope, NodeContextSlot);
+    }
 
-  // TODO: uncomment once wrapper is done
-  // let private_name =
-  //   v8::String::new_external_onebyte_static(scope, PRIVATE_SYMBOL_NAME)
-  //     .unwrap();
-  // let private_symbol = v8::Private::for_api(scope, Some(private_name));
-  // if sandbox_obj
-  //   .set_private(scope, private_symbol, wrapper)
-  //   .is_none()
-  // {
-  //   bail!("Set private property on contextified object");
-  // };
+    let template = handle_scope
+      .get_slot::<ContextifyWrapperObjectTemplateSlot>()
+      .unwrap()
+      .clone();
+    let template_local = v8::Local::new(handle_scope, template.0);
+    let Some(wrapper) = template_local.new_instance(handle_scope) else {
+      bail!("Create new object instance");
+    };
 
+    let context_global = v8::Global::new(handle_scope, v8_context);
+    // TODO(bartlomieju): probably should be an Rc
+    let contextify_context = ContextifyContext {
+      context: Some(context_global),
+      wrapper: v8::Global::new(handle_scope, wrapper),
+    };
+    assert!(v8_context.set_slot(handle_scope, contextify_context));
+    let result = v8_context
+      .get_slot::<ContextifyContext>(handle_scope)
+      .unwrap()
+      .clone();
+    // TODO(bartlomieju): node makes context a weak handle here
+
+    let private_name = v8::String::new_external_onebyte_static(
+      handle_scope,
+      PRIVATE_SYMBOL_NAME,
+    )
+    .unwrap();
+    let private_symbol = v8::Private::for_api(handle_scope, Some(private_name));
+    if sandbox_obj
+      .set_private(handle_scope, private_symbol, wrapper.into())
+      .is_none()
+    {
+      bail!("Set private property on contextified object");
+    };
+    result
+  };
   // TODO: assign host_defined_option_symbol to the wrapper.
 
-  // result
-  Ok(())
+  Ok(result)
 }
 
 fn contextify_context(
@@ -244,6 +285,7 @@ fn contextify_context(
   sandbox: v8::Local<v8::Object>,
   options: ContextOptions,
 ) -> Result<(), AnyError> {
+  // TODO: env->contextify_global_template()
   let object_template = v8::ObjectTemplate::new(scope);
   // TODO: handle snapshot
 
@@ -257,6 +299,14 @@ fn contextify_context(
     // microtask queue
   );
 
+  {
+    let context_scope = &mut v8::ContextScope::new(scope, v8_context);
+    let mut scope = v8::HandleScope::new(context_scope);
+    contextify_context_initialize_global_template(&mut scope);
+  }
+
+  contextify_context_new(scope, v8_context, sandbox, options)?;
+
   Ok(())
 }
 
@@ -268,7 +318,9 @@ pub fn op_vm_make_context<'a>(
   #[string] origin: Option<String>,
   allow_code_gen_strings: bool,
   allow_code_gen_wasm: bool,
-  own_microtask_queue: bool,
+  // TODO(bartlomieju): missing bindings in rusty_v8 to support it
+  // own_microtask_queue: bool,
+  // TODO(bartlomieju):
   // host_defined_options_id
 ) -> Result<(), AnyError> {
   // Don't allow contextifying a sandbox multiple times.
@@ -281,15 +333,24 @@ pub fn op_vm_make_context<'a>(
     assert!(!sandbox.has_private(scope, private_symbol).unwrap());
   }
 
-  todo!();
+  let options = ContextOptions {
+    name,
+    origin,
+    allow_code_gen_strings,
+    allow_code_gen_wasm,
+  };
 
+  contextify_context(scope, sandbox, options)?;
+  // TODO(bartlomieju): v8 checks for try catch scope
   Ok(())
 }
 
 extern "C" fn c_noop(info: *const v8::FunctionCallbackInfo) {}
 
 fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
-  // DCHECK(isolate_data->contextify_wrapper_template().IsEmpty());
+  assert!(scope
+    .get_slot::<ContextifyWrapperObjectTemplateSlot>()
+    .is_none());
 
   let global_func_template =
     v8::FunctionTemplate::builder_raw(c_noop).build(scope);
@@ -315,37 +376,36 @@ fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
       .flags(v8::PropertyHandlerFlags::HAS_NO_SIDE_EFFECT);
 
     // TODO: use thread locals to avoid rustc bug
-    config = config.getter(indexed_property_getter);
-    config = config.setter(indexed_property_setter);
-    config = config.descriptor(indexed_property_descriptor);
-    config = config.deleter(indexed_property_deleter);
-    config = config.enumerator(property_enumerator);
-    config = config.definer(indexed_property_definer);
+    config = config.getter_raw(indexed_property_getter.map_fn_to());
+    config = config.setter_raw(indexed_property_setter.map_fn_to());
+    config = config.descriptor_raw(indexed_property_descriptor.map_fn_to());
+    config = config.deleter_raw(indexed_property_deleter.map_fn_to());
+    config = config.enumerator_raw(property_enumerator.map_fn_to());
+    config = config.definer_raw(indexed_property_definer.map_fn_to());
     config
   };
 
-  // IndexedPropertyHandlerConfiguration indexed_config(
-  //     IndexedPropertyGetterCallback,
-  //     IndexedPropertySetterCallback,
-  //     IndexedPropertyDescriptorCallback,
-  //     IndexedPropertyDeleterCallback,
-  //     PropertyEnumeratorCallback,
-  //     IndexedPropertyDefinerCallback,
-  //     {},
-  //     PropertyHandlerFlags::kHasNoSideEffect);
-
   global_object_template
     .set_named_property_handler(named_property_handler_config);
-  // global_object_template
-  //   .set_indexed_property_handler(indexes_property_handler_config);
+  global_object_template
+    .set_indexed_property_handler(indexed_property_handler_config);
+  let contextify_global_template_slot = ContextifyGlobalTemplateSlot(
+    v8::Global::new(scope, global_object_template),
+  );
+  scope.set_slot(contextify_global_template_slot);
 
-  // isolate_data->set_contextify_global_template(global_object_template);
-
+  // TODO:
   // Local<FunctionTemplate> wrapper_func_template =
   //     BaseObject::MakeLazilyInitializedJSTemplate(isolate_data);
-  // Local<ObjectTemplate> wrapper_object_template =
-  //     wrapper_func_template->InstanceTemplate();
-  // isolate_data->set_contextify_wrapper_template(wrapper_object_template);
+  let wrapper_func_template =
+    v8::FunctionTemplate::builder_raw(c_noop).build(scope);
+
+  let wrapper_object_template = wrapper_func_template.instance_template(scope);
+  let wrapper_object_template_global =
+    v8::Global::new(scope, wrapper_object_template);
+  scope.set_slot(ContextifyWrapperObjectTemplateSlot(
+    wrapper_object_template_global,
+  ));
 }
 
 pub fn property_getter<'s>(
@@ -491,7 +551,7 @@ pub fn property_deleter<'s>(
   let ctx = ctx.unwrap();
   // TODO: should use a scope created from `context`?
   // let context = ctx.context.unwrap();
-  let sandbox = v8::Local::new(scope, ctx.sandbox);
+  let sandbox = ctx.sandbox(scope);
   let success = sandbox.delete(scope, key.into()).unwrap_or(false);
 
   if success {
@@ -518,7 +578,7 @@ pub fn property_enumerator<'s>(
   let ctx = ctx.unwrap();
   // TODO: should use a scope created from `context`?
   // let context = ctx.context.unwrap();
-  let sandbox = v8::Local::new(scope, ctx.sandbox);
+  let sandbox = ctx.sandbox(scope);
   let Some(properties) = sandbox
     .get_property_names(scope, v8::GetPropertyNamesArgsBuilder::new().build())
   else {
@@ -610,7 +670,7 @@ pub fn property_descriptor<'s>(
   let ctx = ctx.unwrap();
   // TODO: should use a scope created from `context`?
   // let context = ctx.context.unwrap();
-  let sandbox = v8::Local::new(scope, ctx.sandbox);
+  let sandbox = ctx.sandbox(scope);
 
   if sandbox.has_own_property(scope, key).unwrap_or(false) {
     if let Some(desc) = sandbox.get_own_property_descriptor(scope, key) {
@@ -679,7 +739,7 @@ fn indexed_property_deleter<'s>(
   let ctx = ctx.unwrap();
   // TODO: should use a scope created from `context`?
   // let context = ctx.context.unwrap();
-  let sandbox = v8::Local::new(scope, ctx.sandbox);
+  let sandbox = ctx.sandbox(scope);
   let key = uint32_to_name(scope, index);
   let success = sandbox.delete(scope, key.into()).unwrap_or(false);
 
