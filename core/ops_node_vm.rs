@@ -29,25 +29,25 @@ const PRIVATE_SYMBOL_NAME: &[u8] = b"node:contextify:context";
 struct ContextifyContext {
   context: Option<v8::Global<v8::Context>>,
   wrapper: v8::Global<v8::Object>,
-  // sandbox: v8::Global<v8::Object>,
+  sandbox: Option<v8::Global<v8::Object>>,
   // microtask_queue:
 }
 
 #[derive(Debug, Clone)]
-struct SandboxObject(v8::Global<v8::Object>);
+struct SlotSandboxObject(v8::Global<v8::Object>);
 #[derive(Debug, Clone)]
-struct AllowCodeGenerationFromString(bool);
+struct SlotAllowCodeGenerationFromString(bool);
 #[derive(Debug, Clone)]
-struct AllowWasmCodeGeneration(bool);
+struct SlotAllowWasmCodeGeneration(bool);
 
 #[derive(Debug, Clone)]
-struct ContextifyContextSlot(());
+struct SlotContextifyContext(());
 #[derive(Debug, Clone)]
-struct NodeContextSlot;
+struct SlotNodeContext;
 #[derive(Debug, Clone)]
-struct ContextifyGlobalTemplateSlot(v8::Global<v8::ObjectTemplate>);
+struct SlotContextifyGlobalTemplate(v8::Global<v8::ObjectTemplate>);
 #[derive(Debug, Clone)]
-struct ContextifyWrapperObjectTemplateSlot(v8::Global<v8::ObjectTemplate>);
+struct SlotContextifyWrapperObjectTemplate(v8::Global<v8::ObjectTemplate>);
 
 impl ContextifyContext {
   // TODO: maybe not needed?
@@ -58,16 +58,25 @@ impl ContextifyContext {
   //   contextify_context_get_from_this(scope, info.this())
   // }
 
-  fn context(&self, scope: &mut v8::HandleScope) -> v8::Local<v8::Context> {
-    todo!()
+  fn context<'s>(
+    &self,
+    scope: &'s mut v8::HandleScope,
+  ) -> v8::Local<'s, v8::Context> {
+    let ctx = self.context.as_ref().unwrap();
+    v8::Local::new(scope, ctx)
   }
 
-  fn global_proxy(&self, scope: &mut v8::HandleScope) -> v8::Local<v8::Object> {
-    todo!()
+  fn global_proxy<'s>(
+    &self,
+    scope: &'s mut v8::HandleScope,
+  ) -> v8::Local<'s, v8::Object> {
+    let ctx = self.context(scope);
+    ctx.global(scope)
   }
 
   fn sandbox(&self, scope: &mut v8::HandleScope) -> v8::Local<v8::Object> {
-    todo!()
+    let sandbox = self.sandbox.as_ref().unwrap();
+    v8::Local::new(scope, sandobox)
   }
 
   fn contextify_context_get_from_this(
@@ -79,7 +88,7 @@ impl ContextifyContext {
     };
 
     // TODO(bartlomieju): do we really need this check?
-    if context.get_slot::<NodeContextSlot>(scope).is_none() {
+    if context.get_slot::<SlotNodeContext>(scope).is_none() {
       return None;
     }
 
@@ -197,16 +206,19 @@ fn contextify_context_new(
   v8_context.set_security_token(main_context.get_security_token(scope));
 
   // Store sandbox obj here
-  let sandbox_obj_global = SandboxObject(v8::Global::new(scope, sandbox_obj));
+  let sandbox_obj_global =
+    SlotSandboxObject(v8::Global::new(scope, sandbox_obj));
   assert!(v8_context.set_slot(scope, sandbox_obj_global));
 
   v8_context.set_allow_generation_from_strings(false);
   assert!(v8_context.set_slot(
     scope,
-    AllowCodeGenerationFromString(options.allow_code_gen_strings)
+    SlotAllowCodeGenerationFromString(options.allow_code_gen_strings)
   ));
-  assert!(v8_context
-    .set_slot(scope, AllowWasmCodeGeneration(options.allow_code_gen_wasm)));
+  assert!(v8_context.set_slot(
+    scope,
+    SlotAllowWasmCodeGeneration(options.allow_code_gen_wasm)
+  ));
 
   // TODO(bartlomieju): inspector support
   // let info = ContextInfo { name: options.name };
@@ -235,12 +247,12 @@ fn contextify_context_new(
     // env->AssignToContext();
     // TODO: notify inspector about a new context
     {
-      v8_context.set_slot(handle_scope, ContextifyContextSlot(()));
-      v8_context.set_slot(handle_scope, NodeContextSlot);
+      v8_context.set_slot(handle_scope, SlotContextifyContext(()));
+      v8_context.set_slot(handle_scope, SlotNodeContext);
     }
 
     let template = handle_scope
-      .get_slot::<ContextifyWrapperObjectTemplateSlot>()
+      .get_slot::<SlotContextifyWrapperObjectTemplate>()
       .unwrap()
       .clone();
     let template_local = v8::Local::new(handle_scope, template.0);
@@ -249,10 +261,12 @@ fn contextify_context_new(
     };
 
     let context_global = v8::Global::new(handle_scope, v8_context);
+    let sandbox_obj_global = v8::Global::new(handle_scope, sandbox_obj);
     // TODO(bartlomieju): probably should be an Rc
     let contextify_context = ContextifyContext {
       context: Some(context_global),
       wrapper: v8::Global::new(handle_scope, wrapper),
+      sandbox: Some(sandbox_obj_global),
     };
     assert!(v8_context.set_slot(handle_scope, contextify_context));
     let result = v8_context
@@ -288,7 +302,7 @@ fn contextify_context(
   // TODO(bartlomieju): I think we can check if this slot exists and run
   // `contextify_context_initialize_global_template` if it doesn't.
   let object_template_slot = scope
-    .get_slot::<ContextifyGlobalTemplateSlot>()
+    .get_slot::<SlotContextifyGlobalTemplate>()
     .expect("ContextifyGlobalTemplate slot should be already populated.")
     .clone();
   let object_template = v8::Local::new(scope, object_template_slot.0);
@@ -355,7 +369,7 @@ extern "C" fn c_noop(info: *const v8::FunctionCallbackInfo) {}
 // TODO(bartlomieju): this should be called once per `v8::Isolate` instance.
 fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
   assert!(scope
-    .get_slot::<ContextifyWrapperObjectTemplateSlot>()
+    .get_slot::<SlotContextifyWrapperObjectTemplate>()
     .is_none());
 
   let global_func_template =
@@ -376,7 +390,6 @@ fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
     config
   };
 
-  // TODO: https://github.com/denoland/rusty_v8/pull/1426
   let indexed_property_handler_config = {
     let mut config = v8::IndexedPropertyHandlerConfiguration::new()
       .flags(v8::PropertyHandlerFlags::HAS_NO_SIDE_EFFECT);
@@ -395,7 +408,7 @@ fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
     .set_named_property_handler(named_property_handler_config);
   global_object_template
     .set_indexed_property_handler(indexed_property_handler_config);
-  let contextify_global_template_slot = ContextifyGlobalTemplateSlot(
+  let contextify_global_template_slot = SlotContextifyGlobalTemplate(
     v8::Global::new(scope, global_object_template),
   );
   scope.set_slot(contextify_global_template_slot);
@@ -409,7 +422,7 @@ fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
   let wrapper_object_template = wrapper_func_template.instance_template(scope);
   let wrapper_object_template_global =
     v8::Global::new(scope, wrapper_object_template);
-  scope.set_slot(ContextifyWrapperObjectTemplateSlot(
+  scope.set_slot(SlotContextifyWrapperObjectTemplate(
     wrapper_object_template_global,
   ));
 }
@@ -628,7 +641,7 @@ pub fn property_definer<'s>(
   // TODO:
   // Local<Object> sandbox = ctx->sandbox();
 
-  // auto define_prop_on_sandbox =
+  // auto cargo run =
   //     [&] (PropertyDescriptor* desc_for_sandbox) {
   //       if (desc.has_enumerable()) {
   //         desc_for_sandbox->set_enumerable(desc.enumerable());
