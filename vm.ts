@@ -4,6 +4,7 @@ const {
   op_vm_make_context,
   op_vm_is_context,
   op_script_run_in_context,
+  op_node_vm_script_new,
 } = core.ops;
 
 function notImplemented(name) {
@@ -15,8 +16,61 @@ const kVmBreakFirstLineSymbol = Symbol("kVmBreakFirstLineSymbol");
 
 export class Script {
   code;
-  constructor(code, _options = {}) {
+  constructor(code, options = kEmptyObject) {
     this.code = `${code}`;
+    if (typeof options === "string") {
+      options = { filename: options };
+    } else {
+      // TODO:
+      // validateObject(options, "options");
+    }
+
+    const {
+      filename = "evalmachine.<anonymous>",
+      lineOffset = 0,
+      columnOffset = 0,
+      cachedData,
+      produceCachedData = false,
+      importModuleDynamically,
+      [kParsingContext]: parsingContext,
+    } = options;
+
+    // TODO:
+    // validateString(filename, "options.filename");
+    // validateInt32(lineOffset, "options.lineOffset");
+    // validateInt32(columnOffset, "options.columnOffset");
+    // if (cachedData !== undefined) {
+    //   validateBuffer(cachedData, "options.cachedData");
+    // }
+    // validateBoolean(produceCachedData, "options.produceCachedData");
+
+    // const hostDefinedOptionId = getHostDefinedOptionId(
+    //   importModuleDynamically,
+    //   filename,
+    // );
+
+    // Calling `ReThrow()` on a native TryCatch does not generate a new
+    // abort-on-uncaught-exception check. A dummy try/catch in JS land
+    // protects against that.
+    try {
+      op_node_vm_script_new(
+        code,
+        filename,
+        lineOffset,
+        columnOffset,
+        cachedData,
+        produceCachedData,
+        parsingContext,
+        // hostDefinedOptionId,
+      );
+    } catch (e) {
+      throw e;
+    }
+
+    // TODO:
+    // if (importModuleDynamically !== undefined) {
+    //   registerImportModuleDynamically(this, importModuleDynamically);
+    // }
   }
 
   runInThisContext(_options) {

@@ -16,6 +16,7 @@ mod inspector;
 mod io;
 mod module_specifier;
 mod modules;
+mod node_vm;
 mod normalize_path;
 mod ops;
 mod ops_builtin;
