@@ -778,6 +778,37 @@ fn test_has_tick_scheduled() {
 }
 
 #[test]
+fn module_eval_value() {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(NoopModuleLoader)),
+    ..Default::default()
+  });
+
+  let specifier = crate::resolve_url("file:///main.js").unwrap();
+
+  let module_id =
+    futures::executor::block_on(runtime.load_main_es_module_from_code(
+      &specifier,
+      "export const a = 1; export default { hello: 'world' }; 1",
+    ))
+    .unwrap();
+
+  let mod_result =
+    futures::executor::block_on(runtime.mod_evaluate_namespace(module_id))
+      .unwrap();
+
+  let scope = &mut runtime.handle_scope();
+  let mod_result = v8::Local::new(scope, mod_result);
+
+  let key = v8::String::new(scope, "default").unwrap().into();
+  let default = mod_result.get(scope, key).unwrap();
+  let default: v8::Local<v8::Object> = default.try_into().unwrap();
+  let key = v8::String::new(scope, "hello").unwrap().into();
+  let value = default.get(scope, key).unwrap().to_rust_string_lossy(scope);
+  assert_eq!(value.as_str(), "world");
+}
+
+#[test]
 fn terminate_during_module_eval() {
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(NoopModuleLoader)),

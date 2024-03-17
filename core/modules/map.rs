@@ -70,7 +70,9 @@ use super::ImportMetaResolveCallback;
 
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
-  sender: Option<oneshot::Sender<Result<(), Error>>>,
+  module: Option<v8::Global<v8::Module>>,
+  sender:
+    Option<oneshot::Sender<Result<Option<v8::Global<v8::Object>>, Error>>>,
 }
 
 type CodeCacheReadyCallback =
@@ -954,7 +956,9 @@ impl ModuleMap {
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), Error>> + Unpin {
+    include_result: bool,
+  ) -> impl Future<Output = Result<Option<v8::Global<v8::Object>>, Error>> + Unpin
+  {
     let tc_scope = &mut v8::TryCatch::new(scope);
 
     let module = self
@@ -1013,9 +1017,15 @@ impl ModuleMap {
         .expect("Expected to get promise as module evaluation result");
 
       // Create a ModEvaluate instance and stash it in an external
+      let module_global = if include_result {
+        Some(v8::Global::new(tc_scope, module))
+      } else {
+        None
+      };
       let evaluation = v8::External::new(
         tc_scope,
         Box::into_raw(Box::new(ModEvaluate {
+          module: module_global,
           module_map: self.clone(),
           sender: Some(sender),
         })) as _,
@@ -1026,32 +1036,44 @@ impl ModuleMap {
         *unsafe { Box::from_raw(sender.value() as _) }
       }
 
-      let on_fulfilled = Function::builder(
-        |_scope: &mut v8::HandleScope<'_>,
-         args: v8::FunctionCallbackArguments<'_>,
-         _rv: v8::ReturnValue| {
-          let mut sender = get_sender(args.data());
-          sender.module_map.pending_mod_evaluation.set(false);
-          sender.module_map.module_waker.wake();
-          _ = sender.sender.take().unwrap().send(Ok(()));
-        },
-      )
-      .data(evaluation.into())
-      .build(tc_scope);
+      fn on_fulfilled(
+        scope: &mut v8::HandleScope<'_>,
+        args: v8::FunctionCallbackArguments<'_>,
+        _rv: v8::ReturnValue,
+      ) {
+        let mut sender = get_sender(args.data());
+        let result = if let Some(module) = sender.module {
+          let module = v8::Local::new(scope, module);
+          let ns = module.get_module_namespace();
+          let object: v8::Local<v8::Object> = ns.try_into().unwrap();
+          Some(v8::Global::new(scope, object))
+        } else {
+          None
+        };
+        sender.module_map.pending_mod_evaluation.set(false);
+        sender.module_map.module_waker.wake();
+        _ = sender.sender.take().unwrap().send(Ok(result));
+      }
 
-      let on_rejected = Function::builder(
-        |scope: &mut v8::HandleScope<'_>,
-         args: v8::FunctionCallbackArguments<'_>,
-         _rv: v8::ReturnValue| {
-          let mut sender = get_sender(args.data());
-          sender.module_map.pending_mod_evaluation.set(false);
-          sender.module_map.module_waker.wake();
-          _ = sender.sender.take().unwrap().send(Ok(()));
-          scope.throw_exception(args.get(0));
-        },
-      )
-      .data(evaluation.into())
-      .build(tc_scope);
+      fn on_rejected(
+        scope: &mut v8::HandleScope<'_>,
+        args: v8::FunctionCallbackArguments<'_>,
+        _rv: v8::ReturnValue,
+      ) {
+        let mut sender = get_sender(args.data());
+        sender.module_map.pending_mod_evaluation.set(false);
+        sender.module_map.module_waker.wake();
+        // TODO(mmastrac): are we sure we want to reject this here? We don't reject below.
+        _ = sender.sender.take().unwrap().send(Ok(None));
+        scope.throw_exception(args.get(0));
+      }
+
+      let on_fulfilled = Function::builder(on_fulfilled)
+        .data(evaluation.into())
+        .build(tc_scope);
+      let on_rejected = Function::builder(on_rejected)
+        .data(evaluation.into())
+        .build(tc_scope);
 
       // V8 GC roots all promises, so we don't need to worry about it after this
       // then2 will return None if the runtime is shutting down
@@ -1066,12 +1088,21 @@ impl ModuleMap {
         match promise.state() {
           PromiseState::Fulfilled => {
             // Module loaded OK
-            _ = sender.sender.take().unwrap().send(Ok(()));
+            let result = if include_result {
+              let ns = module.get_module_namespace();
+              let object: v8::Local<v8::Object> = ns.try_into().unwrap();
+              let object = v8::Global::new(tc_scope, object);
+              Some(v8::Global::new(tc_scope, object))
+            } else {
+              None
+            };
+            _ = sender.sender.take().unwrap().send(Ok(result));
           }
           PromiseState::Rejected => {
             // Module was rejected
             let err = promise.result(tc_scope);
             let err = JsError::from_v8_exception(tc_scope, err);
+            // TODO(mmastrac): We don't reject this module above -- should the two paths be the same?
             _ = sender.sender.take().unwrap().send(Err(err.into()));
           }
           PromiseState::Pending => {
@@ -1096,7 +1127,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     id: ModuleId,
   ) -> Result<(), Error> {
-    let mut receiver = self.mod_evaluate(scope, id);
+    let mut receiver = self.mod_evaluate(scope, id, false);
 
     // After evaluate_pending_module, if the module isn't fully evaluated
     // and the resolver solved, it means the module or one of its imports
