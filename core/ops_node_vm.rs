@@ -3,6 +3,7 @@
 use crate::error::AnyError;
 use crate::op2;
 use anyhow::bail;
+use serde::Deserialize;
 use v8::MapFnTo;
 
 pub const VM_CONTEXT_INDEX: usize = 0;
@@ -317,6 +318,54 @@ fn contextify_context(
   );
 
   contextify_context_new(scope, v8_context, sandbox, options)?;
+
+  Ok(())
+}
+
+fn context_from_contextified_sandbox(
+  scope: &mut v8::HandleScope,
+  sandbox: v8::Local<v8::Object>,
+) -> Option<ContextifyContext> {
+  let private_name =
+    v8::String::new_external_onebyte_static(scope, PRIVATE_SYMBOL_NAME)
+      .unwrap();
+  let private_symbol = v8::Private::for_api(scope, Some(private_name));
+
+  let context_global = sandbox.get_private(scope, private_symbol.into())?;
+  if !context_global.is_object() {
+    return None;
+  }
+
+  // TODO: how is this supposed to work?
+  // Something is going wrong in `contextify_context_new`.
+  // let context: v8::Local<v8::Context> = context_global.try_into().unwrap();
+  // context
+  //   .get_slot::<ContextifyContext>(scope)
+  //   .unwrap()
+  //   .clone()
+  todo!()
+}
+
+#[op2]
+pub fn op_script_run_in_context(
+  scope: &mut v8::HandleScope,
+  script: v8::Local<v8::Value>,
+  contextified_object: Option<v8::Local<v8::Object>>,
+  #[smi] timeout: i32,
+  display_errors: bool,
+  break_on_signint: bool,
+  break_first_line: bool,
+) -> Result<(), AnyError> {
+  // TODO: Node has `ContextifyScript` which is an actual object instance.
+  // Probably will need to do the same here, probably using CPPGC objects.
+
+  let context = if let Some(contextified_object) = contextified_object {
+    let sandbox = contextified_object;
+    // let contextify_context =
+    todo!()
+  } else {
+    scope.get_current_context()
+  };
 
   Ok(())
 }

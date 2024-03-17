@@ -1,10 +1,17 @@
 const core = Deno.core;
-const { op_vm_run_in_new_context, op_vm_make_context, op_vm_is_context } =
-  core.ops;
+const {
+  op_vm_run_in_new_context,
+  op_vm_make_context,
+  op_vm_is_context,
+  op_script_run_in_context,
+} = core.ops;
 
 function notImplemented(name) {
   throw new Error(`The API ${name} is not yet implemented`);
 }
+
+const kParsingContext = Symbol("script parsing context");
+const kVmBreakFirstLineSymbol = Symbol("kVmBreakFirstLineSymbol");
 
 export class Script {
   code;
@@ -20,7 +27,25 @@ export class Script {
     return result;
   }
 
-  runInContext(_contextifiedObject, _options) {
+  runInContext(contextifiedObject, options) {
+    validateContext(contextifiedObject);
+    const { breakOnSigint, args } = getRunInContextArgs(
+      contextifiedObject,
+      options,
+    );
+    // TODO:
+    // if (breakOnSigint && process.listenerCount("SIGINT") > 0) {
+    //   return sigintHandlersWrap(super.runInContext, this, args);
+    // }
+    return op_script_run_in_context(
+      this,
+      args[0],
+      args[1],
+      args[2],
+      args[3],
+      args[4],
+    );
+    // return ReflectApply(super.runInContext, this, args);
     notImplemented("Script.prototype.runInContext");
   }
 
@@ -102,12 +127,63 @@ export function createScript(code, options) {
   return new Script(code, options);
 }
 
+function validateContext(contextifiedObject) {
+  if (!(isContext(contextifiedObject))) {
+    throw new TypeError("The provided context is not a contextified object");
+  }
+}
+
+function getRunInContextArgs(contextifiedObject, options = kEmptyObject) {
+  // validateObject(options, "options");
+
+  let timeout = options.timeout;
+  if (timeout === undefined) {
+    timeout = -1;
+  } else {
+    // TODO:
+    // validateUint32(timeout, "options.timeout", true);
+  }
+
+  const {
+    displayErrors = true,
+    breakOnSigint = false,
+    [kVmBreakFirstLineSymbol]: breakFirstLine = false,
+  } = options;
+
+  // TODO:
+  // validateBoolean(displayErrors, "options.displayErrors");
+  // validateBoolean(breakOnSigint, "options.breakOnSigint");
+
+  return {
+    breakOnSigint,
+    args: [
+      contextifiedObject,
+      timeout,
+      displayErrors,
+      breakOnSigint,
+      breakFirstLine,
+    ],
+  };
+}
+
 export function runInContext(
-  _code,
-  _contextifiedObject,
-  _options,
+  code,
+  contextifiedObject,
+  options,
 ) {
-  notImplemented("runInContext");
+  validateContext(contextifiedObject);
+  if (typeof options === "string") {
+    options = {
+      filename: options,
+      [kParsingContext]: contextifiedObject,
+    };
+  } else {
+    options = {
+      ...options,
+      [kParsingContext]: contextifiedObject,
+    };
+  }
+  return createScript(code, options).runInContext(contextifiedObject, options);
 }
 
 export function runInNewContext(
