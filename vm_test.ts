@@ -107,6 +107,24 @@ test({
 });
 
 test({
+  name: "vm new Script()",
+  fn() {
+    const script = new vm.Script(`
+function add(a, b) {
+  return a + b;
+}
+
+const x = add(1, 2);
+x
+`);
+
+    const value = script.runInThisContext2();
+    console.log("script run in this context", value);
+    assertEquals(value, 3);
+  },
+});
+
+test({
   name: "vm createContext",
   fn() {
     globalThis.globalVar = 3;

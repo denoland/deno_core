@@ -10,23 +10,61 @@ const VM_CONTEXT_INDEX: usize = 0;
 const OBJECT_STRING: &str = "Object";
 pub const PRIVATE_SYMBOL_NAME: &[u8] = b"node:contextify:context";
 
-// struct ContextifyScript {
-//   script: v8::Global<v8::UnboundScript>,
-// }
+#[derive(Debug)]
+pub struct ContextifyScript {
+  script: v8::Global<v8::UnboundScript>,
+}
 
-// impl Drop for ContextifyScript {
-//   fn drop(&mut self) {
-//     // TODO
-//   }
-// }
+impl Drop for ContextifyScript {
+  fn drop(&mut self) {
+    // TODO
+  }
+}
 
-// impl ContextifyScript {
-//   fn new() {}
-//   fn instance_of() {}
-//   fn create_cached_data() {}
-//   fn run_in_context() {}
-//   fn eval_machine() {}
-// }
+impl ContextifyScript {
+  pub fn new(scope: &mut v8::HandleScope) -> Self {
+    let script = todo!();
+
+    Self { script }
+  }
+  fn instance_of() {}
+  fn create_cached_data() {}
+  fn run_in_context() {}
+
+  pub fn eval_machine<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    context: v8::Local<v8::Context>,
+  ) -> Option<v8::Local<'s, v8::Value>> {
+    // Check if the args.holder() is the instance of `ContextifyScript`.
+    // I think we can skip this, since we're using CppGc so it's guarateed?
+
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let unbound_script = v8::Local::new(tc_scope, self.script.clone());
+    let script = unbound_script.bind_to_current_context(tc_scope);
+
+    // TODO: support `break_on_first_line` arg
+    // TODO: support `break_on_sigint` and `timeout` args
+    let result = script.run(tc_scope);
+    // TODO: support `microtask_queue` arg
+
+    if tc_scope.has_caught() {
+      // TODO:
+      // if display_errors {
+      //
+      // }
+
+      if !tc_scope.has_terminated() {
+        tc_scope.rethrow();
+      }
+
+      return None;
+    }
+
+    Some(result.unwrap())
+  }
+}
 
 #[derive(Debug, Clone)]
 struct ContextifyContext {

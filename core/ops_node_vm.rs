@@ -4,6 +4,7 @@ use crate::error::AnyError;
 use crate::node_vm::contextify_context;
 use crate::node_vm::make_context;
 use crate::node_vm::ContextOptions;
+use crate::node_vm::ContextifyScript;
 use crate::node_vm::PRIVATE_SYMBOL_NAME;
 use crate::op2;
 use anyhow::bail;
@@ -87,13 +88,13 @@ pub fn op_script_run_in_context(
   // TODO: Node has `ContextifyScript` which is an actual object instance.
   // Probably will need to do the same here, probably using CPPGC objects.
 
-  let context = if let Some(contextified_object) = contextified_object {
-    let sandbox = contextified_object;
-    // let contextify_context =
-    todo!()
-  } else {
-    scope.get_current_context()
-  };
+  // let context = if let Some(contextified_object) = contextified_object {
+  //   let sandbox = contextified_object;
+  //   // let contextify_context =
+  //   todo!()
+  // } else {
+  //   scope.get_current_context()
+  // };
 
   Ok(())
 }
@@ -134,4 +135,29 @@ pub fn op_vm_make_context(
 }
 
 #[op2]
-pub fn op_node_vm_script_new(scope: &mut v8::HandleScope) {}
+pub fn op_node_vm_script_new<'s>(
+  scope: &'s mut v8::HandleScope,
+) -> Result<v8::Local<'s, v8::Object>, AnyError> {
+  let script = ContextifyScript::new(scope);
+  let obj = crate::cppgc::make_cppgc_object(scope, script);
+  Ok(obj)
+}
+
+#[op2]
+pub fn op_node_vm_script_run_in_context<'s>(
+  scope: &'s mut v8::HandleScope,
+  #[cppgc] script: &ContextifyScript,
+) -> Result<v8::Local<'s, v8::Value>, AnyError> {
+  eprintln!("contextify script: {:?}", script);
+
+  // TODO: make it work with `contextified_object`.
+  let context = scope.get_current_context();
+
+  let rc_ = {
+    let context_scope = &mut v8::ContextScope::new(scope, context);
+    let scope = &mut v8::HandleScope::new(context_scope);
+    script.eval_machine(scope, context);
+  };
+
+  Ok(v8::undefined(scope).into())
+}

@@ -5,6 +5,7 @@ const {
   op_vm_is_context,
   op_script_run_in_context,
   op_node_vm_script_new,
+  op_node_vm_script_run_in_context,
 } = core.ops;
 
 function notImplemented(name) {
@@ -16,6 +17,7 @@ const kVmBreakFirstLineSymbol = Symbol("kVmBreakFirstLineSymbol");
 
 export class Script {
   code;
+  #handle;
   constructor(code, options = kEmptyObject) {
     this.code = `${code}`;
     if (typeof options === "string") {
@@ -53,7 +55,7 @@ export class Script {
     // abort-on-uncaught-exception check. A dummy try/catch in JS land
     // protects against that.
     try {
-      op_node_vm_script_new(
+      this.#handle = op_node_vm_script_new(
         code,
         filename,
         lineOffset,
@@ -71,6 +73,10 @@ export class Script {
     // if (importModuleDynamically !== undefined) {
     //   registerImportModuleDynamically(this, importModuleDynamically);
     // }
+  }
+
+  runInThisContext2(_options) {
+    return op_node_vm_script_run_in_context(this.#handle);
   }
 
   runInThisContext(_options) {

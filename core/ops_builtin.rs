@@ -132,7 +132,8 @@ builtin_ops! {
   ops_node_vm::op_vm_make_context,
   ops_node_vm::op_vm_is_context,
   ops_node_vm::op_script_run_in_context,
-  ops_node_vm::op_node_vm_script_new
+  ops_node_vm::op_node_vm_script_new,
+  ops_node_vm::op_node_vm_script_run_in_context
 }
 
 #[op2(fast)]
