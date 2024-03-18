@@ -62,6 +62,7 @@
     op_resources,
     op_run_microtasks,
     op_serialize,
+    op_add_main_module_handler,
     op_set_handled_promise_rejection_handler,
     op_set_has_tick_scheduled,
     op_set_promise_hooks,
@@ -713,6 +714,7 @@
     opNames: () => op_op_names(),
     eventLoopHasMoreWork: () => op_event_loop_has_more_work(),
     byteLength: (str) => op_str_byte_length(str),
+    addMainModuleHandler: (handler) => op_add_main_module_handler(handler),
     setHandledPromiseRejectionHandler: (handler) =>
       op_set_handled_promise_rejection_handler(handler),
     setUnhandledPromiseRejectionHandler: (handler) =>

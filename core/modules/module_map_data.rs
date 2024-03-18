@@ -308,7 +308,11 @@ impl ModuleMapData {
       ..Default::default()
     };
 
-    ser.main_module_callbacks = self.main_module_callbacks.map(|x| data_store.register(x));
+    ser.main_module_callbacks = self
+      .main_module_callbacks
+      .into_iter()
+      .map(|x| data_store.register(x))
+      .collect();
     ser.module_handles = self
       .handles
       .into_iter()
@@ -333,7 +337,11 @@ impl ModuleMapData {
     self.info = data.modules;
     self.handles.reserve(data.module_handles.len());
     self.handles_inverted.reserve(data.module_handles.len());
-    self.main_module_callbacks = data.main_module_callbacks.map(|x| data_store.get(scope, id));
+    self.main_module_callbacks = data
+      .main_module_callbacks
+      .into_iter()
+      .map(|x| data_store.get(scope, x))
+      .collect();
 
     for module_handle in data.module_handles {
       let id = self.handles.len();
