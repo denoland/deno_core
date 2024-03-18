@@ -130,6 +130,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) handles_inverted: HashMap<v8::Global<v8::Module>, usize>,
   /// The handles we have loaded so far, corresponding with the [`ModuleInfo`] in `info`.
   pub(crate) handles: Vec<v8::Global<v8::Module>>,
+  pub(crate) main_module_callbacks: Vec<v8::Global<v8::Function>>,
   /// The modules we have loaded so far.
   pub(crate) info: Vec<ModuleInfo>,
   /// [`ModuleName`] to [`SymbolicModule`] for modules.
@@ -152,6 +153,7 @@ pub(crate) struct ModuleMapSnapshotData {
   main_module_id: Option<i32>,
   modules: Vec<ModuleInfo>,
   module_handles: Vec<SnapshotDataId>,
+  main_module_callbacks: Vec<SnapshotDataId>,
   by_name: Vec<(FastString, RequestedModuleType, SymbolicModule)>,
 }
 
@@ -306,6 +308,7 @@ impl ModuleMapData {
       ..Default::default()
     };
 
+    ser.main_module_callbacks = self.main_module_callbacks.map(|x| data_store.register(x));
     ser.module_handles = self
       .handles
       .into_iter()
@@ -330,6 +333,7 @@ impl ModuleMapData {
     self.info = data.modules;
     self.handles.reserve(data.module_handles.len());
     self.handles_inverted.reserve(data.module_handles.len());
+    self.main_module_callbacks = data.main_module_callbacks.map(|x| data_store.get(scope, id));
 
     for module_handle in data.module_handles {
       let id = self.handles.len();
