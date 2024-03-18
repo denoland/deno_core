@@ -24,6 +24,18 @@ use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
 #[op2]
+pub fn op_add_main_module_handler(
+  scope: &mut v8::HandleScope,
+  #[global] f: v8::Global<v8::Function>,
+) {
+  JsRealm::module_map_from(scope)
+    .get_data()
+    .borrow_mut()
+    .main_module_callbacks
+    .push(f);
+}
+
+#[op2]
 pub fn op_set_handled_promise_rejection_handler(
   scope: &mut v8::HandleScope,
   #[global] f: Option<v8::Global<v8::Function>>,

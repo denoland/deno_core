@@ -18,6 +18,15 @@ globalThis.setInterval = timers.setInterval;
 globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
 globalThis.Worker = worker.Worker;
+Deno.core.addMainModuleHandler((module) => {
+  if (onMainModuleCb) onMainModuleCb(module);
+});
+let onMainModuleCb = () => {};
+Reflect.defineProperty(globalThis, "onmainmodule", {
+  set: (cb) => {
+    onMainModuleCb = cb;
+  },
+});
 Reflect.defineProperty(globalThis, "onerror", {
   set: (cb) => {
     if (cb) {
