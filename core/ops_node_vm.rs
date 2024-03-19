@@ -137,8 +137,13 @@ pub fn op_vm_make_context(
 #[op2]
 pub fn op_node_vm_script_new<'s>(
   scope: &'s mut v8::HandleScope,
+  #[string] code: &str,
+  #[string] filename: &str,
+  #[smi] line_offset: i32,
+  #[smi] column_offset: i32,
 ) -> Result<v8::Local<'s, v8::Object>, AnyError> {
-  let script = ContextifyScript::new(scope);
+  let script =
+    ContextifyScript::new(scope, code, filename, line_offset, column_offset);
   let obj = crate::cppgc::make_cppgc_object(scope, script);
   Ok(obj)
 }

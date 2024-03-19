@@ -22,9 +22,24 @@ impl Drop for ContextifyScript {
 }
 
 impl ContextifyScript {
-  pub fn new(scope: &mut v8::HandleScope) -> Self {
-    let script = todo!();
+  pub fn new(
+    scope: &mut v8::HandleScope,
+    code: &str,
+    filename: &str,
+    line_offset: i32,
+    column_offset: i32,
+  ) -> Self {
+    let source_str = v8::String::new(scope, &code).unwrap();
+    let source = v8::script_compiler::Source::new(source_str, None);
 
+    let unbound_script = v8::script_compiler::compile_unbound_script(
+      scope,
+      source,
+      v8::script_compiler::CompileOptions::NoCompileOptions,
+      v8::script_compiler::NoCacheReason::NoReason,
+    )
+    .unwrap();
+    let script = v8::Global::new(scope, unbound_script);
     Self { script }
   }
   fn instance_of() {}
