@@ -7,9 +7,6 @@ use crate::node_vm::ContextOptions;
 use crate::node_vm::ContextifyScript;
 use crate::node_vm::PRIVATE_SYMBOL_NAME;
 use crate::op2;
-use anyhow::bail;
-use serde::Deserialize;
-use v8::MapFnTo;
 
 // TODO(bartlomieju): copy-pasted from Node, we probably shouldn't rely on these
 // exact numbers.
@@ -158,11 +155,9 @@ pub fn op_node_vm_script_run_in_context<'s>(
   // TODO: make it work with `contextified_object`.
   let context = scope.get_current_context();
 
-  let rc_ = {
-    let context_scope = &mut v8::ContextScope::new(scope, context);
-    let scope = &mut v8::HandleScope::new(context_scope);
-    script.eval_machine(scope, context);
-  };
+  let context_scope = &mut v8::ContextScope::new(scope, context);
+  let mut scope = v8::EscapableHandleScope::new(context_scope);
+  let result = script.eval_machine(&mut scope, context).unwrap();
 
-  Ok(v8::undefined(scope).into())
+  Ok(scope.escape(result))
 }
