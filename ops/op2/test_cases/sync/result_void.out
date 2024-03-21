@@ -29,6 +29,9 @@ impl ::deno_core::_ops::Op for op_void_with_result {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_void_with_result {

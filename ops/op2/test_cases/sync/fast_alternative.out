@@ -13,6 +13,9 @@ impl ::deno_core::_ops::Op for op_slow {
         Self::v8_fn_ptr_metrics as _,
         Some({ op_fast::DECL.fast_fn() }),
         Some({ op_fast::DECL.fast_fn_with_metrics() }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_slow {
@@ -134,6 +137,9 @@ impl ::deno_core::_ops::Op for op_fast {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_fast {
@@ -281,6 +287,9 @@ impl<T: Trait> ::deno_core::_ops::Op for op_slow_generic<T> {
         Self::v8_fn_ptr_metrics as _,
         Some({ op_fast_generic::<T>::DECL.fast_fn() }),
         Some({ op_fast_generic::<T>::DECL.fast_fn_with_metrics() }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl<T: Trait> op_slow_generic<T> {
@@ -402,6 +411,9 @@ impl<T: Trait> ::deno_core::_ops::Op for op_fast_generic<T> {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl<T: Trait> op_fast_generic<T> {
