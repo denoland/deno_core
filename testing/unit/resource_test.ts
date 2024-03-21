@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
 
-const { op_pipe_create, op_file_open } = Deno.core.ensureFastOps();
+const { op_pipe_create, op_file_open } = Deno.core.ops;
 
 test(async function testPipe() {
   const [p1, p2] = op_pipe_create();

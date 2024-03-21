@@ -13,7 +13,6 @@
     ObjectFromEntries,
     ObjectKeys,
     ObjectHasOwn,
-    Proxy,
     setQueueMicrotask,
     SafeMap,
     Set,
@@ -55,7 +54,6 @@
     op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
-    op_panic,
     op_print,
     op_queue_microtask,
     op_ref_op,
@@ -109,7 +107,7 @@
     op_is_typed_array,
     op_is_weak_map,
     op_is_weak_set,
-  } = ensureFastOps();
+  } = ops;
 
   // core/infra collaborative code
   delete window.__infra;
@@ -402,21 +400,6 @@
     );
   }
 
-  function ensureFastOps(keep = false) {
-    return new Proxy({}, {
-      get(_target, opName) {
-        const op = ops[opName];
-        if (ops[opName] === undefined) {
-          op_panic(`Unknown or disabled op '${opName}'`);
-        }
-        if (keep !== true) {
-          delete ops[opName];
-        }
-        return op;
-      },
-    });
-  }
-
   const {
     op_close: close,
     op_try_close: tryClose,
@@ -429,7 +412,7 @@
     op_write_sync: writeSync,
     op_shutdown: shutdown,
     op_is_terminal: isTerminal,
-  } = ensureFastOps(true);
+  } = ops;
 
   const callSiteRetBuf = new Uint32Array(2);
   const callSiteRetBufU8 = new Uint8Array(callSiteRetBuf.buffer);
@@ -619,7 +602,6 @@
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
-    ensureFastOps,
     resources,
     metrics,
     eventLoopTick,

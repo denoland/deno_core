@@ -658,8 +658,9 @@ mod tests {
     runtime
       .execute_script(
         "",
-        format!(r"
-          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+        format!(
+          r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ops;
           function assert(b) {{
             if (!b) {{
               op_test_fail();
@@ -671,7 +672,8 @@ mod tests {
           function log(s) {{
             op_test_print_debug(String(s))
           }}
-        ")
+        "
+        ),
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
@@ -707,8 +709,9 @@ mod tests {
     runtime
       .execute_script(
         "",
-        format!(r"
-          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+        format!(
+          r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ops;
           function assert(b) {{
             if (!b) {{
               op_test_fail();
@@ -720,7 +723,8 @@ mod tests {
           function log(s) {{
             op_test_print_debug(String(s))
           }}
-        ")
+        "
+        ),
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));

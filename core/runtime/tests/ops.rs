@@ -51,7 +51,7 @@ async fn test_async_opstate_borrow() {
   runtime
     .execute_script(
       "op_async_borrow.js",
-      "const { op_async_borrow } = Deno.core.ensureFastOps(); op_async_borrow();",
+      "const { op_async_borrow } = Deno.core.ops; op_async_borrow();",
     )
     .unwrap();
   runtime.run_event_loop(Default::default()).await.unwrap();
@@ -125,7 +125,7 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
     .execute_script(
       "op_async_serialize_object_with_numbers_as_keys.js",
       r#"
-        const { op_async_serialize_object_with_numbers_as_keys } = Deno.core.ensureFastOps();
+        const { op_async_serialize_object_with_numbers_as_keys } = Deno.core.ops;
         op_async_serialize_object_with_numbers_as_keys({
           lines: {
             100: {
@@ -344,7 +344,7 @@ fn ops_in_js_have_proper_names() {
     throw new Error();
   }
 
-  const { op_test_async } = Deno.core.ensureFastOps();
+  const { op_test_async } = Deno.core.ops;
   if (op_test_async.name !== "op_test_async") {
     throw new Error();
   }
@@ -359,7 +359,7 @@ async fn test_ref_unref_ops() {
     .execute_script(
       "filename.js",
       r#"
-      const { op_test } = Deno.core.ensureFastOps();
+      const { op_test } = Deno.core.ops;
       var p1 = op_test(42);
       var p2 = op_test(42);
       "#,
@@ -408,7 +408,7 @@ fn test_dispatch() {
       "filename.js",
       r#"
       let control = 42;
-      const { op_test } = Deno.core.ensureFastOps();
+      const { op_test } = Deno.core.ops;
       op_test(control);
       async function main() {
         op_test(control);
@@ -427,7 +427,7 @@ fn test_dispatch_no_zero_copy_buf() {
     .execute_script(
       "filename.js",
       r#"
-      const { op_test } = Deno.core.ensureFastOps();
+      const { op_test } = Deno.core.ops;
       op_test(0);
       "#,
     )
@@ -442,7 +442,7 @@ fn test_dispatch_stack_zero_copy_bufs() {
     .execute_script(
       "filename.js",
       r#"
-      const { op_test } = Deno.core.ensureFastOps();
+      const { op_test } = Deno.core.ops;
       let zero_copy_a = new Uint8Array([0]);
       op_test(0, zero_copy_a);
       "#,
@@ -483,7 +483,7 @@ pub async fn test_top_level_await() {
     (
       Url::parse("http://x/main.js").unwrap(),
       r#"
-const { op_sleep_forever } = Deno.core.ensureFastOps();
+const { op_sleep_forever } = Deno.core.ops;
 (async () => await op_sleep_forever())();
 await import('./mod.js');
     "#,
@@ -491,7 +491,7 @@ await import('./mod.js');
     (
       Url::parse("http://x/mod.js").unwrap(),
       r#"
-const { op_void_async_deferred } = Deno.core.ensureFastOps();
+const { op_void_async_deferred } = Deno.core.ops;
 await op_void_async_deferred();
     "#,
     ),
@@ -633,7 +633,7 @@ pub async fn test_op_metrics() {
   .execute_script(
     "filename.js",
     r#"
-    const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ensureFastOps();
+    const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ops;
     async function go() {
       op_sync();
       try { op_sync_error(); } catch {}
@@ -705,7 +705,7 @@ pub async fn test_op_metrics_summary_tracker() {
   .execute_script(
     "filename.js",
     r#"
-    const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ensureFastOps();
+    const { op_sync, op_sync_error, op_async, op_async_error, op_async_yield, op_async_yield_error, op_async_deferred, op_async_lazy, op_async_impl_future_error, op_sync_arg_error, op_async_arg_error } = Deno.core.ops;
     async function go() {
       op_sync();
       try { op_sync_error(); } catch {}
