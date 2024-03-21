@@ -121,7 +121,7 @@ async fn test_wakers_for_async_ops() {
     .execute_script(
       "",
       ascii_str!(
-        "const { op_async_sleep } = Deno.core.ensureFastOps(); (async () => { await op_async_sleep(); })()"
+        "const { op_async_sleep } = Deno.core.ops; (async () => { await op_async_sleep(); })()"
       ),
     )
     .unwrap();
@@ -660,7 +660,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
     .execute_script(
       "macrotasks_and_nextticks.js",
       r#"
-      const { op_async_sleep } = Deno.core.ensureFastOps();
+      const { op_async_sleep } = Deno.core.ops;
       (async function () {
         const results = [];
         Deno.core.setMacrotaskCallback(() => {
@@ -824,7 +824,7 @@ async fn test_promise_rejection_handler_generic(
     function throwError() {
       throw new Error("boom");
     }
-    const { op_void_async, op_void_async_deferred } = Deno.core.ensureFastOps();
+    const { op_void_async, op_void_async_deferred } = Deno.core.ops;
     if (test != "no_handler") {
       Deno.core.setUnhandledPromiseRejectionHandler((promise, rejection) => {
         if (test.startsWith("exception_")) {
@@ -970,11 +970,11 @@ async fn test_dynamic_import_module_error_stack() {
   let loader = StaticModuleLoader::new([
     (
       Url::parse("file:///main.js").unwrap(),
-      "await import(\"file:///import.js\");"
+      "await import(\"file:///import.js\");",
     ),
     (
       Url::parse("file:///import.js").unwrap(),
-      "const { op_async_error } = Deno.core.ensureFastOps(); await op_async_error();",
+      "const { op_async_error } = Deno.core.ops; await op_async_error();",
     ),
   ]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -998,7 +998,7 @@ async fn test_dynamic_import_module_error_stack() {
   assert_eq!(
     js_error.to_string(),
     "Error: foo
-    at async file:///import.js:1:55"
+    at async file:///import.js:1:43"
   );
 }
 
@@ -1024,7 +1024,7 @@ async fn tla_in_esm_extensions_panics() {
       "mod:test" = { source = "import 'mod:tla';" },
       "mod:tla" = {
         source = r#"
-          const { op_wait } = Deno.core.ensureFastOps();
+          const { op_wait } = Deno.core.ops;
           await op_wait(0);
           export const TEST = "foo";
       "#
@@ -1195,7 +1195,7 @@ async fn terminate_execution_run_event_loop_js() {
     .execute_script(
       "sleep_code.js",
       r#"
-              const { op_async_sleep } = Deno.core.ensureFastOps(); 
+              const { op_async_sleep } = Deno.core.ops; 
               async function sleep() {
                 await op_async_sleep();
               }
