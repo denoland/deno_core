@@ -31,6 +31,9 @@ impl ::deno_core::_ops::Op for op_extra_annotation {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_extra_annotation {
@@ -151,6 +154,9 @@ impl ::deno_core::_ops::Op for op_clippy_internal {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_clippy_internal {

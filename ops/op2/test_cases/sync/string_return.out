@@ -13,6 +13,9 @@ impl ::deno_core::_ops::Op for op_string_return {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_string_return {
@@ -98,6 +101,9 @@ impl ::deno_core::_ops::Op for op_string_return_ref {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_string_return_ref {
@@ -183,6 +189,9 @@ impl ::deno_core::_ops::Op for op_string_return_cow {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_string_return_cow {

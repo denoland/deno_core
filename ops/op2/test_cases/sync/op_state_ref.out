@@ -29,6 +29,9 @@ impl ::deno_core::_ops::Op for op_state_ref {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_state_ref {
@@ -171,6 +174,9 @@ impl ::deno_core::_ops::Op for op_state_mut {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_state_mut {
@@ -297,6 +303,9 @@ impl ::deno_core::_ops::Op for op_state_and_v8 {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_state_and_v8 {
@@ -411,6 +420,9 @@ impl ::deno_core::_ops::Op for op_state_and_v8_local {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_state_and_v8_local {

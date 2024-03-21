@@ -29,6 +29,9 @@ impl<T: Trait> ::deno_core::_ops::Op for op_generics<T> {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl<T: Trait> op_generics<T> {
@@ -147,6 +150,9 @@ impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static<T> {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl<T: Trait + 'static> op_generics_static<T> {
@@ -265,6 +271,9 @@ impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static_where<T> {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl<T: Trait + 'static> op_generics_static_where<T> {

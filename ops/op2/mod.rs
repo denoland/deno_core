@@ -240,6 +240,9 @@ fn generate_op2(
     .map(|p| parse_str::<Type>(p).expect("Failed to reparse type bounds"))
     .collect::<Vec<_>>();
 
+  let meta_key = signature.metadata.keys().collect::<Vec<_>>();
+  let meta_value = signature.metadata.values().collect::<Vec<_>>();
+
   Ok(quote! {
     #[allow(non_camel_case_types)]
     #(#attrs)*
@@ -259,6 +262,10 @@ fn generate_op2(
         /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
         /*fast_fn*/ #fast_definition,
         /*fast_fn_metrics*/ #fast_definition_metrics,
+        /*metadata*/ ::deno_core::OpMetadata {
+          #(#meta_key: Some(#meta_value),)*
+          ..::deno_core::OpMetadata::default()
+        },
       );
     }
 
