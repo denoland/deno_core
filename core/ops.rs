@@ -247,6 +247,10 @@ impl OpCtx {
   pub(crate) fn runtime_state(&self) -> &JsRuntimeState {
     &self.runtime_state
   }
+
+  pub fn metadata(&self) -> OpMetadata {
+    self.decl.metadata
+  }
 }
 
 /// Maintains the resources and ops inside a JS runtime.
