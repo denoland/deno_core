@@ -263,7 +263,7 @@ fn generate_op2(
         /*fast_fn*/ #fast_definition,
         /*fast_fn_metrics*/ #fast_definition_metrics,
         /*metadata*/ ::deno_core::OpMetadata {
-          #(#meta_key: #meta_value,)*
+          #(#meta_key: Some(#meta_value),)*
           ..::deno_core::OpMetadata::default()
         },
       );

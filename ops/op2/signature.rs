@@ -1214,6 +1214,10 @@ fn parse_attributes(
 /// Is this a special attribute that we understand?
 pub fn is_attribute_special(attr: &Attribute) -> bool {
   parse_attribute(attr).unwrap_or_default().is_some()
+    // this is kind of ugly, but #[meta(..)] is the only
+    // attribute that we want to omit from the generated code 
+    // that doesn't have a semantic meaning
+    || attr.path().is_ident("meta")
 }
 
 /// Parses an attribute, returning None if this is an attribute we support but is
