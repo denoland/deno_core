@@ -351,9 +351,8 @@ impl<T: Clone> WebTimers<T> {
     }) = data_map.remove(&timer)
     {
       if data_map.is_empty() {
-        // When the # of running timers hits zero, clear the timer tree and
-        // tombstone count. When debug assertions are enabled, we do a
-        // consistency check.
+        // When the # of running timers hits zero, clear the timer tree.
+        // When debug assertions are enabled, we do a consistency check.
         debug_assert_eq!(self.unrefd_count.get(), if unrefd { 1 } else { 0 });
         #[cfg(any(windows, test))]
         debug_assert_eq!(self.high_res_timer_lock.is_locked(), high_res);
@@ -429,15 +428,15 @@ impl<T: Clone> WebTimers<T> {
 
     let tombstone_count = timers.len() - data.len();
     if data.is_empty() {
-      // When the # of running timers hits zero, clear the timer tree and
-      // tombstone count.
+      // When the # of running timers hits zero, clear the timer tree.
       if tombstone_count > 0 {
         timers.clear();
         self.sleep.clear();
       }
     } else {
       const COMPACTION_MINIMUM: usize = 16;
-      // If we have more tombstones than data, and tombstones are > COMPACTION_MINIMUM, run a compaction
+      // If we have more tombstones than data, and tombstones are >
+      // COMPACTION_MINIMUM, run a compaction.
       if tombstone_count > data.len() && tombstone_count > COMPACTION_MINIMUM {
         timers.retain(|k| data.contains_key(&k.1));
       }
