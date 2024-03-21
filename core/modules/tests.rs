@@ -1849,3 +1849,23 @@ fn test_load_with_code_cache() {
     assert_eq!(keys, vec!["file:///a.js", "file:///b.js",]);
   }
 }
+
+#[test]
+fn ext_module_loader_relative() {
+  let loader = ExtModuleLoader::new(vec![]).unwrap();
+  let cases = [
+    (
+      ("../../foo.js", "ext:test/nested/mod/bar.js"),
+      "ext:test/foo.js",
+    ),
+    (("./foo.js", "ext:test/bar.js"), "ext:test/foo.js"),
+    ((".././foo.js", "ext:test/bar.js"), "ext:foo.js"),
+    (("./foo.js", "ext:bar.js"), "ext:foo.js"),
+  ];
+  for ((specifier, referrer), expected) in cases {
+    let result = loader
+      .resolve(specifier, referrer, ResolutionKind::Import)
+      .unwrap();
+    assert_eq!(result.as_str(), expected);
+  }
+}
