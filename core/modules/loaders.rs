@@ -179,6 +179,21 @@ impl ModuleLoader for ExtModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, Error> {
+    // If specifier is relative to an extension module, we need to do some special handling
+    if specifier.starts_with("../")
+      || specifier.starts_with("./")
+      || referrer.starts_with("ext:")
+    {
+      // add `/` to the referrer to make it a valid base URL, so we can join the specifier to it
+      return Ok(crate::resolve_url(
+        &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())?
+          .join(specifier)
+          .map_err(crate::ModuleResolutionError::InvalidBaseUrl)?
+          .as_str()
+          // remove the `/` we added
+          .replace("ext:/", "ext:"),
+      )?);
+    }
     Ok(resolve_import(specifier, referrer)?)
   }
 
