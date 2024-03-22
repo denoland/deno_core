@@ -237,12 +237,27 @@ pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
     .set(v);
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct EvalContextError<'s> {
-  thrown: serde_v8::Value<'s>,
+  thrown: v8::Local<'s, v8::Value>,
   is_native_error: bool,
   is_compile_error: bool,
+}
+
+impl<'s> EvalContextError<'s> {
+  fn to_v8(&self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Value> {
+    let obj = v8::Object::new(scope);
+    let k = v8::String::new_external_onebyte_static(scope, b"thrown").unwrap();
+    obj.set(scope, k.into(), self.thrown);
+    let k =
+      v8::String::new_external_onebyte_static(scope, b"isNativeError").unwrap();
+    let v = v8::Boolean::new(scope, self.is_native_error);
+    obj.set(scope, k.into(), v.into());
+    let k = v8::String::new_external_onebyte_static(scope, b"isCompileError")
+      .unwrap();
+    let v = v8::Boolean::new(scope, self.is_compile_error);
+    obj.set(scope, k.into(), v.into());
+    obj.into()
+  }
 }
 
 #[op2(reentrant)]
@@ -295,11 +310,11 @@ pub fn op_eval_context<'a>(
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
       let e = EvalContextError {
-        thrown: exception.into(),
+        thrown: exception,
         is_native_error: is_instance_of_error(tc_scope, exception),
         is_compile_error: true,
       };
-      let eval_context_error = serde_v8::to_v8(tc_scope, e).unwrap();
+      let eval_context_error = e.to_v8(tc_scope);
       out.set_index(tc_scope, 0, null.into());
       out.set_index(tc_scope, 1, eval_context_error);
       return Ok(out.into());
@@ -326,11 +341,11 @@ pub fn op_eval_context<'a>(
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
       let e = EvalContextError {
-        thrown: exception.into(),
+        thrown: exception,
         is_native_error: is_instance_of_error(tc_scope, exception),
         is_compile_error: false,
       };
-      let eval_context_error = serde_v8::to_v8(tc_scope, e).unwrap();
+      let eval_context_error = e.to_v8(tc_scope);
       out.set_index(tc_scope, 0, null.into());
       out.set_index(tc_scope, 1, eval_context_error);
       Ok(out.into())
