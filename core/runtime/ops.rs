@@ -1854,10 +1854,9 @@ mod tests {
   }
 
   #[op2]
-  pub fn op_test_make_cppgc_resource<'s>(
-    scope: &'s mut v8::HandleScope,
-  ) -> v8::Local<'s, v8::Object> {
-    crate::cppgc::make_cppgc_object(scope, TestResource { value: 42 })
+  #[cppgc]
+  pub fn op_test_make_cppgc_resource() -> TestResource {
+    TestResource { value: 42 }
   }
 
   #[op2(fast)]

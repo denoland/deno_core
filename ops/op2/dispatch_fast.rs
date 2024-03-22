@@ -876,7 +876,8 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Global(_)
-    | Arg::OptionV8Ref(..) => return Ok(None),
+    | Arg::OptionV8Ref(..)
+    | Arg::CppGcResource(..) => return Ok(None),
     Arg::Buffer(..) | Arg::OptionBuffer(..) => return Ok(None),
     Arg::External(..) => V8FastCallType::Pointer,
     _ => return Err("a fast return value"),
