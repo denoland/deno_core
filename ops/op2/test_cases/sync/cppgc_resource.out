@@ -194,8 +194,8 @@ impl op_make_cppgc_object {
         let result = { Self::call() };
         rv.set(
             deno_core::_ops::RustToV8NoScope::to_v8(
-                v8::Local::<
-                    v8::Value,
+                deno_core::v8::Local::<
+                    deno_core::v8::Value,
                 >::from(deno_core::cppgc::make_cppgc_object(&mut scope, result)),
             ),
         );

@@ -717,7 +717,7 @@ pub fn return_value_infallible(
     }
     ArgMarker::Cppgc => {
       generator_state.needs_scope = true;
-      gs_quote!(generator_state(scope, result) => (v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_object(&mut #scope, #result))))
+      gs_quote!(generator_state(scope, result) => (deno_core::v8::Local::<deno_core::v8::Value>::from(deno_core::cppgc::make_cppgc_object(&mut #scope, #result))))
     }
     ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
   };
