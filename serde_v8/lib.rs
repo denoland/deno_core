@@ -30,4 +30,3 @@ pub use magic::Value;
 pub use ser::to_v8;
 pub use ser::Serializer;
 pub use serializable::Serializable;
-pub use serializable::SerializablePkg;
