@@ -151,7 +151,7 @@ impl op_fast {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: u32,
         arg1: u32,
@@ -176,7 +176,7 @@ impl op_fast {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: u32,
         arg1: u32,
@@ -425,7 +425,7 @@ impl<T: Trait> op_fast_generic<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: u32,
         arg1: u32,
@@ -450,7 +450,7 @@ impl<T: Trait> op_fast_generic<T> {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: u32,
         arg1: u32,
