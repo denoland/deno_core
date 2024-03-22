@@ -565,25 +565,17 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
   }
 }
 
-#[derive(Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SerializeDeserializeOptions<'a> {
-  host_objects: Option<serde_v8::Value<'a>>,
-  transferred_array_buffers: Option<serde_v8::Value<'a>>,
-  #[serde(default)]
-  for_storage: bool,
-}
-
 // May be reentrant in the case of errors.
 #[op2(reentrant)]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,
-  #[serde] options: Option<SerializeDeserializeOptions>,
+  host_objects: Option<v8::Local<v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+  for_storage: bool,
   error_callback: Option<v8::Local<v8::Value>>,
 ) -> Result<Vec<u8>, Error> {
-  let options = options.unwrap_or_default();
   let error_callback = match error_callback {
     Some(cb) => Some(
       v8::Local::<v8::Function>::try_from(cb)
@@ -591,16 +583,16 @@ pub fn op_serialize(
     ),
     None => None,
   };
-  let host_objects = match options.host_objects {
+  let host_objects = match host_objects {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
-  let transferred_array_buffers = match options.transferred_array_buffers {
+  let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("transferredArrayBuffers not an array"))?,
     ),
     None => None,
@@ -613,7 +605,7 @@ pub fn op_serialize(
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback,
-    for_storage: options.for_storage,
+    for_storage,
     host_object_brand,
   });
   let mut value_serializer =
@@ -671,19 +663,20 @@ pub fn op_serialize(
 pub fn op_deserialize<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: JsBuffer,
-  #[serde] options: Option<SerializeDeserializeOptions>,
+  host_objects: Option<v8::Local<v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+  for_storage: bool,
 ) -> Result<v8::Local<'a, v8::Value>, Error> {
-  let options = options.unwrap_or_default();
-  let host_objects = match options.host_objects {
+  let host_objects = match host_objects {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
-  let transferred_array_buffers = match options.transferred_array_buffers {
+  let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("transferredArrayBuffers not an array"))?,
     ),
     None => None,
@@ -692,7 +685,7 @@ pub fn op_deserialize<'a>(
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback: None,
-    for_storage: options.for_storage,
+    for_storage,
     host_object_brand: None,
   });
   let mut value_deserializer =

@@ -654,8 +654,23 @@
       value,
       options,
       errorCallback,
-    ) => op_serialize(value, options, errorCallback),
-    deserialize: (buffer, options) => op_deserialize(buffer, options),
+    ) => {
+      return op_serialize(
+        value,
+        options?.hostObjects,
+        options?.transferredArrayBuffers,
+        options?.forStorage ?? false,
+        errorCallback,
+      );
+    },
+    deserialize: (buffer, options) => {
+      return op_deserialize(
+        buffer,
+        options?.hostObjects,
+        options?.transferredArrayBuffers,
+        options?.forStorage ?? false,
+      );
+    },
     getPromiseDetails: (promise) => op_get_promise_details(promise),
     getProxyDetails: (proxy) => op_get_proxy_details(proxy),
     isAnyArrayBuffer: (value) => op_is_any_array_buffer(value),
