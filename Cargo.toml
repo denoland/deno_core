@@ -39,7 +39,6 @@ cooked-waker = "5"
 fastrand = "2"
 futures = "0.3.21"
 libc = "0.2.126"
-log = "0.4.17"
 memoffset = ">=0.9"
 num-bigint = { version = "0.4", features = ["rand"] }
 parking_lot = "0.12.0"
