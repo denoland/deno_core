@@ -726,24 +726,29 @@ pub fn op_deserialize<'a>(
   }
 }
 
-#[derive(Serialize)]
-pub struct PromiseDetails<'s>(u32, Option<serde_v8::Value<'s>>);
-
 #[op2]
-#[serde]
 pub fn op_get_promise_details<'a>(
   scope: &mut v8::HandleScope<'a>,
   promise: v8::Local<'a, v8::Promise>,
-) -> Result<PromiseDetails<'a>, Error> {
-  match promise.state() {
-    v8::PromiseState::Pending => Ok(PromiseDetails(0, None)),
+) -> v8::Local<'a, v8::Value> {
+  let out = v8::Array::new(scope, 2);
+
+  let (i, val) = match promise.state() {
+    v8::PromiseState::Pending => {
+      (v8::Integer::new(scope, 0), v8::null(scope).into())
+    }
     v8::PromiseState::Fulfilled => {
-      Ok(PromiseDetails(1, Some(promise.result(scope).into())))
+      (v8::Integer::new(scope, 1), promise.result(scope))
     }
     v8::PromiseState::Rejected => {
-      Ok(PromiseDetails(2, Some(promise.result(scope).into())))
+      (v8::Integer::new(scope, 2), promise.result(scope))
     }
-  }
+  };
+
+  out.set_index(scope, 0, i.into());
+  out.set_index(scope, 1, val);
+
+  out.into()
 }
 
 #[op2]
