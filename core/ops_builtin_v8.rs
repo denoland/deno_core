@@ -245,18 +245,13 @@ pub struct EvalContextError<'s> {
 
 impl<'s> EvalContextError<'s> {
   fn to_v8(&self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Value> {
-    let obj = v8::Object::new(scope);
-    let k = v8::String::new_external_onebyte_static(scope, b"thrown").unwrap();
-    obj.set(scope, k.into(), self.thrown);
-    let k =
-      v8::String::new_external_onebyte_static(scope, b"isNativeError").unwrap();
+    let arr = v8::Array::new(scope, 3);
+    arr.set_index(scope, 0, self.thrown);
     let v = v8::Boolean::new(scope, self.is_native_error);
-    obj.set(scope, k.into(), v.into());
-    let k = v8::String::new_external_onebyte_static(scope, b"isCompileError")
-      .unwrap();
+    arr.set_index(scope, 1, v.into());
     let v = v8::Boolean::new(scope, self.is_compile_error);
-    obj.set(scope, k.into(), v.into());
-    obj.into()
+    arr.set_index(scope, 2, v.into());
+    arr.into()
   }
 }
 

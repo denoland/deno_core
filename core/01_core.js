@@ -645,7 +645,21 @@
     evalContext: (
       source,
       specifier,
-    ) => op_eval_context(source, specifier),
+    ) => {
+      const [result, error] = op_eval_context(source, specifier);
+      if (error) {
+        const { 0: thrown, 1: isNativeError, 2: isCompileError } = error;
+        return [
+          result,
+          {
+            thrown,
+            isNativeError,
+            isCompileError,
+          },
+        ];
+      }
+      return [result, null];
+    },
     hostObjectBrand,
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
