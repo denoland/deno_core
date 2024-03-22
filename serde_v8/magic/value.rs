@@ -17,33 +17,6 @@ pub struct Value<'s> {
 }
 impl_magic!(Value<'_>);
 
-impl<'s> Value<'s> {
-  /// Converts this to a [`v8::Global`] infallibly, if this `v8` type can be converted infallibly
-  /// to [`v8::Global<T>`] (eg: [`v8::Data`] or [`v8::Value`]).
-  pub fn as_global<T>(&self, scope: &mut v8::HandleScope<'s>) -> v8::Global<T>
-  where
-    v8::Local<'s, T>: From<v8::Local<'s, v8::Value>>,
-  {
-    let local = v8::Local::<T>::from(self.v8_value);
-    v8::Global::new(scope, local)
-  }
-
-  /// Converts this to a [`v8::Global`] fallibly.
-  pub fn try_as_global<T>(
-    &self,
-    scope: &mut v8::HandleScope<'s>,
-  ) -> Result<
-    v8::Global<T>,
-    <v8::Local<'s, T> as TryFrom<v8::Local<'s, v8::Value>>>::Error,
-  >
-  where
-    v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Value>>,
-  {
-    let local = v8::Local::<T>::try_from(self.v8_value)?;
-    Ok(v8::Global::new(scope, local))
-  }
-}
-
 impl<'s, T> From<v8::Local<'s, T>> for Value<'s>
 where
   v8::Local<'s, T>: Into<v8::Local<'s, v8::Value>>,
