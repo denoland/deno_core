@@ -245,19 +245,13 @@ pub struct EvalContextError<'s> {
   is_compile_error: bool,
 }
 
-#[derive(Serialize)]
-pub struct EvalContextResult<'s>(
-  Option<serde_v8::Value<'s>>,
-  Option<EvalContextError<'s>>,
-);
-
 #[op2(reentrant)]
-#[serde]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
   source: v8::Local<'a, v8::Value>,
   #[string] specifier: String,
-) -> Result<EvalContextResult<'a>, Error> {
+) -> Result<v8::Local<'a, v8::Value>, Error> {
+  let out = v8::Array::new(scope, 2);
   let state = JsRuntime::state_from(scope);
   let tc_scope = &mut v8::TryCatch::new(scope);
   let source = v8::Local::<v8::String>::try_from(source)
@@ -294,19 +288,21 @@ pub fn op_eval_context<'a>(
       (v8::Script::compile(tc_scope, source, Some(&origin)), true)
     });
 
+  let null = v8::null(tc_scope);
   let script = match script {
     Some(s) => s,
     None => {
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
-      return Ok(EvalContextResult(
-        None,
-        Some(EvalContextError {
-          thrown: exception.into(),
-          is_native_error: is_instance_of_error(tc_scope, exception),
-          is_compile_error: true,
-        }),
-      ));
+      let e = EvalContextError {
+        thrown: exception.into(),
+        is_native_error: is_instance_of_error(tc_scope, exception),
+        is_compile_error: true,
+      };
+      let eval_context_error = serde_v8::to_v8(tc_scope, e).unwrap();
+      out.set_index(tc_scope, 0, null.into());
+      out.set_index(tc_scope, 1, eval_context_error);
+      return Ok(out.into());
     }
   };
 
@@ -321,18 +317,23 @@ pub fn op_eval_context<'a>(
   }
 
   match script.run(tc_scope) {
-    Some(result) => Ok(EvalContextResult(Some(result.into()), None)),
+    Some(result) => {
+      out.set_index(tc_scope, 0, result);
+      out.set_index(tc_scope, 1, null.into());
+      Ok(out.into())
+    }
     None => {
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
-      Ok(EvalContextResult(
-        None,
-        Some(EvalContextError {
-          thrown: exception.into(),
-          is_native_error: is_instance_of_error(tc_scope, exception),
-          is_compile_error: false,
-        }),
-      ))
+      let e = EvalContextError {
+        thrown: exception.into(),
+        is_native_error: is_instance_of_error(tc_scope, exception),
+        is_compile_error: false,
+      };
+      let eval_context_error = serde_v8::to_v8(tc_scope, e).unwrap();
+      out.set_index(tc_scope, 0, null.into());
+      out.set_index(tc_scope, 1, eval_context_error);
+      Ok(out.into())
     }
   }
 }
