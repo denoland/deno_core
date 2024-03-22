@@ -476,6 +476,7 @@ impl Arg {
         Arg::OptionBuffer(.., BufferSource::TypedArray) => {
           ArgSlowRetval::V8LocalFalliable
         }
+        Arg::CppGcResource(_) => ArgSlowRetval::V8LocalNoScope,
         _ => ArgSlowRetval::None,
       }
     }
@@ -491,6 +492,7 @@ impl Arg {
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
+      Arg::CppGcResource(_) => ArgMarker::Cppgc,
       _ => ArgMarker::None,
     }
   }
@@ -527,6 +529,8 @@ pub enum ArgMarker {
   Number,
   /// This buffer type should be serialized as an ArrayBuffer.
   ArrayBuffer,
+  /// This type should be wrapped as a cppgc V8 object.
+  Cppgc,
 }
 
 #[derive(Debug)]
@@ -1449,12 +1453,17 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
-fn parse_cppgc(ty: &Type) -> Result<Arg, ArgError> {
-  match ty {
-    Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
-      Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
-      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-    },
+fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
+  match (position, ty) {
+    (Position::Arg, Type::Reference(of)) if of.mutability.is_none() => {
+      match &*of.elem {
+        Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+        _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+      }
+    }
+    (Position::RetVal, Type::Path(of)) => {
+      Ok(Arg::CppGcResource(stringify_token(&of.path)))
+    }
     _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
   }
 }
@@ -1469,7 +1478,7 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.primary {
     match primary {
-      AttributeModifier::CppGcResource => return parse_cppgc(ty),
+      AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
       AttributeModifier::Serde => match ty {
         Type::Tuple(of) => {
           return Ok(Arg::SerdeV8(stringify_token(of)));
