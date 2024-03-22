@@ -83,10 +83,7 @@ pub fn op_leak_tracing_get_all<'s>(
 ) -> v8::Local<'s, v8::Value> {
   let context_state = JsRealm::state_from_scope(scope);
   // This is relatively inefficient, but so is leak tracing
-  let out = v8::Array::new(
-    scope,
-    context_state.activity_traces.count().try_into().unwrap(),
-  );
+  let out = v8::Array::new(scope, 0);
 
   let mut idx = 0;
   context_state.activity_traces.get_all(|kind, id, trace| {
