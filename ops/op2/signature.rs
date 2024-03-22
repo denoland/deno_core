@@ -1464,7 +1464,6 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
     (Position::RetVal, Type::Path(of)) => {
       Ok(Arg::CppGcResource(stringify_token(&of.path)))
     }
-    // (Position::Arg, _) => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
     _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
   }
 }
