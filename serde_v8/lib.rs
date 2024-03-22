@@ -25,8 +25,6 @@ pub use magic::u16string::U16String;
 pub use magic::v8slice::V8Slice;
 pub use magic::v8slice::V8Sliceable;
 pub use magic::ExternalPointer;
-// pub use magic::Global;
-pub use magic::Value;
 pub use ser::to_v8;
 pub use ser::Serializer;
 pub use serializable::Serializable;

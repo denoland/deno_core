@@ -6,21 +6,15 @@ use serde_v8::Result;
 use serde_v8_utilities::js_exec;
 use serde_v8_utilities::v8_do;
 
-#[derive(Deserialize)]
-struct MagicOp<'s> {
+#[derive(Serialize, Deserialize)]
+struct MagicOp {
   #[allow(unused)]
   pub a: u64,
   #[allow(unused)]
   pub b: u64,
-  pub c: serde_v8::Value<'s>,
+  pub c: String,
   #[allow(unused)]
   pub operator: Option<String>,
-}
-
-#[derive(Serialize)]
-struct MagicContainer<'s> {
-  pub magic: bool,
-  pub contains: serde_v8::Value<'s>,
 }
 
 #[test]
@@ -34,25 +28,17 @@ fn magic_basic() {
     // Decode
     let v = js_exec(scope, "({a: 1, b: 3, c: 'abracadabra'})");
     let mop: MagicOp = serde_v8::from_v8(scope, v).unwrap();
-    // Check string
-    let v8_value: v8::Local<v8::Value> = mop.c.into();
-    let vs = v8::Local::<v8::String>::try_from(v8_value).unwrap();
-    let s = vs.to_rust_string_lossy(scope);
-    assert_eq!(s, "abracadabra");
+    assert_eq!(mop.a, 1);
+    assert_eq!(mop.b, 3);
+    assert_eq!(mop.c, "abracadabra");
+    assert!(mop.operator.is_none());
 
     // Encode
-    let container = MagicContainer {
-      magic: true,
-      contains: v.into(),
-    };
-    let vc = serde_v8::to_v8(scope, container).unwrap();
+    let vc = serde_v8::to_v8(scope, mop).unwrap();
     // JSON stringify & check
     let json = v8::json::stringify(scope, vc).unwrap();
     let s2 = json.to_rust_string_lossy(scope);
-    assert_eq!(
-      s2,
-      r#"{"magic":true,"contains":{"a":1,"b":3,"c":"abracadabra"}}"#
-    );
+    assert_eq!(s2, r#"{"a":1,"b":3,"c":"abracadabra","operator":null}"#);
   })
 }
 
