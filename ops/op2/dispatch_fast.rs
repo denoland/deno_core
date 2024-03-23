@@ -485,7 +485,7 @@ pub(crate) fn generate_dispatch_fast(
     fastsig.input_args(generator_state).into_iter().unzip();
   let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
-    fn #fast_function_metrics(
+    extern "C" fn #fast_function_metrics(
       this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_metrics_names: #fastcall_metrics_types, )*
     ) -> #output_type {
@@ -502,7 +502,7 @@ pub(crate) fn generate_dispatch_fast(
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn #fast_function(
+    extern "C" fn #fast_function(
       _: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {

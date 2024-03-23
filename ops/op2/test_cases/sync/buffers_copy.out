@@ -54,7 +54,7 @@ impl op_buffers {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
@@ -80,7 +80,7 @@ impl op_buffers {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
@@ -274,7 +274,7 @@ impl op_buffers_32 {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
@@ -299,7 +299,7 @@ impl op_buffers_32 {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
