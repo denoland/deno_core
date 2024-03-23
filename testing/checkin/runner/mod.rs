@@ -52,6 +52,8 @@ deno_core::extension!(
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,
     ops_async::op_async_spin_on_state,
+    ops_async::op_async_make_cppgc_resource,
+    ops_async::op_async_get_cppgc_resource,
     ops_error::op_async_throw_error_eager,
     ops_error::op_async_throw_error_lazy,
     ops_error::op_async_throw_error_deferred,

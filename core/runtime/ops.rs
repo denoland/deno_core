@@ -597,9 +597,7 @@ mod tests {
       op_buffer_any_length,
       op_arraybuffer_slice,
       op_test_get_cppgc_resource,
-      op_test_get_cppgc_resource_async,
       op_test_make_cppgc_resource,
-      op_test_make_cppgc_resource_async,
       op_external_make,
       op_external_process,
       op_external_make_ptr,
@@ -1867,20 +1865,6 @@ mod tests {
     resource.value
   }
 
-  #[op2(async)]
-  #[cppgc]
-  pub async fn op_test_make_cppgc_resource_async() -> TestResource {
-    TestResource { value: 42 }
-  }
-
-  #[op2(async)]
-  #[smi]
-  pub async fn op_test_get_cppgc_resource_async(
-    #[cppgc] resource: &TestResource,
-  ) -> u32 {
-    resource.value
-  }
-
   #[test]
   pub fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
@@ -1890,20 +1874,6 @@ mod tests {
       const resource = op_test_make_cppgc_resource();
       assert(op_test_get_cppgc_resource(resource) == 42);",
     )?;
-    Ok(())
-  }
-
-  #[tokio::test]
-  pub async fn test_op_cppgc_object_async(
-  ) -> Result<(), Box<dyn std::error::Error>> {
-    run_async_test(
-      10,
-      "op_test_make_cppgc_resource_async, op_test_get_cppgc_resource, op_test_get_cppgc_resource_async",
-      r"
-      const resource = await op_test_make_cppgc_resource_async();
-      assert(op_test_get_cppgc_resource(resource) == 42);
-      assert(await op_test_get_cppgc_resource_async(resource) == 42);",
-    ).await?;
     Ok(())
   }
 
