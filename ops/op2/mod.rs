@@ -150,7 +150,6 @@ fn generate_op2(
   let mut generator_state = GeneratorState {
     args,
     fn_args,
-    call,
     scope,
     info,
     opctx,
