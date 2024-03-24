@@ -46,3 +46,21 @@ pub async fn op_async_spin_on_state(state: Rc<RefCell<OpState>>) {
   })
   .await
 }
+
+pub struct TestResource {
+  value: u32,
+}
+
+#[op2(async)]
+#[cppgc]
+pub async fn op_async_make_cppgc_resource() -> TestResource {
+  TestResource { value: 42 }
+}
+
+#[op2(async)]
+#[smi]
+pub async fn op_async_get_cppgc_resource(
+  #[cppgc] resource: &TestResource,
+) -> u32 {
+  resource.value
+}

@@ -41,7 +41,6 @@ use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
-use log::debug;
 use v8::Function;
 use v8::PromiseState;
 
@@ -338,10 +337,6 @@ impl ModuleMap {
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
-      debug!(
-        "Already-registered module fetched again: {:?}",
-        module_url_found
-      );
       return Ok(module_id);
     }
 

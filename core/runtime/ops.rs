@@ -658,8 +658,9 @@ mod tests {
     runtime
       .execute_script(
         "",
-        format!(r"
-          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+        format!(
+          r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ops;
           function assert(b) {{
             if (!b) {{
               op_test_fail();
@@ -671,7 +672,8 @@ mod tests {
           function log(s) {{
             op_test_print_debug(String(s))
           }}
-        ")
+        "
+        ),
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
@@ -707,8 +709,9 @@ mod tests {
     runtime
       .execute_script(
         "",
-        format!(r"
-          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
+        format!(
+          r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ops;
           function assert(b) {{
             if (!b) {{
               op_test_fail();
@@ -720,7 +723,8 @@ mod tests {
           function log(s) {{
             op_test_print_debug(String(s))
           }}
-        ")
+        "
+        ),
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
@@ -1850,10 +1854,9 @@ mod tests {
   }
 
   #[op2]
-  pub fn op_test_make_cppgc_resource<'s>(
-    scope: &'s mut v8::HandleScope,
-  ) -> v8::Local<'s, v8::Object> {
-    crate::cppgc::make_cppgc_object(scope, TestResource { value: 42 })
+  #[cppgc]
+  pub fn op_test_make_cppgc_resource() -> TestResource {
+    TestResource { value: 42 }
   }
 
   #[op2(fast)]

@@ -5,7 +5,6 @@ mod keys;
 mod magic;
 mod payload;
 mod ser;
-mod serializable;
 
 pub use de::from_v8;
 pub use de::from_v8_cached;
@@ -29,5 +28,3 @@ pub use magic::Global;
 pub use magic::Value;
 pub use ser::to_v8;
 pub use ser::Serializer;
-pub use serializable::Serializable;
-pub use serializable::SerializablePkg;

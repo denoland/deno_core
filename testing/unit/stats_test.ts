@@ -12,7 +12,7 @@ import {
   test,
 } from "checkin:testing";
 
-const { op_pipe_create } = Deno.core.ensureFastOps();
+const { op_pipe_create } = Deno.core.ops;
 
 test(async function testStatsOps() {
   using statsBefore = StatsFactory.capture();

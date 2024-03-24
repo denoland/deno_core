@@ -118,6 +118,7 @@ pub use crate::modules::StaticModuleLoader;
 pub use crate::modules::ValidateImportAttributesCb;
 pub use crate::normalize_path::normalize_path;
 pub use crate::ops::OpId;
+pub use crate::ops::OpMetadata;
 pub use crate::ops::OpState;
 pub use crate::ops::PromiseId;
 pub use crate::ops_builtin::op_close;

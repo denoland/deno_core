@@ -55,6 +55,23 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
   Some(ReentrancyGuard {})
 }
 
+#[derive(Clone, Copy)]
+pub struct OpMetadata {
+  /// A description of the op for use in sanitizer output.
+  pub sanitizer_details: Option<&'static str>,
+  /// The fix for the issue described in `sanitizer_details`.
+  pub sanitizer_fix: Option<&'static str>,
+}
+
+impl OpMetadata {
+  pub const fn default() -> Self {
+    Self {
+      sanitizer_details: None,
+      sanitizer_fix: None,
+    }
+  }
+}
+
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is

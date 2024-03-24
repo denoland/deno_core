@@ -94,7 +94,7 @@ async fn js_realm_ref_unref_ops() {
         runtime.v8_isolate(),
         "",
         r#"
-        const { op_pending } = Deno.core.ensureFastOps();
+        const { op_pending } = Deno.core.ops;
         var promise = op_pending();
         "#,
       )

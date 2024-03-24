@@ -8,6 +8,8 @@ use quote::quote;
 use quote::ToTokens;
 use quote::TokenStreamExt;
 use std::collections::BTreeMap;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
 
 use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
@@ -474,6 +476,7 @@ impl Arg {
         Arg::OptionBuffer(.., BufferSource::TypedArray) => {
           ArgSlowRetval::V8LocalFalliable
         }
+        Arg::CppGcResource(_) => ArgSlowRetval::V8LocalNoScope,
         _ => ArgSlowRetval::None,
       }
     }
@@ -489,6 +492,7 @@ impl Arg {
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
+      Arg::CppGcResource(_) => ArgMarker::Cppgc,
       _ => ArgMarker::None,
     }
   }
@@ -525,6 +529,8 @@ pub enum ArgMarker {
   Number,
   /// This buffer type should be serialized as an ArrayBuffer.
   ArrayBuffer,
+  /// This type should be wrapped as a cppgc V8 object.
+  Cppgc,
 }
 
 #[derive(Debug)]
@@ -698,6 +704,8 @@ pub struct ParsedSignature {
   pub lifetime: Option<String>,
   // Generic bounds: each generic must have one and only simple trait bound
   pub generic_bounds: BTreeMap<String, String>,
+  // Metadata keys and values
+  pub metadata: BTreeMap<Ident, syn::Lit>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -811,6 +819,8 @@ pub enum SignatureError {
   InvalidOpStateCombination,
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
+  #[error("Invalid metadata attribute: {0}")]
+  InvalidMetaAttribute(#[source] syn::Error),
 }
 
 #[derive(Error, Debug)]
@@ -911,6 +921,66 @@ pub(crate) fn stringify_token(tokens: impl ToTokens) -> String {
     .replace(" , ", ", ")
 }
 
+struct MetadataPair {
+  key: Ident,
+  _eq: syn::Token![=],
+  value: syn::Lit,
+}
+
+impl Parse for MetadataPair {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    Ok(Self {
+      key: input.parse()?,
+      _eq: input.parse()?,
+      value: input.parse()?,
+    })
+  }
+}
+
+impl Parse for MetadataPairs {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    let pairs = input.parse_terminated(MetadataPair::parse, syn::Token![,])?;
+    Ok(Self { pairs })
+  }
+}
+
+struct MetadataPairs {
+  pairs: syn::punctuated::Punctuated<MetadataPair, syn::Token![,]>,
+}
+
+fn parse_metadata_pairs(
+  attr: &Attribute,
+) -> Result<Vec<(Ident, syn::Lit)>, SignatureError> {
+  let syn::Meta::List(meta) = &attr.meta else {
+    return Ok(vec![]);
+  };
+  if !meta.path.is_ident("meta") {
+    return Ok(vec![]);
+  }
+
+  let pairs = meta
+    .parse_args_with(MetadataPairs::parse)
+    .map_err(SignatureError::InvalidMetaAttribute)?;
+  Ok(
+    pairs
+      .pairs
+      .into_iter()
+      .map(|pair| (pair.key, pair.value))
+      .collect(),
+  )
+}
+
+fn parse_metadata(
+  attributes: &[Attribute],
+) -> Result<BTreeMap<Ident, syn::Lit>, SignatureError> {
+  let mut metadata = BTreeMap::new();
+  for attr in attributes {
+    let pairs = parse_metadata_pairs(attr)?;
+    metadata.extend(pairs);
+  }
+  Ok(metadata)
+}
+
 pub fn parse_signature(
   attributes: Vec<Attribute>,
   signature: Signature,
@@ -978,12 +1048,15 @@ pub fn parse_signature(
     return Err(SignatureError::InvalidMultipleJsRuntimeState);
   }
 
+  let metadata = parse_metadata(&attributes)?;
+
   Ok(ParsedSignature {
     args,
     names,
     ret_val,
     lifetime,
     generic_bounds,
+    metadata,
   })
 }
 
@@ -1145,6 +1218,10 @@ fn parse_attributes(
 /// Is this a special attribute that we understand?
 pub fn is_attribute_special(attr: &Attribute) -> bool {
   parse_attribute(attr).unwrap_or_default().is_some()
+    // this is kind of ugly, but #[meta(..)] is the only
+    // attribute that we want to omit from the generated code 
+    // that doesn't have a semantic meaning
+    || attr.path().is_ident("meta")
 }
 
 /// Parses an attribute, returning None if this is an attribute we support but is
@@ -1183,6 +1260,7 @@ fn parse_attribute(
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
+      (#[meta ($($_key: ident = $_value: literal),*)]) => None,
     })
   }).map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
   Ok(res)
@@ -1375,12 +1453,17 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
-fn parse_cppgc(ty: &Type) -> Result<Arg, ArgError> {
-  match ty {
-    Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
-      Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
-      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-    },
+fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
+  match (position, ty) {
+    (Position::Arg, Type::Reference(of)) if of.mutability.is_none() => {
+      match &*of.elem {
+        Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+        _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+      }
+    }
+    (Position::RetVal, Type::Path(of)) => {
+      Ok(Arg::CppGcResource(stringify_token(&of.path)))
+    }
     _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
   }
 }
@@ -1395,7 +1478,7 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.primary {
     match primary {
-      AttributeModifier::CppGcResource => return parse_cppgc(ty),
+      AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
       AttributeModifier::Serde => match ty {
         Type::Tuple(of) => {
           return Ok(Arg::SerdeV8(stringify_token(of)));
