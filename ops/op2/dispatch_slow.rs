@@ -782,7 +782,7 @@ pub fn return_value_v8_value(
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result))
     }
     ArgMarker::Cppgc => {
-      quote!(deno_core::cppgc::make_cppgc_object(&mut #scope, #result))
+      quote!(deno_core::cppgc::make_cppgc_object(#scope, #result))
     }
     ArgMarker::None => quote!(#result),
   };

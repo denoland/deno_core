@@ -43,7 +43,7 @@ impl<T: Trait> op_generics<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
@@ -66,7 +66,7 @@ impl<T: Trait> op_generics<T> {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
             &<Self as deno_core::_ops::Op>::DECL,
@@ -164,7 +164,7 @@ impl<T: Trait + 'static> op_generics_static<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
@@ -187,7 +187,7 @@ impl<T: Trait + 'static> op_generics_static<T> {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
             &<Self as deno_core::_ops::Op>::DECL,
@@ -285,7 +285,7 @@ impl<T: Trait + 'static> op_generics_static_where<T> {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
@@ -308,7 +308,7 @@ impl<T: Trait + 'static> op_generics_static_where<T> {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
             &<Self as deno_core::_ops::Op>::DECL,
