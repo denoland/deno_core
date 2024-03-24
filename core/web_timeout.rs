@@ -426,17 +426,17 @@ impl<T: Clone> WebTimers<T> {
       return Poll::Pending;
     }
 
-    let tombstone_count = timers.len() - data.len();
     if data.is_empty() {
       // When the # of running timers hits zero, clear the timer tree.
-      if tombstone_count > 0 {
+      if !timers.is_empty() {
         timers.clear();
         self.sleep.clear();
       }
     } else {
-      const COMPACTION_MINIMUM: usize = 16;
       // If we have more tombstones than data, and tombstones are >
       // COMPACTION_MINIMUM, run a compaction.
+      const COMPACTION_MINIMUM: usize = 16;
+      let tombstone_count = timers.len() - data.len();
       if tombstone_count > data.len() && tombstone_count > COMPACTION_MINIMUM {
         timers.retain(|k| data.contains_key(&k.1));
       }
@@ -466,7 +466,7 @@ impl<T: Clone> WebTimers<T> {
   #[cfg(test)]
   pub fn assert_consistent(&self) {
     if self.data_map.borrow().is_empty() {
-      // If the data map is empty, we should have no timers, no tombstones, no unref'd count, no high-res lock
+      // If the data map is empty, we should have no timers, no unref'd count, no high-res lock
       assert_eq!(self.timers.borrow().len(), 0);
       assert_eq!(self.unrefd_count.get(), 0);
       assert!(!self.high_res_timer_lock.is_locked());
