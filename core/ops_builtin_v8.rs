@@ -78,21 +78,22 @@ pub fn op_leak_tracing_submit(
 }
 
 #[op2]
-#[serde]
 pub fn op_leak_tracing_get_all<'s>(
   scope: &mut v8::HandleScope<'s>,
-) -> Vec<serde_v8::Value<'s>> {
+) -> v8::Local<'s, v8::Value> {
   let context_state = JsRealm::state_from_scope(scope);
   // This is relatively inefficient, but so is leak tracing
-  let mut out = Vec::with_capacity(context_state.activity_traces.count());
+  let out = v8::Array::new(scope, 0);
+
+  let mut idx = 0;
   context_state.activity_traces.get_all(|kind, id, trace| {
-    out.push(
+    let val =
       serde_v8::to_v8(scope, (kind as u8, id.to_string(), trace.to_owned()))
-        .unwrap()
-        .into(),
-    );
+        .unwrap();
+    out.set_index(scope, idx, val);
+    idx += 1;
   });
-  out
+  out.into()
 }
 
 #[op2]
@@ -728,24 +729,29 @@ pub fn op_deserialize<'a>(
   }
 }
 
-#[derive(Serialize)]
-pub struct PromiseDetails<'s>(u32, Option<serde_v8::Value<'s>>);
-
 #[op2]
-#[serde]
 pub fn op_get_promise_details<'a>(
   scope: &mut v8::HandleScope<'a>,
   promise: v8::Local<'a, v8::Promise>,
-) -> Result<PromiseDetails<'a>, Error> {
-  match promise.state() {
-    v8::PromiseState::Pending => Ok(PromiseDetails(0, None)),
+) -> v8::Local<'a, v8::Value> {
+  let out = v8::Array::new(scope, 2);
+
+  let (i, val) = match promise.state() {
+    v8::PromiseState::Pending => {
+      (v8::Integer::new(scope, 0), v8::null(scope).into())
+    }
     v8::PromiseState::Fulfilled => {
-      Ok(PromiseDetails(1, Some(promise.result(scope).into())))
+      (v8::Integer::new(scope, 1), promise.result(scope))
     }
     v8::PromiseState::Rejected => {
-      Ok(PromiseDetails(2, Some(promise.result(scope).into())))
+      (v8::Integer::new(scope, 2), promise.result(scope))
     }
-  }
+  };
+
+  out.set_index(scope, 0, i.into());
+  out.set_index(scope, 1, val);
+
+  out.into()
 }
 
 #[op2]
@@ -800,18 +806,19 @@ pub fn op_set_promise_hooks(
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #[op2]
-#[serde]
 pub fn op_get_proxy_details<'a>(
   scope: &mut v8::HandleScope<'a>,
   proxy: v8::Local<'a, v8::Value>,
-) -> Option<(serde_v8::Value<'a>, serde_v8::Value<'a>)> {
-  let proxy = match v8::Local::<v8::Proxy>::try_from(proxy) {
-    Ok(proxy) => proxy,
-    Err(_) => return None,
+) -> v8::Local<'a, v8::Value> {
+  let Ok(proxy) = v8::Local::<v8::Proxy>::try_from(proxy) else {
+    return v8::null(scope).into();
   };
+  let out_array = v8::Array::new(scope, 2);
   let target = proxy.get_target(scope);
+  out_array.set_index(scope, 0, target);
   let handler = proxy.get_handler(scope);
-  Some((target.into(), handler.into()))
+  out_array.set_index(scope, 1, handler);
+  out_array.into()
 }
 
 #[op2]
