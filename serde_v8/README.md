@@ -37,12 +37,6 @@ Instead of returning "nothing" via `Ok(json!({}))`, change your return type to
 rust's unit type `()` and returning `Ok(())`, `serde_v8` will efficiently encode
 that as a JS `null`.
 
-## Advanced features
-
-If you need to mix rust & v8 values in structs/tuples, you can use the special
-`serde_v8::Value` type, which will passthrough the original v8 value untouched
-when encoding/decoding.
-
 ## TODO
 
 - [ ] Experiment with KeyCache to optimize struct keys
