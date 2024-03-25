@@ -12,3 +12,9 @@ struct Wrap;
 fn op_make_cppgc_object() -> Wrap {
     Wrap
 }
+
+#[op2(async)]
+#[cppgc]
+async fn op_make_cppgc_object_async() -> Wrap {
+    Wrap
+}

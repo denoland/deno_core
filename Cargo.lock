@@ -506,7 +506,6 @@ dependencies = [
  "fastrand",
  "futures",
  "libc",
- "log",
  "memoffset",
  "parking_lot",
  "pin-project",

@@ -9,7 +9,6 @@ use crate::*;
 use anyhow::bail;
 use anyhow::Error;
 use futures::Future;
-use log::debug;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -515,7 +514,6 @@ await op_void_async_deferred();
     biased;
 
     maybe_result = &mut rx => {
-      debug!("received module evaluate {:#?}", maybe_result);
       maybe_result
     }
 

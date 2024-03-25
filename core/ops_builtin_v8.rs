@@ -102,12 +102,18 @@ pub fn op_leak_tracing_get<'s>(
   #[smi] kind: u8,
   #[smi] id: i32,
 ) -> v8::Local<'s, v8::Value> {
-  use serde_v8::Serializable;
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.get(
     RuntimeActivityType::from_u8(kind),
     id as _,
-    |mut x| x.to_v8(scope).unwrap(),
+    |maybe_str| {
+      if let Some(s) = maybe_str {
+        let v8_str = v8::String::new(scope, s).unwrap();
+        v8_str.into()
+      } else {
+        v8::undefined(scope).into()
+      }
+    },
   )
 }
 

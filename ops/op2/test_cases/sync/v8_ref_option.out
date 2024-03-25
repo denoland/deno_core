@@ -43,7 +43,7 @@ impl op_v8_lifetime {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: deno_core::v8::Local<deno_core::v8::Value>,
         arg1: deno_core::v8::Local<deno_core::v8::Value>,
@@ -68,7 +68,7 @@ impl op_v8_lifetime {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: deno_core::v8::Local<deno_core::v8::Value>,
         arg1: deno_core::v8::Local<deno_core::v8::Value>,
