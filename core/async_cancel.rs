@@ -795,7 +795,7 @@ mod tests {
       let cancel_handle = Rc::new(CancelHandle::new());
       let result = loop {
         select! {
-          r = TcpStream::connect("1.2.3.4:12345")
+          r = TcpStream::connect("127.0.0.1:12345")
             .try_or_cancel(&cancel_handle) => break r,
           default => cancel_handle.cancel(),
         };

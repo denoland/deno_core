@@ -243,27 +243,31 @@ pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
     .set(v);
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct EvalContextError<'s> {
-  thrown: serde_v8::Value<'s>,
+  thrown: v8::Local<'s, v8::Value>,
   is_native_error: bool,
   is_compile_error: bool,
 }
 
-#[derive(Serialize)]
-pub struct EvalContextResult<'s>(
-  Option<serde_v8::Value<'s>>,
-  Option<EvalContextError<'s>>,
-);
+impl<'s> EvalContextError<'s> {
+  fn to_v8(&self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Value> {
+    let arr = v8::Array::new(scope, 3);
+    arr.set_index(scope, 0, self.thrown);
+    let v = v8::Boolean::new(scope, self.is_native_error);
+    arr.set_index(scope, 1, v.into());
+    let v = v8::Boolean::new(scope, self.is_compile_error);
+    arr.set_index(scope, 2, v.into());
+    arr.into()
+  }
+}
 
 #[op2(reentrant)]
-#[serde]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
   source: v8::Local<'a, v8::Value>,
   #[string] specifier: String,
-) -> Result<EvalContextResult<'a>, Error> {
+) -> Result<v8::Local<'a, v8::Value>, Error> {
+  let out = v8::Array::new(scope, 2);
   let state = JsRuntime::state_from(scope);
   let tc_scope = &mut v8::TryCatch::new(scope);
   let source = v8::Local::<v8::String>::try_from(source)
@@ -300,19 +304,21 @@ pub fn op_eval_context<'a>(
       (v8::Script::compile(tc_scope, source, Some(&origin)), true)
     });
 
+  let null = v8::null(tc_scope);
   let script = match script {
     Some(s) => s,
     None => {
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
-      return Ok(EvalContextResult(
-        None,
-        Some(EvalContextError {
-          thrown: exception.into(),
-          is_native_error: is_instance_of_error(tc_scope, exception),
-          is_compile_error: true,
-        }),
-      ));
+      let e = EvalContextError {
+        thrown: exception,
+        is_native_error: is_instance_of_error(tc_scope, exception),
+        is_compile_error: true,
+      };
+      let eval_context_error = e.to_v8(tc_scope);
+      out.set_index(tc_scope, 0, null.into());
+      out.set_index(tc_scope, 1, eval_context_error);
+      return Ok(out.into());
     }
   };
 
@@ -327,18 +333,23 @@ pub fn op_eval_context<'a>(
   }
 
   match script.run(tc_scope) {
-    Some(result) => Ok(EvalContextResult(Some(result.into()), None)),
+    Some(result) => {
+      out.set_index(tc_scope, 0, result);
+      out.set_index(tc_scope, 1, null.into());
+      Ok(out.into())
+    }
     None => {
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
-      Ok(EvalContextResult(
-        None,
-        Some(EvalContextError {
-          thrown: exception.into(),
-          is_native_error: is_instance_of_error(tc_scope, exception),
-          is_compile_error: false,
-        }),
-      ))
+      let e = EvalContextError {
+        thrown: exception,
+        is_native_error: is_instance_of_error(tc_scope, exception),
+        is_compile_error: false,
+      };
+      let eval_context_error = e.to_v8(tc_scope);
+      out.set_index(tc_scope, 0, null.into());
+      out.set_index(tc_scope, 1, eval_context_error);
+      Ok(out.into())
     }
   }
 }
@@ -555,25 +566,17 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
   }
 }
 
-#[derive(Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SerializeDeserializeOptions<'a> {
-  host_objects: Option<serde_v8::Value<'a>>,
-  transferred_array_buffers: Option<serde_v8::Value<'a>>,
-  #[serde(default)]
-  for_storage: bool,
-}
-
 // May be reentrant in the case of errors.
 #[op2(reentrant)]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,
-  #[serde] options: Option<SerializeDeserializeOptions>,
+  host_objects: Option<v8::Local<v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+  for_storage: bool,
   error_callback: Option<v8::Local<v8::Value>>,
 ) -> Result<Vec<u8>, Error> {
-  let options = options.unwrap_or_default();
   let error_callback = match error_callback {
     Some(cb) => Some(
       v8::Local::<v8::Function>::try_from(cb)
@@ -581,16 +584,16 @@ pub fn op_serialize(
     ),
     None => None,
   };
-  let host_objects = match options.host_objects {
+  let host_objects = match host_objects {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
-  let transferred_array_buffers = match options.transferred_array_buffers {
+  let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("transferredArrayBuffers not an array"))?,
     ),
     None => None,
@@ -603,7 +606,7 @@ pub fn op_serialize(
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback,
-    for_storage: options.for_storage,
+    for_storage,
     host_object_brand,
   });
   let mut value_serializer =
@@ -661,19 +664,20 @@ pub fn op_serialize(
 pub fn op_deserialize<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: JsBuffer,
-  #[serde] options: Option<SerializeDeserializeOptions>,
+  host_objects: Option<v8::Local<v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+  for_storage: bool,
 ) -> Result<v8::Local<'a, v8::Value>, Error> {
-  let options = options.unwrap_or_default();
-  let host_objects = match options.host_objects {
+  let host_objects = match host_objects {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
-  let transferred_array_buffers = match options.transferred_array_buffers {
+  let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("transferredArrayBuffers not an array"))?,
     ),
     None => None,
@@ -682,7 +686,7 @@ pub fn op_deserialize<'a>(
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback: None,
-    for_storage: options.for_storage,
+    for_storage,
     host_object_brand: None,
   });
   let mut value_deserializer =
