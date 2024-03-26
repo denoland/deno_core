@@ -195,6 +195,7 @@ pub struct LoadedSources {
   pub esm: Vec<LoadedSource>,
   pub lazy_esm: Vec<LoadedSource>,
   pub esm_entry_points: Vec<FastString>,
+  pub warmup: Vec<LoadedSource>,
 }
 
 impl LoadedSources {
@@ -291,6 +292,14 @@ pub fn into_sources(
       let code = load(transpiler, file, source_mapper, &mut load_callback)?;
       sources.esm.push(LoadedSource {
         source_type: ExtensionSourceType::Esm,
+        specifier: ModuleName::from_static(file.specifier),
+        code,
+      });
+    }
+    for file in &*extension.warmup_files {
+      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
+      sources.warmup.push(LoadedSource {
+        source_type: ExtensionSourceType::Warmup,
         specifier: ModuleName::from_static(file.specifier),
         code,
       });

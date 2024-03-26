@@ -152,13 +152,17 @@ fn test_snapshot_creator() {
 fn test_snapshot_creator_warmup() {
   let counter = Rc::new(RefCell::new(0));
 
+  deno_core::extension!(warmup, 
+    warmup = [ "warmup.js" = { source = "globalThis.WARMED_UP = true;" } ]
+  );
+
   let c = counter.clone();
   let output = create_snapshot(
     CreateSnapshotOptions {
       cargo_manifest_dir: "",
       startup_snapshot: None,
       skip_op_registration: false,
-      extensions: vec![],
+      extensions: vec![warmup::init_ops_and_esm()],
       extension_transpiler: None,
       with_runtime_cb: Some(Box::new(move |runtime| {
         c.replace_with(|&mut c| c + 1);

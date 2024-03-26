@@ -18,6 +18,7 @@ use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
 use crate::extension_set;
+use crate::extension_set::LoadedSource;
 use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
@@ -151,6 +152,7 @@ pub(crate) struct InnerIsolateState {
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
   cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
+  warmup_sources: Vec<LoadedSource>,
 }
 
 impl InnerIsolateState {
@@ -940,6 +942,7 @@ impl JsRuntime {
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
         cpp_heap: ManuallyDrop::new(cpp_heap),
+        warmup_sources: std::mem::take(&mut sources.warmup),
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
