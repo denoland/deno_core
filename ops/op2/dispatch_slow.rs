@@ -696,13 +696,14 @@ pub fn call(generator_state: &mut GeneratorState) -> TokenStream {
     tokens.extend(quote!( #arg , ));
   }
 
-  let self_ = if generator_state.needs_self {
-    quote!(self_.)
+  let name = &generator_state.name;
+  let call_ = if generator_state.needs_self {
+    quote!(self_. #name)
   } else {
-    quote!(Self::)
+    quote!(Self:: #name)
   };
 
-  quote!(#self_ call( #tokens ))
+  quote!(#call_ ( #tokens ))
 }
 
 pub fn return_value(

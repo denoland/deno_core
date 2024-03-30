@@ -2,6 +2,7 @@
 use proc_macro2::Ident;
 
 pub struct GeneratorState {
+  pub name: Ident,
   /// Identifiers for each of the arguments of the original function
   pub args: Vec<Ident>,
   /// The result of the `call` function

@@ -87,8 +87,7 @@ fn generate_op2(
   config: MacroConfig,
   func: ItemFn,
 ) -> Result<TokenStream, Op2Error> {
-  // Create a copy of the original function, named "call"
-  let call = Ident::new("call", Span::call_site());
+  // Create a copy of the original function
   let mut op_fn = func.clone();
   // Collect non-special attributes
   let attrs = op_fn
@@ -97,7 +96,10 @@ fn generate_op2(
     .filter(|attr| !is_attribute_special(attr))
     .collect::<Vec<_>>();
   op_fn.sig.generics.params.clear();
-  op_fn.sig.ident = call.clone();
+  // rename to "call" for non-methods
+  if config.method.is_none() {
+    op_fn.sig.ident = Ident::new("call", Span::call_site());
+  }
 
   // Clear inert attributes
   // TODO(mmastrac): This should limit itself to clearing ours only
@@ -128,7 +130,8 @@ fn generate_op2(
     args.push(input);
     needs_args = true;
   }
-
+    
+  let name = op_fn.sig.ident.clone();
   let retval = Ident::new("rv", Span::call_site());
   let result = Ident::new("result", Span::call_site());
   let fn_args = Ident::new("args", Span::call_site());
@@ -151,6 +154,7 @@ fn generate_op2(
   } else { Ident::new("UNINIT", Span::call_site()) };
 
   let mut generator_state = GeneratorState {
+    name,
     args,
     fn_args,
     scope,
