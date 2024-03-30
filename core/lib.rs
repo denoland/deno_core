@@ -117,6 +117,7 @@ pub use crate::modules::ResolutionKind;
 pub use crate::modules::StaticModuleLoader;
 pub use crate::modules::ValidateImportAttributesCb;
 pub use crate::normalize_path::normalize_path;
+pub use crate::ops::OpCtx;
 pub use crate::ops::OpId;
 pub use crate::ops::OpMetadata;
 pub use crate::ops::OpState;
@@ -149,7 +150,6 @@ pub use crate::source_map::SourceMapData;
 pub use crate::source_map::SourceMapGetter;
 pub use crate::tasks::V8CrossThreadTaskSpawner;
 pub use crate::tasks::V8TaskSpawner;
-pub use crate::ops::OpCtx;
 
 // Ensure we can use op2 in deno_core without any hackery.
 extern crate self as deno_core;

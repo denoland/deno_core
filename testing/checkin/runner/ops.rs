@@ -9,8 +9,8 @@ use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
-use deno_core::OpState;
 use deno_core::OpCtx;
+use deno_core::OpState;
 
 use super::testing::Output;
 use super::testing::TestData;
