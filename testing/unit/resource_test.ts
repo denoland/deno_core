@@ -64,7 +64,7 @@ test(async function testCppgcAsync() {
   assertEquals(await op_async_get_cppgc_resource(resource), 42);
 });
 
-test(async function testCppgcObjectMethods() {
+test(function testCppgcObjectMethods() {
   const obj = op_stateful_new("A");
   const name = obj.get_name();
 
