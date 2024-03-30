@@ -78,13 +78,24 @@ pub fn op_stats_delete(
 }
 
 struct Stateful {
-    name: String,
+  name: String,
 }
 
 impl Stateful {
-    #[op2(method(Stateful))]
-    #[string]
-    fn get_name(&self) -> String {
-       self.name.clone()
-    }
+  #[op2(method(Stateful))]
+  #[string]
+  fn get_name(&self) -> String {
+    self.name.clone()
+  }
+
+  #[op2(fast, method(Stateful))]
+  fn print_name(&self) {
+    println!("{}", self.name);
+  }
+
+  #[op2(async, method(Stateful))]
+  #[string]
+  async fn async_method(&self) -> String {
+    self.name.clone()
+  }
 }

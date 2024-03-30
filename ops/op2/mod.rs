@@ -130,7 +130,7 @@ fn generate_op2(
     args.push(input);
     needs_args = true;
   }
-    
+
   let name = op_fn.sig.ident.clone();
   let retval = Ident::new("rv", Span::call_site());
   let result = Ident::new("result", Span::call_site());
@@ -149,9 +149,11 @@ fn generate_op2(
     Ident::new("v8_fn_ptr_fast_metrics", Span::call_site());
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
-  let self_ty = if let Some(ref ty) = config.method { 
-      format_ident!("{ty}")
-  } else { Ident::new("UNINIT", Span::call_site()) };
+  let self_ty = if let Some(ref ty) = config.method {
+    format_ident!("{ty}")
+  } else {
+    Ident::new("UNINIT", Span::call_site())
+  };
 
   let mut generator_state = GeneratorState {
     name,
@@ -306,15 +308,16 @@ fn generate_op2(
   };
 
   if *needs_self {
+    let register = format_ident!("register_{name}");
     return Ok(quote! {
-        pub fn register() {
+        pub fn #register() {
             #t
         }
 
         #[inline(always)]
         #(#attrs)*
         #op_fn
-    })
+    });
   }
 
   Ok(t)

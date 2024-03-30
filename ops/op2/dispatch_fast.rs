@@ -439,6 +439,21 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
+  let with_self = if generator_state.needs_self {
+    gs_quote!(generator_state(self_ty) => {
+      let self_: &#self_ty = deno_core::cppgc::try_unwrap_cppgc_object(this.into()).unwrap();
+    })
+  } else {
+    quote!()
+  };
+
+  let name = &generator_state.name;
+  let call = if generator_state.needs_self {
+    quote!(self_. #name)
+  } else {
+    quote!(Self:: #name)
+  };
+
   let with_opctx = if generator_state.needs_fast_opctx {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
@@ -503,7 +518,7 @@ pub(crate) fn generate_dispatch_fast(
 
     #[allow(clippy::too_many_arguments)]
     extern "C" fn #fast_function(
-      _: deno_core::v8::Local<deno_core::v8::Object>,
+      this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {
       #[cfg(debug_assertions)]
@@ -512,9 +527,11 @@ pub(crate) fn generate_dispatch_fast(
       #with_fast_api_callback_options
       #with_opctx
       #with_js_runtime_state
+      #with_self
+
       let #result = {
         #(#call_args)*
-        Self::call(#(#call_names),*)
+        #call (#(#call_names),*)
       };
       #handle_error
       #handle_result

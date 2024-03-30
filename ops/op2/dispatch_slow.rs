@@ -243,9 +243,7 @@ pub(crate) fn with_js_runtime_state(
   )
 }
 
-pub(crate) fn with_self(
-  generator_state: &mut GeneratorState,
-) -> TokenStream {
+pub(crate) fn with_self(generator_state: &mut GeneratorState) -> TokenStream {
   generator_state.needs_opctx = true;
   gs_quote!(generator_state(fn_args, self_ty) =>
     (let self_: &#self_ty = unsafe { deno_core::cppgc::try_unwrap_cppgc_object(#fn_args.this().into()).unwrap() };)
