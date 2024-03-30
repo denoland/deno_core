@@ -264,7 +264,7 @@ fn generate_op2(
     quote!()
   };
 
-  let t = quote! {
+  let tmpl = quote! {
     #[allow(non_camel_case_types)]
     #(#attrs)*
     #vis struct #name <#(#generic),*> {
@@ -309,9 +309,22 @@ fn generate_op2(
 
   if *needs_self {
     let register = format_ident!("register_{name}");
+    // Create a registration function for the method
     return Ok(quote! {
-        pub fn #register() {
-            #t
+        pub fn #register(
+            scope: &mut deno_core::v8::HandleScope,
+            ctx: &deno_core::_ops::OpCtx,
+            obj: deno_core::v8::Local<deno_core::v8::Object>,
+        ) {
+            #tmpl
+
+            use deno_core::Op;
+            let ctx = ctx.clone_for_method(#name::DECL);
+            deno_core::_ops::register_op_method(
+                scope,
+                ctx,
+                obj,
+            );
         }
 
         #[inline(always)]
@@ -320,7 +333,7 @@ fn generate_op2(
     });
   }
 
-  Ok(t)
+  Ok(tmpl)
 }
 
 #[cfg(test)]

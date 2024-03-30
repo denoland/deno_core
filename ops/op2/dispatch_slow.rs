@@ -444,6 +444,10 @@ pub fn from_arg(
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
     }
+    Arg::Ref(RefType::Ref, Special::OpCtx) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = #opctx;)
+    }
     Arg::State(RefType::Ref, state) => {
       *needs_opstate = true;
       let state =

@@ -10,6 +10,7 @@ use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
 use deno_core::OpState;
+use deno_core::OpCtx;
 
 use super::testing::Output;
 use super::testing::TestData;
@@ -77,7 +78,7 @@ pub fn op_stats_delete(
   test_data.take::<RuntimeActivityStats>(name);
 }
 
-struct Stateful {
+pub struct Stateful {
   name: String,
 }
 
@@ -98,4 +99,17 @@ impl Stateful {
   async fn async_method(&self) -> String {
     self.name.clone()
   }
+}
+
+#[op2]
+pub fn op_stateful_new<'a>(
+  scope: &mut v8::HandleScope<'a>,
+  ctx: &OpCtx,
+  #[string] name: String,
+) -> v8::Local<'a, v8::Object> {
+  let obj = deno_core::cppgc::make_cppgc_object(scope, Stateful { name });
+  Stateful::register_get_name(scope, ctx, obj);
+  Stateful::register_print_name(scope, ctx, obj);
+  Stateful::register_async_method(scope, ctx, obj);
+  obj
 }

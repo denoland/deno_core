@@ -6,6 +6,7 @@ const {
   op_file_open,
   op_async_make_cppgc_resource,
   op_async_get_cppgc_resource,
+  op_stateful_new,
 } = Deno.core.ops;
 
 test(async function testPipe() {
@@ -61,4 +62,12 @@ test(async function testFileIsNotTerminal() {
 test(async function testCppgcAsync() {
   const resource = await op_async_make_cppgc_resource();
   assertEquals(await op_async_get_cppgc_resource(resource), 42);
+});
+
+test(async function testCppgcObjectMethods() {
+  const obj = op_stateful_new("A");
+  const name = obj.get_name();
+
+  assertEquals(name, "A");
+  obj.print_name();
 });

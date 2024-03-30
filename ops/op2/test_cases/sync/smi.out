@@ -78,7 +78,7 @@ impl op_smi_unsigned_return {
     }
     #[allow(clippy::too_many_arguments)]
     extern "C" fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
+        this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: i32,
         arg1: i32,
         arg2: i32,
@@ -291,7 +291,7 @@ impl op_smi_signed_return {
     }
     #[allow(clippy::too_many_arguments)]
     extern "C" fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
+        this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: i32,
         arg1: i32,
         arg2: i32,

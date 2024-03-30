@@ -149,6 +149,7 @@ pub use crate::source_map::SourceMapData;
 pub use crate::source_map::SourceMapGetter;
 pub use crate::tasks::V8CrossThreadTaskSpawner;
 pub use crate::tasks::V8TaskSpawner;
+pub use crate::ops::OpCtx;
 
 // Ensure we can use op2 in deno_core without any hackery.
 extern crate self as deno_core;
@@ -171,6 +172,7 @@ pub mod _ops {
   pub use super::ops_metrics::dispatch_metrics_fast;
   pub use super::ops_metrics::dispatch_metrics_slow;
   pub use super::ops_metrics::OpMetricsEvent;
+  pub use super::runtime::bindings::register_op_method;
   pub use super::runtime::ops::*;
   pub use super::runtime::ops_rust_to_v8::*;
   pub use super::runtime::V8_WRAPPER_OBJECT_INDEX;

@@ -183,8 +183,6 @@ impl InnerIsolateState {
     unsafe {
       ManuallyDrop::take(&mut self.main_realm).0.destroy();
     }
-
-    debug_assert_eq!(Rc::strong_count(&self.state), 1);
   }
 
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {

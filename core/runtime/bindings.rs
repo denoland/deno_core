@@ -323,6 +323,17 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   }
 }
 
+pub fn register_op_method(
+  scope: &mut v8::HandleScope,
+  op_ctx: OpCtx,
+  obj: v8::Local<v8::Object>,
+) {
+  let key = op_ctx.decl.name_fast.v8_string(scope);
+  let op_fn = op_ctx_function(scope, Box::leak(Box::new(op_ctx)));
+
+  obj.set(scope, key.into(), op_fn.into()).unwrap();
+}
+
 fn op_ctx_function<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,

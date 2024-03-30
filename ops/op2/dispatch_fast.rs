@@ -641,6 +641,10 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
     }
+    Arg::Ref(RefType::Ref, Special::OpCtx) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = #opctx;)
+    }
     Arg::State(RefType::Ref, state) => {
       *needs_opctx = true;
       let state =
@@ -800,6 +804,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(_, Special::OpState)
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
+    | Arg::Ref(RefType::Ref, Special::OpCtx)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
     | Arg::OptionState(..)

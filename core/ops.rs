@@ -154,6 +154,20 @@ impl OpCtx {
     }
   }
 
+  pub fn clone_for_method(&self, decl: OpDecl) -> Self {
+    // id and metrics_fn are not used in method ops
+    Self::new(
+      0,
+      self.isolate,
+      self.op_driver.clone(),
+      decl,
+      self.state.clone(),
+      self.runtime_state.clone(),
+      self.get_error_class_fn,
+      None,
+    )
+  }
+
   #[inline(always)]
   pub const fn decl(&self) -> &OpDecl {
     &self.decl

@@ -68,7 +68,9 @@ impl op_maybe_windows {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+    extern "C" fn v8_fn_ptr_fast(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+    ) -> () {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
             &<Self as deno_core::_ops::Op>::DECL,
@@ -193,7 +195,9 @@ impl op_maybe_windows {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+    extern "C" fn v8_fn_ptr_fast(
+        this: deno_core::v8::Local<deno_core::v8::Object>,
+    ) -> () {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
             &<Self as deno_core::_ops::Op>::DECL,
