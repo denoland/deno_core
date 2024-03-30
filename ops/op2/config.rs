@@ -22,6 +22,8 @@ pub(crate) struct MacroConfig {
   pub async_deferred: bool,
   /// Marks an op as re-entrant (can safely call other ops).
   pub reentrant: bool,
+  /// Marks an op as a method on a wrapped object.
+  pub method: Option<String>,
 }
 
 impl MacroConfig {
@@ -85,6 +87,17 @@ impl MacroConfig {
         config.async_deferred = true;
       } else if flag == "reentrant" {
         config.reentrant = true;
+      } else if flag.starts_with("method(") {
+        let tokens =
+          syn::parse_str::<TokenTree>(&flag[6..])?.into_token_stream();
+        config.method = std::panic::catch_unwind(|| {
+          rules!(tokens => {
+            ( ( $s:ty ) ) => {
+              Some(s.into_token_stream().to_string())
+            }
+          })
+        })
+        .map_err(|_| Op2Error::PatternMatchFailed("attribute", flag))?;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }
@@ -223,6 +236,22 @@ mod tests {
       "(fast(op_generic::<T>))",
       MacroConfig {
         fast_alternatives: vec!["op_generic::<T>".to_owned()],
+        ..Default::default()
+      },
+    );
+
+    test_parse(
+      "(method(A))",
+      MacroConfig {
+        method: Some("A".to_owned()),
+        ..Default::default()
+      },
+    );
+    test_parse(
+      "(fast, method(T))",
+      MacroConfig {
+        method: Some("T".to_owned()),
+        fast: true,
         ..Default::default()
       },
     );

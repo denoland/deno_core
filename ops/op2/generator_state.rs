@@ -33,6 +33,8 @@ pub struct GeneratorState {
   pub fast_function_metrics: Ident,
   /// The async function promise ID argument
   pub promise_id: Ident,
+  /// Type of the self argument
+  pub self_ty: Ident,
 
   pub needs_args: bool,
   pub needs_retval: bool,
@@ -44,6 +46,7 @@ pub struct GeneratorState {
   pub needs_fast_opctx: bool,
   pub needs_fast_api_callback_options: bool,
   pub needs_fast_js_runtime_state: bool,
+  pub needs_self: bool,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from

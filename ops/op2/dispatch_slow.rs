@@ -135,6 +135,12 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
+  let with_self = if generator_state.needs_self {
+    with_self(generator_state)
+  } else {
+    quote!()
+  };
+
   Ok(
     gs_quote!(generator_state(opctx, info, slow_function, slow_function_metrics) => {
       #[inline(always)]
@@ -149,6 +155,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_isolate
         #with_opstate
         #with_js_runtime_state
+        #with_self
 
         #output;
         return 0;
@@ -233,6 +240,15 @@ pub(crate) fn with_js_runtime_state(
   generator_state.needs_opctx = true;
   gs_quote!(generator_state(opctx, js_runtime_state) =>
     (let #js_runtime_state = &#opctx.runtime_state();)
+  )
+}
+
+pub(crate) fn with_self(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
+  generator_state.needs_opctx = true;
+  gs_quote!(generator_state(fn_args, self_ty) =>
+    (let self_: &#self_ty = unsafe { deno_core::cppgc::try_unwrap_cppgc_object(#fn_args.this().into()).unwrap() };)
   )
 }
 
@@ -679,7 +695,14 @@ pub fn call(generator_state: &mut GeneratorState) -> TokenStream {
   for arg in &generator_state.args {
     tokens.extend(quote!( #arg , ));
   }
-  quote!(Self::call( #tokens ))
+
+  let self_ = if generator_state.needs_self {
+    quote!(self_.)
+  } else {
+    quote!(Self::)
+  };
+
+  quote!(#self_ call( #tokens ))
 }
 
 pub fn return_value(

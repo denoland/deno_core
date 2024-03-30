@@ -76,3 +76,15 @@ pub fn op_stats_delete(
 ) {
   test_data.take::<RuntimeActivityStats>(name);
 }
+
+struct Stateful {
+    name: String,
+}
+
+impl Stateful {
+    #[op2(method(Stateful))]
+    #[string]
+    fn get_name(&self) -> String {
+       self.name.clone()
+    }
+}
