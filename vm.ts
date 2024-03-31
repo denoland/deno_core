@@ -75,16 +75,8 @@ export class Script {
     // }
   }
 
-  runInThisContext2(_options) {
-    return op_node_vm_script_run_in_context(this.#handle);
-  }
-
   runInThisContext(_options) {
-    const [result, error] = core.evalContext(this.code, "data:");
-    if (error) {
-      throw error.thrown;
-    }
-    return result;
+    return op_node_vm_script_run_in_context(this.#handle);
   }
 
   runInContext(contextifiedObject, options) {

@@ -118,7 +118,7 @@ const x = add(1, 2);
 x
 `);
 
-    const value = script.runInThisContext2();
+    const value = script.runInThisContext();
     console.log("script run in this context", value);
     assertEquals(value, 3);
   },
