@@ -485,7 +485,7 @@ pub(crate) fn generate_dispatch_fast(
     fastsig.input_args(generator_state).into_iter().unzip();
   let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
-    fn #fast_function_metrics(
+    extern "C" fn #fast_function_metrics(
       this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_metrics_names: #fastcall_metrics_types, )*
     ) -> #output_type {
@@ -502,7 +502,7 @@ pub(crate) fn generate_dispatch_fast(
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn #fast_function(
+    extern "C" fn #fast_function(
       _: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {
@@ -876,7 +876,8 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Global(_)
-    | Arg::OptionV8Ref(..) => return Ok(None),
+    | Arg::OptionV8Ref(..)
+    | Arg::CppGcResource(..) => return Ok(None),
     Arg::Buffer(..) | Arg::OptionBuffer(..) => return Ok(None),
     Arg::External(..) => V8FastCallType::Pointer,
     _ => return Err("a fast return value"),

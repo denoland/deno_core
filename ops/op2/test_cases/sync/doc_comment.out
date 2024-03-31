@@ -30,6 +30,9 @@ impl ::deno_core::_ops::Op for op_has_doc_comment {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_has_doc_comment {
@@ -41,7 +44,7 @@ impl op_has_doc_comment {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
@@ -64,7 +67,7 @@ impl op_has_doc_comment {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
+    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
             &<Self as deno_core::_ops::Op>::DECL,

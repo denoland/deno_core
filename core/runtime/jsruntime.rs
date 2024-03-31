@@ -55,6 +55,7 @@ use crate::FastString;
 use crate::FeatureChecker;
 use crate::ModuleCodeString;
 use crate::NoopModuleLoader;
+use crate::OpMetadata;
 use crate::OpMetricsEvent;
 use crate::OpState;
 use anyhow::anyhow;
@@ -639,6 +640,19 @@ impl JsRuntime {
 
   pub(crate) fn has_more_work(scope: &mut v8::HandleScope) -> bool {
     EventLoopPendingState::new_from_scope(scope).is_pending()
+  }
+
+  /// Returns the `OpMetadata` associated with the op `name`.
+  /// Note this is linear with respect to the number of ops registered.
+  pub fn op_metadata(&self, name: &str) -> Option<OpMetadata> {
+    let state = &self.inner.main_realm.0.context_state;
+    state.op_ctxs.iter().find_map(|ctx| {
+      if ctx.decl.name == name {
+        Some(ctx.decl.metadata)
+      } else {
+        None
+      }
+    })
   }
 
   fn new_inner(

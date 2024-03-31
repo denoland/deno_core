@@ -41,7 +41,6 @@ use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
-use log::debug;
 use v8::Function;
 use v8::PromiseState;
 
@@ -71,6 +70,24 @@ use super::ImportMetaResolveCallback;
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
   sender: Option<oneshot::Sender<Result<(), Error>>>,
+  module: Option<v8::Global<v8::Module>>,
+  notify: Vec<v8::Global<v8::Function>>,
+}
+
+impl ModEvaluate {
+  fn notify(&mut self, scope: &mut v8::HandleScope) {
+    if !self.notify.is_empty() {
+      let module = v8::Local::new(scope, self.module.take().unwrap());
+      let ns = module.get_module_namespace();
+      let recv = v8::undefined(scope).into();
+      let args = &[ns];
+      for notify in std::mem::take(&mut self.notify).into_iter() {
+        let notify = v8::Local::new(scope, notify);
+        notify.call(scope, recv, args);
+      }
+    }
+    _ = self.sender.take().unwrap().send(Ok(()));
+  }
 }
 
 type CodeCacheReadyCallback =
@@ -225,6 +242,10 @@ impl ModuleMap {
     self.data.borrow().is_main_module(global)
   }
 
+  pub(crate) fn is_main_module_id(&self, id: ModuleId) -> bool {
+    self.data.borrow().main_module_id == Some(id)
+  }
+
   pub(crate) fn get_name_by_module(
     &self,
     global: &v8::Global<v8::Module>,
@@ -267,7 +288,6 @@ impl ModuleMap {
     self.data.borrow().is_alias(name, requested_module_type)
   }
 
-  #[cfg(test)]
   pub(crate) fn get_data(&self) -> &RefCell<ModuleMapData> {
     &self.data
   }
@@ -317,10 +337,6 @@ impl ModuleMap {
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
-      debug!(
-        "Already-registered module fetched again: {:?}",
-        module_url_found
-      );
       return Ok(module_id);
     }
 
@@ -1012,12 +1028,25 @@ impl ModuleMap {
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
 
+      // If this is a main module, claim the main module notification functions
+      let (notify, module) = if self.is_main_module_id(id) {
+        let module = Some(v8::Global::new(tc_scope, module));
+        (
+          std::mem::take(&mut self.data.borrow_mut().main_module_callbacks),
+          module,
+        )
+      } else {
+        (vec![], None)
+      };
+
       // Create a ModEvaluate instance and stash it in an external
       let evaluation = v8::External::new(
         tc_scope,
         Box::into_raw(Box::new(ModEvaluate {
           module_map: self.clone(),
           sender: Some(sender),
+          notify,
+          module,
         })) as _,
       );
 
@@ -1027,13 +1056,13 @@ impl ModuleMap {
       }
 
       let on_fulfilled = Function::builder(
-        |_scope: &mut v8::HandleScope<'_>,
+        |scope: &mut v8::HandleScope<'_>,
          args: v8::FunctionCallbackArguments<'_>,
          _rv: v8::ReturnValue| {
           let mut sender = get_sender(args.data());
           sender.module_map.pending_mod_evaluation.set(false);
           sender.module_map.module_waker.wake();
-          _ = sender.sender.take().unwrap().send(Ok(()));
+          sender.notify(scope);
         },
       )
       .data(evaluation.into())
@@ -1066,7 +1095,7 @@ impl ModuleMap {
         match promise.state() {
           PromiseState::Fulfilled => {
             // Module loaded OK
-            _ = sender.sender.take().unwrap().send(Ok(()));
+            sender.notify(tc_scope);
           }
           PromiseState::Rejected => {
             // Module was rejected

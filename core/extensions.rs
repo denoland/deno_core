@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
+use crate::ops::OpMetadata;
 use crate::runtime::bindings;
 use crate::FastStaticString;
 use crate::OpState;
@@ -182,6 +183,8 @@ pub struct OpDecl {
   pub(crate) fast_fn: Option<FastFunction>,
   /// The fast dispatch call with metrics enabled. If metrics are enabled, the `v8::Function`'s fastcall is created with this callback.
   pub(crate) fast_fn_with_metrics: Option<FastFunction>,
+  /// Any metadata associated with this op.
+  pub metadata: OpMetadata,
 }
 
 impl OpDecl {
@@ -197,6 +200,7 @@ impl OpDecl {
     slow_fn_with_metrics: OpFnRef,
     fast_fn: Option<FastFunction>,
     fast_fn_with_metrics: Option<FastFunction>,
+    metadata: OpMetadata,
   ) -> Self {
     #[allow(deprecated)]
     Self {
@@ -209,6 +213,7 @@ impl OpDecl {
       slow_fn_with_metrics,
       fast_fn,
       fast_fn_with_metrics,
+      metadata,
     }
   }
 

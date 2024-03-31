@@ -24,6 +24,18 @@ use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
 #[op2]
+pub fn op_add_main_module_handler(
+  scope: &mut v8::HandleScope,
+  #[global] f: v8::Global<v8::Function>,
+) {
+  JsRealm::module_map_from(scope)
+    .get_data()
+    .borrow_mut()
+    .main_module_callbacks
+    .push(f);
+}
+
+#[op2]
 pub fn op_set_handled_promise_rejection_handler(
   scope: &mut v8::HandleScope,
   #[global] f: Option<v8::Global<v8::Function>>,
@@ -66,21 +78,22 @@ pub fn op_leak_tracing_submit(
 }
 
 #[op2]
-#[serde]
 pub fn op_leak_tracing_get_all<'s>(
   scope: &mut v8::HandleScope<'s>,
-) -> Vec<serde_v8::Value<'s>> {
+) -> v8::Local<'s, v8::Value> {
   let context_state = JsRealm::state_from_scope(scope);
   // This is relatively inefficient, but so is leak tracing
-  let mut out = Vec::with_capacity(context_state.activity_traces.count());
+  let out = v8::Array::new(scope, 0);
+
+  let mut idx = 0;
   context_state.activity_traces.get_all(|kind, id, trace| {
-    out.push(
+    let val =
       serde_v8::to_v8(scope, (kind as u8, id.to_string(), trace.to_owned()))
-        .unwrap()
-        .into(),
-    );
+        .unwrap();
+    out.set_index(scope, idx, val);
+    idx += 1;
   });
-  out
+  out.into()
 }
 
 #[op2]
@@ -89,12 +102,18 @@ pub fn op_leak_tracing_get<'s>(
   #[smi] kind: u8,
   #[smi] id: i32,
 ) -> v8::Local<'s, v8::Value> {
-  use serde_v8::Serializable;
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.get(
     RuntimeActivityType::from_u8(kind),
     id as _,
-    |mut x| x.to_v8(scope).unwrap(),
+    |maybe_str| {
+      if let Some(s) = maybe_str {
+        let v8_str = v8::String::new(scope, s).unwrap();
+        v8_str.into()
+      } else {
+        v8::undefined(scope).into()
+      }
+    },
   )
 }
 
@@ -224,27 +243,31 @@ pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
     .set(v);
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct EvalContextError<'s> {
-  thrown: serde_v8::Value<'s>,
+  thrown: v8::Local<'s, v8::Value>,
   is_native_error: bool,
   is_compile_error: bool,
 }
 
-#[derive(Serialize)]
-pub struct EvalContextResult<'s>(
-  Option<serde_v8::Value<'s>>,
-  Option<EvalContextError<'s>>,
-);
+impl<'s> EvalContextError<'s> {
+  fn to_v8(&self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Value> {
+    let arr = v8::Array::new(scope, 3);
+    arr.set_index(scope, 0, self.thrown);
+    let v = v8::Boolean::new(scope, self.is_native_error);
+    arr.set_index(scope, 1, v.into());
+    let v = v8::Boolean::new(scope, self.is_compile_error);
+    arr.set_index(scope, 2, v.into());
+    arr.into()
+  }
+}
 
 #[op2(reentrant)]
-#[serde]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
   source: v8::Local<'a, v8::Value>,
   #[string] specifier: String,
-) -> Result<EvalContextResult<'a>, Error> {
+) -> Result<v8::Local<'a, v8::Value>, Error> {
+  let out = v8::Array::new(scope, 2);
   let state = JsRuntime::state_from(scope);
   let tc_scope = &mut v8::TryCatch::new(scope);
   let source = v8::Local::<v8::String>::try_from(source)
@@ -281,19 +304,21 @@ pub fn op_eval_context<'a>(
       (v8::Script::compile(tc_scope, source, Some(&origin)), true)
     });
 
+  let null = v8::null(tc_scope);
   let script = match script {
     Some(s) => s,
     None => {
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
-      return Ok(EvalContextResult(
-        None,
-        Some(EvalContextError {
-          thrown: exception.into(),
-          is_native_error: is_instance_of_error(tc_scope, exception),
-          is_compile_error: true,
-        }),
-      ));
+      let e = EvalContextError {
+        thrown: exception,
+        is_native_error: is_instance_of_error(tc_scope, exception),
+        is_compile_error: true,
+      };
+      let eval_context_error = e.to_v8(tc_scope);
+      out.set_index(tc_scope, 0, null.into());
+      out.set_index(tc_scope, 1, eval_context_error);
+      return Ok(out.into());
     }
   };
 
@@ -308,18 +333,23 @@ pub fn op_eval_context<'a>(
   }
 
   match script.run(tc_scope) {
-    Some(result) => Ok(EvalContextResult(Some(result.into()), None)),
+    Some(result) => {
+      out.set_index(tc_scope, 0, result);
+      out.set_index(tc_scope, 1, null.into());
+      Ok(out.into())
+    }
     None => {
       assert!(tc_scope.has_caught());
       let exception = tc_scope.exception().unwrap();
-      Ok(EvalContextResult(
-        None,
-        Some(EvalContextError {
-          thrown: exception.into(),
-          is_native_error: is_instance_of_error(tc_scope, exception),
-          is_compile_error: false,
-        }),
-      ))
+      let e = EvalContextError {
+        thrown: exception,
+        is_native_error: is_instance_of_error(tc_scope, exception),
+        is_compile_error: false,
+      };
+      let eval_context_error = e.to_v8(tc_scope);
+      out.set_index(tc_scope, 0, null.into());
+      out.set_index(tc_scope, 1, eval_context_error);
+      Ok(out.into())
     }
   }
 }
@@ -536,25 +566,17 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
   }
 }
 
-#[derive(Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SerializeDeserializeOptions<'a> {
-  host_objects: Option<serde_v8::Value<'a>>,
-  transferred_array_buffers: Option<serde_v8::Value<'a>>,
-  #[serde(default)]
-  for_storage: bool,
-}
-
 // May be reentrant in the case of errors.
 #[op2(reentrant)]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,
-  #[serde] options: Option<SerializeDeserializeOptions>,
+  host_objects: Option<v8::Local<v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+  for_storage: bool,
   error_callback: Option<v8::Local<v8::Value>>,
 ) -> Result<Vec<u8>, Error> {
-  let options = options.unwrap_or_default();
   let error_callback = match error_callback {
     Some(cb) => Some(
       v8::Local::<v8::Function>::try_from(cb)
@@ -562,16 +584,16 @@ pub fn op_serialize(
     ),
     None => None,
   };
-  let host_objects = match options.host_objects {
+  let host_objects = match host_objects {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
-  let transferred_array_buffers = match options.transferred_array_buffers {
+  let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("transferredArrayBuffers not an array"))?,
     ),
     None => None,
@@ -584,7 +606,7 @@ pub fn op_serialize(
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback,
-    for_storage: options.for_storage,
+    for_storage,
     host_object_brand,
   });
   let mut value_serializer =
@@ -642,19 +664,20 @@ pub fn op_serialize(
 pub fn op_deserialize<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: JsBuffer,
-  #[serde] options: Option<SerializeDeserializeOptions>,
+  host_objects: Option<v8::Local<v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+  for_storage: bool,
 ) -> Result<v8::Local<'a, v8::Value>, Error> {
-  let options = options.unwrap_or_default();
-  let host_objects = match options.host_objects {
+  let host_objects = match host_objects {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
-  let transferred_array_buffers = match options.transferred_array_buffers {
+  let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => Some(
-      v8::Local::<v8::Array>::try_from(value.v8_value)
+      v8::Local::<v8::Array>::try_from(value)
         .map_err(|_| type_error("transferredArrayBuffers not an array"))?,
     ),
     None => None,
@@ -663,7 +686,7 @@ pub fn op_deserialize<'a>(
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback: None,
-    for_storage: options.for_storage,
+    for_storage,
     host_object_brand: None,
   });
   let mut value_deserializer =
@@ -710,24 +733,29 @@ pub fn op_deserialize<'a>(
   }
 }
 
-#[derive(Serialize)]
-pub struct PromiseDetails<'s>(u32, Option<serde_v8::Value<'s>>);
-
 #[op2]
-#[serde]
 pub fn op_get_promise_details<'a>(
   scope: &mut v8::HandleScope<'a>,
   promise: v8::Local<'a, v8::Promise>,
-) -> Result<PromiseDetails<'a>, Error> {
-  match promise.state() {
-    v8::PromiseState::Pending => Ok(PromiseDetails(0, None)),
+) -> v8::Local<'a, v8::Value> {
+  let out = v8::Array::new(scope, 2);
+
+  let (i, val) = match promise.state() {
+    v8::PromiseState::Pending => {
+      (v8::Integer::new(scope, 0), v8::null(scope).into())
+    }
     v8::PromiseState::Fulfilled => {
-      Ok(PromiseDetails(1, Some(promise.result(scope).into())))
+      (v8::Integer::new(scope, 1), promise.result(scope))
     }
     v8::PromiseState::Rejected => {
-      Ok(PromiseDetails(2, Some(promise.result(scope).into())))
+      (v8::Integer::new(scope, 2), promise.result(scope))
     }
-  }
+  };
+
+  out.set_index(scope, 0, i.into());
+  out.set_index(scope, 1, val);
+
+  out.into()
 }
 
 #[op2]
@@ -782,18 +810,19 @@ pub fn op_set_promise_hooks(
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #[op2]
-#[serde]
 pub fn op_get_proxy_details<'a>(
   scope: &mut v8::HandleScope<'a>,
   proxy: v8::Local<'a, v8::Value>,
-) -> Option<(serde_v8::Value<'a>, serde_v8::Value<'a>)> {
-  let proxy = match v8::Local::<v8::Proxy>::try_from(proxy) {
-    Ok(proxy) => proxy,
-    Err(_) => return None,
+) -> v8::Local<'a, v8::Value> {
+  let Ok(proxy) = v8::Local::<v8::Proxy>::try_from(proxy) else {
+    return v8::null(scope).into();
   };
+  let out_array = v8::Array::new(scope, 2);
   let target = proxy.get_target(scope);
+  out_array.set_index(scope, 0, target);
   let handler = proxy.get_handler(scope);
-  Some((target.into(), handler.into()))
+  out_array.set_index(scope, 1, handler);
+  out_array.into()
 }
 
 #[op2]

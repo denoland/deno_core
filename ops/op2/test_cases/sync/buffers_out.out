@@ -13,6 +13,9 @@ impl ::deno_core::_ops::Op for op_buffers {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_buffers {
@@ -121,6 +124,9 @@ impl ::deno_core::_ops::Op for op_buffers_option {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_buffers_option {
@@ -236,6 +242,9 @@ impl ::deno_core::_ops::Op for op_arraybuffers {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_arraybuffers {

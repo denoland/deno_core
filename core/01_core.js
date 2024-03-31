@@ -13,7 +13,6 @@
     ObjectFromEntries,
     ObjectKeys,
     ObjectHasOwn,
-    Proxy,
     setQueueMicrotask,
     SafeMap,
     Set,
@@ -55,13 +54,13 @@
     op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
-    op_panic,
     op_print,
     op_queue_microtask,
     op_ref_op,
     op_resources,
     op_run_microtasks,
     op_serialize,
+    op_add_main_module_handler,
     op_set_handled_promise_rejection_handler,
     op_set_has_tick_scheduled,
     op_set_promise_hooks,
@@ -108,7 +107,7 @@
     op_is_typed_array,
     op_is_weak_map,
     op_is_weak_set,
-  } = ensureFastOps();
+  } = ops;
 
   // core/infra collaborative code
   delete window.__infra;
@@ -401,21 +400,6 @@
     );
   }
 
-  function ensureFastOps(keep = false) {
-    return new Proxy({}, {
-      get(_target, opName) {
-        const op = ops[opName];
-        if (ops[opName] === undefined) {
-          op_panic(`Unknown or disabled op '${opName}'`);
-        }
-        if (keep !== true) {
-          delete ops[opName];
-        }
-        return op;
-      },
-    });
-  }
-
   const {
     op_close: close,
     op_try_close: tryClose,
@@ -428,7 +412,7 @@
     op_write_sync: writeSync,
     op_shutdown: shutdown,
     op_is_terminal: isTerminal,
-  } = ensureFastOps(true);
+  } = ops;
 
   const callSiteRetBuf = new Uint32Array(2);
   const callSiteRetBufU8 = new Uint8Array(callSiteRetBuf.buffer);
@@ -618,7 +602,6 @@
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
-    ensureFastOps,
     resources,
     metrics,
     eventLoopTick,
@@ -662,7 +645,21 @@
     evalContext: (
       source,
       specifier,
-    ) => op_eval_context(source, specifier),
+    ) => {
+      const [result, error] = op_eval_context(source, specifier);
+      if (error) {
+        const { 0: thrown, 1: isNativeError, 2: isCompileError } = error;
+        return [
+          result,
+          {
+            thrown,
+            isNativeError,
+            isCompileError,
+          },
+        ];
+      }
+      return [result, null];
+    },
     hostObjectBrand,
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
@@ -671,8 +668,23 @@
       value,
       options,
       errorCallback,
-    ) => op_serialize(value, options, errorCallback),
-    deserialize: (buffer, options) => op_deserialize(buffer, options),
+    ) => {
+      return op_serialize(
+        value,
+        options?.hostObjects,
+        options?.transferredArrayBuffers,
+        options?.forStorage ?? false,
+        errorCallback,
+      );
+    },
+    deserialize: (buffer, options) => {
+      return op_deserialize(
+        buffer,
+        options?.hostObjects,
+        options?.transferredArrayBuffers,
+        options?.forStorage ?? false,
+      );
+    },
     getPromiseDetails: (promise) => op_get_promise_details(promise),
     getProxyDetails: (proxy) => op_get_proxy_details(proxy),
     isAnyArrayBuffer: (value) => op_is_any_array_buffer(value),
@@ -713,6 +725,7 @@
     opNames: () => op_op_names(),
     eventLoopHasMoreWork: () => op_event_loop_has_more_work(),
     byteLength: (str) => op_str_byte_length(str),
+    addMainModuleHandler: (handler) => op_add_main_module_handler(handler),
     setHandledPromiseRejectionHandler: (handler) =>
       op_set_handled_promise_rejection_handler(handler),
     setUnhandledPromiseRejectionHandler: (handler) =>

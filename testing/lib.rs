@@ -58,6 +58,7 @@ integration_test!(
   error_ext_stack,
   error_with_stack,
   error_without_stack,
+  main_module_handler,
   pending_unref_op_tla,
   smoke_test,
   timer_ref,

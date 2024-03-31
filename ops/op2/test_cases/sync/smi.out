@@ -36,6 +36,9 @@ impl ::deno_core::_ops::Op for op_smi_unsigned_return {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_smi_unsigned_return {
@@ -47,7 +50,7 @@ impl op_smi_unsigned_return {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: i32,
         arg1: i32,
@@ -74,7 +77,7 @@ impl op_smi_unsigned_return {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: i32,
         arg1: i32,
@@ -246,6 +249,9 @@ impl ::deno_core::_ops::Op for op_smi_signed_return {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_smi_signed_return {
@@ -257,7 +263,7 @@ impl op_smi_signed_return {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: i32,
         arg1: i32,
@@ -284,7 +290,7 @@ impl op_smi_signed_return {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: i32,
         arg1: i32,
@@ -433,6 +439,9 @@ impl ::deno_core::_ops::Op for op_smi_option {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_smi_option {

@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-import "ext:checkin_runtime/__bootstrap.js";
+import "./__bootstrap.js";
 import * as async from "checkin:async";
 import * as testing from "checkin:testing";
 import * as console from "checkin:console";
@@ -18,6 +18,15 @@ globalThis.setInterval = timers.setInterval;
 globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
 globalThis.Worker = worker.Worker;
+Deno.core.addMainModuleHandler((module) => {
+  if (onMainModuleCb) onMainModuleCb(module);
+});
+let onMainModuleCb = () => {};
+Reflect.defineProperty(globalThis, "onmainmodule", {
+  set: (cb) => {
+    onMainModuleCb = cb;
+  },
+});
 Reflect.defineProperty(globalThis, "onerror", {
   set: (cb) => {
     if (cb) {

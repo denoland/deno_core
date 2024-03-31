@@ -715,6 +715,10 @@ pub fn return_value_infallible(
     ArgMarker::Number => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
+    ArgMarker::Cppgc => {
+      generator_state.needs_scope = true;
+      gs_quote!(generator_state(scope, result) => (deno_core::v8::Local::<deno_core::v8::Value>::from(deno_core::cppgc::make_cppgc_object(&mut #scope, #result))))
+    }
     ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
   };
   let res = match ret_type.slow_retval() {
@@ -776,6 +780,9 @@ pub fn return_value_v8_value(
     }
     ArgMarker::Number => {
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result))
+    }
+    ArgMarker::Cppgc => {
+      quote!(deno_core::cppgc::make_cppgc_object(#scope, #result))
     }
     ArgMarker::None => quote!(#result),
   };

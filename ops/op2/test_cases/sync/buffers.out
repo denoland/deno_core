@@ -42,6 +42,9 @@ impl ::deno_core::_ops::Op for op_buffers {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_buffers {
@@ -53,7 +56,7 @@ impl op_buffers {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
@@ -80,7 +83,7 @@ impl op_buffers {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
@@ -306,6 +309,9 @@ impl ::deno_core::_ops::Op for op_buffers_32 {
                 Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
             )
         }),
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_buffers_32 {
@@ -317,7 +323,7 @@ impl op_buffers_32 {
         <Self as deno_core::_ops::Op>::DECL
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast_metrics(
+    extern "C" fn v8_fn_ptr_fast_metrics(
         this: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
@@ -344,7 +350,7 @@ impl op_buffers_32 {
         res
     }
     #[allow(clippy::too_many_arguments)]
-    fn v8_fn_ptr_fast(
+    extern "C" fn v8_fn_ptr_fast(
         _: deno_core::v8::Local<deno_core::v8::Object>,
         arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
         arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
@@ -541,6 +547,9 @@ impl ::deno_core::_ops::Op for op_buffers_option {
         Self::v8_fn_ptr_metrics as _,
         None,
         None,
+        ::deno_core::OpMetadata {
+            ..::deno_core::OpMetadata::default()
+        },
     );
 }
 impl op_buffers_option {

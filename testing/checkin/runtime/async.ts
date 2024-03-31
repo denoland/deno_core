@@ -10,7 +10,7 @@ const {
   op_stats_delete,
 } = Deno
   .core
-  .ensureFastOps();
+  .ops;
 
 export function barrierCreate(name: string, count: number) {
   op_async_barrier_create(name, count);

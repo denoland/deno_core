@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
-use log::debug;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
@@ -429,10 +428,6 @@ pub fn host_import_module_dynamically_callback<'s>(
     let state = JsRuntime::state_from(scope);
     let module_map_rc = JsRealm::module_map_from(scope);
 
-    debug!(
-      "dyn_import specifier {} referrer {} ",
-      specifier_str, referrer_name_str
-    );
     ModuleMap::load_dynamic_import(
       module_map_rc,
       &specifier_str,
