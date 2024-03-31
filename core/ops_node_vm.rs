@@ -8,21 +8,6 @@ use crate::node_vm::ContextifyScript;
 use crate::node_vm::PRIVATE_SYMBOL_NAME;
 use crate::op2;
 
-// TODO(bartlomieju): copy-pasted from Node, we probably shouldn't rely on these
-// exact numbers.
-pub const NODE_CONTEXT_EMBEDDER_DATA_INDEX: usize = 32;
-pub const NODE_CONTEXT_SANDBOX_OBJECT_DATA_INDEX: usize = 33;
-pub const NODE_CONTEXT_ALLOW_WASM_CODE_GENERATION_INDEX: usize = 34;
-pub const NODE_BINDING_DATA_STORE_INDEX: usize = 35;
-pub const NODE_CONTEXT_ALLOW_CODE_GENERATION_FROM_STRINGS_INDEX: usize = 36;
-pub const NODE_CONTEXT_CONTEXTIFY_CONTEXT_INDEX: usize = 37;
-pub const NODE_CONTEXT_REALM_INDEX: usize = 38;
-// TODO(bartlomieju): figure out what this field does
-// NODE_CONTEXT_TAG must be greater than any embedder indexes so that a single
-// check on the number of embedder data fields can assure the presence of all
-// embedder indexes.
-pub const NODE_CONTEXT_TAG: usize = 39;
-
 #[op2]
 pub fn op_vm_is_context(
   scope: &mut v8::HandleScope,
