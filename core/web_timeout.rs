@@ -77,9 +77,6 @@ pub(crate) struct WebTimers<T> {
   timers: RefCell<BTreeSet<TimerKey>>,
   /// We choose a `BTreeMap` over `HashMap` because of memory performance.
   data_map: RefCell<BTreeMap<WebTimerId, TimerData<T>>>,
-  /// How may deleted entries are in the timers BTreeMap? We use this to determine
-  /// when there's too much garbage and need to rebuild the map.
-  tombstone_count: Cell<usize>,
   /// How many unref'd timers exist?
   unrefd_count: Cell<usize>,
   /// A boxed MutableSleep that will allow us to change the Tokio sleep timeout as needed.
@@ -95,7 +92,6 @@ impl<T> Default for WebTimers<T> {
       next_id: Default::default(),
       timers: Default::default(),
       data_map: Default::default(),
-      tombstone_count: Default::default(),
       unrefd_count: Default::default(),
       sleep: MutableSleep::new(),
       high_res_timer_lock: Default::default(),
@@ -355,28 +351,20 @@ impl<T: Clone> WebTimers<T> {
     }) = data_map.remove(&timer)
     {
       if data_map.is_empty() {
-        // When the # of running timers hits zero, clear the timer tree and
-        // tombstone count. When debug assertions are enabled, we do a
-        // consistency check.
+        // When the # of running timers hits zero, clear the timer tree.
+        // When debug assertions are enabled, we do a consistency check.
         debug_assert_eq!(self.unrefd_count.get(), if unrefd { 1 } else { 0 });
-        debug_assert_eq!(
-          self.tombstone_count.get() + 1,
-          self.timers.borrow().len()
-        );
         #[cfg(any(windows, test))]
         debug_assert_eq!(self.high_res_timer_lock.is_locked(), high_res);
         self.high_res_timer_lock.clear();
         self.unrefd_count.set(0);
         self.timers.borrow_mut().clear();
-        self.tombstone_count.set(0);
         self.sleep.clear();
       } else {
         self.high_res_timer_lock.maybe_unlock(high_res);
         if unrefd {
           self.unrefd_count.set(self.unrefd_count.get() - 1);
         }
-
-        self.tombstone_count.set(self.tombstone_count.get() + 1);
       }
       Some(data)
     } else {
@@ -394,7 +382,6 @@ impl<T: Clone> WebTimers<T> {
 
     let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once));
     std::mem::swap(&mut split, &mut timers);
-    let mut tombstones = self.tombstone_count.get();
     for TimerKey(_, id, timer_type) in split {
       if let TimerType::Repeat(interval) = timer_type {
         if let Some(TimerData { data, .. }) = data.get(&id) {
@@ -406,8 +393,6 @@ impl<T: Clone> WebTimers<T> {
             id,
             timer_type,
           ));
-        } else {
-          tombstones -= 1;
         }
       } else if let Some(TimerData {
         data,
@@ -420,8 +405,6 @@ impl<T: Clone> WebTimers<T> {
           self.unrefd_count.set(self.unrefd_count.get() - 1);
         }
         output.push((id, data));
-      } else {
-        tombstones -= 1;
       }
     }
 
@@ -435,36 +418,26 @@ impl<T: Clone> WebTimers<T> {
           break;
         } else {
           timers.pop_first();
-          tombstones -= 1;
         }
       }
       if let Some(TimerKey(k, ..)) = timers.first() {
         self.sleep.change(*k);
       }
-      self.tombstone_count.set(tombstones);
       return Poll::Pending;
     }
 
-    self.tombstone_count.set(tombstones);
-
     if data.is_empty() {
-      // When the # of running timers hits zero, clear the timer tree and
-      // tombstone count.
-      if self.tombstone_count.take() > 0 {
+      // When the # of running timers hits zero, clear the timer tree.
+      if !timers.is_empty() {
         timers.clear();
         self.sleep.clear();
       }
     } else {
+      // If we have more tombstones than data, and tombstones are >
+      // COMPACTION_MINIMUM, run a compaction.
       const COMPACTION_MINIMUM: usize = 16;
-      // If we have more tombstones than data, and tombstones are > COMPACTION_MINIMUM, run a compaction
-      if self.tombstone_count.get() > data.len()
-        && self.tombstone_count.get() > COMPACTION_MINIMUM
-      {
-        // Run a consistency check on tombstone count before we zero it out. Note that
-        // we aren't changing unref or high-res timer lock counts here, so we don't
-        // check consistency of those.
-        debug_assert_eq!(self.tombstone_count.get() + data.len(), timers.len());
-        self.tombstone_count.set(0);
+      let tombstone_count = timers.len() - data.len();
+      if tombstone_count > data.len() && tombstone_count > COMPACTION_MINIMUM {
         timers.retain(|k| data.contains_key(&k.1));
       }
       if let Some(TimerKey(k, ..)) = timers.first() {
@@ -493,16 +466,11 @@ impl<T: Clone> WebTimers<T> {
   #[cfg(test)]
   pub fn assert_consistent(&self) {
     if self.data_map.borrow().is_empty() {
-      // If the data map is empty, we should have no timers, no tombstones, no unref'd count, no high-res lock
+      // If the data map is empty, we should have no timers, no unref'd count, no high-res lock
       assert_eq!(self.timers.borrow().len(), 0);
-      assert_eq!(self.tombstone_count.get(), 0);
       assert_eq!(self.unrefd_count.get(), 0);
       assert!(!self.high_res_timer_lock.is_locked());
     } else {
-      assert_eq!(
-        self.timers.borrow().len(),
-        self.data_map.borrow().len() + self.tombstone_count.get()
-      );
       assert!(self.unrefd_count.get() <= self.data_map.borrow().len());
       // The high-res lock count must be <= the number of remaining timers
       assert!(self.high_res_timer_lock.lock_count.get() <= self.len());
@@ -637,11 +605,10 @@ mod tests {
       .await;
       v.append(&mut batch);
       eprintln!(
-        "{} ({} {} {})",
+        "{} ({} {})",
         v.len(),
         timers.len(),
         timers.data_map.borrow().len(),
-        timers.tombstone_count.get()
       );
       timers.assert_consistent();
     }

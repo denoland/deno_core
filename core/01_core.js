@@ -645,7 +645,21 @@
     evalContext: (
       source,
       specifier,
-    ) => op_eval_context(source, specifier),
+    ) => {
+      const [result, error] = op_eval_context(source, specifier);
+      if (error) {
+        const { 0: thrown, 1: isNativeError, 2: isCompileError } = error;
+        return [
+          result,
+          {
+            thrown,
+            isNativeError,
+            isCompileError,
+          },
+        ];
+      }
+      return [result, null];
+    },
     hostObjectBrand,
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
@@ -654,8 +668,23 @@
       value,
       options,
       errorCallback,
-    ) => op_serialize(value, options, errorCallback),
-    deserialize: (buffer, options) => op_deserialize(buffer, options),
+    ) => {
+      return op_serialize(
+        value,
+        options?.hostObjects,
+        options?.transferredArrayBuffers,
+        options?.forStorage ?? false,
+        errorCallback,
+      );
+    },
+    deserialize: (buffer, options) => {
+      return op_deserialize(
+        buffer,
+        options?.hostObjects,
+        options?.transferredArrayBuffers,
+        options?.forStorage ?? false,
+      );
+    },
     getPromiseDetails: (promise) => op_get_promise_details(promise),
     getProxyDetails: (proxy) => op_get_proxy_details(proxy),
     isAnyArrayBuffer: (value) => op_is_any_array_buffer(value),
