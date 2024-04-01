@@ -1516,7 +1516,6 @@ pub(crate) fn parse_type(
           let token = stringify_token(of.path.clone());
           if let Ok(Some(err)) = std::panic::catch_unwind(|| {
             rules!(ty => {
-              ( serde_v8::Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use v8::Value"),
               ( Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
               ( $_ty:ty ) => None,
             })
@@ -2080,10 +2079,5 @@ mod tests {
     op_with_bad_serde_str,
     ArgError("s", InvalidSerdeAttributeType("&str")),
     fn f(#[serde] s: &str) {}
-  );
-  expect_fail!(
-    op_with_bad_serde_value,
-    ArgError("v", InvalidSerdeType("serde_v8::Value", "use v8::Value")),
-    fn f(#[serde] v: serde_v8::Value) {}
   );
 }
