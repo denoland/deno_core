@@ -82,8 +82,8 @@ impl ContextifyScript {
 }
 
 #[derive(Debug, Clone)]
-struct ContextifyContext {
-  context: Option<v8::Global<v8::Context>>,
+pub struct ContextifyContext {
+  pub context: Option<v8::Global<v8::Context>>,
   wrapper: v8::Global<v8::Object>,
   sandbox: Option<v8::Global<v8::Object>>,
   // microtask_queue:
@@ -149,7 +149,7 @@ impl ContextifyContext {
     maybe_contextify_context: Option<&ContextifyContext>,
   ) -> bool {
     match maybe_contextify_context {
-      Some(ctx_ctx) => ctx_ctx.context.is_some(),
+      Some(ctx_ctx) => ctx_ctx.context.is_none(),
       None => false,
     }
   }
@@ -268,7 +268,7 @@ fn contextify_context_new(
       wrapper: v8::Global::new(handle_scope, wrapper),
       sandbox: Some(sandbox_obj_global),
     };
-    assert!(v8_context.set_slot(handle_scope, contextify_context));
+    assert!(v8_context.set_slot(handle_scope, contextify_context.clone()));
     let result = v8_context
       .get_slot::<ContextifyContext>(handle_scope)
       .unwrap()
@@ -287,8 +287,14 @@ fn contextify_context_new(
     {
       bail!("Set private property on contextified object");
     };
+
+    // TODO: use cppgc
+    wrapper
+        .set_aligned_pointer_in_internal_field(0, Box::into_raw(Box::new(contextify_context)) as _);
     result
   };
+
+
   // TODO: assign host_defined_option_symbol to the wrapper.
 
   Ok(result)
@@ -408,8 +414,11 @@ fn contextify_context_initialize_global_template(scope: &mut v8::HandleScope) {
     v8::FunctionTemplate::builder_raw(c_noop).build(scope);
 
   let wrapper_object_template = wrapper_func_template.instance_template(scope);
+  wrapper_object_template.set_internal_field_count(1);
+
   let wrapper_object_template_global =
     v8::Global::new(scope, wrapper_object_template);
+
   scope.set_slot(SlotContextifyWrapperObjectTemplate(
     wrapper_object_template_global,
   ));

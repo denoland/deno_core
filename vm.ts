@@ -90,7 +90,7 @@ export class Script {
     //   return sigintHandlersWrap(super.runInContext, this, args);
     // }
     return op_script_run_in_context(
-      this,
+      this.code,
       args[0],
       args[1],
       args[2],

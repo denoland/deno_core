@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::error::AnyError;
+use crate::node_vm::ContextifyContext;
 use crate::node_vm::contextify_context;
 use crate::node_vm::make_context;
 use crate::node_vm::ContextOptions;
@@ -58,27 +59,56 @@ pub fn op_vm_run_in_new_context<'a>(
 }
 
 #[op2]
-pub fn op_script_run_in_context(
-  scope: &mut v8::HandleScope,
-  script: v8::Local<v8::Value>,
-  contextified_object: Option<v8::Local<v8::Object>>,
+pub fn op_script_run_in_context<'a>(
+  scope: &mut v8::HandleScope<'a>,
+  script: v8::Local<'a, v8::String>,
+  contextified_object: Option<v8::Local<'a, v8::Object>>,
   #[smi] timeout: i32,
   display_errors: bool,
   break_on_signint: bool,
   break_first_line: bool,
-) -> Result<(), AnyError> {
+) -> Result<v8::Local<'a, v8::Value>, AnyError> {
   // TODO: Node has `ContextifyScript` which is an actual object instance.
   // Probably will need to do the same here, probably using CPPGC objects.
 
-  // let context = if let Some(contextified_object) = contextified_object {
-  //   let sandbox = contextified_object;
-  //   // let contextify_context =
-  //   todo!()
-  // } else {
-  //   scope.get_current_context()
-  // };
+  let context = if let Some(contextified_object) = contextified_object {
+    let private_name =
+      v8::String::new_external_onebyte_static(scope, PRIVATE_SYMBOL_NAME)
+        .unwrap();
+    let private_symbol = v8::Private::for_api(scope, Some(private_name));
+    let private_value = contextified_object.get_private(scope, private_symbol).unwrap();
+    let wrapper: v8::Local<v8::Object> = private_value.try_into()?;
 
-  Ok(())
+    let contextify_context = unsafe {
+        (wrapper.get_aligned_pointer_from_internal_field(0) as *const ContextifyContext)
+.as_ref().unwrap()
+    };
+    v8::Local::new(scope, contextify_context.context.as_ref().unwrap())
+  } else {
+    scope.get_current_context()
+  };
+
+  let scope = &mut v8::ContextScope::new(scope, context);
+
+  let tc_scope = &mut v8::TryCatch::new(scope);
+  let script = match v8::Script::compile(tc_scope, script, None) {
+    Some(s) => s,
+    None => {
+      assert!(tc_scope.has_caught());
+      tc_scope.rethrow();
+      return Ok(v8::undefined(tc_scope).into());
+    }
+  };
+
+  Ok(match script.run(tc_scope) {
+    Some(result) => result,
+    None => {
+      assert!(tc_scope.has_caught());
+      tc_scope.rethrow();
+
+      v8::undefined(tc_scope).into()
+    }
+  })
 }
 
 #[op2]

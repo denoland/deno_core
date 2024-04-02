@@ -133,7 +133,7 @@ test({
     vm.createContext(context);
     vm.runInContext("globalVar *= 2", context);
     assertEquals(context.globalVar, 2);
-    assertEquals(globalThis.globalVar, 2);
+    assertEquals(globalThis.globalVar, 3);
   },
 });
 
