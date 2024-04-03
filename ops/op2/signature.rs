@@ -145,6 +145,7 @@ pub enum Special {
   HandleScope,
   OpState,
   JsRuntimeState,
+  OpCtx,
   FastApiCallbackOptions,
   Isolate,
 }
@@ -351,6 +352,7 @@ impl Arg {
         Special::FastApiCallbackOptions
         | Special::OpState
         | Special::JsRuntimeState
+        | Special::OpCtx
         | Special::HandleScope
         | Special::Isolate,
       ) => true,
@@ -359,6 +361,7 @@ impl Arg {
         Special::FastApiCallbackOptions
         | Special::OpState
         | Special::JsRuntimeState
+        | Special::OpCtx
         | Special::HandleScope,
       ) => true,
       Self::RcRefCell(
@@ -989,7 +992,8 @@ pub fn parse_signature(
   let mut names = vec![];
   for input in signature.inputs {
     let name = match &input {
-      FnArg::Receiver(_) => "self".to_owned(),
+      // Skip reciever
+      FnArg::Receiver(_) => continue,
       FnArg::Typed(ty) => match &*ty.pat {
         Pat::Ident(ident) => ident.ident.to_string(),
         _ => "(complex)".to_owned(),
@@ -1345,6 +1349,7 @@ fn parse_type_path(
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
+      ( OpCtx ) => Ok(CBare(TSpecial(Special::OpCtx))),
       ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
       ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
@@ -1384,7 +1389,9 @@ fn parse_type_path(
   // the easiest way to work with the 'rules!' macro above.
   match res {
     // OpState and JsRuntimeState appears in both ways
-    CBare(TSpecial(Special::OpState | Special::JsRuntimeState)) => {}
+    CBare(TSpecial(
+      Special::OpState | Special::JsRuntimeState | Special::OpCtx,
+    )) => {}
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {

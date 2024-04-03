@@ -46,6 +46,7 @@ deno_core::extension!(
     ops::op_stats_diff,
     ops::op_stats_dump,
     ops::op_stats_delete,
+    ops::op_stateful_new,
     ops_io::op_pipe_create,
     ops_io::op_file_open,
     ops_async::op_async_yield,

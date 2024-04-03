@@ -117,6 +117,7 @@ pub use crate::modules::ResolutionKind;
 pub use crate::modules::StaticModuleLoader;
 pub use crate::modules::ValidateImportAttributesCb;
 pub use crate::normalize_path::normalize_path;
+pub use crate::ops::OpCtx;
 pub use crate::ops::OpId;
 pub use crate::ops::OpMetadata;
 pub use crate::ops::OpState;
@@ -171,6 +172,7 @@ pub mod _ops {
   pub use super::ops_metrics::dispatch_metrics_fast;
   pub use super::ops_metrics::dispatch_metrics_slow;
   pub use super::ops_metrics::OpMetricsEvent;
+  pub use super::runtime::bindings::register_op_method;
   pub use super::runtime::ops::*;
   pub use super::runtime::ops_rust_to_v8::*;
   pub use super::runtime::V8_WRAPPER_OBJECT_INDEX;

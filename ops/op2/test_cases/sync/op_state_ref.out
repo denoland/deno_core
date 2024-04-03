@@ -67,7 +67,7 @@ impl op_state_ref {
     }
     #[allow(clippy::too_many_arguments)]
     extern "C" fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
+        this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
         #[cfg(debug_assertions)]
@@ -212,7 +212,7 @@ impl op_state_mut {
     }
     #[allow(clippy::too_many_arguments)]
     extern "C" fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
+        this: deno_core::v8::Local<deno_core::v8::Object>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {
         #[cfg(debug_assertions)]
@@ -459,7 +459,7 @@ impl op_state_and_v8_local {
     }
     #[allow(clippy::too_many_arguments)]
     extern "C" fn v8_fn_ptr_fast(
-        _: deno_core::v8::Local<deno_core::v8::Object>,
+        this: deno_core::v8::Local<deno_core::v8::Object>,
         arg1: deno_core::v8::Local<deno_core::v8::Value>,
         fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
     ) -> () {

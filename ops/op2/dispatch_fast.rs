@@ -439,6 +439,21 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
+  let with_self = if generator_state.needs_self {
+    gs_quote!(generator_state(self_ty) => {
+      let self_: &#self_ty = deno_core::cppgc::try_unwrap_cppgc_object(this.into()).unwrap();
+    })
+  } else {
+    quote!()
+  };
+
+  let name = &generator_state.name;
+  let call = if generator_state.needs_self {
+    quote!(self_. #name)
+  } else {
+    quote!(Self:: #name)
+  };
+
   let with_opctx = if generator_state.needs_fast_opctx {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
@@ -503,7 +518,7 @@ pub(crate) fn generate_dispatch_fast(
 
     #[allow(clippy::too_many_arguments)]
     extern "C" fn #fast_function(
-      _: deno_core::v8::Local<deno_core::v8::Object>,
+      this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {
       #[cfg(debug_assertions)]
@@ -512,9 +527,11 @@ pub(crate) fn generate_dispatch_fast(
       #with_fast_api_callback_options
       #with_opctx
       #with_js_runtime_state
+      #with_self
+
       let #result = {
         #(#call_args)*
-        Self::call(#(#call_names),*)
+        #call (#(#call_names),*)
       };
       #handle_error
       #handle_result
@@ -623,6 +640,10 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
+    }
+    Arg::Ref(RefType::Ref, Special::OpCtx) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = #opctx;)
     }
     Arg::State(RefType::Ref, state) => {
       *needs_opctx = true;
@@ -783,6 +804,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(_, Special::OpState)
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
+    | Arg::Ref(RefType::Ref, Special::OpCtx)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
     | Arg::OptionState(..)

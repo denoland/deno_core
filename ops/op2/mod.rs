@@ -87,8 +87,7 @@ fn generate_op2(
   config: MacroConfig,
   func: ItemFn,
 ) -> Result<TokenStream, Op2Error> {
-  // Create a copy of the original function, named "call"
-  let call = Ident::new("call", Span::call_site());
+  // Create a copy of the original function
   let mut op_fn = func.clone();
   // Collect non-special attributes
   let attrs = op_fn
@@ -97,7 +96,10 @@ fn generate_op2(
     .filter(|attr| !is_attribute_special(attr))
     .collect::<Vec<_>>();
   op_fn.sig.generics.params.clear();
-  op_fn.sig.ident = call.clone();
+  // rename to "call" for non-methods
+  if config.method.is_none() {
+    op_fn.sig.ident = Ident::new("call", Span::call_site());
+  }
 
   // Clear inert attributes
   // TODO(mmastrac): This should limit itself to clearing ours only
@@ -122,13 +124,14 @@ fn generate_op2(
     zip(signature.args.iter(), &func.sig.inputs).collect::<Vec<_>>();
 
   let mut args = vec![];
-  let mut needs_args = false;
+  let mut needs_args = config.method.is_some();
   for (index, _) in processed_args.iter().enumerate() {
     let input = format_ident!("arg{index}");
     args.push(input);
     needs_args = true;
   }
 
+  let name = op_fn.sig.ident.clone();
   let retval = Ident::new("rv", Span::call_site());
   let result = Ident::new("result", Span::call_site());
   let fn_args = Ident::new("args", Span::call_site());
@@ -146,8 +149,14 @@ fn generate_op2(
     Ident::new("v8_fn_ptr_fast_metrics", Span::call_site());
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
+  let self_ty = if let Some(ref ty) = config.method {
+    format_ident!("{ty}")
+  } else {
+    Ident::new("UNINIT", Span::call_site())
+  };
 
   let mut generator_state = GeneratorState {
+    name,
     args,
     fn_args,
     scope,
@@ -163,6 +172,7 @@ fn generate_op2(
     slow_function_metrics,
     fast_function,
     fast_function_metrics,
+    self_ty,
     promise_id,
     needs_retval: false,
     needs_scope: false,
@@ -173,6 +183,7 @@ fn generate_op2(
     needs_fast_opctx: false,
     needs_fast_api_callback_options: false,
     needs_fast_js_runtime_state: false,
+    needs_self: config.method.is_some(),
   };
 
   let name = func.sig.ident;
@@ -223,6 +234,7 @@ fn generate_op2(
   let GeneratorState {
     slow_function,
     slow_function_metrics,
+    needs_self,
     ..
   } = &generator_state;
 
@@ -242,7 +254,17 @@ fn generate_op2(
   let meta_key = signature.metadata.keys().collect::<Vec<_>>();
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
 
-  Ok(quote! {
+  let op_fn_impl = if !*needs_self {
+    quote! {
+      #[inline(always)]
+      #(#attrs)*
+      #op_fn
+    }
+  } else {
+    quote!()
+  };
+
+  let tmpl = quote! {
     #[allow(non_camel_case_types)]
     #(#attrs)*
     #vis struct #name <#(#generic),*> {
@@ -281,11 +303,37 @@ fn generate_op2(
       #fast_fn
       #slow_fn
 
-      #[inline(always)]
-      #(#attrs)*
-      #op_fn
+      #op_fn_impl
     }
-  })
+  };
+
+  if *needs_self {
+    let register = format_ident!("register_{name}");
+    // Create a registration function for the method
+    return Ok(quote! {
+        pub fn #register(
+            scope: &mut deno_core::v8::HandleScope,
+            ctx: &deno_core::_ops::OpCtx,
+            obj: deno_core::v8::Local<deno_core::v8::Object>,
+        ) {
+            #tmpl
+
+            use deno_core::Op;
+            let ctx = ctx.clone_for_method(#name::DECL);
+            deno_core::_ops::register_op_method(
+                scope,
+                ctx,
+                obj,
+            );
+        }
+
+        #[inline(always)]
+        #(#attrs)*
+        #op_fn
+    });
+  }
+
+  Ok(tmpl)
 }
 
 #[cfg(test)]
