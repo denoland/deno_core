@@ -1,5 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::extensions::Op;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
@@ -236,11 +235,10 @@ fn es_snapshot() {
   fn op_test() -> Result<String, Error> {
     Ok(String::from("test"))
   }
-
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     extensions: vec![Extension {
       name: "test_ext",
-      ops: Cow::Borrowed(&[op_test::DECL]),
+      ops: Cow::Borrowed(&[DECL]),
       ..Default::default()
     }],
     ..Default::default()
@@ -278,7 +276,7 @@ fn es_snapshot() {
     startup_snapshot: Some(snapshot),
     extensions: vec![Extension {
       name: "test_ext",
-      ops: Cow::Borrowed(&[op_test::DECL]),
+      ops: Cow::Borrowed(&[DECL]),
       ..Default::default()
     }],
     ..Default::default()
@@ -294,11 +292,12 @@ fn es_snapshot() {
   let snapshot2 = runtime2.snapshot();
   let snapshot2 = Box::leak(snapshot2);
 
+  const DECL: OpDecl = op_test();
   let mut runtime3 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot2),
     extensions: vec![Extension {
       name: "test_ext",
-      ops: Cow::Borrowed(&[op_test::DECL]),
+      ops: Cow::Borrowed(&[DECL]),
       ..Default::default()
     }],
     ..Default::default()

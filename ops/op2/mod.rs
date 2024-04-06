@@ -244,46 +244,51 @@ fn generate_op2(
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
-    #(#attrs)*
-    #vis struct #name <#(#generic),*> {
-      // We need to mark these type parameters as used, so we use a PhantomData
-      _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
-    }
-
-    impl <#(#generic : #bound),*> ::deno_core::_ops::Op for #name <#(#generic),*> {
-      const NAME: &'static str = stringify!(#name);
-      const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-        /*name*/ ::deno_core::__op_name_fast!(#name),
-        /*is_async*/ #is_async,
-        /*is_reentrant*/ #is_reentrant,
-        /*arg_count*/ #arg_count as u8,
-        /*slow_fn*/ Self::#slow_function as _,
-        /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
-        /*fast_fn*/ #fast_definition,
-        /*fast_fn_metrics*/ #fast_definition_metrics,
-        /*metadata*/ ::deno_core::OpMetadata {
-          #(#meta_key: Some(#meta_value),)*
-          ..::deno_core::OpMetadata::default()
-        },
-      );
-    }
-
-    impl <#(#generic : #bound),*> #name <#(#generic),*> {
-      pub const fn name() -> &'static str {
-        stringify!(#name)
-      }
-
-      #[deprecated(note = "Use the const op::DECL instead")]
-      pub const fn decl() -> deno_core::_ops::OpDecl {
-        <Self as deno_core::_ops::Op>::DECL
-      }
-
-      #fast_fn
-      #slow_fn
-
-      #[inline(always)]
+    #vis const fn #name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
+      #[allow(non_camel_case_types)]
       #(#attrs)*
-      #op_fn
+      #vis struct #name <#(#generic),*> {
+        // We need to mark these type parameters as used, so we use a PhantomData
+        _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
+      }
+
+      impl <#(#generic : #bound),*> ::deno_core::_ops::Op for #name <#(#generic),*> {
+        const NAME: &'static str = stringify!(#name);
+        const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+          /*name*/ ::deno_core::__op_name_fast!(#name),
+          /*is_async*/ #is_async,
+          /*is_reentrant*/ #is_reentrant,
+          /*arg_count*/ #arg_count as u8,
+          /*slow_fn*/ Self::#slow_function as _,
+          /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
+          /*fast_fn*/ #fast_definition,
+          /*fast_fn_metrics*/ #fast_definition_metrics,
+          /*metadata*/ ::deno_core::OpMetadata {
+            #(#meta_key: Some(#meta_value),)*
+            ..::deno_core::OpMetadata::default()
+          },
+        );
+      }
+
+      impl <#(#generic : #bound),*> #name <#(#generic),*> {
+        pub const fn name() -> &'static str {
+          stringify!(#name)
+        }
+
+       #[deprecated(note = "Use the const op::DECL instead")]
+        pub const fn decl() -> deno_core::_ops::OpDecl {
+          <Self as deno_core::_ops::Op>::DECL
+        }
+
+        #fast_fn
+        #slow_fn
+
+        #[inline(always)]
+        #(#attrs)*
+        #op_fn
+      }
+
+      <#name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
     }
   })
 }

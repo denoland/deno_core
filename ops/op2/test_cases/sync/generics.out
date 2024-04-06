@@ -1,365 +1,395 @@
 #[allow(non_camel_case_types)]
-pub struct op_generics<T> {
-    _unconstructable: ::std::marker::PhantomData<(T)>,
-}
-impl<T: Trait> ::deno_core::_ops::Op for op_generics<T> {
-    const NAME: &'static str = stringify!(op_generics);
-    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-        ::deno_core::__op_name_fast!(op_generics),
-        false,
-        false,
-        0usize as u8,
-        Self::v8_fn_ptr as _,
-        Self::v8_fn_ptr_metrics as _,
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value],
-                CType::Void,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-            )
-        }),
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::CallbackOptions],
-                CType::Void,
-                Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
-            )
-        }),
-        ::deno_core::OpMetadata {
-            ..::deno_core::OpMetadata::default()
-        },
-    );
-}
-impl<T: Trait> op_generics<T> {
-    pub const fn name() -> &'static str {
-        stringify!(op_generics)
+pub const fn op_generics<T: Trait>() -> ::deno_core::_ops::OpDecl {
+    #[allow(non_camel_case_types)]
+    pub struct op_generics<T> {
+        _unconstructable: ::std::marker::PhantomData<(T)>,
     }
-    #[deprecated(note = "Use the const op::DECL instead")]
-    pub const fn decl() -> deno_core::_ops::OpDecl {
-        <Self as deno_core::_ops::Op>::DECL
-    }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast_metrics(
-        this: deno_core::v8::Local<deno_core::v8::Object>,
-        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
-    ) -> () {
-        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<
-                deno_core::v8::External,
-            >::cast(unsafe { fast_api_callback_options.data.data })
-                .value() as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+    impl<T: Trait> ::deno_core::_ops::Op for op_generics<T> {
+        const NAME: &'static str = stringify!(op_generics);
+        const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+            ::deno_core::__op_name_fast!(op_generics),
+            false,
+            false,
+            0usize as u8,
+            Self::v8_fn_ptr as _,
+            Self::v8_fn_ptr_metrics as _,
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                )
+            }),
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value, Type::CallbackOptions],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
+                )
+            }),
+            ::deno_core::OpMetadata {
+                ..::deno_core::OpMetadata::default()
+            },
         );
-        let res = Self::v8_fn_ptr_fast(this);
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
-        );
-        res
     }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let result = { Self::call() };
-        result as _
-    }
-    #[inline(always)]
-    fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
-            &*info
-        });
-        let result = { Self::call() };
-        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
-        return 0;
-    }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::slow_function_impl(info);
-    }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
-            &*info
-        });
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
-        );
-        let res = Self::slow_function_impl(info);
-        if res == 0 {
-            deno_core::_ops::dispatch_metrics_slow(
+    impl<T: Trait> op_generics<T> {
+        pub const fn name() -> &'static str {
+            stringify!(op_generics)
+        }
+        #[deprecated(note = "Use the const op::DECL instead")]
+        pub const fn decl() -> deno_core::_ops::OpDecl {
+            <Self as deno_core::_ops::Op>::DECL
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast_metrics(
+            this: deno_core::v8::Local<deno_core::v8::Object>,
+            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+        ) -> () {
+            let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast(unsafe { fast_api_callback_options.data.data })
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
+            deno_core::_ops::dispatch_metrics_fast(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
+            );
+            let res = Self::v8_fn_ptr_fast(this);
+            deno_core::_ops::dispatch_metrics_fast(
                 &opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
             );
-        } else {
+            res
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast(
+            _: deno_core::v8::Local<deno_core::v8::Object>,
+        ) -> () {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let result = { Self::call() };
+            result as _
+        }
+        #[inline(always)]
+        fn slow_function_impl(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) -> usize {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+                &*info
+            });
+            let result = { Self::call() };
+            deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+            return 0;
+        }
+        extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+            Self::slow_function_impl(info);
+        }
+        extern "C" fn v8_fn_ptr_metrics(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) {
+            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+                &*info
+            });
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
             deno_core::_ops::dispatch_metrics_slow(
                 &opctx,
-                deno_core::_ops::OpMetricsEvent::Error,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
             );
+            let res = Self::slow_function_impl(info);
+            if res == 0 {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Completed,
+                );
+            } else {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Error,
+                );
+            }
         }
+        #[inline(always)]
+        pub fn call() {}
     }
-    #[inline(always)]
-    pub fn call() {}
+    <op_generics<T> as ::deno_core::_ops::Op>::DECL
 }
 
 #[allow(non_camel_case_types)]
-pub struct op_generics_static<T> {
-    _unconstructable: ::std::marker::PhantomData<(T)>,
-}
-impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static<T> {
-    const NAME: &'static str = stringify!(op_generics_static);
-    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-        ::deno_core::__op_name_fast!(op_generics_static),
-        false,
-        false,
-        0usize as u8,
-        Self::v8_fn_ptr as _,
-        Self::v8_fn_ptr_metrics as _,
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value],
-                CType::Void,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-            )
-        }),
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::CallbackOptions],
-                CType::Void,
-                Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
-            )
-        }),
-        ::deno_core::OpMetadata {
-            ..::deno_core::OpMetadata::default()
-        },
-    );
-}
-impl<T: Trait + 'static> op_generics_static<T> {
-    pub const fn name() -> &'static str {
-        stringify!(op_generics_static)
+pub const fn op_generics_static<T: Trait + 'static>() -> ::deno_core::_ops::OpDecl {
+    #[allow(non_camel_case_types)]
+    pub struct op_generics_static<T> {
+        _unconstructable: ::std::marker::PhantomData<(T)>,
     }
-    #[deprecated(note = "Use the const op::DECL instead")]
-    pub const fn decl() -> deno_core::_ops::OpDecl {
-        <Self as deno_core::_ops::Op>::DECL
-    }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast_metrics(
-        this: deno_core::v8::Local<deno_core::v8::Object>,
-        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
-    ) -> () {
-        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<
-                deno_core::v8::External,
-            >::cast(unsafe { fast_api_callback_options.data.data })
-                .value() as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+    impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static<T> {
+        const NAME: &'static str = stringify!(op_generics_static);
+        const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+            ::deno_core::__op_name_fast!(op_generics_static),
+            false,
+            false,
+            0usize as u8,
+            Self::v8_fn_ptr as _,
+            Self::v8_fn_ptr_metrics as _,
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                )
+            }),
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value, Type::CallbackOptions],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
+                )
+            }),
+            ::deno_core::OpMetadata {
+                ..::deno_core::OpMetadata::default()
+            },
         );
-        let res = Self::v8_fn_ptr_fast(this);
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
-        );
-        res
     }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let result = { Self::call() };
-        result as _
-    }
-    #[inline(always)]
-    fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
-            &*info
-        });
-        let result = { Self::call() };
-        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
-        return 0;
-    }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::slow_function_impl(info);
-    }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
-            &*info
-        });
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
-        );
-        let res = Self::slow_function_impl(info);
-        if res == 0 {
-            deno_core::_ops::dispatch_metrics_slow(
+    impl<T: Trait + 'static> op_generics_static<T> {
+        pub const fn name() -> &'static str {
+            stringify!(op_generics_static)
+        }
+        #[deprecated(note = "Use the const op::DECL instead")]
+        pub const fn decl() -> deno_core::_ops::OpDecl {
+            <Self as deno_core::_ops::Op>::DECL
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast_metrics(
+            this: deno_core::v8::Local<deno_core::v8::Object>,
+            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+        ) -> () {
+            let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast(unsafe { fast_api_callback_options.data.data })
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
+            deno_core::_ops::dispatch_metrics_fast(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
+            );
+            let res = Self::v8_fn_ptr_fast(this);
+            deno_core::_ops::dispatch_metrics_fast(
                 &opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
             );
-        } else {
+            res
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast(
+            _: deno_core::v8::Local<deno_core::v8::Object>,
+        ) -> () {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let result = { Self::call() };
+            result as _
+        }
+        #[inline(always)]
+        fn slow_function_impl(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) -> usize {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+                &*info
+            });
+            let result = { Self::call() };
+            deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+            return 0;
+        }
+        extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+            Self::slow_function_impl(info);
+        }
+        extern "C" fn v8_fn_ptr_metrics(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) {
+            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+                &*info
+            });
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
             deno_core::_ops::dispatch_metrics_slow(
                 &opctx,
-                deno_core::_ops::OpMetricsEvent::Error,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
             );
+            let res = Self::slow_function_impl(info);
+            if res == 0 {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Completed,
+                );
+            } else {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Error,
+                );
+            }
         }
+        #[inline(always)]
+        pub fn call() {}
     }
-    #[inline(always)]
-    pub fn call() {}
+    <op_generics_static<T> as ::deno_core::_ops::Op>::DECL
 }
 
 #[allow(non_camel_case_types)]
-pub struct op_generics_static_where<T> {
-    _unconstructable: ::std::marker::PhantomData<(T)>,
-}
-impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static_where<T> {
-    const NAME: &'static str = stringify!(op_generics_static_where);
-    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-        ::deno_core::__op_name_fast!(op_generics_static_where),
-        false,
-        false,
-        0usize as u8,
-        Self::v8_fn_ptr as _,
-        Self::v8_fn_ptr_metrics as _,
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value],
-                CType::Void,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-            )
-        }),
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::CallbackOptions],
-                CType::Void,
-                Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
-            )
-        }),
-        ::deno_core::OpMetadata {
-            ..::deno_core::OpMetadata::default()
-        },
-    );
-}
-impl<T: Trait + 'static> op_generics_static_where<T> {
-    pub const fn name() -> &'static str {
-        stringify!(op_generics_static_where)
+pub const fn op_generics_static_where<T: Trait + 'static>() -> ::deno_core::_ops::OpDecl {
+    #[allow(non_camel_case_types)]
+    pub struct op_generics_static_where<T> {
+        _unconstructable: ::std::marker::PhantomData<(T)>,
     }
-    #[deprecated(note = "Use the const op::DECL instead")]
-    pub const fn decl() -> deno_core::_ops::OpDecl {
-        <Self as deno_core::_ops::Op>::DECL
-    }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast_metrics(
-        this: deno_core::v8::Local<deno_core::v8::Object>,
-        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
-    ) -> () {
-        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<
-                deno_core::v8::External,
-            >::cast(unsafe { fast_api_callback_options.data.data })
-                .value() as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+    impl<T: Trait + 'static> ::deno_core::_ops::Op for op_generics_static_where<T> {
+        const NAME: &'static str = stringify!(op_generics_static_where);
+        const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+            ::deno_core::__op_name_fast!(op_generics_static_where),
+            false,
+            false,
+            0usize as u8,
+            Self::v8_fn_ptr as _,
+            Self::v8_fn_ptr_metrics as _,
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                )
+            }),
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value, Type::CallbackOptions],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
+                )
+            }),
+            ::deno_core::OpMetadata {
+                ..::deno_core::OpMetadata::default()
+            },
         );
-        let res = Self::v8_fn_ptr_fast(this);
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
-        );
-        res
     }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let result = { Self::call() };
-        result as _
-    }
-    #[inline(always)]
-    fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
-            &*info
-        });
-        let result = { Self::call() };
-        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
-        return 0;
-    }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::slow_function_impl(info);
-    }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
-            &*info
-        });
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
-        );
-        let res = Self::slow_function_impl(info);
-        if res == 0 {
-            deno_core::_ops::dispatch_metrics_slow(
+    impl<T: Trait + 'static> op_generics_static_where<T> {
+        pub const fn name() -> &'static str {
+            stringify!(op_generics_static_where)
+        }
+        #[deprecated(note = "Use the const op::DECL instead")]
+        pub const fn decl() -> deno_core::_ops::OpDecl {
+            <Self as deno_core::_ops::Op>::DECL
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast_metrics(
+            this: deno_core::v8::Local<deno_core::v8::Object>,
+            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+        ) -> () {
+            let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast(unsafe { fast_api_callback_options.data.data })
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
+            deno_core::_ops::dispatch_metrics_fast(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
+            );
+            let res = Self::v8_fn_ptr_fast(this);
+            deno_core::_ops::dispatch_metrics_fast(
                 &opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
             );
-        } else {
+            res
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast(
+            _: deno_core::v8::Local<deno_core::v8::Object>,
+        ) -> () {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let result = { Self::call() };
+            result as _
+        }
+        #[inline(always)]
+        fn slow_function_impl(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) -> usize {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+                &*info
+            });
+            let result = { Self::call() };
+            deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+            return 0;
+        }
+        extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+            Self::slow_function_impl(info);
+        }
+        extern "C" fn v8_fn_ptr_metrics(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) {
+            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+                &*info
+            });
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
             deno_core::_ops::dispatch_metrics_slow(
                 &opctx,
-                deno_core::_ops::OpMetricsEvent::Error,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
             );
+            let res = Self::slow_function_impl(info);
+            if res == 0 {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Completed,
+                );
+            } else {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Error,
+                );
+            }
         }
+        #[inline(always)]
+        pub fn call()
+        where
+            T: Trait + 'static,
+        {}
     }
-    #[inline(always)]
-    pub fn call()
-    where
-        T: Trait + 'static,
-    {}
+    <op_generics_static_where<T> as ::deno_core::_ops::Op>::DECL
 }
