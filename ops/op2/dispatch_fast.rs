@@ -375,8 +375,8 @@ pub(crate) fn generate_dispatch_fast(
     let alternative =
       syn::parse_str::<Type>(alternative).expect("Failed to reparse type");
     return Ok(Some((
-      quote!(#alternative::DECL.fast_fn()),
-      quote!(#alternative::DECL.fast_fn_with_metrics()),
+      quote!(#alternative().fast_fn()),
+      quote!(#alternative().fast_fn_with_metrics()),
       quote!(),
     )));
   }
