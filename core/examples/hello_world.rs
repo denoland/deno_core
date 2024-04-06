@@ -16,9 +16,10 @@ fn op_sum(#[serde] nums: Vec<f64>) -> Result<f64, deno_core::error::AnyError> {
 
 fn main() {
   // Build a deno_core::Extension providing custom ops
+  const DECL: OpDecl = op_sum();
   let ext = Extension {
     name: "my_ext",
-    ops: std::borrow::Cow::Borrowed(&[op_sum::DECL]),
+    ops: std::borrow::Cow::Borrowed(&[DECL]),
     ..Default::default()
   };
 

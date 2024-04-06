@@ -10,7 +10,6 @@ use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
 use crate::CancelHandle;
 use crate::JsBuffer;
-use crate::Op;
 use crate::OpDecl;
 use crate::OpState;
 use crate::Resource;
@@ -26,7 +25,7 @@ use std::rc::Rc;
 macro_rules! builtin_ops {
   ( $($op:ident $(:: $sub:ident)*),* ) => {
     pub const BUILTIN_OPS: &'static [OpDecl] = &[
-      $( $op $(:: $sub)*::DECL, )*
+      $( $op $(:: $sub) * () ),*
     ];
   }
 }

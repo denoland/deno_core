@@ -322,7 +322,7 @@ macro_rules! ops {
       vec![
       $(
         $( #[ $m ] )*
-        $( $op )::+ :: decl $( :: <$op_param> )? () ,
+        $( $op )+ $( :: <$op_param> )? () ,
       )+
       ]
     }
@@ -331,7 +331,7 @@ macro_rules! ops {
     pub(crate) fn $name() -> ::std::Vec<$crate::OpDecl> {
       use $crate::Op;
       vec![
-        $( $( #[ $m ] )* $( $op )::+ :: DECL, )+
+        $( $( #[ $m ] )* $( $op )+() , )+
       ]
     }
   }
@@ -450,10 +450,11 @@ macro_rules! extension {
             const V: ::std::option::Option<&'static ::std::primitive::str> = $crate::or!($(::std::option::Option::Some($esm_entry_point))?, ::std::option::Option::None);
             V
           },
-          ops: ::std::borrow::Cow::Borrowed(&[$($(
+          ops: ::std::borrow::Cow::Borrowed(&[$($({
             $( #[ $m ] )*
-            $( $op )::+ $( :: < $($op_param),* > )? :: DECL
-          ),+)?]),
+            const DECL: $crate::OpDecl =  $( $op )::+ $( :: < $($op_param),* > )? ();
+            DECL
+          }),+)?]),
           external_references: ::std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
           global_template_middleware: ::std::option::Option::None,
           global_object_middleware: ::std::option::Option::None,

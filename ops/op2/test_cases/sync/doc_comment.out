@@ -1,122 +1,128 @@
 #[allow(non_camel_case_types)]
-/// This is a doc comment.
-pub struct op_has_doc_comment {
-    _unconstructable: ::std::marker::PhantomData<()>,
-}
-impl ::deno_core::_ops::Op for op_has_doc_comment {
-    const NAME: &'static str = stringify!(op_has_doc_comment);
-    const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-        ::deno_core::__op_name_fast!(op_has_doc_comment),
-        false,
-        false,
-        0usize as u8,
-        Self::v8_fn_ptr as _,
-        Self::v8_fn_ptr_metrics as _,
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value],
-                CType::Void,
-                Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-            )
-        }),
-        Some({
-            use deno_core::v8::fast_api::Type;
-            use deno_core::v8::fast_api::CType;
-            deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                &[Type::V8Value, Type::CallbackOptions],
-                CType::Void,
-                Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
-            )
-        }),
-        ::deno_core::OpMetadata {
-            ..::deno_core::OpMetadata::default()
-        },
-    );
-}
-impl op_has_doc_comment {
-    pub const fn name() -> &'static str {
-        stringify!(op_has_doc_comment)
+pub const fn op_has_doc_comment() -> ::deno_core::_ops::OpDecl {
+    #[allow(non_camel_case_types)]
+    /// This is a doc comment.
+    pub struct op_has_doc_comment {
+        _unconstructable: ::std::marker::PhantomData<()>,
     }
-    #[deprecated(note = "Use the const op::DECL instead")]
-    pub const fn decl() -> deno_core::_ops::OpDecl {
-        <Self as deno_core::_ops::Op>::DECL
-    }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast_metrics(
-        this: deno_core::v8::Local<deno_core::v8::Object>,
-        fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
-    ) -> () {
-        let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<
-                deno_core::v8::External,
-            >::cast(unsafe { fast_api_callback_options.data.data })
-                .value() as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
+    impl ::deno_core::_ops::Op for op_has_doc_comment {
+        const NAME: &'static str = stringify!(op_has_doc_comment);
+        const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
+            ::deno_core::__op_name_fast!(op_has_doc_comment),
+            false,
+            false,
+            0usize as u8,
+            Self::v8_fn_ptr as _,
+            Self::v8_fn_ptr_metrics as _,
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                )
+            }),
+            Some({
+                use deno_core::v8::fast_api::Type;
+                use deno_core::v8::fast_api::CType;
+                deno_core::v8::fast_api::FastFunction::new_with_bigint(
+                    &[Type::V8Value, Type::CallbackOptions],
+                    CType::Void,
+                    Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
+                )
+            }),
+            ::deno_core::OpMetadata {
+                ..::deno_core::OpMetadata::default()
+            },
         );
-        let res = Self::v8_fn_ptr_fast(this);
-        deno_core::_ops::dispatch_metrics_fast(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Completed,
-        );
-        res
     }
-    #[allow(clippy::too_many_arguments)]
-    extern "C" fn v8_fn_ptr_fast(_: deno_core::v8::Local<deno_core::v8::Object>) -> () {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let result = { Self::call() };
-        result as _
-    }
-    #[inline(always)]
-    fn slow_function_impl(info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
-        #[cfg(debug_assertions)]
-        let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-            &<Self as deno_core::_ops::Op>::DECL,
-        );
-        let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
-            &*info
-        });
-        let result = { Self::call() };
-        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
-        return 0;
-    }
-    extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::slow_function_impl(info);
-    }
-    extern "C" fn v8_fn_ptr_metrics(info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
-            &*info
-        });
-        let opctx = unsafe {
-            &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
-                as *const deno_core::_ops::OpCtx)
-        };
-        deno_core::_ops::dispatch_metrics_slow(
-            &opctx,
-            deno_core::_ops::OpMetricsEvent::Dispatched,
-        );
-        let res = Self::slow_function_impl(info);
-        if res == 0 {
-            deno_core::_ops::dispatch_metrics_slow(
+    impl op_has_doc_comment {
+        pub const fn name() -> &'static str {
+            stringify!(op_has_doc_comment)
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast_metrics(
+            this: deno_core::v8::Local<deno_core::v8::Object>,
+            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
+        ) -> () {
+            let fast_api_callback_options = unsafe { &mut *fast_api_callback_options };
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast(unsafe { fast_api_callback_options.data.data })
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
+            deno_core::_ops::dispatch_metrics_fast(
+                &opctx,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
+            );
+            let res = Self::v8_fn_ptr_fast(this);
+            deno_core::_ops::dispatch_metrics_fast(
                 &opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
             );
-        } else {
+            res
+        }
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn v8_fn_ptr_fast(
+            _: deno_core::v8::Local<deno_core::v8::Object>,
+        ) -> () {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let result = { Self::call() };
+            result as _
+        }
+        #[inline(always)]
+        fn slow_function_impl(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) -> usize {
+            #[cfg(debug_assertions)]
+            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
+                &<Self as deno_core::_ops::Op>::DECL,
+            );
+            let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
+                &*info
+            });
+            let result = { Self::call() };
+            deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+            return 0;
+        }
+        extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+            Self::slow_function_impl(info);
+        }
+        extern "C" fn v8_fn_ptr_metrics(
+            info: *const deno_core::v8::FunctionCallbackInfo,
+        ) {
+            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
+                &*info
+            });
+            let opctx = unsafe {
+                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
             deno_core::_ops::dispatch_metrics_slow(
                 &opctx,
-                deno_core::_ops::OpMetricsEvent::Error,
+                deno_core::_ops::OpMetricsEvent::Dispatched,
             );
+            let res = Self::slow_function_impl(info);
+            if res == 0 {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Completed,
+                );
+            } else {
+                deno_core::_ops::dispatch_metrics_slow(
+                    &opctx,
+                    deno_core::_ops::OpMetricsEvent::Error,
+                );
+            }
         }
+        #[inline(always)]
+        /// This is a doc comment.
+        pub fn call() -> () {}
     }
-    #[inline(always)]
-    /// This is a doc comment.
-    pub fn call() -> () {}
+    <op_has_doc_comment as ::deno_core::_ops::Op>::DECL
 }
