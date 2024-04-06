@@ -40,10 +40,6 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_string_cow)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,

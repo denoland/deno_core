@@ -24,10 +24,6 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_void_with_result)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[inline(always)]
         fn slow_function_impl(
             info: *const deno_core::v8::FunctionCallbackInfo,

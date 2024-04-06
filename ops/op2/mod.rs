@@ -275,11 +275,6 @@ fn generate_op2(
           stringify!(#name)
         }
 
-       #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-          <Self as deno_core::_ops::Op>::DECL
-        }
-
         #fast_fn
         #slow_fn
 

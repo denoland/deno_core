@@ -40,10 +40,6 @@ pub const fn op_generics<T: Trait>() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_generics)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,
@@ -171,10 +167,6 @@ pub const fn op_generics_static<T: Trait + 'static>() -> ::deno_core::_ops::OpDe
         pub const fn name() -> &'static str {
             stringify!(op_generics_static)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,
@@ -301,10 +293,6 @@ pub const fn op_generics_static_where<T: Trait + 'static>() -> ::deno_core::_ops
     impl<T: Trait + 'static> op_generics_static_where<T> {
         pub const fn name() -> &'static str {
             stringify!(op_generics_static_where)
-        }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(

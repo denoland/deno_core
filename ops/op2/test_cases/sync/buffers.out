@@ -53,10 +53,6 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_buffers)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,
@@ -336,10 +332,6 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_buffers_32)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,
@@ -589,10 +581,6 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
     impl op_buffers_option {
         pub const fn name() -> &'static str {
             stringify!(op_buffers_option)
-        }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
         }
         #[inline(always)]
         fn slow_function_impl(

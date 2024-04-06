@@ -47,10 +47,6 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_smi_unsigned_return)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,
@@ -268,10 +264,6 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_smi_signed_return)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,
@@ -465,10 +457,6 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
     impl op_smi_option {
         pub const fn name() -> &'static str {
             stringify!(op_smi_option)
-        }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
         }
         #[inline(always)]
         fn slow_function_impl(

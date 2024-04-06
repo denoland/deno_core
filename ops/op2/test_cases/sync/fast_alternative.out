@@ -24,10 +24,6 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_slow)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[inline(always)]
         fn slow_function_impl(
             info: *const deno_core::v8::FunctionCallbackInfo,
@@ -155,10 +151,6 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
     impl op_fast {
         pub const fn name() -> &'static str {
             stringify!(op_fast)
-        }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
@@ -314,10 +306,6 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_slow_generic)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[inline(always)]
         fn slow_function_impl(
             info: *const deno_core::v8::FunctionCallbackInfo,
@@ -445,10 +433,6 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
     impl<T: Trait> op_fast_generic<T> {
         pub const fn name() -> &'static str {
             stringify!(op_fast_generic)
-        }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(

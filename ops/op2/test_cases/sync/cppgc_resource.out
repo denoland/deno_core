@@ -40,10 +40,6 @@ const fn op_file() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_file)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics(
             this: deno_core::v8::Local<deno_core::v8::Object>,
@@ -187,10 +183,6 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_make_cppgc_object)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[inline(always)]
         fn slow_function_impl(
             info: *const deno_core::v8::FunctionCallbackInfo,
@@ -276,10 +268,6 @@ const fn op_make_cppgc_object_async() -> ::deno_core::_ops::OpDecl {
     impl op_make_cppgc_object_async {
         pub const fn name() -> &'static str {
             stringify!(op_make_cppgc_object_async)
-        }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
         }
         #[inline(always)]
         fn slow_function_impl(

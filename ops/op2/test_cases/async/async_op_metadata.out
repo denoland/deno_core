@@ -26,10 +26,6 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_blob_read_part)
         }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
-        }
         #[inline(always)]
         fn slow_function_impl(
             info: *const deno_core::v8::FunctionCallbackInfo,
@@ -129,10 +125,6 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
     impl op_broadcast_recv {
         pub const fn name() -> &'static str {
             stringify!(op_broadcast_recv)
-        }
-        #[deprecated(note = "Use the const op::DECL instead")]
-        pub const fn decl() -> deno_core::_ops::OpDecl {
-            <Self as deno_core::_ops::Op>::DECL
         }
         #[inline(always)]
         fn slow_function_impl(
