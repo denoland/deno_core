@@ -82,7 +82,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
             arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
             arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
@@ -271,6 +271,8 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_buffers {
         #[inline(always)]
         fn call(_a: &[u8], _b: &mut [u8], _c: *const u8, _d: *mut u8) {}
     }
@@ -361,7 +363,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
             arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
             arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
@@ -550,6 +552,8 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_buffers_32 {
         #[inline(always)]
         fn call(_a: &[u32], _b: &mut [u32], _c: *const u32, _d: *mut u32) {}
     }
@@ -692,6 +696,8 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_buffers_option {
         #[inline(always)]
         fn call(_a: Option<&[u8]>, _b: Option<JsBuffer>) {}
     }

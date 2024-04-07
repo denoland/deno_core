@@ -122,13 +122,14 @@ fn generate_op2(
     zip(signature.args.iter(), &func.sig.inputs).collect::<Vec<_>>();
 
   let mut args = vec![];
-  let mut needs_args = false;
+  let mut needs_args = config.method.is_some();
   for (index, _) in processed_args.iter().enumerate() {
     let input = format_ident!("arg{index}");
     args.push(input);
     needs_args = true;
   }
 
+  let name = op_fn.sig.ident.clone();
   let retval = Ident::new("rv", Span::call_site());
   let result = Ident::new("result", Span::call_site());
   let fn_args = Ident::new("args", Span::call_site());
@@ -146,8 +147,14 @@ fn generate_op2(
     Ident::new("v8_fn_ptr_fast_metrics", Span::call_site());
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
+  let self_ty = if let Some(ref ty) = config.method {
+    format_ident!("{ty}")
+  } else {
+    Ident::new("UNINIT", Span::call_site())
+  };
 
   let mut generator_state = GeneratorState {
+    name,
     args,
     fn_args,
     scope,
@@ -164,6 +171,7 @@ fn generate_op2(
     fast_function,
     fast_function_metrics,
     promise_id,
+    self_ty,
     needs_retval: false,
     needs_scope: false,
     needs_isolate: false,
@@ -173,6 +181,7 @@ fn generate_op2(
     needs_fast_opctx: false,
     needs_fast_api_callback_options: false,
     needs_fast_js_runtime_state: false,
+    needs_self: config.method.is_some(),
   };
 
   let name = func.sig.ident;
@@ -241,6 +250,28 @@ fn generate_op2(
 
   let meta_key = signature.metadata.keys().collect::<Vec<_>>();
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
+  let op_fn_sig = &op_fn.sig;
+  let callable = if let Some(ty) = config.method {
+    let ident = format_ident!("{ty}");
+    quote! {
+        trait Callable {
+          #op_fn_sig;
+        }
+        impl Callable for #ident {
+          #[inline(always)]
+          #(#attrs)*
+          #op_fn
+        }
+    }
+  } else {
+    quote! {
+      impl <#(#generic : #bound),*> #name <#(#generic),*> {
+        #[inline(always)]
+        #(#attrs)*
+        #op_fn
+      }
+    }
+  };
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
@@ -277,11 +308,9 @@ fn generate_op2(
 
         #fast_fn
         #slow_fn
-
-        #[inline(always)]
-        #(#attrs)*
-        #op_fn
       }
+
+      #callable
 
       <#name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
     }

@@ -66,7 +66,7 @@ const fn op_file() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: deno_core::v8::Local<deno_core::v8::Value>,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
         ) -> () {
@@ -151,6 +151,8 @@ const fn op_file() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_file {
         #[inline(always)]
         fn call(_file: &std::fs::File) {}
     }
@@ -235,6 +237,8 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_make_cppgc_object {
         #[inline(always)]
         fn call() -> Wrap {
             Wrap
@@ -346,6 +350,8 @@ const fn op_make_cppgc_object_async() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_make_cppgc_object_async {
         #[inline(always)]
         async fn call() -> Wrap {
             Wrap

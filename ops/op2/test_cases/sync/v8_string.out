@@ -106,6 +106,8 @@ const fn op_v8_string() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_v8_string {
         #[inline(always)]
         fn call<'a>(
             _str1: &v8::String,

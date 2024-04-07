@@ -65,7 +65,7 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
         ) -> *mut ::std::ffi::c_void {
             #[cfg(debug_assertions)]
@@ -177,6 +177,8 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_external_with_result {
         #[inline(always)]
         pub fn call() -> Result<*mut std::ffi::c_void, AnyError> {
             Ok(0 as _)

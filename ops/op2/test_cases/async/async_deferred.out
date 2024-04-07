@@ -66,7 +66,7 @@ pub const fn op_async_deferred() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             promise_id: i32,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
         ) -> () {
@@ -152,6 +152,8 @@ pub const fn op_async_deferred() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_async_deferred {
         #[inline(always)]
         pub async fn call() -> std::io::Result<i32> {
             Ok(0)

@@ -109,6 +109,8 @@ pub const fn op_test_add_option() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_test_add_option {
         #[inline(always)]
         pub fn call(a: u32, b: Option<u32>) -> u32 {
             a + b.unwrap_or(100)

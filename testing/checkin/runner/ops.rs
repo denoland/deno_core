@@ -9,6 +9,7 @@ use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
+use deno_core::OpDecl;
 use deno_core::OpState;
 
 use super::testing::Output;
@@ -76,3 +77,32 @@ pub fn op_stats_delete(
 ) {
   test_data.take::<RuntimeActivityStats>(name);
 }
+
+pub struct Stateful {
+  name: String,
+}
+
+impl Stateful {
+  #[op2(method(Stateful))]
+  #[string]
+  fn get_name(&self) -> String {
+    self.name.clone()
+  }
+
+  #[op2(fast, method(Stateful))]
+  #[smi]
+  fn len(&self) -> u32 {
+    self.name.len() as u32
+  }
+
+  #[op2(async, method(Stateful))]
+  async fn delay(&self, #[smi] millis: u32) {
+    tokio::time::sleep(std::time::Duration::from_millis(millis as u64)).await;
+    println!("name: {}", self.name);
+  }
+}
+
+// Make sure this compiles, we'll use it when we add registration.
+#[allow(dead_code)]
+const STATEFUL_DECL: [OpDecl; 3] =
+  [Stateful::get_name(), Stateful::len(), Stateful::delay()];

@@ -90,6 +90,8 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_blob_read_part {
         #[inline(always)]
         async fn call() {
             return;
@@ -190,6 +192,8 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_broadcast_recv {
         #[inline(always)]
         async fn call() {
             return;
