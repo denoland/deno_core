@@ -90,6 +90,8 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_v8_lifetime {
         #[inline(always)]
         pub fn call<'s>(_s: v8::Local<'s, v8::String>) -> v8::Local<'s, v8::String> {
             unimplemented!()

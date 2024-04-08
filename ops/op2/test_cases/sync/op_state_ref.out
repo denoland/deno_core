@@ -65,7 +65,7 @@ const fn op_state_ref() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
         ) -> () {
             #[cfg(debug_assertions)]
@@ -141,6 +141,8 @@ const fn op_state_ref() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_state_ref {
         #[inline(always)]
         fn call(_state: &OpState) {}
     }
@@ -214,7 +216,7 @@ const fn op_state_mut() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
         ) -> () {
             #[cfg(debug_assertions)]
@@ -290,6 +292,8 @@ const fn op_state_mut() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_state_mut {
         #[inline(always)]
         fn call(_state: &mut OpState) {}
     }
@@ -395,6 +399,8 @@ const fn op_state_and_v8() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_state_and_v8 {
         #[inline(always)]
         fn call(_state: &mut OpState, _callback: v8::Global<v8::Function>) {}
     }
@@ -469,7 +475,7 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg1: deno_core::v8::Local<deno_core::v8::Value>,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions,
         ) -> () {
@@ -569,6 +575,8 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_state_and_v8_local {
         #[inline(always)]
         fn call(_state: &mut OpState, _callback: v8::Local<v8::Function>) {}
     }

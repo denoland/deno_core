@@ -67,7 +67,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
@@ -121,6 +121,8 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_extra_annotation {
         #[inline(always)]
         /// This is a doc comment.
         #[allow(clippy::some_annotation)]
@@ -196,7 +198,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
@@ -250,6 +252,8 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_clippy_internal {
         #[inline(always)]
         pub fn call() -> () {
             { #![allow(clippy::await_holding_refcell_ref)] }

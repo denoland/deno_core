@@ -107,6 +107,8 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_async_v8_global {
         #[inline(always)]
         pub async fn call(_s: v8::Global<v8::String>) {}
     }

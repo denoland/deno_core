@@ -65,7 +65,7 @@ pub const fn op_generics<T: Trait>() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
@@ -119,6 +119,8 @@ pub const fn op_generics<T: Trait>() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl<T: Trait> op_generics<T> {
         #[inline(always)]
         pub fn call() {}
     }
@@ -192,7 +194,7 @@ pub const fn op_generics_static<T: Trait + 'static>() -> ::deno_core::_ops::OpDe
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
@@ -246,6 +248,8 @@ pub const fn op_generics_static<T: Trait + 'static>() -> ::deno_core::_ops::OpDe
                 );
             }
         }
+    }
+    impl<T: Trait + 'static> op_generics_static<T> {
         #[inline(always)]
         pub fn call() {}
     }
@@ -319,7 +323,7 @@ pub const fn op_generics_static_where<T: Trait + 'static>() -> ::deno_core::_ops
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
@@ -373,6 +377,8 @@ pub const fn op_generics_static_where<T: Trait + 'static>() -> ::deno_core::_ops
                 );
             }
         }
+    }
+    impl<T: Trait + 'static> op_generics_static_where<T> {
         #[inline(always)]
         pub fn call()
         where

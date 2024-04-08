@@ -66,7 +66,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: bool,
         ) -> bool {
             #[cfg(debug_assertions)]
@@ -131,6 +131,8 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_bool {
         #[inline(always)]
         pub fn call(arg: bool) -> bool {
             arg

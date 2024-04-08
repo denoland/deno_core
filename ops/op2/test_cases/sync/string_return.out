@@ -82,6 +82,8 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_string_return {
         #[inline(always)]
         pub fn call() -> String {
             "".into()
@@ -174,6 +176,8 @@ pub const fn op_string_return_ref() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_string_return_ref {
         #[inline(always)]
         pub fn call() -> &'static str {
             ""
@@ -266,6 +270,8 @@ pub const fn op_string_return_cow() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_string_return_cow {
         #[inline(always)]
         pub fn call<'a>() -> Cow<'a, str> {
             "".into()

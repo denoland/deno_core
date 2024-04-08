@@ -989,7 +989,8 @@ pub fn parse_signature(
   let mut names = vec![];
   for input in signature.inputs {
     let name = match &input {
-      FnArg::Receiver(_) => "self".to_owned(),
+      // Skip receiver
+      FnArg::Receiver(_) => continue,
       FnArg::Typed(ty) => match &*ty.pat {
         Pat::Ident(ident) => ident.ident.to_string(),
         _ => "(complex)".to_owned(),

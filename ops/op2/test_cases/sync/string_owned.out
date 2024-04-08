@@ -66,7 +66,7 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: *mut deno_core::v8::fast_api::FastApiOneByteString,
         ) -> u32 {
             #[cfg(debug_assertions)]
@@ -136,6 +136,8 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_string_owned {
         #[inline(always)]
         fn call(s: String) -> u32 {
             s.len() as _

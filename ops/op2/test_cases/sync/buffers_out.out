@@ -107,6 +107,8 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_buffers {
         #[inline(always)]
         fn call(buffer: JsBuffer) -> JsBuffer {
             buffer
@@ -234,6 +236,8 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_buffers_option {
         #[inline(always)]
         fn call(buffer: Option<JsBuffer>) -> Option<JsBuffer> {
             buffer
@@ -347,6 +351,8 @@ const fn op_arraybuffers() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_arraybuffers {
         #[inline(always)]
         fn call(buffer: JsBuffer) -> JsBuffer {
             buffer

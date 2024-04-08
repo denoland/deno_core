@@ -102,6 +102,8 @@ const fn op_nofast() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_nofast {
         #[inline(always)]
         fn call(a: u32, b: u32) -> u32 {
             a + b

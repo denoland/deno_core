@@ -79,7 +79,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
             arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
             arg2: *mut deno_core::v8::fast_api::FastApiTypedArray<u8>,
@@ -224,6 +224,8 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_buffers {
         #[inline(always)]
         fn call(_a: Vec<u8>, _b: Box<[u8]>, _c: bytes::Bytes) {}
     }
@@ -308,7 +310,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
             arg1: *mut deno_core::v8::fast_api::FastApiTypedArray<u32>,
         ) -> () {
@@ -425,6 +427,8 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_buffers_32 {
         #[inline(always)]
         fn call(_a: Vec<u32>, _b: Box<[u32]>) {}
     }

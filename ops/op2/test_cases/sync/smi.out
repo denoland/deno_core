@@ -76,7 +76,7 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: i32,
             arg1: i32,
             arg2: i32,
@@ -207,6 +207,8 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_smi_unsigned_return {
         #[inline(always)]
         fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Uint32 {
             a as Uint32 + b as Uint32 + c as Uint32 + d as Uint32
@@ -293,7 +295,7 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast(
-            _: deno_core::v8::Local<deno_core::v8::Object>,
+            this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: i32,
             arg1: i32,
             arg2: i32,
@@ -424,6 +426,8 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_smi_signed_return {
         #[inline(always)]
         fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Int32 {
             a as Int32 + b as Int32 + c as Int32 + d as Int32
@@ -529,6 +533,8 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_smi_option {
         #[inline(always)]
         fn call(a: Option<Uint32>) -> Option<Uint32> {
             a

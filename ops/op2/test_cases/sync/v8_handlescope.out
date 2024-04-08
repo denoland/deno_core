@@ -91,6 +91,8 @@ const fn op_handlescope() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_handlescope {
         #[inline(always)]
         fn call<'a>(
             _scope: &v8::HandleScope<'a>,

@@ -109,6 +109,8 @@ pub const fn op_async_opstate() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_async_opstate {
         #[inline(always)]
         pub async fn call(state: Rc<RefCell<OpState>>) -> std::io::Result<i32> {
             Ok(*state.borrow().borrow::<i32>())

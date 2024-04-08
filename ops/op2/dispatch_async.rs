@@ -10,6 +10,7 @@ use super::dispatch_slow::with_opctx;
 use super::dispatch_slow::with_opstate;
 use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
+use super::dispatch_slow::with_self;
 use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
@@ -136,6 +137,12 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
+  let with_self = if generator_state.needs_self {
+    with_self(generator_state)
+  } else {
+    quote!()
+  };
+
   Ok(
     gs_quote!(generator_state(info, slow_function, slow_function_metrics, opctx) => {
       #[inline(always)]
@@ -148,6 +155,7 @@ pub(crate) fn generate_dispatch_async(
         #with_args
         #with_opctx
         #with_opstate
+        #with_self
 
         #output
       }

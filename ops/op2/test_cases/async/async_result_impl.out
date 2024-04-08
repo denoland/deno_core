@@ -135,6 +135,8 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_async_result_impl {
         #[inline(always)]
         pub fn call(
             x: i32,

@@ -121,6 +121,8 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
                 );
             }
         }
+    }
+    impl op_async {
         #[inline(always)]
         pub async fn call(x: i32) -> std::io::Result<i32> {
             Ok(x)
