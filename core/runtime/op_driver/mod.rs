@@ -341,7 +341,7 @@ mod tests {
     });
   }
 
-  #[cfg(not(miri))]
+  #[cfg(not(miri))] // needs I/O
   #[rstest]
   #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
   fn test_driver_io<D: OpDriver<TestMappingContext>>(

@@ -384,7 +384,6 @@ mod tests {
   use crate::ascii_str;
   use url::Url;
 
-  #[cfg(not(miri))]
   #[test]
   fn module_name_map_test() {
     let mut data: ModuleNameTypeMap<usize> = ModuleNameTypeMap::default();

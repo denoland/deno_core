@@ -162,7 +162,7 @@ fn specifier_has_uri_scheme(specifier: &str) -> bool {
   }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod tests {
   use super::*;
   use crate::serde_json::from_value;
@@ -335,7 +335,11 @@ mod tests {
     ];
 
     // The local path tests assume that the cwd is the deno repo root.
-    let cwd = current_dir().unwrap();
+    let cwd = if cfg!(miri) {
+      PathBuf::from("/miri")
+    } else {
+      current_dir().unwrap()
+    };
     let cwd_str = cwd.to_str().unwrap();
 
     if cfg!(target_os = "windows") {

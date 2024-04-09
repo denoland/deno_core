@@ -29,39 +29,19 @@ impl FastStaticString {
     FastStaticString { s }
   }
 
-  pub const fn as_str(&self) -> &'static str {
-    // SAFETY: We know this was constructed from a valid one-byte string.
-    unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
+  pub fn as_str(&self) -> &'static str {
+    self.s.as_ref()
   }
 
-  pub const fn as_bytes(&self) -> &'static [u8] {
-    unsafe {
-      let ptrs: [usize; 3] = std::ptr::read(self.s as *const _ as *const _);
-      std::slice::from_raw_parts(ptrs[1] as *const u8, ptrs[2])
-    }
+  pub fn as_bytes(&self) -> &'static [u8] {
+    self.s.as_ref()
   }
 
-  // TODO(mmastrac): This is a workaround for a compiler error for large scripts that take too
-  // long to call is_ascii on.
   #[doc(hidden)]
   pub const fn create_external_onebyte_const(
     s: &'static [u8],
   ) -> v8::OneByteConst {
-    #[repr(C)]
-    struct OneByteConst {
-      _vtable: *const (),
-      cached_data: *const char,
-      length: usize,
-    }
-    // SAFETY: Workaround compiler error in create_external_onebyte_const for long ascii strings
-    unsafe {
-      debug_assert!(s.is_ascii());
-      let c = v8::String::create_external_onebyte_const(&[]);
-      let mut ptrs: OneByteConst = std::mem::transmute(c);
-      ptrs.cached_data = std::mem::transmute(s.as_ptr());
-      ptrs.length = s.len();
-      std::mem::transmute(ptrs)
-    }
+    v8::String::create_external_onebyte_const(s)
   }
 
   pub fn v8_string<'s>(
@@ -471,9 +451,6 @@ macro_rules! __op_name_fast {
 mod tests {
   use super::*;
 
-  // TODO(mmastrac): we need to upstream as_str() on OneByteConst to rusty_v8 to get
-  // rid of the hacks that break miri.
-  #[cfg(not(miri))]
   #[test]
   fn string_eq() {
     let s: FastString = ascii_str!("Testing").into();
@@ -491,7 +468,6 @@ mod tests {
     assert_eq!("Testing", s2.as_str());
   }
 
-  #[cfg(not(miri))]
   #[test]
   fn truncate() {
     let mut s = "123456".to_owned();
