@@ -1,0 +1,12 @@
+name: Test workflow
+runs:
+  using: "composite"
+  steps:
+    - name: Install valgrind
+      shell: bash
+      run: sudo apt-get install valgrind
+    - name: Cargo test (valgrind)
+      shell: bash
+      run: |
+        # --error-exitcode=1 
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind --error-exitcode=0 --leak-check=no" cargo test

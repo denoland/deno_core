@@ -66,6 +66,10 @@ quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
 proc-macro-rules = "0.4.0"
 
+[profile.dev.package.v8]
+# v8 miscompiles at opt-level=0
+opt-level = 1
+
 # NB: the `bench` and `release` profiles must remain EXACTLY the same.
 [profile.release]
 codegen-units = 1
