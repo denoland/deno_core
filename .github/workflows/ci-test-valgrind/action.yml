@@ -4,7 +4,10 @@ runs:
   steps:
     - name: Install valgrind
       shell: bash
-      run: sudo apt-get install valgrind
+      run: |
+        # Installing packages
+        sudo rm /var/lib/man-db/auto-update || true
+        sudo apt-get install valgrind
     - name: Cargo test (valgrind)
       shell: bash
       run: |
