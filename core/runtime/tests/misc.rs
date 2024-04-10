@@ -1131,12 +1131,16 @@ async fn task_spawner_cross_thread() {
     .borrow::<V8CrossThreadTaskSpawner>()
     .clone();
 
+  let barrier = Arc::new(std::sync::Barrier::new(2));
+  let barrier2 = barrier.clone();
   std::thread::spawn(move || {
     spawner.spawn(move |scope| {
+      barrier2.wait();
       let res = call_i32_function(scope);
       value_clone.store(res as _, Ordering::SeqCst);
     });
   });
+  barrier.wait();
 
   // Async spin while we wait for this to complete
   let start = Instant::now();
@@ -1161,10 +1165,14 @@ async fn task_spawner_cross_thread_blocking() {
     .borrow::<V8CrossThreadTaskSpawner>()
     .clone();
 
+  let barrier = Arc::new(std::sync::Barrier::new(2));
+  let barrier2 = barrier.clone();
   std::thread::spawn(move || {
+    barrier2.wait();
     let res = spawner.spawn_blocking(call_i32_function);
     value_clone.store(res as _, Ordering::SeqCst);
   });
+  barrier.wait();
 
   // Async spin while we wait for this to complete
   let start = Instant::now();
@@ -1181,7 +1189,7 @@ async fn task_spawner_cross_thread_blocking() {
 async fn terminate_execution_run_event_loop_js() {
   #[op2(async)]
   async fn op_async_sleep() -> Result<(), Error> {
-    tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     Ok(())
   }
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
@@ -1190,29 +1198,20 @@ async fn terminate_execution_run_event_loop_js() {
     ..Default::default()
   });
 
-  // Create sleep function that waits for 2 seconds.
-  runtime
-    .execute_script(
-      "sleep_code.js",
-      r#"
-              const { op_async_sleep } = Deno.core.ops; 
-              async function sleep() {
-                await op_async_sleep();
-              }
-      "#,
-    )
-    .unwrap();
+  // Start async task
+  runtime.execute_script("sleep.js", "(async () => { while (true) { await Deno.core.ops.op_async_sleep(); } })()").unwrap();
 
   // Terminate execution after 1 second.
   let v8_isolate_handle = runtime.v8_isolate().thread_safe_handle();
+  let barrier = Arc::new(std::sync::Barrier::new(2));
+  let barrier2 = barrier.clone();
   let terminator_thread = std::thread::spawn(move || {
+    barrier2.wait();
     std::thread::sleep(std::time::Duration::from_millis(1000));
     let ok = v8_isolate_handle.terminate_execution();
     assert!(ok);
   });
-
-  // Start waiting period of 2 seconds.
-  runtime.execute_script("sleep.js", "sleep()").unwrap();
+  barrier.wait();
 
   let err = runtime
     .run_event_loop(Default::default())
