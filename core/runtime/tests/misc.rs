@@ -1134,8 +1134,8 @@ async fn task_spawner_cross_thread() {
   let barrier = Arc::new(std::sync::Barrier::new(2));
   let barrier2 = barrier.clone();
   std::thread::spawn(move || {
+    barrier2.wait();
     spawner.spawn(move |scope| {
-      barrier2.wait();
       let res = call_i32_function(scope);
       value_clone.store(res as _, Ordering::SeqCst);
     });
