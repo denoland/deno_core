@@ -1,13 +1,13 @@
 {
    <insert_a_suppression_name_here>
    Memcheck:Addr8
-   fun:_ZN9deno_core8external24ExternalPointer$LT$E$GT$16validate_pointer17h4f868620a0dcaf09E
-   fun:_ZN4core3ops8function6FnOnce9call_once17h78591d7c84a246c5E
-   fun:_ZN4test28__rust_begin_short_backtrace17haae1a87433f1efb3E
-   fun:_ZN4test8run_test28_$u7b$$u7b$closure$u7d$$u7d$17h35d7300d8928a067E
-   fun:_ZN3std10sys_common9backtrace28__rust_begin_short_backtrace17h4e7db78ce05afad8E
-   fun:_ZN4core3ops8function6FnOnce40call_once$u7b$$u7b$vtable.shim$u7d$$u7d$17h426d96740c81bdafE
-   fun:_ZN3std3sys4unix6thread6Thread3new12thread_start17hbac657605e4b7389E
+   fun:_ZN9deno_core8external24ExternalPointer*validate_pointer*
+   fun:_ZN4core3ops8function6FnOnce9call_once*
+   fun:_ZN4test28__rust_begin_short_backtrace*
+   fun:_ZN4test8run_test*
+   fun:_ZN3std10sys_common9backtrace28__rust_begin_short_backtrace*
+   fun:_ZN4core3ops8function6FnOnce40call_once*
+   fun:_ZN3std3sys4unix6thread6Thread3new12thread_start*
    fun:start_thread
    fun:clone
 }
