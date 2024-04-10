@@ -129,6 +129,7 @@ pub fn create_op_ctxs(
   let op_count = op_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
 
+  let runtime_state_ptr = runtime_state.as_ref() as *const _;
   for (index, decl) in op_decls.into_iter().enumerate() {
     let metrics_fn = op_metrics_factory_fn
       .as_ref()
@@ -140,7 +141,7 @@ pub fn create_op_ctxs(
       op_driver.clone(),
       decl,
       op_state.clone(),
-      runtime_state.clone(),
+      runtime_state_ptr,
       get_error_class_fn,
       metrics_fn,
     );
