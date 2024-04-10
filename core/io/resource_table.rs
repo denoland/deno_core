@@ -85,16 +85,12 @@ impl ResourceTable {
       .index
       .get(&rid)
       .and_then(|rc| rc.downcast_rc::<T>())
-      .map(Clone::clone)
+      .cloned()
       .ok_or_else(bad_resource_id)
   }
 
   pub fn get_any(&self, rid: ResourceId) -> Result<Rc<dyn Resource>, Error> {
-    self
-      .index
-      .get(&rid)
-      .map(Clone::clone)
-      .ok_or_else(bad_resource_id)
+    self.index.get(&rid).cloned().ok_or_else(bad_resource_id)
   }
 
   /// Replaces a resource with a new resource.
