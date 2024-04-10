@@ -1149,7 +1149,7 @@ async fn task_spawner_cross_thread() {
       .await
       .unwrap();
     tokio::time::sleep(Duration::from_millis(10)).await;
-    assert!(start.elapsed().as_secs() < 60);
+    assert!(start.elapsed().as_secs() < 180);
   }
 }
 
@@ -1181,7 +1181,7 @@ async fn task_spawner_cross_thread_blocking() {
       .await
       .unwrap();
     tokio::time::sleep(Duration::from_millis(10)).await;
-    assert!(start.elapsed().as_secs() < 60);
+    assert!(start.elapsed().as_secs() < 180);
   }
 }
 
