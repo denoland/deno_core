@@ -287,7 +287,6 @@ pub(crate) fn get_requested_module_type_from_attributes(
 /// by default, but embedders can customize it further by providing
 /// [`CustomModuleEvaluationCb`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[repr(u32)]
 pub enum ModuleType {
   JavaScript,
   Wasm,
@@ -475,7 +474,6 @@ pub enum ResolutionKind {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[repr(u8)]
 pub enum RequestedModuleType {
   /// There was no attribute specified in the import statement.
   ///
