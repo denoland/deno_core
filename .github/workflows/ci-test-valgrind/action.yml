@@ -9,5 +9,6 @@ runs:
       shell: bash
       run: |
         # --error-exitcode=1 
-        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind --error-exitcode=0 --leak-check=no --gen-suppressions=all --log-file=memcheck.log" cargo test
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind --error-exitcode=0 --leak-check=no --gen-suppressions=all --log-file=memcheck.log" \
+          cargo test --release
         cat memcheck.log
