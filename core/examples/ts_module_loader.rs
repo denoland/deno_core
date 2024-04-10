@@ -14,6 +14,7 @@ use anyhow::Context;
 use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
+use deno_ast::SourceMapOption;
 use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
@@ -97,7 +98,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       let code = std::fs::read_to_string(&path)?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
-          specifier: module_specifier.to_string(),
+          specifier: module_specifier.clone(),
           text_info: SourceTextInfo::from_string(code),
           media_type,
           capture_tokens: false,
@@ -105,8 +106,7 @@ impl ModuleLoader for TypescriptModuleLoader {
           maybe_syntax: None,
         })?;
         let res = parsed.transpile(&deno_ast::EmitOptions {
-          inline_source_map: false,
-          source_map: true,
+          source_map: SourceMapOption::Separate,
           inline_sources: true,
           ..Default::default()
         })?;
