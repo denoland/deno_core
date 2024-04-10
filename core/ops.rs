@@ -245,6 +245,7 @@ impl OpCtx {
 
   /// Get the [`JsRuntimeState`] for this op.
   pub(crate) fn runtime_state(&self) -> &JsRuntimeState {
+    // SAFETY: JsRuntimeState outlives OpCtx
     unsafe { &*self.runtime_state }
   }
 
