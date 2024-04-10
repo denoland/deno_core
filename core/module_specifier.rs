@@ -334,7 +334,8 @@ mod tests {
       ),
     ];
 
-    // The local path tests assume that the cwd is the deno repo root.
+    // The local path tests assume that the cwd is the deno repo root. Note
+    // that we can't use `cwd` in miri tests, so we just use `/miri` instead.
     let cwd = if cfg!(miri) {
       PathBuf::from("/miri")
     } else {
