@@ -12,10 +12,10 @@ use deno_core::ModuleCodeString;
 use deno_core::ModuleName;
 use deno_core::RuntimeOptions;
 use deno_core::SourceMapData;
-use url::Url;
 use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
+use url::Url;
 
 macro_rules! fake_extensions {
   ($which:ident, $($name:ident),+) => (
