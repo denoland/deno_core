@@ -11,5 +11,5 @@ runs:
     - name: Cargo test (valgrind)
       shell: bash
       run: |
-        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind --error-exitcode=1 --leak-check=no --suppressions=.github/workflows/ci-test-valgrind/suppressions.txt --gen-suppressions=all" \
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind --error-exitcode=1 --leak-check=no --suppressions=/home/runner/work/deno_core/deno_core/.github/workflows/ci-test-valgrind/suppressions.txt --gen-suppressions=all" \
           cargo test -p deno_core --release
