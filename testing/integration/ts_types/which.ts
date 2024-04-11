@@ -1,5 +1,15 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// https://github.com/dsherret/deno-which/blob/main/mod.ts
+
+/**
+ * This file triggered a crash in Deno.
+ */
+
 declare namespace Deno {
-  class FileInfo { name: string; isFile: boolean; }
+  class FileInfo {
+    name: string;
+    isFile: boolean;
+  }
   function stat(...any);
   function statSync(...any);
   namespace env {

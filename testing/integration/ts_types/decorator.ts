@@ -1,3 +1,4 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 function logged(value, { kind, name }) {
   if (kind === "method" || kind === "getter" || kind === "setter") {
     return function (...args) {
@@ -14,4 +15,4 @@ class C {
   set x(arg) {}
 }
 
-new C().x = 1
+new C().x = 1;
