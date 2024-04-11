@@ -49,7 +49,7 @@ impl Hasher for IdentityHasher {
 /// We may wish to experiment with alternative drivers in the future.
 pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
-pub(crate) struct ContextState {
+pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:

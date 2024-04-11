@@ -96,7 +96,7 @@ pub struct OpCtx {
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
   op_driver: Rc<OpDriverImpl>,
-  runtime_state: Rc<JsRuntimeState>,
+  runtime_state: *const JsRuntimeState,
 }
 
 impl OpCtx {
@@ -107,7 +107,7 @@ impl OpCtx {
     op_driver: Rc<OpDriverImpl>,
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
-    runtime_state: Rc<JsRuntimeState>,
+    runtime_state: *const JsRuntimeState,
     get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
@@ -245,7 +245,8 @@ impl OpCtx {
 
   /// Get the [`JsRuntimeState`] for this op.
   pub(crate) fn runtime_state(&self) -> &JsRuntimeState {
-    &self.runtime_state
+    // SAFETY: JsRuntimeState outlives OpCtx
+    unsafe { &*self.runtime_state }
   }
 }
 
