@@ -457,6 +457,13 @@ fn test_lazy_loaded_esm() {
   });
 
   runtime
+    .lazy_load_es_module_with_code(
+      "ext:cli/more_lazy.js",
+      crate::ascii_str_include!("testdata/lazy_loaded.js"),
+    )
+    .unwrap();
+
+  runtime
     .execute_script(
       "setup.js",
       r#"

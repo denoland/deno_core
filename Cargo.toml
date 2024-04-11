@@ -24,7 +24,7 @@ deno_ops = { version = "0.149.0", path = "./ops" }
 serde_v8 = { version = "0.182.0", path = "./serde_v8" }
 
 v8 = { version = "0.89.0", default-features = false }
-deno_ast = { version = "=0.32.0", features = ["transpiling"] }
+deno_ast = { version = "=0.35.2", features = ["transpiling"] }
 deno_unsync = "0.3.2"
 deno_core_icudata = "0.0.73"
 
@@ -65,6 +65,10 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
 proc-macro-rules = "0.4.0"
+
+[profile.dev.package.v8]
+# v8 miscompiles at opt-level=0
+opt-level = 1
 
 # NB: the `bench` and `release` profiles must remain EXACTLY the same.
 [profile.release]

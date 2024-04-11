@@ -9,9 +9,11 @@ use anyhow::Error;
 
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
+use deno_ast::SourceMapOption;
 use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
+use deno_core::url::Url;
 use deno_core::ModuleCodeString;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
@@ -28,9 +30,9 @@ use deno_core::SourceMapGetter;
 #[derive(Clone, Default)]
 struct SourceMapStore(Rc<RefCell<HashMap<String, Vec<u8>>>>);
 
-impl SourceMapGetter for SourceMapStore {
+impl SourceMapGetter for TypescriptModuleLoader {
   fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.0.borrow().get(specifier).cloned()
+    self.source_maps.0.borrow().get(specifier).cloned()
   }
 
   fn get_source_line(
@@ -98,7 +100,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       let code = std::fs::read_to_string(&path)?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
-          specifier: module_specifier.to_string(),
+          specifier: module_specifier.clone(),
           text_info: SourceTextInfo::from_string(code),
           media_type,
           capture_tokens: false,
@@ -106,9 +108,10 @@ impl ModuleLoader for TypescriptModuleLoader {
           maybe_syntax: None,
         })?;
         let res = parsed.transpile(&deno_ast::EmitOptions {
-          inline_source_map: false,
-          source_map: true,
-          inline_sources: true,
+          imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+          source_map: SourceMapOption::Separate,
+          inline_sources: false,
+          use_decorators_proposal: true,
           ..Default::default()
         })?;
         let source_map = res.source_map.unwrap();
@@ -154,7 +157,7 @@ pub fn maybe_transpile_source(
   }
 
   let parsed = deno_ast::parse_module(ParseParams {
-    specifier: specifier.to_string(),
+    specifier: Url::parse(&specifier).unwrap(),
     text_info: SourceTextInfo::from_string(source.as_str().to_owned()),
     media_type,
     capture_tokens: false,
@@ -163,9 +166,9 @@ pub fn maybe_transpile_source(
   })?;
   let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
     imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-    inline_source_map: false,
-    source_map: true,
-    inline_sources: true,
+    source_map: SourceMapOption::Separate,
+    inline_sources: false,
+    use_decorators_proposal: true,
     ..Default::default()
   })?;
 

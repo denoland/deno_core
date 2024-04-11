@@ -1,0 +1,18 @@
+name: Test workflow
+runs:
+  using: "composite"
+  steps:
+    - name: Install valgrind
+      shell: bash
+      run: |
+        # Installing packages
+        sudo rm /var/lib/man-db/auto-update || true
+        sudo apt-get install -y --no-install-recommends valgrind
+    - name: Cargo test (valgrind)
+      shell: bash
+      run: |
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="
+          valgrind --error-exitcode=1 --leak-check=no
+          --suppressions=/home/runner/work/deno_core/deno_core/.github/workflows/ci-test-valgrind/suppressions.txt
+          --gen-suppressions=all" \
+          cargo test -p deno_core -p deno_core_testing -p serde_v8 --release
