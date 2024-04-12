@@ -15,6 +15,7 @@ use deno_core::OpState;
 use super::testing::Output;
 use super::testing::TestData;
 use super::testing::TestFunctions;
+use super::SomeType;
 
 #[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
@@ -106,3 +107,8 @@ impl Stateful {
 #[allow(dead_code)]
 const STATEFUL_DECL: [OpDecl; 3] =
   [Stateful::get_name(), Stateful::len(), Stateful::delay()];
+
+#[op2(fast)]
+pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
+  state.take::<T>();
+}

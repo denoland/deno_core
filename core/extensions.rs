@@ -450,10 +450,9 @@ macro_rules! extension {
             const V: ::std::option::Option<&'static ::std::primitive::str> = $crate::or!($(::std::option::Option::Some($esm_entry_point))?, ::std::option::Option::None);
             V
           },
-          ops: ::std::borrow::Cow::Borrowed(&[$($({
+          ops: ::std::borrow::Cow::Owned(vec![$($({
             $( #[ $m ] )*
-            const DECL: $crate::OpDecl =  $( $op )::+ $( :: < $($op_param),* > )? ();
-            DECL
+            $( $op )::+ $( :: < $($op_param),* > )? ()
           }),+)?]),
           external_references: ::std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
           global_template_middleware: ::std::option::Option::None,

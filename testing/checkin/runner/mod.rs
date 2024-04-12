@@ -36,8 +36,13 @@ mod ops_worker;
 mod testing;
 mod ts_module_loader;
 
+trait SomeType {}
+
+impl SomeType for () {}
+
 deno_core::extension!(
   checkin_runtime,
+  parameters = [P: SomeType],
   ops = [
     ops::op_log_debug,
     ops::op_log_info,
@@ -46,6 +51,7 @@ deno_core::extension!(
     ops::op_stats_diff,
     ops::op_stats_dump,
     ops::op_stats_delete,
+    ops::op_nop_generic<P>,
     ops_io::op_pipe_create,
     ops_io::op_file_open,
     ops_async::op_async_yield,
@@ -93,7 +99,7 @@ fn create_runtime(
   parent: Option<WorkerCloseWatcher>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm()];
+  let extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm::<()>()];
 
   let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
     extensions: extensions_for_snapshot,
@@ -105,7 +111,7 @@ fn create_runtime(
 
   let snapshot = runtime_for_snapshot.snapshot();
   let snapshot = Box::leak(snapshot);
-  let extensions = vec![checkin_runtime::init_ops()];
+  let extensions = vec![checkin_runtime::init_ops::<()>()];
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
     startup_snapshot: Some(snapshot),
