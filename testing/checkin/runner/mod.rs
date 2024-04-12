@@ -112,16 +112,17 @@ fn create_runtime(
   let snapshot = runtime_for_snapshot.snapshot();
   let snapshot = Box::leak(snapshot);
   let extensions = vec![checkin_runtime::init_ops::<()>()];
+  let module_loader =
+    Rc::new(ts_module_loader::TypescriptModuleLoader::default());
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
     startup_snapshot: Some(snapshot),
-    module_loader: Some(Rc::new(
-      ts_module_loader::TypescriptModuleLoader::default(),
-    )),
+    module_loader: Some(module_loader.clone()),
     get_error_class_fn: Some(&|error| {
       deno_core::error::get_custom_error_class(error).unwrap_or("Error")
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
+    source_map_getter: Some(module_loader),
     ..Default::default()
   });
 

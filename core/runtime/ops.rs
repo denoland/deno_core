@@ -537,6 +537,11 @@ mod tests {
   use std::rc::Rc;
   use std::time::Duration;
 
+  /// Enough to get functions to JIT.
+  pub const JIT_ITERATIONS: usize = 6000;
+  /// For slower tests. Doesn't guarantee a JIT.
+  pub const JIT_SLOW_ITERATIONS: usize = 500;
+
   deno_core::extension!(
     testing,
     ops = [
@@ -762,17 +767,33 @@ mod tests {
   /// Test various numeric coercions in fast and slow mode.
   #[tokio::test(flavor = "current_thread")]
   pub async fn test_op_add() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(10000, "op_test_add", "assert(op_test_add(1, 11) == 12)")?;
-    run_test2(10000, "op_test_add", "assert(op_test_add(11, -1) == 10)")?;
-    run_test2(10000, "op_test_add", "assert(op_test_add(1.5, 11.5) == 12)")?;
-    run_test2(10000, "op_test_add", "assert(op_test_add(11.5, -1) == 10)")?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(1, 11) == 12)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(11, -1) == 10)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(1.5, 11.5) == 12)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(11.5, -1) == 10)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
       "op_test_add",
       "assert(op_test_add(4096n, 4096n) == 4096 + 4096)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_add",
       "assert(op_test_add(8192n, -4096n) == 4096)",
     )?;
@@ -791,12 +812,12 @@ mod tests {
   #[tokio::test(flavor = "current_thread")]
   pub async fn test_op_add_smi() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_add_smi_unsigned",
       "assert(op_test_add_smi_unsigned(1000, 2000) == 3000)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_add_smi_unsigned",
       "assert(op_test_add_smi_unsigned(-1000, 10) == -990)",
     )?;
@@ -856,11 +877,15 @@ mod tests {
   pub async fn test_op_result_void() -> Result<(), Box<dyn std::error::Error>> {
     // Test the non-switching kinds
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_void_err",
       "try { op_test_result_void_err(); assert(false) } catch (e) {}",
     )?;
-    run_test2(10000, "op_test_result_void_ok", "op_test_result_void_ok()")?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_result_void_ok",
+      "op_test_result_void_ok()",
+    )?;
     Ok(())
   }
 
@@ -869,7 +894,7 @@ mod tests {
   ) -> Result<(), Box<dyn std::error::Error>> {
     RETURN_COUNT.with(|count| count.set(0));
     let err = run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_void_switch",
       "op_test_result_void_switch();",
     )
@@ -894,12 +919,12 @@ mod tests {
   pub async fn test_op_result_primitive(
   ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_primitive_err",
       "try { op_test_result_primitive_err(); assert(false) } catch (e) {}",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_primitive_ok",
       "op_test_result_primitive_ok()",
     )?;
@@ -923,12 +948,12 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_bool() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_bool",
       "assert(op_test_bool(true) === true && op_test_bool(false) === false)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_bool_result",
       "assert(op_test_bool_result(true) === true)",
     )?;
@@ -957,9 +982,13 @@ mod tests {
 
   #[tokio::test]
   pub async fn test_op_float() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(10000, "op_test_float", "assert(op_test_float(1, 10) == 11)")?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
+      "op_test_float",
+      "assert(op_test_float(1, 10) == 11)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
       "op_test_float_result",
       "assert(op_test_float_result(1, 10) == 11)",
     )?;
@@ -997,12 +1026,12 @@ mod tests {
       &format!("assert(op_test_bigint_i64({}n) == {}n)", i64::MAX, i64::MAX),
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MAX_SAFE_INTEGER) == Number.MAX_SAFE_INTEGER)",
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MIN_SAFE_INTEGER) == Number.MIN_SAFE_INTEGER)",
     )?;
@@ -1072,39 +1101,39 @@ mod tests {
         (40000, "'\\u{1F995}'.repeat(10000)"),
       ] {
         let test = format!("assert({op}({str}) == {len})");
-        run_test2(10000, op, &test)?;
+        run_test2(JIT_SLOW_ITERATIONS, op, &test)?;
       }
     }
 
     // Ensure that we're correctly encoding UTF-8
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u00a0') == 0xa0)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u00ff') == 0xff)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u0080') == 0x80)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u0100') == 0x100)",
     )?;
 
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char_onebyte",
       "assert(op_test_string_roundtrip_char_onebyte('\\u00ff') == 0xff)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char_onebyte",
       "assert(op_test_string_roundtrip_char_onebyte('\\u007f') == 0x7f)",
     )?;
@@ -1266,7 +1295,7 @@ mod tests {
   pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
     for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         "op_test_v8_types",
         &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
       )?;
@@ -1276,7 +1305,7 @@ mod tests {
       ("op_test_v8_option_string", "'xyz'", "3"),
       ("op_test_v8_option_string", "null", "-1"),
     ] {
-      run_test2(10000, a, &format!("assert({a}({b}) == {c})"))?;
+      run_test2(JIT_SLOW_ITERATIONS, a, &format!("assert({a}({b}) == {c})"))?;
     }
     // Non-fast ops
     for (a, b, c) in [
@@ -1360,7 +1389,7 @@ mod tests {
 
   #[tokio::test]
   pub async fn test_jsruntimestate() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(10000, "op_jsruntimestate", "op_jsruntimestate()")?;
+    run_test2(JIT_ITERATIONS, "op_jsruntimestate", "op_jsruntimestate()")?;
     Ok(())
   }
 
@@ -1402,19 +1431,23 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_state_rc",
       "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_state_mut_attr",
       "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
     )?;
-    run_test2(10000, "op_state_mut", "op_state_mut(__index__)")?;
-    run_test2(10000, "op_state_ref", "assert(op_state_ref() == 1234)")?;
+    run_test2(JIT_ITERATIONS, "op_state_mut", "op_state_mut(__index__)")?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
+      "op_state_ref",
+      "assert(op_state_ref() == 1234)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
       "op_state_multi_attr",
       "assert(op_state_multi_attr() == 11234)",
     )?;
@@ -1517,19 +1550,19 @@ mod tests {
     ] {
       // Zero-length buffers
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!("{op}(new {arr}(0), 0, new {arr}(0), 0);"),
       )?;
       // Zero-length ptrs
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op_ptr,
         &format!("{op_ptr}(new {arr}(0), 0, new {arr}(0), 0);"),
       )?;
       // UintXArray -> UintXArray
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1540,7 +1573,7 @@ mod tests {
       )?;
       // UintXArray -> UintXArray
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op_ptr,
         &format!(
           r"
@@ -1551,7 +1584,7 @@ mod tests {
       )?;
       // UintXArray(ArrayBuffer) -> UintXArray(ArrayBuffer)
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1565,7 +1598,7 @@ mod tests {
       )?;
       // UintXArray(ArrayBuffer, 5, 5) -> UintXArray(ArrayBuffer)
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1579,7 +1612,7 @@ mod tests {
       )?;
       // Resizable
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1613,7 +1646,7 @@ mod tests {
   pub async fn test_op_buffer_jsbuffer(
   ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_jsbuffer",
       r"
         let inbuf = new ArrayBuffer(10);
@@ -1638,7 +1671,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_buffer_any() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2);
@@ -1648,7 +1681,7 @@ mod tests {
       assert(op_buffer_any(view) == 15);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2, 4);
@@ -1658,22 +1691,22 @@ mod tests {
       assert(op_buffer_any(view) == 6);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new Uint8Array([1,2,3,4])) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new Uint8Array([1,2,3,4]).buffer) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new Uint32Array([1,2,3,4,0x01010101])) == 14);",
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new DataView(new Uint8Array([1,2,3,4]).buffer)) == 10);",
     )?;
@@ -1689,7 +1722,7 @@ mod tests {
   pub async fn test_op_buffer_any_length(
   ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2);
@@ -1699,7 +1732,7 @@ mod tests {
       assert(op_buffer_any_length(view) == 6);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2, 4);
@@ -1709,22 +1742,22 @@ mod tests {
       assert(op_buffer_any_length(view) == 4);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new Uint8Array(10)) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new ArrayBuffer(10)) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new Uint32Array(10)) == 40);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
     )?;
@@ -1750,12 +1783,12 @@ mod tests {
   ) -> Result<(), Box<dyn std::error::Error>> {
     // Zero-length buffers
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_arraybuffer_slice",
       "op_arraybuffer_slice(new ArrayBuffer(0), 0, new ArrayBuffer(0), 0);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_arraybuffer_slice",
       r"let inbuf = new ArrayBuffer(10);
       (new Uint8Array(inbuf))[0] = 1;
@@ -1817,7 +1850,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_buffer_copy() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_copy",
       r"
       let input = new Uint8Array(10);
@@ -1895,7 +1928,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_external() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_external_make, op_external_process",
       "op_external_process(op_external_make())",
     )?;
@@ -1919,12 +1952,12 @@ mod tests {
   #[tokio::test]
   pub async fn test_external_null() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_external_make_ptr, op_external_process_ptr",
       "assert(op_external_process_ptr(op_external_make_ptr(0), 0) === null)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_external_make_ptr, op_external_process_ptr",
       "assert(op_external_process_ptr(op_external_make_ptr(6), -6) === null)",
     )?;
@@ -1956,7 +1989,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_typed_external() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_typed_external, op_typed_external_process, op_typed_external_take",
       "let external = op_typed_external(); op_typed_external_process(external); assert(op_typed_external_take(external) == 43);",
     )?;
@@ -1981,7 +2014,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_isolate() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_isolate_queue_microtask,op_isolate_run_microtasks",
       "op_isolate_queue_microtask(() => {}); op_isolate_run_microtasks();",
     )?;
@@ -1993,7 +2026,8 @@ mod tests {
 
   #[tokio::test]
   pub async fn test_op_async_void() -> Result<(), Box<dyn std::error::Error>> {
-    run_async_test(10000, "op_async_void", "await op_async_void()").await?;
+    run_async_test(JIT_ITERATIONS, "op_async_void", "await op_async_void()")
+      .await?;
     Ok(())
   }
 
@@ -2020,13 +2054,13 @@ mod tests {
   pub async fn test_op_async_number() -> Result<(), Box<dyn std::error::Error>>
   {
     run_async_test(
-      10000,
+      JIT_ITERATIONS,
       "op_async_number",
       "assert(await op_async_number(__index__) == __index__)",
     )
     .await?;
     run_async_test(
-      10000,
+      JIT_ITERATIONS,
       "op_async_add",
       "assert(await op_async_add(__index__, 100) == __index__ + 100)",
     )
@@ -2096,13 +2130,13 @@ mod tests {
   pub async fn test_op_async_deferred() -> Result<(), Box<dyn std::error::Error>>
   {
     run_async_test(
-      1000,
+      JIT_SLOW_ITERATIONS,
       "op_async_deferred_success",
       "assert(await op_async_deferred_success() == 42)",
     )
     .await?;
     run_async_test(
-      1000,
+       JIT_SLOW_ITERATIONS,
       "op_async_deferred_error",
       "try { await op_async_deferred_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
@@ -2123,13 +2157,13 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_async_lazy() -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
-      1000,
+      JIT_SLOW_ITERATIONS,
       "op_async_lazy_success",
       "assert(await op_async_lazy_success() == 42)",
     )
     .await?;
     run_async_test(
-      1000,
+       JIT_SLOW_ITERATIONS,
       "op_async_lazy_error",
       "try { await op_async_lazy_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )

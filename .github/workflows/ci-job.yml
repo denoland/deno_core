@@ -42,7 +42,10 @@ jobs:
       - name: Install ARM runner tools
         if: ${{ inputs.os == 'ubuntu-22.04-arm64' }}
         run: |
-          sudo apt update && sudo apt-get install -y unzip clang
+          # Installing packages
+          sudo rm /var/lib/man-db/auto-update || true
+          sudo apt update
+          sudo apt-get install -y --no-install-recommends unzip clang
 
       - name: Install Rust
         uses: dsherret/rust-toolchain-file@v1
@@ -99,6 +102,11 @@ jobs:
         id: test-miri
         if: inputs.job == 'test-miri'
         uses: ./.github/workflows/ci-test-miri
+
+      - name: Test (valgrind)
+        id: test-valgrind
+        if: inputs.job == 'test-valgrind'
+        uses: ./.github/workflows/ci-test-valgrind
 
       - name: Publish (dry-run)
         id: test-publish
