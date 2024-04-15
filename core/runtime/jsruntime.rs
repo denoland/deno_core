@@ -1262,21 +1262,22 @@ impl JsRuntime {
       );
 
       let mut wasm_instantiate_fn = None;
-      // NOTE(bartlomieju): This is still fallible, because in some V8 modes
-      // WebAssembly namespace is not available (eg. `--jitless`).
       if !will_snapshot {
         let key = WEBASSEMBLY.v8_string(scope);
         if let Some(web_assembly_obj_value) = global.get(scope, key.into()) {
-          let web_assembly_object: v8::Local<v8::Object> =
-            web_assembly_obj_value.try_into().unwrap_or_else(|_| {
-              panic!("Can't convert WebAssembly namespace to an object")
-            });
-          wasm_instantiate_fn = Some(bindings::get::<v8::Local<v8::Function>>(
-            scope,
-            web_assembly_object,
-            INSTANTIATE,
-            "WebAssembly.instantiate",
-          ));
+          // NOTE(bartlomieju): This is still fallible, because in some V8 modes
+          // WebAssembly namespace is not available (eg. `--jitless`).
+          let maybe_web_assembly_object =
+            TryInto::<v8::Local<v8::Object>>::try_into(web_assembly_obj_value);
+          if let Ok(web_assembly_object) = maybe_web_assembly_object {
+            wasm_instantiate_fn =
+              Some(bindings::get::<v8::Local<v8::Function>>(
+                scope,
+                web_assembly_object,
+                INSTANTIATE,
+                "WebAssembly.instantiate",
+              ));
+          }
         }
       }
 
