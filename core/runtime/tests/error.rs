@@ -20,7 +20,7 @@ async fn test_error_builder() {
   }
 
   deno_core::extension!(test_ext, ops = [op_err]);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     get_error_class_fn: Some(&get_error_class_name),
     ..Default::default()
@@ -43,7 +43,7 @@ async fn test_error_builder() {
 
 #[test]
 fn syntax_error() {
-  let mut runtime = JsRuntime::new(Default::default());
+  let (mut runtime, _) = JsRuntime::new(Default::default());
   let src = "hocuspocus(";
   let r = runtime.execute_script("i.js", src);
   let e = r.unwrap_err();

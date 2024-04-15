@@ -66,7 +66,7 @@ deno_core::extension!(
 
 fn main() {
   // Initialize a runtime instance
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![wasm_example::init_ops()],
     ..Default::default()
   });

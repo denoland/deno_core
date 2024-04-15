@@ -154,7 +154,7 @@ fn bench_op(
     "This benchmark must be run with --features=unsafe_runtime_options"
   );
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![testing::init_ops_and_esm()],
     // We need to feature gate this here to prevent IDE errors
     #[cfg(feature = "unsafe_runtime_options")]

@@ -142,7 +142,7 @@ fn main() -> Result<(), Error> {
 
   let source_map_store = SourceMapStore(Rc::new(RefCell::new(HashMap::new())));
 
-  let mut js_runtime = JsRuntime::new(RuntimeOptions {
+  let (mut js_runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(TypescriptModuleLoader {
       source_maps: source_map_store.clone(),
     })),

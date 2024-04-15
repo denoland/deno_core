@@ -11,7 +11,7 @@ use std::task::Poll;
 
 #[test]
 fn test_set_format_exception_callback_realms() {
-  let mut runtime = JsRuntime::new(RuntimeOptions::default());
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions::default());
   let main_realm = runtime.main_realm();
 
   let realm_expectations = &[(&main_realm, "main_realm")];
@@ -81,7 +81,7 @@ async fn js_realm_ref_unref_ops() {
   }
 
   deno_core::extension!(test_ext, ops = [op_pending]);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
@@ -133,7 +133,7 @@ fn es_snapshot() {
         { source = "globalThis.TEST = 'foo'; export const TEST = 'bar';" },]
     );
 
-    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    let (runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
       extensions: vec![module_snapshot::init_ops_and_esm()],
       module_loader: Some(Rc::new(StaticModuleLoader::default())),
       ..Default::default()
@@ -141,7 +141,7 @@ fn es_snapshot() {
     runtime.snapshot()
   };
   let snapshot = Box::leak(startup_data);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: None,
     startup_snapshot: Some(snapshot),
     ..Default::default()

@@ -8,8 +8,6 @@ use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
 use bit_set::BitSet;
-use deno_unsync::spawn;
-use deno_unsync::JoinHandle;
 use deno_unsync::UnsyncWaker;
 use futures::future::poll_fn;
 use futures::stream::FuturesUnordered;
@@ -41,21 +39,11 @@ async fn poll_task<C: OpMappingContext>(
   }
 }
 
-#[derive(Default)]
-enum MaybeTask {
-  #[default]
-  Empty,
-  Task(Pin<Box<dyn Future<Output = ()>>>),
-  Handle(JoinHandle<()>),
-}
-
 /// [`OpDriver`] implementation built on a tokio [`JoinSet`].
 pub struct FuturesUnorderedDriver<
   C: OpMappingContext + 'static = V8OpMappingContext,
 > {
   len: Cell<usize>,
-  task: Cell<MaybeTask>,
-  task_set: Cell<bool>,
   queue: SubmissionQueue<
     FuturesUnordered<FutureAllocation<PendingOp<C>, PendingOpInfo>>,
   >,
@@ -70,58 +58,32 @@ impl<C: OpMappingContext + 'static> Drop for FuturesUnorderedDriver<C> {
   }
 }
 
-impl<C: OpMappingContext> Default for FuturesUnorderedDriver<C> {
-  fn default() -> Self {
-    let (queue, results) = new_submission_queue();
-    let completed_ops = Rc::new(RefCell::new(VecDeque::with_capacity(128)));
-    let completed_waker = Rc::new(UnsyncWaker::default());
-    let task = MaybeTask::Task(Box::pin(poll_task(
-      results,
-      completed_ops.clone(),
-      completed_waker.clone(),
-    )))
-    .into();
-
-    Self {
-      len: Default::default(),
-      task,
-      task_set: Default::default(),
-      completed_ops,
-      queue,
-      completed_waker,
-      arena: Default::default(),
-    }
-  }
-}
-
 impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
-  #[inline(always)]
-  fn ensure_task(&self) {
-    if !self.task_set.get() {
-      self.spawn_task();
-    }
-  }
-
-  #[inline(never)]
-  #[cold]
-  fn spawn_task(&self) {
-    let MaybeTask::Task(task) = self.task.replace(Default::default()) else {
-      unreachable!()
-    };
-    self.task.set(MaybeTask::Handle(spawn(task)));
-    self.task_set.set(true);
-  }
-
   /// Spawn a polled task inside a [`FutureAllocation`], along with a function that can map it to a [`PendingOp`].
   #[inline(always)]
   fn spawn(&self, task: FutureAllocation<PendingOp<C>, PendingOpInfo>) {
-    self.ensure_task();
     self.len.set(self.len.get() + 1);
     self.queue.spawn(task);
   }
 }
 
 impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
+  fn new() -> (Self, impl Future<Output = ()> + 'static) {
+    let (queue, results) = new_submission_queue();
+    let completed_ops = Rc::new(RefCell::new(VecDeque::with_capacity(128)));
+    let completed_waker = Rc::new(UnsyncWaker::default());
+    let op_driver_poll_task =
+      poll_task(results, completed_ops.clone(), completed_waker.clone());
+    let op_driver = Self {
+      len: Default::default(),
+      completed_ops,
+      queue,
+      completed_waker,
+      arena: Default::default(),
+    };
+    (op_driver, op_driver_poll_task)
+  }
+
   fn submit_op_fallible<
     R: 'static,
     E: Into<Error> + 'static,
@@ -229,9 +191,6 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   }
 
   fn shutdown(&self) {
-    if let MaybeTask::Handle(h) = self.task.take() {
-      h.abort()
-    }
     self.completed_ops.borrow_mut().clear();
     self.queue.queue.queue.borrow_mut().clear();
   }

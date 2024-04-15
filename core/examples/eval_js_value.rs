@@ -11,7 +11,7 @@ use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
 
 fn main() {
-  let mut runtime = JsRuntime::new(RuntimeOptions::default());
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions::default());
 
   // Evaluate some code
   let code = "let a = 1+4; a*2";

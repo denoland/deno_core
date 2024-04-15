@@ -101,7 +101,7 @@ fn create_runtime(
   let (worker, worker_host_side) = worker_create(parent);
   let extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm::<()>()];
 
-  let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
+  let (runtime_for_snapshot, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
     extensions: extensions_for_snapshot,
     extension_transpiler: Some(Rc::new(|specifier, source| {
       maybe_transpile_source(specifier, source)
@@ -114,7 +114,7 @@ fn create_runtime(
   let extensions = vec![checkin_runtime::init_ops::<()>()];
   let module_loader =
     Rc::new(ts_module_loader::TypescriptModuleLoader::default());
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions,
     startup_snapshot: Some(snapshot),
     module_loader: Some(module_loader.clone()),

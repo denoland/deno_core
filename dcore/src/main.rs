@@ -62,7 +62,7 @@ fn main() -> Result<(), Error> {
   // .unwrap();
   // return Ok(());
 
-  let mut js_runtime = JsRuntime::new(RuntimeOptions {
+  let (mut js_runtime, _) = JsRuntime::new(RuntimeOptions {
     // TODO(bartlomieju): figure out how we can incorporate snapshotting here
     // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
     module_loader: Some(Rc::new(FsModuleLoader)),

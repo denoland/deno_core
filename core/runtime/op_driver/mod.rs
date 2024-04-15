@@ -46,9 +46,16 @@ pub enum OpScheduling {
 ///
 /// The driver takes an optional [`OpMappingContext`] implementation, which defaults to
 /// one compatible with v8. This is used solely for testing purposes.
-pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
-  Default
+pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>
+where
+  Self: Sized,
 {
+  /// Create a new [OpDriver]
+  ///
+  /// The returned future must be polled in order to drive
+  /// [OpDriver] forward.
+  fn new() -> (Self, impl Future<Output = ()> + 'static);
+
   /// Submits an operation that is expected to complete successfully without errors.
   fn submit_op_infallible<R: 'static, const LAZY: bool, const DEFERRED: bool>(
     &self,
@@ -237,17 +244,23 @@ mod tests {
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
-  fn test_driver<D: OpDriver<TestMappingContext>>(
-    #[case] driver: D,
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::new())]
+  fn test_driver<
+    D: OpDriver<TestMappingContext>,
+    P: Future<Output = ()> + 'static,
+  >(
+    #[case] driver: (D, P),
     #[values(2, 16)] count: usize,
     #[values(OpScheduling::Eager, OpScheduling::Lazy, OpScheduling::Deferred)]
     scheduling: OpScheduling,
   ) {
+    let (driver, poll_task) = driver;
     let runtime = tokio::runtime::Builder::new_current_thread()
       .build()
       .unwrap();
     runtime.block_on(async {
+      deno_unsync::spawn(poll_task);
+
       for i in 0..count {
         if scheduling == OpScheduling::Eager {
           submit_task_eager_ready(&driver, i, async { 1 }, 1);
@@ -267,9 +280,12 @@ mod tests {
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
-  fn test_driver_yield<D: OpDriver<TestMappingContext>>(
-    #[case] driver: D,
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::new())]
+  fn test_driver_yield<
+    D: OpDriver<TestMappingContext>,
+    P: Future<Output = ()> + 'static,
+  >(
+    #[case] driver: (D, P),
     #[values(2, 16)] count: usize,
     #[values(1, 5)] outer: usize,
     #[values(OpScheduling::Eager, OpScheduling::Lazy, OpScheduling::Deferred)]
@@ -285,10 +301,13 @@ mod tests {
       v.len() as _
     }
 
+    let (driver, poll_task) = driver;
     let runtime = tokio::runtime::Builder::new_current_thread()
       .build()
       .unwrap();
     runtime.block_on(async {
+      deno_unsync::spawn(poll_task);
+
       for _ in 0..outer {
         for i in 0..count {
           submit_task(&driver, scheduling, i, task());
@@ -304,9 +323,12 @@ mod tests {
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
-  fn test_driver_large<D: OpDriver<TestMappingContext>>(
-    #[case] driver: D,
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::new())]
+  fn test_driver_large<
+    D: OpDriver<TestMappingContext>,
+    P: Future<Output = ()> + 'static,
+  >(
+    #[case] driver: (D, P),
     #[values(2, 16)] count: usize,
     #[values(OpScheduling::Eager, OpScheduling::Lazy, OpScheduling::Deferred)]
     scheduling: OpScheduling,
@@ -325,10 +347,13 @@ mod tests {
       s
     }
 
+    let (driver, poll_task) = driver;
     let runtime = tokio::runtime::Builder::new_current_thread()
       .build()
       .unwrap();
     runtime.block_on(async {
+      deno_unsync::spawn(poll_task);
+
       for i in 0..count {
         submit_task(&driver, scheduling, i, task());
       }
@@ -343,9 +368,12 @@ mod tests {
 
   #[cfg(not(miri))] // needs I/O
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
-  fn test_driver_io<D: OpDriver<TestMappingContext>>(
-    #[case] driver: D,
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::new())]
+  fn test_driver_io<
+    D: OpDriver<TestMappingContext>,
+    P: Future<Output = ()> + 'static,
+  >(
+    #[case] driver: (D, P),
     #[values(2, 16)] count: usize,
     #[values(OpScheduling::Eager, OpScheduling::Lazy, OpScheduling::Deferred)]
     scheduling: OpScheduling,
@@ -362,11 +390,14 @@ mod tests {
       1
     }
 
+    let (driver, poll_task) = driver;
     let runtime = tokio::runtime::Builder::new_current_thread()
       .enable_io()
       .build()
       .unwrap();
     runtime.block_on(async {
+      deno_unsync::spawn(poll_task);
+
       for i in 0..count {
         submit_task(&driver, scheduling, i, task());
       }

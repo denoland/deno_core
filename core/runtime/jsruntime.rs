@@ -607,7 +607,9 @@ impl JsRuntime {
   }
 
   /// Only constructor, configuration is done through `options`.
-  pub fn new(mut options: RuntimeOptions) -> JsRuntime {
+  pub fn new(
+    mut options: RuntimeOptions,
+  ) -> (JsRuntime, impl Future<Output = ()>) {
     setup::init_v8(
       options.v8_platform.take(),
       cfg!(test),
@@ -658,7 +660,7 @@ impl JsRuntime {
   fn new_inner(
     mut options: RuntimeOptions,
     will_snapshot: bool,
-  ) -> Result<JsRuntime, Error> {
+  ) -> Result<(JsRuntime, impl Future<Output = ()>), Error> {
     let init_mode = InitMode::from_options(&options);
     let mut extensions = std::mem::take(&mut options.extensions);
     let mut isolate_allocations = IsolateAllocations::default();
@@ -715,7 +717,8 @@ impl JsRuntime {
     let op_decls =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
 
-    let op_driver = Rc::new(OpDriverImpl::default());
+    let (op_driver, op_driver_poll_task) = OpDriverImpl::new();
+    let op_driver = Rc::new(op_driver);
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
     let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
@@ -985,7 +988,7 @@ impl JsRuntime {
     }
 
     // ...and we've made it; `JsRuntime` is ready to execute user code.
-    Ok(js_runtime)
+    Ok((js_runtime, op_driver_poll_task))
   }
 
   #[cfg(test)]
@@ -1890,20 +1893,23 @@ fn create_context<'a>(
 }
 
 impl JsRuntimeForSnapshot {
-  pub fn new(mut options: RuntimeOptions) -> JsRuntimeForSnapshot {
+  pub fn new(
+    mut options: RuntimeOptions,
+  ) -> (JsRuntimeForSnapshot, impl Future<Output = ()>) {
     setup::init_v8(
       options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),
     );
 
-    let runtime = match JsRuntime::new_inner(options, true) {
-      Ok(r) => r,
-      Err(err) => {
-        panic!("Failed to initialize JsRuntime for snapshotting: {:?}", err);
-      }
-    };
-    JsRuntimeForSnapshot(runtime)
+    let (runtime, op_driver_poll_task) =
+      match JsRuntime::new_inner(options, true) {
+        Ok(r) => r,
+        Err(err) => {
+          panic!("Failed to initialize JsRuntime for snapshotting: {:?}", err);
+        }
+      };
+    (JsRuntimeForSnapshot(runtime), op_driver_poll_task)
   }
 
   /// Takes a snapshot and consumes the runtime.

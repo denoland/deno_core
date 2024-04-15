@@ -24,7 +24,7 @@ fn main() {
   };
 
   // Initialize a runtime instance
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![ext],
     ..Default::default()
   });

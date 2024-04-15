@@ -30,7 +30,7 @@ fn main() -> Result<(), Error> {
   "
   .to_string();
 
-  let mut js_runtime = JsRuntime::new(deno_core::RuntimeOptions {
+  let (mut js_runtime, _) = JsRuntime::new(deno_core::RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
     extensions: vec![op2_sample::init_ops_and_esm()],
     ..Default::default()

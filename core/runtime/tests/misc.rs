@@ -31,7 +31,7 @@ use url::Url;
 fn icu() {
   // If this test fails, update core/runtime/icudtl.dat from
   // rusty_v8/third_party/icu/common/icudtl.dat
-  let mut runtime = JsRuntime::new(Default::default());
+  let (mut runtime, _) = JsRuntime::new(Default::default());
   runtime
     .execute_script("a.js", "(new Date()).toLocaleString('ja-JP')")
     .unwrap();
@@ -39,7 +39,7 @@ fn icu() {
 
 #[test]
 fn test_execute_script_return_value() {
-  let mut runtime = JsRuntime::new(Default::default());
+  let (mut runtime, _) = JsRuntime::new(Default::default());
   let value_global = runtime.execute_script("a.js", "a = 1 + 2").unwrap();
   {
     let scope = &mut runtime.handle_scope();
@@ -99,10 +99,11 @@ async fn test_wakers_for_async_ops() {
   let waker = logging_waker.clone().into_waker();
 
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
+  deno_unsync::spawn(op_driver_poll_task);
 
   // Drain events until we get to Ready
   loop {
@@ -156,7 +157,7 @@ async fn test_resolve_promise(
   #[case] script: &'static str,
   #[case] result: Result<i32, &'static str>,
 ) {
-  let mut runtime = JsRuntime::new(Default::default());
+  let (mut runtime, _) = JsRuntime::new(Default::default());
   let value_global = runtime.execute_script("a.js", script).unwrap();
   let resolve = runtime.resolve(value_global);
   let out = runtime
@@ -240,7 +241,7 @@ async fn test_resolve_value_generic(
   code: &'static str,
   output: Result<Option<u32>, &'static str>,
 ) {
-  let mut runtime = JsRuntime::new(Default::default());
+  let (mut runtime, _) = JsRuntime::new(Default::default());
   let result_global = if runner == "script" {
     let value_global: v8::Global<v8::Value> =
       runtime.execute_script("a.js", code).unwrap();
@@ -416,7 +417,7 @@ fn dangling_shared_isolate() {
 /// the inspector to be stashed without cleanup is the OpState, and this should not actually cause crashes.
 #[test]
 fn inspector() {
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     inspector: true,
     ..Default::default()
   });
@@ -427,7 +428,7 @@ fn inspector() {
 
 #[test]
 fn test_get_module_namespace() {
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(NoopModuleLoader)),
     ..Default::default()
   });
@@ -483,7 +484,7 @@ fn test_get_module_namespace() {
 fn test_heap_limits() {
   let create_params =
     v8::Isolate::create_params().heap_limits(0, 5 * 1024 * 1024);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     create_params: Some(create_params),
     ..Default::default()
   });
@@ -512,7 +513,7 @@ fn test_heap_limits() {
 
 #[test]
 fn test_heap_limit_cb_remove() {
-  let mut runtime = JsRuntime::new(Default::default());
+  let (mut runtime, _) = JsRuntime::new(Default::default());
 
   runtime.add_near_heap_limit_callback(|current_limit, _initial_limit| {
     current_limit * 2
@@ -525,7 +526,7 @@ fn test_heap_limit_cb_remove() {
 fn test_heap_limit_cb_multiple() {
   let create_params =
     v8::Isolate::create_params().heap_limits(0, 5 * 1024 * 1024);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     create_params: Some(create_params),
     ..Default::default()
   });
@@ -562,7 +563,7 @@ fn test_heap_limit_cb_multiple() {
 
 #[tokio::test]
 async fn test_pump_message_loop() {
-  let mut runtime = JsRuntime::new(RuntimeOptions::default());
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions::default());
   poll_fn(move |cx| {
     runtime
       .execute_script(
@@ -616,14 +617,14 @@ fn test_v8_platform() {
     v8_platform: Some(v8::new_default_platform(0, false).make_shared()),
     ..Default::default()
   };
-  let mut runtime = JsRuntime::new(options);
+  let (mut runtime, _) = JsRuntime::new(options);
   runtime.execute_script("<none>", "").unwrap();
 }
 
 #[ignore] // TODO(@littledivy): Fast API ops when snapshot is not loaded.
 #[test]
 fn test_is_proxy() {
-  let mut runtime = JsRuntime::new(RuntimeOptions::default());
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions::default());
   let all_true: v8::Global<v8::Value> = runtime
     .execute_script(
       "is_proxy.js",
@@ -651,10 +652,11 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
   }
 
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
+  deno_unsync::spawn(op_driver_poll_task);
 
   runtime
     .execute_script(
@@ -706,7 +708,7 @@ fn test_has_tick_scheduled() {
   }
 
   deno_core::extension!(test_ext, ops = [op_macrotask, op_next_tick]);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
@@ -779,7 +781,7 @@ fn test_has_tick_scheduled() {
 
 #[test]
 fn terminate_during_module_eval() {
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(NoopModuleLoader)),
     ..Default::default()
   });
@@ -814,10 +816,11 @@ async fn test_promise_rejection_handler_generic(
     return;
   }
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
+  deno_unsync::spawn(op_driver_poll_task);
 
   let script = r#"
     let test = "__CASE__";
@@ -929,10 +932,12 @@ async fn test_stalled_tla() {
     Url::parse("file:///test.js").unwrap(),
     "await new Promise(() => {});",
   );
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
+  deno_unsync::spawn(op_driver_poll_task);
+
   let module_id = runtime
     .load_main_es_module(&crate::resolve_url("file:///test.js").unwrap())
     .await
@@ -977,11 +982,12 @@ async fn test_dynamic_import_module_error_stack() {
       "const { op_async_error } = Deno.core.ops; await op_async_error();",
     ),
   ]);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
+  deno_unsync::spawn(op_driver_poll_task);
 
   let module_id = runtime
     .load_main_es_module(&crate::resolve_url("file:///main.js").unwrap())
@@ -1078,7 +1084,7 @@ async fn esm_extensions_throws() {
 }
 
 fn create_spawner_runtime() -> JsRuntime {
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     ..Default::default()
   });
   runtime
@@ -1193,10 +1199,11 @@ async fn terminate_execution_run_event_loop_js() {
     Ok(())
   }
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
+  deno_unsync::spawn(op_driver_poll_task);
 
   // Start async task
   runtime.execute_script("sleep.js", "(async () => { while (true) { await Deno.core.ops.op_async_sleep(); } })()").unwrap();
@@ -1290,7 +1297,7 @@ async fn global_template_middleware() {
   }
 
   deno_core::extension!(test_ext, global_template_middleware = gt_middleware);
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
@@ -1324,7 +1331,7 @@ fn eval_context_with_code_cache() {
         c.insert(specifier.to_string(), code_cache.to_vec());
       });
 
-    let mut runtime = JsRuntime::new(RuntimeOptions {
+    let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
       enable_code_cache: true,
       eval_context_code_cache_cbs: Some((get_code_cache_cb, set_code_cache_cb)),
       ..Default::default()
@@ -1363,7 +1370,7 @@ fn eval_context_with_code_cache() {
         c.insert(specifier.to_string(), code_cache.to_vec());
       });
 
-    let mut runtime = JsRuntime::new(RuntimeOptions {
+    let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
       enable_code_cache: true,
       eval_context_code_cache_cbs: Some((get_code_cache_cb, set_code_cache_cb)),
       ..Default::default()

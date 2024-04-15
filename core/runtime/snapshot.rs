@@ -141,7 +141,7 @@ pub fn create_snapshot(
       .collect::<Vec<_>>()
   });
 
-  let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+  let (mut js_runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: create_snapshot_options.startup_snapshot,
     extensions: create_snapshot_options.extensions,
     extension_transpiler: create_snapshot_options.extension_transpiler,
@@ -172,7 +172,7 @@ pub fn create_snapshot(
     // - Create a new isolate with cold snapshot blob.
     // - Run warmup script in new context.
     // - Serialize the new context into a new snapshot blob.
-    let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    let (mut js_runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
       startup_snapshot: Some(leaked_snapshot),
       extensions: warmup_exts,
       skip_op_registration: true,

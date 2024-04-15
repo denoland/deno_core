@@ -82,7 +82,7 @@ fn bench_take_snapshot_empty(c: &mut Criterion) {
     b.iter_custom(|iters| {
       let mut total = 0;
       for _ in 0..iters {
-        let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+        let (runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
           startup_snapshot: None,
           ..Default::default()
         });
@@ -101,7 +101,7 @@ fn bench_take_snapshot(c: &mut Criterion) {
       let mut total = 0;
       for _ in 0..iters {
         let extensions = make_extensions();
-        let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+        let (runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
           startup_snapshot: None,
           extension_transpiler: if transpile {
             Some(Rc::new(|specifier, source| {
@@ -130,7 +130,7 @@ fn bench_take_snapshot(c: &mut Criterion) {
 fn bench_load_snapshot(c: &mut Criterion) {
   fn inner(b: &mut Bencher, transpile: bool) {
     let extensions = make_extensions();
-    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    let (runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
       extensions,
       extension_transpiler: if transpile {
         Some(Rc::new(|specifier, source| {

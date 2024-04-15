@@ -78,7 +78,7 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
       })
     }
   );
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops(mode, dispatch_count.clone())],
     get_error_class_fn: Some(&|error| {
       crate::error::get_custom_error_class(error).unwrap()

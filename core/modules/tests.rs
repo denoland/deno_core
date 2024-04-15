@@ -286,7 +286,7 @@ impl ModuleLoader for MockLoader {
 fn test_recursive_load() {
   let loader = MockLoader::new();
   let loads = loader.loads.clone();
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
   });
@@ -369,7 +369,7 @@ fn test_mods() {
 
   deno_core::extension!(test_ext, ops = [op_test]);
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops()],
     module_loader: Some(loader.clone()),
     ..Default::default()
@@ -451,7 +451,7 @@ fn test_mods() {
 fn test_lazy_loaded_esm() {
   deno_core::extension!(test_ext, lazy_loaded_esm = [dir "modules/testdata", "lazy_loaded.js"]);
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops_and_esm()],
     ..Default::default()
   });
@@ -481,7 +481,7 @@ fn test_lazy_loaded_esm() {
 #[test]
 fn test_json_module() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
@@ -593,7 +593,7 @@ fn test_validate_import_attributes_default() {
   // are allowed and don't have any problem executing "invalid" code.
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
@@ -653,7 +653,7 @@ fn test_validate_import_attributes_callback() {
   }
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     validate_import_attributes_cb: Some(Box::new(validate_import_attributes)),
     ..Default::default()
@@ -724,7 +724,7 @@ fn test_validate_import_attributes_callback2() {
   }
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     validate_import_attributes_cb: Some(Box::new(validate_import_attrs)),
     ..Default::default()
@@ -758,7 +758,7 @@ fn test_validate_import_attributes_callback2() {
 #[test]
 fn test_custom_module_type_default() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
@@ -825,7 +825,7 @@ fn test_custom_module_type_callback_synthetic() {
   }
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
     ..Default::default()
@@ -922,7 +922,7 @@ export const foo = bytes;
   }
 
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     custom_module_evaluation_cb: Some(Box::new(custom_eval_cb)),
     ..Default::default()
@@ -983,7 +983,7 @@ export const foo = bytes;
 #[tokio::test]
 async fn dyn_import_err() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
@@ -1016,7 +1016,7 @@ async fn dyn_import_ok() {
     Url::parse("file:///b.js").unwrap(),
     ascii_str!("export function b() { return 'b' }"),
   )));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
@@ -1063,7 +1063,7 @@ async fn dyn_import_borrow_mut_error() {
     Url::parse("file:///b.js").unwrap(),
     ascii_str!("export function b() { return 'b' }"),
   )));
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
@@ -1101,7 +1101,7 @@ async fn dyn_import_borrow_mut_error() {
 fn test_circular_load() {
   let loader = MockLoader::new();
   let loads = loader.loads.clone();
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
   });
@@ -1181,7 +1181,7 @@ fn test_circular_load() {
 fn test_redirect_load() {
   let loader = MockLoader::new();
   let loads = loader.loads.clone();
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
   });
@@ -1249,7 +1249,7 @@ fn test_redirect_load() {
 async fn slow_never_ready_modules() {
   let loader = MockLoader::new();
   let loads = loader.loads.clone();
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
   });
@@ -1294,7 +1294,7 @@ async fn slow_never_ready_modules() {
 #[tokio::test]
 async fn loader_disappears_after_error() {
   let loader = MockLoader::new();
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
   });
@@ -1321,7 +1321,7 @@ fn recursive_load_main_with_code() {
 
   let loader = MockLoader::new();
   let loads = loader.loads.clone();
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
   });
@@ -1408,7 +1408,7 @@ fn main_and_side_module() {
     ),
   ]);
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
@@ -1445,7 +1445,7 @@ fn dynamic_imports_snapshot() {
     "#;
 
     let loader = MockLoader::new();
-    let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    let (mut runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
       module_loader: Some(loader),
       ..Default::default()
     });
@@ -1466,7 +1466,7 @@ fn dynamic_imports_snapshot() {
   };
 
   let snapshot = Box::leak(snapshot);
-  let mut runtime2 = JsRuntime::new(RuntimeOptions {
+  let (mut runtime2, _) = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
   });
@@ -1485,7 +1485,7 @@ fn import_meta_snapshot() {
     "#;
 
     let loader = MockLoader::new();
-    let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+    let (mut runtime, _) = JsRuntimeForSnapshot::new(RuntimeOptions {
       module_loader: Some(loader),
       ..Default::default()
     });
@@ -1507,7 +1507,7 @@ fn import_meta_snapshot() {
   };
 
   let snapshot = Box::leak(snapshot);
-  let mut runtime2 = JsRuntime::new(RuntimeOptions {
+  let (mut runtime2, _) = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
   });
@@ -1616,7 +1616,7 @@ async fn no_duplicate_loads() {
   }
 
   let loader = Rc::new(ConsumingLoader::default());
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
     ..Default::default()
   });
@@ -1646,7 +1646,7 @@ async fn import_meta_resolve_cb() {
     bail!("unexpected")
   }
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     import_meta_resolve_callback: Some(Box::new(import_meta_resolve_cb)),
     ..Default::default()
   });
@@ -1692,7 +1692,7 @@ fn builtin_core_module() {
   "#;
   let loader = StaticModuleLoader::new([(main_specifier.clone(), source_code)]);
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
@@ -1724,7 +1724,7 @@ fn import_meta_filename_dirname() {
 
   let loader = StaticModuleLoader::new([(main_specifier.clone(), code)]);
 
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
@@ -1744,7 +1744,7 @@ fn test_load_with_code_cache() {
     let loader = MockLoader::new();
     let loads = loader.loads.clone();
     let updated_code_cache = loader.updated_code_cache.clone();
-    let mut runtime = JsRuntime::new(RuntimeOptions {
+    let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
       enable_code_cache: true,
       ..Default::default()
@@ -1788,7 +1788,7 @@ fn test_load_with_code_cache() {
     let loader = MockLoader::new_with_code_cache(code_cache.clone());
     let loads = loader.loads.clone();
     let updated_code_cache = loader.updated_code_cache.clone();
-    let mut runtime = JsRuntime::new(RuntimeOptions {
+    let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
       enable_code_cache: true,
       ..Default::default()
@@ -1825,7 +1825,7 @@ fn test_load_with_code_cache() {
     let loader = MockLoader::new_with_code_cache(code_cache);
     let loads = loader.loads.clone();
     let updated_code_cache = loader.updated_code_cache.clone();
-    let mut runtime = JsRuntime::new(RuntimeOptions {
+    let (mut runtime, _) = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
       enable_code_cache: true,
       ..Default::default()

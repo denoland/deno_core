@@ -110,7 +110,7 @@ fn bench_op(
   let tokio = tokio::runtime::Builder::new_current_thread()
     .build()
     .unwrap();
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
     extensions: vec![testing::init_ops_and_esm()],
     // We need to feature gate this here to prevent IDE errors
     #[cfg(feature = "unsafe_runtime_options")]
@@ -142,6 +142,7 @@ fn bench_op(
     .map_err(err_mapper)
     .unwrap();
   let guard = tokio.enter();
+  deno_unsync::spawn(op_driver_poll_task);
   let run = runtime.execute_script("", ascii_str!("run()")).unwrap();
   #[allow(deprecated)]
   let bench = tokio.block_on(runtime.resolve_value(run)).unwrap();

@@ -654,10 +654,11 @@ mod tests {
 
   /// Run a test for a single op.
   fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), AnyError> {
-    let mut runtime = JsRuntime::new(RuntimeOptions {
+    let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
+    deno_unsync::spawn(op_driver_poll_task);
     let err_mapper =
       |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
     runtime
@@ -705,10 +706,11 @@ mod tests {
     op: &str,
     test: &str,
   ) -> Result<(), AnyError> {
-    let mut runtime = JsRuntime::new(RuntimeOptions {
+    let (mut runtime, op_driver_poll_task) = JsRuntime::new(RuntimeOptions {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
+    deno_unsync::spawn(op_driver_poll_task);
     let err_mapper =
       |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
     runtime
@@ -1898,8 +1900,9 @@ mod tests {
     resource.value
   }
 
-  #[test]
-  pub fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>> {
+  #[tokio::test]
+  pub async fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>>
+  {
     run_test2(
       10,
       "op_test_make_cppgc_resource, op_test_get_cppgc_resource",
