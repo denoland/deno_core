@@ -91,6 +91,8 @@ pub struct OpCtx {
 
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
+  fast_fn_args: Option<NonNull<v8::fast_api::CTypeInfo>>,
+  fast_fn_ret: Option<NonNull<v8::fast_api::CTypeInfo>>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
@@ -112,6 +114,8 @@ impl OpCtx {
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
     let mut fast_fn_c_info = None;
+    let mut fast_fn_args = None;
+    let mut fast_fn_ret = None;
 
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
     // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
@@ -138,6 +142,8 @@ impl OpCtx {
         )
       };
       fast_fn_c_info = Some(c_fn);
+      fast_fn_args = Some(args);
+      fast_fn_ret = Some(ret);
     }
 
     Self {
@@ -148,6 +154,8 @@ impl OpCtx {
       decl,
       op_driver,
       fast_fn_c_info,
+      fast_fn_args,
+      fast_fn_ret,
       last_fast_error: UnsafeCell::new(None),
       isolate,
       metrics_fn,
@@ -247,6 +255,26 @@ impl OpCtx {
   pub(crate) fn runtime_state(&self) -> &JsRuntimeState {
     // SAFETY: JsRuntimeState outlives OpCtx
     unsafe { &*self.runtime_state }
+  }
+}
+
+impl Drop for OpCtx {
+  fn drop(&mut self) {
+    if let Some(fast_fn_c_info) = self.fast_fn_c_info {
+      // SAFETY - we logically own this `CFunctionInfo`
+      unsafe { std::ptr::drop_in_place(fast_fn_c_info.as_ptr()) }
+    }
+
+    if let Some(args) = self.fast_fn_args {
+      // SAFETY - we logically own this `CTypeInfo`, and we already dropped
+      // the `CFunctionInfo` that used it
+      unsafe { std::ptr::drop_in_place(args.as_ptr()) };
+    }
+    if let Some(ret) = self.fast_fn_ret {
+      // SAFETY - we logically own this `CTypeInfo`, and we already dropped
+      // the `CFunctionInfo` that used it
+      unsafe { std::ptr::drop_in_place(ret.as_ptr()) };
+    }
   }
 }
 
