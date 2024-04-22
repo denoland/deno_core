@@ -89,6 +89,7 @@ impl V8TaskSpawnerFactory {
   }
 
   fn spawn(&self, task: SendTask) {
+    eprintln!("spawn");
     self.tasks.lock().unwrap().push(task);
     // TODO(mmastrac): can we skip the mutex here?
     // Release ordering means that the writes in the above lock happen-before the atomic store
