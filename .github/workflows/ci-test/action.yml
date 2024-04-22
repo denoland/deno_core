@@ -5,7 +5,7 @@ runs:
     - name: Cargo test
       shell: bash
       run: |-
-        cargo test --workspace --release --all-features --bins --tests --examples --exclude deno_ops_compile_test_runner
+        cargo test --workspace --release --all-features --tests --examples --exclude deno_ops_compile_test_runner
         cargo test --doc
 
     - name: Run examples
