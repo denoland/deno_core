@@ -23,13 +23,10 @@ fn v8_init(
 
   let base_flags = concat!(
     " --wasm-test-streaming",
-    " --harmony-import-assertions",
-    " --harmony-import-attributes",
     " --no-validate-asm",
     " --turbo_fast_api_calls",
-    " --harmony-array-from_async",
-    " --harmony-iterator-helpers",
     " --harmony-temporal",
+    " --js-float16array",
   );
   let snapshot_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";

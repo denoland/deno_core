@@ -39,8 +39,28 @@ test(function testIteratorHelpers() {
   }
 });
 
-// Verify that the "Temporal" proposal is enabled
-test(function testTemporalEnabled() {
+// Verify that "Set methods" proposal is enabled (https://github.com/tc39/proposal-set-methods)
+test(function testSetMethods() {
+  // @ts-expect-error: Not available in TypeScript yet
+  const a: Set<number> = new Set([1, 2, 3]).intersection(new Set([3, 4, 5]));
+  if (a.size !== 1 && !a.has(3)) {
+    fail("failed");
+  }
+});
+
+// Verify that the "Temporal" proposal is enabled (https://github.com/tc39/proposal-temporal)
+test(function testTemporal() {
   // @ts-expect-error: Not available in TypeScript yet
   assert(typeof Temporal !== "undefined");
+});
+
+// Verify that the "Float16Array" proposal is enabled (https://github.com/tc39/proposal-float16array)
+test(function testFloat16Array() {
+  // @ts-expect-error: Not available in TypeScript yet
+  const a = new Float16Array([Math.PI]);
+  assert(a[0] === 3.140625);
+  // @ts-expect-error: Not available in TypeScript yet
+  assert(typeof DataView.prototype.getFloat16 !== "undefined");
+  // @ts-expect-error: Not available in TypeScript yet
+  assert(typeof DataView.prototype.setFloat16 !== "undefined");
 });
