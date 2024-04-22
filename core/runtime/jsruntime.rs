@@ -2278,12 +2278,24 @@ impl JsRuntime {
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
     // Rust will extend the lifetime of the borrow longer than we expect.
-    let tasks = context_state.task_spawner_factory.poll_inner(cx);
-    if let Poll::Ready(tasks) = tasks {
+    let mut retries = 3;
+    while let Poll::Ready(tasks) =
+      context_state.task_spawner_factory.poll_inner(cx)
+    {
       // TODO(mmastrac): we are using this flag
       dispatched_ops = true;
       for task in tasks {
         task(scope);
+      }
+      // We may need to perform a microtask checkpoint here
+      scope.perform_microtask_checkpoint();
+
+      // We don't want tasks that spawn other tasks to starve the event loop, so break
+      // after three times around and allow the remainder of the event loop to spin.
+      retries -= 1;
+      if retries == 0 {
+        cx.waker().wake_by_ref();
+        break;
       }
     }
 

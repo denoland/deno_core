@@ -54,6 +54,7 @@ deno_core::extension!(
     ops::op_nop_generic<P>,
     ops_io::op_pipe_create,
     ops_io::op_file_open,
+    ops_async::op_task_submit,
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
     ops_async::op_async_barrier_await,

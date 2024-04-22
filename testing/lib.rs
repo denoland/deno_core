@@ -41,6 +41,7 @@ unit_test!(
   resource_test,
   serialize_deserialize_test,
   stats_test,
+  task_test,
   tc39_test,
   timer_test,
   type_test,
