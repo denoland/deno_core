@@ -91,8 +91,8 @@ jobs:
       label: ${{ matrix.label }}
       os: ${{ matrix.os }}
       job: ${{ matrix.job }}
-      is_main: ${{ needs.compute-jobs.outputs.is_main == true }}
-      is_tag: ${{ needs.compute-jobs.outputs.is_tag == true }}
+      is_main: ${{ needs.compute-jobs.outputs.is_main == 'true' }}
+      is_tag: ${{ needs.compute-jobs.outputs.is_tag == 'true' }}
     strategy:
       matrix:
         include: ${{ fromJSON(needs.compute-jobs.outputs.matrix) }}
@@ -108,8 +108,6 @@ jobs:
         run: |
           echo is_main: ${{ needs.compute-jobs.outputs.is_main == 'true' }}
           echo is_tag: ${{ needs.compute-jobs.outputs.is_tag == 'true' }}
-      - name: Print context
-        run: echo '${{ toJSON(github) }}' | jq .
       - name: Print failure
         if: ${{ needs.top.result != 'success' }}
         run: echo Failure ❌ && exit 1
