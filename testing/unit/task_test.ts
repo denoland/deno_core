@@ -30,3 +30,13 @@ test(async function testTaskSubmit3() {
     await promise;
   }
 });
+
+test(async function testTaskSubmit100() {
+  for (let i = 0; i < 100; i++) {
+    const { promise, resolve } = Promise.withResolvers();
+    op_task_submit(() => {
+      resolve(undefined);
+    });
+    await promise;
+  }
+});
