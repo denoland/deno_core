@@ -2290,7 +2290,7 @@ impl JsRuntime {
       // We may need to perform a microtask checkpoint here
       scope.perform_microtask_checkpoint();
 
-      // We don't want tasks that spawn other tasks the starve the event loop, so break
+      // We don't want tasks that spawn other tasks to starve the event loop, so break
       // after three times around and allow the remainder of the event loop to spin.
       retries -= 1;
       if retries == 0 {
