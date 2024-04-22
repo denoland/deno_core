@@ -100,10 +100,16 @@ jobs:
   # A simple job that runs after the `top` job is successful. It prints a success message indicating that the CI workflow has
   # completed successfully. This allows us to have a single "build success" step for the repository.
   success:
-    needs: top
+    needs: [top, compute-jobs]
     runs-on: ubuntu-latest
     if: ${{ always() }}
     steps:
+      - name: Print variables
+        run: |
+          echo is_main: ${{ needs.compute-jobs.outputs.is_main == true }}
+          echo is_tag: ${{ needs.compute-jobs.outputs.is_tag == true }}
+      - name: Print context
+        run: echo ${{ toJSON(github) }} | jq .
       - name: Print failure
         if: ${{ needs.top.result != 'success' }}
         run: echo Failure ❌ && exit 1
