@@ -26,7 +26,6 @@ fn v8_init(
     " --no-validate-asm",
     " --turbo_fast_api_calls",
     " --harmony-temporal",
-    " --js-explicit-resource-management",
     " --js-float16array",
   );
   let snapshot_flags = "--predictable --random-seed=42";

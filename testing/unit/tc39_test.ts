@@ -54,16 +54,6 @@ test(function testTemporal() {
   assert(typeof Temporal !== "undefined");
 });
 
-// Verify that the "Explicit Resource Management" proposal is enabled (https://github.com/tc39/proposal-explicit-resource-management)
-test(function testExplicitResourceManagement() {
-  assert(typeof SuppressedError !== "undefined");
-  assert(typeof Symbol.dispose !== "undefined");
-  assert(typeof Symbol.asyncDispose !== "undefined");
-  // DisposableStack and AsyncDisposableStack are not yet implemented
-  // assert(typeof DisposableStack !== "undefined");
-  // assert(typeof AsyncDisposableStack !== "undefined");
-});
-
 // Verify that the "Float16Array" proposal is enabled (https://github.com/tc39/proposal-float16array)
 test(function testFloat16Array() {
   // @ts-expect-error: Not available in TypeScript yet
