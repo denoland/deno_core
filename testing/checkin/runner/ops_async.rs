@@ -1,6 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
+use deno_core::v8;
 use deno_core::OpState;
+use deno_core::V8TaskSpawner;
 use futures::future::poll_fn;
 use std::cell::RefCell;
 use std::future::Future;
@@ -8,6 +10,15 @@ use std::rc::Rc;
 
 use super::testing::Output;
 use super::testing::TestData;
+
+#[op2]
+pub fn op_task_submit(state: &mut OpState, #[global] f: v8::Global<v8::Function>) {
+  state.borrow_mut::<V8TaskSpawner>().spawn(move |scope| {
+    let f = v8::Local::new(scope, f);
+    let recv = v8::undefined(scope);
+    f.call(scope, recv.into(), &[]);
+  });
+}
 
 #[op2(async)]
 pub async fn op_async_yield() {
