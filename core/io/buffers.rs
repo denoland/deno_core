@@ -164,16 +164,6 @@ impl From<bytes::Bytes> for BufView {
   }
 }
 
-impl From<BufView> for bytes::Bytes {
-  fn from(buf: BufView) -> Self {
-    match buf.inner {
-      BufViewInner::Empty => bytes::Bytes::new(),
-      BufViewInner::Bytes(bytes) => bytes,
-      BufViewInner::JsBuffer(js_buf) => js_buf.into(),
-    }
-  }
-}
-
 /// BufMutViewWhole is equivalent to `BufMutView`, but cannot be split, preventing
 /// someone from accidentally holding a `BufView` down the road that is being actively
 /// mutated from JavaScript.
