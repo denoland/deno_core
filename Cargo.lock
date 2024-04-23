@@ -1758,7 +1758,6 @@ name = "serde_v8"
 version = "0.187.0"
 dependencies = [
  "bencher",
- "bytes",
  "num-bigint",
  "serde",
  "serde_bytes",
