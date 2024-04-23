@@ -1,13 +1,13 @@
 {
    <insert_a_suppression_name_here>
    Memcheck:Addr8
-   fun:_ZN9deno_core8external24ExternalPointer*validate_pointer*
-   fun:_ZN4core3ops8function6FnOnce9call_once*
-   fun:_ZN4test28__rust_begin_short_backtrace*
-   fun:_ZN4test8run_test*
-   fun:_ZN3std10sys_common9backtrace28__rust_begin_short_backtrace*
-   fun:_ZN4core3ops8function6FnOnce40call_once*
-   fun:_ZN3std3sys4unix6thread6Thread3new12thread_start*
+   fun:_ZN9deno_core8external*validate_pointer*
+   fun:_ZN4core*call_once*
+   fun:_ZN4test*__rust_begin_short_backtrace*
+   fun:_ZN4test*run_test*
+   fun:_ZN3std*__rust_begin_short_backtrace*
+   fun:_ZN4core*call_once*
+   fun:_ZN3std3sys*thread_start*
    fun:start_thread
    fun:clone
 }
