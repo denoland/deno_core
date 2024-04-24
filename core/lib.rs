@@ -26,6 +26,7 @@ mod path;
 mod runtime;
 mod source_map;
 mod tasks;
+mod to_from_v8;
 mod web_timeout;
 
 // Re-exports
@@ -150,6 +151,8 @@ pub use crate::source_map::SourceMapData;
 pub use crate::source_map::SourceMapGetter;
 pub use crate::tasks::V8CrossThreadTaskSpawner;
 pub use crate::tasks::V8TaskSpawner;
+pub use crate::to_from_v8::FromV8;
+pub use crate::to_from_v8::ToV8;
 
 // Ensure we can use op2 in deno_core without any hackery.
 extern crate self as deno_core;
