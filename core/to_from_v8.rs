@@ -4,7 +4,7 @@ pub trait ToV8<'a> {
   type Error: std::error::Error;
 
   fn to_v8(
-    &mut self,
+    self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error>;
 }
@@ -27,7 +27,7 @@ where
   type Error = T::Error;
 
   fn to_v8(
-    &mut self,
+    self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
     match self {
