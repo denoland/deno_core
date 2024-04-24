@@ -70,12 +70,6 @@ impl FromV8 for JsBuffer {
   }
 }
 
-impl From<JsBuffer> for bytes::Bytes {
-  fn from(zbuf: JsBuffer) -> bytes::Bytes {
-    zbuf.0.into()
-  }
-}
-
 impl From<V8Slice<u8>> for JsBuffer {
   fn from(value: V8Slice<u8>) -> Self {
     JsBuffer(value)

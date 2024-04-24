@@ -46,12 +46,3 @@ impl FromV8 for StringOrBuffer {
     Err(Error::ExpectedBuffer(value.type_repr()))
   }
 }
-
-impl From<StringOrBuffer> for bytes::Bytes {
-  fn from(sob: StringOrBuffer) -> Self {
-    match sob {
-      StringOrBuffer::Buffer(b) => b.into(),
-      StringOrBuffer::String(s) => s.into_bytes().into(),
-    }
-  }
-}

@@ -639,7 +639,7 @@ mod tests {
   );
 
   thread_local! {
-    static FAIL: Cell<bool> = Cell::new(false)
+    static FAIL: Cell<bool> = const { Cell::new(false) }
   }
 
   #[op2(fast)]
@@ -846,7 +846,7 @@ mod tests {
   }
 
   thread_local! {
-    static RETURN_COUNT: Cell<usize> = Cell::new(0);
+    static RETURN_COUNT: Cell<usize> = const { Cell::new(0) };
   }
 
   #[op2(fast)]

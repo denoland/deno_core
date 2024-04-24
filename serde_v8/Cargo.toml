@@ -14,7 +14,6 @@ description = "Rust to V8 serialization and deserialization"
 path = "lib.rs"
 
 [dependencies]
-bytes.workspace = true
 num-bigint.workspace = true
 serde.workspace = true
 smallvec = { workspace = true, features = ["union"] }
