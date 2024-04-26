@@ -4,7 +4,6 @@ use anyhow::Error;
 use deno_core::url::Url;
 use deno_core::CrossIsolateStore;
 use deno_core::JsRuntime;
-use deno_core::JsRuntimeForSnapshot;
 use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
 use futures::Future;
@@ -25,94 +24,33 @@ use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
 use self::testing::TestFunctions;
-use self::ts_module_loader::maybe_transpile_source;
 
+mod extensions;
 mod ops;
 mod ops_async;
 mod ops_buffer;
 mod ops_error;
 mod ops_io;
 mod ops_worker;
+pub mod snapshot;
 mod testing;
 mod ts_module_loader;
 
-trait SomeType {}
-
-impl SomeType for () {}
-
-deno_core::extension!(
-  checkin_runtime,
-  parameters = [P: SomeType],
-  ops = [
-    ops::op_log_debug,
-    ops::op_log_info,
-    ops::op_test_register,
-    ops::op_stats_capture,
-    ops::op_stats_diff,
-    ops::op_stats_dump,
-    ops::op_stats_delete,
-    ops::op_nop_generic<P>,
-    ops_io::op_pipe_create,
-    ops_io::op_file_open,
-    ops_async::op_task_submit,
-    ops_async::op_async_yield,
-    ops_async::op_async_barrier_create,
-    ops_async::op_async_barrier_await,
-    ops_async::op_async_spin_on_state,
-    ops_async::op_async_make_cppgc_resource,
-    ops_async::op_async_get_cppgc_resource,
-    ops_error::op_async_throw_error_eager,
-    ops_error::op_async_throw_error_lazy,
-    ops_error::op_async_throw_error_deferred,
-    ops_error::op_error_custom_sync,
-    ops_error::op_error_context_sync,
-    ops_error::op_error_context_async,
-    ops_buffer::op_v8slice_store,
-    ops_buffer::op_v8slice_clone,
-    ops_worker::op_worker_spawn,
-    ops_worker::op_worker_send,
-    ops_worker::op_worker_recv,
-    ops_worker::op_worker_parent,
-    ops_worker::op_worker_await_close,
-    ops_worker::op_worker_terminate,
-  ],
-  esm_entry_point = "ext:checkin_runtime/__init.js",
-  esm = [
-    dir "checkin/runtime",
-    "__bootstrap.js",
-    "__init.js",
-    "checkin:async" = "async.ts",
-    "checkin:console" = "console.ts",
-    "checkin:error" = "error.ts",
-    "checkin:testing" = "testing.ts",
-    "checkin:timers" = "timers.ts",
-    "checkin:worker" = "worker.ts",
-    "checkin:throw" = "throw.ts",
-  ],
-  state = |state| {
-    state.put(TestFunctions::default());
-    state.put(TestData::default());
-  }
-);
-
-fn create_runtime(
+pub fn create_runtime(
   output: Output,
   parent: Option<WorkerCloseWatcher>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let extensions_for_snapshot = vec![checkin_runtime::init_ops_and_esm::<()>()];
-
-  let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
-    extensions: extensions_for_snapshot,
-    extension_transpiler: Some(Rc::new(|specifier, source| {
-      maybe_transpile_source(specifier, source)
-    })),
-    ..Default::default()
-  });
-
-  let snapshot = runtime_for_snapshot.snapshot();
+  let snapshot = snapshot::create_snapshot();
   let snapshot = Box::leak(snapshot);
-  let extensions = vec![checkin_runtime::init_ops::<()>()];
+  let mut runtime = create_runtime_from_snapshot(snapshot);
+  runtime.op_state().borrow_mut().put(output);
+  runtime.op_state().borrow_mut().put(worker);
+  (runtime, worker_host_side)
+}
+
+pub fn create_runtime_from_snapshot(snapshot: &'static [u8]) -> JsRuntime {
+  let extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
   let module_loader =
     Rc::new(ts_module_loader::TypescriptModuleLoader::default());
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -129,9 +67,8 @@ fn create_runtime(
 
   let stats = runtime.runtime_activity_stats_factory();
   runtime.op_state().borrow_mut().put(stats);
-  runtime.op_state().borrow_mut().put(worker);
-  runtime.op_state().borrow_mut().put(output);
-  (runtime, worker_host_side)
+  runtime.op_state().borrow_mut().put(Output::default());
+  runtime
 }
 
 fn run_async(f: impl Future<Output = Result<(), Error>>) {
@@ -163,11 +100,13 @@ fn run_async(f: impl Future<Output = Result<(), Error>>) {
 
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
 /// and compares its output with the `.out` file in the same directory.
+#[cfg(test)]
 pub fn run_integration_test(test: &str) {
   let (runtime, _) = create_runtime(Output::default(), None);
   run_async(run_integration_test_task(runtime, test.to_owned()));
 }
 
+#[cfg(test)]
 async fn run_integration_test_task(
   mut runtime: JsRuntime,
   test: String,
@@ -212,11 +151,13 @@ async fn run_integration_test_task(
 
 /// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
 /// then each test is run individually and failures are printed.
+#[cfg(test)]
 pub fn run_unit_test(test: &str) {
   let (runtime, _) = create_runtime(Output::default(), None);
   run_async(run_unit_test_task(runtime, test.to_owned()));
 }
 
+#[cfg(test)]
 async fn run_unit_test_task(
   mut runtime: JsRuntime,
   test: String,

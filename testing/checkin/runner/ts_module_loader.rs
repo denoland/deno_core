@@ -72,7 +72,12 @@ impl ModuleLoader for TypescriptModuleLoader {
       module_specifier: &ModuleSpecifier,
     ) -> Result<ModuleSource, AnyError> {
       let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-      let path = root.join(Path::new(&module_specifier.path()[1..]));
+      let start = if module_specifier.scheme() == "checkin:" {
+        1
+      } else {
+        0
+      };
+      let path = root.join(Path::new(&module_specifier.path()[start..]));
 
       let media_type = MediaType::from_path(&path);
       let (module_type, should_transpile) = match MediaType::from_path(&path) {
@@ -96,7 +101,6 @@ impl ModuleLoader for TypescriptModuleLoader {
           }
         }
       };
-
       let code = std::fs::read_to_string(&path)?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {

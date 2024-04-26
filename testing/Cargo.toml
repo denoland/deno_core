@@ -13,7 +13,7 @@ repository.workspace = true
 [lib]
 path = "./lib.rs"
 
-[dev-dependencies]
+[dependencies]
 anyhow.workspace = true
 deno_ast.workspace = true
 deno_core.workspace = true

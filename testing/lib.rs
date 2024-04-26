@@ -1,12 +1,13 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-// Everything runs in test mode
-#![cfg(test)]
-
 mod checkin;
+
+pub use checkin::runner::create_runtime_from_snapshot;
+pub use checkin::runner::snapshot::create_snapshot;
 
 macro_rules! unit_test {
   ($($id:ident,)*) => {
+    #[cfg(test)]
     mod unit {
       $(
         #[test]
@@ -20,6 +21,7 @@ macro_rules! unit_test {
 
 macro_rules! integration_test {
   ($($id:ident,)*) => {
+    #[cfg(test)]
     mod integration {
       $(
         #[test]

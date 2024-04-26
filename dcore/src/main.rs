@@ -13,16 +13,17 @@ use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
+use deno_core_testing::create_runtime_from_snapshot;
 use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
 
+static SNAPSHOT: &[u8] =
+  include_bytes!(concat!(env!("OUT_DIR"), "/SNAPSHOT.bin"));
+
 mod inspector_server;
 use crate::inspector_server::InspectorServer;
-
-// TODO(bartlomieju): figure out how we can incorporate snapshotting here
-// static SNAPSHOT_BYTES: &[u8] = include_bytes!("../snapshot.bin");
 
 fn main() -> Result<(), Error> {
   eprintln!(
@@ -62,14 +63,15 @@ fn main() -> Result<(), Error> {
   // .unwrap();
   // return Ok(());
 
-  let mut js_runtime = JsRuntime::new(RuntimeOptions {
-    // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-    // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
-    module_loader: Some(Rc::new(FsModuleLoader)),
-    custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
-    inspector: inspector_server.is_some(),
-    ..Default::default()
-  });
+  let mut js_runtime = create_runtime_from_snapshot(SNAPSHOT);
+  //   JsRuntime::new(RuntimeOptions {
+  //   // TODO(bartlomieju): figure out how we can incorporate snapshotting here
+  //   // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
+  //   module_loader: Some(Rc::new(FsModuleLoader)),
+  //   custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
+  //   inspector: inspector_server.is_some(),
+  //   ..Default::default()
+  // });
 
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()

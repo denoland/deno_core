@@ -12,10 +12,10 @@ use deno_core::v8;
 use deno_core::OpDecl;
 use deno_core::OpState;
 
+use super::extensions::SomeType;
 use super::testing::Output;
 use super::testing::TestData;
 use super::testing::TestFunctions;
-use super::SomeType;
 
 #[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
