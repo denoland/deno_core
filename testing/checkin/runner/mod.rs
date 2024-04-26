@@ -2,6 +2,7 @@
 use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
+use self::ts_module_loader::maybe_transpile_source;
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Error;
@@ -46,6 +47,7 @@ impl Output {
     self.lines.lock().unwrap().push(line)
   }
 
+  #[cfg(test)]
   pub fn take(&self) -> Vec<String> {
     std::mem::take(&mut self.lines.lock().unwrap())
   }
@@ -92,12 +94,13 @@ impl TestData {
 
 pub fn create_runtime(
   parent: Option<WorkerCloseWatcher>,
-  extensions: Vec<Extension>,
+  additional_extensions: Vec<Extension>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
   let snapshot = snapshot::create_snapshot();
   let snapshot = Box::leak(snapshot);
-  let mut runtime = create_runtime_from_snapshot(snapshot, false);
+  let mut runtime =
+    create_runtime_from_snapshot(snapshot, false, additional_extensions);
   runtime.op_state().borrow_mut().put(worker);
   (runtime, worker_host_side)
 }
@@ -105,14 +108,19 @@ pub fn create_runtime(
 pub fn create_runtime_from_snapshot(
   snapshot: &'static [u8],
   inspector: bool,
+  additional_extensions: Vec<Extension>,
 ) -> JsRuntime {
-  let extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
+  let mut extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
+  extensions.extend(additional_extensions);
   let module_loader =
     Rc::new(ts_module_loader::TypescriptModuleLoader::default());
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
     startup_snapshot: Some(snapshot),
     module_loader: Some(module_loader.clone()),
+    extension_transpiler: Some(Rc::new(|specifier, source| {
+      maybe_transpile_source(specifier, source)
+    })),
     get_error_class_fn: Some(&|error| {
       deno_core::error::get_custom_error_class(error).unwrap_or("Error")
     }),

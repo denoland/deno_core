@@ -39,9 +39,8 @@ fn main() -> Result<(), Error> {
     None
   };
 
-  // TODO: custom_module_evaluation_cb
   let mut js_runtime =
-    create_runtime_from_snapshot(SNAPSHOT, inspector_server.is_some());
+    create_runtime_from_snapshot(SNAPSHOT, inspector_server.is_some(), vec![]);
 
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()

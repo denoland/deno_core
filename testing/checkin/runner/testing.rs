@@ -12,17 +12,17 @@ use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
-use crate::checkin::runner::TestData;
-
 use super::create_runtime;
 use super::run_async;
 use super::Output;
+use super::TestData;
 
 deno_core::extension!(
   checkin_testing,
   ops = [
     op_test_register,
   ],
+  esm_entry_point = "checkin:testing",
   esm = [
     dir "checkin/runtime",
     "checkin:testing" = "testing.ts",

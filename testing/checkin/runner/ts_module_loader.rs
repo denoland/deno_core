@@ -5,6 +5,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Error;
 
 use deno_ast::MediaType;
@@ -72,7 +73,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       module_specifier: &ModuleSpecifier,
     ) -> Result<ModuleSource, AnyError> {
       let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-      let start = if module_specifier.scheme() == "checkin:" {
+      let start = if module_specifier.scheme() == "test" {
         1
       } else {
         0
@@ -101,7 +102,9 @@ impl ModuleLoader for TypescriptModuleLoader {
           }
         }
       };
-      let code = std::fs::read_to_string(&path)?;
+      let code = std::fs::read_to_string(&path).with_context(|| {
+        format!("Trying to load {path:?} for {module_specifier}")
+      })?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
           specifier: module_specifier.clone(),
