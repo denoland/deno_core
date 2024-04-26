@@ -231,7 +231,7 @@ impl RecursiveModuleLoad {
     self.visited.insert(module_request.clone());
     while let Some((module_id, module_request)) = already_registered.pop_front()
     {
-      let referrer = ModuleSpecifier::parse(&module_request.specifier).unwrap();
+      let referrer = &module_request.specifier;
       let imports = self
         .module_map_rc
         .get_requested_modules(module_id)
@@ -242,7 +242,7 @@ impl RecursiveModuleLoad {
           && !self
             .visited_as_alias
             .borrow()
-            .contains(&module_request.specifier)
+            .contains(module_request.specifier.as_str())
         {
           if let Some(module_id) = self.module_map_rc.get_id(
             module_request.specifier.as_str(),
@@ -251,8 +251,7 @@ impl RecursiveModuleLoad {
             already_registered.push_back((module_id, module_request.clone()));
           } else {
             let request = module_request.clone();
-            let specifier =
-              ModuleSpecifier::parse(&module_request.specifier).unwrap();
+            let specifier = module_request.specifier.clone();
             let visited_as_alias = self.visited_as_alias.clone();
             let referrer = referrer.clone();
             let loader = self.loader.clone();
@@ -316,7 +315,7 @@ impl Stream for RecursiveModuleLoad {
           _ => RequestedModuleType::None,
         };
         let module_request = ModuleRequest {
-          specifier: module_specifier.to_string(),
+          specifier: module_specifier.clone(),
           requested_module_type: requested_module_type.clone(),
         };
         let load_fut = if let Some(module_id) = inner.root_module_id {

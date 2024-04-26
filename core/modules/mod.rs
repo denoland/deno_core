@@ -589,7 +589,7 @@ impl std::fmt::Display for RequestedModuleType {
 /// which case this will have a `RequestedModuleType::Json`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ModuleRequest {
-  pub specifier: String,
+  pub specifier: ModuleSpecifier,
   pub requested_module_type: RequestedModuleType,
 }
 

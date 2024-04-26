@@ -223,7 +223,8 @@ fn es_snapshot() {
       main,
       name: specifier.into(),
       requests: vec![crate::modules::ModuleRequest {
-        specifier: format!("file:///{prev}.js"),
+        specifier: ModuleSpecifier::parse(&format!("file:///{prev}.js"))
+          .unwrap(),
         requested_module_type: RequestedModuleType::None,
       }],
       module_type: ModuleType::JavaScript,

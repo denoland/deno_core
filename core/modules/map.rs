@@ -705,7 +705,7 @@ impl ModuleMap {
       let requested_module_type =
         get_requested_module_type_from_attributes(&attributes);
       let request = ModuleRequest {
-        specifier: module_specifier.to_string(),
+        specifier: module_specifier,
         requested_module_type,
       };
       requests.push(request);
