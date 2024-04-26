@@ -1,3 +1,4 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::rc::Rc;
 
 use deno_core::JsRuntimeForSnapshot;
@@ -18,6 +19,5 @@ pub fn create_snapshot() -> Box<[u8]> {
     ..Default::default()
   });
 
-  let snapshot = runtime_for_snapshot.snapshot();
-  snapshot
+  runtime_for_snapshot.snapshot()
 }

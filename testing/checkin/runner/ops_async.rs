@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use std::future::Future;
 use std::rc::Rc;
 
-use super::testing::Output;
-use super::testing::TestData;
+use super::Output;
+use super::TestData;
 
 #[op2]
 pub fn op_task_submit(

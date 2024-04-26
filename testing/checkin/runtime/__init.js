@@ -1,13 +1,11 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import "./__bootstrap.js";
 import * as async from "checkin:async";
-import * as testing from "checkin:testing";
 import * as console from "checkin:console";
 import * as error from "checkin:error";
 import * as timers from "checkin:timers";
 import * as worker from "checkin:worker";
 import * as throw_ from "checkin:throw";
-testing;
 async;
 error;
 throw_;

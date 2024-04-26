@@ -1,29 +1,29 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use anyhow::bail;
-use anyhow::Error;
-use deno_core::url::Url;
-use deno_core::CrossIsolateStore;
-use deno_core::JsRuntime;
-use deno_core::PollEventLoopOptions;
-use deno_core::RuntimeOptions;
-use futures::Future;
-use pretty_assertions::assert_eq;
-use std::path::Path;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::RecvTimeoutError;
-use std::time::Duration;
-use testing::Output;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
-
-use crate::checkin::runner::testing::TestData;
-
 use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
-use self::testing::TestFunctions;
+use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Error;
+use deno_core::v8;
+use deno_core::CrossIsolateStore;
+use deno_core::CustomModuleEvaluationKind;
+use deno_core::Extension;
+use deno_core::FastString;
+use deno_core::JsRuntime;
+use deno_core::ModuleSourceCode;
+use deno_core::RuntimeOptions;
+use futures::Future;
+use std::any::Any;
+use std::any::TypeId;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
 
 mod extensions;
 mod ops;
@@ -33,23 +33,79 @@ mod ops_error;
 mod ops_io;
 mod ops_worker;
 pub mod snapshot;
-mod testing;
+#[cfg(test)]
+pub mod testing;
 mod ts_module_loader;
 
+#[derive(Clone, Default)]
+pub struct Output {
+  pub lines: Arc<Mutex<Vec<String>>>,
+}
+impl Output {
+  pub fn line(&self, line: String) {
+    self.lines.lock().unwrap().push(line)
+  }
+
+  pub fn take(&self) -> Vec<String> {
+    std::mem::take(&mut self.lines.lock().unwrap())
+  }
+}
+
+#[derive(Default)]
+pub struct TestData {
+  pub data: HashMap<(String, TypeId), Box<dyn Any>>,
+}
+
+impl TestData {
+  pub fn insert<T: 'static + Any>(&mut self, name: String, data: T) {
+    self.data.insert((name, TypeId::of::<T>()), Box::new(data));
+  }
+
+  pub fn get<T: 'static + Any>(&self, name: String) -> &T {
+    let key = (name, TypeId::of::<T>());
+    self
+      .data
+      .get(&key)
+      .unwrap_or_else(|| {
+        panic!(
+          "Unable to locate '{}' of type {}",
+          key.0,
+          std::any::type_name::<T>()
+        )
+      })
+      .downcast_ref()
+      .unwrap()
+  }
+
+  pub fn take<T: 'static + Any>(&mut self, name: String) -> T {
+    let key = (name, TypeId::of::<T>());
+    let Some(res) = self.data.remove(&key) else {
+      panic!(
+        "Failed to remove '{}' of type {}",
+        key.0,
+        std::any::type_name::<T>()
+      );
+    };
+    *res.downcast().unwrap()
+  }
+}
+
 pub fn create_runtime(
-  output: Output,
   parent: Option<WorkerCloseWatcher>,
+  extensions: Vec<Extension>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
   let snapshot = snapshot::create_snapshot();
   let snapshot = Box::leak(snapshot);
-  let mut runtime = create_runtime_from_snapshot(snapshot);
-  runtime.op_state().borrow_mut().put(output);
+  let mut runtime = create_runtime_from_snapshot(snapshot, false);
   runtime.op_state().borrow_mut().put(worker);
   (runtime, worker_host_side)
 }
 
-pub fn create_runtime_from_snapshot(snapshot: &'static [u8]) -> JsRuntime {
+pub fn create_runtime_from_snapshot(
+  snapshot: &'static [u8],
+  inspector: bool,
+) -> JsRuntime {
   let extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
   let module_loader =
     Rc::new(ts_module_loader::TypescriptModuleLoader::default());
@@ -62,6 +118,8 @@ pub fn create_runtime_from_snapshot(snapshot: &'static [u8]) -> JsRuntime {
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     source_map_getter: Some(module_loader),
+    custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
+    inspector,
     ..Default::default()
   });
 
@@ -98,123 +156,59 @@ fn run_async(f: impl Future<Output = Result<(), Error>>) {
   _ = timeout.join();
 }
 
-/// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
-/// and compares its output with the `.out` file in the same directory.
-#[cfg(test)]
-pub fn run_integration_test(test: &str) {
-  let (runtime, _) = create_runtime(Output::default(), None);
-  run_async(run_integration_test_task(runtime, test.to_owned()));
-}
-
-#[cfg(test)]
-async fn run_integration_test_task(
-  mut runtime: JsRuntime,
-  test: String,
-) -> Result<(), Error> {
-  let test_dir = get_test_dir(&["integration", &test]);
-  let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_es_module(&url).await?;
-  let f = runtime.mod_evaluate(module);
-  let mut actual_output = String::new();
-  if let Err(e) = runtime
-    .run_event_loop(PollEventLoopOptions::default())
-    .await
-  {
-    let state = runtime.op_state().clone();
-    let state = state.borrow();
-    let output: &Output = state.borrow();
-    for line in e.to_string().split('\n') {
-      output.line(format!("[ERR] {line}"));
-    }
-  } else {
-    // Only await the module if we didn't fail
-    if let Err(e) = f.await {
-      let state = runtime.op_state().clone();
-      let state = state.borrow();
-      let output: &Output = state.borrow();
-      for line in e.to_string().split('\n') {
-        output.line(format!("[ERR] {line}"));
-      }
-    }
+fn custom_module_evaluation_cb(
+  scope: &mut v8::HandleScope,
+  module_type: Cow<'_, str>,
+  module_name: &FastString,
+  code: ModuleSourceCode,
+) -> Result<CustomModuleEvaluationKind, Error> {
+  match &*module_type {
+    "bytes" => bytes_module(scope, code),
+    "text" => text_module(scope, module_name, code),
+    _ => Err(anyhow!(
+      "Can't import {:?} because of unknown module type {}",
+      module_name,
+      module_type
+    )),
   }
-  let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
-  lines.push(String::new());
-  let mut expected_output = String::new();
-  File::open(test_dir.join(format!("{test}.out")))
-    .await?
-    .read_to_string(&mut expected_output)
-    .await?;
-  actual_output += &lines.join("\n");
-  assert_eq!(actual_output, expected_output);
-  Ok(())
 }
 
-/// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
-/// then each test is run individually and failures are printed.
-#[cfg(test)]
-pub fn run_unit_test(test: &str) {
-  let (runtime, _) = create_runtime(Output::default(), None);
-  run_async(run_unit_test_task(runtime, test.to_owned()));
-}
-
-#[cfg(test)]
-async fn run_unit_test_task(
-  mut runtime: JsRuntime,
-  test: String,
-) -> Result<(), Error> {
-  let test_dir = get_test_dir(&["unit"]);
-  let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_es_module(&url).await?;
-  let f = runtime.mod_evaluate(module);
-  runtime
-    .run_event_loop(PollEventLoopOptions::default())
-    .await?;
-  f.await?;
-
-  let tests: TestFunctions = runtime.op_state().borrow_mut().take();
-  for (name, function) in tests.functions {
-    println!("Testing {name}...");
-    let call = runtime.call(&function);
-    runtime
-      .with_event_loop_promise(call, PollEventLoopOptions::default())
-      .await?;
-
-    // Clear any remaining test data so we have a fresh state
-    let state = runtime.op_state();
-    let mut state = state.borrow_mut();
-    let data = state.borrow_mut::<TestData>();
-    data.data.clear();
-  }
-
-  Ok(())
-}
-
-fn get_test_dir(dirs: &[&str]) -> PathBuf {
-  let mut test_dir = Path::new(env!("CARGO_MANIFEST_DIR")).to_owned();
-  for dir in dirs {
-    test_dir = test_dir.join(dir).to_owned();
-  }
-
-  test_dir.to_owned()
-}
-
-fn get_test_url(test_dir: &Path, test: &str) -> Result<Url, Error> {
-  let mut path = None;
-  for extension in ["ts", "js", "nocompile"] {
-    let test_path = test_dir.join(format!("{test}.{extension}"));
-    if test_path.exists() {
-      path = Some(test_path);
-      break;
-    }
-  }
-  let Some(path) = path else {
-    bail!("Test file not found");
+fn bytes_module(
+  scope: &mut v8::HandleScope,
+  code: ModuleSourceCode,
+) -> Result<CustomModuleEvaluationKind, Error> {
+  // FsModuleLoader always returns bytes.
+  let ModuleSourceCode::Bytes(buf) = code else {
+    unreachable!()
   };
-  let path = path.canonicalize()?.to_owned();
-  let url = Url::from_file_path(path).unwrap().to_string();
-  let base_url = Url::from_file_path(Path::new(env!("CARGO_MANIFEST_DIR")))
-    .unwrap()
-    .to_string();
-  let url = Url::parse(&format!("test://{}", &url[base_url.len()..]))?;
-  Ok(url)
+  let owned_buf = buf.to_vec();
+  let buf_len: usize = owned_buf.len();
+  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(owned_buf);
+  let backing_store_shared = backing_store.make_shared();
+  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+  let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+  let value: v8::Local<v8::Value> = uint8_array.into();
+  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
+    scope, value,
+  )))
+}
+
+fn text_module(
+  scope: &mut v8::HandleScope,
+  module_name: &FastString,
+  code: ModuleSourceCode,
+) -> Result<CustomModuleEvaluationKind, Error> {
+  // FsModuleLoader always returns bytes.
+  let ModuleSourceCode::Bytes(buf) = code else {
+    unreachable!()
+  };
+
+  let code = std::str::from_utf8(buf.as_bytes()).with_context(|| {
+    format!("Can't convert {:?} source code to string", module_name)
+  })?;
+  let str_ = v8::String::new(scope, code).unwrap();
+  let value: v8::Local<v8::Value> = str_.into();
+  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
+    scope, value,
+  )))
 }

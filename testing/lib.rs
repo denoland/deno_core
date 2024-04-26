@@ -12,7 +12,7 @@ macro_rules! unit_test {
       $(
         #[test]
         fn $id() {
-          $crate::checkin::runner::run_unit_test(stringify!($id));
+          $crate::checkin::runner::testing::run_unit_test(stringify!($id));
         }
       )*
     }
@@ -26,7 +26,7 @@ macro_rules! integration_test {
       $(
         #[test]
         fn $id() {
-          $crate::checkin::runner::run_integration_test(stringify!($id));
+          $crate::checkin::runner::testing::run_integration_test(stringify!($id));
         }
       )*
     }

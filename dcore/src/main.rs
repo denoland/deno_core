@@ -1,22 +1,15 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use anyhow::anyhow;
 use anyhow::Context;
 use clap::builder::Arg;
 use clap::builder::Command;
 use clap::ArgMatches;
 use deno_core::anyhow::Error;
-use deno_core::v8;
-use deno_core::CustomModuleEvaluationKind;
-use deno_core::FastString;
-use deno_core::FsModuleLoader;
-use deno_core::JsRuntime;
-use deno_core::ModuleSourceCode;
-use deno_core::RuntimeOptions;
+
 use deno_core_testing::create_runtime_from_snapshot;
-use std::borrow::Cow;
+
 use std::net::SocketAddr;
-use std::rc::Rc;
+
 use std::sync::Arc;
 
 static SNAPSHOT: &[u8] =
@@ -46,32 +39,9 @@ fn main() -> Result<(), Error> {
     None
   };
 
-  // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-  // deno_core::snapshot::create_snapshot(
-  //   CreateSnapshotOptions {
-  //     serializer: Box::new(SnapshotFileSerializer::new(
-  //       std::fs::File::create("./snapshot.bin").unwrap(),
-  //     )),
-  //     extensions: vec![],
-  //     cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
-  //     startup_snapshot: None,
-  //     with_runtime_cb: None,
-  //     skip_op_registration: false,
-  //   },
-  //   None,
-  // )
-  // .unwrap();
-  // return Ok(());
-
-  let mut js_runtime = create_runtime_from_snapshot(SNAPSHOT);
-  //   JsRuntime::new(RuntimeOptions {
-  //   // TODO(bartlomieju): figure out how we can incorporate snapshotting here
-  //   // startup_snapshot: Some(deno_core::Snapshot::Static(SNAPSHOT_BYTES)),
-  //   module_loader: Some(Rc::new(FsModuleLoader)),
-  //   custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
-  //   inspector: inspector_server.is_some(),
-  //   ..Default::default()
-  // });
+  // TODO: custom_module_evaluation_cb
+  let mut js_runtime =
+    create_runtime_from_snapshot(SNAPSHOT, inspector_server.is_some());
 
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()
@@ -167,61 +137,4 @@ fn inspect_arg_parse(
   }
 
   None
-}
-
-fn custom_module_evaluation_cb(
-  scope: &mut v8::HandleScope,
-  module_type: Cow<'_, str>,
-  module_name: &FastString,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
-  match &*module_type {
-    "bytes" => bytes_module(scope, code),
-    "text" => text_module(scope, module_name, code),
-    _ => Err(anyhow!(
-      "Can't import {:?} because of unknown module type {}",
-      module_name,
-      module_type
-    )),
-  }
-}
-
-fn bytes_module(
-  scope: &mut v8::HandleScope,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
-  // FsModuleLoader always returns bytes.
-  let ModuleSourceCode::Bytes(buf) = code else {
-    unreachable!()
-  };
-  let owned_buf = buf.to_vec();
-  let buf_len: usize = owned_buf.len();
-  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(owned_buf);
-  let backing_store_shared = backing_store.make_shared();
-  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
-  let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
-  let value: v8::Local<v8::Value> = uint8_array.into();
-  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
-    scope, value,
-  )))
-}
-
-fn text_module(
-  scope: &mut v8::HandleScope,
-  module_name: &FastString,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
-  // FsModuleLoader always returns bytes.
-  let ModuleSourceCode::Bytes(buf) = code else {
-    unreachable!()
-  };
-
-  let code = std::str::from_utf8(buf.as_bytes()).with_context(|| {
-    format!("Can't convert {:?} source code to string", module_name)
-  })?;
-  let str_ = v8::String::new(scope, code).unwrap();
-  let value: v8::Local<v8::Value> = str_.into();
-  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
-    scope, value,
-  )))
 }

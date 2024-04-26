@@ -1,11 +1,12 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::checkin::runner::ops;
 use crate::checkin::runner::ops_async;
 use crate::checkin::runner::ops_buffer;
 use crate::checkin::runner::ops_error;
 use crate::checkin::runner::ops_io;
 use crate::checkin::runner::ops_worker;
+use crate::checkin::runner::Output;
 use crate::checkin::runner::TestData;
-use crate::checkin::runner::TestFunctions;
 
 pub trait SomeType {}
 
@@ -17,7 +18,6 @@ deno_core::extension!(
   ops = [
     ops::op_log_debug,
     ops::op_log_info,
-    ops::op_test_register,
     ops::op_stats_capture,
     ops::op_stats_diff,
     ops::op_stats_dump,
@@ -55,13 +55,12 @@ deno_core::extension!(
     "checkin:async" = "async.ts",
     "checkin:console" = "console.ts",
     "checkin:error" = "error.ts",
-    "checkin:testing" = "testing.ts",
     "checkin:timers" = "timers.ts",
     "checkin:worker" = "worker.ts",
     "checkin:throw" = "throw.ts",
   ],
   state = |state| {
-    state.put(TestFunctions::default());
     state.put(TestData::default());
+    state.put(Output::default());
   }
 );
