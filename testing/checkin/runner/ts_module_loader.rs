@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -15,6 +16,7 @@ use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::url::Url;
+use deno_core::ModuleCodeBytes;
 use deno_core::ModuleCodeString;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
@@ -65,12 +67,13 @@ impl ModuleLoader for TypescriptModuleLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
+      requested_module_type: RequestedModuleType
     ) -> Result<ModuleSource, AnyError> {
       let root = Path::new(env!("CARGO_MANIFEST_DIR"));
       let start = if module_specifier.scheme() == "test" {
@@ -79,6 +82,10 @@ impl ModuleLoader for TypescriptModuleLoader {
         0
       };
       let path = root.join(Path::new(&module_specifier.path()[start..]));
+      if let RequestedModuleType::Other(type_) = requested_module_type {
+        let bytes = fs::read(path)?;
+        return Ok(ModuleSource::new(ModuleType::Other(type_), ModuleSourceCode::Bytes(ModuleCodeBytes::Boxed(bytes.into())), module_specifier, None));
+      }
 
       let media_type = MediaType::from_path(&path);
       let (module_type, should_transpile) = match MediaType::from_path(&path) {
@@ -138,7 +145,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       ))
     }
 
-    ModuleLoadResponse::Sync(load(source_maps, module_specifier))
+    ModuleLoadResponse::Sync(load(source_maps, module_specifier, requested_module_type))
   }
 }
 
