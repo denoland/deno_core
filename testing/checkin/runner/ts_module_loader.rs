@@ -73,7 +73,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     fn load(
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
-      requested_module_type: RequestedModuleType
+      requested_module_type: RequestedModuleType,
     ) -> Result<ModuleSource, AnyError> {
       let root = Path::new(env!("CARGO_MANIFEST_DIR"));
       let start = if module_specifier.scheme() == "test" {
@@ -84,7 +84,12 @@ impl ModuleLoader for TypescriptModuleLoader {
       let path = root.join(Path::new(&module_specifier.path()[start..]));
       if let RequestedModuleType::Other(type_) = requested_module_type {
         let bytes = fs::read(path)?;
-        return Ok(ModuleSource::new(ModuleType::Other(type_), ModuleSourceCode::Bytes(ModuleCodeBytes::Boxed(bytes.into())), module_specifier, None));
+        return Ok(ModuleSource::new(
+          ModuleType::Other(type_),
+          ModuleSourceCode::Bytes(ModuleCodeBytes::Boxed(bytes.into())),
+          module_specifier,
+          None,
+        ));
       }
 
       let media_type = MediaType::from_path(&path);
@@ -145,7 +150,11 @@ impl ModuleLoader for TypescriptModuleLoader {
       ))
     }
 
-    ModuleLoadResponse::Sync(load(source_maps, module_specifier, requested_module_type))
+    ModuleLoadResponse::Sync(load(
+      source_maps,
+      module_specifier,
+      requested_module_type,
+    ))
   }
 }
 
