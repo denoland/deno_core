@@ -2,7 +2,7 @@
 use deno_core::op2;
 use deno_core::JsBuffer;
 
-use super::testing::TestData;
+use super::TestData;
 
 #[op2]
 pub fn op_v8slice_store(

@@ -12,8 +12,9 @@
       "checkin:worker": ["checkin/runtime/worker.ts"]
     },
     "lib": ["ESNext", "DOM", "ES2023.Array"],
-    "module": "ES2022",
+    "module": "ESNext",
     "moduleDetection": "force",
+    "moduleResolution": "Bundler",
     "noEmit": true,
     "allowImportingTsExtensions": true
   }

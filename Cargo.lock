@@ -452,6 +452,7 @@ dependencies = [
  "anyhow",
  "clap",
  "deno_core",
+ "deno_core_testing",
  "fastwebsockets",
  "futures",
  "http",

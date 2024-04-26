@@ -24,7 +24,7 @@ use tokio::sync::Mutex;
 
 use super::create_runtime;
 use super::run_async;
-use super::testing::Output;
+use super::Output;
 
 /// Our cppgc object.
 pub struct WorkerControl {
@@ -101,7 +101,8 @@ pub fn op_worker_spawn<'s>(
   let (shutdown_tx, shutdown_rx) = unbounded_channel();
   std::thread::spawn(move || {
     let (mut runtime, worker_host_side) =
-      create_runtime(output, Some(close_watcher));
+      create_runtime(Some(close_watcher), vec![]);
+    runtime.op_state().borrow_mut().put(output.clone());
     init_send
       .send(WorkerControl {
         worker_channel: worker_host_side.worker_channel,

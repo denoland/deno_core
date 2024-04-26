@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-import { op_test_register } from "ext:core/ops";
+const { op_test_register } = Deno.core.ops;
 
 /**
  * Define a sync or async test function.

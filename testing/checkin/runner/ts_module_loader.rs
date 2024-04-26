@@ -1,10 +1,12 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::rc::Rc;
 
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Error;
 
 use deno_ast::MediaType;
@@ -14,6 +16,7 @@ use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::url::Url;
+use deno_core::ModuleCodeBytes;
 use deno_core::ModuleCodeString;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
@@ -64,15 +67,30 @@ impl ModuleLoader for TypescriptModuleLoader {
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
+      requested_module_type: RequestedModuleType,
     ) -> Result<ModuleSource, AnyError> {
       let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-      let path = root.join(Path::new(&module_specifier.path()[1..]));
+      let start = if module_specifier.scheme() == "test" {
+        1
+      } else {
+        0
+      };
+      let path = root.join(Path::new(&module_specifier.path()[start..]));
+      if let RequestedModuleType::Other(type_) = requested_module_type {
+        let bytes = fs::read(path)?;
+        return Ok(ModuleSource::new(
+          ModuleType::Other(type_),
+          ModuleSourceCode::Bytes(ModuleCodeBytes::Boxed(bytes.into())),
+          module_specifier,
+          None,
+        ));
+      }
 
       let media_type = MediaType::from_path(&path);
       let (module_type, should_transpile) = match MediaType::from_path(&path) {
@@ -96,8 +114,9 @@ impl ModuleLoader for TypescriptModuleLoader {
           }
         }
       };
-
-      let code = std::fs::read_to_string(&path)?;
+      let code = std::fs::read_to_string(&path).with_context(|| {
+        format!("Trying to load {path:?} for {module_specifier}")
+      })?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
           specifier: module_specifier.clone(),
@@ -131,7 +150,11 @@ impl ModuleLoader for TypescriptModuleLoader {
       ))
     }
 
-    ModuleLoadResponse::Sync(load(source_maps, module_specifier))
+    ModuleLoadResponse::Sync(load(
+      source_maps,
+      module_specifier,
+      requested_module_type,
+    ))
   }
 }
 

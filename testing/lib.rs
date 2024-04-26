@@ -1,17 +1,18 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-// Everything runs in test mode
-#![cfg(test)]
-
 mod checkin;
+
+pub use checkin::runner::create_runtime_from_snapshot;
+pub use checkin::runner::snapshot::create_snapshot;
 
 macro_rules! unit_test {
   ($($id:ident,)*) => {
+    #[cfg(test)]
     mod unit {
       $(
         #[test]
         fn $id() {
-          $crate::checkin::runner::run_unit_test(stringify!($id));
+          $crate::checkin::runner::testing::run_unit_test(stringify!($id));
         }
       )*
     }
@@ -20,11 +21,12 @@ macro_rules! unit_test {
 
 macro_rules! integration_test {
   ($($id:ident,)*) => {
+    #[cfg(test)]
     mod integration {
       $(
         #[test]
         fn $id() {
-          $crate::checkin::runner::run_integration_test(stringify!($id));
+          $crate::checkin::runner::testing::run_integration_test(stringify!($id));
         }
       )*
     }
@@ -60,6 +62,7 @@ integration_test!(
   error_with_stack,
   error_without_stack,
   main_module_handler,
+  module_types,
   pending_unref_op_tla,
   smoke_test,
   timer_ref,
