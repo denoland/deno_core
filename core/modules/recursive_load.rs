@@ -232,7 +232,6 @@ impl RecursiveModuleLoad {
     while let Some((module_id, module_request)) = already_registered.pop_front()
     {
       let referrer = &module_request.specifier;
-      eprintln!("REFERRER: {}", referrer.as_str());
       let imports = self
         .module_map_rc
         .get_requested_modules(module_id)
@@ -284,8 +283,17 @@ impl RecursiveModuleLoad {
                   visited_as_alias
                     .borrow_mut()
                     .insert(found_specifier.as_str().to_string());
+
+                  // update the request to use the resolved
+                  // specifier for future requests
                   request.specifier =
-                    ModuleSpecifier::parse(&found_specifier.as_str()).unwrap();
+                    ModuleSpecifier::parse(found_specifier.as_str())
+                      .unwrap_or_else(|err| {
+                        panic!(
+                          "Invalid module specifier '{}'. {:#}",
+                          found_specifier, err
+                        )
+                      });
                 }
               }
               load_result.map(|s| Some((request, s)))
@@ -344,10 +352,6 @@ impl Stream for RecursiveModuleLoad {
           let loader = inner.loader.clone();
           let is_dynamic_import = inner.is_dynamic_import();
           let requested_module_type = requested_module_type.clone();
-          eprintln!(
-            "REFERRER 2: {:?}",
-            maybe_referrer.as_ref().map(|r| r.as_str())
-          );
           async move {
             let load_response = loader.load(
               &module_specifier,
