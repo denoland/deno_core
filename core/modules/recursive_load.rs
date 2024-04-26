@@ -251,7 +251,6 @@ impl RecursiveModuleLoad {
             already_registered.push_back((module_id, module_request.clone()));
           } else {
             let request = module_request.clone();
-            let specifier = module_request.specifier.clone();
             let visited_as_alias = self.visited_as_alias.clone();
             let referrer = referrer.clone();
             let loader = self.loader.clone();
@@ -262,11 +261,14 @@ impl RecursiveModuleLoad {
               // possible because it can only be populated after completed
               // loads, meaning a duplicate load future may have already been
               // dispatched before we know it's a duplicate.
-              if visited_as_alias.borrow().contains(specifier.as_str()) {
+              if visited_as_alias
+                .borrow()
+                .contains(request.specifier.as_str())
+              {
                 return Ok(None);
               }
               let load_response = loader.load(
-                &specifier,
+                &request.specifier,
                 Some(&referrer),
                 is_dynamic_import,
                 requested_module_type,
