@@ -329,11 +329,11 @@ fn test_recursive_load() {
     modules.get_requested_modules(a_id),
     Some(vec![
       ModuleRequest {
-        specifier: "file:///b.js".to_string(),
+        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
         requested_module_type: RequestedModuleType::None,
       },
       ModuleRequest {
-        specifier: "file:///c.js".to_string(),
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
         requested_module_type: RequestedModuleType::None,
       },
     ])
@@ -341,14 +341,14 @@ fn test_recursive_load() {
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: "file:///c.js".to_string(),
+      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
       requested_module_type: RequestedModuleType::None,
     },])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: "file:///d.js".to_string(),
+      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
       requested_module_type: RequestedModuleType::None,
     },])
   );
@@ -415,7 +415,7 @@ fn test_mods() {
     assert_eq!(
       imports,
       Some(vec![ModuleRequest {
-        specifier: "file:///b.js".to_string(),
+        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
         requested_module_type: RequestedModuleType::None,
       },])
     );
@@ -526,7 +526,7 @@ fn test_json_module() {
     assert_eq!(
       imports,
       Some(vec![ModuleRequest {
-        specifier: "file:///c.json".to_string(),
+        specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
         requested_module_type: RequestedModuleType::Json,
       },])
     );
@@ -552,7 +552,7 @@ fn test_json_module() {
     assert_eq!(
       imports,
       Some(vec![ModuleRequest {
-        specifier: "file:///c.json".to_string(),
+        specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
         requested_module_type: RequestedModuleType::Json,
       },])
     );
@@ -959,7 +959,7 @@ export const foo = bytes;
       main: true,
       name: "file:///b.png".into_module_name(),
       requests: vec![ModuleRequest {
-        specifier: "file:///b.png".to_string(),
+        specifier: ModuleSpecifier::parse("file:///b.png").unwrap(),
         requested_module_type: RequestedModuleType::Other(
           "foobar-synth".into()
         )
@@ -1139,7 +1139,7 @@ fn test_circular_load() {
     assert_eq!(
       modules.get_requested_modules(circular1_id),
       Some(vec![ModuleRequest {
-        specifier: "file:///circular2.js".to_string(),
+        specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
         requested_module_type: RequestedModuleType::None,
       }])
     );
@@ -1147,7 +1147,7 @@ fn test_circular_load() {
     assert_eq!(
       modules.get_requested_modules(circular2_id),
       Some(vec![ModuleRequest {
-        specifier: "file:///circular3.js".to_string(),
+        specifier: ModuleSpecifier::parse("file:///circular3.js").unwrap(),
         requested_module_type: RequestedModuleType::None,
       }])
     );
@@ -1162,11 +1162,11 @@ fn test_circular_load() {
       modules.get_requested_modules(circular3_id),
       Some(vec![
         ModuleRequest {
-          specifier: "file:///circular1.js".to_string(),
+          specifier: ModuleSpecifier::parse("file:///circular1.js").unwrap(),
           requested_module_type: RequestedModuleType::None,
         },
         ModuleRequest {
-          specifier: "file:///circular2.js".to_string(),
+          specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
           requested_module_type: RequestedModuleType::None,
         }
       ])
@@ -1366,11 +1366,11 @@ fn recursive_load_main_with_code() {
     modules.get_requested_modules(main_id),
     Some(vec![
       ModuleRequest {
-        specifier: "file:///b.js".to_string(),
+        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
         requested_module_type: RequestedModuleType::None,
       },
       ModuleRequest {
-        specifier: "file:///c.js".to_string(),
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
         requested_module_type: RequestedModuleType::None,
       }
     ])
@@ -1378,14 +1378,14 @@ fn recursive_load_main_with_code() {
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: "file:///c.js".to_string(),
+      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
       requested_module_type: RequestedModuleType::None,
     }])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: "file:///d.js".to_string(),
+      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
       requested_module_type: RequestedModuleType::None,
     }])
   );
