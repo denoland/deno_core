@@ -94,7 +94,7 @@ pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
   state.borrow_mut()
 }
 
-pub fn to_u32_option(number: &v8::Value) -> Option<i32> {
+pub fn to_u32_option(number: &v8::Value) -> Option<u32> {
   try_number_some!(number Integer is_uint32);
   try_number_some!(number Int32 is_int32);
   try_number_some!(number Number is_number);
