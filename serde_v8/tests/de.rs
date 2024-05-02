@@ -115,13 +115,13 @@ defail!(
   de_tuple_wrong_len_short,
   (u64, bool, ()),
   "[123, true]",
-  |e| e == Err(Error::LengthMismatch(2, 3))
+  |e| matches!(e, Err(Error::LengthMismatch(2, 3)))
 );
 defail!(
   de_tuple_wrong_len_long,
   (u64, bool, ()),
   "[123, true, null, 'extra']",
-  |e| e == Err(Error::LengthMismatch(4, 3))
+  |e| matches!(e, Err(Error::LengthMismatch(4, 3)))
 );
 detest!(
   de_mathop,
@@ -417,8 +417,10 @@ detest!(
   serde_json::json!({})
 );
 
-defail!(defail_struct, MathOp, "123", |e| e
-  == Err(Error::ExpectedObject("Number")));
+defail!(defail_struct, MathOp, "123", |e| matches!(
+  e,
+  Err(Error::ExpectedObject("Number"))
+));
 
 #[derive(Eq, PartialEq, Debug, Deserialize)]
 pub struct SomeThing {
@@ -437,8 +439,10 @@ detest!(
 );
 
 detest!(de_bstr, ByteString, "'hello'", "hello".into());
-defail!(defail_bstr, ByteString, "'👋bye'", |e| e
-  == Err(Error::ExpectedLatin1));
+defail!(defail_bstr, ByteString, "'👋bye'", |e| matches!(
+  e,
+  Err(Error::ExpectedLatin1)
+));
 
 #[derive(Eq, PartialEq, Debug, Deserialize)]
 pub struct StructWithBytes {
