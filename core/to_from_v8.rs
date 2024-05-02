@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use crate::runtime::ops;
 use std::convert::Infallible;
 
 pub trait ToV8<'a> {
@@ -74,3 +75,60 @@ impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
   }
 }
 
+pub struct Number<T: Numeric>(pub T);
+
+pub trait Numeric: Sized {
+  fn from_value(value: &v8::Value) -> Self;
+  fn as_f64(self) -> f64;
+}
+
+macro_rules! impl_numeric {
+  ($($t:ty : $from: path ),*) => {
+      $(
+          impl Numeric for $t {
+              #[inline(always)]
+              fn from_value(value: &v8::Value) -> Self {
+                $from(value).unwrap_or_default() as _
+              }
+
+              #[inline(always)]
+              fn as_f64(self) -> f64 {
+                  self as _
+              }
+          }
+      )*
+  };
+}
+
+impl_numeric!(
+  f32   : ops::to_f32_option,
+  f64   : ops::to_f64_option,
+  u32   : ops::to_u32_option,
+  u64   : ops::to_u64_option,
+  usize : ops::to_u64_option,
+  i32   : ops::to_i32_option,
+  i64   : ops::to_i64_option,
+  isize : ops::to_i64_option
+);
+
+impl<'a, T: Numeric> ToV8<'a> for Number<T> {
+  type Error = Infallible;
+  #[inline]
+  fn to_v8(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    Ok(v8::Number::new(scope, self.0.as_f64()).into())
+  }
+}
+
+impl<'a, T: Numeric> FromV8<'a> for Number<T> {
+  type Error = Infallible;
+  #[inline]
+  fn from_v8(
+    _scope: &mut v8::HandleScope<'a>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    Ok(Number(T::from_value(&value)))
+  }
+}
