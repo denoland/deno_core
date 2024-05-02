@@ -161,6 +161,9 @@ impl Marker for NumberMarker {}
 pub struct ArrayBufferMarker;
 impl Marker for ArrayBufferMarker {}
 
+pub struct ToV8Marker;
+impl Marker for ToV8Marker {}
+
 trait Marker {}
 
 /// Helper macro for [`RustToV8`] to reduce boilerplate.
@@ -399,6 +402,21 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
     scope: &mut v8::HandleScope<'a>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
     serde_v8::to_v8(scope, self.0)
+  }
+}
+
+impl<'a, T: crate::ToV8<'a>> RustToV8Fallible<'a>
+  for RustToV8Marker<ToV8Marker, T>
+{
+  #[inline(always)]
+  fn to_v8_fallible(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
+    self
+      .0
+      .to_v8(scope)
+      .map_err(|e| serde_v8::Error::Custom(Box::new(e)))
   }
 }
 
