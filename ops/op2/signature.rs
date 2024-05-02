@@ -2114,4 +2114,23 @@ mod tests {
     ArgError("s", InvalidAttributeType("serde", "&str")),
     fn f(#[serde] s: &str) {}
   );
+
+  expect_fail!(
+    op_with_bad_from_v8_string,
+    ArgError("s", InvalidAttributeType("from_v8", "String")),
+    fn f(#[from_v8] s: String) {}
+  );
+
+  expect_fail!(
+    op_with_to_v8_arg,
+    ArgError("s", InvalidAttributePosition("to_v8", "return value")),
+    fn f(#[to_v8] s: Foo) {}
+  );
+
+  expect_fail!(
+    op_with_from_v8_ret,
+    RetError(InvalidType(InvalidAttributePosition("from_v8", "argument"))),
+    #[from_v8]
+    fn f() -> Foo {}
+  );
 }
