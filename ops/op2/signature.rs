@@ -281,6 +281,8 @@ pub enum Arg {
   CppGcResource(String),
   WasmMemory(RefType, WasmMemorySource),
   OptionWasmMemory(RefType, WasmMemorySource),
+  FromV8(String),
+  ToV8(String),
 }
 
 impl Arg {
@@ -459,6 +461,7 @@ impl Arg {
         // Fast return value path for empty strings
         Arg::String(_) => ArgSlowRetval::RetValFallible,
         Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
+        Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
         // No scope required for these
         Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
         Arg::V8Global(_) => ArgSlowRetval::V8Local,
@@ -493,6 +496,7 @@ impl Arg {
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
       Arg::CppGcResource(_) => ArgMarker::Cppgc,
+      Arg::ToV8(_) => ArgMarker::ToV8,
       _ => ArgMarker::None,
     }
   }
@@ -531,6 +535,8 @@ pub enum ArgMarker {
   ArrayBuffer,
   /// This type should be wrapped as a cppgc V8 object.
   Cppgc,
+  /// This type should be converted with `ToV8``
+  ToV8,
 }
 
 #[derive(Debug)]
@@ -757,6 +763,10 @@ pub enum WasmMemorySource {
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
+  /// #[to_v8], for types that impl `ToV8`
+  ToV8,
+  /// #[from_v8] for types that impl `FromV8`
+  FromV8,
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
@@ -781,6 +791,8 @@ pub enum AttributeModifier {
 impl AttributeModifier {
   fn name(&self) -> &'static str {
     match self {
+      AttributeModifier::ToV8 => "to_v8",
+      AttributeModifier::FromV8 => "from_v8",
       AttributeModifier::Bigint => "bigint",
       AttributeModifier::Number => "number",
       AttributeModifier::Buffer(..) => "buffer",
@@ -851,8 +863,6 @@ pub enum ArgError {
   InvalidReference(String),
   #[error("The type {0} must be a reference")]
   MissingReference(String),
-  #[error("Invalid or deprecated #[serde] type '{0}': {1}")]
-  InvalidSerdeType(String, &'static str),
   #[error("Invalid #[{0}] for type: {1}")]
   InvalidAttributeType(&'static str, String),
   #[error("Cannot use #[serde] for type: {0}")]
@@ -877,6 +887,8 @@ pub enum ArgError {
   ExpectedCppGcReference(String),
   #[error("Invalid #[cppgc] type '{0}'")]
   InvalidCppGcType(String),
+  #[error("#[{0}] is only valid in {1} position")]
+  InvalidAttributePosition(&'static str, &'static str),
 }
 
 #[derive(Error, Debug)]
@@ -1258,6 +1270,8 @@ fn parse_attribute(
       (#[global]) => Some(AttributeModifier::Global),
       (#[memory(caller)]) => Some(AttributeModifier::WasmMemory(WasmMemorySource::Caller)),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
+      (#[to_v8]) => Some(AttributeModifier::ToV8),
+      (#[from_v8]) => Some(AttributeModifier::FromV8),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
@@ -1469,6 +1483,35 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
   }
 }
 
+fn better_alternative_exists(position: Position, of: &TypePath) -> bool {
+  // If this type will parse without #[serde]/#[to_v8]/#[from_v8] (or with #[string]), it is illegal to use this type
+  // with #[serde]/#[to_v8]/#[from_v8]
+  if parse_type_path(position, Attributes::default(), TypePathContext::None, of)
+    .is_ok()
+  {
+    return true;
+  }
+  // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
+  if parse_type_path(position, Attributes::string(), TypePathContext::None, of)
+    .is_ok()
+  {
+    return true;
+  }
+
+  // Denylist of serde_v8 types with better alternatives
+  let ty = of.into_token_stream();
+  if let Ok(res) = std::panic::catch_unwind(|| {
+    rules!(ty => {
+      ( Value $( < $_lifetime:lifetime $(,)? >)? ) => true,
+      ( $_ty:ty ) => false,
+    })
+  }) {
+    res
+  } else {
+    false
+  }
+}
+
 pub(crate) fn parse_type(
   position: Position,
   attrs: Attributes,
@@ -1480,56 +1523,48 @@ pub(crate) fn parse_type(
   if let Some(primary) = attrs.primary {
     match primary {
       AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
-      AttributeModifier::Serde => match ty {
-        Type::Tuple(of) => {
-          return Ok(Arg::SerdeV8(stringify_token(of)));
-        }
-        Type::Path(of) => {
-          // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(
-            position,
-            Attributes::default(),
-            TypePathContext::None,
-            of,
-          )
-          .is_ok()
-          {
-            return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
-              ty,
-            )));
-          }
-          // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(
-            position,
-            Attributes::string(),
-            TypePathContext::None,
-            of,
-          )
-          .is_ok()
-          {
-            return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
-              ty,
-            )));
-          }
+      AttributeModifier::FromV8 if position == Position::RetVal => {
+        return Err(ArgError::InvalidAttributePosition(
+          primary.name(),
+          "argument",
+        ))
+      }
+      AttributeModifier::ToV8 if position == Position::Arg => {
+        return Err(ArgError::InvalidAttributePosition(
+          primary.name(),
+          "return value",
+        ))
+      }
+      AttributeModifier::Serde
+      | AttributeModifier::FromV8
+      | AttributeModifier::ToV8 => {
+        let make_arg = match primary {
+          AttributeModifier::Serde => Arg::SerdeV8,
+          AttributeModifier::FromV8 => Arg::FromV8,
+          AttributeModifier::ToV8 => Arg::ToV8,
+          _ => unreachable!(),
+        };
+        match ty {
+          Type::Tuple(of) => return Ok(make_arg(stringify_token(of))),
+          Type::Path(of) => {
+            if better_alternative_exists(position, of) {
+              return Err(ArgError::InvalidAttributeType(
+                primary.name(),
+                stringify_token(ty),
+              ));
+            }
 
-          // Denylist of serde_v8 types with better alternatives
-          let ty = of.into_token_stream();
-          let token = stringify_token(of.path.clone());
-          if let Ok(Some(err)) = std::panic::catch_unwind(|| {
-            rules!(ty => {
-              ( Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
-              ( $_ty:ty ) => None,
-            })
-          }) {
-            return Err(ArgError::InvalidSerdeType(stringify_token(ty), err));
+            return Ok(make_arg(stringify_token(of.path.clone())));
           }
+          _ => {
+            return Err(ArgError::InvalidAttributeType(
+              primary.name(),
+              stringify_token(ty),
+            ));
+          }
+        }
+      }
 
-          return Ok(Arg::SerdeV8(token));
-        }
-        _ => {
-          return Err(ArgError::InvalidSerdeAttributeType(stringify_token(ty)))
-        }
-      },
       AttributeModifier::State => {
         return parse_type_state(ty);
       }
