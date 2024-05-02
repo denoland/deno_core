@@ -26,7 +26,7 @@ mod path;
 mod runtime;
 mod source_map;
 mod tasks;
-mod to_from_v8;
+pub mod to_from_v8;
 mod web_timeout;
 
 // Re-exports
