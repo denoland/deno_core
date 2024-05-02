@@ -29,6 +29,8 @@ pub struct Smi<T: SmallInt>(pub T);
 
 pub trait SmallInt {
   const NAME: &'static str;
+
+  #[allow(clippy::wrong_self_convention)]
   fn as_i32(self) -> i32;
   fn from_i32(value: i32) -> Self;
 }
@@ -38,6 +40,7 @@ macro_rules! impl_smallint {
     $(
       impl SmallInt for $t {
         const NAME: &'static str = stringify!($t);
+        #[allow(clippy::wrong_self_convention)]
         #[inline(always)]
         fn as_i32(self) -> i32 {
           self as _
@@ -74,8 +77,9 @@ impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    let v = crate::runtime::ops::to_i32_option(&value)
-      .ok_or_else(|| crate::error::type_error(format!("{}", T::NAME)))?;
+    let v = crate::runtime::ops::to_i32_option(&value).ok_or_else(|| {
+      crate::error::type_error(format!("Expected {}", T::NAME))
+    })?;
     Ok(Smi(T::from_i32(v)))
   }
 }
@@ -84,8 +88,9 @@ pub struct Number<T: Numeric>(pub T);
 
 pub trait Numeric: Sized {
   const NAME: &'static str;
-  fn from_value(value: &v8::Value) -> Option<Self>;
+  #[allow(clippy::wrong_self_convention)]
   fn as_f64(self) -> f64;
+  fn from_value(value: &v8::Value) -> Option<Self>;
 }
 
 macro_rules! impl_numeric {
@@ -98,6 +103,7 @@ macro_rules! impl_numeric {
           $from(value).map(|v| v as _)
         }
 
+        #[allow(clippy::wrong_self_convention)]
         #[inline(always)]
         fn as_f64(self) -> f64 {
             self as _
