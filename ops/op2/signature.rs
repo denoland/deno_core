@@ -865,8 +865,6 @@ pub enum ArgError {
   MissingReference(String),
   #[error("Invalid #[{0}] for type: {1}")]
   InvalidAttributeType(&'static str, String),
-  #[error("Cannot use #[serde] for type: {0}")]
-  InvalidSerdeAttributeType(String),
   #[error("Cannot use #[number] for type: {0}")]
   InvalidNumberAttributeType(String),
   #[error("Invalid v8 type: {0}")]
@@ -2108,12 +2106,12 @@ mod tests {
 
   expect_fail!(
     op_with_bad_serde_string,
-    ArgError("s", InvalidSerdeAttributeType("String")),
+    ArgError("s", InvalidAttributeType("serde", "String")),
     fn f(#[serde] s: String) {}
   );
   expect_fail!(
     op_with_bad_serde_str,
-    ArgError("s", InvalidSerdeAttributeType("&str")),
+    ArgError("s", InvalidAttributeType("serde", "&str")),
     fn f(#[serde] s: &str) {}
   );
 }
