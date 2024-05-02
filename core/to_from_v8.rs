@@ -132,3 +132,25 @@ impl<'a, T: Numeric> FromV8<'a> for Number<T> {
     Ok(Number(T::from_value(&value)))
   }
 }
+
+impl<'a> ToV8<'a> for bool {
+  type Error = Infallible;
+  #[inline]
+  fn to_v8(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    Ok(v8::Boolean::new(scope, self).into())
+  }
+}
+
+impl<'a> FromV8<'a> for bool {
+  type Error = Infallible;
+  #[inline]
+  fn from_v8(
+    _scope: &mut v8::HandleScope<'a>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    Ok(value.is_true())
+  }
+}
