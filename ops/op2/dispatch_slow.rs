@@ -520,6 +520,22 @@ pub fn from_arg(
         };
       }
     }
+    Arg::FromV8(ty) => {
+      *needs_scope = true;
+      let ty =
+        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+      let scope = scope.clone();
+      let err = format_ident!("{}_err", arg_ident);
+      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      quote! {
+        let #arg_ident = match <#ty as deno_core::FromV8>::from_v8(&mut #scope, #arg_ident) {
+          Ok(t) => t,
+          Err(#err) => {
+            #throw_exception;
+          }
+        };
+      }
+    }
     Arg::CppGcResource(ty) => {
       let throw_exception =
         throw_type_error(generator_state, format!("expected {}", &ty))?;
@@ -741,6 +757,9 @@ pub fn return_value_infallible(
       generator_state.needs_scope = true;
       gs_quote!(generator_state(scope, result) => (deno_core::v8::Local::<deno_core::v8::Value>::from(deno_core::cppgc::make_cppgc_object(&mut #scope, #result))))
     }
+    ArgMarker::ToV8 => {
+      gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
+    }
     ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
   };
   let res = match ret_type.slow_retval() {
@@ -805,6 +824,9 @@ pub fn return_value_v8_value(
     }
     ArgMarker::Cppgc => {
       quote!(deno_core::cppgc::make_cppgc_object(#scope, #result))
+    }
+    ArgMarker::ToV8 => {
+      quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result))
     }
     ArgMarker::None => quote!(#result),
   };
