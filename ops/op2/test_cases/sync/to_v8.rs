@@ -12,7 +12,7 @@ impl<'a> ToV8<'a> for Foo {
     self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
-    Ok(v8::null().into())
+    Ok(v8::null(scope).into())
   }
 }
 
