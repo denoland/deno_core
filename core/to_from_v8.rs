@@ -34,22 +34,22 @@ pub trait SmallInt {
 }
 
 macro_rules! impl_smallint {
-    (for $($t:ty),*) => {
-        $(
-            impl SmallInt for $t {
-                const NAME: &'static str = stringify!($t);
-                #[inline(always)]
-                fn as_i32(self) -> i32 {
-                  self as _
-                }
+  (for $($t:ty),*) => {
+    $(
+      impl SmallInt for $t {
+        const NAME: &'static str = stringify!($t);
+        #[inline(always)]
+        fn as_i32(self) -> i32 {
+          self as _
+        }
 
-                #[inline(always)]
-                fn from_i32(value: i32) -> Self {
-                    value as _
-                }
-            }
-        )*
-    };
+        #[inline(always)]
+        fn from_i32(value: i32) -> Self {
+            value as _
+        }
+      }
+    )*
+  };
 }
 
 impl_smallint!(for u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
@@ -90,20 +90,20 @@ pub trait Numeric: Sized {
 
 macro_rules! impl_numeric {
   ($($t:ty : $from: path ),*) => {
-      $(
-          impl Numeric for $t {
-              const NAME: &'static str = stringify!($t);
-              #[inline(always)]
-              fn from_value(value: &v8::Value) -> Option<Self> {
-                $from(value).map(|v| v as _)
-              }
+    $(
+      impl Numeric for $t {
+        const NAME: &'static str = stringify!($t);
+        #[inline(always)]
+        fn from_value(value: &v8::Value) -> Option<Self> {
+          $from(value).map(|v| v as _)
+        }
 
-              #[inline(always)]
-              fn as_f64(self) -> f64 {
-                  self as _
-              }
-          }
-      )*
+        #[inline(always)]
+        fn as_f64(self) -> f64 {
+            self as _
+        }
+      }
+    )*
   };
 }
 
