@@ -1,4 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+#![allow(clippy::print_stderr)]
+
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;

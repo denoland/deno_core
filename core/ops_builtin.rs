@@ -131,7 +131,10 @@ builtin_ops! {
 
 #[op2(fast)]
 pub fn op_panic(#[string] message: String) {
-  eprintln!("JS PANIC: {}", message);
+  #[allow(clippy::print_stderr)]
+  {
+    eprintln!("JS PANIC: {}", message);
+  }
   panic!("JS PANIC: {}", message);
 }
 
@@ -152,6 +155,7 @@ fn op_add(a: i32, b: i32) -> i32 {
   a + b
 }
 
+#[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
@@ -160,19 +164,23 @@ pub async fn op_add_async(a: i32, b: i32) -> i32 {
 #[op2(fast)]
 pub fn op_void_sync() {}
 
+#[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_void_async() {}
 
+#[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+#[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
 pub async fn op_error_async_deferred() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+#[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
 pub async fn op_void_async_deferred() {}
 
