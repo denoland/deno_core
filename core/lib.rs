@@ -2,6 +2,7 @@
 pub mod arena;
 mod async_cancel;
 mod async_cell;
+pub mod convert;
 pub mod cppgc;
 pub mod error;
 mod error_codes;
@@ -26,7 +27,6 @@ mod path;
 mod runtime;
 mod source_map;
 mod tasks;
-pub mod to_from_v8;
 mod web_timeout;
 
 // Re-exports
@@ -62,6 +62,8 @@ pub use crate::async_cell::AsyncRefCell;
 pub use crate::async_cell::AsyncRefFuture;
 pub use crate::async_cell::RcLike;
 pub use crate::async_cell::RcRef;
+pub use crate::convert::FromV8;
+pub use crate::convert::ToV8;
 pub use crate::error::GetErrorClassFn;
 pub use crate::error::JsErrorCreateFn;
 pub use crate::extensions::Extension;
@@ -151,8 +153,6 @@ pub use crate::source_map::SourceMapData;
 pub use crate::source_map::SourceMapGetter;
 pub use crate::tasks::V8CrossThreadTaskSpawner;
 pub use crate::tasks::V8TaskSpawner;
-pub use crate::to_from_v8::FromV8;
-pub use crate::to_from_v8::ToV8;
 
 // Ensure we can use op2 in deno_core without any hackery.
 extern crate self as deno_core;

@@ -89,7 +89,7 @@ pub trait ToV8<'a> {
 ///   type Error = deno_core::error::StdAnyError;
 ///
 ///   fn from_v8(scope: &mut v8::HandleScope<'a>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
-///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::to_from_v8::Smi] wrapper type to convert it.
+///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::convert::Smi] wrapper type to convert it.
 ///     Smi::from_v8(scope, value).map(|Smi(v)| Foo(v))
 ///   }
 /// }

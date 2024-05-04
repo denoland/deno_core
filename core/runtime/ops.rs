@@ -514,6 +514,8 @@ pub fn to_v8_slice_any(
 
 #[cfg(all(test, not(miri)))]
 mod tests {
+  use crate::convert::Number;
+  use crate::convert::Smi;
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
@@ -521,8 +523,6 @@ mod tests {
   use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
-  use crate::to_from_v8::Number;
-  use crate::to_from_v8::Smi;
   use crate::FromV8;
   use crate::JsRuntime;
   use crate::OpState;
