@@ -7,7 +7,12 @@ pub type ExitCb = Box<dyn Fn(&str, &str) + Send + Sync>;
 pub type WarnCb = Box<dyn Fn(&str, &str) + Send + Sync>;
 
 fn exit(feature: &str, api_name: &str) {
-  eprintln!("Feature '{feature}' for '{api_name}' was not specified, exiting.");
+  #[allow(clippy::print_stderr)]
+  {
+    eprintln!(
+      "Feature '{feature}' for '{api_name}' was not specified, exiting."
+    );
+  }
   std::process::exit(70);
 }
 

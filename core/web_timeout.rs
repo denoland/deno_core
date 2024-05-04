@@ -604,12 +604,15 @@ mod tests {
       })
       .await;
       v.append(&mut batch);
-      eprintln!(
-        "{} ({} {})",
-        v.len(),
-        timers.len(),
-        timers.data_map.borrow().len(),
-      );
+      #[allow(clippy::print_stderr)]
+      {
+        eprintln!(
+          "{} ({} {})",
+          v.len(),
+          timers.len(),
+          timers.data_map.borrow().len(),
+        );
+      }
       timers.assert_consistent();
     }
     assert_eq!(v.len(), len);
@@ -833,7 +836,10 @@ mod tests {
         timers.assert_consistent();
       }
 
-      eprintln!("count={count} ref_count={ref_count}");
+      #[allow(clippy::print_stderr)]
+      {
+        eprintln!("count={count} ref_count={ref_count}");
+      }
 
       let v = poll_all(&timers).await;
       assert_eq!(v.len(), count);

@@ -1,4 +1,9 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
+#![deny(clippy::unused_async)]
+
 pub mod arena;
 mod async_cancel;
 mod async_cell;
@@ -243,7 +248,10 @@ mod tests {
       .stdout(Stdio::null())
       .status()
     {
-      eprintln!("Ignoring test because we couldn't find deno: {e:?}");
+      #[allow(clippy::print_stderr)]
+      {
+        eprintln!("Ignoring test because we couldn't find deno: {e:?}");
+      }
     }
     let status = Command::new("deno")
       .args(["run", "-A", "rebuild_async_stubs.js", "--check"])

@@ -130,7 +130,10 @@ pub fn create_snapshot(
   warmup_script: Option<&'static str>,
 ) -> Result<CreateSnapshotOutput, Error> {
   let mut mark = Instant::now();
-  println!("Creating a snapshot...",);
+  #[allow(clippy::print_stdout)]
+  {
+    println!("Creating a snapshot...",);
+  }
 
   // Get the extensions for a second pass if we want to warm up the snapshot.
   let warmup_exts = warmup_script.map(|_| {
@@ -149,7 +152,10 @@ pub fn create_snapshot(
     ..Default::default()
   });
 
-  println!("JsRuntimeForSnapshot prepared, took {:#?}", mark.elapsed(),);
+  #[allow(clippy::print_stdout)]
+  {
+    println!("JsRuntimeForSnapshot prepared, took {:#?}", mark.elapsed(),);
+  }
   mark = Instant::now();
 
   let files_loaded_during_snapshot = js_runtime
@@ -188,17 +194,23 @@ pub fn create_snapshot(
     snapshot = js_runtime.snapshot();
   }
 
-  println!(
-    "Snapshot size: {}, took {:#?}",
-    snapshot.len(),
-    mark.elapsed(),
-  );
+  #[allow(clippy::print_stdout)]
+  {
+    println!(
+      "Snapshot size: {}, took {:#?}",
+      snapshot.len(),
+      mark.elapsed(),
+    );
+  }
   mark = Instant::now();
 
-  println!(
-    "Snapshot written, took: {:#?}",
-    Instant::now().saturating_duration_since(mark),
-  );
+  #[allow(clippy::print_stdout)]
+  {
+    println!(
+      "Snapshot written, took: {:#?}",
+      Instant::now().saturating_duration_since(mark),
+    );
+  }
 
   Ok(CreateSnapshotOutput {
     files_loaded_during_snapshot,

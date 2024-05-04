@@ -1,4 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+#![allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
+
 use crate::error::AnyError;
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;

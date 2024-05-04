@@ -211,7 +211,10 @@ impl Drop for InnerIsolateState {
       ManuallyDrop::drop(&mut self.state.0);
       if self.will_snapshot {
         // Create the snapshot and just drop it.
-        eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
+        #[allow(clippy::print_stderr)]
+        {
+          eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
+        }
       } else {
         ManuallyDrop::drop(&mut self.cpp_heap);
         ManuallyDrop::drop(&mut self.v8_isolate);
