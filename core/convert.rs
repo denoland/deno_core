@@ -25,6 +25,10 @@ use std::convert::Infallible;
 /// # Example
 ///
 /// ```
+/// use deno_core::ToV8;
+/// use deno_core::convert::Smi;
+/// use deno_core::op2;
+///
 /// struct Foo(i32);
 ///
 /// impl<'a> ToV8<'a> for Foo {
@@ -81,6 +85,10 @@ pub trait ToV8<'a> {
 /// # Example
 ///
 /// ```
+/// use deno_core::FromV8;
+/// use deno_core::convert::Smi;
+/// use deno_core::op2;
+///
 /// struct Foo(i32);
 ///
 /// impl<'a> FromV8<'a> for Foo {
