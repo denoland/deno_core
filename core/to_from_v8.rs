@@ -3,18 +3,107 @@
 use crate::{error::StdAnyError, runtime::ops};
 use std::convert::Infallible;
 
+/// A conversion from a rust value to a v8 value.
+///
+/// When passing data from Rust into JS, either
+/// via an op or by calling a JS function directly,
+/// you need to serialize the data into a native
+/// V8 value. When using the [`op2`][deno_core::op2] macro, the return
+/// value is converted to a `v8::Local<Value>` automatically,
+/// and the strategy for conversion is controlled by attributes
+/// like `#[smi]`, `#[number]`, `#[string]`. For types with support
+/// built-in to the op2 macro, like primitives, strings, and buffers,
+/// these attributes are sufficient and you don't need to worry about this trait.
+///
+/// If, however, you want to return a custom type from an op, or
+/// simply want more control over the conversion process,
+/// you can implement the `ToV8` trait. This allows you the
+/// choose the best serialization strategy for your specific use case.
+/// You can then use the `#[to_v8]` attribute to indicate
+/// that the `#[op2]` macro should call your implementation for the conversion.
+///
+/// # Example
+///
+/// ```
+/// struct Foo(i32);
+///
+/// impl<'a> ToV8<'a> for Foo {
+///   // This conversion can never fail, so we use `Infallible` as the error type.
+///   // Any error type that implements `std::error::Error` can be used here.
+///   type Error = std::convert::Infallible;
+///
+///   fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+///     // For performance, pass this value as a `v8::Integer` (i.e. a `smi`).
+///     // The `Smi` wrapper type implements this conversion for you.
+///     Smi(self.0).to_v8(scope)
+///   }
+/// }
+///
+/// // using the `#[to_v8]` attribute tells the `op2` macro to call this implementation.
+/// #[op2]
+/// #[to_v8]
+/// fn op_foo() -> Foo {
+///   Foo(42)
+/// }
+/// ```
+///
+/// # Performance Notes
+/// ## Structs
+/// The natural representation of a struct in JS is an object with fields
+/// corresponding the struct. This, however, is a performance footgun and
+/// you should avoid creating and passing objects to V8 whenever possible.
+/// In general, if you need to pass a compound type to JS, it is more performant to serialize
+/// to a tuple (a `v8::Array`) rather than an object.
+/// Object keys are V8 strings, and strings are expensive to pass to V8
+/// and they have to be managed by the V8 garbage collector.
+/// Tuples, on the other hand, are keyed by `smi`s, which are immediates
+/// and don't require allocation or garbage collection.
 pub trait ToV8<'a> {
   type Error: std::error::Error + Send + Sync + 'static;
 
+  /// Converts the value to a V8 value.
   fn to_v8(
     self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error>;
 }
 
+/// A conversion from a v8 value to a rust value.
+///
+/// When writing a op, or otherwise writing a function in Rust called
+/// from JS, arguments passed from JS are represented as [`v8::Local<v8::Value>>`][deno_core::v8::Value].
+/// To convert these values into custom Rust types, you can implement the [`FromV8`] trait.
+///
+/// Once you've implemented this trait, you can use the `#[from_v8]` attribute
+/// to tell the [`op2`][deno_core::op2] macro to use your implementation to convert the argument
+/// to the desired type.
+///
+/// # Example
+///
+/// ```
+/// struct Foo(i32);
+///
+/// impl<'a> FromV8<'a> for Foo {
+///   // This conversion can fail, so we use `deno_core::error::StdAnyError` as the error type.
+///   // Any error type that implements `std::error::Error` can be used here.
+///   type Error = deno_core::error::StdAnyError;
+///
+///   fn from_v8(scope: &mut v8::HandleScope<'a>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
+///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::to_from_v8::Smi] wrapper type to convert it.
+///     Smi::from_v8(scope, value).map(|Smi(v)| Foo(v))
+///   }
+/// }
+///
+/// // using the `#[from_v8]` attribute tells the `op2` macro to call this implementation.
+/// #[op2]
+/// fn op_foo(#[from_v8] foo: Foo) {
+///   let Foo(_) = foo;
+/// }
+/// ```
 pub trait FromV8<'a>: Sized {
   type Error: std::error::Error + Send + Sync + 'static;
 
+  /// Converts a V8 value to a Rust value.
   fn from_v8(
     scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
@@ -24,9 +113,11 @@ pub trait FromV8<'a>: Sized {
 // impls
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.  
 #[repr(transparent)]
 pub struct Smi<T: SmallInt>(pub T);
 
+/// A trait for types that can represent a JS `smi`.
 pub trait SmallInt {
   const NAME: &'static str;
 
@@ -84,8 +175,12 @@ impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.  
+#[repr(transparent)]
 pub struct Number<T: Numeric>(pub T);
 
+/// A trait for types that can represent a JS `number`.
 pub trait Numeric: Sized {
   const NAME: &'static str;
   #[allow(clippy::wrong_self_convention)]
