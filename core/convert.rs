@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::{error::StdAnyError, runtime::ops};
+use crate::error::StdAnyError;
+use crate::runtime::ops;
 use std::convert::Infallible;
 
 /// A conversion from a rust value to a v8 value.
