@@ -73,20 +73,16 @@ impl FromV8 for ByteString {
       return Err(Error::ExpectedLatin1);
     }
     let len = v8str.length();
-    let mut buffer = SmallVec::with_capacity(len);
-    #[allow(clippy::uninit_vec)]
-    // SAFETY: we set length == capacity (see previous line),
-    // before immediately writing into that buffer and sanity check with an assert
-    unsafe {
-      buffer.set_len(len);
-      let written = v8str.write_one_byte(
-        scope,
-        &mut buffer,
-        0,
-        v8::WriteOptions::NO_NULL_TERMINATION,
-      );
-      assert!(written == len);
-    }
+
+    let mut buffer = SmallVec::new();
+    buffer.resize_with(len, Default::default);
+    v8str.write_one_byte(
+      scope,
+      &mut buffer,
+      0,
+      v8::WriteOptions::NO_NULL_TERMINATION,
+    );
+
     Ok(Self(buffer))
   }
 }
