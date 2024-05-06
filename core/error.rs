@@ -96,6 +96,33 @@ pub fn get_custom_error_class(error: &Error) -> Option<&'static str> {
   error.downcast_ref::<CustomError>().map(|e| e.class)
 }
 
+/// A wrapper around `anyhow::Error` that implements `std::error::Error`
+#[repr(transparent)]
+pub struct StdAnyError(pub Error);
+impl std::fmt::Debug for StdAnyError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:?}", self.0)
+  }
+}
+
+impl std::fmt::Display for StdAnyError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+impl std::error::Error for StdAnyError {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    self.0.source()
+  }
+}
+
+impl From<Error> for StdAnyError {
+  fn from(err: Error) -> Self {
+    Self(err)
+  }
+}
+
 pub fn to_v8_error<'a>(
   scope: &mut v8::HandleScope<'a>,
   get_class: GetErrorClassFn,

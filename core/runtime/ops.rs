@@ -94,7 +94,7 @@ pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
   state.borrow_mut()
 }
 
-pub fn to_u32_option(number: &v8::Value) -> Option<i32> {
+pub fn to_u32_option(number: &v8::Value) -> Option<u32> {
   try_number_some!(number Integer is_uint32);
   try_number_some!(number Int32 is_int32);
   try_number_some!(number Number is_number);
@@ -515,6 +515,8 @@ pub fn to_v8_slice_any(
 #[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 #[cfg(all(test, not(miri)))]
 mod tests {
+  use crate::convert::Number;
+  use crate::convert::Smi;
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
@@ -522,9 +524,11 @@ mod tests {
   use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
+  use crate::FromV8;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
+  use crate::ToV8;
   use anyhow::bail;
   use anyhow::Error;
   use bytes::BytesMut;
@@ -632,6 +636,10 @@ mod tests {
       op_async_buffer_impl,
       op_async_external,
       op_async_serde_option_v8,
+
+      op_smi_to_from_v8,
+      op_number_to_from_v8,
+      op_bool_to_from_v8,
     ],
     state = |state| {
       state.put(1234u32);
@@ -2315,6 +2323,105 @@ mod tests {
       "assert((await op_async_serde_option_v8({s: 'abc'})).s == 'abc!')",
     )
     .await?;
+    Ok(())
+  }
+
+  #[op2]
+  #[to_v8]
+  pub fn op_smi_to_from_v8(#[from_v8] value: Smi<i32>) -> Smi<i32> {
+    value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_smi_to_from_v8() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_test2(
+      JIT_ITERATIONS,
+      "op_smi_to_from_v8",
+      r"
+        for (const n of [-Math.pow(2, 31), -1, 0, 1, Math.pow(2, 31) - 1]) {
+          assert(op_smi_to_from_v8(n) == n);
+        }",
+    )?;
+    Ok(())
+  }
+
+  #[op2]
+  #[to_v8]
+  pub fn op_number_to_from_v8(#[from_v8] value: Number<f64>) -> Number<f64> {
+    value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_number_to_from_v8(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      JIT_ITERATIONS,
+      "op_number_to_from_v8",
+      r"
+      for (
+        const n of [
+          Number.MIN_VALUE,
+          Number.MIN_SAFE_INTEGER,
+          -1,
+          0,
+          1,
+          Number.MAX_SAFE_INTEGER,
+          Number.MAX_VALUE,
+          Number.POSITIVE_INFINITY,
+          Number.NEGATIVE_INFINITY,
+        ]
+      ) {
+        assert(op_number_to_from_v8(n) === n);
+      }
+
+      assert(isNaN(op_number_to_from_v8(Number.NaN)));
+    ",
+    )?;
+    Ok(())
+  }
+
+  struct Bool(bool);
+
+  impl<'a> ToV8<'a> for Bool {
+    type Error = std::convert::Infallible;
+
+    fn to_v8(
+      self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+      self.0.to_v8(scope)
+    }
+  }
+
+  impl<'a> FromV8<'a> for Bool {
+    type Error = std::convert::Infallible;
+
+    fn from_v8(
+      scope: &mut v8::HandleScope<'a>,
+      value: v8::Local<'a, v8::Value>,
+    ) -> Result<Self, Self::Error> {
+      bool::from_v8(scope, value).map(Bool)
+    }
+  }
+
+  #[op2]
+  #[to_v8]
+  fn op_bool_to_from_v8(#[from_v8] value: Bool) -> Bool {
+    value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_bool_to_from_v8(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      JIT_ITERATIONS,
+      "op_bool_to_from_v8",
+      r"
+        for (const v of [true, false]) {
+          assert(op_bool_to_from_v8(v) == v);
+        }",
+    )?;
     Ok(())
   }
 }
