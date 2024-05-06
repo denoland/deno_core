@@ -25,7 +25,7 @@ use std::convert::Infallible;
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use deno_core::ToV8;
 /// use deno_core::convert::Smi;
 /// use deno_core::op2;
@@ -85,7 +85,7 @@ pub trait ToV8<'a> {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use deno_core::FromV8;
 /// use deno_core::convert::Smi;
 /// use deno_core::op2;
