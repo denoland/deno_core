@@ -87,8 +87,8 @@ where
   V: serde::de::Visitor<'de>,
   E: serde::de::Error,
 {
-  let y = visitor.visit_u64::<E>(opaque_send(&x));
-  std::mem::forget(x);
+  let x = ManuallyDrop::new(x);
+  let y = visitor.visit_u64::<E>(opaque_send(&*x));
   y
 }
 
@@ -140,4 +140,6 @@ macro_rules! impl_magic {
     }
   };
 }
+use std::mem::ManuallyDrop;
+
 pub(crate) use impl_magic;
