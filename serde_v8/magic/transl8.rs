@@ -35,7 +35,7 @@ where
   T: MagicType,
 {
   use serde::ser::SerializeStruct;
-
+  // SERIALIZATION CRIMES
   let mut s = serializer.serialize_struct(T::MAGIC_NAME, 1)?;
   let ptr = x as *const T as u64;
   s.serialize_field(MAGIC_FIELD, &ptr)?;
@@ -71,6 +71,8 @@ where
       // SAFETY: opaque ptr originates from visit_magic, which forgets ownership so we can take it
       Ok(unsafe {
         {
+          // DESERIALIZATION CRIMES
+
           // serde_v8 was originally taking a pointer to a stack value here. This code is crazy
           // but there's no way to fix it easily. As a bandaid, we boxed it before.
           let ptr: *mut T = ptr as _;
@@ -94,6 +96,8 @@ where
   V: serde::de::Visitor<'de>,
   E: serde::de::Error,
 {
+  // DESERIALIZATION CRIMES
+
   // serde_v8 was originally taking a pointer to a stack value here. This code is crazy
   // but there's no way to fix it easily. As a bandaid, let's box it.
   let x = Box::new(x);

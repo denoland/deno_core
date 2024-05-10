@@ -252,6 +252,8 @@ impl<'a, 'b, 'c, T: MagicType + ToV8> ser::SerializeStruct
     value: &U,
   ) -> Result<()> {
     assert_eq!(key, MAGIC_FIELD);
+    // SERIALIZATION CRIMES
+
     // SAFETY: MagicalSerializer only ever receives single field u64s,
     // type-safety is ensured by MAGIC_NAME checks in `serialize_struct()`
     self.opaque = unsafe { std::ptr::read(value as *const _ as *const u64) };
@@ -259,6 +261,8 @@ impl<'a, 'b, 'c, T: MagicType + ToV8> ser::SerializeStruct
   }
 
   fn end(self) -> JsResult<'a> {
+    // SERIALIZATION CRIMES
+
     // SAFETY: transerialization assumptions imply `T` is still alive.
     let x: &T =
       unsafe { (self.opaque as *const T).as_ref().unwrap_unchecked() };
