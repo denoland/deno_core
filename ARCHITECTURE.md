@@ -56,3 +56,26 @@ backed by a combination of Rust, JavaScript or both types of code.
 In general, APIs for user code are provided in one of two forms: global APIs,
 available on `globalThis` (the equivalent of the `window` object in browsers),
 and module-style APIs.
+
+In the former style of API, the modules can add APIs to `globalThis` directly:
+
+```ts
+globalThis.Deno.myAPI = function myAPI() {
+  op_do_something();
+};
+```
+
+In the latter style of API, modules can be given friendly names in the
+`extension` definition, and user code can import them directly:
+
+```rust
+extension!(
+    ...
+    esm = [ "brand:api_module": "api.js" ]
+);
+```
+
+```ts
+import { myAPI } from "brand:api_module";
+myAPI();
+```
