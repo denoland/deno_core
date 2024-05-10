@@ -138,7 +138,7 @@ async fn run_unit_test_task(
 fn get_test_dir(dirs: &[&str]) -> PathBuf {
   let mut test_dir = Path::new(env!("CARGO_MANIFEST_DIR")).to_owned();
   for dir in dirs {
-    test_dir = test_dir.join(dir).to_owned();
+    test_dir.join(dir).clone_into(&mut test_dir);
   }
 
   test_dir.to_owned()

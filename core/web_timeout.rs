@@ -167,7 +167,7 @@ impl MutableSleep {
         // Already have this waker
         let waker = cx.waker();
         if !external.will_wake(waker) {
-          *external = waker.clone();
+          external.clone_from(waker);
         }
         Poll::Pending
       } else {
