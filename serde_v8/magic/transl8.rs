@@ -87,8 +87,10 @@ where
   V: serde::de::Visitor<'de>,
   E: serde::de::Error,
 {
-  let y = visitor.visit_u64::<E>(opaque_send(&x));
-  std::mem::forget(x);
+  // serde_v8 was originally taking a pointer to a stack value here. This code is crazy
+  // but there's no way to fix it easily. As a bandaid, let's box it.
+  let x = Box::new(x);
+  let y = visitor.visit_u64::<E>(Box::into_raw(x) as _);
   y
 }
 
@@ -111,7 +113,10 @@ pub(crate) unsafe fn opaque_deref_mut<'a, T>(ptr: u64) -> &'a mut T {
 /// Transmutes & copies the value from the "opaque" ptr
 /// NOTE: takes ownership & requires other end to forget its ownership
 pub(crate) unsafe fn opaque_take<T>(ptr: u64) -> T {
-  std::mem::transmute_copy::<T, T>(std::mem::transmute(ptr as usize))
+  // serde_v8 was originally taking a pointer to a stack value here. This code is crazy
+  // but there's no way to fix it easily. As a bandaid, we boxed it before.
+  let ptr: *mut T = ptr as _;
+  *Box::<T>::from_raw(ptr)
 }
 
 macro_rules! impl_magic {
