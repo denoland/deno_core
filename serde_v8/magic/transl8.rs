@@ -14,7 +14,7 @@ pub(crate) trait MagicType {
 
 pub(crate) trait ToV8 {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error>;
 }

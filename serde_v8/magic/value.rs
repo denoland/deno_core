@@ -34,7 +34,7 @@ impl<'s> From<Value<'s>> for v8::Local<'s, v8::Value> {
 
 impl ToV8 for Value<'_> {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     _scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     // SAFETY: not fully safe, since lifetimes are detached from original scope
