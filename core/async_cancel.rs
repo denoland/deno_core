@@ -529,7 +529,7 @@ mod internal {
           ..
         } => {
           if !waker.will_wake(new_waker) {
-            *waker = new_waker.clone();
+            waker.clone_from(new_waker);
           }
           Ok(())
         }

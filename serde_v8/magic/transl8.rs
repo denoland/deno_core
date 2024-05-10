@@ -14,7 +14,7 @@ pub(crate) trait MagicType {
 
 pub(crate) trait ToV8 {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error>;
 }
@@ -35,9 +35,9 @@ where
   T: MagicType,
 {
   use serde::ser::SerializeStruct;
-
+  // SERIALIZATION CRIMES
   let mut s = serializer.serialize_struct(T::MAGIC_NAME, 1)?;
-  let ptr = opaque_send(x);
+  let ptr = x as *const T as u64;
   s.serialize_field(MAGIC_FIELD, &ptr)?;
   s.end()
 }
@@ -69,7 +69,16 @@ where
       E: serde::de::Error,
     {
       // SAFETY: opaque ptr originates from visit_magic, which forgets ownership so we can take it
-      Ok(unsafe { opaque_take(ptr) })
+      Ok(unsafe {
+        {
+          // DESERIALIZATION CRIMES
+
+          // serde_v8 was originally taking a pointer to a stack value here. This code is crazy
+          // but there's no way to fix it easily. As a bandaid, we boxed it before.
+          let ptr: *mut T = ptr as _;
+          *Box::<T>::from_raw(ptr)
+        }
+      })
     }
   }
 
@@ -87,31 +96,13 @@ where
   V: serde::de::Visitor<'de>,
   E: serde::de::Error,
 {
-  let y = visitor.visit_u64::<E>(opaque_send(&x));
-  std::mem::forget(x);
+  // DESERIALIZATION CRIMES
+
+  // serde_v8 was originally taking a pointer to a stack value here. This code is crazy
+  // but there's no way to fix it easily. As a bandaid, let's box it.
+  let x = Box::new(x);
+  let y = visitor.visit_u64::<E>(Box::into_raw(x) as _);
   y
-}
-
-/// Constructs an "opaque" ptr from a reference to transerialize
-pub(crate) fn opaque_send<T: Sized>(x: &T) -> u64 {
-  (x as *const T) as u64
-}
-
-/// Copies an "opaque" ptr from a reference to an opaque ptr (transerialized)
-/// NOTE: ptr-to-ptr, extra indirection
-pub(crate) unsafe fn opaque_recv<T: ?Sized>(ptr: &T) -> u64 {
-  *(ptr as *const T as *const u64)
-}
-
-/// Transmutes an "opaque" ptr back into a reference
-pub(crate) unsafe fn opaque_deref_mut<'a, T>(ptr: u64) -> &'a mut T {
-  std::mem::transmute(ptr as usize)
-}
-
-/// Transmutes & copies the value from the "opaque" ptr
-/// NOTE: takes ownership & requires other end to forget its ownership
-pub(crate) unsafe fn opaque_take<T>(ptr: u64) -> T {
-  std::mem::transmute_copy::<T, T>(std::mem::transmute(ptr as usize))
 }
 
 macro_rules! impl_magic {

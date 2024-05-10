@@ -31,7 +31,7 @@ impl DerefMut for BigInt {
 
 impl ToV8 for BigInt {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     let (sign, words) = self.0.to_u64_digits();

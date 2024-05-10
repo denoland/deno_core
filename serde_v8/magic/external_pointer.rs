@@ -18,7 +18,7 @@ impl_magic!(ExternalPointer);
 
 impl ToV8 for ExternalPointer {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     if self.0.is_null() {

@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -79,19 +80,19 @@ impl From<V8Slice<u8>> for JsBuffer {
 // NOTE(bartlomieju): we use Option here, because `to_v8()` uses `&mut self`
 // instead of `self` which is dictated by the `serde` API.
 #[derive(Debug)]
-pub struct ToJsBuffer(Option<Box<[u8]>>);
+pub struct ToJsBuffer(RefCell<Option<Box<[u8]>>>);
 
 impl_magic!(ToJsBuffer);
 
 impl ToJsBuffer {
   pub fn empty() -> Self {
-    ToJsBuffer(Some(vec![0_u8; 0].into_boxed_slice()))
+    ToJsBuffer(Some(vec![0_u8; 0].into_boxed_slice()).into())
   }
 }
 
 impl From<Box<[u8]>> for ToJsBuffer {
   fn from(buf: Box<[u8]>) -> Self {
-    ToJsBuffer(Some(buf))
+    ToJsBuffer(Some(buf).into())
   }
 }
 
@@ -103,10 +104,11 @@ impl From<Vec<u8>> for ToJsBuffer {
 
 impl ToV8 for ToJsBuffer {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
-    let buf: Box<[u8]> = self.0.take().expect("RustToV8Buf was empty");
+    let buf: Box<[u8]> =
+      self.0.borrow_mut().take().expect("RustToV8Buf was empty");
 
     if buf.is_empty() {
       let ab = v8::ArrayBuffer::new(scope, 0);
