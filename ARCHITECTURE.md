@@ -35,3 +35,24 @@ provides a number of these useful services for you, including:
 3. Event loop callbacks
 4. Timers
 5. Basic console support
+
+## Extensions and `op`s
+
+Extensions provide additional functionality to Deno beyond the core runtime.
+They can include `op`s for interacting with the runtime, ESM modules for
+JavaScript code, and other features like configuration parameters and middleware
+functions.
+
+Extensions are defined using the `extension!` macro in `deno_core`. The options
+available for defining an extension using the `extension!` macro allow for
+fine-grained control over its behavior and dependencies.
+
+When the runtime is initialized, it creates a V8 isolate and context, and then
+instantiates the provided extension code and ops into the new context. The ops
+are provided in a special, virtual module that can be imported from the
+extension module code, allowing embedders to create fully-fledged APIs that are
+backed by a combination of Rust, JavaScript or both types of code.
+
+In general, APIs for user code are provided in one of two forms: global APIs,
+available on `globalThis` (the equivalent of the `window` object in browsers),
+and module-style APIs.
