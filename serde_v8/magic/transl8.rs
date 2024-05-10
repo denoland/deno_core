@@ -37,7 +37,7 @@ where
   use serde::ser::SerializeStruct;
 
   let mut s = serializer.serialize_struct(T::MAGIC_NAME, 1)?;
-  let ptr = opaque_send(x);
+  let ptr = x as *const T as u64;
   s.serialize_field(MAGIC_FIELD, &ptr)?;
   s.end()
 }
@@ -92,22 +92,6 @@ where
   let x = Box::new(x);
   let y = visitor.visit_u64::<E>(Box::into_raw(x) as _);
   y
-}
-
-/// Constructs an "opaque" ptr from a reference to transerialize
-pub(crate) fn opaque_send<T: Sized>(x: &T) -> u64 {
-  (x as *const T) as u64
-}
-
-/// Copies an "opaque" ptr from a reference to an opaque ptr (transerialized)
-/// NOTE: ptr-to-ptr, extra indirection
-pub(crate) unsafe fn opaque_recv<T: ?Sized>(ptr: &T) -> u64 {
-  *(ptr as *const T as *const u64)
-}
-
-/// Transmutes an "opaque" ptr back into a reference
-pub(crate) unsafe fn opaque_deref_mut<'a, T>(ptr: u64) -> &'a mut T {
-  std::mem::transmute(ptr as usize)
 }
 
 /// Transmutes & copies the value from the "opaque" ptr
