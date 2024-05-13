@@ -326,6 +326,10 @@ pub fn to_v8_error<'s, 'i>(
       if tc_scope.has_caught() {
         let e = tc_scope.exception().unwrap();
         let js_error = JsError::from_v8_exception(tc_scope, e);
+        // Return underlying error message rather than panicking
+        if js_error.exception_message == "Uncaught null" {
+          return message.into();
+        }
         msg = format!("{}: {}", msg, js_error.exception_message);
       }
       panic!("{}", msg);
