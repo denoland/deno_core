@@ -2,7 +2,7 @@
 
 ## JsRuntime
 
-The heart of Deno is the `JsRuntime`, which wraps a the v8 concepts of an
+The heart of Deno is the `JsRuntime`, which wraps the V8 concepts of an
 `Isolate` and a `Context`. To create a runtime, an embedder instantiates a
 `JsRuntime` using a set of `extension`s, and then poll the event loop until the
 runtime has completed.
