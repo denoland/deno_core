@@ -28,11 +28,3 @@ serde_v8_utilities = { path = "./utilities" }
 
 [[example]]
 name = "basic"
-
-[[bench]]
-name = "de"
-harness = false
-
-[[bench]]
-name = "ser"
-harness = false
