@@ -14,11 +14,16 @@
 {
    <insert_a_suppression_name_here>
    Memcheck:Cond
-   fun:_ZN2v88internal7CppHeap15EnterFinalPauseEN5cppgc18EmbedderStackStateE
+   fun:_ZN2v88internal7CppHeap15EnterFinalPauseEN5cppgc*
    obj:*
 }
 {
    <insert_a_suppression_name_here>
    Memcheck:Cond
-   fun:_ZN5cppgc8internal26ConservativeTracingVisitor27TraceConservativelyIfNeededEPKv
+   fun:_ZN5cppgc8internal26ConservativeTracingVisitor27TraceConservativelyIfNeeded*
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Cond
+   fun:_ZN4heap4base12_GLOBAL__N_122IteratePointersInStack*
 }
