@@ -61,6 +61,7 @@ integration_test!(
   error_ext_stack,
   error_with_stack,
   error_without_stack,
+  error_variable_is_not_defined,
   main_module_handler,
   module_types,
   pending_unref_op_tla,

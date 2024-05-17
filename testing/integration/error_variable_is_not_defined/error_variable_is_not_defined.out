@@ -1,0 +1,2 @@
+[ERR] ReferenceError: variable is not defined
+[ERR]     at test:///integration/error_variable_is_not_defined/error_variable_is_not_defined.ts:11:1
