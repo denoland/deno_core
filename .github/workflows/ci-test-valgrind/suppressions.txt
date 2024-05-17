@@ -20,7 +20,7 @@
 {
    <insert_a_suppression_name_here>
    Memcheck:Cond
-   fun:_ZN5cppgc8internal26ConservativeTracingVisitor27TraceConservativelyIfNeeded*
+   fun:*ConservativeTracingVisitor27TraceConservativelyIfNeeded*
 }
 {
    <insert_a_suppression_name_here>
