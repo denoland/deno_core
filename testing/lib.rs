@@ -69,6 +69,8 @@ integration_test!(
   timer_ref_and_cancel,
   timer_many,
   ts_types,
+  user_breaks_promise_constructor,
+  user_breaks_promise_species,
   worker_spawn,
   worker_terminate,
   worker_terminate_op,
