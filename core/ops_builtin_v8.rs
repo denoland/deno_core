@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use crate::error::call_site_evals_key;
 use crate::error::custom_error;
 use crate::error::is_instance_of_error;
 use crate::error::range_error;
@@ -1099,6 +1100,16 @@ pub fn op_apply_source_map_filename(
     .stashed_file_name
     .take()
     .ok_or_else(|| type_error("No stashed file name"))
+}
+
+#[op2]
+pub fn op_set_call_site_evals(
+  scope: &mut v8::HandleScope,
+  exception: v8::Local<v8::Object>,
+  value: v8::Local<v8::Value>,
+) {
+  let key = call_site_evals_key(scope);
+  assert!(exception.set_private(scope, key, value).unwrap())
 }
 
 #[op2]
