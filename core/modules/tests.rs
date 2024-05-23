@@ -15,6 +15,7 @@ use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
+use crate::modules::ModuleSourceCodeCache;
 use crate::modules::RequestedModuleType;
 use crate::resolve_import;
 use crate::resolve_url;
@@ -213,15 +214,27 @@ impl Future for DelayedSourceCodeFuture {
       return Poll::Pending;
     }
     match mock_source_code(&inner.url) {
-      Some(src) => Poll::Ready(Ok(ModuleSource::for_test_with_redirect(
-        src.0,
-        inner.url.as_str(),
-        src.1,
-        inner
-          .code_cache
-          .as_ref()
-          .map(|code_cache| Cow::Owned(code_cache.clone())),
-      ))),
+      Some(src) => {
+        let hash = {
+          use std::hash::Hash;
+          use std::hash::Hasher;
+          let mut hasher = twox_hash::XxHash64::default();
+          src.1.hash(&mut hasher);
+          hasher.finish()
+        };
+        Poll::Ready(Ok(ModuleSource::for_test_with_redirect(
+          src.0,
+          inner.url.as_str(),
+          src.1,
+          Some(ModuleSourceCodeCache {
+            hash,
+            data: inner
+              .code_cache
+              .as_ref()
+              .map(|code_cache| Cow::Owned(code_cache.clone())),
+          }),
+        )))
+      }
       None => Poll::Ready(Err(MockError::LoadErr.into())),
     }
   }
@@ -275,7 +288,8 @@ impl ModuleLoader for MockLoader {
 
   fn code_cache_ready(
     &self,
-    module_specifier: &ModuleSpecifier,
+    module_specifier: ModuleSpecifier,
+    _hash: u64,
     code_cache: &[u8],
   ) -> Pin<Box<dyn Future<Output = ()>>> {
     let mut updated_code_cache = self.updated_code_cache.lock();
@@ -504,35 +518,9 @@ fn test_json_module() {
 
   let module_map = runtime.module_map().clone();
 
-  let (mod_a, mod_b, mod_c) = {
+  let (mod_b, mod_c) = {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.js");
     let specifier_b = ascii_str!("file:///b.js");
-    let mod_a = module_map
-      .new_es_module(
-        scope,
-        true,
-        specifier_a,
-        ascii_str!(
-          r#"
-          import jsonData from './c.json' assert {type: "json"};
-          assert(jsonData.a == "b");
-          assert(jsonData.c.d == 10);
-        "#
-        ),
-        false,
-        None,
-      )
-      .unwrap();
-
-    let imports = module_map.get_requested_modules(mod_a);
-    assert_eq!(
-      imports,
-      Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
-        requested_module_type: RequestedModuleType::Json,
-      },])
-    );
 
     let mod_b = module_map
       .new_es_module(
@@ -569,18 +557,11 @@ fn test_json_module() {
       .unwrap();
     let imports = module_map.get_requested_modules(mod_c).unwrap();
     assert_eq!(imports.len(), 0);
-    (mod_a, mod_b, mod_c)
+    (mod_b, mod_c)
   };
 
   runtime.instantiate_module(mod_c).unwrap();
-  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(2, 0, 0));
-
-  runtime.instantiate_module(mod_a).unwrap();
-
-  let receiver = runtime.mod_evaluate(mod_a);
-  futures::executor::block_on(runtime.run_event_loop(Default::default()))
-    .unwrap();
-  futures::executor::block_on(receiver).unwrap();
+  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(1, 0, 0));
 
   runtime.instantiate_module(mod_b).unwrap();
 
