@@ -90,6 +90,7 @@ pub trait ModuleLoader {
   fn code_cache_ready(
     &self,
     _module_specifier: &ModuleSpecifier,
+    _hash: u64,
     _code_cache: &[u8],
   ) -> Pin<Box<dyn Future<Output = ()>>> {
     async {}.boxed_local()
