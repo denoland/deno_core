@@ -1315,13 +1315,18 @@ fn eval_context_with_code_cache() {
   let code_cache = {
     let updated_code_cache = Arc::new(Mutex::new(HashMap::new()));
 
-    let get_code_cache_cb = Box::new(|_: &str| Ok(None));
+    let get_code_cache_cb = Box::new(|_: &Url, source: &v8::String| {
+      Ok(ModuleSourceCodeCache {
+        data: None,
+        hash: hash_source(source),
+      })
+    });
 
     let updated_code_cache_clone = updated_code_cache.clone();
     let set_code_cache_cb =
-      Box::new(move |specifier: &str, code_cache: &[u8]| {
+      Box::new(move |specifier: Url, _hash: u64, code_cache: &[u8]| {
         let mut c = updated_code_cache_clone.lock();
-        c.insert(specifier.to_string(), code_cache.to_vec());
+        c.insert(specifier, code_cache.to_vec());
       });
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -1337,7 +1342,7 @@ fn eval_context_with_code_cache() {
       .unwrap();
 
     let c = updated_code_cache.lock();
-    let mut keys = c.keys().collect::<Vec<_>>();
+    let mut keys = c.keys().map(|s| s.as_str()).collect::<Vec<_>>();
     keys.sort();
     assert_eq!(keys, vec!["file:///foo.js",]);
     c.clone()
@@ -1348,19 +1353,21 @@ fn eval_context_with_code_cache() {
     let updated_code_cache = Arc::new(Mutex::new(HashMap::new()));
 
     let code_cache_clone = code_cache.clone();
-    let get_code_cache_cb = Box::new(move |specifier: &str| {
-      Ok(
-        code_cache_clone
-          .get(specifier)
-          .map(|code_cache| Cow::Owned(code_cache.clone())),
-      )
-    });
+    let get_code_cache_cb =
+      Box::new(move |specifier: &Url, source: &v8::String| {
+        Ok(ModuleSourceCodeCache {
+          data: code_cache_clone
+            .get(specifier)
+            .map(|code_cache| Cow::Owned(code_cache.clone())),
+          hash: hash_source(source),
+        })
+      });
 
     let updated_code_cache_clone = updated_code_cache.clone();
     let set_code_cache_cb =
-      Box::new(move |specifier: &str, code_cache: &[u8]| {
+      Box::new(move |specifier: Url, _hash: u64, code_cache: &[u8]| {
         let mut c = updated_code_cache_clone.lock();
-        c.insert(specifier.to_string(), code_cache.to_vec());
+        c.insert(specifier, code_cache.to_vec());
       });
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -1379,4 +1386,12 @@ fn eval_context_with_code_cache() {
     let c = updated_code_cache.lock();
     assert!(c.is_empty());
   }
+}
+
+fn hash_source(source: &v8::String) -> u64 {
+  use std::hash::Hash;
+  use std::hash::Hasher;
+  let mut hasher = twox_hash::XxHash64::default();
+  source.hash(&mut hasher);
+  hasher.finish()
 }

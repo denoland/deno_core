@@ -272,8 +272,8 @@ pub fn op_eval_context<'a>(
   let tc_scope = &mut v8::TryCatch::new(scope);
   let source = v8::Local::<v8::String>::try_from(source)
     .map_err(|_| type_error("Invalid source"))?;
-  let specifier = resolve_url(&specifier)?.to_string();
-  let specifier_v8 = v8::String::new(tc_scope, &specifier).unwrap();
+  let specifier = resolve_url(&specifier)?;
+  let specifier_v8 = v8::String::new(tc_scope, specifier.as_str()).unwrap();
   let origin = script_origin(tc_scope, specifier_v8);
 
   let (maybe_script, maybe_code_cache_hash) = state
@@ -336,7 +336,7 @@ pub fn op_eval_context<'a>(
       let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
         type_error("Unable to get code cache from unbound module script")
       })?;
-      cb(&specifier, code_cache_hash, &code_cache);
+      cb(specifier, code_cache_hash, &code_cache);
     }
   }
 
