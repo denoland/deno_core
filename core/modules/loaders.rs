@@ -89,7 +89,7 @@ pub trait ModuleLoader {
   /// It's not required to implement this method.
   fn code_cache_ready(
     &self,
-    _module_specifier: &ModuleSpecifier,
+    _module_specifier: ModuleSpecifier,
     _hash: u64,
     _code_cache: &[u8],
   ) -> Pin<Box<dyn Future<Output = ()>>> {

@@ -91,7 +91,7 @@ impl ModEvaluate {
 }
 
 type CodeCacheReadyCallback =
-  Box<dyn Fn(&[u8]) -> Pin<Box<dyn Future<Output = ()>>>>;
+  Box<dyn FnOnce(&[u8]) -> Pin<Box<dyn Future<Output = ()>>>>;
 pub(crate) struct CodeCacheInfo {
   data: Option<Cow<'static, [u8]>>,
   ready_callback: CodeCacheReadyCallback,
@@ -354,7 +354,7 @@ impl ModuleMap {
                 ready_callback: Box::new(move |cache| {
                   let specifier =
                     ModuleSpecifier::parse(module_url_found1.as_str()).unwrap();
-                  loader.code_cache_ready(&specifier, code_cache.hash, cache)
+                  loader.code_cache_ready(specifier, code_cache.hash, cache)
                 }),
               }),
               module_url_found2,
@@ -448,7 +448,7 @@ impl ModuleMap {
                   ready_callback: Box::new(move |cache| {
                     let specifier =
                       ModuleSpecifier::parse(url1.as_str()).unwrap();
-                    loader.code_cache_ready(&specifier, code_cache.hash, cache)
+                    loader.code_cache_ready(specifier, code_cache.hash, cache)
                   }),
                 }),
                 url2,
@@ -1726,7 +1726,7 @@ impl ModuleMap {
         Some(CodeCacheInfo {
           data: code_cache.data,
           ready_callback: Box::new(move |cache| {
-            loader.code_cache_ready(&specifier, code_cache.hash, cache)
+            loader.code_cache_ready(specifier, code_cache.hash, cache)
           }),
         })
       } else {

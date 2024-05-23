@@ -288,7 +288,7 @@ impl ModuleLoader for MockLoader {
 
   fn code_cache_ready(
     &self,
-    module_specifier: &ModuleSpecifier,
+    module_specifier: ModuleSpecifier,
     _hash: u64,
     code_cache: &[u8],
   ) -> Pin<Box<dyn Future<Output = ()>>> {
