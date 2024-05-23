@@ -276,15 +276,16 @@ pub fn op_eval_context<'a>(
   let specifier_v8 = v8::String::new(tc_scope, &specifier).unwrap();
   let origin = script_origin(tc_scope, specifier_v8);
 
-  let (script, try_store_code_cache) = state
+  let (maybe_script, maybe_code_cache_hash) = state
     .eval_context_get_code_cache_cb
     .as_ref()
-    .and_then(|cb| {
-      cb(&specifier).unwrap().map(|code_cache| {
+    .map(|cb| {
+      let code_cache = cb(&specifier, &source).unwrap();
+      if let Some(code_cache_data) = &code_cache.data {
         let mut source = v8::script_compiler::Source::new_with_cached_data(
           source,
           Some(&origin),
-          v8::CachedData::new(&code_cache),
+          v8::CachedData::new(&code_cache_data),
         );
         let script = v8::script_compiler::compile(
           tc_scope,
@@ -297,12 +298,19 @@ pub fn op_eval_context<'a>(
           Some(cached_data) => cached_data.rejected(),
           _ => true,
         };
-        (script, rejected)
-      })
+        let maybe_code_cache_hash = if rejected {
+          Some(code_cache.hash) // recreate the cache
+        } else {
+          None
+        };
+        (Some(script), maybe_code_cache_hash)
+      } else {
+        (None, Some(code_cache.hash))
+      }
     })
-    .unwrap_or_else(|| {
-      (v8::Script::compile(tc_scope, source, Some(&origin)), true)
-    });
+    .unwrap_or_else(|| (None, None));
+  let script = maybe_script
+    .unwrap_or_else(|| v8::Script::compile(tc_scope, source, Some(&origin)));
 
   let null = v8::null(tc_scope);
   let script = match script {
@@ -322,13 +330,13 @@ pub fn op_eval_context<'a>(
     }
   };
 
-  if try_store_code_cache {
+  if let Some(code_cache_hash) = maybe_code_cache_hash {
     if let Some(cb) = state.eval_context_code_cache_ready_cb.as_ref() {
       let unbound_script = script.get_unbound_script(tc_scope);
       let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
         type_error("Unable to get code cache from unbound module script")
       })?;
-      cb(&specifier, &code_cache);
+      cb(&specifier, code_cache_hash, &code_cache);
     }
   }
 
