@@ -204,8 +204,12 @@ pub type CustomModuleEvaluationCb = Box<
 
 /// A callback to get the code cache for a script.
 /// (specifier: &str, code: &str) -> ...
-pub type EvalContextGetCodeCacheCb =
-  Box<dyn Fn(&str, &str) -> Result<ModuleSourceCodeCache, AnyError>>;
+pub type EvalContextGetCodeCacheCb = Box<
+  dyn Fn(
+    &str,
+    &v8::Local<v8::String>,
+  ) -> Result<ModuleSourceCodeCache, AnyError>,
+>;
 
 /// Callback when the code cache is ready.
 /// (specifier: &str, hash: u64, data: &[u8]) -> ()
