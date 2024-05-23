@@ -285,7 +285,7 @@ pub fn op_eval_context<'a>(
         let mut source = v8::script_compiler::Source::new_with_cached_data(
           source,
           Some(&origin),
-          v8::CachedData::new(&code_cache_data),
+          v8::CachedData::new(code_cache_data),
         );
         let script = v8::script_compiler::compile(
           tc_scope,
