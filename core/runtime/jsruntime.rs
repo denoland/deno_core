@@ -892,7 +892,6 @@ impl JsRuntime {
       loader,
       exception_state.clone(),
       import_meta_resolve_cb,
-      options.enable_code_cache,
     ));
 
     if let Some((snapshotted_data, mut data_store)) = snapshotted_data {

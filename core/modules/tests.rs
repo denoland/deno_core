@@ -15,6 +15,7 @@ use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
+use crate::modules::ModuleSourceCodeCache;
 use crate::modules::RequestedModuleType;
 use crate::resolve_import;
 use crate::resolve_url;
@@ -213,15 +214,27 @@ impl Future for DelayedSourceCodeFuture {
       return Poll::Pending;
     }
     match mock_source_code(&inner.url) {
-      Some(src) => Poll::Ready(Ok(ModuleSource::for_test_with_redirect(
-        src.0,
-        inner.url.as_str(),
-        src.1,
-        inner
-          .code_cache
-          .as_ref()
-          .map(|code_cache| Cow::Owned(code_cache.clone())),
-      ))),
+      Some(src) => {
+        let hash = {
+          use std::hash::Hash;
+          use std::hash::Hasher;
+          let mut hasher = twox_hash::XxHash64::default();
+          src.1.hash(&mut hasher);
+          hasher.finish()
+        };
+        Poll::Ready(Ok(ModuleSource::for_test_with_redirect(
+          src.0,
+          inner.url.as_str(),
+          src.1,
+          Some(ModuleSourceCodeCache {
+            hash,
+            data: inner
+              .code_cache
+              .as_ref()
+              .map(|code_cache| Cow::Owned(code_cache.clone())),
+          }),
+        )))
+      }
       None => Poll::Ready(Err(MockError::LoadErr.into())),
     }
   }
@@ -275,7 +288,8 @@ impl ModuleLoader for MockLoader {
 
   fn code_cache_ready(
     &self,
-    module_specifier: &ModuleSpecifier,
+    module_specifier: ModuleSpecifier,
+    _hash: u64,
     code_cache: &[u8],
   ) -> Pin<Box<dyn Future<Output = ()>>> {
     let mut updated_code_cache = self.updated_code_cache.lock();
