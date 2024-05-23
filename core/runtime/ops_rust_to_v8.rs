@@ -413,7 +413,7 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
 // CppGc
 //
 
-impl<'a, T: crate::cppgc::GcResource + 'static> RustToV8<'a>
+impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
   for RustToV8Marker<CppGcMarker, T>
 {
   #[inline(always)]

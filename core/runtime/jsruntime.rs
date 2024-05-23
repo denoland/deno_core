@@ -150,7 +150,6 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
-  cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -190,10 +189,9 @@ impl InnerIsolateState {
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
     // SAFETY: We're copying out of self and then immediately forgetting self
-    let (state, _cpp_heap, isolate) = unsafe {
+    let (state, isolate) = unsafe {
       (
         ManuallyDrop::take(&mut self.state.0),
-        ManuallyDrop::take(&mut self.cpp_heap),
         ManuallyDrop::take(&mut self.v8_isolate),
       )
     };
@@ -216,7 +214,6 @@ impl Drop for InnerIsolateState {
           eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
         }
       } else {
-        ManuallyDrop::drop(&mut self.cpp_heap);
         ManuallyDrop::drop(&mut self.v8_isolate);
       }
     }
@@ -421,6 +418,7 @@ pub struct JsRuntimeState {
   pub(crate) eval_context_get_code_cache_cb: Option<EvalContextGetCodeCacheCb>,
   pub(crate) eval_context_code_cache_ready_cb:
     Option<EvalContextCodeCacheReadyCb>,
+  pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -709,6 +707,7 @@ impl JsRuntime {
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
       has_inspector: false.into(),
+      cppgc_template: None.into(),
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
@@ -788,8 +787,6 @@ impl JsRuntime {
       external_refs_static,
     );
 
-    let cpp_heap = setup::init_cppgc(&mut isolate);
-
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
     // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
@@ -832,6 +829,12 @@ impl JsRuntime {
     let mut snapshotted_data = None;
     let main_context = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
+
+      let cppgc_template = crate::cppgc::make_cppgc_template(scope);
+      state_rc
+        .cppgc_template
+        .borrow_mut()
+        .replace(v8::Global::new(scope, cppgc_template));
 
       let context = create_context(
         scope,
@@ -955,7 +958,6 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
-        cpp_heap: ManuallyDrop::new(cpp_heap),
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
@@ -1904,16 +1906,9 @@ fn create_context<'a>(
 
   let scope = &mut v8::ContextScope::new(scope, context);
 
-  // Get the global wrapper object from the context, get the real inner
-  // global object from it, and and configure it using the middlewares.
-  let global_wrapper = context.global(scope);
-  let real_global = global_wrapper
-    .get_prototype(scope)
-    .unwrap()
-    .to_object(scope)
-    .unwrap();
+  let global = context.global(scope);
   for middleware in global_object_middlewares {
-    middleware(scope, real_global);
+    middleware(scope, global);
   }
   context
 }

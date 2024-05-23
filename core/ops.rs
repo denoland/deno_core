@@ -8,7 +8,6 @@ use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::FeatureChecker;
-use crate::GcResource;
 use crate::OpDecl;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
@@ -56,37 +55,6 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
   }
   CURRENT_OP.with(|f| f.set(Some(decl)));
   Some(ReentrancyGuard {})
-}
-
-/// A guard for a [`cppgc::Gc`] object that ensures the object is rooted while the guard is alive.
-pub struct CppGcObjectGuard<T: GcResource + 'static> {
-  _global: v8::Global<v8::Value>,
-  t: &'static T,
-}
-
-impl<T: GcResource + 'static> CppGcObjectGuard<T> {
-  pub fn try_new_from_cppgc_object(
-    isolate: &mut Isolate,
-    val: v8::Local<v8::Value>,
-  ) -> Option<Self> {
-    crate::cppgc::try_unwrap_cppgc_object(val).map(|t| Self {
-      _global: v8::Global::new(isolate, val),
-      // SAFETY: `global` will keep T rooted. We never expose T to the user with
-      // a 'static lifetime. Only ever a reference to T tied to the lifetime of
-      // the `CppGcObjectGuard`.
-      t: unsafe { &*(t as *const T) },
-    })
-  }
-
-  /// Returns a reference to the inner T value.
-  ///
-  /// # Safety
-  ///
-  /// This is only safe if you have ensured that the `Isolate` that this object
-  /// is stored in, is still alive.
-  pub unsafe fn as_ref(&self) -> &T {
-    self.t
-  }
 }
 
 #[derive(Clone, Copy)]

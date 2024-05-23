@@ -4,9 +4,8 @@ use anyhow::bail;
 use anyhow::Error;
 use deno_core::op2;
 use deno_core::url::Url;
-use deno_core::v8;
 use deno_core::v8::IsolateHandle;
-use deno_core::GcResource;
+use deno_core::GarbageCollected;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
@@ -34,7 +33,7 @@ pub struct WorkerControl {
   shutdown_flag: Option<UnboundedSender<()>>,
 }
 
-impl GcResource for WorkerControl {}
+impl GarbageCollected for WorkerControl {}
 
 pub struct WorkerChannel {
   tx: UnboundedSender<String>,
@@ -90,13 +89,13 @@ pub fn worker_create(
 }
 
 #[op2]
-pub fn op_worker_spawn<'s>(
-  scope: &mut v8::HandleScope<'s>,
+#[cppgc]
+pub fn op_worker_spawn(
   #[state] this_worker: &Worker,
   #[state] output: &Output,
   #[string] base_url: String,
   #[string] main_script: String,
-) -> Result<v8::Local<'s, v8::Object>, Error> {
+) -> Result<WorkerControl, Error> {
   let output = output.clone();
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();
@@ -119,7 +118,7 @@ pub fn op_worker_spawn<'s>(
 
   // This is technically a blocking call
   let worker = init_recv.recv()?;
-  Ok(deno_core::cppgc::make_cppgc_object(scope, worker))
+  Ok(worker)
 }
 
 async fn run_worker_task(
@@ -171,10 +170,10 @@ pub async fn op_worker_recv(#[cppgc] worker: &WorkerControl) -> Option<String> {
 }
 
 #[op2]
-pub fn op_worker_parent<'s>(
-  scope: &mut v8::HandleScope<'s>,
+#[cppgc]
+pub fn op_worker_parent(
   state: Rc<RefCell<OpState>>,
-) -> Result<v8::Local<'s, v8::Object>, Error> {
+) -> Result<WorkerControl, Error> {
   let state = state.borrow_mut();
   let worker: &Worker = state.borrow();
   let (Some(worker_channel), Some(close_watcher)) = (
@@ -183,15 +182,12 @@ pub fn op_worker_parent<'s>(
   ) else {
     bail!("No parent worker is available")
   };
-  Ok(deno_core::cppgc::make_cppgc_object(
-    scope,
-    WorkerControl {
-      worker_channel,
-      close_watcher,
-      handle: None,
-      shutdown_flag: None,
-    },
-  ))
+  Ok(WorkerControl {
+    worker_channel,
+    close_watcher,
+    handle: None,
+    shutdown_flag: None,
+  })
 }
 
 #[op2(async)]

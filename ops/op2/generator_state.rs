@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use proc_macro2::Ident;
+use proc_macro2::{Ident, TokenStream};
 
 pub struct GeneratorState {
   pub name: Ident,
@@ -37,14 +37,12 @@ pub struct GeneratorState {
   /// Type of the self argument
   pub self_ty: Ident,
 
-  /// Idents that need to be moved into the future and have a reference taken
-  /// before being passed to the underlying call. The bool indicates whether
-  /// the data is wrapped in a `Option`
-  pub idents_that_need_to_be_captured_by_future_and_as_refd: Vec<(Ident, bool)>,
+  pub moves: Vec<TokenStream>,
 
   pub needs_args: bool,
   pub needs_retval: bool,
   pub needs_scope: bool,
+  pub needs_fast_scope: bool,
   pub needs_isolate: bool,
   pub needs_opstate: bool,
   pub needs_opctx: bool,

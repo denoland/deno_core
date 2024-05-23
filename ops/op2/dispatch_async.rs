@@ -114,12 +114,6 @@ pub(crate) fn generate_dispatch_async(
   }
   output.extend(quote!(return 2;));
 
-  let with_scope = if generator_state.needs_scope {
-    with_scope(generator_state)
-  } else {
-    quote!()
-  };
-
   let with_opstate = if generator_state.needs_opstate {
     with_opstate(generator_state)
   } else {
@@ -140,6 +134,12 @@ pub(crate) fn generate_dispatch_async(
 
   let with_args = if generator_state.needs_args {
     with_fn_args(generator_state)
+  } else {
+    quote!()
+  };
+
+  let with_scope = if generator_state.needs_scope {
+    with_scope(generator_state)
   } else {
     quote!()
   };

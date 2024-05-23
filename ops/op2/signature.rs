@@ -1235,7 +1235,7 @@ fn parse_attributes(
 pub fn is_attribute_special(attr: &Attribute) -> bool {
   parse_attribute(attr).unwrap_or_default().is_some()
     // this is kind of ugly, but #[meta(..)] is the only
-    // attribute that we want to omit from the generated code 
+    // attribute that we want to omit from the generated code
     // that doesn't have a semantic meaning
     || attr.path().is_ident("meta")
 }
@@ -1856,23 +1856,23 @@ mod tests {
     ($name:ident, $error:expr, $f:item) => {
       #[test]
       pub fn $name() {
-        expect_fail(stringify!($f), stringify!($error));
+        #[allow(unused)]
+        use super::ArgError::*;
+        #[allow(unused)]
+        use super::AttributeError::*;
+        #[allow(unused)]
+        use super::SignatureError::*;
+
+        let op = stringify!($f);
+        // Parse the provided macro input as an ItemFn
+        let item_fn = parse_str::<ItemFn>(op)
+          .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
+        let attrs = item_fn.attrs;
+        let error = parse_signature(attrs, item_fn.sig)
+          .expect_err("Expected function to fail to parse");
+        assert_eq!(format!("{error:?}"), format!("{:?}", $error));
       }
     };
-  }
-
-  fn expect_fail(op: &str, error: &str) {
-    // Parse the provided macro input as an ItemFn
-    let item_fn = parse_str::<ItemFn>(op)
-      .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
-    let attrs = item_fn.attrs;
-    let err = parse_signature(attrs, item_fn.sig)
-      .expect_err("Expected function to fail to parse");
-    // TODO(mmastrac): this might fail if debug output spacing changes
-    assert_eq!(
-      format!("{err:?}").replace("\n     ", " "),
-      error.to_owned().replace("\n    ", " ")
-    );
   }
 
   test!(
@@ -2040,22 +2040,34 @@ mod tests {
   );
   expect_fail!(
     op_cppgc_resource_owned,
-    ArgError("resource", ExpectedCppGcReference("std::fs::File")),
+    ArgError(
+      "resource".into(),
+      ExpectedCppGcReference("std::fs::File".into())
+    ),
     fn f(#[cppgc] resource: std::fs::File) {}
   );
   expect_fail!(
     op_cppgc_resource_option_owned,
-    ArgError("resource", ExpectedCppGcReference("std::fs::File")),
+    ArgError(
+      "resource".into(),
+      ExpectedCppGcReference("std::fs::File".into())
+    ),
     fn f(#[cppgc] resource: Option<std::fs::File>) {}
   );
   expect_fail!(
     op_cppgc_resource_invalid_type,
-    ArgError("resource", InvalidCppGcType("[std :: fs :: File]")),
+    ArgError(
+      "resource".into(),
+      InvalidCppGcType("[std :: fs :: File]".into())
+    ),
     fn f(#[cppgc] resource: &[std::fs::File]) {}
   );
   expect_fail!(
     op_cppgc_resource_option_invalid_type,
-    ArgError("resource", InvalidCppGcType("[std :: fs :: File]")),
+    ArgError(
+      "resource".into(),
+      InvalidCppGcType("[std :: fs :: File]".into())
+    ),
     fn f(#[cppgc] resource: Option<&[std::fs::File]>) {}
   );
 
@@ -2063,48 +2075,59 @@ mod tests {
 
   expect_fail!(
     op_with_bad_string1,
-    ArgError("s", MissingAttribute("string", "str")),
+    ArgError("s".into(), MissingAttribute("string", "str".into())),
     fn f(s: &str) {}
   );
   expect_fail!(
     op_with_bad_string2,
-    ArgError("s", MissingAttribute("string", "String")),
+    ArgError("s".into(), MissingAttribute("string", "String".into())),
     fn f(s: String) {}
   );
   expect_fail!(
     op_with_bad_string3,
-    ArgError("s", MissingAttribute("string", "Cow<str>")),
+    ArgError("s".into(), MissingAttribute("string", "Cow<str>".into())),
     fn f(s: Cow<str>) {}
   );
   expect_fail!(
     op_with_invalid_string,
-    ArgError("x", InvalidAttributeType("string", "u32")),
+    ArgError("x".into(), InvalidAttributeType("string", "u32".into())),
     fn f(#[string] x: u32) {}
   );
   expect_fail!(
     op_with_invalid_buffer,
-    ArgError("x", InvalidAttributeType("buffer", "u32")),
+    ArgError("x".into(), InvalidAttributeType("buffer", "u32".into())),
     fn f(#[buffer] x: u32) {}
   );
   expect_fail!(
     op_with_bad_attr,
-    RetError(AttributeError(InvalidAttribute("#[badattr]"))),
+    RetError(super::RetError::AttributeError(InvalidAttribute(
+      "#[badattr]".into()
+    ))),
     #[badattr]
     fn f() {}
   );
   expect_fail!(
     op_with_bad_attr2,
-    ArgError("a", AttributeError(InvalidAttribute("#[badattr]"))),
+    ArgError(
+      "a".into(),
+      AttributeError(InvalidAttribute("#[badattr]".into()))
+    ),
     fn f(#[badattr] a: u32) {}
   );
   expect_fail!(
     op_with_missing_global,
-    ArgError("g", MissingAttribute("global", "v8::Global<v8::String>")),
+    ArgError(
+      "g".into(),
+      MissingAttribute("global", "v8::Global<v8::String>".into())
+    ),
     fn f(g: v8::Global<v8::String>) {}
   );
   expect_fail!(
     op_with_invalid_global,
-    ArgError("l", InvalidAttributeType("global", "v8::Local<v8::String>")),
+    ArgError(
+      "l".into(),
+      InvalidAttributeType("global", "v8::Local<v8::String>".into())
+    ),
     fn f(#[global] l: v8::Local<v8::String>) {}
   );
   expect_fail!(
@@ -2115,16 +2138,24 @@ mod tests {
   expect_fail!(
     op_extra_deno_core_v8,
     ArgError(
-      "a",
-      InvalidDenoCorePrefix("deno_core::v8::Function", "v8", "v8::Function")
+      "a".into(),
+      InvalidDenoCorePrefix(
+        "deno_core::v8::Function".into(),
+        "v8".into(),
+        "v8::Function".into()
+      )
     ),
     fn f(a: &deno_core::v8::Function) {}
   );
   expect_fail!(
     op_extra_deno_core_opstate,
     ArgError(
-      "a",
-      InvalidDenoCorePrefix("deno_core::OpState", "OpState", "OpState")
+      "a".into(),
+      InvalidDenoCorePrefix(
+        "deno_core::OpState".into(),
+        "OpState".into(),
+        "OpState".into()
+      )
     ),
     fn f(a: &deno_core::OpState) {}
   );
@@ -2134,17 +2165,17 @@ mod tests {
   expect_fail!(op_with_two_lifetimes, TooManyLifetimes, fn f<'a, 'b>() {});
   expect_fail!(
     op_with_lifetime_bounds,
-    LifetimesMayNotHaveBounds("'a"),
+    LifetimesMayNotHaveBounds("'a".into()),
     fn f<'a: 'b, 'b>() {}
   );
   expect_fail!(
     op_with_missing_bounds,
-    GenericBoundCardinality("B"),
+    GenericBoundCardinality("B".into()),
     fn f<'a, B>() {}
   );
   expect_fail!(
     op_with_duplicate_bounds,
-    GenericBoundCardinality("B"),
+    GenericBoundCardinality("B".into()),
     fn f<'a, B: Trait>()
     where
       B: Trait,
@@ -2153,7 +2184,7 @@ mod tests {
   );
   expect_fail!(
     op_with_extra_bounds,
-    WherePredicateMustAppearInGenerics("C"),
+    WherePredicateMustAppearInGenerics("C".into()),
     fn f<'a, B>()
     where
       B: Trait,
@@ -2164,30 +2195,35 @@ mod tests {
 
   expect_fail!(
     op_with_bad_serde_string,
-    ArgError("s", InvalidAttributeType("serde", "String")),
+    ArgError("s".into(), InvalidAttributeType("serde", "String".into())),
     fn f(#[serde] s: String) {}
   );
   expect_fail!(
     op_with_bad_serde_str,
-    ArgError("s", InvalidAttributeType("serde", "&str")),
+    ArgError("s".into(), InvalidAttributeType("serde", "&str".into())),
     fn f(#[serde] s: &str) {}
   );
 
   expect_fail!(
     op_with_bad_from_v8_string,
-    ArgError("s", InvalidAttributeType("from_v8", "String")),
+    ArgError("s".into(), InvalidAttributeType("from_v8", "String".into())),
     fn f(#[from_v8] s: String) {}
   );
 
   expect_fail!(
     op_with_to_v8_arg,
-    ArgError("s", InvalidAttributePosition("to_v8", "return value")),
+    ArgError(
+      "s".into(),
+      InvalidAttributePosition("to_v8", "return value")
+    ),
     fn f(#[to_v8] s: Foo) {}
   );
 
   expect_fail!(
     op_with_from_v8_ret,
-    RetError(InvalidType(InvalidAttributePosition("from_v8", "argument"))),
+    RetError(super::RetError::InvalidType(InvalidAttributePosition(
+      "from_v8", "argument"
+    ))),
     #[from_v8]
     fn f() -> Foo {}
   );
