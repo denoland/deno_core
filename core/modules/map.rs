@@ -93,7 +93,7 @@ impl ModEvaluate {
 type CodeCacheReadyCallback =
   Box<dyn Fn(&[u8]) -> Pin<Box<dyn Future<Output = ()>>>>;
 pub(crate) struct CodeCacheInfo {
-  code_cache_data: Option<Cow<'static, [u8]>>,
+  data: Option<Cow<'static, [u8]>>,
   ready_callback: CodeCacheReadyCallback,
 }
 
@@ -350,7 +350,7 @@ impl ModuleMap {
             let loader = self.loader.borrow().clone();
             (
               Some(CodeCacheInfo {
-                code_cache_data: code_cache.data,
+                data: code_cache.data,
                 ready_callback: Box::new(move |cache| {
                   let specifier =
                     ModuleSpecifier::parse(module_url_found1.as_str()).unwrap();
@@ -444,7 +444,7 @@ impl ModuleMap {
               let loader = self.loader.borrow().clone();
               (
                 Some(CodeCacheInfo {
-                  code_cache_data: code_cache.data,
+                  data: code_cache.data,
                   ready_callback: Box::new(move |cache| {
                     let specifier =
                       ModuleSpecifier::parse(url1.as_str()).unwrap();
@@ -597,7 +597,7 @@ impl ModuleMap {
     let (maybe_module, try_store_code_cache) = code_cache_info
       .as_ref()
       .and_then(|code_cache_info| {
-        code_cache_info.code_cache_data.as_ref().map(|cache| {
+        code_cache_info.data.as_ref().map(|cache| {
           let mut source = v8::script_compiler::Source::new_with_cached_data(
             source_str,
             Some(&origin),
@@ -1724,7 +1724,7 @@ impl ModuleMap {
       if let Some(code_cache) = source.code_cache {
         let loader = self.loader.borrow().clone();
         Some(CodeCacheInfo {
-          code_cache_data: code_cache.data,
+          data: code_cache.data,
           ready_callback: Box::new(move |cache| {
             loader.code_cache_ready(&specifier, code_cache.hash, cache)
           }),
