@@ -1316,7 +1316,7 @@ fn eval_context_with_code_cache() {
     let updated_code_cache = Arc::new(Mutex::new(HashMap::new()));
 
     let get_code_cache_cb = Box::new(|_: &Url, source: &v8::String| {
-      Ok(ModuleSourceCodeCache {
+      Ok(SourceCodeCacheInfo {
         data: None,
         hash: hash_source(source),
       })
@@ -1354,7 +1354,7 @@ fn eval_context_with_code_cache() {
     let code_cache_clone = code_cache.clone();
     let get_code_cache_cb =
       Box::new(move |specifier: &Url, source: &v8::String| {
-        Ok(ModuleSourceCodeCache {
+        Ok(SourceCodeCacheInfo {
           data: code_cache_clone
             .get(specifier)
             .map(|code_cache| Cow::Owned(code_cache.clone())),

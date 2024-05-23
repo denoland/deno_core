@@ -15,8 +15,8 @@ use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
-use crate::modules::ModuleSourceCodeCache;
 use crate::modules::RequestedModuleType;
+use crate::modules::SourceCodeCacheInfo;
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
@@ -226,7 +226,7 @@ impl Future for DelayedSourceCodeFuture {
           src.0,
           inner.url.as_str(),
           src.1,
-          Some(ModuleSourceCodeCache {
+          Some(SourceCodeCacheInfo {
             hash,
             data: inner
               .code_cache
