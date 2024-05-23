@@ -63,6 +63,7 @@ pub fn init_ops(
   for core_op in deno_core_ops {
     ops.push(OpDecl {
       name: core_op.name,
+      name_fast: core_op.name_fast,
       ..macroware(*core_op)
     });
   }
@@ -72,6 +73,7 @@ pub fn init_ops(
     for ext_op in ext_ops {
       ops.push(OpDecl {
         name: ext_op.name,
+        name_fast: ext_op.name_fast,
         ..macroware(*ext_op)
       });
     }

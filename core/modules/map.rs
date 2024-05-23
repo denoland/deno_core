@@ -1088,12 +1088,27 @@ impl ModuleMap {
           .then2(tc_scope, on_fulfilled.unwrap(), on_rejected.unwrap())
           .is_none()
       {
-        // The runtime might have been shut down, so we need to synthesize a promise result here
+        // There are two reasons we could be here:
+        // 1. The runtime is shutting down, and JS ops are disabled with termination exceptions.
+        // 2. User code has tampered with the runtime globals in some way that prevents us from
+        //    attaching `on_fulfilled`/`on_rejected` to `promise`.
+        // In these cases we still need to report something back, so synthesize the result from the
+        // promise.
+
+        // Unset pending mod evaluation as the handlers will never run. See debug_assert below.
+        self.pending_mod_evaluation.set(false);
+
         let mut sender = get_sender(evaluation.into());
         match promise.state() {
           PromiseState::Fulfilled => {
-            // Module loaded OK
-            sender.notify(tc_scope);
+            if let Some(exception) = tc_scope.exception() {
+              _ = sender.sender.take().unwrap().send(exception_to_err_result(
+                tc_scope, exception, true, false,
+              ));
+            } else {
+              // Module loaded OK
+              sender.notify(tc_scope);
+            }
           }
           PromiseState::Rejected => {
             // Module was rejected
@@ -1102,6 +1117,11 @@ impl ModuleMap {
             _ = sender.sender.take().unwrap().send(Err(err.into()));
           }
           PromiseState::Pending => {
+            // User code shouldn't be able to both cause the runtime to fail and leave the promise as
+            // pending because the only way to adopt a pending promise is to use `await` and
+            // `await` won't work if you've broken the runtime in such a way that `promise::then`
+            // didn't work.
+            debug_assert!(tc_scope.is_execution_terminating());
             // Module pending, just drop the sender at this point -- we can't do anything with a shut-down runtime.
             drop(sender);
           }

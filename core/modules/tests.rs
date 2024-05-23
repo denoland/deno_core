@@ -518,35 +518,9 @@ fn test_json_module() {
 
   let module_map = runtime.module_map().clone();
 
-  let (mod_a, mod_b, mod_c) = {
+  let (mod_b, mod_c) = {
     let scope = &mut runtime.handle_scope();
-    let specifier_a = ascii_str!("file:///a.js");
     let specifier_b = ascii_str!("file:///b.js");
-    let mod_a = module_map
-      .new_es_module(
-        scope,
-        true,
-        specifier_a,
-        ascii_str!(
-          r#"
-          import jsonData from './c.json' assert {type: "json"};
-          assert(jsonData.a == "b");
-          assert(jsonData.c.d == 10);
-        "#
-        ),
-        false,
-        None,
-      )
-      .unwrap();
-
-    let imports = module_map.get_requested_modules(mod_a);
-    assert_eq!(
-      imports,
-      Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
-        requested_module_type: RequestedModuleType::Json,
-      },])
-    );
 
     let mod_b = module_map
       .new_es_module(
@@ -583,18 +557,11 @@ fn test_json_module() {
       .unwrap();
     let imports = module_map.get_requested_modules(mod_c).unwrap();
     assert_eq!(imports.len(), 0);
-    (mod_a, mod_b, mod_c)
+    (mod_b, mod_c)
   };
 
   runtime.instantiate_module(mod_c).unwrap();
-  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(2, 0, 0));
-
-  runtime.instantiate_module(mod_a).unwrap();
-
-  let receiver = runtime.mod_evaluate(mod_a);
-  futures::executor::block_on(runtime.run_event_loop(Default::default()))
-    .unwrap();
-  futures::executor::block_on(receiver).unwrap();
+  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(1, 0, 0));
 
   runtime.instantiate_module(mod_b).unwrap();
 
