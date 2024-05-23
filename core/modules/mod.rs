@@ -207,7 +207,7 @@ pub type CustomModuleEvaluationCb = Box<
 pub type EvalContextGetCodeCacheCb = Box<
   dyn Fn(
     &str,
-    &v8::Local<v8::String>,
+    &v8::String,
   ) -> Result<ModuleSourceCodeCache, AnyError>,
 >;
 
