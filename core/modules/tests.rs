@@ -1730,7 +1730,6 @@ fn test_load_with_code_cache() {
     let updated_code_cache = loader.updated_code_cache.clone();
     let mut runtime = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
-      enable_code_cache: true,
       ..Default::default()
     });
     let spec = resolve_url("file:///a.js").unwrap();
@@ -1774,7 +1773,6 @@ fn test_load_with_code_cache() {
     let updated_code_cache = loader.updated_code_cache.clone();
     let mut runtime = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
-      enable_code_cache: true,
       ..Default::default()
     });
     let spec = resolve_url("file:///a.js").unwrap();
@@ -1811,7 +1809,6 @@ fn test_load_with_code_cache() {
     let updated_code_cache = loader.updated_code_cache.clone();
     let mut runtime = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
-      enable_code_cache: true,
       ..Default::default()
     });
     let spec = resolve_url("file:///a.js").unwrap();

@@ -1330,7 +1330,6 @@ fn eval_context_with_code_cache() {
       });
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      enable_code_cache: true,
       eval_context_code_cache_cbs: Some((get_code_cache_cb, set_code_cache_cb)),
       ..Default::default()
     });
@@ -1371,7 +1370,6 @@ fn eval_context_with_code_cache() {
       });
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      enable_code_cache: true,
       eval_context_code_cache_cbs: Some((get_code_cache_cb, set_code_cache_cb)),
       ..Default::default()
     });
