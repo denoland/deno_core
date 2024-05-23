@@ -444,9 +444,7 @@ impl JsError {
 
       // Convert them into Vec<JsStackFrame>
       let mut frames: Vec<JsStackFrame> = match frames_v8 {
-        Some(frames_v8) => {
-          serde_v8::from_v8(scope, frames_v8.into()).unwrap_or(Vec::new())
-        }
+        Some(frames_v8) => serde_v8::from_v8(scope, frames_v8.into()).unwrap(),
         None => vec![],
       };
       let mut source_line = None;

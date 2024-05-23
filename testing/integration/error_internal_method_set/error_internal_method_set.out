@@ -1,0 +1,2 @@
+[ERR] ReferenceError: variable is not defined
+[ERR]     at test:///integration/error_internal_method_set/error_internal_method_set.ts:10:1

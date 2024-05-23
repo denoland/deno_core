@@ -487,6 +487,19 @@
     },
   );
 
+  primordials.ArrayPrototypePush = (thisArray, ...variableArgs) => {
+    const args = [...variableArgs];
+    for (let i = 0; i < args.length; i++) {
+      ObjectDefineProperty(thisArray, thisArray.length, {
+        value: args[i],
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return thisArray.length;
+  };
+
   primordials.ArrayPrototypeToString = (thisArray) =>
     ArrayPrototypeJoin(thisArray);
 
