@@ -15,8 +15,8 @@ use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
-use crate::modules::ModuleSourceCodeCache;
 use crate::modules::RequestedModuleType;
+use crate::modules::SourceCodeCacheInfo;
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
@@ -226,7 +226,7 @@ impl Future for DelayedSourceCodeFuture {
           src.0,
           inner.url.as_str(),
           src.1,
-          Some(ModuleSourceCodeCache {
+          Some(SourceCodeCacheInfo {
             hash,
             data: inner
               .code_cache
@@ -1730,7 +1730,6 @@ fn test_load_with_code_cache() {
     let updated_code_cache = loader.updated_code_cache.clone();
     let mut runtime = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
-      enable_code_cache: true,
       ..Default::default()
     });
     let spec = resolve_url("file:///a.js").unwrap();
@@ -1774,7 +1773,6 @@ fn test_load_with_code_cache() {
     let updated_code_cache = loader.updated_code_cache.clone();
     let mut runtime = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
-      enable_code_cache: true,
       ..Default::default()
     });
     let spec = resolve_url("file:///a.js").unwrap();
@@ -1811,7 +1809,6 @@ fn test_load_with_code_cache() {
     let updated_code_cache = loader.updated_code_cache.clone();
     let mut runtime = JsRuntime::new(RuntimeOptions {
       module_loader: Some(loader),
-      enable_code_cache: true,
       ..Default::default()
     });
     let spec = resolve_url("file:///a.js").unwrap();

@@ -202,10 +202,14 @@ pub type CustomModuleEvaluationCb = Box<
   ) -> Result<CustomModuleEvaluationKind, AnyError>,
 >;
 
+/// A callback to get the code cache for a script.
+/// (specifier, code) -> ...
 pub type EvalContextGetCodeCacheCb =
-  Box<dyn Fn(&str) -> Result<Option<Cow<'static, [u8]>>, AnyError>>;
+  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, AnyError>>;
 
-pub type EvalContextCodeCacheReadyCb = Box<dyn Fn(&str, &[u8])>;
+/// Callback when the code cache is ready.
+/// (specifier, hash, data) -> ()
+pub type EvalContextCodeCacheReadyCb = Box<dyn Fn(Url, u64, &[u8])>;
 
 pub enum CustomModuleEvaluationKind {
   /// This evaluation results in a single, "synthetic" module.
@@ -338,7 +342,7 @@ impl ModuleType {
 }
 
 #[derive(Debug)]
-pub struct ModuleSourceCodeCache {
+pub struct SourceCodeCacheInfo {
   pub hash: u64,
   pub data: Option<Cow<'static, [u8]>>,
 }
@@ -363,7 +367,7 @@ pub struct ModuleSourceCodeCache {
 pub struct ModuleSource {
   pub code: ModuleSourceCode,
   pub module_type: ModuleType,
-  pub code_cache: Option<ModuleSourceCodeCache>,
+  pub code_cache: Option<SourceCodeCacheInfo>,
   module_url_specified: ModuleName,
   /// If the module was found somewhere other than the specified address, this will be [`Some`].
   module_url_found: Option<ModuleName>,
@@ -375,7 +379,7 @@ impl ModuleSource {
     module_type: impl Into<ModuleType>,
     code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
-    code_cache: Option<ModuleSourceCodeCache>,
+    code_cache: Option<SourceCodeCacheInfo>,
   ) -> Self {
     let module_url_specified = specifier.as_ref().to_owned().into();
     Self {
@@ -394,7 +398,7 @@ impl ModuleSource {
     code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
     specifier_found: &ModuleSpecifier,
-    code_cache: Option<ModuleSourceCodeCache>,
+    code_cache: Option<SourceCodeCacheInfo>,
   ) -> Self {
     let module_url_found = if specifier == specifier_found {
       None
@@ -428,7 +432,7 @@ impl ModuleSource {
     code: &'static str,
     specified: impl AsRef<str>,
     found: impl AsRef<str>,
-    code_cache: Option<ModuleSourceCodeCache>,
+    code_cache: Option<SourceCodeCacheInfo>,
   ) -> Self {
     let specified = specified.as_ref().to_string();
     let found = found.as_ref().to_string();
