@@ -487,8 +487,7 @@
     },
   );
 
-  primordials.ArrayPrototypePush = (thisArray, ...variableArgs) => {
-    const args = [...variableArgs];
+  primordials.ArrayPrototypePush = (thisArray, ...args) => {
     for (let i = 0; i < args.length; i++) {
       ObjectDefineProperty(thisArray, thisArray.length, {
         value: args[i],
