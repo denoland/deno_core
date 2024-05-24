@@ -490,6 +490,7 @@
   primordials.ArrayPrototypePush = (thisArray, ...args) => {
     for (let i = 0; i < args.length; i++) {
       ObjectDefineProperty(thisArray, thisArray.length, {
+        __proto__: null,
         value: args[i],
         enumerable: true,
         writable: true,
