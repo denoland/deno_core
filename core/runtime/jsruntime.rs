@@ -536,11 +536,6 @@ pub struct RuntimeOptions {
   /// embedders might implement loading WASM or test modules.
   pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
 
-  // Controls whether V8 code cache is enabled. Code cache can be applied
-  // to ES modules (loaded through `ModuleLoader`) and to scripts evaluated
-  // through `Deno.core.evalContext`.
-  pub enable_code_cache: bool,
-
   /// Callbacks to retrieve and store code cache for scripts evaluated
   /// through evalContext.
   pub eval_context_code_cache_cbs:
@@ -688,14 +683,10 @@ impl JsRuntime {
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
     let (eval_context_get_code_cache_cb, eval_context_set_code_cache_cb) =
-      if options.enable_code_cache {
-        options
-          .eval_context_code_cache_cbs
-          .map(|cbs| (Some(cbs.0), Some(cbs.1)))
-          .unwrap_or_default()
-      } else {
-        (None, None)
-      };
+      options
+        .eval_context_code_cache_cbs
+        .map(|cbs| (Some(cbs.0), Some(cbs.1)))
+        .unwrap_or_default();
     let state_rc = Rc::new(JsRuntimeState {
       source_mapper: RefCell::new(source_mapper),
       shared_array_buffer_store: options.shared_array_buffer_store,
@@ -892,7 +883,6 @@ impl JsRuntime {
       loader,
       exception_state.clone(),
       import_meta_resolve_cb,
-      options.enable_code_cache,
     ));
 
     if let Some((snapshotted_data, mut data_store)) = snapshotted_data {

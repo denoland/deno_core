@@ -21,5 +21,7 @@ test(function testBufferTransfer() {
   op_v8slice_store("buffer", data);
   buffer.transfer(100);
   const output = op_v8slice_clone("buffer");
-  assertArrayEquals(output, new Uint8Array(100));
+  // Note: after https://chromium-review.googlesource.com/c/v8/v8/+/5394731 landed, the underlying
+  // AB backingstore is no longer resized.
+  assertArrayEquals(output, new Uint8Array(1024 * 1024));
 });
