@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// @ts-nocheck: For error validation
 
 // This test refers to the issue.
 // https://github.com/denoland/deno_core/issues/744
