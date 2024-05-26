@@ -91,9 +91,9 @@ impl ModEvaluate {
 }
 
 type CodeCacheReadyCallback =
-  Box<dyn Fn(&[u8]) -> Pin<Box<dyn Future<Output = ()>>>>;
+  Box<dyn FnOnce(&[u8]) -> Pin<Box<dyn Future<Output = ()>>>>;
 pub(crate) struct CodeCacheInfo {
-  code_cache: Option<Cow<'static, [u8]>>,
+  data: Option<Cow<'static, [u8]>>,
   ready_callback: CodeCacheReadyCallback,
 }
 
@@ -139,7 +139,6 @@ pub(crate) struct ModuleMap {
   pending_code_cache_ready: Cell<bool>,
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
-  enable_code_cache: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -193,7 +192,6 @@ impl ModuleMap {
     loader: Rc<dyn ModuleLoader>,
     exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
-    enable_code_cache: bool,
   ) -> Self {
     Self {
       loader: loader.into(),
@@ -212,7 +210,6 @@ impl ModuleMap {
       pending_code_cache_ready: Default::default(),
       module_waker: Default::default(),
       data: Default::default(),
-      enable_code_cache,
     }
   }
 
@@ -346,24 +343,25 @@ impl ModuleMap {
           ModuleSource::get_string_source(module_url_found.as_str(), code)
             .map_err(ModuleError::Other)?;
 
-        let (code_cache_info, module_url_found) = if self.enable_code_cache {
-          let (module_url_found1, module_url_found2) =
-            module_url_found.into_cheap_copy();
-          let loader = self.loader.borrow().clone();
-          (
-            Some(CodeCacheInfo {
-              code_cache,
-              ready_callback: Box::new(move |cache| {
-                let specifier =
-                  ModuleSpecifier::parse(module_url_found1.as_str()).unwrap();
-                loader.code_cache_ready(&specifier, cache)
+        let (code_cache_info, module_url_found) =
+          if let Some(code_cache) = code_cache {
+            let (module_url_found1, module_url_found2) =
+              module_url_found.into_cheap_copy();
+            let loader = self.loader.borrow().clone();
+            (
+              Some(CodeCacheInfo {
+                data: code_cache.data,
+                ready_callback: Box::new(move |cache| {
+                  let specifier =
+                    ModuleSpecifier::parse(module_url_found1.as_str()).unwrap();
+                  loader.code_cache_ready(specifier, code_cache.hash, cache)
+                }),
               }),
-            }),
-            module_url_found2,
-          )
-        } else {
-          (None, module_url_found)
-        };
+              module_url_found2,
+            )
+          } else {
+            (None, module_url_found)
+          };
 
         self.new_module_from_js_source(
           scope,
@@ -441,16 +439,16 @@ impl ModuleMap {
               exports,
             )?;
 
-            let (code_cache_info, url2) = if self.enable_code_cache {
+            let (code_cache_info, url2) = if let Some(code_cache) = code_cache {
               let (url1, url2) = url2.into_cheap_copy();
               let loader = self.loader.borrow().clone();
               (
                 Some(CodeCacheInfo {
-                  code_cache,
+                  data: code_cache.data,
                   ready_callback: Box::new(move |cache| {
                     let specifier =
                       ModuleSpecifier::parse(url1.as_str()).unwrap();
-                    loader.code_cache_ready(&specifier, cache)
+                    loader.code_cache_ready(specifier, code_cache.hash, cache)
                   }),
                 }),
                 url2,
@@ -599,7 +597,7 @@ impl ModuleMap {
     let (maybe_module, try_store_code_cache) = code_cache_info
       .as_ref()
       .and_then(|code_cache_info| {
-        code_cache_info.code_cache.as_ref().map(|cache| {
+        code_cache_info.data.as_ref().map(|cache| {
           let mut source = v8::script_compiler::Source::new_with_cached_data(
             source_str,
             Some(&origin),
@@ -1090,12 +1088,27 @@ impl ModuleMap {
           .then2(tc_scope, on_fulfilled.unwrap(), on_rejected.unwrap())
           .is_none()
       {
-        // The runtime might have been shut down, so we need to synthesize a promise result here
+        // There are two reasons we could be here:
+        // 1. The runtime is shutting down, and JS ops are disabled with termination exceptions.
+        // 2. User code has tampered with the runtime globals in some way that prevents us from
+        //    attaching `on_fulfilled`/`on_rejected` to `promise`.
+        // In these cases we still need to report something back, so synthesize the result from the
+        // promise.
+
+        // Unset pending mod evaluation as the handlers will never run. See debug_assert below.
+        self.pending_mod_evaluation.set(false);
+
         let mut sender = get_sender(evaluation.into());
         match promise.state() {
           PromiseState::Fulfilled => {
-            // Module loaded OK
-            sender.notify(tc_scope);
+            if let Some(exception) = tc_scope.exception() {
+              _ = sender.sender.take().unwrap().send(exception_to_err_result(
+                tc_scope, exception, true, false,
+              ));
+            } else {
+              // Module loaded OK
+              sender.notify(tc_scope);
+            }
           }
           PromiseState::Rejected => {
             // Module was rejected
@@ -1104,6 +1117,11 @@ impl ModuleMap {
             _ = sender.sender.take().unwrap().send(Err(err.into()));
           }
           PromiseState::Pending => {
+            // User code shouldn't be able to both cause the runtime to fail and leave the promise as
+            // pending because the only way to adopt a pending promise is to use `await` and
+            // `await` won't work if you've broken the runtime in such a way that `promise::then`
+            // didn't work.
+            debug_assert!(tc_scope.is_execution_terminating());
             // Module pending, just drop the sender at this point -- we can't do anything with a shut-down runtime.
             drop(sender);
           }
@@ -1723,12 +1741,12 @@ impl ModuleMap {
       scope,
       module_specifier,
       ModuleSource::get_string_source(specifier.as_str(), source.code)?,
-      if self.enable_code_cache {
+      if let Some(code_cache) = source.code_cache {
         let loader = self.loader.borrow().clone();
         Some(CodeCacheInfo {
-          code_cache: source.code_cache,
+          data: code_cache.data,
           ready_callback: Box::new(move |cache| {
-            loader.code_cache_ready(&specifier, cache)
+            loader.code_cache_ready(specifier, code_cache.hash, cache)
           }),
         })
       } else {

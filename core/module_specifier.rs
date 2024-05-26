@@ -143,10 +143,10 @@ pub fn resolve_path(
 /// We additionally require the scheme to be at least 2 characters long,
 /// because otherwise a windows path like c:/foo would be treated as a URL,
 /// while no schemes with a one-letter name actually exist.
-fn specifier_has_uri_scheme(specifier: &str) -> bool {
+pub fn specifier_has_uri_scheme(specifier: &str) -> bool {
   let mut chars = specifier.chars();
   let mut len = 0usize;
-  // THe first character must be a letter.
+  // The first character must be a letter.
   match chars.next() {
     Some(c) if c.is_ascii_alphabetic() => len += 1,
     _ => return false,

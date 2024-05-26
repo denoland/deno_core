@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.280.0"
+version = "0.283.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -54,6 +54,7 @@ deno_ast.workspace = true
 fastrand.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
+twox-hash.workspace = true
 unicycle = "0"
 
 [[bench]]

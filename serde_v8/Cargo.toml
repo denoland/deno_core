@@ -2,7 +2,7 @@
 
 [package]
 name = "serde_v8"
-version = "0.189.0"
+version = "0.192.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -28,11 +28,3 @@ serde_v8_utilities = { path = "./utilities" }
 
 [[example]]
 name = "basic"
-
-[[bench]]
-name = "de"
-harness = false
-
-[[bench]]
-name = "ser"
-harness = false
