@@ -159,6 +159,16 @@ pub fn to_v8_error<'a>(
   }
 }
 
+pub(crate) fn call_site_evals_key<'a>(
+  scope: &mut v8::HandleScope<'a>,
+) -> v8::Local<'a, v8::Private> {
+  const CALL_SITE_EVALS: v8::OneByteConst =
+    v8::String::create_external_onebyte_const(b"#callSiteEvals");
+  let name =
+    v8::String::new_from_onebyte_const(scope, &CALL_SITE_EVALS).unwrap();
+  v8::Private::for_api(scope, Some(name))
+}
+
 /// A `JsError` represents an exception coming from V8, with stack frames and
 /// line numbers. The deno_cli crate defines another `JsError` type, which wraps
 /// the one defined here, that adds source map support and colorful formatting.
@@ -430,14 +440,17 @@ impl JsError {
       });
 
       // Access error.stack to ensure that prepareStackTrace() has been called.
-      // This should populate error.__callSiteEvals.
+      // This should populate error.#callSiteEvals.
       let stack = get_property(scope, exception, "stack");
       let stack: Option<v8::Local<v8::String>> =
         stack.and_then(|s| s.try_into().ok());
       let stack = stack.map(|s| s.to_rust_string_lossy(scope));
 
-      // Read an array of structured frames from error.__callSiteEvals.
-      let frames_v8 = get_property(scope, exception, "__callSiteEvals");
+      // Read an array of structured frames from error.#callSiteEvals.
+      let frames_v8 = {
+        let key = call_site_evals_key(scope);
+        exception.get_private(scope, key)
+      };
       // Ignore non-array values
       let frames_v8: Option<v8::Local<v8::Array>> =
         frames_v8.and_then(|a| a.try_into().ok());
@@ -667,9 +680,12 @@ pub(crate) fn has_call_site(
   }
   let exception = exception.to_object(scope).unwrap();
   // Access error.stack to ensure that prepareStackTrace() has been called.
-  // This should populate error.__callSiteEvals.
+  // This should populate error.#callSiteEvals.
   get_property(scope, exception, "stack");
-  let frames_v8 = get_property(scope, exception, "__callSiteEvals");
+  let frames_v8 = {
+    let key = call_site_evals_key(scope);
+    exception.get_private(scope, key)
+  };
   let frames_v8: Option<v8::Local<v8::Array>> =
     frames_v8.and_then(|a| a.try_into().ok());
   if let Some(frames_v8) = frames_v8 {

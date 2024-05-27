@@ -7,10 +7,10 @@
     op_format_file_name,
     op_apply_source_map,
     op_apply_source_map_filename,
+    op_set_call_site_evals,
   } = core.ops;
   const {
     Error,
-    ObjectDefineProperties,
     ArrayPrototypePush,
     StringPrototypeStartsWith,
     StringPrototypeEndsWith,
@@ -127,9 +127,7 @@
     } else {
       stack = "";
     }
-    ObjectDefineProperties(error, {
-      __callSiteEvals: { __proto__: null, value: [], configurable: true },
-    });
+    const callSiteEvals = [];
     for (let i = 0; i < callSites.length; ++i) {
       const v8CallSite = callSites[i];
       const callSite = {
@@ -169,9 +167,10 @@
       if (res >= 2) {
         callSite.fileName = op_apply_source_map_filename();
       }
-      ArrayPrototypePush(error.__callSiteEvals, callSite);
+      ArrayPrototypePush(callSiteEvals, callSite);
       stack += `\n    at ${formatCallSiteEval(callSite)}`;
     }
+    op_set_call_site_evals(error, callSiteEvals);
     return stack;
   }
 
