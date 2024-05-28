@@ -699,7 +699,14 @@ pub(crate) fn has_call_site(
 const DATA_URL_ABBREV_THRESHOLD: usize = 150;
 
 pub fn format_file_name(file_name: &str) -> String {
-  abbrev_file_name(file_name).unwrap_or_else(|| file_name.to_string())
+  abbrev_file_name(file_name).unwrap_or_else(|| {
+    // same as to_percent_decoded_str() in cli/util/path.rs
+    match percent_encoding::percent_decode_str(file_name).decode_utf8() {
+      Ok(s) => s.to_string(),
+      // when failing as utf-8, just return the original string
+      Err(_) => file_name.to_string(),
+    }
+  })
 }
 
 fn abbrev_file_name(file_name: &str) -> Option<String> {
