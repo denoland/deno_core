@@ -76,7 +76,7 @@ pub trait ModuleLoader {
   /// It's not required to implement this method.
   fn prepare_load(
     &self,
-    _module_specifier: &ModuleSpecifier,
+    _module_specifiers: &[ModuleSpecifier],
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
@@ -220,7 +220,7 @@ impl ModuleLoader for ExtModuleLoader {
 
   fn prepare_load(
     &self,
-    _specifier: &ModuleSpecifier,
+    _specifiers: &[ModuleSpecifier],
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
@@ -275,7 +275,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
 
   fn prepare_load(
     &self,
-    _specifier: &ModuleSpecifier,
+    _specifiers: &[ModuleSpecifier],
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
@@ -464,14 +464,14 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
 
   fn prepare_load(
     &self,
-    module_specifier: &ModuleSpecifier,
+    module_specifiers: &[ModuleSpecifier],
     maybe_referrer: Option<String>,
     is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
     self.prepare_count.set(self.prepare_count.get() + 1);
     self
       .loader
-      .prepare_load(module_specifier, maybe_referrer, is_dyn_import)
+      .prepare_load(module_specifiers, maybe_referrer, is_dyn_import)
   }
 
   fn load(
