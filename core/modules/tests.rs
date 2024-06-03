@@ -988,7 +988,7 @@ async fn dyn_import_err() {
     // We should get an error here.
     let result = runtime.poll_event_loop(cx, Default::default());
     assert!(matches!(result, Poll::Ready(Err(_))));
-    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(3, 1, 1));
     Poll::Ready(())
   })
   .await;
@@ -1029,12 +1029,12 @@ async fn dyn_import_ok() {
       runtime.poll_event_loop(cx, Default::default()),
       Poll::Ready(Ok(_))
     ));
-    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(6, 1, 1));
     assert!(matches!(
       runtime.poll_event_loop(cx, Default::default()),
       Poll::Ready(Ok(_))
     ));
-    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(6, 1, 1));
     Poll::Ready(())
   })
   .await;
@@ -1072,10 +1072,10 @@ async fn dyn_import_borrow_mut_error() {
     // Old comments that are likely wrong:
     // First poll runs `prepare_load` hook.
     let _ = runtime.poll_event_loop(cx, Default::default());
-    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(3, 1, 1));
     // Second poll triggers error
     let _ = runtime.poll_event_loop(cx, Default::default());
-    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(4, 1, 1));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(3, 1, 1));
     Poll::Ready(())
   })
   .await;
