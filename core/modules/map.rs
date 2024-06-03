@@ -1432,11 +1432,19 @@ impl ModuleMap {
             .push(async move { (loads, prepare_fut.await) }.boxed_local());
         }
       }
-      let specifier = self.resolve(
+      let specifier = match self.resolve(
         &import.specifier,
         &import.referrer,
         ResolutionKind::DynamicImport,
-      )?;
+      ) {
+        Ok(s) => s,
+        Err(err) => {
+          self.preparing_dynamic_imports.borrow_mut().push(
+            async move { (smallvec![import.load], Err(err)) }.boxed_local(),
+          );
+          continue;
+        }
+      };
       if self
         .data
         .borrow()
@@ -1495,6 +1503,7 @@ impl ModuleMap {
 
         match prepare_result {
           Ok(()) => {
+            debug_assert!(!dyn_imports.is_empty());
             for load in dyn_imports {
               self
                 .pending_dynamic_imports
