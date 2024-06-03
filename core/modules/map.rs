@@ -1399,11 +1399,11 @@ impl ModuleMap {
     Ok(())
   }
 
-  fn prepare_buffered_dyn_imports(&self) -> Result<(), Error> {
+  fn prepare_buffered_dyn_imports(&self) {
     let mut buffered = self.buffered_pending_dynamic_imports.take();
 
     if buffered.is_empty() {
-      return Ok(());
+      return;
     }
 
     self.preparing_dynamic_imports_pending.set(true);
@@ -1468,7 +1468,7 @@ impl ModuleMap {
     if !loads.is_empty() {
       let prepare_fut = self.loader.borrow().prepare_load(
         &module_specifiers,
-        Some(current_referrer.unwrap()),
+        current_referrer,
         true,
       );
       self
@@ -1476,8 +1476,6 @@ impl ModuleMap {
         .borrow_mut()
         .push(async move { (loads, prepare_fut.await) }.boxed_local());
     }
-
-    Ok(())
   }
 
   fn poll_prepare_dyn_imports(
@@ -1489,7 +1487,7 @@ impl ModuleMap {
       return Poll::Ready(Ok(()));
     }
 
-    self.prepare_buffered_dyn_imports()?;
+    self.prepare_buffered_dyn_imports();
 
     loop {
       let poll_result = self
@@ -1514,7 +1512,9 @@ impl ModuleMap {
           }
           Err(err) => {
             let exception = to_v8_type_error(scope, err);
-            self.dynamic_import_reject(scope, dyn_imports[0].id, exception);
+            for load in dyn_imports {
+              self.dynamic_import_reject(scope, load.id, exception.clone());
+            }
           }
         }
         // Continue polling for more prepared dynamic imports.
