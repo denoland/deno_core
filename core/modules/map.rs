@@ -27,7 +27,6 @@ use crate::runtime::JsRealm;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
 use crate::FastStaticString;
-use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleLoadResponse;
 use crate::ModuleSource;
@@ -118,6 +117,13 @@ struct DynImportModEvaluate {
   module: v8::Global<v8::Module>,
 }
 
+struct BufferedPendingDynImport {
+  referrer: String,
+  specifier: String,
+  module_type: RequestedModuleType,
+  load: RecursiveModuleLoad,
+}
+
 /// A collection of JS modules.
 pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
@@ -143,12 +149,8 @@ pub(crate) struct ModuleMap {
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
 
-  buffered_pending_dynamic_imports: RefCell<
-    HashMap<
-      FastString,
-      Vec<(FastString, RequestedModuleType, RecursiveModuleLoad)>,
-    >,
-  >,
+  buffered_pending_dynamic_imports:
+    RefCell<SmallVec<[BufferedPendingDynImport; 1]>>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -941,17 +943,14 @@ impl ModuleMap {
       .borrow_mut()
       .insert(load.id, resolver_handle);
 
-    self
-      .buffered_pending_dynamic_imports
-      .borrow_mut()
-      .entry(FastString::from(referrer.to_string()))
-      .or_default()
-      .push((
-        FastString::from(specifier.to_string()),
-        requested_module_type,
+    self.buffered_pending_dynamic_imports.borrow_mut().push(
+      BufferedPendingDynImport {
+        referrer: referrer.to_string(),
+        specifier: specifier.to_string(),
+        module_type: requested_module_type,
         load,
-      ));
-
+      },
+    );
     self.preparing_dynamic_imports_pending.set(true);
   }
 
@@ -1400,6 +1399,79 @@ impl ModuleMap {
     Ok(())
   }
 
+  fn prepare_buffered_dyn_imports(&self) -> Result<(), Error> {
+    let mut buffered = self.buffered_pending_dynamic_imports.take();
+
+    if buffered.is_empty() {
+      return Ok(());
+    }
+
+    self.preparing_dynamic_imports_pending.set(true);
+
+    let mut loads = SmallVec::new();
+    let mut module_specifiers = SmallVec::<[ModuleSpecifier; 1]>::new();
+    let mut current_referrer = None;
+
+    // Go through all the imports and prepare them, batching by referrer
+    buffered.sort_by(|a, b| a.referrer.cmp(&b.referrer));
+    for import in buffered {
+      if current_referrer.as_ref() != Some(&import.referrer) {
+        // Prepare the previous batch of imports
+        let prev_referrer = current_referrer.take();
+        if let Some(prev_referrer) = prev_referrer {
+          let module_specifiers = std::mem::take(&mut module_specifiers);
+          let loads = std::mem::take(&mut loads);
+          let prepare_fut = self.loader.borrow().prepare_load(
+            &module_specifiers,
+            Some(prev_referrer),
+            true,
+          );
+          self
+            .preparing_dynamic_imports
+            .borrow_mut()
+            .push(async move { (loads, prepare_fut.await) }.boxed_local());
+        }
+      }
+      let specifier = self.resolve(
+        &import.specifier,
+        &import.referrer,
+        ResolutionKind::DynamicImport,
+      )?;
+      if self
+        .data
+        .borrow()
+        .is_registered(specifier.as_str(), &import.module_type)
+      {
+        // Already registered, skip preparing it.
+        self
+          .preparing_dynamic_imports
+          .borrow_mut()
+          .push(async move { (smallvec![import.load], Ok(())) }.boxed_local());
+      } else {
+        module_specifiers.push(specifier);
+        loads.push(import.load);
+      }
+      if current_referrer.is_none() {
+        current_referrer = Some(import.referrer);
+      }
+    }
+
+    // Prepare the last batch of imports
+    if !loads.is_empty() {
+      let prepare_fut = self.loader.borrow().prepare_load(
+        &module_specifiers,
+        Some(current_referrer.unwrap()),
+        true,
+      );
+      self
+        .preparing_dynamic_imports
+        .borrow_mut()
+        .push(async move { (loads, prepare_fut.await) }.boxed_local());
+    }
+
+    Ok(())
+  }
+
   fn poll_prepare_dyn_imports(
     &self,
     cx: &mut Context,
@@ -1409,41 +1481,7 @@ impl ModuleMap {
       return Poll::Ready(Ok(()));
     }
 
-    let buffered = self.buffered_pending_dynamic_imports.take();
-
-    if !buffered.is_empty() {
-      self.preparing_dynamic_imports_pending.set(true);
-    }
-    for (referrer, files) in buffered {
-      let mut loads = SmallVec::with_capacity(files.len());
-      let mut module_specifiers = Vec::with_capacity(files.len());
-      for (specifier, ty, load) in files {
-        let specifier =
-          self.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)?;
-        if self.data.borrow().is_registered(specifier.as_str(), ty) {
-          self
-            .preparing_dynamic_imports
-            .borrow_mut()
-            .push(async move { (smallvec![load], Ok(())) }.boxed_local());
-          continue;
-        }
-        module_specifiers.push(specifier);
-        loads.push(load);
-      }
-
-      if loads.is_empty() {
-        continue;
-      }
-      let prepare_fut = self.loader.borrow().prepare_load(
-        &module_specifiers,
-        Some(referrer.to_string()),
-        true,
-      );
-      self
-        .preparing_dynamic_imports
-        .borrow_mut()
-        .push(async move { (loads, prepare_fut.await) }.boxed_local());
-    }
+    self.prepare_buffered_dyn_imports()?;
 
     loop {
       let poll_result = self
