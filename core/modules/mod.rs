@@ -47,6 +47,15 @@ pub enum ModuleSourceCode {
   Bytes(ModuleCodeBytes),
 }
 
+impl ModuleSourceCode {
+  pub fn as_bytes(&self) -> &[u8] {
+    match self {
+      Self::String(s) => s.as_bytes(),
+      Self::Bytes(b) => b.as_bytes(),
+    }
+  }
+}
+
 pub type ModuleCodeString = FastString;
 pub type ModuleName = FastString;
 
