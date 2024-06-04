@@ -384,6 +384,18 @@ impl From<Arc<str>> for FastString {
   }
 }
 
+impl Into<Arc<str>> for FastString {
+  fn into(self) -> Arc<str> {
+    use FastStringInner::*;
+    match self.inner {
+      Static(text) | StaticAscii(text) => text.into(),
+      StaticConst(text) => text.as_ref().into(),
+      Owned(text) => text.into(),
+      Arc(text) => text,
+    }
+  }
+}
+
 impl serde::Serialize for FastString {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
