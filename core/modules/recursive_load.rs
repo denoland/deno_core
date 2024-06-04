@@ -361,14 +361,17 @@ impl Stream for RecursiveModuleLoad {
         inner.try_poll_next_unpin(cx)
       }
       LoadState::LoadingRoot | LoadState::LoadingImports => {
+        // Poll the futures that load the source code of the modules
         match inner.pending.try_poll_next_unpin(cx)? {
           Poll::Ready(None) => unreachable!(),
           Poll::Ready(Some(None)) => {
+            // The future resolves to None when loading an already visited redirect
             if inner.pending.is_empty() {
               inner.state = LoadState::Done;
               Poll::Ready(None)
             } else {
-              Poll::Pending
+              // Force re-poll to make sure new ModuleLoadFuture's wakers are registered
+              inner.try_poll_next_unpin(cx)
             }
           }
           Poll::Ready(Some(Some(info))) => Poll::Ready(Some(Ok(info))),
