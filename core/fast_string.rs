@@ -384,10 +384,10 @@ impl From<Arc<str>> for FastString {
   }
 }
 
-impl Into<Arc<str>> for FastString {
-  fn into(self) -> Arc<str> {
+impl From<FastString> for Arc<str> {
+  fn from(value: FastString) -> Self {
     use FastStringInner::*;
-    match self.inner {
+    match value.inner {
       Static(text) | StaticAscii(text) => text.into(),
       StaticConst(text) => text.as_ref().into(),
       Owned(text) => text.into(),
