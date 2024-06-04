@@ -41,7 +41,7 @@ pub(crate) type ModuleLoadId = i32;
 /// The actual source code returned from the loader. Most embedders should
 /// try to return bytes and let deno_core interpret if the module should be
 /// converted to a string or not.
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub enum ModuleSourceCode {
   String(ModuleCodeString),
   Bytes(ModuleCodeBytes),
@@ -120,7 +120,7 @@ impl IntoModuleCodeString for Arc<str> {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub enum ModuleCodeBytes {
   /// Created from static data.
   Static(&'static [u8]),
