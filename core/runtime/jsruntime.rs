@@ -861,7 +861,9 @@ impl JsRuntime {
       );
     }
 
-    context.set_slot(scope, context_state.clone());
+    unsafe {
+    context.set_aligned_pointer_in_embedder_data(1, Rc::into_raw(context_state.clone()) as *mut c_void);
+    }
 
     let inspector = if options.inspector {
       Some(JsRuntimeInspector::new(scope, context, options.is_main))
@@ -1866,6 +1868,8 @@ fn create_context<'a>(
   for middleware in global_template_middlewares {
     global_object_template = middleware(scope, global_object_template);
   }
+
+  global_object_template.set_internal_field_count(2);
   let context = v8::Context::new_from_template(scope, global_object_template);
   let scope = &mut v8::ContextScope::new(scope, context);
 

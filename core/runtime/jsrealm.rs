@@ -199,7 +199,11 @@ impl JsRealm {
     scope: &mut v8::HandleScope,
   ) -> Rc<ContextState> {
     let context = scope.get_current_context();
-    context.get_slot::<Rc<ContextState>>(scope).unwrap().clone()
+    unsafe {
+    let rc = context.get_aligned_pointer_from_embedder_data(1);
+    let rc = &*(rc as *const Rc<ContextState>);
+    rc.clone()
+    }
   }
 
   #[inline(always)]
@@ -213,11 +217,11 @@ impl JsRealm {
     scope: &mut v8::HandleScope,
   ) -> Rc<ExceptionState> {
     let context = scope.get_current_context();
-    context
-      .get_slot::<Rc<ContextState>>(scope)
-      .unwrap()
-      .exception_state
-      .clone()
+    unsafe {
+    let rc = context.get_aligned_pointer_from_embedder_data(1);
+    let rc = &*(rc as *const Rc<ContextState>);
+    rc.exception_state.clone()
+    }
   }
 
   #[cfg(test)]
