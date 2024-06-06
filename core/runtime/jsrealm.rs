@@ -11,6 +11,7 @@ use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
+use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
@@ -68,6 +69,7 @@ pub struct ContextState {
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) get_error_class_fn: GetErrorClassFn,
+  pub(crate) external_ops_tracker: ExternalOpsTracker,
 }
 
 impl ContextState {
@@ -76,6 +78,7 @@ impl ContextState {
     isolate_ptr: *mut v8::OwnedIsolate,
     get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
+    external_ops_tracker: ExternalOpsTracker,
   ) -> Self {
     Self {
       isolate: Some(isolate_ptr),
@@ -91,6 +94,7 @@ impl ContextState {
       task_spawner_factory: Default::default(),
       timers: Default::default(),
       unrefed_ops: Default::default(),
+      external_ops_tracker,
     }
   }
 }

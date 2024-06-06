@@ -811,6 +811,7 @@ impl JsRuntime {
       isolate_ptr,
       options.get_error_class_fn.unwrap_or(&|_| "Error"),
       op_ctxs,
+      op_state.borrow().external_ops_tracker.clone(),
     ));
 
     // TODO(bartlomieju): factor out
@@ -1809,6 +1810,7 @@ impl JsRuntime {
         || pending_state.has_pending_dyn_imports
         || pending_state.has_pending_dyn_module_evaluation
         || pending_state.has_pending_background_tasks
+        || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
@@ -1823,6 +1825,7 @@ impl JsRuntime {
       if pending_state.has_pending_ops
         || pending_state.has_pending_dyn_imports
         || pending_state.has_pending_background_tasks
+        || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
@@ -2011,6 +2014,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_background_tasks: bool,
   has_tick_scheduled: bool,
   has_pending_promise_events: bool,
+  has_pending_external_ops: bool,
 }
 
 impl EventLoopPendingState {
@@ -2053,6 +2057,7 @@ impl EventLoopPendingState {
       has_pending_background_tasks: scope.has_pending_background_tasks(),
       has_tick_scheduled: state.has_next_tick_scheduled.get(),
       has_pending_promise_events,
+      has_pending_external_ops: state.external_ops_tracker.has_pending_ops(),
     }
   }
 
@@ -2071,6 +2076,7 @@ impl EventLoopPendingState {
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
       || self.has_pending_promise_events
+      || self.has_pending_external_ops
   }
 }
 
