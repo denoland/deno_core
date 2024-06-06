@@ -1,8 +1,7 @@
 import { asyncNeverResolves } from "checkin:async";
 
-// make a promise that never resolves to keep the event loop
-// alive without scheduling it to be woken up
-// for polling
+// make a promise that never resolves so we have
+// a pending op outstanding
 const prom = asyncNeverResolves();
 
 // import a module, with the key being that
