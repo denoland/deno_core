@@ -8,6 +8,7 @@ const {
   op_stats_diff,
   op_stats_dump,
   op_stats_delete,
+  op_async_never_resolves,
 } = Deno
   .core
   .ops;
@@ -27,6 +28,12 @@ export async function asyncYield() {
 // This function never returns.
 export async function asyncSpin() {
   await op_async_spin_on_state();
+}
+
+export function asyncNeverResolves() {
+  const prom = op_async_never_resolves();
+  Deno.core.refOpPromise(prom);
+  return prom;
 }
 
 let nextStats = 0;

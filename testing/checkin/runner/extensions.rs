@@ -32,6 +32,7 @@ deno_core::extension!(
     ops_async::op_async_spin_on_state,
     ops_async::op_async_make_cppgc_resource,
     ops_async::op_async_get_cppgc_resource,
+    ops_async::op_async_never_resolves,
     ops_error::op_async_throw_error_eager,
     ops_error::op_async_throw_error_lazy,
     ops_error::op_async_throw_error_deferred,
