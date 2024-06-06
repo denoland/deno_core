@@ -55,6 +55,7 @@ integration_test!(
   builtin_console_test,
   dyn_import_circular,
   dyn_import_op,
+  dyn_import_no_hang,
   error_async_stack,
   error_rejection_catch,
   error_rejection_order,

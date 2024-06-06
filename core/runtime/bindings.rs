@@ -54,9 +54,6 @@ pub(crate) fn create_external_references(
     function: catch_dynamic_import_promise_error.map_fn_to(),
   });
   references.push(v8::ExternalReference {
-    function: empty_fn.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
     function: op_disabled_fn.map_fn_to(),
   });
   let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
@@ -589,14 +586,6 @@ fn import_meta_resolve(
   };
 }
 
-fn empty_fn(
-  _scope: &mut v8::HandleScope,
-  _args: v8::FunctionCallbackArguments,
-  _rv: v8::ReturnValue,
-) {
-  //Do Nothing
-}
-
 pub(crate) fn op_disabled_fn(
   scope: &mut v8::HandleScope,
   _args: v8::FunctionCallbackArguments,
@@ -605,14 +594,6 @@ pub(crate) fn op_disabled_fn(
   let message = v8::String::new(scope, "op is disabled").unwrap();
   let exception = v8::Exception::error(scope, message);
   scope.throw_exception(exception);
-}
-
-//It creates a reference to an empty function which can be mantained after the snapshots
-pub fn create_empty_fn<'s>(
-  scope: &mut v8::HandleScope<'s>,
-) -> Option<v8::Local<'s, v8::Function>> {
-  let empty_fn = v8::FunctionTemplate::new(scope, empty_fn);
-  empty_fn.get_function(scope)
 }
 
 fn catch_dynamic_import_promise_error(
