@@ -1906,7 +1906,7 @@ impl JsRuntimeForSnapshot {
     options: RuntimeOptions,
   ) -> Result<JsRuntimeForSnapshot, Error> {
     setup::init_v8(
-      options.v8_platform.clone(),
+      options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),
     );
