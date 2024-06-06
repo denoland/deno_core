@@ -1,3 +1,4 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { asyncNeverResolves } from "checkin:async";
 
 // make a promise that never resolves so we have
