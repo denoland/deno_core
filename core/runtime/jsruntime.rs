@@ -605,18 +605,25 @@ impl JsRuntime {
   }
 
   /// Only constructor, configuration is done through `options`.
-  pub fn new(mut options: RuntimeOptions) -> JsRuntime {
-    setup::init_v8(
-      options.v8_platform.take(),
-      cfg!(test),
-      options.unsafe_expose_natives_and_gc(),
-    );
-    match JsRuntime::new_inner(options, false) {
+  /// Panics if the runtime cannot be initialized.
+  pub fn new(options: RuntimeOptions) -> JsRuntime {
+    match Self::try_new(options) {
       Ok(runtime) => runtime,
       Err(err) => {
         panic!("Failed to initialize a JsRuntime: {:?}", err);
       }
     }
+  }
+
+  /// Only constructor, configuration is done through `options`.
+  /// Returns an error if the runtime cannot be initialized.
+  pub fn try_new(mut options: RuntimeOptions) -> Result<JsRuntime, Error> {
+    setup::init_v8(
+      options.v8_platform.take(),
+      cfg!(test),
+      options.unsafe_expose_natives_and_gc(),
+    );
+    JsRuntime::new_inner(options, false)
   }
 
   pub(crate) fn state_from(isolate: &v8::Isolate) -> Rc<JsRuntimeState> {
@@ -1884,20 +1891,26 @@ fn create_context<'a>(
 }
 
 impl JsRuntimeForSnapshot {
-  pub fn new(mut options: RuntimeOptions) -> JsRuntimeForSnapshot {
+  /// Create a new runtime, panicking if the process fails.
+  pub fn new(options: RuntimeOptions) -> JsRuntimeForSnapshot {
+    match Self::try_new(options) {
+      Ok(runtime) => runtime,
+      Err(err) => {
+        panic!("Failed to initialize JsRuntime for snapshotting: {:?}", err);
+      }
+    }
+  }
+
+  /// Try to create a new runtime, returning an error if the process fails.
+  pub fn try_new(options: RuntimeOptions) -> Result<JsRuntimeForSnapshot, Error> {
     setup::init_v8(
-      options.v8_platform.take(),
+      options.v8_platform.clone(),
       true,
       options.unsafe_expose_natives_and_gc(),
     );
 
-    let runtime = match JsRuntime::new_inner(options, true) {
-      Ok(r) => r,
-      Err(err) => {
-        panic!("Failed to initialize JsRuntime for snapshotting: {:?}", err);
-      }
-    };
-    JsRuntimeForSnapshot(runtime)
+    let runtime = JsRuntime::new_inner(options, true)?;
+    Ok(JsRuntimeForSnapshot(runtime))
   }
 
   /// Takes a snapshot and consumes the runtime.
