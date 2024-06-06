@@ -1191,9 +1191,9 @@ impl ModuleMap {
     // of module evaluation is a promise.
     //
     // This promise is internal, and not the same one that gets returned to
-    // the user. We add an empty `.catch()` handler so that it does not result
-    // in an exception if it rejects. That will instead happen for the other
-    // promise if not handled by the user.
+    // the user. We add handlers to wake the event loop when the promise resolves
+    // (or rejects). The catch handler also serves to prevent an exception if the internal promise
+    // rejects. That will instead happen for the other if not handled by the user.
     //
     // For more details see:
     // https://github.com/denoland/deno/issues/4908
@@ -1211,28 +1211,19 @@ impl ModuleMap {
           || status == v8::ModuleStatus::Errored
       );
 
-      fn get_module_map(arg: v8::Local<v8::Value>) -> Rc<ModuleMap> {
-        let module_map = v8::Local::<v8::External>::try_from(arg).unwrap();
-        unsafe { &*(module_map.value() as *const Rc<ModuleMap>) }.clone()
-      }
       fn wake_module(
-        _scope: &mut v8::HandleScope<'_>,
-        args: v8::FunctionCallbackArguments<'_>,
+        scope: &mut v8::HandleScope<'_>,
+        _args: v8::FunctionCallbackArguments<'_>,
         _rv: v8::ReturnValue,
       ) {
-        let module_map = get_module_map(args.data());
+        let module_map = JsRealm::module_map_from(scope);
         module_map.module_waker.wake();
       }
 
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
 
-      let module_map =
-        v8::External::new(tc_scope, Box::into_raw(Box::new(self.clone())) as _);
-
-      let wake_module_cb = Function::builder(wake_module)
-        .data(module_map.into())
-        .build(tc_scope);
+      let wake_module_cb = Function::builder(wake_module).build(tc_scope);
 
       if let Some(wake_module_cb) = wake_module_cb {
         promise.then2(tc_scope, wake_module_cb, wake_module_cb);
