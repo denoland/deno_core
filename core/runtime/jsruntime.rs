@@ -1902,7 +1902,9 @@ impl JsRuntimeForSnapshot {
   }
 
   /// Try to create a new runtime, returning an error if the process fails.
-  pub fn try_new(options: RuntimeOptions) -> Result<JsRuntimeForSnapshot, Error> {
+  pub fn try_new(
+    options: RuntimeOptions
+  ) -> Result<JsRuntimeForSnapshot, Error> {
     setup::init_v8(
       options.v8_platform.clone(),
       true,
