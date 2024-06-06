@@ -1170,7 +1170,7 @@ impl ModuleMap {
   }
 
   fn dynamic_import_module_evaluate(
-    self: &Rc<Self>,
+    &self,
     scope: &mut v8::HandleScope,
     load_id: ModuleLoadId,
     id: ModuleId,
@@ -1363,7 +1363,7 @@ impl ModuleMap {
   /// Poll for progress in the module loading logic. Note that this takes a waker but
   /// doesn't act like a normal polling method.
   pub(crate) fn poll_progress(
-    self: &Rc<Self>,
+    &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
   ) -> Result<(), Error> {
@@ -1458,7 +1458,7 @@ impl ModuleMap {
   }
 
   fn poll_dyn_imports(
-    self: &Rc<Self>,
+    &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
   ) -> Poll<Result<(), Error>> {
