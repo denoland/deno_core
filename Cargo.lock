@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.283.0"
+version = "0.286.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.159.0"
+version = "0.162.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -1757,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.192.0"
+version = "0.195.0"
 dependencies = [
  "bencher",
  "num-bigint",
@@ -2648,9 +2648,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.92.0"
+version = "0.93.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "234589219e37a7496cbce73d971586db8369871be2420372c45a579b6a919b15"
+checksum = "abc3ff12243d345cc697c151b29fbb8ad1f898e3f8b7aa1386701ff9f2c7cbbf"
 dependencies = [
  "bitflags",
  "fslock",
@@ -2758,15 +2758,14 @@ dependencies = [
 
 [[package]]
 name = "which"
-version = "5.0.0"
+version = "6.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bf3ea8596f3a0dd5980b46430f2058dfe2c36a27ccfbb1845d6fbfcd9ba6e14"
+checksum = "8211e4f58a2b2805adfbefbc07bab82958fc91e3836339b1ab7ae32465dce0d7"
 dependencies = [
  "either",
  "home",
- "once_cell",
  "rustix",
- "windows-sys 0.48.0",
+ "winsafe",
 ]
 
 [[package]]
@@ -2947,6 +2946,12 @@ checksum = "c3c52e9c97a68071b23e836c9380edae937f17b9c4667bd021973efc689f618d"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "winsafe"
+version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wyz"

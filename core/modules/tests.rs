@@ -132,6 +132,13 @@ Deno.core.print("redirect2");
 
   const REDIRECT3_SRC: &str = r#"Deno.core.print("redirect3");"#;
 
+  const CONCURRENT_REDIRECT_SRC: &str = r#"
+import "./redirect2.js";  // This import loads the module and registers the redirect alias
+import "./dir/redirect2.js";  // This import aborts load only after detecting it's an already loaded redirect
+import "./dir/redirect3.js";  // Tihs import is still in the queue, preventing RecursiveModuleLoad to transition to LoadState::Done
+Deno.core.print("concurrent_redirect");
+"#;
+
   const MAIN_SRC: &str = r#"
 // never_ready.js never loads.
 import "/never_ready.js";
@@ -159,9 +166,13 @@ import "/a.js";
     "/circular2.js" => Some((CIRCULAR2_SRC, "file:///circular2.js")),
     "/circular3.js" => Some((CIRCULAR3_SRC, "file:///circular3.js")),
     "/redirect1.js" => Some((REDIRECT1_SRC, "file:///redirect1.js")),
+    "/dir/redirect2.js" => Some((REDIRECT2_SRC, "file:///dir/redirect2.js")),
     // pretend redirect - real module name is different than one requested
     "/redirect2.js" => Some((REDIRECT2_SRC, "file:///dir/redirect2.js")),
     "/dir/redirect3.js" => Some((REDIRECT3_SRC, "file:///redirect3.js")),
+    "/concurrent_redirect.js" => {
+      Some((CONCURRENT_REDIRECT_SRC, "file:///concurrent_redirect.js"))
+    }
     "/slow.js" => Some((SLOW_SRC, "file:///slow.js")),
     "/never_ready.js" => {
       Some(("should never be Ready", "file:///never_ready.js"))
@@ -1229,6 +1240,52 @@ fn test_redirect_load() {
   futures::executor::block_on(fut);
 }
 
+#[test]
+fn test_concurrent_redirect_load() {
+  let loader = MockLoader::new();
+  let loads = loader.loads.clone();
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let fut =
+    async move {
+      let spec = resolve_url("file:///concurrent_redirect.js").unwrap();
+      let result = runtime.load_main_es_module(&spec).await;
+      assert!(result.is_ok());
+      let concurrent_redirect = result.unwrap();
+      #[allow(clippy::let_underscore_future)]
+      let _ = runtime.mod_evaluate(concurrent_redirect);
+      runtime.run_event_loop(Default::default()).await.unwrap();
+      let l = loads.lock();
+      assert_eq!(
+        l.to_vec(),
+        vec![
+          "file:///concurrent_redirect.js",
+          "file:///redirect2.js",
+          "file:///dir/redirect3.js"
+        ]
+      );
+
+      let module_map_rc = runtime.module_map();
+      let modules = module_map_rc;
+
+      assert_eq!(
+        modules.get_id("file:///redirect2.js", RequestedModuleType::None),
+        modules.get_id("file:///dir/redirect2.js", RequestedModuleType::None)
+      );
+      assert!(
+        modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
+      );
+      assert!(!modules
+        .is_alias("file:///dir/redirect2.js", RequestedModuleType::None));
+    }
+    .boxed_local();
+
+  futures::executor::block_on(fut);
+}
+
 #[tokio::test]
 async fn slow_never_ready_modules() {
   let loader = MockLoader::new();
@@ -1856,4 +1913,15 @@ fn ext_module_loader_relative() {
       .unwrap();
     assert_eq!(result.as_str(), expected);
   }
+}
+
+#[test]
+fn invalid_utf8_module() {
+  let get_string_source = ModuleSource::get_string_source(
+    ModuleSourceCode::Bytes(ModuleCodeBytes::Static(b"// \xFE\xFE\xFF\xFF")),
+  );
+  assert_eq!(
+    get_string_source,
+    FastString::from_static("// \u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}")
+  );
 }

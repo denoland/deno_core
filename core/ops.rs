@@ -16,6 +16,8 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ptr::NonNull;
 use std::rc::Rc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::CTypeInfo;
@@ -278,12 +280,43 @@ impl Drop for OpCtx {
   }
 }
 
+/// Allows an embedder to track operations which should
+/// keep the event loop alive.
+#[derive(Debug, Clone)]
+pub struct ExternalOpsTracker {
+  counter: Arc<AtomicUsize>,
+}
+
+impl ExternalOpsTracker {
+  pub fn ref_op(&self) {
+    self.counter.fetch_add(1, Ordering::Relaxed);
+  }
+
+  pub fn unref_op(&self) {
+    let _ =
+      self
+        .counter
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+          if x == 0 {
+            None
+          } else {
+            Some(x - 1)
+          }
+        });
+  }
+
+  pub(crate) fn has_pending_ops(&self) -> bool {
+    self.counter.load(Ordering::Relaxed) > 0
+  }
+}
+
 /// Maintains the resources and ops inside a JS runtime.
 pub struct OpState {
   pub resource_table: ResourceTable,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
   pub feature_checker: Arc<FeatureChecker>,
+  pub external_ops_tracker: ExternalOpsTracker,
 }
 
 impl OpState {
@@ -293,6 +326,9 @@ impl OpState {
       gotham_state: Default::default(),
       waker: Arc::new(AtomicWaker::new()),
       feature_checker: maybe_feature_checker.unwrap_or_default(),
+      external_ops_tracker: ExternalOpsTracker {
+        counter: Arc::new(AtomicUsize::new(0)),
+      },
     }
   }
 

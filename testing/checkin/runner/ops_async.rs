@@ -78,3 +78,8 @@ pub async fn op_async_get_cppgc_resource(
 ) -> u32 {
   resource.value
 }
+
+#[op2(async)]
+pub fn op_async_never_resolves() -> impl Future<Output = ()> {
+  futures::future::pending::<()>()
+}

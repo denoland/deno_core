@@ -339,9 +339,7 @@ impl ModuleMap {
 
     let module_id = match module_type {
       ModuleType::JavaScript => {
-        let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+        let code = ModuleSource::get_string_source(code);
 
         let (code_cache_info, module_url_found) =
           if let Some(code_cache) = code_cache {
@@ -379,9 +377,7 @@ impl ModuleMap {
         )));
       }
       ModuleType::Json => {
-        let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+        let code = ModuleSource::get_string_source(code);
         self.new_json_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
@@ -1191,9 +1187,9 @@ impl ModuleMap {
     // of module evaluation is a promise.
     //
     // This promise is internal, and not the same one that gets returned to
-    // the user. We add an empty `.catch()` handler so that it does not result
-    // in an exception if it rejects. That will instead happen for the other
-    // promise if not handled by the user.
+    // the user. We add handlers to wake the event loop when the promise resolves
+    // (or rejects). The catch handler also serves to prevent an exception if the internal promise
+    // rejects. That will instead happen for the other if not handled by the user.
     //
     // For more details see:
     // https://github.com/denoland/deno/issues/4908
@@ -1210,11 +1206,28 @@ impl ModuleMap {
         status == v8::ModuleStatus::Evaluated
           || status == v8::ModuleStatus::Errored
       );
+
+      fn wake_module(
+        scope: &mut v8::HandleScope<'_>,
+        _args: v8::FunctionCallbackArguments<'_>,
+        _rv: v8::ReturnValue,
+      ) {
+        let module_map = JsRealm::module_map_from(scope);
+        module_map.module_waker.wake();
+      }
+
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
-      let empty_fn =
-        crate::runtime::bindings::create_empty_fn(tc_scope).unwrap();
-      promise.catch(tc_scope, empty_fn);
+
+      let wake_module_cb = Function::builder(wake_module).build(tc_scope);
+
+      if let Some(wake_module_cb) = wake_module_cb {
+        promise.then2(tc_scope, wake_module_cb, wake_module_cb);
+      } else {
+        // If the runtime is shutting down, we can't attach the handlers.
+        // It doesn't really matter though, because they're just for waking the
+        // event loop.
+      }
       let promise_global = v8::Global::new(tc_scope, promise);
       let module_global = v8::Global::new(tc_scope, module);
 
@@ -1740,7 +1753,7 @@ impl ModuleMap {
     self.lazy_load_es_module_with_code(
       scope,
       module_specifier,
-      ModuleSource::get_string_source(specifier.as_str(), source.code)?,
+      ModuleSource::get_string_source(source.code),
       if let Some(code_cache) = source.code_cache {
         let loader = self.loader.borrow().clone();
         Some(CodeCacheInfo {
