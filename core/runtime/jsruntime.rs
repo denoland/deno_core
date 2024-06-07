@@ -861,8 +861,14 @@ impl JsRuntime {
       );
     }
 
+    // SAFETY: We need to initialize the slot. rusty_v8 currently segfaults
+    // when call `clear_all_slots`.
     unsafe {
-    context.set_aligned_pointer_in_embedder_data(1, Rc::into_raw(context_state.clone()) as *mut c_void);
+      context.set_slot(scope, ());
+      context.set_aligned_pointer_in_embedder_data(
+        super::jsrealm::CONTEXT_STATE_SLOT_INDEX,
+        Box::into_raw(Box::new(context_state.clone())) as *mut c_void,
+      );
     }
 
     let inspector = if options.inspector {
@@ -904,7 +910,13 @@ impl JsRuntime {
       }
     }
 
-    context.set_slot(scope, module_map.clone());
+    // SAFETY: Set the module map slot in the context
+    unsafe {
+      context.set_aligned_pointer_in_embedder_data(
+        super::jsrealm::MODULE_MAP_SLOT_INDEX,
+        Box::into_raw(Box::new(module_map.clone())) as *mut c_void,
+      );
+    }
 
     // ...we are ready to create a "realm" for the context...
     let main_realm = {
