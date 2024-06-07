@@ -5,7 +5,6 @@ use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use crate::FastStaticString;
 use anyhow::bail;
-use anyhow::Context;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -459,17 +458,14 @@ impl ModuleSource {
     }
   }
 
-  pub fn get_string_source(
-    specifier: &str,
-    code: ModuleSourceCode,
-  ) -> Result<ModuleCodeString, AnyError> {
+  pub fn get_string_source(code: ModuleSourceCode) -> ModuleCodeString {
     match code {
-      ModuleSourceCode::String(code) => Ok(code),
+      ModuleSourceCode::String(code) => code,
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
-          format!("Can't convert source code to string for {}", specifier)
-        })?;
-        Ok(ModuleCodeString::from(str_))
+        match String::from_utf8_lossy(bytes.as_bytes()) {
+          Cow::Borrowed(s) => ModuleCodeString::from(s.to_owned()),
+          Cow::Owned(s) => ModuleCodeString::from(s),
+        }
       }
     }
   }

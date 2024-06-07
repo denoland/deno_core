@@ -1914,3 +1914,14 @@ fn ext_module_loader_relative() {
     assert_eq!(result.as_str(), expected);
   }
 }
+
+#[test]
+fn invalid_utf8_module() {
+  let get_string_source = ModuleSource::get_string_source(
+    ModuleSourceCode::Bytes(ModuleCodeBytes::Static(b"// \xFE\xFE\xFF\xFF")),
+  );
+  assert_eq!(
+    get_string_source,
+    FastString::from_static("// \u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}")
+  );
+}
