@@ -235,7 +235,7 @@ impl JsRealm {
     let context = scope.get_current_context();
     // SAFETY: slot is valid and set during realm creation
     unsafe {
-      let rc = context.get_aligned_pointer_from_embedder_data(2);
+      let rc = context.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
       let rc = &*(rc as *const Rc<ModuleMap>);
       rc.clone()
     }
