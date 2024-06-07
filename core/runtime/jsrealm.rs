@@ -28,9 +28,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use v8::Handle;
 
-pub const CONTEXT_STATE_SLOT_INDEX: i32 = 1;
-pub const MODULE_MAP_SLOT_INDEX: i32 = 2;
-
 // Hasher used for `unrefed_ops`. Since these are rolling i32, there's no
 // need to actually hash them.
 #[derive(Default)]
@@ -188,26 +185,7 @@ impl JsRealmInner {
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
-    let ctx = self.context().open(isolate);
-    // SAFETY: Clear all embedder data
-    unsafe {
-      let ctx_state =
-        ctx.get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
-      let _ = Box::from_raw(ctx_state as *mut Rc<ContextState>);
-
-      let module_map =
-        ctx.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
-      let _ = Box::from_raw(module_map as *mut Rc<ModuleMap>);
-      ctx.set_aligned_pointer_in_embedder_data(
-        CONTEXT_STATE_SLOT_INDEX,
-        std::ptr::null_mut(),
-      );
-      ctx.set_aligned_pointer_in_embedder_data(
-        MODULE_MAP_SLOT_INDEX,
-        std::ptr::null_mut(),
-      );
-    }
-    ctx.clear_all_slots(isolate);
+    self.context().open(isolate).clear_all_slots(isolate);
 
     // Expect that this context is dead (we only check this in debug mode)
     // TODO(mmastrac): This check fails for some tests, will need to fix this
@@ -225,32 +203,25 @@ impl JsRealm {
     scope: &mut v8::HandleScope,
   ) -> Rc<ContextState> {
     let context = scope.get_current_context();
-    // SAFETY: slot is valid and set during realm creation
-    unsafe {
-      let rc = context
-        .get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
-      let rc = &*(rc as *const Rc<ContextState>);
-      rc.clone()
-    }
+    context.get_slot::<Rc<ContextState>>(scope).unwrap().clone()
   }
 
   #[inline(always)]
   pub(crate) fn module_map_from(scope: &mut v8::HandleScope) -> Rc<ModuleMap> {
     let context = scope.get_current_context();
-    // SAFETY: slot is valid and set during realm creation
-    unsafe {
-      let rc =
-        context.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
-      let rc = &*(rc as *const Rc<ModuleMap>);
-      rc.clone()
-    }
+    context.get_slot::<Rc<ModuleMap>>(scope).unwrap().clone()
   }
 
   #[inline(always)]
   pub(crate) fn exception_state_from_scope(
     scope: &mut v8::HandleScope,
   ) -> Rc<ExceptionState> {
-    Self::state_from_scope(scope).exception_state.clone()
+    let context = scope.get_current_context();
+    context
+      .get_slot::<Rc<ContextState>>(scope)
+      .unwrap()
+      .exception_state
+      .clone()
   }
 
   #[cfg(test)]

@@ -869,15 +869,7 @@ impl JsRuntime {
       );
     }
 
-    // SAFETY: We need to initialize the slot. rusty_v8 currently segfaults
-    // when call `clear_all_slots`.
-    unsafe {
-      context.set_slot(scope, ());
-      context.set_aligned_pointer_in_embedder_data(
-        super::jsrealm::CONTEXT_STATE_SLOT_INDEX,
-        Box::into_raw(Box::new(context_state.clone())) as *mut c_void,
-      );
-    }
+    context.set_slot(scope, context_state.clone());
 
     let inspector = if options.inspector {
       Some(JsRuntimeInspector::new(scope, context, options.is_main))
@@ -918,13 +910,7 @@ impl JsRuntime {
       }
     }
 
-    // SAFETY: Set the module map slot in the context
-    unsafe {
-      context.set_aligned_pointer_in_embedder_data(
-        super::jsrealm::MODULE_MAP_SLOT_INDEX,
-        Box::into_raw(Box::new(module_map.clone())) as *mut c_void,
-      );
-    }
+    context.set_slot(scope, module_map.clone());
 
     // ...we are ready to create a "realm" for the context...
     let main_realm = {
@@ -1890,8 +1876,6 @@ fn create_context<'a>(
   for middleware in global_template_middlewares {
     global_object_template = middleware(scope, global_object_template);
   }
-
-  global_object_template.set_internal_field_count(2);
   let context = v8::Context::new_from_template(scope, global_object_template);
   let scope = &mut v8::ContextScope::new(scope, context);
 
