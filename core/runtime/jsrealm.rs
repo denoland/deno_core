@@ -185,7 +185,18 @@ impl JsRealmInner {
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
-    self.context().open(isolate).clear_all_slots(isolate);
+    {
+      let context = self.context().open(isolate);
+      let module_map =
+        context.get_slot::<Rc<ModuleMap>>(isolate).unwrap().clone();
+      context.clear_all_slots(isolate);
+      // Explcitly destroy data in the module map, as there might be some pending
+      // futures there and we want them dropped.
+      module_map.destroy();
+      // Expect that this context is dead (we only check this in debug mode)
+      // TODO(bartlomieju): This check fails for some tests, will need to fix this
+      // debug_assert_eq!(Rc::strong_count(&module_map), 1, "ModuleMap still in use.");
+    }
 
     // Expect that this context is dead (we only check this in debug mode)
     // TODO(mmastrac): This check fails for some tests, will need to fix this
