@@ -197,7 +197,8 @@ impl JsRealmInner {
 
       let module_map =
         ctx.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
-      let _ = Box::from_raw(module_map as *mut Rc<ModuleMap>);
+      let module_map = Box::from_raw(module_map as *mut Rc<ModuleMap>);
+      module_map.clear_pending_futures();
       ctx.set_aligned_pointer_in_embedder_data(
         CONTEXT_STATE_SLOT_INDEX,
         std::ptr::null_mut(),
