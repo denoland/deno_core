@@ -154,6 +154,8 @@ pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::PollEventLoopOptions;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
+pub use crate::runtime::CONTEXT_STATE_SLOT_INDEX;
+pub use crate::runtime::MODULE_MAP_SLOT_INDEX;
 pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::source_map::SourceMapData;
