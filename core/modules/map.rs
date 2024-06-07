@@ -148,7 +148,8 @@ pub(crate) struct ModuleMap {
 impl ModuleMap {
   /// There is a circular Rc reference between the module map and the futures,
   /// so when destroying the module map we need to clear the pending futures.
-  pub fn clear_pending_futures(&self) {
+  pub(crate) fn destroy(&self) {
+    self.dynamic_import_map.borrow_mut().clear();
     self.preparing_dynamic_imports.borrow_mut().clear();
     self.pending_dynamic_imports.borrow_mut().clear();
     self.code_cache_ready_futs.borrow_mut().clear();
