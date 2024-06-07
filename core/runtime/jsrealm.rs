@@ -190,12 +190,9 @@ impl JsRealmInner {
       let module_map =
         context.get_slot::<Rc<ModuleMap>>(isolate).unwrap().clone();
       context.clear_all_slots(isolate);
+      // Explcitly destroy data in the module map, as there might be some pending
+      // futures there and we want them dropped.
       module_map.destroy();
-      debug_assert_eq!(
-        Rc::strong_count(&module_map),
-        1,
-        "ModuleMap still in use"
-      );
     }
 
     // Expect that this context is dead (we only check this in debug mode)

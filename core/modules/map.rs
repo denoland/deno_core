@@ -153,6 +153,7 @@ impl ModuleMap {
     self.preparing_dynamic_imports.borrow_mut().clear();
     self.pending_dynamic_imports.borrow_mut().clear();
     self.code_cache_ready_futs.borrow_mut().clear();
+    std::mem::take(&mut *self.data.borrow_mut());
   }
 
   pub(crate) fn next_load_id(&self) -> i32 {
