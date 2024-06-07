@@ -340,8 +340,7 @@ impl ModuleMap {
     let module_id = match module_type {
       ModuleType::JavaScript => {
         let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+          ModuleSource::get_string_source(code).map_err(ModuleError::Other)?;
 
         let (code_cache_info, module_url_found) =
           if let Some(code_cache) = code_cache {
@@ -380,8 +379,7 @@ impl ModuleMap {
       }
       ModuleType::Json => {
         let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+          ModuleSource::get_string_source(code).map_err(ModuleError::Other)?;
         self.new_json_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
@@ -1757,7 +1755,7 @@ impl ModuleMap {
     self.lazy_load_es_module_with_code(
       scope,
       module_specifier,
-      ModuleSource::get_string_source(specifier.as_str(), source.code)?,
+      ModuleSource::get_string_source(source.code)?,
       if let Some(code_cache) = source.code_cache {
         let loader = self.loader.borrow().clone();
         Some(CodeCacheInfo {

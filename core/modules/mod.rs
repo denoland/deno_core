@@ -460,16 +460,15 @@ impl ModuleSource {
   }
 
   pub fn get_string_source(
-    specifier: &str,
     code: ModuleSourceCode,
   ) -> Result<ModuleCodeString, AnyError> {
     match code {
       ModuleSourceCode::String(code) => Ok(code),
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
-          format!("Can't convert source code to string for {}", specifier)
-        })?;
-        Ok(ModuleCodeString::from(str_))
+        match String::from_utf8_lossy(bytes.as_bytes()) {
+          Cow::Borrowed(s) => Ok(ModuleCodeString::from(s.to_owned())),
+          Cow::Owned(s) => Ok(ModuleCodeString::from(s)),
+        }
       }
     }
   }
