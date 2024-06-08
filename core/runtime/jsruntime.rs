@@ -875,7 +875,7 @@ impl JsRuntime {
       context.set_slot(scope, ());
       context.set_aligned_pointer_in_embedder_data(
         super::jsrealm::CONTEXT_STATE_SLOT_INDEX,
-        Box::into_raw(Box::new(context_state.clone())) as *mut c_void,
+        Rc::into_raw(context_state.clone()) as *mut c_void,
       );
     }
 
@@ -922,7 +922,7 @@ impl JsRuntime {
     unsafe {
       context.set_aligned_pointer_in_embedder_data(
         super::jsrealm::MODULE_MAP_SLOT_INDEX,
-        Box::into_raw(Box::new(module_map.clone())) as *mut c_void,
+        Rc::into_raw(module_map.clone()) as *mut c_void,
       );
     }
 

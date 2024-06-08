@@ -194,13 +194,13 @@ impl JsRealmInner {
       unsafe {
         let ctx_state =
           ctx.get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
-        let _ = Box::from_raw(ctx_state as *mut Rc<ContextState>);
+        let _ = Rc::from_raw(ctx_state as *mut ContextState);
 
         let module_map =
           ctx.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
         // Explcitly destroy data in the module map, as there might be some pending
         // futures there and we want them dropped.
-        let map = Box::from_raw(module_map as *mut Rc<ModuleMap>);
+        let map = Rc::from_raw(module_map as *mut ModuleMap);
         map.destroy();
 
         ctx.set_aligned_pointer_in_embedder_data(
@@ -220,6 +220,11 @@ impl JsRealmInner {
   }
 }
 
+fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
+  unsafe { Rc::increment_strong_count(raw) };
+  unsafe { Rc::from_raw(raw) }
+}
+
 impl JsRealm {
   pub(crate) fn new(inner: JsRealmInner) -> Self {
     Self(inner)
@@ -234,8 +239,7 @@ impl JsRealm {
     unsafe {
       let rc = context
         .get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
-      let rc = &*(rc as *const Rc<ContextState>);
-      rc.clone()
+      clone_rc_raw(rc as *const ContextState)
     }
   }
 
@@ -246,8 +250,7 @@ impl JsRealm {
     unsafe {
       let rc =
         context.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
-      let rc = &*(rc as *const Rc<ModuleMap>);
-      rc.clone()
+      clone_rc_raw(rc as *const ModuleMap)
     }
   }
 
