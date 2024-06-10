@@ -217,6 +217,10 @@ impl JsRealmInner {
       // TODO(bartlomieju): This check fails for some tests, will need to fix this
       // debug_assert_eq!(Rc::strong_count(&module_map), 1, "ModuleMap still in use.");
     }
+
+    // Expect that this context is dead (we only check this in debug mode)
+    // TODO(mmastrac): This check fails for some tests, will need to fix this
+    // debug_assert_eq!(Rc::strong_count(&self.context), 1, "Realm was still alive when we wanted to destroy it. Not dropped?");
   }
 }
 
