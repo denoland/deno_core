@@ -146,6 +146,16 @@ pub(crate) struct ModuleMap {
 }
 
 impl ModuleMap {
+  /// There is a circular Rc reference between the module map and the futures,
+  /// so when destroying the module map we need to clear the pending futures.
+  pub(crate) fn destroy(&self) {
+    self.dynamic_import_map.borrow_mut().clear();
+    self.preparing_dynamic_imports.borrow_mut().clear();
+    self.pending_dynamic_imports.borrow_mut().clear();
+    self.code_cache_ready_futs.borrow_mut().clear();
+    std::mem::take(&mut *self.data.borrow_mut());
+  }
+
   pub(crate) fn next_load_id(&self) -> i32 {
     // TODO(mmastrac): move recursive module loading into here so we can avoid making this pub
     let mut data = self.data.borrow_mut();
