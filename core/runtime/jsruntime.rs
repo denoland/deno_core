@@ -869,10 +869,8 @@ impl JsRuntime {
       );
     }
 
-    // SAFETY: We need to initialize the slot. rusty_v8 currently segfaults
-    // when call `clear_all_slots`.
+    // SAFETY: Initialize the context state slot.
     unsafe {
-      context.set_slot(scope, ());
       context.set_aligned_pointer_in_embedder_data(
         super::jsrealm::CONTEXT_STATE_SLOT_INDEX,
         Rc::into_raw(context_state.clone()) as *mut c_void,
