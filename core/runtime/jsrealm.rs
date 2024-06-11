@@ -28,6 +28,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use v8::Handle;
 
+pub const CONTEXT_STATE_SLOT_INDEX: i32 = 1;
+pub const MODULE_MAP_SLOT_INDEX: i32 = 2;
+
 // Hasher used for `unrefed_ops`. Since these are rolling i32, there's no
 // need to actually hash them.
 #[derive(Default)]
@@ -186,13 +189,30 @@ impl JsRealmInner {
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
     {
-      let context = self.context().open(isolate);
-      let module_map =
-        context.get_slot::<Rc<ModuleMap>>(isolate).unwrap().clone();
-      context.clear_all_slots(isolate);
-      // Explcitly destroy data in the module map, as there might be some pending
-      // futures there and we want them dropped.
-      module_map.destroy();
+      let ctx = self.context().open(isolate);
+      // SAFETY: Clear all embedder data
+      unsafe {
+        let ctx_state =
+          ctx.get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
+        let _ = Rc::from_raw(ctx_state as *mut ContextState);
+
+        let module_map =
+          ctx.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
+        // Explcitly destroy data in the module map, as there might be some pending
+        // futures there and we want them dropped.
+        let map = Rc::from_raw(module_map as *mut ModuleMap);
+        map.destroy();
+
+        ctx.set_aligned_pointer_in_embedder_data(
+          CONTEXT_STATE_SLOT_INDEX,
+          std::ptr::null_mut(),
+        );
+        ctx.set_aligned_pointer_in_embedder_data(
+          MODULE_MAP_SLOT_INDEX,
+          std::ptr::null_mut(),
+        );
+      }
+      ctx.clear_all_slots(isolate);
       // Expect that this context is dead (we only check this in debug mode)
       // TODO(bartlomieju): This check fails for some tests, will need to fix this
       // debug_assert_eq!(Rc::strong_count(&module_map), 1, "ModuleMap still in use.");
@@ -202,6 +222,11 @@ impl JsRealmInner {
     // TODO(mmastrac): This check fails for some tests, will need to fix this
     // debug_assert_eq!(Rc::strong_count(&self.context), 1, "Realm was still alive when we wanted to destroy it. Not dropped?");
   }
+}
+
+unsafe fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
+  Rc::increment_strong_count(raw);
+  Rc::from_raw(raw)
 }
 
 impl JsRealm {
@@ -214,25 +239,30 @@ impl JsRealm {
     scope: &mut v8::HandleScope,
   ) -> Rc<ContextState> {
     let context = scope.get_current_context();
-    context.get_slot::<Rc<ContextState>>(scope).unwrap().clone()
+    // SAFETY: slot is valid and set during realm creation
+    unsafe {
+      let rc = context
+        .get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
+      clone_rc_raw(rc as *const ContextState)
+    }
   }
 
   #[inline(always)]
   pub(crate) fn module_map_from(scope: &mut v8::HandleScope) -> Rc<ModuleMap> {
     let context = scope.get_current_context();
-    context.get_slot::<Rc<ModuleMap>>(scope).unwrap().clone()
+    // SAFETY: slot is valid and set during realm creation
+    unsafe {
+      let rc =
+        context.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
+      clone_rc_raw(rc as *const ModuleMap)
+    }
   }
 
   #[inline(always)]
   pub(crate) fn exception_state_from_scope(
     scope: &mut v8::HandleScope,
   ) -> Rc<ExceptionState> {
-    let context = scope.get_current_context();
-    context
-      .get_slot::<Rc<ContextState>>(scope)
-      .unwrap()
-      .exception_state
-      .clone()
+    Self::state_from_scope(scope).exception_state.clone()
   }
 
   #[cfg(test)]
