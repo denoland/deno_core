@@ -780,6 +780,7 @@ impl JsRuntime {
     // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
     let external_refs_static = unsafe { std::mem::transmute(external_refs) };
 
+    let has_snapshot = maybe_startup_snapshot.is_some();
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
@@ -836,6 +837,7 @@ impl JsRuntime {
         scope,
         &global_template_middleware,
         &global_object_middlewares,
+        has_snapshot,
       );
 
       // Get module map data from the snapshot
@@ -1882,15 +1884,23 @@ fn create_context<'a>(
   scope: &mut v8::HandleScope<'a, ()>,
   global_template_middlewares: &[GlobalTemplateMiddlewareFn],
   global_object_middlewares: &[GlobalObjectMiddlewareFn],
+  has_snapshot: bool,
 ) -> v8::Local<'a, v8::Context> {
-  // Set up the global object template and create context from it.
-  let mut global_object_template = v8::ObjectTemplate::new(scope);
-  for middleware in global_template_middlewares {
-    global_object_template = middleware(scope, global_object_template);
-  }
+  let context = if has_snapshot {
+    // Try to load the 1st index first, embedder may have used 0th for something else (like node:vm).
+    v8::Context::from_snapshot(scope, 1)
+      .unwrap_or_else(|| v8::Context::from_snapshot(scope, 0).unwrap())
+  } else {
+    // Set up the global object template and create context from it.
+    let mut global_object_template = v8::ObjectTemplate::new(scope);
+    for middleware in global_template_middlewares {
+      global_object_template = middleware(scope, global_object_template);
+    }
 
-  global_object_template.set_internal_field_count(2);
-  let context = v8::Context::new_from_template(scope, global_object_template);
+    global_object_template.set_internal_field_count(2);
+    v8::Context::new_from_template(scope, global_object_template)
+  };
+
   let scope = &mut v8::ContextScope::new(scope, context);
 
   // Get the global wrapper object from the context, get the real inner
@@ -1951,8 +1961,11 @@ impl JsRuntimeForSnapshot {
     // Set the context to be snapshot's default context
     {
       let mut scope = realm.handle_scope(self.v8_isolate());
+      let default_context = v8::Context::new(&mut scope);
+      scope.set_default_context(default_context);
+
       let local_context = v8::Local::new(&mut scope, realm.context());
-      scope.set_default_context(local_context);
+      scope.add_context(local_context);
     }
 
     // Borrow the source maps during the snapshot to avoid copies
