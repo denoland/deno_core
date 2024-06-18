@@ -192,7 +192,14 @@ impl RuntimeActivityStatsFactory {
         timers: Vec::with_capacity(timer_count),
         repeats: BitSet::with_capacity(timer_count),
       };
-      for (timer_id, repeats) in &self.context_state.timers.iter() {
+      for (timer_id, repeats, is_system_timer) in
+        &self.context_state.timers.iter()
+      {
+        // Ignore system timer from stats
+        if is_system_timer {
+          continue;
+        }
+
         if repeats {
           timers.repeats.insert(timers.timers.len());
         }
