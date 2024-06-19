@@ -263,11 +263,11 @@ pub(crate) fn with_self(
     generator_state.needs_scope = true;
     generator_state
       .idents_that_need_to_be_captured_by_future_and_as_refd
-      .push(format_ident!("self_"));
+      .push((format_ident!("self_"), false));
     tokens
   } else {
     gs_quote!(generator_state(self_ty, fn_args) => {
-      let Some(self_) = deno_core::cppgc::try_unwrap_cppgc_object::<#self_ty>(#fn_args.this().into()) else {
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(#fn_args.this().into()) else {
         #throw_exception;
       };
     })
@@ -581,11 +581,44 @@ pub fn from_arg(
         generator_state.needs_scope = true;
         generator_state
           .idents_that_need_to_be_captured_by_future_and_as_refd
-          .push(arg_ident.clone());
+          .push((arg_ident.clone(), false));
         tokens
       } else {
         quote! {
-          let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
+          let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
+            #throw_exception;
+          };
+        }
+      }
+    }
+    Arg::OptionCppGcResource(ty) => {
+      let throw_exception =
+        throw_type_error(generator_state, format!("expected {}", &ty))?;
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+        let scope = &generator_state.scope;
+        let tokens = quote! {
+          let #arg_ident = if #arg_ident.is_null_or_undefined() {
+            None
+          } else if let Some(#arg_ident) = deno_core::_ops::CppGcObjectGuard::<#ty>::try_new_from_cppgc_object(&mut *#scope, #arg_ident) else {
+            Some(#arg_ident)
+          } else {
+            #throw_exception;
+          };
+        };
+        generator_state.needs_scope = true;
+        generator_state
+          .idents_that_need_to_be_captured_by_future_and_as_refd
+          .push((arg_ident.clone(), true));
+        tokens
+      } else {
+        quote! {
+          let #arg_ident = if #arg_ident.is_null_or_undefined() {
+            None
+          } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
+            Some(#arg_ident)
+          } else {
             #throw_exception;
           };
         }
@@ -776,10 +809,14 @@ pub fn call(
       .is_empty()
   {
     let mut tokens = TokenStream::new();
-    for ident in
+    for (ident, is_option) in
       &generator_state.idents_that_need_to_be_captured_by_future_and_as_refd
     {
-      tokens.extend(quote!( let #ident = unsafe { #ident.as_ref() }; ));
+      tokens.extend(if *is_option {
+        quote!( let #ident = unsafe { #ident.map(|i| i.as_ref()) }; )
+      } else {
+        quote!( let #ident = unsafe { #ident.as_ref() }; )
+      });
     }
     quote!(async move {
       #tokens
@@ -824,8 +861,12 @@ pub fn return_value_infallible(
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
     ArgMarker::Cppgc => {
-      generator_state.needs_scope = true;
-      gs_quote!(generator_state(scope, result) => (deno_core::v8::Local::<deno_core::v8::Value>::from(deno_core::cppgc::make_cppgc_object(&mut #scope, #result))))
+      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
+      if ret_type.is_option() {
+        gs_quote!(generator_state(result) => (#result.map(#marker)))
+      } else {
+        gs_quote!(generator_state(result) => (#marker(#result)))
+      }
     }
     ArgMarker::ToV8 => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
@@ -893,7 +934,12 @@ pub fn return_value_v8_value(
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result))
     }
     ArgMarker::Cppgc => {
-      quote!(deno_core::cppgc::make_cppgc_object(#scope, #result))
+      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
+      if ret_type.is_option() {
+        quote!(#result.map(#marker))
+      } else {
+        quote!(#marker(#result))
+      }
     }
     ArgMarker::ToV8 => {
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result))
