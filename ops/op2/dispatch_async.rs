@@ -48,7 +48,7 @@ pub(crate) fn generate_dispatch_async(
 
   let with_self = if generator_state.needs_self {
     with_self(generator_state, &signature.ret_val)
-      .map_err(|s| V8SignatureMappingError::NoSelfMapping(s))?
+      .map_err(V8SignatureMappingError::NoSelfMapping)?
   } else {
     quote!()
   };

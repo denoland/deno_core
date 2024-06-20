@@ -41,6 +41,7 @@ pub fn make_cppgc_object<'a, T: 'static>(
   obj
 }
 
+#[allow(clippy::needless_lifetimes)]
 pub fn try_unwrap_cppgc_object<'sc, T: 'static>(
   val: v8::Local<'sc, v8::Value>,
 ) -> Option<&'sc T> {
