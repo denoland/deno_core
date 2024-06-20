@@ -8,6 +8,7 @@ use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::FeatureChecker;
+use crate::GcResource;
 use crate::OpDecl;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
@@ -58,12 +59,12 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
 }
 
 /// A guard for a [`cppgc::Gc`] object that ensures the object is rooted while the guard is alive.
-pub struct CppGcObjectGuard<T: 'static> {
+pub struct CppGcObjectGuard<T: GcResource + 'static> {
   _global: v8::Global<v8::Value>,
   t: &'static T,
 }
 
-impl<T: 'static> CppGcObjectGuard<T> {
+impl<T: GcResource + 'static> CppGcObjectGuard<T> {
   pub fn try_new_from_cppgc_object(
     isolate: &mut Isolate,
     val: v8::Local<v8::Value>,

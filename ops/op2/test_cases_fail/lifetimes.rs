@@ -2,9 +2,12 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 use deno_core::error::AnyError;
+use deno_core::GcResource;
 use std::future::Future;
 
 struct Wrap;
+
+impl GcResource for Wrap {}
 
 #[op2(fast)]
 fn op_use_cppgc_object(#[cppgc] _wrap: &'static Wrap) {}

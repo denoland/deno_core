@@ -52,17 +52,23 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 result,
                 |scope, result| {
                     Ok(
-                        deno_core::_ops::RustToV8NoScope::to_v8(
-                            deno_core::cppgc::make_cppgc_object(scope, result),
+                        deno_core::_ops::RustToV8::to_v8(
+                            deno_core::_ops::RustToV8Marker::<
+                                deno_core::_ops::CppGcMarker,
+                                _,
+                            >::from(result),
+                            scope,
                         ),
                     )
                 },
             ) {
                 rv.set(
-                    deno_core::_ops::RustToV8NoScope::to_v8(
-                        deno_core::v8::Local::<
-                            deno_core::v8::Value,
-                        >::from(deno_core::cppgc::make_cppgc_object(&mut scope, result)),
+                    deno_core::_ops::RustToV8::to_v8(
+                        deno_core::_ops::RustToV8Marker::<
+                            deno_core::_ops::CppGcMarker,
+                            _,
+                        >::from(result),
+                        &mut scope,
                     ),
                 );
                 return 0;

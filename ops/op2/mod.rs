@@ -327,7 +327,6 @@ mod tests {
   use pretty_assertions::assert_eq;
   use quote::ToTokens;
   use std::path::PathBuf;
-  use syn::parse_str;
   use syn::File;
   use syn::Item;
 
@@ -355,7 +354,8 @@ deno_ops_compile_test_runner::prelude!();";
       panic!("Source does not start with expected prelude:]n{PRELUDE}");
     }
 
-    let file = parse_str::<File>(&source).expect("Failed to parse Rust file");
+    let file =
+      syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
     let mut expected_out = vec![];
     for item in file.items {
       if let Item::Fn(mut func) = item {

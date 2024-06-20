@@ -2,11 +2,11 @@
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
-use deno_core::cppgc;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8;
 use deno_core::v8::IsolateHandle;
+use deno_core::GcResource;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
@@ -33,6 +33,8 @@ pub struct WorkerControl {
   handle: Option<IsolateHandle>,
   shutdown_flag: Option<UnboundedSender<()>>,
 }
+
+impl GcResource for WorkerControl {}
 
 pub struct WorkerChannel {
   tx: UnboundedSender<String>,
@@ -117,7 +119,7 @@ pub fn op_worker_spawn<'s>(
 
   // This is technically a blocking call
   let worker = init_recv.recv()?;
-  Ok(cppgc::make_cppgc_object(scope, worker))
+  Ok(deno_core::cppgc::make_cppgc_object(scope, worker))
 }
 
 async fn run_worker_task(
@@ -181,7 +183,7 @@ pub fn op_worker_parent<'s>(
   ) else {
     bail!("No parent worker is available")
   };
-  Ok(cppgc::make_cppgc_object(
+  Ok(deno_core::cppgc::make_cppgc_object(
     scope,
     WorkerControl {
       worker_channel,
