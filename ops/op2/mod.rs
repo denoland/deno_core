@@ -64,11 +64,14 @@ pub enum Op2Error {
 }
 
 #[derive(Debug, Error)]
+#[allow(clippy::enum_variant_names)]
 pub enum V8SignatureMappingError {
   #[error("Unable to map return value {1:?} to {0}")]
   NoRetValMapping(V8MappingError, RetVal),
   #[error("Unable to map argument {1:?} to {0}")]
   NoArgMapping(V8MappingError, Arg),
+  #[error("Unable to map self")]
+  NoSelfMapping(V8MappingError),
 }
 
 pub type V8MappingError = &'static str;
@@ -172,6 +175,7 @@ fn generate_op2(
     fast_function_metrics,
     promise_id,
     self_ty,
+    idents_that_need_to_be_captured_by_future_and_as_refd: vec![],
     needs_retval: false,
     needs_scope: false,
     needs_isolate: false,
