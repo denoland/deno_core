@@ -12,41 +12,41 @@ note: the lint level is defined here
   = note: `#[deny(unused_imports)]` implied by `#[deny(warnings)]`
 
 error: unused import: `std::future::Future`
- --> ../op2/test_cases_fail/lifetimes.rs:5:5
+ --> ../op2/test_cases_fail/lifetimes.rs:6:5
   |
-5 | use std::future::Future;
+6 | use std::future::Future;
   |     ^^^^^^^^^^^^^^^^^^^
 
 error[E0521]: borrowed data escapes outside of associated function
- --> ../op2/test_cases_fail/lifetimes.rs:9:1
-  |
-9 | #[op2(fast)]
-  | ^^^^^^^^^^^^
-  | |
-  | `arg0` is a reference that is only valid in the associated function body
-  | `arg0` escapes the associated function body here
-  | has type `Local<'1, deno_core::v8::Value>`
-  | argument requires that `'1` must outlive `'static`
-  |
-  = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0521]: borrowed data escapes outside of associated function
- --> ../op2/test_cases_fail/lifetimes.rs:9:1
-  |
-9 | #[op2(fast)]
-  | ^^^^^^^^^^^^
-  | |
-  | `info` is a reference that is only valid in the associated function body
-  | `info` escapes the associated function body here
-  | lifetime `'s` defined here
-  | argument requires that `'s` must outlive `'static`
-  |
-  = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0597]: `arg0_temp` does not live long enough
   --> ../op2/test_cases_fail/lifetimes.rs:12:1
    |
 12 | #[op2(fast)]
+   | ^^^^^^^^^^^^
+   | |
+   | `arg0` is a reference that is only valid in the associated function body
+   | `arg0` escapes the associated function body here
+   | has type `Local<'1, deno_core::v8::Value>`
+   | argument requires that `'1` must outlive `'static`
+   |
+   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0521]: borrowed data escapes outside of associated function
+  --> ../op2/test_cases_fail/lifetimes.rs:12:1
+   |
+12 | #[op2(fast)]
+   | ^^^^^^^^^^^^
+   | |
+   | `info` is a reference that is only valid in the associated function body
+   | `info` escapes the associated function body here
+   | lifetime `'s` defined here
+   | argument requires that `'s` must outlive `'static`
+   |
+   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0597]: `arg0_temp` does not live long enough
+  --> ../op2/test_cases_fail/lifetimes.rs:15:1
+   |
+15 | #[op2(fast)]
    | ^^^^^^^^^^^-
    | |          |
    | |          `arg0_temp` dropped here while still borrowed
