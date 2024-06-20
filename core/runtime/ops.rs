@@ -608,6 +608,7 @@ mod tests {
       op_arraybuffer_slice,
       op_test_get_cppgc_resource,
       op_test_make_cppgc_resource,
+      op_test_set_cppgc_resource,
       op_external_make,
       op_external_process,
       op_external_make_ptr,
@@ -1907,14 +1908,24 @@ mod tests {
     resource.value
   }
 
+  #[op2(fast)]
+  pub fn op_test_set_cppgc_resource(
+    #[cppgc] resource: &mut TestResource,
+    value: u32,
+  ) {
+    resource.value = value;
+  }
+
   #[test]
   pub fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
-      "op_test_make_cppgc_resource, op_test_get_cppgc_resource",
+      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_set_cppgc_resource",
       r"
       const resource = op_test_make_cppgc_resource();
-      assert(op_test_get_cppgc_resource(resource) == 42);",
+      assert(op_test_get_cppgc_resource(resource) == 42);
+      op_test_set_cppgc_resource(resource, 43);
+      assert(op_test_get_cppgc_resource(resource) == 43);",
     )?;
     Ok(())
   }

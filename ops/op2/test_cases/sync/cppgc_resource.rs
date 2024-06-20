@@ -12,3 +12,6 @@ fn op_make_cppgc_object() -> Wrap {
 
 #[op2(fast)]
 fn op_use_cppgc_object(#[cppgc] _wrap: &Wrap) {}
+
+#[op2(fast)]
+fn op_use_cppgc_object_mut(#[cppgc] _wrap: &mut Wrap) {}
