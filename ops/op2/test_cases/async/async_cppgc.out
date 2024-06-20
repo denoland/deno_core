@@ -8,9 +8,9 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_make_cppgc_object);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_make_cppgc_object),
+            true,
             false,
-            false,
-            0usize as u8,
+            1usize as u8,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             None,
@@ -34,15 +34,40 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
             );
             let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
-            let result = { Self::call() };
-            rv.set(
-                deno_core::_ops::RustToV8NoScope::to_v8(
-                    deno_core::v8::Local::<
-                        deno_core::v8::Value,
-                    >::from(deno_core::cppgc::make_cppgc_object(&mut scope, result)),
-                ),
+            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
+                info,
             );
-            return 0;
+            let opctx: &'s _ = unsafe {
+                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
+            let result = { Self::call() };
+            let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
+                .unwrap_or_default();
+            if let Some(result) = deno_core::_ops::map_async_op_infallible(
+                opctx,
+                false,
+                false,
+                promise_id,
+                result,
+                |scope, result| {
+                    Ok(
+                        deno_core::_ops::RustToV8NoScope::to_v8(
+                            deno_core::cppgc::make_cppgc_object(scope, result),
+                        ),
+                    )
+                },
+            ) {
+                rv.set(
+                    deno_core::_ops::RustToV8NoScope::to_v8(
+                        deno_core::v8::Local::<
+                            deno_core::v8::Value,
+                        >::from(deno_core::cppgc::make_cppgc_object(&mut scope, result)),
+                    ),
+                );
+                return 0;
+            }
+            return 2;
         }
         extern "C" fn v8_fn_ptr<'s>(info: *const deno_core::v8::FunctionCallbackInfo) {
             let info: &'s _ = unsafe { &*info };
@@ -59,18 +84,18 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            deno_core::_ops::dispatch_metrics_slow(
+            deno_core::_ops::dispatch_metrics_async(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
             let res = Self::slow_function_impl(info);
             if res == 0 {
-                deno_core::_ops::dispatch_metrics_slow(
+                deno_core::_ops::dispatch_metrics_async(
                     opctx,
                     deno_core::_ops::OpMetricsEvent::Completed,
                 );
-            } else {
-                deno_core::_ops::dispatch_metrics_slow(
+            } else if res == 1 {
+                deno_core::_ops::dispatch_metrics_async(
                     opctx,
                     deno_core::_ops::OpMetricsEvent::Error,
                 );
@@ -79,7 +104,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_make_cppgc_object {
         #[inline(always)]
-        fn call() -> Wrap {
+        async fn call() -> Wrap {
             Wrap
         }
     }
@@ -96,29 +121,13 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_use_cppgc_object);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_use_cppgc_object),
+            true,
             false,
-            false,
-            1usize as u8,
+            2usize as u8,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
-            Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::V8Value, Type::CallbackOptions],
-                    CType::Void,
-                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
-                )
-            }),
-            Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::V8Value, Type::CallbackOptions],
-                    CType::Void,
-                    Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
-                )
-            }),
+            None,
+            None,
             ::deno_core::OpMetadata {
                 ..::deno_core::OpMetadata::default()
             },
@@ -128,59 +137,6 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             stringify!(op_use_cppgc_object)
         }
-        #[allow(clippy::too_many_arguments)]
-        extern "C" fn v8_fn_ptr_fast_metrics<'s>(
-            this: deno_core::v8::Local<deno_core::v8::Object>,
-            arg0: deno_core::v8::Local<deno_core::v8::Value>,
-            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
-                's,
-            >,
-        ) -> () {
-            let fast_api_callback_options: &'s mut _ = unsafe {
-                &mut *fast_api_callback_options
-            };
-            let opctx: &'s _ = unsafe {
-                &*(deno_core::v8::Local::<
-                    deno_core::v8::External,
-                >::cast(unsafe { fast_api_callback_options.data.data })
-                    .value() as *const deno_core::_ops::OpCtx)
-            };
-            deno_core::_ops::dispatch_metrics_fast(
-                opctx,
-                deno_core::_ops::OpMetricsEvent::Dispatched,
-            );
-            let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
-            deno_core::_ops::dispatch_metrics_fast(
-                opctx,
-                deno_core::_ops::OpMetricsEvent::Completed,
-            );
-            res
-        }
-        #[allow(clippy::too_many_arguments)]
-        extern "C" fn v8_fn_ptr_fast<'s>(
-            this: deno_core::v8::Local<deno_core::v8::Object>,
-            arg0: deno_core::v8::Local<deno_core::v8::Value>,
-            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
-                's,
-            >,
-        ) -> () {
-            #[cfg(debug_assertions)]
-            let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
-                &<Self as deno_core::_ops::Op>::DECL,
-            );
-            let fast_api_callback_options: &'s mut _ = unsafe {
-                &mut *fast_api_callback_options
-            };
-            let result = {
-                let Some(arg0) = deno_core::cppgc::try_unwrap_cppgc_object::<Wrap>(arg0)
-                else {
-                    fast_api_callback_options.fallback = true;
-                    return unsafe { std::mem::zeroed() };
-                };
-                Self::call(arg0)
-            };
-            result as _
-        }
         #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
@@ -189,14 +145,20 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
+            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
             );
+            let opctx: &'s _ = unsafe {
+                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                    .value() as *const deno_core::_ops::OpCtx)
+            };
             let result = {
-                let arg0 = args.get(0usize as i32);
-                let Some(arg0) = deno_core::cppgc::try_unwrap_cppgc_object::<Wrap>(arg0)
-                else {
+                let arg0 = args.get(1usize as i32);
+                let Some(arg0) = deno_core::_ops::CppGcObjectGuard::<
+                    Wrap,
+                >::try_new_from_cppgc_object(&mut *scope, arg0) else {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
                     let msg = deno_core::v8::String::new_from_one_byte(
                             &mut scope,
@@ -208,10 +170,25 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     scope.throw_exception(exc);
                     return 1;
                 };
-                Self::call(arg0)
+                async move {
+                    let arg0 = unsafe { arg0.as_ref() };
+                    Self::call(arg0).await
+                }
             };
-            deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
-            return 0;
+            let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
+                .unwrap_or_default();
+            if let Some(result) = deno_core::_ops::map_async_op_infallible(
+                opctx,
+                false,
+                false,
+                promise_id,
+                result,
+                |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
+            ) {
+                deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+                return 0;
+            }
+            return 2;
         }
         extern "C" fn v8_fn_ptr<'s>(info: *const deno_core::v8::FunctionCallbackInfo) {
             let info: &'s _ = unsafe { &*info };
@@ -228,18 +205,18 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            deno_core::_ops::dispatch_metrics_slow(
+            deno_core::_ops::dispatch_metrics_async(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
             let res = Self::slow_function_impl(info);
             if res == 0 {
-                deno_core::_ops::dispatch_metrics_slow(
+                deno_core::_ops::dispatch_metrics_async(
                     opctx,
                     deno_core::_ops::OpMetricsEvent::Completed,
                 );
-            } else {
-                deno_core::_ops::dispatch_metrics_slow(
+            } else if res == 1 {
+                deno_core::_ops::dispatch_metrics_async(
                     opctx,
                     deno_core::_ops::OpMetricsEvent::Error,
                 );
@@ -248,7 +225,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_use_cppgc_object {
         #[inline(always)]
-        fn call(_wrap: &Wrap) {}
+        async fn call(_wrap: &Wrap) {}
     }
     <op_use_cppgc_object as ::deno_core::_ops::Op>::DECL
 }

@@ -4,11 +4,11 @@ deno_ops_compile_test_runner::prelude!();
 
 struct Wrap;
 
-#[op2]
+#[op2(async)]
 #[cppgc]
-fn op_make_cppgc_object() -> Wrap {
+async fn op_make_cppgc_object() -> Wrap {
   Wrap
 }
 
-#[op2(fast)]
-fn op_use_cppgc_object(#[cppgc] _wrap: &Wrap) {}
+#[op2(async)]
+async fn op_use_cppgc_object(#[cppgc] _wrap: &Wrap) {}
