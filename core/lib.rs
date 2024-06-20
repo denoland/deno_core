@@ -180,6 +180,7 @@ pub mod _ops {
   pub use super::extensions::OpDecl;
   #[cfg(debug_assertions)]
   pub use super::ops::reentrancy_check;
+  pub use super::ops::CppGcObjectGuard;
   pub use super::ops::OpCtx;
   pub use super::ops_metrics::dispatch_metrics_async;
   pub use super::ops_metrics::dispatch_metrics_fast;

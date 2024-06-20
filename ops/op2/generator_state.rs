@@ -37,6 +37,10 @@ pub struct GeneratorState {
   /// Type of the self argument
   pub self_ty: Ident,
 
+  /// Idents that need to be moved into the future and have a reference taken
+  /// before being passed to the underlying call.
+  pub idents_that_need_to_be_captured_by_future_and_as_refd: Vec<Ident>,
+
   pub needs_args: bool,
   pub needs_retval: bool,
   pub needs_scope: bool,
