@@ -757,7 +757,7 @@ fn map_v8_fastcall_arg_to_arg(
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
         } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
-          Some(#arg_ident)
+          Some(#arg_ident as _)
         } else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value

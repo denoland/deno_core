@@ -43,10 +43,17 @@ pub fn make_cppgc_object<'a, T: GcResource + 'static>(
   obj
 }
 
+// TODO(littledivy): https://github.com/denoland/rusty_v8/pull/1505
+#[repr(C)]
+struct InnerMember {
+  inner: [usize; 2],
+  ptr: *mut (),
+}
+
 #[allow(clippy::needless_lifetimes)]
 pub fn try_unwrap_cppgc_object<'sc, T: GcResource + 'static>(
   val: v8::Local<'sc, v8::Value>,
-) -> Option<&'sc T> {
+) -> Option<&'sc mut T> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
     return None;
   };
@@ -62,13 +69,13 @@ pub fn try_unwrap_cppgc_object<'sc, T: GcResource + 'static>(
   // The object can only be created by `make_cppgc_object`.
   let member = unsafe {
     let ptr = obj.get_aligned_pointer_from_internal_field(SLOT_OFFSET);
-    let obj = &*(ptr as *const v8::cppgc::InnerMember);
-    obj.get::<CppGcObject<T>>()
+    let obj = &*(ptr as *mut InnerMember);
+    obj.ptr.cast::<CppGcObject<T>>().as_mut().unwrap()
   };
 
   if member.tag != TypeId::of::<T>() {
     return None;
   }
 
-  Some(&member.member)
+  Some(&mut member.member)
 }
