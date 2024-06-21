@@ -60,6 +60,7 @@ integration_test!(
   error_rejection_catch,
   error_rejection_order,
   error_ext_stack,
+  error_internal_method_set,
   error_with_stack,
   error_without_stack,
   main_module_handler,
