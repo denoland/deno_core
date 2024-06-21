@@ -17,6 +17,26 @@ error: unused import: `std::future::Future`
 6 | use std::future::Future;
   |     ^^^^^^^^^^^^^^^^^^^
 
+error[E0308]: mismatched types
+  --> ../op2/test_cases_fail/lifetimes.rs:18:1
+   |
+18 | #[op2(async)]
+   | ^^^^^^^^^^^^^
+   | |
+   | types differ in mutability
+   | arguments to this function are incorrect
+   |
+   = note: expected mutable reference `&mut Wrap`
+                      found reference `&Wrap`
+note: associated function defined here
+  --> ../op2/test_cases_fail/lifetimes.rs:18:1
+   |
+18 | #[op2(async)]
+   | ^^^^^^^^^^^^^
+19 | async fn op_use_cppgc_object_mut_async(#[cppgc] _wrap: &mut Wrap) {}
+   |                                                 ----------------
+   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
+
 error[E0521]: borrowed data escapes outside of associated function
   --> ../op2/test_cases_fail/lifetimes.rs:12:1
    |

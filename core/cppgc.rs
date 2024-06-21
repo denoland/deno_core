@@ -43,6 +43,7 @@ pub fn make_cppgc_object<'a, T: GcResource + 'static>(
   obj
 }
 
+// TODO(littledivy): https://github.com/denoland/rusty_v8/pull/1505
 #[repr(C)]
 struct InnerMember {
   inner: [usize; 2],
