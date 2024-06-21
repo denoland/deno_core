@@ -1473,17 +1473,19 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
 
 fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
   match (position, ty) {
-    (Position::Arg, Type::Reference(of)) => match &*of.elem {
-      Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
-      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-    },
+    (Position::Arg, Type::Reference(of)) if of.mutability.is_none() => {
+      match &*of.elem {
+        Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+        _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+      }
+    }
     (Position::Arg, Type::Path(of)) => {
       rules!(of.to_token_stream() => {
         ( Option < $ty:ty $(,)? > ) => {
           match ty {
-            Type::Reference(of) => {
+            Type::Reference(of) if of.mutability.is_none() => {
               match &*of.elem {
-                Type::Path(f) => Ok(Arg::OptionCppGcResource(stringify_token(&f.path))),
+                Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path))),
                 _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
               }
             }
@@ -2048,7 +2050,7 @@ mod tests {
   );
   expect_fail!(
     op_cppgc_resource_invalid_type,
-    ArgError("resource", InvalidCppGcType("&[std :: fs :: File]")),
+    ArgError("resource", InvalidCppGcType("[std :: fs :: File]")),
     fn f(#[cppgc] resource: &[std::fs::File]) {}
   );
   expect_fail!(
