@@ -610,7 +610,6 @@ mod tests {
       op_test_get_cppgc_resource,
       op_test_get_cppgc_resource_option,
       op_test_make_cppgc_resource,
-      op_test_set_cppgc_resource,
       op_test_make_cppgc_resource_option,
       op_external_make,
       op_external_process,
@@ -1929,14 +1928,6 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_set_cppgc_resource(
-    #[cppgc] resource: &mut TestResource,
-    value: u32,
-  ) {
-    resource.value = value;
-  }
-
-  #[op2(fast)]
   #[smi]
   pub fn op_test_get_cppgc_resource_option(
     #[cppgc] resource: Option<&TestResource>,
@@ -1953,7 +1944,7 @@ mod tests {
   {
     run_async_test(
       10,
-      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_get_cppgc_resource_option, op_test_make_cppgc_resource_option, op_test_set_cppgc_resource",
+      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_get_cppgc_resource_option, op_test_make_cppgc_resource_option",
       r"
       const resource = op_test_make_cppgc_resource();
       assert((await op_test_get_cppgc_resource(resource)) === 42);
@@ -1962,9 +1953,7 @@ mod tests {
       const resource2 = op_test_make_cppgc_resource_option(false);
       assert(resource2 === null);
       const resource3 = op_test_make_cppgc_resource_option(true);
-      assert((await op_test_get_cppgc_resource(resource3)) === 42);
-      op_test_set_cppgc_resource(resource, 43);
-      assert((await op_test_get_cppgc_resource(resource)) == 43);"
+      assert((await op_test_get_cppgc_resource(resource3)) === 42);",
     ).await?;
     Ok(())
   }

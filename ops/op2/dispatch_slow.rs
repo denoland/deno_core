@@ -92,7 +92,7 @@ pub(crate) fn generate_dispatch_slow(
   )?);
 
   let with_self = if generator_state.needs_self {
-    with_self(generator_state, false, &signature.ret_val)
+    with_self(generator_state, &signature.ret_val)
       .map_err(V8SignatureMappingError::NoSelfMapping)?
   } else {
     quote!()
@@ -246,7 +246,6 @@ pub(crate) fn with_js_runtime_state(
 
 pub(crate) fn with_self(
   generator_state: &mut GeneratorState,
-  is_async: bool,
   ret_val: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   generator_state.needs_opctx = true;
@@ -255,7 +254,6 @@ pub(crate) fn with_self(
     format!("expected {}", &generator_state.self_ty),
   )?;
   let tokens = if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
-    || is_async
   {
     let tokens = gs_quote!(generator_state(self_ty, fn_args, scope) => {
       let Some(self_) = deno_core::_ops::CppGcObjectGuard::<#self_ty>::try_new_from_cppgc_object(&mut *#scope, #fn_args.this().into()) else {
@@ -619,7 +617,7 @@ pub fn from_arg(
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
           } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
-            Some(#arg_ident as _)
+            Some(#arg_ident)
           } else {
             #throw_exception;
           };
