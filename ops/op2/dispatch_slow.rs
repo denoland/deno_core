@@ -593,7 +593,7 @@ pub fn from_arg(
         }
       }
     }
-    Arg::OptionCppGcResource(ty, mut_ref) => {
+    Arg::OptionCppGcResource(ty) => {
       let throw_exception =
         throw_type_error(generator_state, format!("expected {}", &ty))?;
       let ty =
@@ -615,17 +615,11 @@ pub fn from_arg(
           .push((arg_ident.clone(), true));
         tokens
       } else {
-        let deref = if *mut_ref {
-          quote!(#arg_ident)
-        } else {
-          quote!(#arg_ident.deref())
-        };
-
         quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
           } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
-            Some(#deref)
+            Some(#arg_ident as _)
           } else {
             #throw_exception;
           };

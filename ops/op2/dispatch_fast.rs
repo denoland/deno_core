@@ -748,22 +748,16 @@ fn map_v8_fastcall_arg_to_arg(
         };
       }
     }
-    Arg::OptionCppGcResource(ty, mut_ref) => {
+    Arg::OptionCppGcResource(ty) => {
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-
-      let deref = if *mut_ref {
-        quote!(#arg_ident)
-      } else {
-        quote!(#arg_ident as _)
-      };
 
       *needs_fast_api_callback_options = true;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
         } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
-          Some(#deref)
+          Some(#arg_ident as _)
         } else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value

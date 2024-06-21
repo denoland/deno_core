@@ -279,7 +279,7 @@ pub enum Arg {
   State(RefType, String),
   OptionState(RefType, String),
   CppGcResource(String),
-  OptionCppGcResource(String, bool),
+  OptionCppGcResource(String),
   WasmMemory(RefType, WasmMemorySource),
   OptionWasmMemory(RefType, WasmMemorySource),
   FromV8(String),
@@ -428,7 +428,7 @@ impl Arg {
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
-      Arg::OptionCppGcResource(t, _) => Arg::CppGcResource(t.clone()),
+      Arg::OptionCppGcResource(t) => Arg::CppGcResource(t.clone()),
       _ => return None,
     })
   }
@@ -498,7 +498,7 @@ impl Arg {
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
-      Arg::CppGcResource(_) | Arg::OptionCppGcResource(..) => ArgMarker::Cppgc,
+      Arg::CppGcResource(_) | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
       Arg::ToV8(_) => ArgMarker::ToV8,
       _ => ArgMarker::None,
     }
@@ -1483,7 +1483,7 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
           match ty {
             Type::Reference(of) => {
               match &*of.elem {
-                Type::Path(f) => Ok(Arg::OptionCppGcResource(stringify_token(&f.path), of.mutability.is_some())),
+                Type::Path(f) => Ok(Arg::OptionCppGcResource(stringify_token(&f.path))),
                 _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
               }
             }
@@ -1500,7 +1500,7 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
       rules!(ty.to_token_stream() => {
         ( Option < $ty:ty $(,)? > ) => {
           match ty {
-            Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path), false)),
+            Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path))),
             _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
           }
         }
@@ -2048,7 +2048,7 @@ mod tests {
   );
   expect_fail!(
     op_cppgc_resource_invalid_type,
-    ArgError("resource", InvalidCppGcType("[std :: fs :: File]")),
+    ArgError("resource", InvalidCppGcType("&[std :: fs :: File]")),
     fn f(#[cppgc] resource: &[std::fs::File]) {}
   );
   expect_fail!(

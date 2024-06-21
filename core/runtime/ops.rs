@@ -1953,18 +1953,18 @@ mod tests {
   {
     run_async_test(
       10,
-      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_get_cppgc_resource_option, op_test_make_cppgc_resource_option",
+      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_get_cppgc_resource_option, op_test_make_cppgc_resource_option, op_test_set_cppgc_resource",
       r"
       const resource = op_test_make_cppgc_resource();
       assert((await op_test_get_cppgc_resource(resource)) === 42);
       assert(op_test_get_cppgc_resource_option(resource) === 42);
-      op_test_set_cppgc_resource(resource, 43);
-      assert(op_test_get_cppgc_resource(resource) == 43);
       assert(op_test_get_cppgc_resource_option(null) === 0);
       const resource2 = op_test_make_cppgc_resource_option(false);
       assert(resource2 === null);
       const resource3 = op_test_make_cppgc_resource_option(true);
-      assert((await op_test_get_cppgc_resource(resource3)) === 42);",
+      assert((await op_test_get_cppgc_resource(resource3)) === 42);
+      op_test_set_cppgc_resource(resource, 43);
+      assert((await op_test_get_cppgc_resource(resource)) == 43);"
     ).await?;
     Ok(())
   }
