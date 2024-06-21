@@ -454,7 +454,7 @@ pub(crate) fn generate_dispatch_fast(
   let with_self = if generator_state.needs_self {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(self_ty, fast_api_callback_options) => {
-      let Some(self_) = deno_core::cppgc::try_unwrap_cppgc_object::<#self_ty>(this.into()) else {
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(this.into()) else {
         #fast_api_callback_options.fallback = true;
         // SAFETY: All fast return types have zero as a valid value
         return unsafe { std::mem::zeroed() };
@@ -741,10 +741,33 @@ fn map_v8_fastcall_arg_to_arg(
 
       *needs_fast_api_callback_options = true;
       quote! {
-        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
+        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
             #fast_api_callback_options.fallback = true;
             // SAFETY: All fast return types have zero as a valid value
             return unsafe { std::mem::zeroed() };
+        };
+      }
+    }
+    Arg::OptionCppGcResource(ty, mut_ref) => {
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+
+      let deref = if *mut_ref {
+        quote!(#arg_ident)
+      } else {
+        quote!(#arg_ident as _)
+      };
+
+      *needs_fast_api_callback_options = true;
+      quote! {
+        let #arg_ident = if #arg_ident.is_null_or_undefined() {
+          None
+        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
+          Some(#deref)
+        } else {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
         };
       }
     }
@@ -857,6 +880,7 @@ fn map_arg_to_v8_fastcall_type(
     Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
     Arg::External(..) => V8FastCallType::Pointer,
     Arg::CppGcResource(..) => V8FastCallType::V8Value,
+    Arg::OptionCppGcResource(..) => V8FastCallType::V8Value,
     _ => return Err("a fast argument"),
   };
   Ok(Some(rv))
@@ -900,7 +924,8 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Global(_)
     | Arg::OptionV8Ref(..)
-    | Arg::CppGcResource(..) => return Ok(None),
+    | Arg::CppGcResource(..)
+    | Arg::OptionCppGcResource(..) => return Ok(None),
     Arg::Buffer(..) | Arg::OptionBuffer(..) => return Ok(None),
     Arg::External(..) => V8FastCallType::Pointer,
     _ => return Err("a fast return value"),

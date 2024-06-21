@@ -279,6 +279,7 @@ pub enum Arg {
   State(RefType, String),
   OptionState(RefType, String),
   CppGcResource(String),
+  OptionCppGcResource(String, bool),
   WasmMemory(RefType, WasmMemorySource),
   OptionWasmMemory(RefType, WasmMemorySource),
   FromV8(String),
@@ -412,6 +413,7 @@ impl Arg {
         | Arg::OptionString(..)
         | Arg::OptionBuffer(..)
         | Arg::OptionState(..)
+        | Arg::OptionCppGcResource(..)
     )
   }
 
@@ -426,6 +428,7 @@ impl Arg {
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
+      Arg::OptionCppGcResource(t, _) => Arg::CppGcResource(t.clone()),
       _ => return None,
     })
   }
@@ -479,7 +482,7 @@ impl Arg {
         Arg::OptionBuffer(.., BufferSource::TypedArray) => {
           ArgSlowRetval::V8LocalFalliable
         }
-        Arg::CppGcResource(_) => ArgSlowRetval::V8LocalNoScope,
+        Arg::CppGcResource(_) => ArgSlowRetval::V8Local,
         _ => ArgSlowRetval::None,
       }
     }
@@ -495,7 +498,7 @@ impl Arg {
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
-      Arg::CppGcResource(_) => ArgMarker::Cppgc,
+      Arg::CppGcResource(_) | Arg::OptionCppGcResource(..) => ArgMarker::Cppgc,
       Arg::ToV8(_) => ArgMarker::ToV8,
       _ => ArgMarker::None,
     }
@@ -1474,10 +1477,39 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
       Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
       _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
     },
-    (Position::RetVal, Type::Path(of)) => {
-      Ok(Arg::CppGcResource(stringify_token(&of.path)))
+    (Position::Arg, Type::Path(of)) => {
+      rules!(of.to_token_stream() => {
+        ( Option < $ty:ty $(,)? > ) => {
+          match ty {
+            Type::Reference(of) => {
+              match &*of.elem {
+                Type::Path(f) => Ok(Arg::OptionCppGcResource(stringify_token(&f.path), of.mutability.is_some())),
+                _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+              }
+            }
+            _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+          }
+        }
+        ( $_ty:ty ) => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+      })
     }
-    _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+    (Position::Arg, _) => {
+      Err(ArgError::ExpectedCppGcReference(stringify_token(ty)))
+    }
+    (Position::RetVal, ty) => {
+      rules!(ty.to_token_stream() => {
+        ( Option < $ty:ty $(,)? > ) => {
+          match ty {
+            Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path), false)),
+            _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+          }
+        }
+        ( $ty:ty ) => match ty {
+          Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+          _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+        },
+      })
+    }
   }
 }
 
@@ -2008,6 +2040,21 @@ mod tests {
     op_cppgc_resource_owned,
     ArgError("resource", ExpectedCppGcReference("std::fs::File")),
     fn f(#[cppgc] resource: std::fs::File) {}
+  );
+  expect_fail!(
+    op_cppgc_resource_option_owned,
+    ArgError("resource", ExpectedCppGcReference("std::fs::File")),
+    fn f(#[cppgc] resource: Option<std::fs::File>) {}
+  );
+  expect_fail!(
+    op_cppgc_resource_invalid_type,
+    ArgError("resource", InvalidCppGcType("[std :: fs :: File]")),
+    fn f(#[cppgc] resource: &[std::fs::File]) {}
+  );
+  expect_fail!(
+    op_cppgc_resource_option_invalid_type,
+    ArgError("resource", InvalidCppGcType("[std :: fs :: File]")),
+    fn f(#[cppgc] resource: Option<&[std::fs::File]>) {}
   );
 
   // Args

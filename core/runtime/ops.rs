@@ -525,6 +525,7 @@ mod tests {
   use crate::op2;
   use crate::runtime::JsRuntimeState;
   use crate::FromV8;
+  use crate::GcResource;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
@@ -607,8 +608,10 @@ mod tests {
       op_buffer_any_length,
       op_arraybuffer_slice,
       op_test_get_cppgc_resource,
+      op_test_get_cppgc_resource_option,
       op_test_make_cppgc_resource,
       op_test_set_cppgc_resource,
+      op_test_make_cppgc_resource_option,
       op_external_make,
       op_external_process,
       op_external_make_ptr,
@@ -1896,15 +1899,32 @@ mod tests {
     pub value: u32,
   }
 
+  impl GcResource for TestResource {}
+
   #[op2]
   #[cppgc]
   pub fn op_test_make_cppgc_resource() -> TestResource {
     TestResource { value: 42 }
   }
 
-  #[op2(fast)]
+  #[op2]
+  #[cppgc]
+  pub fn op_test_make_cppgc_resource_option(
+    create: bool,
+  ) -> Option<TestResource> {
+    if create {
+      Some(TestResource { value: 42 })
+    } else {
+      None
+    }
+  }
+
+  #[op2(async)]
   #[smi]
-  pub fn op_test_get_cppgc_resource(#[cppgc] resource: &TestResource) -> u32 {
+  pub async fn op_test_get_cppgc_resource(
+    #[cppgc] resource: &TestResource,
+  ) -> u32 {
+    tokio::task::yield_now().await;
     resource.value
   }
 
@@ -1916,17 +1936,36 @@ mod tests {
     resource.value = value;
   }
 
-  #[test]
-  pub fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(
+  #[op2(fast)]
+  #[smi]
+  pub fn op_test_get_cppgc_resource_option(
+    #[cppgc] resource: Option<&TestResource>,
+  ) -> u32 {
+    if let Some(resource) = resource {
+      resource.value
+    } else {
+      0
+    }
+  }
+
+  #[tokio::test]
+  pub async fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
       10,
-      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_set_cppgc_resource",
+      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_get_cppgc_resource_option, op_test_make_cppgc_resource_option",
       r"
       const resource = op_test_make_cppgc_resource();
-      assert(op_test_get_cppgc_resource(resource) == 42);
+      assert((await op_test_get_cppgc_resource(resource)) === 42);
+      assert(op_test_get_cppgc_resource_option(resource) === 42);
       op_test_set_cppgc_resource(resource, 43);
-      assert(op_test_get_cppgc_resource(resource) == 43);",
-    )?;
+      assert(op_test_get_cppgc_resource(resource) == 43);
+      assert(op_test_get_cppgc_resource_option(null) === 0);
+      const resource2 = op_test_make_cppgc_resource_option(false);
+      assert(resource2 === null);
+      const resource3 = op_test_make_cppgc_resource_option(true);
+      assert((await op_test_get_cppgc_resource(resource3)) === 42);",
+    ).await?;
     Ok(())
   }
 

@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
 use deno_core::v8;
+use deno_core::GcResource;
 use deno_core::OpState;
 use deno_core::V8TaskSpawner;
 use futures::future::poll_fn;
@@ -64,6 +65,8 @@ pub async fn op_async_spin_on_state(state: Rc<RefCell<OpState>>) {
 pub struct TestResource {
   value: u32,
 }
+
+impl GcResource for TestResource {}
 
 #[op2(async)]
 #[cppgc]

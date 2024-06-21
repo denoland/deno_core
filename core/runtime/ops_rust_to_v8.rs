@@ -161,6 +161,10 @@ impl Marker for NumberMarker {}
 pub struct ArrayBufferMarker;
 impl Marker for ArrayBufferMarker {}
 
+/// This struct should be wrapped with cppgc.
+pub struct CppGcMarker;
+impl Marker for CppGcMarker {}
+
 pub struct ToV8Marker;
 impl Marker for ToV8Marker {}
 
@@ -402,6 +406,21 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
     scope: &mut v8::HandleScope<'a>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
     serde_v8::to_v8(scope, self.0)
+  }
+}
+
+//
+// CppGc
+//
+
+impl<'a, T: crate::cppgc::GcResource + 'static> RustToV8<'a>
+  for RustToV8Marker<CppGcMarker, T>
+{
+  #[inline(always)]
+  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+    v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_object(
+      scope, self.0,
+    ))
   }
 }
 
