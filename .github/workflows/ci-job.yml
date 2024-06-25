@@ -92,11 +92,15 @@ jobs:
         id: test
         if: inputs.job == 'test'
         uses: ./.github/workflows/ci-test
+        env:
+          V8_FORCE_DEBUG: ${{ inputs.label == 'linux' && '1' || '0' }}
 
       - name: Test (ops)
         id: test-ops
         if: inputs.job == 'test-ops'
         uses: ./.github/workflows/ci-test-ops
+        env:
+          V8_FORCE_DEBUG: ${{ inputs.label == 'linux' && '1' || '0' }}
 
       - name: Test (miri)
         id: test-miri
