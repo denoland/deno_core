@@ -69,6 +69,7 @@ pub use crate::async_cell::RcLike;
 pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
 pub use crate::convert::ToV8;
+pub use crate::cppgc::GcResource;
 pub use crate::error::GetErrorClassFn;
 pub use crate::error::JsErrorCreateFn;
 pub use crate::extensions::Extension;
@@ -174,12 +175,15 @@ pub fn v8_version() -> &'static str {
 /// An internal module re-exporting functions used by the #[op] (`deno_ops`) macro
 #[doc(hidden)]
 pub mod _ops {
+  pub use super::cppgc::make_cppgc_object;
+  pub use super::cppgc::try_unwrap_cppgc_object;
   pub use super::error::throw_type_error;
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
   #[cfg(debug_assertions)]
   pub use super::ops::reentrancy_check;
+  pub use super::ops::CppGcObjectGuard;
   pub use super::ops::OpCtx;
   pub use super::ops_metrics::dispatch_metrics_async;
   pub use super::ops_metrics::dispatch_metrics_fast;

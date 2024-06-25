@@ -2,12 +2,14 @@
 
 use std::any::TypeId;
 
-struct CppGcObject<T> {
+pub trait GcResource {}
+
+struct CppGcObject<T: GcResource> {
   tag: TypeId,
   member: T,
 }
 
-impl<T> v8::cppgc::GarbageCollected for CppGcObject<T> {
+impl<T: GcResource> v8::cppgc::GarbageCollected for CppGcObject<T> {
   fn trace(&self, _: &v8::cppgc::Visitor) {}
 }
 
@@ -17,7 +19,7 @@ const EMBEDDER_ID_OFFSET: i32 = 0;
 const SLOT_OFFSET: i32 = 1;
 const FIELD_COUNT: usize = 2;
 
-pub fn make_cppgc_object<'a, T: 'static>(
+pub fn make_cppgc_object<'a, T: GcResource + 'static>(
   scope: &mut v8::HandleScope<'a>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
@@ -41,8 +43,9 @@ pub fn make_cppgc_object<'a, T: 'static>(
   obj
 }
 
-pub fn try_unwrap_cppgc_object<'sc, T: 'static>(
-  val: v8::Local<v8::Value>,
+#[allow(clippy::needless_lifetimes)]
+pub fn try_unwrap_cppgc_object<'sc, T: GcResource + 'static>(
+  val: v8::Local<'sc, v8::Value>,
 ) -> Option<&'sc T> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
     return None;

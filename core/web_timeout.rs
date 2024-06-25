@@ -31,7 +31,7 @@ enum TimerType {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct TimerKey(Instant, u64, TimerType);
+struct TimerKey(Instant, u64, TimerType, bool);
 
 struct TimerData<T> {
   data: T,
@@ -106,7 +106,7 @@ pub(crate) struct WebTimersIterator<'a, T> {
 
 impl<'a, T> IntoIterator for &'a WebTimersIterator<'a, T> {
   type IntoIter = WebTimersIteratorImpl<'a, T>;
-  type Item = (u64, bool);
+  type Item = (u64, bool, bool);
 
   fn into_iter(self) -> Self::IntoIter {
     WebTimersIteratorImpl {
@@ -122,12 +122,12 @@ pub(crate) struct WebTimersIteratorImpl<'a, T> {
 }
 
 impl<'a, T> Iterator for WebTimersIteratorImpl<'a, T> {
-  type Item = (u64, bool);
+  type Item = (u64, bool, bool);
   fn next(&mut self) -> Option<Self::Item> {
     loop {
       let item = self.timers.next()?;
       if self.data.contains_key(&item.1) {
-        return Some((item.1, !matches!(item.2, TimerType::Once)));
+        return Some((item.1, !matches!(item.2, TimerType::Once), item.3));
       }
     }
   }
@@ -287,12 +287,21 @@ impl<T: Clone> WebTimers<T> {
 
   /// Queues a timer to be fired in order with the other timers in this set of timers.
   pub fn queue_timer(&self, timeout_ms: u64, data: T) -> WebTimerId {
-    self.queue_timer_internal(false, timeout_ms, data)
+    self.queue_timer_internal(false, timeout_ms, data, false)
   }
 
   /// Queues a timer to be fired in order with the other timers in this set of timers.
   pub fn queue_timer_repeat(&self, timeout_ms: u64, data: T) -> WebTimerId {
-    self.queue_timer_internal(true, timeout_ms, data)
+    self.queue_timer_internal(true, timeout_ms, data, false)
+  }
+
+  pub fn queue_system_timer(
+    &self,
+    repeat: bool,
+    timeout_ms: u64,
+    data: T,
+  ) -> WebTimerId {
+    self.queue_timer_internal(repeat, timeout_ms, data, true)
   }
 
   fn queue_timer_internal(
@@ -300,6 +309,7 @@ impl<T: Clone> WebTimers<T> {
     repeat: bool,
     timeout_ms: u64,
     data: T,
+    is_system_timer: bool,
   ) -> WebTimerId {
     #[allow(clippy::let_unit_value)]
     let high_res = self.high_res_timer_lock.maybe_lock(timeout_ms);
@@ -326,7 +336,7 @@ impl<T: Clone> WebTimers<T> {
     } else {
       TimerType::Once
     };
-    timers.insert(TimerKey(deadline, id, timer_type));
+    timers.insert(TimerKey(deadline, id, timer_type, is_system_timer));
 
     let mut data_map = self.data_map.borrow_mut();
     data_map.insert(
@@ -380,9 +390,9 @@ impl<T: Clone> WebTimers<T> {
     let mut data = self.data_map.borrow_mut();
     let mut output = vec![];
 
-    let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once));
+    let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once, false));
     std::mem::swap(&mut split, &mut timers);
-    for TimerKey(_, id, timer_type) in split {
+    for TimerKey(_, id, timer_type, is_system_timer) in split {
       if let TimerType::Repeat(interval) = timer_type {
         if let Some(TimerData { data, .. }) = data.get(&id) {
           output.push((id, data.clone()));
@@ -392,6 +402,7 @@ impl<T: Clone> WebTimers<T> {
               .unwrap(),
             id,
             timer_type,
+            is_system_timer,
           ));
         }
       } else if let Some(TimerData {
@@ -413,7 +424,7 @@ impl<T: Clone> WebTimers<T> {
       // We should never have an ineffective poll when the data map is empty, as we check
       // for this in cancel_timer.
       debug_assert!(!data.is_empty());
-      while let Some(TimerKey(_, id, _)) = timers.first() {
+      while let Some(TimerKey(_, id, ..)) = timers.first() {
         if data.contains_key(id) {
           break;
         } else {

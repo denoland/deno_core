@@ -25,27 +25,25 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
             stringify!(op_async)
         }
         #[inline(always)]
-        fn slow_function_impl(
-            info: *const deno_core::v8::FunctionCallbackInfo,
+        fn slow_function_impl<'s>(
+            info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(unsafe {
-                &*info
-            });
-            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
-                &*info
-            });
-            let opctx = unsafe {
+            let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
+            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
+                info,
+            );
+            let opctx: &'s _ = unsafe {
                 &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
             let result = {
                 let arg0 = args.get(1usize as i32);
                 let Some(arg0) = deno_core::_ops::to_i32_option(&arg0) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(&*info) };
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
                     let msg = deno_core::v8::String::new_from_one_byte(
                             &mut scope,
                             "expected i32".as_bytes(),
@@ -75,7 +73,7 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
                     }
                     Err(err) => {
                         let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(&*info)
+                            deno_core::v8::CallbackScope::new(info)
                         };
                         let err = err.into();
                         let exception = deno_core::error::to_v8_error(
@@ -91,32 +89,34 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
             }
             return 2;
         }
-        extern "C" fn v8_fn_ptr(info: *const deno_core::v8::FunctionCallbackInfo) {
+        extern "C" fn v8_fn_ptr<'s>(info: *const deno_core::v8::FunctionCallbackInfo) {
+            let info: &'s _ = unsafe { &*info };
             Self::slow_function_impl(info);
         }
-        extern "C" fn v8_fn_ptr_metrics(
+        extern "C" fn v8_fn_ptr_metrics<'s>(
             info: *const deno_core::v8::FunctionCallbackInfo,
         ) {
-            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
-                &*info
-            });
-            let opctx = unsafe {
+            let info: &'s _ = unsafe { &*info };
+            let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
+                info,
+            );
+            let opctx: &'s _ = unsafe {
                 &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
             deno_core::_ops::dispatch_metrics_async(
-                &opctx,
+                opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
             let res = Self::slow_function_impl(info);
             if res == 0 {
                 deno_core::_ops::dispatch_metrics_async(
-                    &opctx,
+                    opctx,
                     deno_core::_ops::OpMetricsEvent::Completed,
                 );
             } else if res == 1 {
                 deno_core::_ops::dispatch_metrics_async(
-                    &opctx,
+                    opctx,
                     deno_core::_ops::OpMetricsEvent::Error,
                 );
             }

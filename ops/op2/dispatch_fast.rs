@@ -204,7 +204,7 @@ impl V8FastCallType {
         quote!(deno_core::v8::Local<deno_core::v8::Value>)
       }
       V8FastCallType::CallbackOptions => {
-        quote!(*mut deno_core::v8::fast_api::FastApiCallbackOptions)
+        quote!(*mut deno_core::v8::fast_api::FastApiCallbackOptions<'s>)
       }
       V8FastCallType::SeqOneByteString => {
         quote!(*mut deno_core::v8::fast_api::FastApiOneByteString)
@@ -433,7 +433,7 @@ pub(crate) fn generate_dispatch_fast(
   let with_js_runtime_state = if generator_state.needs_fast_js_runtime_state {
     generator_state.needs_fast_opctx = true;
     gs_quote!(generator_state(js_runtime_state, opctx) => {
-      let #js_runtime_state = &#opctx.runtime_state();
+      let #js_runtime_state = #opctx.runtime_state();
     })
   } else {
     quote!()
@@ -442,7 +442,7 @@ pub(crate) fn generate_dispatch_fast(
   let with_opctx = if generator_state.needs_fast_opctx {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
-      let #opctx = unsafe {
+      let #opctx: &'s _ = unsafe {
         &*(deno_core::v8::Local::<deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
             as *const deno_core::_ops::OpCtx)
       };
@@ -452,8 +452,13 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_self = if generator_state.needs_self {
-    gs_quote!(generator_state(self_ty) => {
-      let self_: &#self_ty = deno_core::cppgc::try_unwrap_cppgc_object(this.into()).unwrap();
+    generator_state.needs_fast_api_callback_options = true;
+    gs_quote!(generator_state(self_ty, fast_api_callback_options) => {
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(this.into()) else {
+        #fast_api_callback_options.fallback = true;
+        // SAFETY: All fast return types have zero as a valid value
+        return unsafe { std::mem::zeroed() };
+      };
     })
   } else {
     quote!()
@@ -474,7 +479,7 @@ pub(crate) fn generate_dispatch_fast(
   {
     fastsig.ensure_fast_api_callback_options();
     gs_quote!(generator_state(fast_api_callback_options) => {
-      let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
+      let #fast_api_callback_options: &'s mut _ = unsafe { &mut *#fast_api_callback_options };
     })
   } else {
     quote!()
@@ -500,24 +505,25 @@ pub(crate) fn generate_dispatch_fast(
     fastsig.input_args(generator_state).into_iter().unzip();
   let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
-    extern "C" fn #fast_function_metrics(
+    extern "C" fn #fast_function_metrics<'s>(
       this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_metrics_names: #fastcall_metrics_types, )*
     ) -> #output_type {
-      let #fast_api_callback_options = unsafe { &mut *#fast_api_callback_options };
-      let opctx = unsafe {
+      let #fast_api_callback_options: &'s mut _ =
+        unsafe { &mut *#fast_api_callback_options };
+      let opctx: &'s _ = unsafe {
           &*(deno_core::v8::Local::<deno_core::v8::External>::cast(
             unsafe { #fast_api_callback_options.data.data }
           ).value() as *const deno_core::_ops::OpCtx)
       };
-      deno_core::_ops::dispatch_metrics_fast(&opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
+      deno_core::_ops::dispatch_metrics_fast(opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
       let res = Self::#fast_function( this, #( #fastcall_names, )* );
-      deno_core::_ops::dispatch_metrics_fast(&opctx, deno_core::_ops::OpMetricsEvent::Completed);
+      deno_core::_ops::dispatch_metrics_fast(opctx, deno_core::_ops::OpMetricsEvent::Completed);
       res
     }
 
     #[allow(clippy::too_many_arguments)]
-    extern "C" fn #fast_function(
+    extern "C" fn #fast_function<'s>(
       this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_names: #fastcall_types, )*
     ) -> #output_type {
@@ -735,10 +741,27 @@ fn map_v8_fastcall_arg_to_arg(
 
       *needs_fast_api_callback_options = true;
       quote! {
-        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
+        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
             #fast_api_callback_options.fallback = true;
             // SAFETY: All fast return types have zero as a valid value
             return unsafe { std::mem::zeroed() };
+        };
+      }
+    }
+    Arg::OptionCppGcResource(ty) => {
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+
+      *needs_fast_api_callback_options = true;
+      quote! {
+        let #arg_ident = if #arg_ident.is_null_or_undefined() {
+          None
+        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
+          Some(#arg_ident)
+        } else {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
         };
       }
     }
@@ -851,6 +874,7 @@ fn map_arg_to_v8_fastcall_type(
     Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
     Arg::External(..) => V8FastCallType::Pointer,
     Arg::CppGcResource(..) => V8FastCallType::V8Value,
+    Arg::OptionCppGcResource(..) => V8FastCallType::V8Value,
     _ => return Err("a fast argument"),
   };
   Ok(Some(rv))
@@ -894,7 +918,8 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::OptionV8Local(_)
     | Arg::OptionV8Global(_)
     | Arg::OptionV8Ref(..)
-    | Arg::CppGcResource(..) => return Ok(None),
+    | Arg::CppGcResource(..)
+    | Arg::OptionCppGcResource(..) => return Ok(None),
     Arg::Buffer(..) | Arg::OptionBuffer(..) => return Ok(None),
     Arg::External(..) => V8FastCallType::Pointer,
     _ => return Err("a fast return value"),

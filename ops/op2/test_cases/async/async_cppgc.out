@@ -1,13 +1,13 @@
 #[allow(non_camel_case_types)]
-const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
+const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
     #[allow(non_camel_case_types)]
-    struct op_blob_read_part {
+    struct op_make_cppgc_object {
         _unconstructable: ::std::marker::PhantomData<()>,
     }
-    impl ::deno_core::_ops::Op for op_blob_read_part {
-        const NAME: &'static str = stringify!(op_blob_read_part);
+    impl ::deno_core::_ops::Op for op_make_cppgc_object {
+        const NAME: &'static str = stringify!(op_make_cppgc_object);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-            ::deno_core::__op_name_fast!(op_blob_read_part),
+            ::deno_core::__op_name_fast!(op_make_cppgc_object),
             true,
             false,
             1usize as u8,
@@ -16,15 +16,13 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
             None,
             None,
             ::deno_core::OpMetadata {
-                sanitizer_details: Some("read from a Blob or File"),
-                sanitizer_fix: Some("awaiting the result of a Blob or File read"),
                 ..::deno_core::OpMetadata::default()
             },
         );
     }
-    impl op_blob_read_part {
+    impl op_make_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_blob_read_part)
+            stringify!(op_make_cppgc_object)
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -34,6 +32,7 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
+            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -51,9 +50,27 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
                 false,
                 promise_id,
                 result,
-                |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
+                |scope, result| {
+                    Ok(
+                        deno_core::_ops::RustToV8::to_v8(
+                            deno_core::_ops::RustToV8Marker::<
+                                deno_core::_ops::CppGcMarker,
+                                _,
+                            >::from(result),
+                            scope,
+                        ),
+                    )
+                },
             ) {
-                deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+                rv.set(
+                    deno_core::_ops::RustToV8::to_v8(
+                        deno_core::_ops::RustToV8Marker::<
+                            deno_core::_ops::CppGcMarker,
+                            _,
+                        >::from(result),
+                        &mut scope,
+                    ),
+                );
                 return 0;
             }
             return 2;
@@ -91,42 +108,40 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
             }
         }
     }
-    impl op_blob_read_part {
+    impl op_make_cppgc_object {
         #[inline(always)]
-        async fn call() {
-            return;
+        async fn call() -> Wrap {
+            Wrap
         }
     }
-    <op_blob_read_part as ::deno_core::_ops::Op>::DECL
+    <op_make_cppgc_object as ::deno_core::_ops::Op>::DECL
 }
 
 #[allow(non_camel_case_types)]
-const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
+const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
     #[allow(non_camel_case_types)]
-    struct op_broadcast_recv {
+    struct op_use_cppgc_object {
         _unconstructable: ::std::marker::PhantomData<()>,
     }
-    impl ::deno_core::_ops::Op for op_broadcast_recv {
-        const NAME: &'static str = stringify!(op_broadcast_recv);
+    impl ::deno_core::_ops::Op for op_use_cppgc_object {
+        const NAME: &'static str = stringify!(op_use_cppgc_object);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-            ::deno_core::__op_name_fast!(op_broadcast_recv),
+            ::deno_core::__op_name_fast!(op_use_cppgc_object),
             true,
             false,
-            1usize as u8,
+            2usize as u8,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             None,
             None,
             ::deno_core::OpMetadata {
-                sanitizer_details: Some("receive a message from a BroadcastChannel"),
-                sanitizer_fix: Some("closing the BroadcastChannel"),
                 ..::deno_core::OpMetadata::default()
             },
         );
     }
-    impl op_broadcast_recv {
+    impl op_use_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_broadcast_recv)
+            stringify!(op_use_cppgc_object)
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -136,6 +151,7 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
+            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -144,7 +160,27 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
                 &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            let result = { Self::call() };
+            let result = {
+                let arg0 = args.get(1usize as i32);
+                let Some(arg0) = deno_core::_ops::CppGcObjectGuard::<
+                    Wrap,
+                >::try_new_from_cppgc_object(&mut *scope, arg0) else {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            "expected Wrap".as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
+                    return 1;
+                };
+                async move {
+                    let arg0 = unsafe { arg0.as_ref() };
+                    Self::call(arg0).await
+                }
+            };
             let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
                 .unwrap_or_default();
             if let Some(result) = deno_core::_ops::map_async_op_infallible(
@@ -193,11 +229,9 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
             }
         }
     }
-    impl op_broadcast_recv {
+    impl op_use_cppgc_object {
         #[inline(always)]
-        async fn call() {
-            return;
-        }
+        async fn call(_wrap: &Wrap) {}
     }
-    <op_broadcast_recv as ::deno_core::_ops::Op>::DECL
+    <op_use_cppgc_object as ::deno_core::_ops::Op>::DECL
 }
