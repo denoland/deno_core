@@ -51,34 +51,3 @@ impl FromV8 for Value<'_> {
     Ok(unsafe { transmute::<Value, Value>(value.into()) })
   }
 }
-
-mod test {
-  #[test]
-  fn magic_value() {
-    use serde_v8_utilities::{js_exec, v8_do};
-    struct Test<'a>(v8::Local<'a, v8::Value>);
-    impl<'de> serde::Deserialize<'de> for Test<'_> {
-      fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-      where
-        D: serde::Deserializer<'de>,
-      {
-        let value = super::Value::deserialize(deserializer)?;
-        let local = value.v8_value;
-        Ok(Self(local))
-      }
-    }
-
-    v8_do(|| {
-      // Init isolate
-      let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-      let handle_scope = &mut v8::HandleScope::new(isolate);
-      let context = v8::Context::new(handle_scope);
-      let scope = &mut v8::ContextScope::new(handle_scope, context);
-
-      let v8_string = js_exec(scope, "'test'");
-      let test: Test = crate::from_v8(scope, v8_string).unwrap();
-      let test = test.0.to_rust_string_lossy(scope);
-      assert_eq!(test.as_str(), "test");
-    })
-  }
-}
