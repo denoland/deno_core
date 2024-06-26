@@ -16,7 +16,7 @@ pub struct GlobalValue {
 }
 impl_magic!(GlobalValue);
 
-impl<'s, T> From<v8::Global<T>> for GlobalValue
+impl<T> From<v8::Global<T>> for GlobalValue
 where
   v8::Global<T>: Into<v8::Global<v8::Value>>,
 {
