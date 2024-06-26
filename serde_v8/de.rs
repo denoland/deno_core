@@ -342,6 +342,9 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
       BigInt::MAGIC_NAME => {
         visit_magic(visitor, BigInt::from_v8(self.scope, self.input)?)
       }
+      magic::GlobalValue::MAGIC_NAME => {
+        visit_magic(visitor, magic::GlobalValue::from_v8(self.scope, self.input)?)
+      }
       magic::Value::MAGIC_NAME => {
         visit_magic(visitor, magic::Value::from_v8(self.scope, self.input)?)
       }

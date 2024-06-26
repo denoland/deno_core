@@ -275,6 +275,7 @@ impl<'a, 'b, 'c, T: MagicType + ToV8> ser::SerializeStruct
 pub enum StructSerializers<'a, 'b, 'c> {
   ExternalPointer(MagicalSerializer<'a, 'b, 'c, magic::ExternalPointer>),
   Magic(MagicalSerializer<'a, 'b, 'c, magic::Value<'a>>),
+  GlobalMagic(MagicalSerializer<'a, 'b, 'c, magic::GlobalValue>),
   RustToV8Buf(MagicalSerializer<'a, 'b, 'c, ToJsBuffer>),
   MagicAnyValue(MagicalSerializer<'a, 'b, 'c, AnyValue>),
   MagicDetached(MagicalSerializer<'a, 'b, 'c, DetachedBuffer>),
@@ -296,6 +297,7 @@ impl<'a, 'b, 'c> ser::SerializeStruct for StructSerializers<'a, 'b, 'c> {
     match self {
       StructSerializers::ExternalPointer(s) => s.serialize_field(key, value),
       StructSerializers::Magic(s) => s.serialize_field(key, value),
+      StructSerializers::GlobalMagic(s) => s.serialize_field(key, value),
       StructSerializers::RustToV8Buf(s) => s.serialize_field(key, value),
       StructSerializers::MagicAnyValue(s) => s.serialize_field(key, value),
       StructSerializers::MagicDetached(s) => s.serialize_field(key, value),
@@ -310,6 +312,7 @@ impl<'a, 'b, 'c> ser::SerializeStruct for StructSerializers<'a, 'b, 'c> {
     match self {
       StructSerializers::ExternalPointer(s) => s.end(),
       StructSerializers::Magic(s) => s.end(),
+      StructSerializers::GlobalMagic(s) => s.end(),
       StructSerializers::RustToV8Buf(s) => s.end(),
       StructSerializers::MagicAnyValue(s) => s.end(),
       StructSerializers::MagicDetached(s) => s.end(),
@@ -603,6 +606,10 @@ impl<'a, 'b, 'c> ser::Serializer for Serializer<'a, 'b, 'c> {
       magic::Value::MAGIC_NAME => {
         let m = MagicalSerializer::<magic::Value<'a>>::new(self.scope);
         Ok(StructSerializers::Magic(m))
+      }
+      magic::GlobalValue::MAGIC_NAME => {
+        let m = MagicalSerializer::<magic::GlobalValue>::new(self.scope);
+        Ok(StructSerializers::GlobalMagic(m))
       }
       _ => {
         // Regular structs
