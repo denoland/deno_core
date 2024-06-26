@@ -74,7 +74,7 @@ mod test {
       let handle_scope = &mut v8::HandleScope::new(isolate);
       let context = v8::Context::new(handle_scope);
       let scope = &mut v8::ContextScope::new(handle_scope, context);
-      
+
       let v8_string = js_exec(scope, "'test'");
       let test: Test = crate::from_v8(scope, v8_string).unwrap();
       let test = test.0.to_rust_string_lossy(scope);

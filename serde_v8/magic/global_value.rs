@@ -35,20 +35,20 @@ impl ToV8 for GlobalValue {
   fn to_v8<'a>(
     &self,
     scope: &mut v8::HandleScope<'a>,
-    ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
-      Ok(v8::Local::new(scope, self.v8_value.clone()))
+  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    Ok(v8::Local::new(scope, self.v8_value.clone()))
   }
 }
 
 impl FromV8 for GlobalValue {
-    fn from_v8(
-      scope: &mut v8::HandleScope,
-      value: v8::Local<v8::Value>,
-      ) -> Result<Self, crate::Error> {
-        Ok(Self {
-          v8_value: v8::Global::new(scope, value),
-        })
-    }
+  fn from_v8(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+  ) -> Result<Self, crate::Error> {
+    Ok(Self {
+      v8_value: v8::Global::new(scope, value),
+    })
+  }
 }
 
 mod test {
@@ -73,7 +73,7 @@ mod test {
       let handle_scope = &mut v8::HandleScope::new(isolate);
       let context = v8::Context::new(handle_scope);
       let scope = &mut v8::ContextScope::new(handle_scope, context);
-      
+
       let v8_string = js_exec(scope, "'test'");
       let test: Test = crate::from_v8(scope, v8_string).unwrap();
       let local = v8::Local::new(scope, test.0);
