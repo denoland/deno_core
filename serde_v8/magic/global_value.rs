@@ -32,21 +32,21 @@ impl From<GlobalValue> for v8::Global<v8::Value> {
 }
 
 impl ToV8 for GlobalValue {
-    fn to_v8<'a>(
-        &self,
-        scope: &mut v8::HandleScope<'a>,
-      ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
-        Ok(v8::Local::new(scope, self.v8_value.clone()))
-    }
+  fn to_v8<'a>(
+    &self,
+    scope: &mut v8::HandleScope<'a>,
+    ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+      Ok(v8::Local::new(scope, self.v8_value.clone()))
+  }
 }
 
 impl FromV8 for GlobalValue {
     fn from_v8(
-        scope: &mut v8::HandleScope,
-        value: v8::Local<v8::Value>,
+      scope: &mut v8::HandleScope,
+      value: v8::Local<v8::Value>,
       ) -> Result<Self, crate::Error> {
         Ok(Self {
-            v8_value: v8::Global::new(scope, value),
+          v8_value: v8::Global::new(scope, value),
         })
     }
 }
@@ -57,14 +57,14 @@ mod test {
     use serde_v8_utilities::{js_exec, v8_do};
     struct Test(v8::Global<v8::Value>);
     impl<'de> serde::Deserialize<'de> for Test {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            let value = super::GlobalValue::deserialize(deserializer)?;
-            let local = value.v8_value;
-            Ok(Self(local))
-        }
+      fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+      where
+        D: serde::Deserializer<'de>,
+      {
+        let value = super::GlobalValue::deserialize(deserializer)?;
+        let local = value.v8_value;
+        Ok(Self(local))
+      }
     }
 
     v8_do(|| {
@@ -75,7 +75,7 @@ mod test {
       let scope = &mut v8::ContextScope::new(handle_scope, context);
       
       let v8_string = js_exec(scope, "'test'");
-      let test: Test = crate::from_v8(scope, v8_string).expect("Could not deserialize");
+      let test: Test = crate::from_v8(scope, v8_string).unwrap();
       let local = v8::Local::new(scope, test.0);
       let test = local.to_rust_string_lossy(scope);
       assert_eq!(test.as_str(), "test");
