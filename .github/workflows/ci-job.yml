@@ -77,6 +77,8 @@ jobs:
         id: coverage
         if: inputs.job == 'coverage'
         uses: ./.github/workflows/ci-coverage
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Lint
         id: lint
