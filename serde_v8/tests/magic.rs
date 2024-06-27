@@ -172,7 +172,7 @@ fn magic_value() {
   impl<'de> serde::Deserialize<'de> for TestLocal<'_> {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
-      D: serde::Deserializer<'de>
+      D: serde::Deserializer<'de>,
     {
       let value = serde_v8::Value::deserialize(deserializer)?;
       let value = value.v8_value;
@@ -184,7 +184,7 @@ fn magic_value() {
   impl<'de> serde::Deserialize<'de> for TestGlobal {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
-      D: serde::Deserializer<'de>
+      D: serde::Deserializer<'de>,
     {
       let value = serde_v8::GlobalValue::deserialize(deserializer)?;
       let value = value.v8_value;
