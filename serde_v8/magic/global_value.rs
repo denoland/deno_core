@@ -3,14 +3,9 @@ use crate::magic::transl8::impl_magic;
 use crate::magic::transl8::FromV8;
 use crate::magic::transl8::ToV8;
 
-/// serde_v8::Value is used internally to serialize/deserialize values in
-/// objects and arrays. This struct was exposed to user code in the past, but
-/// we don't want to do that anymore as it leads to inefficient usages - eg. wrapping
-/// a V8 object in `serde_v8::Value` and then immediately unwrapping it.
-//
-// SAFETY: caveat emptor, the rust-compiler can no longer link lifetimes to their
-// original scope, you must take special care in ensuring your handles don't
-// outlive their scope.
+/// A wrapper around `v8::Global<v8::Value>` to allow for passing globals transparently through a serde boundary.
+///
+/// Serializing a `GlobalValue` creates a `v8::Local` from the global value, and deserializing creates a `v8::Global` from the local value.
 pub struct GlobalValue {
   pub v8_value: v8::Global<v8::Value>,
 }
