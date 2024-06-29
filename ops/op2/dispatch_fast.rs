@@ -446,7 +446,7 @@ pub(crate) fn generate_dispatch_fast(
 
   let with_self = if generator_state.needs_self {
     let type_error = throw_type_error(generator_state, format!("invalid self"))
-      .map_err(|s| V8SignatureMappingError::NoSelfMapping(s))?;
+      .map_err(V8SignatureMappingError::NoSelfMapping)?;
     gs_quote!(generator_state(self_ty) => {
       let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(this.into()) else {
         #type_error;
@@ -713,7 +713,7 @@ fn map_v8_fastcall_arg_to_arg(
       // Note that we only request callback options if we were required to provide a type error
       let throw_type_error = || {
         let throw_type_error =
-          throw_type_error(generator_state, format!("expected v8 Value"))?;
+          throw_type_error(generator_state, "expected v8 Value".to_string())?;
         Ok(quote! {
             #throw_type_error;
           // SAFETY: All fast return types have zero as a valid value
@@ -745,10 +745,8 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      let throw_type_error = throw_type_error(
-        generator_state,
-        format!("expected {}", quote!(#ty).to_string()),
-      )?;
+      let throw_type_error =
+        throw_type_error(generator_state, format!("expected {}", quote!(#ty)))?;
       quote! {
         let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
             #throw_type_error;
@@ -761,10 +759,8 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      let throw_type_error = throw_type_error(
-        generator_state,
-        format!("expected {}", quote!(#ty).to_string()),
-      )?;
+      let throw_type_error =
+        throw_type_error(generator_state, format!("expected {}", quote!(#ty)))?;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
