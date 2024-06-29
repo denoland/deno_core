@@ -248,6 +248,8 @@ declare namespace Deno {
     export const BadResourcePrototype: typeof BadResource.prototype;
     export class Interrupted extends Error {}
     export const InterruptedPrototype: typeof Interrupted.prototype;
+    export class PermissionDenied extends Error {}
+    export const PermissionDeniedPrototype: typeof PermissionDenied.prototype;
 
     function serialize(
       value: any,
