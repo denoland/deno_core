@@ -17,7 +17,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 use deno_core::v8::fast_api::Type;
                 use deno_core::v8::fast_api::CType;
                 deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::V8Value, Type::CallbackOptions],
+                    &[Type::V8Value, Type::V8Value],
                     CType::Void,
                     Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
                 )
@@ -61,7 +61,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
-            let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
+            let res = Self::v8_fn_ptr_fast(this, arg0);
             deno_core::_ops::dispatch_metrics_fast(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
@@ -72,21 +72,23 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
         extern "C" fn v8_fn_ptr_fast<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: deno_core::v8::Local<deno_core::v8::Value>,
-            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
-                's,
-            >,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let fast_api_callback_options: &'s mut _ = unsafe {
-                &mut *fast_api_callback_options
-            };
             let result = {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<Wrap>(arg0)
                 else {
-                    fast_api_callback_options.fallback = true;
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(this) };
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            "expected Wrap".as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
                     return unsafe { std::mem::zeroed() };
                 };
                 Self::call(arg0)
@@ -184,7 +186,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 use deno_core::v8::fast_api::Type;
                 use deno_core::v8::fast_api::CType;
                 deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::V8Value, Type::CallbackOptions],
+                    &[Type::V8Value, Type::V8Value],
                     CType::Void,
                     Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
                 )
@@ -228,7 +230,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
-            let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
+            let res = Self::v8_fn_ptr_fast(this, arg0);
             deno_core::_ops::dispatch_metrics_fast(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
@@ -239,17 +241,11 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
         extern "C" fn v8_fn_ptr_fast<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: deno_core::v8::Local<deno_core::v8::Value>,
-            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
-                's,
-            >,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let fast_api_callback_options: &'s mut _ = unsafe {
-                &mut *fast_api_callback_options
-            };
             let result = {
                 let arg0 = if arg0.is_null_or_undefined() {
                     None
@@ -258,7 +254,15 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 >(arg0) {
                     Some(arg0)
                 } else {
-                    fast_api_callback_options.fallback = true;
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(this) };
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            "expected Wrap".as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
                     return unsafe { std::mem::zeroed() };
                 };
                 Self::call(arg0)
@@ -451,7 +455,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 use deno_core::v8::fast_api::Type;
                 use deno_core::v8::fast_api::CType;
                 deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::V8Value, Type::CallbackOptions],
+                    &[Type::V8Value, Type::V8Value],
                     CType::Void,
                     Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
                 )
@@ -495,7 +499,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
-            let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
+            let res = Self::v8_fn_ptr_fast(this, arg0);
             deno_core::_ops::dispatch_metrics_fast(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
@@ -506,21 +510,23 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
         extern "C" fn v8_fn_ptr_fast<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: deno_core::v8::Local<deno_core::v8::Value>,
-            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
-                's,
-            >,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let fast_api_callback_options: &'s mut _ = unsafe {
-                &mut *fast_api_callback_options
-            };
             let result = {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<Wrap>(arg0)
                 else {
-                    fast_api_callback_options.fallback = true;
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(this) };
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            "expected Wrap".as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
                     return unsafe { std::mem::zeroed() };
                 };
                 Self::call(arg0)
@@ -711,7 +717,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                 use deno_core::v8::fast_api::Type;
                 use deno_core::v8::fast_api::CType;
                 deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::V8Value, Type::CallbackOptions],
+                    &[Type::V8Value, Type::V8Value],
                     CType::Void,
                     Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
                 )
@@ -755,7 +761,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
-            let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
+            let res = Self::v8_fn_ptr_fast(this, arg0);
             deno_core::_ops::dispatch_metrics_fast(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
@@ -766,21 +772,23 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
         extern "C" fn v8_fn_ptr_fast<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
             arg0: deno_core::v8::Local<deno_core::v8::Value>,
-            fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
-                's,
-            >,
         ) -> () {
             #[cfg(debug_assertions)]
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let fast_api_callback_options: &'s mut _ = unsafe {
-                &mut *fast_api_callback_options
-            };
             let result = {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<Wrap>(arg0)
                 else {
-                    fast_api_callback_options.fallback = true;
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(this) };
+                    let msg = deno_core::v8::String::new_from_one_byte(
+                            &mut scope,
+                            "expected Wrap".as_bytes(),
+                            deno_core::v8::NewStringType::Normal,
+                        )
+                        .unwrap();
+                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+                    scope.throw_exception(exc);
                     return unsafe { std::mem::zeroed() };
                 };
                 Self::call(arg0)

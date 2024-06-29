@@ -323,36 +323,30 @@ pub(crate) fn get_fast_signature(
   }))
 }
 
-/// Sheds the error in a `Result<T, E>` as an early return, leaving just the `T` and requesting
-/// that v8 re-call the slow function to throw the error.
-pub(crate) fn generate_fast_result_early_exit(
+pub(crate) fn return_value_result(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-  generator_state.needs_fast_api_callback_options = true;
   generator_state.needs_fast_opctx = true;
-  gs_quote!(generator_state(fast_api_callback_options, opctx, result) => {
+
+  let maybe_scope = if generator_state.needs_scope {
+    quote!()
+  } else {
+    with_scope(generator_state)
+  };
+
+  gs_quote!(generator_state(opctx, scope, result) => {
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
+        #maybe_scope
+
         let err = err.into();
-
-        // FASTCALL FALLBACK: This is where we set the errors for the slow-call error pickup path. There
-        // is no code running between this and the other FASTCALL FALLBACK comment, except some V8 code
-        // required to perform the fallback process. This is why the below call is safe.
-
-        // The reason we need to do this is because V8 does not allow exceptions to be thrown from the
-        // fast call. Instead, you are required to set the fallback flag, which indicates to V8 that it
-        // should re-call the slow version of the function. Technically the slow call should perform the
-        // same operation and then throw the same error (because it should be idempotent), but in our
-        // case we stash the error and pick it up on the slow path before doing any work.
-
-        // TODO(mmastrac): We should allow an #[op] flag to re-perform slow calls without the error path when
-        // the method is performance sensitive.
-
-        // SAFETY: We guarantee that OpCtx has no mutable references once ops are live and being called,
-        // allowing us to perform this one little bit of mutable magic.
-        unsafe { #opctx.unsafely_set_last_error_for_ops_only(err); }
-        #fast_api_callback_options.fallback = true;
+        let exception = deno_core::error::to_v8_error(
+          &mut #scope,
+          #opctx.get_error_class_fn,
+          &err,
+        );
+        #scope.throw_exception(exception);
 
         // SAFETY: All fast return types have zero as a valid value
         return unsafe { std::mem::zeroed() };
@@ -393,9 +387,8 @@ pub(crate) fn generate_dispatch_fast(
     return Ok(None);
   };
 
-  // TODO(mmastrac): we should save this unwrapped result
   let handle_error = match signature.ret_val.unwrap_result() {
-    Some(_) => generate_fast_result_early_exit(generator_state),
+    Some(_) => return_value_result(generator_state),
     _ => quote!(),
   };
 
@@ -452,10 +445,11 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_self = if generator_state.needs_self {
-    generator_state.needs_fast_api_callback_options = true;
-    gs_quote!(generator_state(self_ty, fast_api_callback_options) => {
+    let type_error = throw_type_error(generator_state, format!("invalid self"))
+      .map_err(|s| V8SignatureMappingError::NoSelfMapping(s))?;
+    gs_quote!(generator_state(self_ty) => {
       let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(this.into()) else {
-        #fast_api_callback_options.fallback = true;
+        #type_error;
         // SAFETY: All fast return types have zero as a valid value
         return unsafe { std::mem::zeroed() };
       };
@@ -570,11 +564,15 @@ fn map_v8_fastcall_arg_to_arg(
       _,
       BufferSource::ArrayBuffer,
     ) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception = throw_type_error(
+        generator_state,
+        String::from("expected ArrayBuffer"),
+      )?;
       let buf = v8slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         let Ok(mut #arg_temp) = deno_core::_ops::to_v8_slice_buffer(#arg_ident.into()) else {
-          #fast_api_callback_options.fallback = true;
+          #throw_exception;
+
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
         };
@@ -586,11 +584,12 @@ fn map_v8_fastcall_arg_to_arg(
       _,
       BufferSource::TypedArray,
     ) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception =
+        throw_type_error(generator_state, String::from("expected TypedArray"))?;
       let buf = v8slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         let Ok(mut #arg_temp) = deno_core::_ops::to_v8_slice(#arg_ident.into()) else {
-          #fast_api_callback_options.fallback = true;
+            #throw_exception;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
         };
@@ -598,12 +597,15 @@ fn map_v8_fastcall_arg_to_arg(
       )
     }
     Arg::Buffer(buffer, _, BufferSource::ArrayBuffer) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception = throw_type_error(
+        generator_state,
+        String::from("expected ArrayBuffer"),
+      )?;
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         // SAFETY: This slice doesn't outlive the function
         let Ok(mut #arg_temp) = (unsafe { deno_core::_ops::to_slice_buffer(#arg_ident.into()) }) else {
-          #fast_api_callback_options.fallback = true;
+            #throw_exception;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
         };
@@ -611,12 +613,15 @@ fn map_v8_fastcall_arg_to_arg(
       )
     }
     Arg::Buffer(buffer, _, BufferSource::Any) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception = throw_type_error(
+        generator_state,
+        String::from("expected ArrayBuffer or ArrayBufferView"),
+      )?;
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         // SAFETY: This slice doesn't outlive the function
         let Ok(mut #arg_temp) = (unsafe { deno_core::_ops::to_slice_buffer_any(#arg_ident.into()) }) else {
-          #fast_api_callback_options.fallback = true;
+            #throw_exception;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
         };
@@ -707,9 +712,10 @@ fn map_v8_fastcall_arg_to_arg(
       let arg_ident = arg_ident.clone();
       // Note that we only request callback options if we were required to provide a type error
       let throw_type_error = || {
-        *needs_fast_api_callback_options = true;
+        let throw_type_error =
+          throw_type_error(generator_state, format!("expected v8 Value"))?;
         Ok(quote! {
-          #fast_api_callback_options.fallback = true;
+            #throw_type_error;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
         })
@@ -739,10 +745,13 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_api_callback_options = true;
+      let throw_type_error = throw_type_error(
+        generator_state,
+        format!("expected {}", quote!(#ty).to_string()),
+      )?;
       quote! {
         let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
-            #fast_api_callback_options.fallback = true;
+            #throw_type_error;
             // SAFETY: All fast return types have zero as a valid value
             return unsafe { std::mem::zeroed() };
         };
@@ -752,14 +761,17 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_api_callback_options = true;
+      let throw_type_error = throw_type_error(
+        generator_state,
+        format!("expected {}", quote!(#ty).to_string()),
+      )?;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
         } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
           Some(#arg_ident)
         } else {
-          #fast_api_callback_options.fallback = true;
+            #throw_type_error;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
         };
@@ -768,6 +780,33 @@ fn map_v8_fastcall_arg_to_arg(
     _ => quote!(let #arg_ident = #arg_ident as _;),
   };
   Ok(res)
+}
+
+fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
+  gs_quote!(generator_state(scope) =>
+    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(this) };)
+  )
+}
+
+fn throw_type_error(
+  generator_state: &mut GeneratorState,
+  message: String,
+) -> Result<TokenStream, V8MappingError> {
+  // Sanity check ASCII and a valid/reasonable message size
+  debug_assert!(message.is_ascii() && message.len() < 1024);
+
+  let maybe_scope = if generator_state.needs_scope {
+    quote!()
+  } else {
+    with_scope(generator_state)
+  };
+
+  Ok(gs_quote!(generator_state(scope) => {
+    #maybe_scope
+    let msg = deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
+    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
+    #scope.throw_exception(exc);
+  }))
 }
 
 fn map_arg_to_v8_fastcall_type(
