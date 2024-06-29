@@ -58,29 +58,11 @@ pub(crate) fn generate_dispatch_slow_call(
 }
 
 pub(crate) fn generate_dispatch_slow(
-  config: &MacroConfig,
+  _config: &MacroConfig,
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
 ) -> Result<TokenStream, V8SignatureMappingError> {
   let mut output = TokenStream::new();
-
-  // Fast ops require the slow op to check op_ctx for the last error
-  if config.fast && matches!(signature.ret_val, RetVal::Result(_)) {
-    generator_state.needs_opctx = true;
-    let throw_exception = throw_exception(generator_state);
-    // If the fast op returned an error, we must throw it rather than doing work.
-    output.extend(quote!{
-      // FASTCALL FALLBACK: This is where we pick up the errors for the slow-call error pickup
-      // path. There is no code running between this and the other FASTCALL FALLBACK comment,
-      // except some V8 code required to perform the fallback process. This is why the below call is safe.
-
-      // SAFETY: We guarantee that OpCtx has no mutable references once ops are live and being called,
-      // allowing us to perform this one little bit of mutable magic.
-      if let Some(err) = unsafe { opctx.unsafely_take_last_error_for_ops_only() } {
-        #throw_exception
-      }
-    });
-  }
 
   let args = generate_dispatch_slow_call(generator_state, signature, 0)?;
 

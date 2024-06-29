@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
@@ -12,7 +11,6 @@ use crate::GcResource;
 use crate::OpDecl;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
-use std::cell::UnsafeCell;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ptr::NonNull;
@@ -126,8 +124,6 @@ pub struct OpCtx {
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
-  /// If the last fast op failed, stores the error to be picked up by the slow op.
-  pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
   op_driver: Rc<OpDriverImpl>,
   runtime_state: *const JsRuntimeState,
@@ -182,7 +178,6 @@ impl OpCtx {
       decl,
       op_driver,
       fast_fn_c_info,
-      last_fast_error: UnsafeCell::new(None),
       isolate,
       metrics_fn,
     }
@@ -245,32 +240,6 @@ impl OpCtx {
         [ctx_ptr, slow_fn, null, null]
       }
     }
-  }
-
-  /// This takes the last error from an [`OpCtx`], assuming that no other code anywhere
-  /// can hold a `&mut` to the last_fast_error field.
-  ///
-  /// # Safety
-  ///
-  /// Must only be called from op implementations.
-  #[inline(always)]
-  pub unsafe fn unsafely_take_last_error_for_ops_only(
-    &self,
-  ) -> Option<AnyError> {
-    let opt_mut = &mut *self.last_fast_error.get();
-    opt_mut.take()
-  }
-
-  /// This set the last error for an [`OpCtx`], assuming that no other code anywhere
-  /// can hold a `&mut` to the last_fast_error field.
-  ///
-  /// # Safety
-  ///
-  /// Must only be called from op implementations.
-  #[inline(always)]
-  pub unsafe fn unsafely_set_last_error_for_ops_only(&self, error: AnyError) {
-    let opt_mut = &mut *self.last_fast_error.get();
-    *opt_mut = Some(error);
   }
 
   pub(crate) fn op_driver(&self) -> &OpDriverImpl {
