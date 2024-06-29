@@ -445,8 +445,9 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_self = if generator_state.needs_self {
-    let type_error = throw_type_error(generator_state, format!("invalid self"))
-      .map_err(V8SignatureMappingError::NoSelfMapping)?;
+    let type_error =
+      throw_type_error(generator_state, "invalid self".to_string())
+        .map_err(V8SignatureMappingError::NoSelfMapping)?;
     gs_quote!(generator_state(self_ty) => {
       let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(this.into()) else {
         #type_error;
