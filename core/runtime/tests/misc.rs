@@ -1244,7 +1244,9 @@ async fn global_template_middleware() {
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
   ) -> v8::Intercepted {
-    unsafe { CALLS.push("descriptor".to_string()) };
+    unsafe {
+      CALLS.push("descriptor".to_string());
+    }
     v8::Intercepted::No
   }
 
@@ -1257,7 +1259,7 @@ async fn global_template_middleware() {
   ) -> v8::Intercepted {
     unsafe {
       CALLS.push("setter".to_string());
-    };
+    }
     v8::Intercepted::No
   }
 
@@ -1270,7 +1272,7 @@ async fn global_template_middleware() {
   ) -> v8::Intercepted {
     unsafe {
       CALLS.push("definer".to_string());
-    };
+    }
     v8::Intercepted::No
   }
 

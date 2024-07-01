@@ -82,18 +82,11 @@ pub fn init_v8(
   DENO_INIT.call_once(move || v8_init(v8_platform, snapshot, expose_natives));
 }
 
-pub fn init_cppgc(isolate: &mut v8::Isolate) -> v8::UniqueRef<v8::cppgc::Heap> {
-  let heap = v8::cppgc::Heap::create(
+fn create_cpp_heap() -> v8::UniqueRef<v8::cppgc::Heap> {
+  v8::cppgc::Heap::create(
     v8::V8::get_current_platform(),
-    v8::cppgc::HeapCreateParams::new(v8::cppgc::WrapperDescriptor::new(
-      0,
-      1,
-      crate::cppgc::DEFAULT_CPP_GC_EMBEDDER_ID,
-    )),
-  );
-
-  isolate.attach_cpp_heap(&heap);
-  heap
+    v8::cppgc::HeapCreateParams::default(),
+  )
 }
 
 pub fn create_isolate_ptr() -> *mut v8::OwnedIsolate {
@@ -116,16 +109,21 @@ pub fn create_isolate(
   maybe_startup_snapshot: Option<V8Snapshot>,
   external_refs: &'static v8::ExternalReferences,
 ) -> v8::OwnedIsolate {
+  let mut params = maybe_create_params
+    .unwrap_or_default()
+    .embedder_wrapper_type_info_offsets(
+      V8_WRAPPER_TYPE_INDEX,
+      V8_WRAPPER_OBJECT_INDEX,
+    )
+    .cpp_heap(create_cpp_heap());
   let mut isolate = if will_snapshot {
-    snapshot::create_snapshot_creator(external_refs, maybe_startup_snapshot)
+    snapshot::create_snapshot_creator(
+      external_refs,
+      maybe_startup_snapshot,
+      params,
+    )
   } else {
-    let mut params = maybe_create_params
-      .unwrap_or_default()
-      .embedder_wrapper_type_info_offsets(
-        V8_WRAPPER_TYPE_INDEX,
-        V8_WRAPPER_OBJECT_INDEX,
-      )
-      .external_references(&**external_refs);
+    params = params.external_references(&**external_refs);
     let has_snapshot = maybe_startup_snapshot.is_some();
     if let Some(snapshot) = maybe_startup_snapshot {
       params = params.snapshot_blob(snapshot.0);

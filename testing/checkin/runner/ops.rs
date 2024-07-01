@@ -8,7 +8,7 @@ use deno_core::stats::RuntimeActivitySnapshot;
 use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
-use deno_core::GcResource;
+use deno_core::GarbageCollected;
 use deno_core::OpDecl;
 use deno_core::OpState;
 
@@ -73,7 +73,7 @@ pub struct Stateful {
   name: String,
 }
 
-impl GcResource for Stateful {}
+impl GarbageCollected for Stateful {}
 
 impl Stateful {
   #[op2(method(Stateful))]

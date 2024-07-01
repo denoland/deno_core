@@ -324,13 +324,15 @@ pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
 pub(crate) fn create_snapshot_creator(
   external_refs: &'static v8::ExternalReferences,
   maybe_startup_snapshot: Option<V8Snapshot>,
+  params: v8::CreateParams,
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
     v8::Isolate::snapshot_creator_from_existing_snapshot(
       snapshot.0,
       Some(external_refs),
+      Some(params),
     )
   } else {
-    v8::Isolate::snapshot_creator(Some(external_refs))
+    v8::Isolate::snapshot_creator(Some(external_refs), Some(params))
   }
 }

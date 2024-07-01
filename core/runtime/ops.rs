@@ -525,7 +525,7 @@ mod tests {
   use crate::op2;
   use crate::runtime::JsRuntimeState;
   use crate::FromV8;
-  use crate::GcResource;
+  use crate::GarbageCollected;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
@@ -1898,7 +1898,7 @@ mod tests {
     pub value: u32,
   }
 
-  impl GcResource for TestResource {}
+  impl GarbageCollected for TestResource {}
 
   #[op2]
   #[cppgc]

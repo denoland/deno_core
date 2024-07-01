@@ -452,9 +452,11 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_self = if generator_state.needs_self {
+    generator_state.needs_fast_scope = true;
     generator_state.needs_fast_api_callback_options = true;
-    gs_quote!(generator_state(self_ty, fast_api_callback_options) => {
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(this.into()) else {
+    gs_quote!(generator_state(self_ty, scope, fast_api_callback_options) => {
+      let self_handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into());
+      let Some(self_) = self_handle_.borrow() else {
         #fast_api_callback_options.fallback = true;
         // SAFETY: All fast return types have zero as a valid value
         return unsafe { std::mem::zeroed() };
@@ -469,6 +471,22 @@ pub(crate) fn generate_dispatch_fast(
     quote!(self_. #name)
   } else {
     quote!(Self:: #name)
+  };
+
+  let with_scope = if generator_state.needs_fast_scope {
+    generator_state.needs_fast_api_callback_options = true;
+    gs_quote!(generator_state(scope, fast_api_callback_options) => (
+      let mut #scope = unsafe {
+        if !this.is_object() {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
+        };
+        deno_core::v8::CallbackScope::new(this)
+      };
+    ))
+  } else {
+    quote!()
   };
 
   let mut fastsig_metrics = fastsig.clone();
@@ -503,6 +521,7 @@ pub(crate) fn generate_dispatch_fast(
       .unzip();
   let (fastcall_names, fastcall_types): (Vec<_>, Vec<_>) =
     fastsig.input_args(generator_state).into_iter().unzip();
+
   let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
     extern "C" fn #fast_function_metrics<'s>(
@@ -531,6 +550,7 @@ pub(crate) fn generate_dispatch_fast(
       let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);
 
       #with_fast_api_callback_options
+      #with_scope
       #with_opctx
       #with_js_runtime_state
       #with_self
@@ -554,8 +574,10 @@ fn map_v8_fastcall_arg_to_arg(
 ) -> Result<TokenStream, V8MappingError> {
   let GeneratorState {
     opctx,
+    scope,
     js_runtime_state,
     fast_api_callback_options,
+    needs_fast_scope,
     needs_fast_opctx: needs_opctx,
     needs_fast_api_callback_options,
     needs_fast_js_runtime_state: needs_js_runtime_state,
@@ -739,12 +761,14 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
+      *needs_fast_scope = true;
       *needs_fast_api_callback_options = true;
       quote! {
-        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
-            #fast_api_callback_options.fallback = true;
-            // SAFETY: All fast return types have zero as a valid value
-            return unsafe { std::mem::zeroed() };
+        let handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident);
+        let Some(#arg_ident) = handle_.borrow() else {
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
         };
       }
     }
@@ -752,16 +776,22 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
+      *needs_fast_scope = true;
       *needs_fast_api_callback_options = true;
       quote! {
+        let mut handle_ = deno_core::v8::cppgc::Member::empty();
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
-        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(#arg_ident) {
-          Some(#arg_ident)
         } else {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
+          handle_.set(&deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident));
+          match handle_.borrow() {
+            Some(r) => Some(r),
+            None => {
+              #fast_api_callback_options.fallback = true;
+              // SAFETY: All fast return types have zero as a valid value
+              return unsafe { std::mem::zeroed() };
+            }
+          }
         };
       }
     }
