@@ -41,6 +41,8 @@ use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
+use smallvec::smallvec;
+use smallvec::SmallVec;
 use v8::Function;
 use v8::PromiseState;
 
@@ -61,7 +63,7 @@ use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
 
 type PrepareLoadFuture =
-  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
+  dyn Future<Output = (SmallVec<[RecursiveModuleLoad; 1]>, Result<(), Error>)>;
 
 type CodeCacheReadyFuture = dyn Future<Output = ()>;
 
@@ -115,6 +117,13 @@ struct DynImportModEvaluate {
   module: v8::Global<v8::Module>,
 }
 
+struct BufferedPendingDynImport {
+  referrer: String,
+  specifier: String,
+  module_type: RequestedModuleType,
+  load: RecursiveModuleLoad,
+}
+
 /// A collection of JS modules.
 pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
@@ -140,6 +149,9 @@ pub(crate) struct ModuleMap {
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
   will_snapshot: bool,
+
+  buffered_pending_dynamic_imports:
+    RefCell<SmallVec<[BufferedPendingDynImport; 1]>>,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -223,6 +235,7 @@ impl ModuleMap {
       pending_code_cache_ready: Default::default(),
       module_waker: Default::default(),
       data: Default::default(),
+      buffered_pending_dynamic_imports: Default::default(),
     }
   }
 
@@ -941,24 +954,14 @@ impl ModuleMap {
       .borrow_mut()
       .insert(load.id, resolver_handle);
 
-    let resolve_result =
-      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
-    let fut = match resolve_result {
-      Ok(module_specifier) => {
-        if self
-          .data
-          .borrow()
-          .is_registered(module_specifier.as_str(), requested_module_type)
-        {
-          async move { (load.id, Ok(load)) }.boxed_local()
-        } else {
-          async move { (load.id, load.prepare().await.map(|()| load)) }
-            .boxed_local()
-        }
-      }
-      Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
-    };
-    self.preparing_dynamic_imports.borrow_mut().push(fut);
+    self.buffered_pending_dynamic_imports.borrow_mut().push(
+      BufferedPendingDynImport {
+        referrer: referrer.to_string(),
+        specifier: specifier.to_string(),
+        module_type: requested_module_type,
+        load,
+      },
+    );
     self.preparing_dynamic_imports_pending.set(true);
   }
 
@@ -1374,7 +1377,7 @@ impl ModuleMap {
   /// Poll for progress in the module loading logic. Note that this takes a waker but
   /// doesn't act like a normal polling method.
   pub(crate) fn poll_progress(
-    &self,
+    self: &Rc<Self>,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
   ) -> Result<(), Error> {
@@ -1424,6 +1427,85 @@ impl ModuleMap {
     Ok(())
   }
 
+  fn prepare_buffered_dyn_imports(&self) {
+    let mut buffered = self.buffered_pending_dynamic_imports.take();
+
+    if buffered.is_empty() {
+      return;
+    }
+
+    self.preparing_dynamic_imports_pending.set(true);
+
+    let mut loads = SmallVec::new();
+    let mut module_specifiers = SmallVec::<[ModuleSpecifier; 1]>::new();
+    let mut current_referrer = None;
+
+    // Go through all the imports and prepare them, batching by referrer
+    buffered.sort_by(|a, b| a.referrer.cmp(&b.referrer));
+    for import in buffered {
+      if current_referrer.as_ref() != Some(&import.referrer) {
+        // Prepare the previous batch of imports
+        let prev_referrer = current_referrer.take();
+        if let Some(prev_referrer) = prev_referrer {
+          let module_specifiers = std::mem::take(&mut module_specifiers);
+          let loads = std::mem::take(&mut loads);
+          let prepare_fut = self.loader.borrow().prepare_load(
+            &module_specifiers,
+            Some(prev_referrer),
+            true,
+          );
+          self
+            .preparing_dynamic_imports
+            .borrow_mut()
+            .push(async move { (loads, prepare_fut.await) }.boxed_local());
+        }
+      }
+      let specifier = match self.resolve(
+        &import.specifier,
+        &import.referrer,
+        ResolutionKind::DynamicImport,
+      ) {
+        Ok(s) => s,
+        Err(err) => {
+          self.preparing_dynamic_imports.borrow_mut().push(
+            async move { (smallvec![import.load], Err(err)) }.boxed_local(),
+          );
+          continue;
+        }
+      };
+      if self
+        .data
+        .borrow()
+        .is_registered(specifier.as_str(), &import.module_type)
+      {
+        // Already registered, skip preparing it.
+        self
+          .preparing_dynamic_imports
+          .borrow_mut()
+          .push(async move { (smallvec![import.load], Ok(())) }.boxed_local());
+      } else {
+        module_specifiers.push(specifier);
+        loads.push(import.load);
+      }
+      if current_referrer.is_none() {
+        current_referrer = Some(import.referrer);
+      }
+    }
+
+    // Prepare the last batch of imports
+    if !loads.is_empty() {
+      let prepare_fut = self.loader.borrow().prepare_load(
+        &module_specifiers,
+        current_referrer,
+        true,
+      );
+      self
+        .preparing_dynamic_imports
+        .borrow_mut()
+        .push(async move { (loads, prepare_fut.await) }.boxed_local());
+    }
+  }
+
   fn poll_prepare_dyn_imports(
     &self,
     cx: &mut Context,
@@ -1433,6 +1515,8 @@ impl ModuleMap {
       return Poll::Ready(Ok(()));
     }
 
+    self.prepare_buffered_dyn_imports();
+
     loop {
       let poll_result = self
         .preparing_dynamic_imports
@@ -1440,20 +1524,25 @@ impl ModuleMap {
         .poll_next_unpin(cx);
 
       if let Poll::Ready(Some(prepare_poll)) = poll_result {
-        let dyn_import_id = prepare_poll.0;
+        let dyn_imports = prepare_poll.0;
         let prepare_result = prepare_poll.1;
 
         match prepare_result {
-          Ok(load) => {
-            self
-              .pending_dynamic_imports
-              .borrow_mut()
-              .push(load.into_future());
+          Ok(()) => {
+            debug_assert!(!dyn_imports.is_empty());
+            for load in dyn_imports {
+              self
+                .pending_dynamic_imports
+                .borrow_mut()
+                .push(load.into_future());
+            }
             self.pending_dynamic_imports_pending.set(true);
           }
           Err(err) => {
             let exception = to_v8_type_error(scope, err);
-            self.dynamic_import_reject(scope, dyn_import_id, exception);
+            for load in dyn_imports {
+              self.dynamic_import_reject(scope, load.id, exception.clone());
+            }
           }
         }
         // Continue polling for more prepared dynamic imports.

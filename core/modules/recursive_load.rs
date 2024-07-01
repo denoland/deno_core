@@ -172,7 +172,11 @@ impl RecursiveModuleLoad {
 
     self
       .loader
-      .prepare_load(&module_specifier, maybe_referrer, self.is_dynamic_import())
+      .prepare_load(
+        &[module_specifier],
+        maybe_referrer,
+        self.is_dynamic_import(),
+      )
       .await
   }
 
