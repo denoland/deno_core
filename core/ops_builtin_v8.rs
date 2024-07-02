@@ -1188,12 +1188,3 @@ pub fn op_set_format_exception_callback<'a>(
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::has_more_work(scope)
 }
-
-#[op2]
-pub fn op_arraybuffer_was_detached(
-  _scope: &mut v8::HandleScope,
-  input: v8::Local<v8::Value>,
-) -> Result<bool, Error> {
-  let ab = v8::Local::<v8::ArrayBuffer>::try_from(input)?;
-  Ok(ab.was_detached())
-}
