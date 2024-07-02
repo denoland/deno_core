@@ -126,7 +126,9 @@ builtin_ops! {
   ops_builtin_v8::op_leak_tracing_enable,
   ops_builtin_v8::op_leak_tracing_submit,
   ops_builtin_v8::op_leak_tracing_get_all,
-  ops_builtin_v8::op_leak_tracing_get
+  ops_builtin_v8::op_leak_tracing_get,
+  ops_builtin_v8::op_get_cped,
+  ops_builtin_v8::op_set_cped
 }
 
 #[op2(fast)]

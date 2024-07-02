@@ -24,6 +24,8 @@
     TypedArrayPrototypeSlice,
     TypedArrayPrototypeGetSymbolToStringTag,
     TypeError,
+    ReflectApply,
+    SafeWeakMap,
   } = window.__bootstrap.primordials;
   const {
     ops,
@@ -78,6 +80,8 @@
     op_leak_tracing_submit,
     op_leak_tracing_get_all,
     op_leak_tracing_get,
+    op_get_cped,
+    op_set_cped,
 
     op_is_any_array_buffer,
     op_is_arguments_object,
@@ -275,6 +279,57 @@
     op_dispatch_exception(error, false);
   };
 
+  class AsyncContext {
+    static swap(context) {
+      const old = AsyncContext.snapshot();
+      op_set_cped(context);
+      return old;
+    }
+
+    static snapshot() {
+      return op_get_cped() ?? {};
+    }
+
+    static #counter = 0;
+    #id = AsyncContext.#counter++;
+    #data = new SafeWeakMap();
+    enabled = false;
+
+    enter(value) {
+      this.enabled = true;
+      const previousContextMapping = AsyncContext.snapshot();
+      const entry = { id: this.#id };
+      const asyncContextMapping = {
+        ...previousContextMapping,
+        [this.#id]: entry,
+      };
+      this.#data.set(entry, value);
+      AsyncContext.swap(asyncContextMapping);
+      return previousContextMapping;
+    }
+
+    run(value, func, args) {
+      const previousContextMapping = this.enter(value);
+      try {
+        return ReflectApply(func, undefined, args);
+      } finally {
+        AsyncContext.swap(previousContextMapping);
+      }
+    }
+
+    get() {
+      if (!this.enabled) {
+        return undefined;
+      }
+      const current = AsyncContext.snapshot();
+      const entry = current[this.#id];
+      if (entry) {
+        return this.#data.get(entry);
+      }
+      return undefined;
+    }
+  }
+
   // Used to report errors thrown from functions passed to `queueMicrotask()`.
   // The callback will be passed the thrown error. For example, you can use this
   // to dispatch an error event to the global scope.
@@ -297,11 +352,16 @@
     if (typeof cb != "function") {
       throw new TypeError("expected a function");
     }
-    return op_queue_microtask(() => {
+    const context = AsyncContext.snapshot();
+    op_queue_microtask(() => {
+      let oldContext;
       try {
+        oldContext = AsyncContext.swap(context);
         cb();
       } catch (error) {
         reportExceptionCallback(error);
+      } finally {
+        AsyncContext.swap(oldContext);
       }
     });
   }
@@ -763,6 +823,7 @@
     propNonEnumerableLazyLoaded,
     createLazyLoader,
     createCancelHandle: () => op_cancel_handle(),
+    AsyncContext,
   });
 
   const internals = {};
