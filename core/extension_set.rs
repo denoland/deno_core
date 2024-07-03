@@ -11,6 +11,7 @@ use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpMiddlewareFn;
 use crate::modules::ModuleName;
 use crate::ops::OpCtx;
+use crate::ops::OpMethodCtx;
 use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
@@ -20,6 +21,7 @@ use crate::FastString;
 use crate::GetErrorClassFn;
 use crate::ModuleCodeString;
 use crate::OpDecl;
+use crate::_ops::OpMethodDecl;
 use crate::OpMetricsFactoryFn;
 use crate::OpState;
 use crate::SourceMapGetter;
@@ -38,7 +40,7 @@ pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
 pub fn init_ops(
   deno_core_ops: &'static [OpDecl],
   extensions: &mut [Extension],
-) -> Vec<OpDecl> {
+) -> (Vec<OpDecl>, Vec<OpMethodDecl>) {
   // In debug build verify there that inter-Extension dependencies
   // are setup correctly.
   #[cfg(debug_assertions)]
@@ -49,6 +51,7 @@ pub fn init_ops(
     .map(|e| e.op_count())
     .fold(0, |ext_ops_count, count| count + ext_ops_count);
   let mut ops = Vec::with_capacity(no_of_ops + deno_core_ops.len());
+  let mut op_methods = Vec::new();
 
   // Collect all middlewares - deno_core extension must not have a middleware!
   let middlewares: Vec<Box<OpMiddlewareFn>> = extensions
@@ -77,13 +80,18 @@ pub fn init_ops(
         ..macroware(*ext_op)
       });
     }
+
+    let ext_method_ops = ext.init_method_ops();
+    for ext_op in ext_method_ops {
+        op_methods.push(*ext_op);
+    }
   }
 
   // In debug build verify there are no duplicate ops.
   #[cfg(debug_assertions)]
   check_no_duplicate_op_names(&ops);
 
-  ops
+  (ops, op_methods)
 }
 
 /// This functions panics if any of the extensions is missing its dependencies.
@@ -122,22 +130,24 @@ fn check_no_duplicate_op_names(ops: &[OpDecl]) {
 
 pub fn create_op_ctxs(
   op_decls: Vec<OpDecl>,
+  op_method_decls: Vec<OpMethodDecl>,
   op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
   op_driver: Rc<OpDriverImpl>,
   op_state: Rc<RefCell<OpState>>,
   runtime_state: Rc<JsRuntimeState>,
   get_error_class_fn: GetErrorClassFn,
-) -> Box<[OpCtx]> {
+) -> (Box<[OpCtx]>, Box<[OpMethodCtx]>) {
   let op_count = op_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
+  let mut op_method_ctxs = vec![];
 
   let runtime_state_ptr = runtime_state.as_ref() as *const _;
-  for (index, decl) in op_decls.into_iter().enumerate() {
+  let mut create_ctx = |index, decl| {
     let metrics_fn = op_metrics_factory_fn
       .as_ref()
       .and_then(|f| (f)(index as _, op_count, &decl));
 
-    let op_ctx = OpCtx::new(
+    OpCtx::new(
       index as _,
       std::ptr::null_mut(),
       op_driver.clone(),
@@ -146,12 +156,26 @@ pub fn create_op_ctxs(
       runtime_state_ptr,
       get_error_class_fn,
       metrics_fn,
-    );
+    )
+  };
 
-    op_ctxs.push(op_ctx);
+  for (index, decl) in op_decls.into_iter().enumerate() {
+    op_ctxs.push(create_ctx(index, decl));
   }
 
-  op_ctxs.into_boxed_slice()
+  for (index, mut decl) in op_method_decls.into_iter().enumerate() {
+    decl.constructor.name = decl.name.0;
+    decl.constructor.name_fast = decl.name.1;
+
+    op_method_ctxs.push(OpMethodCtx {
+      constructor: create_ctx(index, decl.constructor),
+      methods: decl.methods.into_iter().map(|method_decl| {
+        create_ctx(index, *method_decl)
+      }).collect(),
+    });
+  }
+
+  (op_ctxs.into_boxed_slice(), op_method_ctxs.into_boxed_slice())
 }
 
 pub fn get_middlewares_and_external_refs(

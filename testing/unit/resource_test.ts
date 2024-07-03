@@ -6,6 +6,7 @@ const {
   op_file_open,
   op_async_make_cppgc_resource,
   op_async_get_cppgc_resource,
+  Stateful,
 } = Deno.core.ops;
 
 test(async function testPipe() {
@@ -61,4 +62,11 @@ test(async function testFileIsNotTerminal() {
 test(async function testCppgcAsync() {
   const resource = await op_async_make_cppgc_resource();
   assertEquals(await op_async_get_cppgc_resource(resource), 42);
+});
+
+test(function testOp2plusplus() {
+  const stateful = new Stateful("Hello");
+  assertEquals(stateful.get_name(), "Hello");
+
+  let stateful2 = stateful.get();
 });

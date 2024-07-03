@@ -169,9 +169,16 @@ pub type GlobalObjectMiddlewareFn =
 extern "C" fn noop() {}
 
 #[derive(Clone, Copy)]
+pub struct OpMethodDecl {
+  pub name: (&'static str, FastStaticString),
+  pub constructor: OpDecl,
+  pub methods: &'static [OpDecl],
+}
+
+#[derive(Clone, Copy)]
 pub struct OpDecl {
   pub name: &'static str,
-  pub(crate) name_fast: FastStaticString,
+  pub name_fast: FastStaticString,
   pub is_async: bool,
   pub is_reentrant: bool,
   pub arg_count: u8,
@@ -391,6 +398,7 @@ macro_rules! extension {
     $(, bounds = [ $( $bound:path : $bound_type:ident ),+ ] )?
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
+    $(, objects = [  $( $object:ident )::+ ] )?
     $(, esm_entry_point = $esm_entry_point:expr )?
     $(, esm = [ $($esm:tt)* ] )?
     $(, lazy_loaded_esm = [ $($lazy_loaded_esm:tt)* ] )?
@@ -454,6 +462,15 @@ macro_rules! extension {
             $( #[ $m ] )*
             $( $op )::+ $( :: < $($op_param),* > )? ()
           }),+)?]),
+          // $object is a list of struct names have DECL methods
+          // Auto add ::DECL
+          // methods: ::std::borrow::Cow::Borrowed(&[
+          //    object_1::DECL,
+          //    object_2::DECL,
+          //    ])
+          methods: ::std::borrow::Cow::Borrowed(&[
+            $( $( $object )::+::DECL, )*
+          ]),
           external_references: ::std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
           global_template_middleware: ::std::option::Option::None,
           global_object_middleware: ::std::option::Option::None,
@@ -587,6 +604,7 @@ pub struct Extension {
   pub lazy_loaded_esm_files: Cow<'static, [ExtensionFileSource]>,
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
+  pub methods: Cow<'static, [OpMethodDecl]>,
   pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
   pub global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
   pub global_object_middleware: Option<GlobalObjectMiddlewareFn>,
@@ -610,6 +628,7 @@ impl Extension {
       lazy_loaded_esm_files: Cow::Borrowed(&[]),
       esm_entry_point: None,
       ops: self.ops.clone(),
+      methods: self.methods.clone(),
       external_references: self.external_references.clone(),
       global_template_middleware: self.global_template_middleware,
       global_object_middleware: self.global_object_middleware,
@@ -628,6 +647,7 @@ impl Default for Extension {
       lazy_loaded_esm_files: Cow::Borrowed(&[]),
       esm_entry_point: None,
       ops: Cow::Borrowed(&[]),
+      methods: Cow::Borrowed(&[]),
       external_references: Cow::Borrowed(&[]),
       global_template_middleware: None,
       global_object_middleware: None,
@@ -690,6 +710,10 @@ impl Extension {
       }
     }
     self.ops.as_ref()
+  }
+
+  pub fn init_method_ops(&self) -> &[OpMethodDecl] {
+    self.methods.as_ref()
   }
 
   /// Allows setting up the initial op-state of an isolate at startup.

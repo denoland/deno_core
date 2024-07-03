@@ -69,36 +69,57 @@ pub fn op_stats_delete(
   test_data.take::<RuntimeActivityStats>(name);
 }
 
+#[derive(Debug, Clone)]
 pub struct Stateful {
   name: String,
 }
 
 impl GarbageCollected for Stateful {}
 
+#[op2]
 impl Stateful {
-  #[op2(method(Stateful))]
+  #[constructor]
+  #[cppgc]
+  fn new(#[string] name: String) -> Stateful {
+    Stateful { name }
+  }
+
+  #[method]
+  #[cppgc]
+  fn get(&self) -> Self {
+    self.clone()
+  }
+
+  #[method]
   #[string]
   fn get_name(&self) -> String {
     self.name.clone()
   }
 
-  #[op2(fast, method(Stateful))]
+  #[fast]
   #[smi]
   fn len(&self) -> u32 {
     self.name.len() as u32
   }
-
-  #[op2(async, method(Stateful))]
-  async fn delay(&self, #[smi] millis: u32) {
-    tokio::time::sleep(std::time::Duration::from_millis(millis as u64)).await;
-    println!("name: {}", self.name);
-  }
 }
 
-// Make sure this compiles, we'll use it when we add registration.
-#[allow(dead_code)]
-const STATEFUL_DECL: [OpDecl; 3] =
-  [Stateful::get_name(), Stateful::len(), Stateful::delay()];
+struct DOMPoint {
+  x: f64,
+  y: f64,
+  z: f64,
+  w: f64,
+}
+
+impl GarbageCollected for DOMPoint {}
+
+#[op2]
+impl DOMPoint {
+  #[constructor]
+  #[cppgc]
+  fn new(x: f64, y: f64, z: f64, w: f64) -> DOMPoint {
+    DOMPoint { x, y, z, w }
+  }
+}
 
 #[op2(fast)]
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {

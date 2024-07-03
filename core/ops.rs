@@ -74,6 +74,11 @@ impl OpMetadata {
   }
 }
 
+pub struct OpMethodCtx {
+  pub constructor: OpCtx,
+  pub methods: Vec<OpCtx>,
+}
+
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is

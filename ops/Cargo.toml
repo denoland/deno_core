@@ -23,6 +23,7 @@ strum_macros.workspace = true
 syn.workspace = true
 thiserror.workspace = true
 
+prettyplease.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 prettyplease.workspace = true

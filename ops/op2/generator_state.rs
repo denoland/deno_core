@@ -51,6 +51,8 @@ pub struct GeneratorState {
   pub needs_fast_api_callback_options: bool,
   pub needs_fast_js_runtime_state: bool,
   pub needs_self: bool,
+  /// Wrap the `this` with cppgc object
+  pub use_this_cppgc: bool,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from

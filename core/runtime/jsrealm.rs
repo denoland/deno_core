@@ -13,6 +13,7 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
+use crate::ops::OpMethodCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
@@ -68,6 +69,7 @@ pub struct ContextState {
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,
+  pub(crate) op_method_ctxs: Box<[OpMethodCtx]>,
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
@@ -81,6 +83,7 @@ impl ContextState {
     isolate_ptr: *mut v8::OwnedIsolate,
     get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
+    op_method_ctxs: Box<[OpMethodCtx]>,
     external_ops_tracker: ExternalOpsTracker,
   ) -> Self {
     Self {
@@ -93,6 +96,7 @@ impl ContextState {
       wasm_instantiate_fn: Default::default(),
       activity_traces: Default::default(),
       op_ctxs,
+      op_method_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
