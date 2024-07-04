@@ -341,18 +341,18 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   }
 
   for op_method_ctx in op_method_ctxs {
-    let mut tmpl = op_ctx_template(scope, &op_method_ctx.constructor);
+    let tmpl = op_ctx_template(scope, &op_method_ctx.constructor);
     let prototype = tmpl.prototype_template(scope);
     let key = op_method_ctx.constructor.decl.name_fast.v8_string(scope);
 
     for method in op_method_ctx.methods.iter() {
-      let mut op_fn = op_ctx_template(scope, &method);
+      let op_fn = op_ctx_template(scope, &method);
       let method_key = method.decl.name_fast.v8_string(scope);
       prototype.set(method_key.into(), op_fn.into());
     }
 
     for method in op_method_ctx.static_methods.iter() {
-      let mut op_fn = op_ctx_template(scope, &method);
+      let op_fn = op_ctx_template(scope, &method);
       let method_key = method.decl.name_fast.v8_string(scope);
       tmpl.set(method_key.into(), op_fn.into());
     }
@@ -361,12 +361,9 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
 
     let id = op_method_ctx.id;
-    op_state.borrow_mut().put_untyped(
-      id,
-      deno_core::cppgc::FunctionTemplate {
-        template: v8::Global::new(scope, tmpl),
-      },
-    );
+    op_state
+      .borrow_mut()
+      .put_untyped(id, v8::Global::new(scope, tmpl));
   }
 }
 

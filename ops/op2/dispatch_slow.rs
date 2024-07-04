@@ -876,7 +876,7 @@ pub fn return_value_infallible(
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
     ArgMarker::Cppgc if generator_state.use_this_cppgc => {
-      gs_quote!(generator_state(result, scope, retval) => (
+      gs_quote!(generator_state(result, scope) => (
            Some(deno_core::cppgc::wrap_object(&mut #scope, args.this(), #result))
       ))
     }

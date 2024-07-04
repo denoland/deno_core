@@ -11,7 +11,6 @@ use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
 use deno_core::GarbageCollected;
-use deno_core::OpDecl;
 use deno_core::OpState;
 
 use super::extensions::SomeType;
@@ -72,10 +71,10 @@ pub fn op_stats_delete(
 }
 
 pub struct DOMPoint {
-  x: f64,
-  y: f64,
-  z: f64,
-  w: f64,
+  pub x: f64,
+  pub y: f64,
+  pub z: f64,
+  pub w: f64,
 }
 
 impl GarbageCollected for DOMPoint {}

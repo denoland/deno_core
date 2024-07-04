@@ -31,10 +31,6 @@ pub(crate) fn make_cppgc_template<'s>(
   v8::FunctionTemplate::new(scope, cppgc_template_constructor)
 }
 
-pub(crate) struct FunctionTemplate {
-  pub template: v8::Global<v8::FunctionTemplate>,
-}
-
 pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   scope: &mut v8::HandleScope<'a>,
   t: T,
@@ -43,17 +39,18 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   let opstate = state.op_state.borrow();
 
   let id = TypeId::of::<T>();
-  let obj =
-    if let Some(templ) = opstate.try_borrow_untyped::<FunctionTemplate>(id) {
-      let templ = v8::Local::new(scope, &templ.template);
-      let inst = templ.instance_template(scope);
-      inst.new_instance(scope).unwrap()
-    } else {
-      let templ =
-        v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
-      let func = templ.get_function(scope).unwrap();
-      func.new_instance(scope, &[]).unwrap()
-    };
+  let obj = if let Some(templ) =
+    opstate.try_borrow_untyped::<v8::Global<v8::FunctionTemplate>>(id)
+  {
+    let templ = v8::Local::new(scope, templ);
+    let inst = templ.instance_template(scope);
+    inst.new_instance(scope).unwrap()
+  } else {
+    let templ =
+      v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
+    let func = templ.get_function(scope).unwrap();
+    func.new_instance(scope, &[]).unwrap()
+  };
 
   wrap_object(scope, obj, t)
 }

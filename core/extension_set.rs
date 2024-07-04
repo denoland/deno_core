@@ -142,7 +142,7 @@ pub fn create_op_ctxs(
   let mut op_method_ctxs = vec![];
 
   let runtime_state_ptr = runtime_state.as_ref() as *const _;
-  let mut create_ctx = |index, decl| {
+  let create_ctx = |index, decl| {
     let metrics_fn = op_metrics_factory_fn
       .as_ref()
       .and_then(|f| (f)(index as _, op_count, &decl));
