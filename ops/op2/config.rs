@@ -66,6 +66,7 @@ impl MacroConfig {
 
     for flag in flags {
       if flag == "method" {
+        // Doesn't need any special handling, its more of a marker.
         continue;
       }
       if flag == "constructor" {
