@@ -1,8 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
+use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
+use std::rc::Rc;
 use url::Url;
 use v8::MapFnTo;
 
@@ -29,6 +31,7 @@ use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
+use crate::OpState;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
@@ -295,9 +298,7 @@ pub(crate) fn initialize_primordials_and_infra(
 
   Ok(())
 }
-use deno_core::OpState;
-use std::cell::RefCell;
-use std::rc::Rc;
+
 /// Set up JavaScript bindings for ops.
 pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
@@ -346,18 +347,19 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let key = op_method_ctx.constructor.decl.name_fast.v8_string(scope);
 
     for method in op_method_ctx.methods.iter() {
-      let op_fn = op_ctx_template(scope, &method);
+      let op_fn = op_ctx_template(scope, method);
       let method_key = method.decl.name_fast.v8_string(scope);
       prototype.set(method_key.into(), op_fn.into());
     }
 
     for method in op_method_ctx.static_methods.iter() {
-      let op_fn = op_ctx_template(scope, &method);
+      let op_fn = op_ctx_template(scope, method);
       let method_key = method.decl.name_fast.v8_string(scope);
       tmpl.set(method_key.into(), op_fn.into());
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();
+    op_fn.set_name(key);
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
 
     let id = op_method_ctx.id;
@@ -822,6 +824,7 @@ where
 /// to a JavaScript function that executes and op.
 pub fn create_exports_for_ops_virtual_module<'s>(
   op_ctxs: &[OpCtx],
+  op_method_ctxs: &[OpMethodCtx],
   scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
 ) -> Vec<(FastStaticString, v8::Local<'s, v8::Value>)> {
@@ -852,6 +855,26 @@ pub fn create_exports_for_ops_virtual_module<'s>(
       op_fn = result.try_into().unwrap()
     }
     exports.push((op_ctx.decl.name_fast, op_fn.into()));
+  }
+
+  for ctx in op_method_ctxs {
+    let tmpl = op_ctx_template(scope, &ctx.constructor);
+    let prototype = tmpl.prototype_template(scope);
+
+    for method in ctx.methods.iter() {
+      let op_fn = op_ctx_template(scope, method);
+      let method_key = method.decl.name_fast.v8_string(scope);
+      prototype.set(method_key.into(), op_fn.into());
+    }
+
+    for method in ctx.static_methods.iter() {
+      let op_fn = op_ctx_template(scope, method);
+      let method_key = method.decl.name_fast.v8_string(scope);
+      tmpl.set(method_key.into(), op_fn.into());
+    }
+
+    let op_fn = tmpl.get_function(scope).unwrap();
+    exports.push((ctx.constructor.decl.name_fast, op_fn.into()));
   }
 
   exports

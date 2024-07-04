@@ -51,4 +51,12 @@ declare module "ext:core/ops" {
   function op_worker_send(...any): any;
   function op_worker_spawn(...any): any;
   function op_worker_terminate(...any): any;
+
+  class DOMPoint {
+    constructor(x?: number, y?: number, z?: number, w?: number);
+    static from_point(
+      other: { x?: number; y?: number; z?: number; w?: number },
+    ): DOMPoint;
+    x(): number;
+  }
 }

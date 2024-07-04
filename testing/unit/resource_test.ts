@@ -1,12 +1,12 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
+import { DOMPoint } from "checkin:object";
 
 const {
   op_pipe_create,
   op_file_open,
   op_async_make_cppgc_resource,
   op_async_get_cppgc_resource,
-  DOMPoint,
 } = Deno.core.ops;
 
 test(async function testPipe() {
@@ -76,6 +76,7 @@ test(function testDomPoint() {
 
   let caught;
   try {
+    // @ts-expect-error bad arg test
     new DOMPoint("bad");
   } catch (e) {
     caught = e;

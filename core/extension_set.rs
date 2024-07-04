@@ -172,12 +172,12 @@ pub fn create_op_ctxs(
       constructor: create_ctx(index, decl.constructor),
       methods: decl
         .methods
-        .into_iter()
+        .iter()
         .map(|method_decl| create_ctx(index, *method_decl))
         .collect(),
       static_methods: decl
         .static_methods
-        .into_iter()
+        .iter()
         .map(|method_decl| create_ctx(index, *method_decl))
         .collect(),
     });

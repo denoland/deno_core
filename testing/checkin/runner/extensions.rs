@@ -57,6 +57,7 @@ deno_core::extension!(
     "__init.js",
     "checkin:async" = "async.ts",
     "checkin:console" = "console.ts",
+    "checkin:object" = "object.ts",
     "checkin:error" = "error.ts",
     "checkin:timers" = "timers.ts",
     "checkin:worker" = "worker.ts",

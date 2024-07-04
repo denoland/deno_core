@@ -9,7 +9,8 @@
       "checkin:testing": ["checkin/runtime/testing.ts"],
       "checkin:throw": ["checkin/runtime/throw.ts"],
       "checkin:timers": ["checkin/runtime/timers.ts"],
-      "checkin:worker": ["checkin/runtime/worker.ts"]
+      "checkin:worker": ["checkin/runtime/worker.ts"],
+      "checkin:object": ["checkin/runtime/object.ts"]
     },
     "lib": ["ESNext", "DOM", "ES2023.Array"],
     "module": "ESNext",

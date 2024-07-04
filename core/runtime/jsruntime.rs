@@ -1103,6 +1103,7 @@ impl JsRuntime {
     let global = context_local.global(scope);
     let synthetic_module_exports = create_exports_for_ops_virtual_module(
       &context_state.op_ctxs,
+      &context_state.op_method_ctxs,
       scope,
       global,
     );

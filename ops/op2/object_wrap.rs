@@ -76,35 +76,32 @@ pub(crate) fn generate_impl_ops(
   let mut static_methods = Vec::new();
 
   for item in item.items {
-    match item {
-      ImplItem::Fn(mut method) => {
-        /* First attribute idents, for all functions in block */
-        let attrs = method.attrs.swap_remove(0);
+    if let ImplItem::Fn(mut method) = item {
+      /* First attribute idents, for all functions in block */
+      let attrs = method.attrs.swap_remove(0);
 
-        let ident = method.sig.ident.clone();
-        let func = ItemFn {
-          attrs: method.attrs,
-          vis: method.vis,
-          sig: method.sig,
-          block: Box::new(method.block),
-        };
+      let ident = method.sig.ident.clone();
+      let func = ItemFn {
+        attrs: method.attrs,
+        vis: method.vis,
+        sig: method.sig,
+        block: Box::new(method.block),
+      };
 
-        let mut config = MacroConfig::from_tokens(quote! {
-          #attrs
-        })?;
-        if config.constructor {
-          constructor = Some(ident);
-        } else if config.static_member {
-          static_methods.push(ident);
-        } else {
-          methods.push(ident);
-          config.method = Some(self_ty_ident.clone());
-        }
-
-        let op = generate_op2(config, func);
-        tokens.extend(op);
+      let mut config = MacroConfig::from_tokens(quote! {
+        #attrs
+      })?;
+      if config.constructor {
+        constructor = Some(ident);
+      } else if config.static_member {
+        static_methods.push(ident);
+      } else {
+        methods.push(ident);
+        config.method = Some(self_ty_ident.clone());
       }
-      _ => {}
+
+      let op = generate_op2(config, func);
+      tokens.extend(op);
     }
   }
 
