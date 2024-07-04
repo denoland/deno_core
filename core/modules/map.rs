@@ -139,6 +139,7 @@ pub(crate) struct ModuleMap {
   pending_code_cache_ready: Cell<bool>,
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
+  will_snapshot: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -202,8 +203,10 @@ impl ModuleMap {
     loader: Rc<dyn ModuleLoader>,
     exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
+    will_snapshot: bool,
   ) -> Self {
     Self {
+      will_snapshot,
       loader: loader.into(),
       exception_state,
       import_meta_resolve_cb,
@@ -639,7 +642,9 @@ impl ModuleMap {
 
     let module = maybe_module.unwrap();
 
-    if try_store_code_cache {
+    // V8 does not support creating code caches while also snapshotting,
+    // and it's not needed anyway, as the snapshot already contains it.
+    if try_store_code_cache && !self.will_snapshot {
       if let Some(code_cache_info) = code_cache_info.take() {
         let unbound_module_script = module.get_unbound_module_script(tc_scope);
         let code_cache =

@@ -1,5 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-import "./__bootstrap.js";
 import * as async from "checkin:async";
 import * as console from "checkin:console";
 import * as error from "checkin:error";
