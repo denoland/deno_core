@@ -170,9 +170,11 @@ extern "C" fn noop() {}
 
 #[derive(Clone, Copy)]
 pub struct OpMethodDecl {
+  pub id: fn() -> std::any::TypeId,
   pub name: (&'static str, FastStaticString),
   pub constructor: OpDecl,
   pub methods: &'static [OpDecl],
+  pub static_methods: &'static [OpDecl],
 }
 
 #[derive(Clone, Copy)]

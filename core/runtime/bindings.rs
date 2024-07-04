@@ -88,6 +88,9 @@ pub(crate) fn create_external_references(
     for method in &ctx.methods {
       references.extend_from_slice(&method.external_references());
     }
+    for method in &ctx.static_methods {
+      references.extend_from_slice(&method.external_references());
+    }
   }
 
   references.extend_from_slice(additional_references);
@@ -292,10 +295,13 @@ pub(crate) fn initialize_primordials_and_infra(
 
   Ok(())
 }
-
+use deno_core::OpState;
+use std::cell::RefCell;
+use std::rc::Rc;
 /// Set up JavaScript bindings for ops.
 pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
+  op_state: Rc<RefCell<OpState>>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   op_method_ctxs: &[OpMethodCtx],
@@ -335,18 +341,32 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   }
 
   for op_method_ctx in op_method_ctxs {
-      let mut tmpl = op_ctx_template(scope, &op_method_ctx.constructor);
-      let prototype = tmpl.prototype_template(scope);
-      let key = op_method_ctx.constructor.decl.name_fast.v8_string(scope);
+    let mut tmpl = op_ctx_template(scope, &op_method_ctx.constructor);
+    let prototype = tmpl.prototype_template(scope);
+    let key = op_method_ctx.constructor.decl.name_fast.v8_string(scope);
 
-      for method in op_method_ctx.methods.iter() {
-        let mut op_fn = op_ctx_template(scope, &method);
-        let method_key = method.decl.name_fast.v8_string(scope);
-        prototype.set(method_key.into(), op_fn.into());
-      }
+    for method in op_method_ctx.methods.iter() {
+      let mut op_fn = op_ctx_template(scope, &method);
+      let method_key = method.decl.name_fast.v8_string(scope);
+      prototype.set(method_key.into(), op_fn.into());
+    }
 
-      let op_fn = tmpl.get_function(scope).unwrap();
-      deno_core_ops_obj.set(scope, key.into(), op_fn.into());
+    for method in op_method_ctx.static_methods.iter() {
+      let mut op_fn = op_ctx_template(scope, &method);
+      let method_key = method.decl.name_fast.v8_string(scope);
+      tmpl.set(method_key.into(), op_fn.into());
+    }
+
+    let op_fn = tmpl.get_function(scope).unwrap();
+    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
+
+    let id = op_method_ctx.id;
+    op_state.borrow_mut().put_untyped(
+      id,
+      deno_core::cppgc::FunctionTemplate {
+        template: v8::Global::new(scope, tmpl),
+      },
+    );
   }
 }
 
@@ -391,7 +411,7 @@ fn op_ctx_function<'s>(
   op_ctx: &OpCtx,
 ) -> v8::Local<'s, v8::Function> {
   let v8name = op_ctx.decl.name_fast.v8_string(scope);
-    let template = op_ctx_template(scope, op_ctx);
+  let template = op_ctx_template(scope, op_ctx);
   let v8fn = template.get_function(scope).unwrap();
   v8fn.set_name(v8name);
   v8fn

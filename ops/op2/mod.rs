@@ -82,53 +82,62 @@ pub(crate) fn op2(
   item: TokenStream,
 ) -> Result<TokenStream, Op2Error> {
   let Ok(func) = parse2::<ItemFn>(item.clone()) else {
-      let impl_block = parse2::<syn::ItemImpl>(item)?;
-      // for each method in impl block, generate op2
-      let mut tokens = TokenStream::new();
-      let self_ty = impl_block.self_ty;
-      let mut constructor = None;
-      let mut methods = vec![];
-      for item in impl_block.items {
-        if let syn::ImplItem::Fn(mut method) = item {
-          let attrs = method.attrs.swap_remove(0);
-          let func = ItemFn {
-            attrs: method.attrs.clone(),
-            vis: method.vis,
-            sig: method.sig.clone(),
-            block: Box::new(method.block),
-          };
-          let mut config = MacroConfig::from_tokens(quote!{
-            #attrs
-          })?;
-          use quote::ToTokens;
-          if config.constructor { 
-            constructor = Some(method.sig.ident.clone());
-          } else {
-            methods.push(method.sig.ident.clone());
-            config.method = Some(self_ty.clone().to_token_stream().to_string());
-          }
-          let op = generate_op2(config, func)?;
-          tokens.extend(op);
+    let impl_block = parse2::<syn::ItemImpl>(item)?;
+    // for each method in impl block, generate op2
+    let mut tokens = TokenStream::new();
+    let self_ty = impl_block.self_ty;
+    let mut constructor = None;
+    let mut methods = vec![];
+    let mut static_methods = vec![];
+    for item in impl_block.items {
+      if let syn::ImplItem::Fn(mut method) = item {
+        let attrs = method.attrs.swap_remove(0);
+        let func = ItemFn {
+          attrs: method.attrs.clone(),
+          vis: method.vis,
+          sig: method.sig.clone(),
+          block: Box::new(method.block),
+        };
+        let mut config = MacroConfig::from_tokens(quote! {
+          #attrs
+        })?;
+        use quote::ToTokens;
+        if config.constructor {
+          constructor = Some(method.sig.ident.clone());
+        } else if config.static_member {
+          static_methods.push(method.sig.ident.clone());
+        } else {
+          methods.push(method.sig.ident.clone());
+          config.method = Some(self_ty.clone().to_token_stream().to_string());
         }
+        let op = generate_op2(config, func)?;
+        tokens.extend(op);
       }
+    }
 
-      let res = quote! {
-          impl #self_ty {
-            pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
-              methods: &[
-                #(
-                  #self_ty::#methods(),
-                )*
-              ],
-              constructor: #self_ty::#constructor(),
-              name: ::deno_core::__op_name_fast!(#self_ty),
-            };
+    let res = quote! {
+        impl #self_ty {
+          pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
+            methods: &[
+              #(
+                #self_ty::#methods(),
+              )*
+            ],
+            static_methods: &[
+              #(
+                #self_ty::#static_methods(),
+              )*
+            ],
+            constructor: #self_ty::#constructor(),
+            name: ::deno_core::__op_name_fast!(#self_ty),
+            id: || ::std::any::TypeId::of::<#self_ty>()
+          };
 
-            #tokens
-          }
-      };
+          #tokens
+        }
+    };
 
-      return Ok(res);
+    return Ok(res);
   };
 
   let config = MacroConfig::from_tokens(attr)?;

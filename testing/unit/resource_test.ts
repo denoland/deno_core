@@ -6,7 +6,7 @@ const {
   op_file_open,
   op_async_make_cppgc_resource,
   op_async_get_cppgc_resource,
-  Stateful,
+  DOMPoint,
 } = Deno.core.ops;
 
 test(async function testPipe() {
@@ -64,9 +64,21 @@ test(async function testCppgcAsync() {
   assertEquals(await op_async_get_cppgc_resource(resource), 42);
 });
 
-test(function testOp2plusplus() {
-  const stateful = new Stateful("Hello");
-  assertEquals(stateful.get_name(), "Hello");
+test(function testDomPoint() {
+  const p1 = new DOMPoint(100, 100);
+  const p2 = new DOMPoint();
+  const p3 = DOMPoint.from_point({ x: 200 });
+  const p4 = DOMPoint.from_point({ x: 0, y: 100, z: 99.9, w: 100 });
+  assertEquals(p1.x(), 100);
+  assertEquals(p2.x(), 0);
+  assertEquals(p3.x(), 200);
+  assertEquals(p4.x(), 0);
 
-  let stateful2 = stateful.get();
+  let caught;
+  try {
+    new DOMPoint("bad");
+  } catch (e) {
+    caught = e;
+  }
+  assert(caught);
 });

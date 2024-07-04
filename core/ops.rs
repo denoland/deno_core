@@ -75,8 +75,10 @@ impl OpMetadata {
 }
 
 pub struct OpMethodCtx {
+  pub id: std::any::TypeId,
   pub constructor: OpCtx,
   pub methods: Vec<OpCtx>,
+  pub static_methods: Vec<OpCtx>,
 }
 
 /// Per-op context.

@@ -49,7 +49,7 @@ deno_core::extension!(
     ops_worker::op_worker_terminate,
   ],
   objects = [
-    ops::Stateful
+    ops::DOMPoint
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [

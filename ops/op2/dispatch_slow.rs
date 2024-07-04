@@ -876,9 +876,9 @@ pub fn return_value_infallible(
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
     ArgMarker::Cppgc if generator_state.use_this_cppgc => {
-     gs_quote!(generator_state(result, scope, retval) => (
-             Some(deno_core::cppgc::wrap_object(&mut #scope, args.this(), #result))
-        ))
+      gs_quote!(generator_state(result, scope, retval) => (
+           Some(deno_core::cppgc::wrap_object(&mut #scope, args.this(), #result))
+      ))
     }
     ArgMarker::Cppgc => {
       let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
@@ -955,9 +955,9 @@ pub fn return_value_v8_value(
     }
     ArgMarker::Cppgc => {
       let marker = if !generator_state.use_this_cppgc {
-          quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from)
+        quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from)
       } else {
-          quote!((|x| { deno_core::cppgc::wrap_object(#scope, args.this(), x) }))
+        quote!((|x| { deno_core::cppgc::wrap_object(#scope, args.this(), x) }))
       };
 
       if ret_type.is_option() {

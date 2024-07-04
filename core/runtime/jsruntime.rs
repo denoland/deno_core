@@ -872,6 +872,7 @@ impl JsRuntime {
     if init_mode.needs_ops_bindings() {
       bindings::initialize_deno_core_ops_bindings(
         scope,
+        op_state,
         context,
         &context_state.op_ctxs,
         &context_state.op_method_ctxs,

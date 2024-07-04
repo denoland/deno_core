@@ -26,6 +26,8 @@ pub(crate) struct MacroConfig {
   pub method: Option<String>,
   /// Marks an op as a constructor
   pub constructor: bool,
+  /// Marks an op as a static member
+  pub static_member: bool,
 }
 
 impl MacroConfig {
@@ -64,10 +66,12 @@ impl MacroConfig {
 
     for flag in flags {
       if flag == "method" {
-         continue;
+        continue;
       }
       if flag == "constructor" {
-          config.constructor = true;
+        config.constructor = true;
+      } else if flag == "static_method" {
+        config.static_member = true;
       } else if flag == "fast" {
         config.fast = true;
       } else if flag.starts_with("fast(") {

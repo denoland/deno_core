@@ -21,10 +21,10 @@ use crate::FastString;
 use crate::GetErrorClassFn;
 use crate::ModuleCodeString;
 use crate::OpDecl;
-use crate::_ops::OpMethodDecl;
 use crate::OpMetricsFactoryFn;
 use crate::OpState;
 use crate::SourceMapGetter;
+use crate::_ops::OpMethodDecl;
 
 /// Contribute to the `OpState` from each extension.
 pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
@@ -83,7 +83,7 @@ pub fn init_ops(
 
     let ext_method_ops = ext.init_method_ops();
     for ext_op in ext_method_ops {
-        op_methods.push(*ext_op);
+      op_methods.push(*ext_op);
     }
   }
 
@@ -168,14 +168,25 @@ pub fn create_op_ctxs(
     decl.constructor.name_fast = decl.name.1;
 
     op_method_ctxs.push(OpMethodCtx {
+      id: (decl.id)(),
       constructor: create_ctx(index, decl.constructor),
-      methods: decl.methods.into_iter().map(|method_decl| {
-        create_ctx(index, *method_decl)
-      }).collect(),
+      methods: decl
+        .methods
+        .into_iter()
+        .map(|method_decl| create_ctx(index, *method_decl))
+        .collect(),
+      static_methods: decl
+        .static_methods
+        .into_iter()
+        .map(|method_decl| create_ctx(index, *method_decl))
+        .collect(),
     });
   }
 
-  (op_ctxs.into_boxed_slice(), op_method_ctxs.into_boxed_slice())
+  (
+    op_ctxs.into_boxed_slice(),
+    op_method_ctxs.into_boxed_slice(),
+  )
 }
 
 pub fn get_middlewares_and_external_refs(
