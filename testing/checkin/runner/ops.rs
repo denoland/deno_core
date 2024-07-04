@@ -126,6 +126,18 @@ impl DOMPoint {
   fn x(&self) -> f64 {
     self.x
   }
+  #[fast]
+  fn y(&self) -> f64 {
+    self.y
+  }
+  #[fast]
+  fn w(&self) -> f64 {
+    self.w
+  }
+  #[fast]
+  fn z(&self) -> f64 {
+    self.z
+  }
 }
 
 #[op2(fast)]
