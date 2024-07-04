@@ -38,9 +38,9 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   let state = JsRuntime::state_from(scope);
   let opstate = state.op_state.borrow();
 
-  // To support initializing object wraps correctly, we store the function
-  // template in the opstate during binding with `T`'s TypeId as the key
-  // because it'll be pretty annoying to propogate `T` everywhere.
+  // To initialize object wraps correctly, we store the function
+  // template in OpState with `T`'s TypeId as the key when binding
+  // because it'll be pretty annoying to propogate `T` generic everywhere.
   //
   // Here we try to retrive a function template for `T`, falling back to
   // the default cppgc template.
