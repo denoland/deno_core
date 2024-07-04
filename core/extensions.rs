@@ -168,8 +168,11 @@ pub type GlobalObjectMiddlewareFn =
 
 extern "C" fn noop() {}
 
+// Delcration for object wrappers.
 #[derive(Clone, Copy)]
 pub struct OpMethodDecl {
+  // TypeId::of::<T>() is unstable-nightly in const context so
+  // we store the fn pointer instead.
   pub id: fn() -> std::any::TypeId,
   pub name: (&'static str, FastStaticString),
   pub constructor: OpDecl,

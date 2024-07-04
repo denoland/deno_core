@@ -38,6 +38,12 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   let state = JsRuntime::state_from(scope);
   let opstate = state.op_state.borrow();
 
+  // To support initializing object wraps correctly, we store the function
+  // template in the opstate during binding with `T`'s TypeId as the key
+  // because it'll be pretty annoying to propogate `T` everywhere.
+  //
+  // Here we try to retrive a function template for `T`, falling back to
+  // the default cppgc template.
   let id = TypeId::of::<T>();
   let obj = if let Some(templ) =
     opstate.try_borrow_untyped::<v8::Global<v8::FunctionTemplate>>(id)
@@ -55,6 +61,7 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   wrap_object(scope, obj, t)
 }
 
+// Wrap an API object (eg: `args.This()`)
 pub fn wrap_object<'a, T: GarbageCollected + 'static>(
   scope: &mut v8::HandleScope<'a>,
   obj: v8::Local<'a, v8::Object>,
