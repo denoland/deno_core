@@ -16,8 +16,8 @@ fn op_use_state(
 extension!(
   op_sample,
   ops = [op_use_state],
-  esm_entry_point = "ext:op_sample/op2.js",
-  esm = [ dir "examples", "op2.js" ],
+  esm_entry_point = "ext:op_sample/op.js",
+  esm = [ dir "examples", "op.js" ],
   docs = "A small example demonstrating op usage.", "Contains one op."
 );
 
