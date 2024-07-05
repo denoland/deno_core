@@ -522,7 +522,7 @@ mod tests {
   use crate::error::JsError;
   use crate::external;
   use crate::external::ExternalPointer;
-  use crate::op2;
+  use crate::op;
   use crate::runtime::JsRuntimeState;
   use crate::FromV8;
   use crate::GarbageCollected;
@@ -654,12 +654,12 @@ mod tests {
     static FAIL: Cell<bool> = const { Cell::new(false) }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_fail() {
     FAIL.with(|b| b.set(true))
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_print_debug(#[string] s: &str) {
     println!("{s}")
   }
@@ -771,7 +771,7 @@ mod tests {
     assert!(run_test2(1, "", "assert(false)").is_err());
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_add(a: u32, b: i32) -> u32 {
     (a as i32 + b) as u32
   }
@@ -814,7 +814,7 @@ mod tests {
 
   // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
   // of valid ranges result in automatic wrapping.
-  #[op2(fast)]
+  #[op(fast)]
   #[smi]
   pub fn op_test_add_smi_unsigned(#[smi] a: u32, #[smi] b: u16) -> u32 {
     a + b as u32
@@ -836,7 +836,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   pub fn op_test_add_option(a: u32, b: Option<u32>) -> u32 {
     a + b.unwrap_or(100)
   }
@@ -861,7 +861,7 @@ mod tests {
     static RETURN_COUNT: Cell<usize> = const { Cell::new(0) };
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_result_void_switch() -> Result<(), AnyError> {
     let count = RETURN_COUNT.with(|count| {
       let new = count.get() + 1;
@@ -875,12 +875,12 @@ mod tests {
     }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_result_void_err() -> Result<(), AnyError> {
     Err(generic_error("failed!!!"))
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_result_void_ok() -> Result<(), AnyError> {
     Ok(())
   }
@@ -917,12 +917,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_result_primitive_err() -> Result<u32, AnyError> {
     Err(generic_error("failed!!!"))
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_result_primitive_ok() -> Result<u32, AnyError> {
     Ok(123)
   }
@@ -943,12 +943,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_bool(b: bool) -> bool {
     b
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_bool_result(b: bool) -> Result<bool, AnyError> {
     if b {
       Ok(true)
@@ -977,12 +977,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_float(a: f32, b: f64) -> f32 {
     a + b as f32
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, AnyError> {
     let a = a as f64;
     if a + b >= 0. {
@@ -1012,19 +1012,19 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   #[bigint]
   pub fn op_test_bigint_u64(#[bigint] input: u64) -> u64 {
     input
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   #[bigint]
   pub fn op_test_bigint_i64(#[bigint] input: i64) -> i64 {
     input
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   #[number]
   pub fn op_test_bigint_i64_as_number(#[number] input: i64) -> i64 {
     input
@@ -1060,27 +1060,27 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_string_owned(#[string] s: String) -> u32 {
     s.len() as _
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_string_ref(#[string] s: &str) -> u32 {
     s.len() as _
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_string_cow(#[string] s: Cow<str>) -> u32 {
     s.len() as _
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_string_roundtrip_char(#[string] s: Cow<str>) -> u32 {
     s.chars().next().unwrap() as u32
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_string_roundtrip_char_onebyte(
     #[string(onebyte)] s: Cow<[u8]>,
   ) -> u32 {
@@ -1158,7 +1158,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   #[string]
   pub fn op_test_string_return(
     #[string] a: Cow<str>,
@@ -1167,7 +1167,7 @@ mod tests {
     (a + b).to_string()
   }
 
-  #[op2]
+  #[op]
   #[string]
   pub fn op_test_string_option_return(
     #[string] a: Cow<str>,
@@ -1179,13 +1179,13 @@ mod tests {
     Some((a + b).to_string())
   }
 
-  #[op2]
+  #[op]
   #[string]
   pub fn op_test_string_roundtrip(#[string] s: String) -> String {
     s
   }
 
-  #[op2]
+  #[op]
   #[string(onebyte)]
   pub fn op_test_string_roundtrip_onebyte(
     #[string(onebyte)] s: Cow<[u8]>,
@@ -1225,12 +1225,12 @@ mod tests {
   }
 
   // We don't actually test this one -- we just want it to compile
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_generics<T: Clone>() {}
 
   /// Tests v8 types without a handle scope
   #[allow(clippy::needless_lifetimes)]
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
     s2: v8::Local<v8::String>,
@@ -1245,7 +1245,7 @@ mod tests {
     }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_test_v8_option_string(s: Option<&v8::String>) -> i32 {
     if let Some(s) = s {
       s.length() as i32
@@ -1255,7 +1255,7 @@ mod tests {
   }
 
   /// Tests v8 types without a handle scope
-  #[op2]
+  #[op]
   #[allow(clippy::needless_lifetimes)]
   pub fn op_test_v8_type_return<'s>(
     s: v8::Local<'s, v8::String>,
@@ -1264,7 +1264,7 @@ mod tests {
   }
 
   /// Tests v8 types without a handle scope
-  #[op2]
+  #[op]
   #[allow(clippy::needless_lifetimes)]
   pub fn op_test_v8_type_return_option<'s>(
     s: Option<v8::Local<'s, v8::String>>,
@@ -1272,7 +1272,7 @@ mod tests {
     s
   }
 
-  #[op2]
+  #[op]
   pub fn op_test_v8_type_handle_scope<'s>(
     scope: &mut v8::HandleScope<'s>,
     s: &v8::String,
@@ -1282,7 +1282,7 @@ mod tests {
   }
 
   /// Extract whatever lives in "key" from the object.
-  #[op2]
+  #[op]
   pub fn op_test_v8_type_handle_scope_obj<'s>(
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
@@ -1292,7 +1292,7 @@ mod tests {
   }
 
   /// Extract whatever lives in "key" from the object.
-  #[op2]
+  #[op]
   pub fn op_test_v8_type_handle_scope_result<'s>(
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
@@ -1350,7 +1350,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   pub fn op_test_v8_global(
     scope: &mut v8::HandleScope,
     #[global] s: v8::Global<v8::String>,
@@ -1374,7 +1374,7 @@ mod tests {
     pub s: String,
   }
 
-  #[op2]
+  #[op]
   #[serde]
   pub fn op_test_serde_v8(#[serde] mut serde: Serde) -> Serde {
     serde.s += "!";
@@ -1396,7 +1396,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_jsruntimestate(_state: &JsRuntimeState) {}
 
   #[tokio::test]
@@ -1405,32 +1405,32 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_state_rc(state: Rc<RefCell<OpState>>, value: u32) -> u32 {
     let old_value: u32 = state.borrow_mut().take();
     state.borrow_mut().put(value);
     old_value
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_state_ref(state: &OpState) -> u32 {
     let old_value: &u32 = state.borrow();
     *old_value
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_state_mut(state: &mut OpState, value: u32) {
     *state.borrow_mut() = value;
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_state_mut_attr(#[state] value: &mut u32, new_value: u32) -> u32 {
     let old_value = *value;
     *value = new_value;
     old_value
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_state_multi_attr(
     #[state] value32: &u32,
     #[state] value16: &u16,
@@ -1466,7 +1466,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_buffer_slice(
     #[buffer] input: &[u8],
     #[number] inlen: usize,
@@ -1480,7 +1480,7 @@ mod tests {
     }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_buffer_ptr(
     #[buffer] input: *const u8,
     #[number] inlen: usize,
@@ -1493,7 +1493,7 @@ mod tests {
     }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_buffer_slice_32(
     #[buffer] input: &[u32],
     #[number] inlen: usize,
@@ -1507,7 +1507,7 @@ mod tests {
     }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_buffer_ptr_32(
     #[buffer] input: *const u32,
     #[number] inlen: usize,
@@ -1520,7 +1520,7 @@ mod tests {
     }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_buffer_slice_f64(
     #[buffer] input: &[f64],
     #[number] inlen: usize,
@@ -1534,7 +1534,7 @@ mod tests {
     }
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_buffer_ptr_f64(
     #[buffer] input: *const f64,
     #[number] inlen: usize,
@@ -1640,7 +1640,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   pub fn op_buffer_jsbuffer(
     #[buffer] input: JsBuffer,
     #[number] inlen: usize,
@@ -1671,7 +1671,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   pub fn op_buffer_any(#[anybuffer] buffer: &[u8]) -> u32 {
     let mut sum: u32 = 0;
     for i in buffer {
@@ -1725,7 +1725,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   pub fn op_buffer_any_length(#[anybuffer] buffer: &[u8]) -> u32 {
     buffer.len() as _
   }
@@ -1776,7 +1776,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   pub fn op_arraybuffer_slice(
     #[arraybuffer] input: &[u8],
     #[number] inlen: usize,
@@ -1812,7 +1812,7 @@ mod tests {
   }
 
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
-  #[op2]
+  #[op]
   pub fn op_buffer_slice_unsafe_callback(
     scope: &mut v8::HandleScope,
     buffer: v8::Local<v8::ArrayBuffer>,
@@ -1842,7 +1842,7 @@ mod tests {
 
   /// Ensures that three copies are independent. Note that we cannot mutate the
   /// `bytes::Bytes`.
-  #[op2(fast)]
+  #[op(fast)]
   #[allow(clippy::boxed_local)] // Clippy bug? It warns about input2
   pub fn op_buffer_copy(
     #[buffer(copy)] mut input1: Vec<u8>,
@@ -1873,7 +1873,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   #[buffer]
   pub fn op_buffer_bytesmut() -> BytesMut {
     let mut buffer = BytesMut::new();
@@ -1900,13 +1900,13 @@ mod tests {
 
   impl GarbageCollected for TestResource {}
 
-  #[op2]
+  #[op]
   #[cppgc]
   pub fn op_test_make_cppgc_resource() -> TestResource {
     TestResource { value: 42 }
   }
 
-  #[op2]
+  #[op]
   #[cppgc]
   pub fn op_test_make_cppgc_resource_option(
     create: bool,
@@ -1918,7 +1918,7 @@ mod tests {
     }
   }
 
-  #[op2(async)]
+  #[op(async)]
   #[smi]
   pub async fn op_test_get_cppgc_resource(
     #[cppgc] resource: &TestResource,
@@ -1927,7 +1927,7 @@ mod tests {
     resource.value
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   #[smi]
   pub fn op_test_get_cppgc_resource_option(
     #[cppgc] resource: Option<&TestResource>,
@@ -1960,12 +1960,12 @@ mod tests {
 
   static STRING: &str = "hello world";
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_external_make() -> *const std::ffi::c_void {
     STRING.as_ptr() as _
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_external_process(
     input: *const std::ffi::c_void,
   ) -> *const std::ffi::c_void {
@@ -1983,12 +1983,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_external_make_ptr(#[bigint] value: u64) -> *const std::ffi::c_void {
     value as _
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_external_process_ptr(
     input: *const std::ffi::c_void,
     #[number] offset: isize,
@@ -2016,19 +2016,19 @@ mod tests {
 
   external!(ExternalObject, "test external object");
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_typed_external() -> *const std::ffi::c_void {
     // This operation is safe because we know
     ExternalPointer::new(ExternalObject(RefCell::new(42))).into_raw()
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_typed_external_process(ptr: *const std::ffi::c_void) {
     let ptr = ExternalPointer::<ExternalObject>::from_raw(ptr);
     *(unsafe { ptr.unsafely_deref() }.0.borrow_mut()) += 1;
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_typed_external_take(ptr: *const std::ffi::c_void) -> u32 {
     let ptr = ExternalPointer::<ExternalObject>::from_raw(ptr);
     *unsafe { ptr.unsafely_take() }.0.borrow()
@@ -2044,13 +2044,13 @@ mod tests {
     Ok(())
   }
 
-  #[op2(nofast)]
+  #[op(nofast)]
   fn op_isolate_run_microtasks(isolate: *mut v8::Isolate) {
     // SAFETY: testing
     unsafe { isolate.as_mut().unwrap().perform_microtask_checkpoint() };
   }
 
-  #[op2(nofast)]
+  #[op(nofast)]
   fn op_isolate_queue_microtask(
     isolate: *mut v8::Isolate,
     cb: v8::Local<v8::Function>,
@@ -2069,7 +2069,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_void() {}
 
   #[tokio::test]
@@ -2079,19 +2079,19 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_number(x: u32) -> u32 {
     x
   }
 
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_add(x: u32, y: u32) -> u32 {
     x.wrapping_add(y)
   }
 
   // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
   // of valid ranges result in automatic wrapping.
-  #[op2(async)]
+  #[op(async)]
   #[smi]
   async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2128,12 +2128,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_sleep() {
     tokio::time::sleep(Duration::from_millis(500)).await
   }
 
-  #[op2(async)]
+  #[op(async)]
   fn op_async_sleep_impl() -> impl Future<Output = ()> {
     tokio::time::sleep(Duration::from_millis(500))
   }
@@ -2146,7 +2146,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   pub async fn op_async_sleep_error() -> Result<(), Error> {
     tokio::time::sleep(Duration::from_millis(500)).await;
     bail!("whoops")
@@ -2164,12 +2164,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async(deferred), fast)]
+  #[op(async(deferred), fast)]
   pub async fn op_async_deferred_success() -> Result<u32, Error> {
     Ok(42)
   }
 
-  #[op2(async(deferred), fast)]
+  #[op(async(deferred), fast)]
   pub async fn op_async_deferred_error() -> Result<(), Error> {
     bail!("whoops")
   }
@@ -2192,12 +2192,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async(lazy), fast)]
+  #[op(async(lazy), fast)]
   pub async fn op_async_lazy_success() -> Result<u32, Error> {
     Ok(42)
   }
 
-  #[op2(async(lazy), fast)]
+  #[op(async(lazy), fast)]
   pub async fn op_async_lazy_error() -> Result<(), Error> {
     bail!("whoops")
   }
@@ -2221,7 +2221,7 @@ mod tests {
 
   /// Test exits from the three possible routes -- before future, future immediate,
   /// future polled failed, future polled success.
-  #[op2(async)]
+  #[op(async)]
   pub fn op_async_result_impl(
     mode: u8,
   ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
@@ -2260,7 +2260,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   pub async fn op_async_state_rc(
     state: Rc<RefCell<OpState>>,
     value: u32,
@@ -2280,13 +2280,13 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   #[buffer]
   async fn op_async_buffer(#[buffer] input: JsBuffer) -> JsBuffer {
     input
   }
 
-  #[op2(async)]
+  #[op(async)]
   #[buffer]
   async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
     let mut output = input.to_vec();
@@ -2294,7 +2294,7 @@ mod tests {
     output
   }
 
-  #[op2(async)]
+  #[op(async)]
   fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
     let l = input.len();
     async move { l as _ }
@@ -2324,7 +2324,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_external(
     input: *const std::ffi::c_void,
   ) -> *const std::ffi::c_void {
@@ -2344,7 +2344,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op(async)]
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,
@@ -2365,7 +2365,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   #[to_v8]
   pub fn op_smi_to_from_v8(#[from_v8] value: Smi<i32>) -> Smi<i32> {
     value
@@ -2385,7 +2385,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
+  #[op]
   #[to_v8]
   pub fn op_number_to_from_v8(#[from_v8] value: Number<f64>) -> Number<f64> {
     value
@@ -2444,7 +2444,7 @@ mod tests {
     }
   }
 
-  #[op2]
+  #[op]
   #[to_v8]
   fn op_bool_to_from_v8(#[from_v8] value: Bool) -> Bool {
     value

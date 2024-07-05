@@ -22,7 +22,7 @@ use url::Url;
 async fn test_async_opstate_borrow() {
   struct InnerState(u64);
 
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_borrow(
     op_state: Rc<RefCell<OpState>>,
   ) -> Result<(), Error> {
@@ -60,7 +60,7 @@ async fn test_async_opstate_borrow() {
 
 #[tokio::test]
 async fn test_sync_op_serialize_object_with_numbers_as_keys() {
-  #[op2]
+  #[op]
   fn op_sync_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
   ) -> Result<(), Error> {
@@ -102,7 +102,7 @@ lines: {
 
 #[tokio::test]
 async fn test_async_op_serialize_object_with_numbers_as_keys() {
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
   ) -> Result<(), Error> {
@@ -145,7 +145,7 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
 
 #[test]
 fn test_op_return_serde_v8_error() {
-  #[op2]
+  #[op]
   #[serde]
   fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, anyhow::Error> {
     Ok([(1, 2), (3, 4)].into_iter().collect()) // Maps can't have non-string keys in serde_v8
@@ -166,7 +166,7 @@ fn test_op_return_serde_v8_error() {
 
 #[test]
 fn test_op_high_arity() {
-  #[op2(fast)]
+  #[op(fast)]
   #[number]
   fn op_add_4(
     #[number] x1: i64,
@@ -191,7 +191,7 @@ fn test_op_high_arity() {
 
 #[test]
 fn test_op_disabled() {
-  #[op2(fast)]
+  #[op(fast)]
   #[number]
   fn op_foo() -> Result<i64, anyhow::Error> {
     Ok(42)
@@ -215,12 +215,12 @@ fn test_op_disabled() {
 
 #[test]
 fn test_op_detached_buffer() {
-  #[op2]
+  #[op]
   fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, anyhow::Error> {
     Ok(b.as_ref().iter().clone().map(|x| *x as u32).sum())
   }
 
-  #[op2]
+  #[op]
   #[buffer]
   fn op_boomerang(
     #[buffer(detach)] b: JsBuffer,
@@ -296,14 +296,14 @@ fn duplicate_op_names() {
   mod a {
     use super::*;
 
-    #[op2]
+    #[op]
     #[string]
     pub fn op_test() -> Result<String, Error> {
       Ok(String::from("Test"))
     }
   }
 
-  #[op2]
+  #[op]
   #[string]
   pub fn op_test() -> Result<String, Error> {
     Ok(String::from("Test"))
@@ -318,13 +318,13 @@ fn duplicate_op_names() {
 
 #[test]
 fn ops_in_js_have_proper_names() {
-  #[op2]
+  #[op]
   #[string]
   fn op_test_sync() -> Result<String, Error> {
     Ok(String::from("Test"))
   }
 
-  #[op2(async)]
+  #[op(async)]
   #[string]
   async fn op_test_async() -> Result<String, Error> {
     Ok(String::from("Test"))
@@ -473,7 +473,7 @@ fn test_call_site() {
 // https://github.com/denoland/deno/issues/19455
 #[tokio::test]
 pub async fn test_top_level_await() {
-  #[op2(async)]
+  #[op(async)]
   async fn op_sleep_forever() {
     tokio::time::sleep(Duration::MAX).await
   }
@@ -528,12 +528,12 @@ await op_void_async_deferred();
   .expect("Failed to get module result");
 }
 
-#[op2(async)]
+#[op(async)]
 pub async fn op_async() {
   println!("op_async!");
 }
 
-#[op2(async)]
+#[op(async)]
 #[allow(unreachable_code)]
 pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, AnyError>
 {
@@ -541,51 +541,51 @@ pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, AnyError
   Ok(async {})
 }
 
-#[op2(async)]
+#[op(async)]
 pub async fn op_async_yield() {
   tokio::task::yield_now().await;
   println!("op_async_yield!");
 }
 
-#[op2(async)]
+#[op(async)]
 pub async fn op_async_yield_error() -> Result<(), AnyError> {
   tokio::task::yield_now().await;
   println!("op_async_yield_error!");
   bail!("dead");
 }
 
-#[op2(async)]
+#[op(async)]
 pub async fn op_async_error() -> Result<(), AnyError> {
   println!("op_async_error!");
   bail!("dead");
 }
 
-#[op2(async(deferred), fast)]
+#[op(async(deferred), fast)]
 pub async fn op_async_deferred() {
   println!("op_async_deferred!");
 }
 
-#[op2(async(lazy), fast)]
+#[op(async(lazy), fast)]
 pub async fn op_async_lazy() {
   println!("op_async_lazy!");
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_sync() {
   println!("op_sync!");
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_sync_error() -> Result<(), AnyError> {
   bail!("Always fails");
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_sync_arg_error(_: u32) {
   panic!("Should never be called")
 }
 
-#[op2(async)]
+#[op(async)]
 pub async fn op_async_arg_error(_: u32) {
   panic!("Should never be called")
 }

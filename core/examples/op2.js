@@ -1,4 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-globalThis.op2_sample = {
+globalThis.op_sample = {
   "use_state": (f) => Deno.core.ops.op_use_state(f),
 };

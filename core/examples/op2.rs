@@ -4,7 +4,7 @@ use deno_core::anyhow::Error;
 use deno_core::*;
 use std::rc::Rc;
 
-#[op2]
+#[op]
 fn op_use_state(
   state: &mut OpState,
   #[global] callback: v8::Global<v8::Function>,
@@ -14,17 +14,17 @@ fn op_use_state(
 }
 
 extension!(
-  op2_sample,
+  op_sample,
   ops = [op_use_state],
-  esm_entry_point = "ext:op2_sample/op2.js",
+  esm_entry_point = "ext:op_sample/op2.js",
   esm = [ dir "examples", "op2.js" ],
-  docs = "A small example demonstrating op2 usage.", "Contains one op."
+  docs = "A small example demonstrating op usage.", "Contains one op."
 );
 
 fn main() -> Result<(), Error> {
   let module_name = "test.js";
   let module_code = "
-      op2_sample.use_state(() => {
+      op_sample.use_state(() => {
           console.log('Hello World');
       });
   "
@@ -32,7 +32,7 @@ fn main() -> Result<(), Error> {
 
   let mut js_runtime = JsRuntime::new(deno_core::RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
-    extensions: vec![op2_sample::init_ops_and_esm()],
+    extensions: vec![op_sample::init_ops_and_esm()],
     ..Default::default()
   });
 

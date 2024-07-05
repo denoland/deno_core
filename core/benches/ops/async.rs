@@ -26,13 +26,13 @@ deno_core::extension!(
   ],
 );
 
-#[op2]
+#[op]
 pub fn op_call_promise_resolver(scope: &mut v8::HandleScope, f: &v8::Function) {
   let recv = v8::undefined(scope).into();
   f.call(scope, recv, &[]);
 }
 
-#[op2]
+#[op]
 pub fn op_resolve_promise<'s>(
   scope: &'s mut v8::HandleScope,
 ) -> v8::Local<'s, v8::Promise> {
@@ -42,57 +42,57 @@ pub fn op_resolve_promise<'s>(
   resolver.get_promise(scope)
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_void() {}
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_make_external() -> *const c_void {
   std::ptr::null()
 }
 
-#[op2(async)]
+#[op(async)]
 pub async fn op_async_void() {}
 
-#[op2(async)]
+#[op(async)]
 pub async fn op_async_yield() {
   tokio::task::yield_now().await
 }
 
-#[op2(async(lazy), fast)]
+#[op(async(lazy), fast)]
 pub async fn op_async_yield_lazy() {
   tokio::task::yield_now().await
 }
 
-#[op2(async(lazy), nofast)]
+#[op(async(lazy), nofast)]
 pub async fn op_async_yield_lazy_nofast() {
   tokio::task::yield_now().await
 }
 
-#[op2(async(deferred), fast)]
+#[op(async(deferred), fast)]
 pub async fn op_async_yield_deferred() {
   tokio::task::yield_now().await
 }
 
-#[op2(async(deferred), nofast)]
+#[op(async(deferred), nofast)]
 pub async fn op_async_yield_deferred_nofast() {
   tokio::task::yield_now().await
 }
 
-#[op2(async(lazy), fast)]
+#[op(async(lazy), fast)]
 pub async fn op_async_void_lazy() {}
 
-#[op2(async(lazy), nofast)]
+#[op(async(lazy), nofast)]
 pub async fn op_async_void_lazy_nofast() {}
 
-#[op2(async(deferred), fast)]
+#[op(async(deferred), fast)]
 pub async fn op_async_void_deferred_return() -> u32 {
   1
 }
 
-#[op2(async(deferred), fast)]
+#[op(async(deferred), fast)]
 pub async fn op_async_void_deferred() {}
 
-#[op2(async(deferred), nofast)]
+#[op(async(deferred), nofast)]
 pub async fn op_async_void_deferred_nofast() {}
 
 fn bench_op(

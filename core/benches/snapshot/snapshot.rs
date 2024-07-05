@@ -30,7 +30,7 @@ macro_rules! fake_extensions {
           );
 
           mod ops {
-            #[deno_core::op2(fast)]
+            #[deno_core::op(fast)]
             pub fn $name() {
             }
           }
