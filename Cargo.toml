@@ -77,7 +77,7 @@ opt-level = 1
 codegen-units = 1
 incremental = true
 lto = true
-opt-level = 3 # Optimize for size
+opt-level = 'z' # Optimize for size
 
 # Build release with debug symbols: cargo build --profile=release-with-debug
 [profile.release-with-debug]
