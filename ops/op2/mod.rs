@@ -183,6 +183,7 @@ pub(crate) fn generate_op2(
     moves: vec![],
     needs_retval: false,
     needs_scope: false,
+    needs_fast_isolate: false,
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,

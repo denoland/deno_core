@@ -43,6 +43,7 @@ pub struct GeneratorState {
   pub needs_retval: bool,
   pub needs_scope: bool,
   pub needs_fast_scope: bool,
+  pub needs_fast_isolate: bool,
   pub needs_isolate: bool,
   pub needs_opstate: bool,
   pub needs_opctx: bool,
