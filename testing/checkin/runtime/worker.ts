@@ -9,7 +9,7 @@ import {
 } from "ext:core/ops";
 
 const privateConstructor = Symbol();
-let parentWorker = null;
+let parentWorker: Worker | null = null;
 
 export class Worker {
   // deno-lint-ignore no-explicit-any
