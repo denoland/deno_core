@@ -24,7 +24,7 @@ deno_ops = { version = "0.168.0", path = "./ops" }
 serde_v8 = { version = "0.201.0", path = "./serde_v8" }
 deno_core_testing = { path = "./testing" }
 
-v8 = { version = "0.95.0", default-features = false }
+v8 = { version = "0.97.0", default-features = false }
 deno_ast = { version = "=0.35.3", features = ["transpiling"] }
 deno_unsync = "0.3.2"
 deno_core_icudata = "0.0.73"
@@ -77,7 +77,7 @@ opt-level = 1
 codegen-units = 1
 incremental = true
 lto = true
-opt-level = 'z' # Optimize for size
+opt-level = 3 # Optimize for size
 
 # Build release with debug symbols: cargo build --profile=release-with-debug
 [profile.release-with-debug]

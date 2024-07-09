@@ -719,7 +719,7 @@ impl JsRuntime {
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
     let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
-    let (mut op_ctxs, op_method_ctxs) = extension_set::create_op_ctxs(
+    let (mut op_ctxs, mut op_method_ctxs) = extension_set::create_op_ctxs(
       op_decls,
       op_method_decls,
       op_metrics_factory_fn,
@@ -793,6 +793,12 @@ impl JsRuntime {
     // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
+    }
+    for op_method_ctx in op_method_ctxs.iter_mut() {
+      op_method_ctx.constructor.isolate = isolate.as_mut() as *mut Isolate;
+      for op in &mut op_method_ctx.methods {
+        op.isolate = isolate.as_mut() as *mut Isolate;
+      }
     }
 
     // TODO(Bartlomieju): this can be simplified

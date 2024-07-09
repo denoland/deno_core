@@ -63,11 +63,11 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
 
 // Wrap an API object (eg: `args.This()`)
 pub fn wrap_object<'a, T: GarbageCollected + 'static>(
-  scope: &mut v8::HandleScope<'a>,
+  isolate: &mut v8::Isolate,
   obj: v8::Local<'a, v8::Object>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
-  let heap = scope.get_cpp_heap().unwrap();
+  let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {
     v8::cppgc::make_garbage_collected(
@@ -80,7 +80,7 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
   };
 
   unsafe {
-    v8::Object::wrap::<CPPGC_TAG, CppGcObject<T>>(scope, obj, &member);
+    v8::Object::wrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj, &member);
   }
   obj
 }
@@ -88,27 +88,24 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
 #[doc(hidden)]
 #[allow(clippy::needless_lifetimes)]
 pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
-  scope: &mut v8::HandleScope<'sc>,
+  isolate: &mut v8::Isolate,
   val: v8::Local<'sc, v8::Value>,
 ) -> v8::cppgc::Member<T> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
     return v8::cppgc::Member::empty();
   };
-
   if !obj.is_api_wrapper() {
     return v8::cppgc::Member::empty();
   }
-
   let ptr =
-    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(scope, obj) };
+    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) };
+
   let Some(obj) = ptr.borrow() else {
     return v8::cppgc::Member::empty();
   };
-
   if obj.tag != TypeId::of::<T>() {
     return v8::cppgc::Member::empty();
   }
-
   let mut h = v8::cppgc::Member::empty();
   h.set(&obj.member);
   h

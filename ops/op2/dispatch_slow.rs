@@ -258,7 +258,7 @@ pub(crate) fn with_self(
   {
     let tokens = gs_quote!(generator_state(self_ty, fn_args, scope) => {
       let self_handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into());
-      if self_handle_.borrow().is_none() {
+      if self_handle_..borrow().is_none() {
         #throw_exception;
       }
       let mut self_persistent_ = deno_core::v8::cppgc::Persistent::empty();
@@ -876,6 +876,7 @@ pub fn return_value_infallible(
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
     ArgMarker::Cppgc if generator_state.use_this_cppgc => {
+      generator_state.needs_isolate = true;
       gs_quote!(generator_state(result, scope) => (
            Some(deno_core::cppgc::wrap_object(&mut #scope, args.this(), #result))
       ))

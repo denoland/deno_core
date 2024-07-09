@@ -438,6 +438,30 @@ pub(crate) fn generate_dispatch_fast(
   } else {
     quote!()
   };
+  let with_self = if generator_state.needs_self {
+    generator_state.needs_isolate = true;
+    generator_state.needs_fast_api_callback_options = true;
+    gs_quote!(generator_state(self_ty, scope, fast_api_callback_options) => {
+      let self_handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(#scope, this.into());
+      let Some(self_) = self_handle_.borrow() else {
+        #fast_api_callback_options.fallback = true;
+        // SAFETY: All fast return types have zero as a valid value
+        return unsafe { std::mem::zeroed() };
+      };
+    })
+  } else {
+    quote!()
+  };
+
+  let with_isolate =
+    if generator_state.needs_isolate && !generator_state.needs_fast_opctx {
+      generator_state.needs_fast_opctx = true;
+      gs_quote!(generator_state(opctx, scope) =>
+        (let mut #scope = unsafe { &mut *#opctx.isolate };)
+      )
+    } else {
+      quote!()
+    };
 
   let with_opctx = if generator_state.needs_fast_opctx {
     generator_state.needs_fast_api_callback_options = true;
@@ -450,22 +474,6 @@ pub(crate) fn generate_dispatch_fast(
   } else {
     quote!()
   };
-
-  let with_self = if generator_state.needs_self {
-    generator_state.needs_fast_scope = true;
-    generator_state.needs_fast_api_callback_options = true;
-    gs_quote!(generator_state(self_ty, scope, fast_api_callback_options) => {
-      let self_handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into());
-      let Some(self_) = self_handle_.borrow() else {
-        #fast_api_callback_options.fallback = true;
-        // SAFETY: All fast return types have zero as a valid value
-        return unsafe { std::mem::zeroed() };
-      };
-    })
-  } else {
-    quote!()
-  };
-
   let name = &generator_state.name;
   let call = if generator_state.needs_self {
     quote!(self_. #name)
@@ -553,6 +561,7 @@ pub(crate) fn generate_dispatch_fast(
       #with_scope
       #with_opctx
       #with_js_runtime_state
+      #with_isolate
       #with_self
       let #result = {
         #(#call_args)*
