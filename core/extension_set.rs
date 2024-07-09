@@ -51,7 +51,12 @@ pub fn init_ops(
     .map(|e| e.op_count())
     .fold(0, |ext_ops_count, count| count + ext_ops_count);
   let mut ops = Vec::with_capacity(no_of_ops + deno_core_ops.len());
-  let mut op_methods = Vec::new();
+
+  let no_of_methods = extensions
+    .iter()
+    .map(|e| e.method_op_count())
+    .fold(0, |ext_ops_count, count| count + ext_ops_count);
+  let mut op_methods = Vec::with_capacity(no_of_methods);
 
   // Collect all middlewares - deno_core extension must not have a middleware!
   let middlewares: Vec<Box<OpMiddlewareFn>> = extensions
@@ -139,7 +144,7 @@ pub fn create_op_ctxs(
 ) -> (Box<[OpCtx]>, Box<[OpMethodCtx]>) {
   let op_count = op_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
-  let mut op_method_ctxs = vec![];
+  let mut op_method_ctxs = Vec::with_capacity(op_method_decls.len());
 
   let runtime_state_ptr = runtime_state.as_ref() as *const _;
   let create_ctx = |index, decl| {

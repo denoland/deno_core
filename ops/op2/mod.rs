@@ -62,6 +62,8 @@ pub enum Op2Error {
   TooManyFastAlternatives,
   #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
   ImproperlySortedAttribute(String),
+  #[error("Only one constructor is allowed per object")]
+  MultipleConstructors,
 }
 
 #[derive(Debug, Error)]

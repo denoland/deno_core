@@ -40,7 +40,7 @@ impl GothamState {
   }
 
   // For internal use.
-  pub fn try_borrow_untyped<T: 'static>(&self, t: TypeId) -> Option<&T> {
+  pub(crate) fn try_borrow_untyped<T: 'static>(&self, t: TypeId) -> Option<&T> {
     self.data.get(&t).and_then(|b| b.downcast_ref())
   }
 

@@ -92,6 +92,10 @@ pub(crate) fn generate_impl_ops(
         #attrs
       })?;
       if config.constructor {
+        if constructor.is_some() {
+          return Err(Op2Error::MultipleConstructors);
+        }
+
         constructor = Some(ident);
       } else if config.static_member {
         static_methods.push(ident);

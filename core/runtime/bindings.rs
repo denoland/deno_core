@@ -47,7 +47,8 @@ pub(crate) fn create_external_references(
       + BUILTIN_SOURCES.len()
       + (ops.len() * 4)
       + additional_references.len()
-      + sources.len(),
+      + sources.len()
+      + op_method_ctxs.len(),
   );
 
   references.push(v8::ExternalReference {
@@ -828,7 +829,7 @@ pub fn create_exports_for_ops_virtual_module<'s>(
   scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
 ) -> Vec<(FastStaticString, v8::Local<'s, v8::Value>)> {
-  let mut exports = Vec::with_capacity(op_ctxs.len());
+  let mut exports = Vec::with_capacity(op_ctxs.len() + op_method_ctxs.len());
 
   let deno_obj = get(scope, global, DENO, "Deno");
   let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");

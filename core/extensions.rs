@@ -168,7 +168,7 @@ pub type GlobalObjectMiddlewareFn =
 
 extern "C" fn noop() {}
 
-// Delcration for object wrappers.
+// Declaration for object wrappers.
 #[derive(Clone, Copy)]
 pub struct OpMethodDecl {
   // TypeId::of::<T>() is unstable-nightly in const context so
@@ -699,6 +699,10 @@ impl Extension {
 
   pub fn op_count(&self) -> usize {
     self.ops.len()
+  }
+
+  pub fn method_op_count(&self) -> usize {
+    self.objects.len()
   }
 
   /// Called at JsRuntime startup to initialize ops in the isolate.
