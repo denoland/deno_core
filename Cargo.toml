@@ -26,7 +26,7 @@ deno_core_testing = { path = "./testing" }
 
 v8 = { version = "0.97.0", default-features = false }
 deno_ast = { version = "=0.35.3", features = ["transpiling"] }
-deno_unsync = "0.3.2"
+deno_unsync = "0.3.10"
 deno_core_icudata = "0.0.73"
 
 anyhow = "1"
