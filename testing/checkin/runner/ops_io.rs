@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Error;
-use deno_core::op2;
+use deno_core::op;
 use deno_core::AsyncRefCell;
 use deno_core::BufView;
 use deno_core::OpState;
@@ -53,7 +53,7 @@ impl Resource for PipeResource {
   }
 }
 
-#[op2]
+#[op]
 #[serde]
 pub fn op_pipe_create(op_state: &mut OpState) -> (ResourceId, ResourceId) {
   let (s1, s2) = tokio::io::duplex(1024);
@@ -87,7 +87,7 @@ impl Resource for FileResource {
   }
 }
 
-#[op2(async)]
+#[op(async)]
 #[serde]
 pub async fn op_file_open(
   #[string] path: String,

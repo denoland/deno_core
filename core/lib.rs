@@ -52,7 +52,7 @@ pub use sourcemap;
 pub use url;
 pub use v8;
 
-pub use deno_ops::op2;
+pub use deno_ops::op;
 
 pub use crate::async_cancel::CancelFuture;
 pub use crate::async_cancel::CancelHandle;
@@ -165,7 +165,7 @@ pub use crate::source_map::SourceMapGetter;
 pub use crate::tasks::V8CrossThreadTaskSpawner;
 pub use crate::tasks::V8TaskSpawner;
 
-// Ensure we can use op2 in deno_core without any hackery.
+// Ensure we can use op in deno_core without any hackery.
 extern crate self as deno_core;
 
 pub fn v8_version() -> &'static str {

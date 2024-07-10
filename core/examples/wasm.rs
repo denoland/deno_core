@@ -22,19 +22,19 @@ fn wasm_memory_unchecked(state: &mut OpState) -> &mut [u8] {
   unsafe { std::slice::from_raw_parts_mut(ptr, len) }
 }
 
-#[op2]
+#[op]
 #[buffer]
 fn op_get_wasm_module() -> Vec<u8> {
   include_bytes!("wasm.wasm").as_slice().to_vec()
 }
 
-#[op2(fast)]
+#[op(fast)]
 fn op_wasm(state: &mut OpState, #[memory(caller)] memory: Option<&mut [u8]>) {
   let memory = memory.unwrap_or_else(|| wasm_memory_unchecked(state));
   memory[0] = 69;
 }
 
-#[op2(fast)]
+#[op(fast)]
 fn op_wasm_mem(memory: &v8::WasmMemoryObject) {
   // let memory = memory.unwrap_or_else(|| wasm_memory_unchecked(state));
   // memory[0] = 69;
@@ -50,7 +50,7 @@ fn op_wasm_mem(memory: &v8::WasmMemoryObject) {
   slice[0] = 68;
 }
 
-#[op2]
+#[op]
 fn op_set_wasm_mem(
   state: &mut OpState,
   #[global] memory: v8::Global<v8::WasmMemoryObject>,

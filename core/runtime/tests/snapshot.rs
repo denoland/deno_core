@@ -231,7 +231,7 @@ fn es_snapshot() {
     }
   }
 
-  #[op2]
+  #[op]
   #[string]
   fn op_test() -> Result<String, Error> {
     Ok(String::from("test"))
@@ -395,13 +395,13 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 
 #[test]
 pub fn snapshot_with_additional_extensions() {
-  #[op2]
+  #[op]
   #[string]
   fn op_before() -> String {
     "before".to_owned()
   }
 
-  #[op2]
+  #[op]
   #[string]
   fn op_after() -> String {
     "after".to_owned()

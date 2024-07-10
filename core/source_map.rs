@@ -60,7 +60,7 @@ pub struct SourceMapper<G: SourceMapGetter> {
   getter: Option<G>,
   pub(crate) ext_source_maps: HashMap<String, SourceMapData>,
   // This is not the right place for this, but it's the easiest way to make
-  // op_apply_source_map a fast op. This stashing should happen in #[op2].
+  // op_apply_source_map a fast op. This stashing should happen in #[op].
   pub(crate) stashed_file_name: Option<String>,
 }
 
