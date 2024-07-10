@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "ext:core/mod.js": "../testing/checkin.d.ts",
+    "ext:core/ops": "../testing/ops.d.ts",
+    "checkin:async": "../testing/checkin/runtime/async.ts",
+    "checkin:console": "../testing/checkin/runtime/console.ts",
+    "checkin:error": "../testing/checkin/runtime/error.ts",
+    "checkin:testing": "../testing/checkin/runtime/testing.ts",
+    "checkin:throw": "../testing/checkin/runtime/throw.ts",
+    "checkin:timers": "../testing/checkin/runtime/timers.ts",
+    "checkin:worker": "../testing/checkin/runtime/worker.ts"
+  }
+}

@@ -74,7 +74,7 @@ test(function testPrimitiveArray() {
 });
 
 test(function testCircularObject() {
-  const circularObject = { test: null, test2: "dd", test3: "aa" };
+  const circularObject = { test: null as unknown, test2: "dd", test3: "aa" };
   circularObject.test = circularObject;
   // deno-fmt-ignore
   const circularObjectSerialized = [

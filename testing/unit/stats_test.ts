@@ -103,7 +103,7 @@ test(async function testAsyncLeakTrace() {
 
     assertEquals(tracesAfter.size, tracesBefore.size + 1);
     assertStackTraceEquals(
-      Deno.core.getLeakTraceForPromise(p1),
+      Deno.core.getLeakTraceForPromise(p1)!,
       `
       at op_async_barrier_await (ext:core/00_infra.js:line:col)
       at barrierAwait (checkin:async:line:col)
