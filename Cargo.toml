@@ -24,7 +24,7 @@ deno_ops = { version = "0.169.0", path = "./ops" }
 serde_v8 = { version = "0.202.0", path = "./serde_v8" }
 deno_core_testing = { path = "./testing" }
 
-v8 = { version = "0.97.0", default-features = false }
+v8 = { version = "0.98.0", default-features = false }
 deno_ast = { version = "=0.35.3", features = ["transpiling"] }
 deno_unsync = "0.3.10"
 deno_core_icudata = "0.0.73"
