@@ -922,6 +922,11 @@ impl JsRuntime {
       }
     }
 
+    state_rc
+      .source_mapper
+      .borrow_mut()
+      .set_module_map(module_map.clone());
+
     // SAFETY: Set the module map slot in the context
     unsafe {
       context.set_aligned_pointer_in_embedder_data(

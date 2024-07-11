@@ -1047,9 +1047,10 @@ fn write_line_and_col_to_ret_buf(
 // 2: mapped line, column, and file name. new line, column, and file name are in
 //    ret_buf. retrieve file name by calling `op_apply_source_map_filename`
 //    immediately after this op returns.
-#[op2(fast)]
+#[op2]
 #[smi]
 pub fn op_apply_source_map(
+  scope: &mut v8::HandleScope,
   state: &JsRuntimeState,
   #[string] file_name: &str,
   #[smi] line_number: u32,
@@ -1060,8 +1061,12 @@ pub fn op_apply_source_map(
     return Err(type_error("retBuf must be 8 bytes"));
   }
   let mut source_mapper = state.source_mapper.borrow_mut();
-  let application =
-    source_mapper.apply_source_map(file_name, line_number, column_number);
+  let application = source_mapper.apply_source_map(
+    scope,
+    file_name,
+    line_number,
+    column_number,
+  );
   match application {
     SourceMapApplication::Unchanged => Ok(0),
     SourceMapApplication::LineAndColumn {
@@ -1137,7 +1142,7 @@ pub fn op_current_user_call_site(
     let application = js_runtime_state
       .source_mapper
       .borrow_mut()
-      .apply_source_map(&file_name, line_number, column_number);
+      .apply_source_map(scope, &file_name, line_number, column_number);
 
     match application {
       SourceMapApplication::Unchanged => {

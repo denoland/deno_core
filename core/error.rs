@@ -249,7 +249,7 @@ impl JsStackFrame {
     let c = message.get_start_column() as u32 + 1;
     let state = JsRuntime::state_from(scope);
     let mut source_mapper = state.source_mapper.borrow_mut();
-    match source_mapper.apply_source_map(&f, l, c) {
+    match source_mapper.apply_source_map(scope, &f, l, c) {
       SourceMapApplication::Unchanged => Some(JsStackFrame::from_location(
         Some(f),
         Some(l.into()),
