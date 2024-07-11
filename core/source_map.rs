@@ -105,7 +105,8 @@ impl<G: SourceMapGetter> SourceMapper<G> {
     let maybe_source_mapping_url =
       unbound_module_script.get_source_mapping_url(scope);
 
-    // TODO(bartlomieju): decide which one should be checked first
+    // TODO(bartlomieju): This should be the last fallback and it's only useful
+    // for eval - probably for `Deno.core.evalContext()`.
     let maybe_source_url = unbound_module_script
       .get_source_url(scope)
       .to_rust_string_lossy(scope);
