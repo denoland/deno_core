@@ -455,12 +455,12 @@ pub(crate) fn generate_dispatch_fast(
     generator_state.needs_fast_scope = true;
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(self_ty, scope, fast_api_callback_options) => {
-      let self_handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into());
-      let Some(self_) = self_handle_.borrow() else {
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into()) else {
         #fast_api_callback_options.fallback = true;
         // SAFETY: All fast return types have zero as a valid value
         return unsafe { std::mem::zeroed() };
       };
+      let self_ = &*self_;
     })
   } else {
     quote!()
@@ -764,12 +764,12 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_fast_scope = true;
       *needs_fast_api_callback_options = true;
       quote! {
-        let handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident);
-        let Some(#arg_ident) = handle_.borrow() else {
+        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
           #fast_api_callback_options.fallback = true;
           // SAFETY: All fast return types have zero as a valid value
           return unsafe { std::mem::zeroed() };
         };
+        let #arg_ident = &*#arg_ident;
       }
     }
     Arg::OptionCppGcResource(ty) => {
@@ -779,20 +779,16 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_fast_scope = true;
       *needs_fast_api_callback_options = true;
       quote! {
-        let mut handle_ = deno_core::v8::cppgc::Member::empty();
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
+        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+          Some(#arg_ident)
         } else {
-          handle_.set(&deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident));
-          match handle_.borrow() {
-            Some(r) => Some(r),
-            None => {
-              #fast_api_callback_options.fallback = true;
-              // SAFETY: All fast return types have zero as a valid value
-              return unsafe { std::mem::zeroed() };
-            }
-          }
+          #fast_api_callback_options.fallback = true;
+          // SAFETY: All fast return types have zero as a valid value
+          return unsafe { std::mem::zeroed() };
         };
+        let #arg_ident = #arg_ident.as_deref();
       }
     }
     _ => quote!(let #arg_ident = #arg_ident as _;),

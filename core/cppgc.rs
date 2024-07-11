@@ -9,12 +9,12 @@ const CPPGC_TAG: u16 = 1;
 #[repr(C)]
 struct CppGcObject<T: GarbageCollected> {
   tag: TypeId,
-  member: v8::cppgc::Member<T>,
+  member: T,
 }
 
 impl<T: GarbageCollected> v8::cppgc::GarbageCollected for CppGcObject<T> {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
-    visitor.trace(&self.member);
+    self.member.trace(visitor);
   }
 }
 
@@ -48,7 +48,7 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
       heap,
       CppGcObject {
         tag: TypeId::of::<T>(),
-        member: v8::cppgc::make_garbage_collected(heap, t),
+        member: t,
       },
     )
   };
@@ -61,30 +61,53 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
 }
 
 #[doc(hidden)]
+pub struct Ptr<T: GarbageCollected> {
+  inner: v8::cppgc::Ptr<CppGcObject<T>>,
+  root: Option<v8::cppgc::Persistent<CppGcObject<T>>>,
+}
+
+#[doc(hidden)]
+impl<T: GarbageCollected> Ptr<T> {
+  /// If this pointer is used in an async function, it could leave the stack,
+  /// so this method can be called to root it in the GC and keep the reference
+  /// valid.
+  pub fn root(&mut self) {
+    if self.root.is_none() {
+      self.root = Some(v8::cppgc::Persistent::new(&self.inner));
+    }
+  }
+}
+
+impl<T: GarbageCollected> std::ops::Deref for Ptr<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    &self.inner.member
+  }
+}
+
+#[doc(hidden)]
 #[allow(clippy::needless_lifetimes)]
 pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
   scope: &mut v8::HandleScope<'sc>,
   val: v8::Local<'sc, v8::Value>,
-) -> v8::cppgc::Member<T> {
+) -> Option<Ptr<T>> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
-    return v8::cppgc::Member::empty();
+    return None;
   };
 
   if !obj.is_api_wrapper() {
-    return v8::cppgc::Member::empty();
+    return None;
   }
 
-  let ptr =
-    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(scope, obj) };
-  let Some(obj) = ptr.borrow() else {
-    return v8::cppgc::Member::empty();
-  };
+  let obj =
+    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(scope, obj) }?;
 
   if obj.tag != TypeId::of::<T>() {
-    return v8::cppgc::Member::empty();
+    return None;
   }
 
-  let mut h = v8::cppgc::Member::empty();
-  h.set(&obj.member);
-  h
+  Some(Ptr {
+    inner: obj,
+    root: None,
+  })
 }
