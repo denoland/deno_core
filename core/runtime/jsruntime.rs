@@ -775,9 +775,9 @@ impl JsRuntime {
       )));
 
     let external_refs: &v8::ExternalReferences =
-      isolate_allocations.external_refs.as_ref().unwrap().as_ref();
+      isolate_allocations.external_refs.as_ref().unwrap();
     // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
-    let external_refs_static = unsafe { std::mem::transmute(external_refs) };
+    let external_refs_static = unsafe { &*(external_refs as *const _) };
 
     let has_snapshot = maybe_startup_snapshot.is_some();
     let mut isolate = setup::create_isolate(
@@ -1066,23 +1066,6 @@ impl JsRuntime {
   pub fn handle_scope(&mut self) -> v8::HandleScope {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.handle_scope(isolate)
-  }
-
-  #[inline(always)]
-  /// Create a scope on the stack with the given context
-  fn with_context_scope<'s, T>(
-    isolate: *mut v8::Isolate,
-    context: *mut v8::Context,
-    f: impl FnOnce(&mut v8::HandleScope<'s>) -> T,
-  ) -> T {
-    // SAFETY: We know this isolate is valid and non-null at this time
-    let mut isolate_scope =
-      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
-    // SAFETY: We know the context is valid and non-null at this time, and that a Local and pointer share the
-    // same representation
-    let context = unsafe { std::mem::transmute(context) };
-    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
-    f(&mut scope)
   }
 
   /// Create a synthetic module - `ext:core/ops` - that exports all ops registered
@@ -1726,12 +1709,13 @@ impl JsRuntime {
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    let isolate = self.v8_isolate_ptr();
-    Self::with_context_scope(
-      isolate,
-      self.inner.main_realm.context_ptr(),
-      move |scope| self.poll_event_loop_inner(cx, scope, poll_options),
-    )
+    // SAFETY: We know this isolate is valid and non-null at this time
+    let mut isolate_scope =
+      v8::HandleScope::new(unsafe { &mut *self.v8_isolate_ptr() });
+    let context =
+      v8::Local::new(&mut isolate_scope, self.inner.main_realm.context());
+    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
+    self.poll_event_loop_inner(cx, &mut scope, poll_options)
   }
 
   fn poll_event_loop_inner(

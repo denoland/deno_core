@@ -102,7 +102,9 @@ impl SnapshotStoreDataStore {
     // TODO(mmastrac): v8::Global needs From/Into
     // SAFETY: Because we've tested that Local<Data>: From<Local<T>>, we can assume this is safe.
     unsafe {
-      self.data.push(std::mem::transmute(global));
+      self.data.push(
+        std::mem::transmute::<v8::Global<T>, v8::Global<v8::Data>>(global),
+      );
     }
     id as _
   }

@@ -148,7 +148,10 @@ pub(crate) fn externalize_sources(
     let offset = snapshot_sources.len();
     for (index, source) in sources.into_iter().enumerate() {
       externals[index + offset] =
-        FastStaticString::create_external_onebyte_const(std::mem::transmute(
+        FastStaticString::create_external_onebyte_const(std::mem::transmute::<
+          &[u8],
+          &[u8],
+        >(
           source.code.as_bytes(),
         ));
       let ptr = &externals[index + offset] as *const v8::OneByteConst;
