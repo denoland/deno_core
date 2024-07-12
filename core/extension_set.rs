@@ -22,7 +22,6 @@ use crate::ModuleCodeString;
 use crate::OpDecl;
 use crate::OpMetricsFactoryFn;
 use crate::OpState;
-use crate::SourceMapGetter;
 
 /// Contribute to the `OpState` from each extension.
 pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
@@ -242,7 +241,7 @@ impl<'a> IntoIterator for &'a mut LoadedSources {
 fn load(
   transpiler: Option<&ExtensionTranspiler>,
   source: &ExtensionFileSource,
-  source_mapper: &mut SourceMapper<Rc<dyn SourceMapGetter>>,
+  source_mapper: &mut SourceMapper,
   load_callback: &mut impl FnMut(&ExtensionFileSource),
 ) -> Result<ModuleCodeString, AnyError> {
   load_callback(source);
@@ -263,7 +262,7 @@ fn load(
 pub fn into_sources(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
-  source_mapper: &mut SourceMapper<Rc<dyn SourceMapGetter>>,
+  source_mapper: &mut SourceMapper,
   mut load_callback: impl FnMut(&ExtensionFileSource),
 ) -> Result<LoadedSources, AnyError> {
   let mut sources = LoadedSources::default();

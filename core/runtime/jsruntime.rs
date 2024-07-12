@@ -407,7 +407,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) source_mapper: RefCell<SourceMapper<Rc<dyn SourceMapGetter>>>,
+  pub(crate) source_mapper: RefCell<SourceMapper>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -672,8 +672,7 @@ impl JsRuntime {
 
     // Load the sources and source maps
     let mut files_loaded = Vec::with_capacity(128);
-    let mut source_mapper: SourceMapper<Rc<dyn SourceMapGetter>> =
-      SourceMapper::new(options.source_map_getter);
+    let mut source_mapper = SourceMapper::new(options.source_map_getter);
     let mut sources = extension_set::into_sources(
       options.extension_transpiler.as_deref(),
       &extensions,
