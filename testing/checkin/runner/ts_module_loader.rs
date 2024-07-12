@@ -156,6 +156,10 @@ impl ModuleLoader for TypescriptModuleLoader {
       requested_module_type,
     ))
   }
+
+  fn get_source_map(&self, path: &str) -> Option<Vec<u8>> {
+    std::fs::read(path).ok()
+  }
 }
 
 pub fn maybe_transpile_source(

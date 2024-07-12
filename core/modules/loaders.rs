@@ -95,6 +95,10 @@ pub trait ModuleLoader {
   ) -> Pin<Box<dyn Future<Output = ()>>> {
     async {}.boxed_local()
   }
+
+  fn get_source_map(&self, _path: &str) -> Option<Vec<u8>> {
+    None
+  }
 }
 
 /// Placeholder structure used when creating

@@ -147,14 +147,19 @@ impl<G: SourceMapGetter> SourceMapper<G> {
         },
       };
       eprintln!(
-        "source map url {} {} {:?}",
-        source_map_string, file_name, url
+        "source map url sourceMappingURL={} file_name={} url={}",
+        source_map_string,
+        file_name,
+        url.as_ref().map(|s| s.as_str()).unwrap_or_default()
       );
       let url = url?;
       if url.scheme() != "file" {
         return None;
       }
-      let contents = std::fs::read(url.to_file_path().unwrap()).unwrap();
+      let contents = module_map
+        .loader
+        .borrow()
+        .get_source_map(&url.to_file_path().ok()?.to_str()?)?;
       SourceMap::from_slice(&contents).ok()?
     };
 
