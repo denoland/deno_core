@@ -26,7 +26,6 @@ use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
 use std::rc::Rc;
 use std::sync::Arc;
-use v8::Handle;
 
 pub const CONTEXT_STATE_SLOT_INDEX: i32 = 1;
 pub const MODULE_MAP_SLOT_INDEX: i32 = 2;
@@ -289,10 +288,6 @@ impl JsRealm {
   #[inline(always)]
   pub fn context(&self) -> &v8::Global<v8::Context> {
     self.0.context()
-  }
-
-  pub(crate) fn context_ptr(&self) -> *mut v8::Context {
-    unsafe { self.0.context.get_unchecked() as *const _ as _ }
   }
 
   /// Executes traditional JavaScript code (traditional = not ES modules) in the
