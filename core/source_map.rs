@@ -2,7 +2,9 @@
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
+use crate::module_specifier::ModuleResolutionError;
 use crate::modules::ModuleMap;
+use crate::resolve_import;
 use crate::resolve_url;
 use crate::RequestedModuleType;
 use base64::prelude::BASE64_STANDARD;
@@ -40,6 +42,7 @@ where
   }
 }
 
+#[derive(Debug)]
 pub enum SourceMapApplication {
   /// No mapping was applied, the location is unchanged.
   Unchanged,
@@ -120,10 +123,40 @@ impl<G: SourceMapGetter> SourceMapper<G> {
       maybe_source_mapping_url.to_rust_string_lossy(scope);
     eprintln!("maybe source mapping url {}", source_map_string);
 
-    let b64 =
-      source_map_string.strip_prefix("data:application/json;base64,")?;
-    let decoded_b64 = BASE64_STANDARD.decode(b64).ok()?;
-    let source_map = SourceMap::from_slice(&decoded_b64).ok()?;
+    // TODO(bartlomieju): this is a fast path - if it fails, we should try to parse
+    // the URL (or resolve it from the current file being mapped) and fallback to
+    // acquiring a source map from that URL. In Deno we might want to apply permissions
+    // checks for fetching the map.
+    let source_map = if let Some(b64) =
+      source_map_string.strip_prefix("data:application/json;base64,")
+    {
+      let decoded_b64 = BASE64_STANDARD.decode(b64).ok()?;
+      eprintln!(
+        "source map {:?}",
+        String::from_utf8(decoded_b64.clone()).unwrap()
+      );
+      SourceMap::from_slice(&decoded_b64).ok()?
+    } else {
+      let url = match resolve_import(&source_map_string, file_name) {
+        Ok(url) => Some(url),
+        Err(err) => match err {
+          ModuleResolutionError::ImportPrefixMissing(_, _) => {
+            resolve_import(&format!("./{}", source_map_string), file_name).ok()
+          }
+          _ => None,
+        },
+      };
+      eprintln!(
+        "source map url {} {} {:?}",
+        source_map_string, file_name, url
+      );
+      let url = url?;
+      if url.scheme() != "file" {
+        return None;
+      }
+      let contents = std::fs::read(url.to_file_path().unwrap()).unwrap();
+      SourceMap::from_slice(&contents).ok()?
+    };
 
     Some(Self::get_application(
       &source_map,
