@@ -38,7 +38,9 @@ impl ToV8 for Value<'_> {
     _scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     // SAFETY: not fully safe, since lifetimes are detached from original scope
-    Ok(unsafe { transmute(self.v8_value) })
+    Ok(unsafe {
+      transmute::<v8::Local<v8::Value>, v8::Local<v8::Value>>(self.v8_value)
+    })
   }
 }
 

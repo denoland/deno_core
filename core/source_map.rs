@@ -25,23 +25,6 @@ pub trait SourceMapGetter {
   ) -> Option<String>;
 }
 
-impl<T> SourceMapGetter for Rc<T>
-where
-  T: SourceMapGetter + ?Sized,
-{
-  fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
-    (**self).get_source_map(file_name)
-  }
-
-  fn get_source_line(
-    &self,
-    file_name: &str,
-    line_number: usize,
-  ) -> Option<String> {
-    (**self).get_source_line(file_name, line_number)
-  }
-}
-
 #[derive(Debug)]
 pub enum SourceMapApplication {
   /// No mapping was applied, the location is unchanged.
@@ -61,10 +44,10 @@ pub enum SourceMapApplication {
 
 pub type SourceMapData = Cow<'static, [u8]>;
 
-pub struct SourceMapper<G: SourceMapGetter> {
+pub struct SourceMapper {
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
-  getter: Option<G>,
+  getter: Option<Rc<dyn SourceMapGetter>>,
   pub(crate) ext_source_maps: HashMap<String, SourceMapData>,
   // This is not the right place for this, but it's the easiest way to make
   // op_apply_source_map a fast op. This stashing should happen in #[op2].
@@ -72,8 +55,8 @@ pub struct SourceMapper<G: SourceMapGetter> {
   pub(crate) maybe_module_map: Option<Rc<ModuleMap>>,
 }
 
-impl<G: SourceMapGetter> SourceMapper<G> {
-  pub fn new(getter: Option<G>) -> Self {
+impl SourceMapper {
+  pub fn new(getter: Option<Rc<dyn SourceMapGetter>>) -> Self {
     Self {
       maps: Default::default(),
       source_lines: Default::default(),
@@ -88,7 +71,7 @@ impl<G: SourceMapGetter> SourceMapper<G> {
     assert!(self.maybe_module_map.replace(module_map).is_none());
   }
 
-  pub fn has_user_sources(&self) -> bool {
+  pub(crate) fn has_user_sources(&self) -> bool {
     self.getter.is_some()
   }
 
