@@ -1,3 +1,4 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 /**
  * This module provides the JavaScript interface atop calls to the Rust ops.
  */

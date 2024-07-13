@@ -1,3 +1,4 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::{env::current_dir, rc::Rc};
 
 use deno_core::{
