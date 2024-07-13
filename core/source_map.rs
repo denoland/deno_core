@@ -2,13 +2,18 @@
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
+// TODO(bartlomieju): remove once `SourceMapGetter` is removed.
+#![allow(deprecated)]
+
 use crate::resolve_url;
+use crate::ModuleLoader;
 pub use sourcemap::SourceMap;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::str;
 
+#[deprecated = "Use `ModuleLoader` methods instead. This trait will be removed in deno_core v0.300.0."]
 pub trait SourceMapGetter {
   /// Returns the raw source map file.
   fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>>;
@@ -40,6 +45,8 @@ pub type SourceMapData = Cow<'static, [u8]>;
 pub struct SourceMapper {
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
+  loader: Rc<dyn ModuleLoader>,
+
   getter: Option<Rc<dyn SourceMapGetter>>,
   pub(crate) ext_source_maps: HashMap<String, SourceMapData>,
   // This is not the right place for this, but it's the easiest way to make
@@ -48,11 +55,15 @@ pub struct SourceMapper {
 }
 
 impl SourceMapper {
-  pub fn new(getter: Option<Rc<dyn SourceMapGetter>>) -> Self {
+  pub fn new(
+    loader: Rc<dyn ModuleLoader>,
+    getter: Option<Rc<dyn SourceMapGetter>>,
+  ) -> Self {
     Self {
       maps: Default::default(),
       source_lines: Default::default(),
       ext_source_maps: Default::default(),
+      loader,
       getter,
       stashed_file_name: Default::default(),
     }
@@ -83,6 +94,9 @@ impl SourceMapper {
         None
           .or_else(|| {
             SourceMap::from_slice(self.ext_source_maps.get(file_name)?).ok()
+          })
+          .or_else(|| {
+            SourceMap::from_slice(&self.loader.get_source_map(file_name)?).ok()
           })
           .or_else(|| {
             SourceMap::from_slice(&getter?.get_source_map(file_name)?).ok()
@@ -141,13 +155,25 @@ impl SourceMapper {
     line_number: i64,
   ) -> Option<String> {
     let getter = self.getter.as_ref()?;
+
     self
       .source_lines
       .entry((file_name.to_string(), line_number))
       .or_insert_with(|| {
         // Source lookup expects a 0-based line number, ours are 1-based.
-        let s = getter.get_source_line(file_name, (line_number - 1) as usize);
-        s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
+        if let Some(source_line) = self
+          .loader
+          .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
+        {
+          if source_line.len() <= Self::MAX_SOURCE_LINE_LENGTH {
+            Some(source_line)
+          } else {
+            None
+          }
+        } else {
+          let s = getter.get_source_line(file_name, (line_number - 1) as usize);
+          s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
+        }
       })
       .clone()
   }
