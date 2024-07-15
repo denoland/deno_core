@@ -476,15 +476,12 @@ impl JsError {
         let state = JsRuntime::state_from(scope);
         let mut source_mapper = state.source_mapper.borrow_mut();
         for (i, frame) in frames.iter().enumerate() {
-          eprintln!("iterating over frames");
           if let (Some(file_name), Some(line_number)) =
             (&frame.file_name, frame.line_number)
           {
-            eprintln!("iterating over frames, got match, {}", file_name);
             if !file_name.trim_start_matches('[').starts_with("ext:") {
               source_line =
                 source_mapper.get_source_line(file_name, line_number);
-              eprintln!("get_source_line returned {:?}", source_line);
               source_line_frame_index = Some(i);
               break;
             }
