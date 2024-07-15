@@ -29,29 +29,16 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
-use deno_core::SourceMapGetter;
 
-#[derive(Clone)]
-struct SourceMapStore(Rc<RefCell<HashMap<String, Vec<u8>>>>);
+// TODO(bartlomieju): this is duplicated in `testing/checkin`
+type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
 
-impl SourceMapGetter for SourceMapStore {
-  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.0.borrow().get(specifier).cloned()
-  }
-
-  fn get_source_line(
-    &self,
-    _file_name: &str,
-    _line_number: usize,
-  ) -> Option<String> {
-    None
-  }
-}
-
+// TODO(bartlomieju): this is duplicated in `testing/checkin`
 struct TypescriptModuleLoader {
   source_maps: SourceMapStore,
 }
 
+// TODO(bartlomieju): this is duplicated in `testing/checkin`
 impl ModuleLoader for TypescriptModuleLoader {
   fn resolve(
     &self,
@@ -112,7 +99,6 @@ impl ModuleLoader for TypescriptModuleLoader {
         })?;
         let source_map = res.source_map.unwrap();
         source_maps
-          .0
           .borrow_mut()
           .insert(module_specifier.to_string(), source_map.into_bytes());
         res.text
@@ -129,6 +115,10 @@ impl ModuleLoader for TypescriptModuleLoader {
 
     ModuleLoadResponse::Sync(load(source_maps, module_specifier))
   }
+
+  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
+    self.source_maps.borrow().get(specifier).cloned()
+  }
 }
 
 fn main() -> Result<(), Error> {
@@ -140,13 +130,12 @@ fn main() -> Result<(), Error> {
   let main_url = &args[1];
   println!("Run {main_url}");
 
-  let source_map_store = SourceMapStore(Rc::new(RefCell::new(HashMap::new())));
+  let source_map_store = Rc::new(RefCell::new(HashMap::new()));
 
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(TypescriptModuleLoader {
-      source_maps: source_map_store.clone(),
+      source_maps: source_map_store,
     })),
-    source_map_getter: Some(Rc::new(source_map_store)),
     ..Default::default()
   });
 

@@ -96,7 +96,18 @@ pub trait ModuleLoader {
     async {}.boxed_local()
   }
 
-  fn get_source_map(&self, _path: &str) -> Option<Vec<u8>> {
+  /// Returns a source map for given `file_name`.
+  ///
+  /// This function will soon be deprecated or renamed.
+  fn get_source_map(&self, _file_name: &str) -> Option<Vec<u8>> {
+    None
+  }
+
+  fn get_source_mapped_source_line(
+    &self,
+    _file_name: &str,
+    _line_number: usize,
+  ) -> Option<String> {
     None
   }
 }

@@ -44,6 +44,7 @@ use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapData;
+#[allow(deprecated)]
 use crate::source_map::SourceMapGetter;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
@@ -428,6 +429,8 @@ pub struct JsRuntimeState {
 #[derive(Default)]
 pub struct RuntimeOptions {
   /// Source map reference for errors.
+  #[deprecated = "Update `ModuleLoader` trait implementations. This option will be removed in deno_core v0.300.0."]
+  #[allow(deprecated)]
   pub source_map_getter: Option<Rc<dyn SourceMapGetter>>,
 
   /// Allows to map error type to a string "class" used to represent
@@ -672,7 +675,12 @@ impl JsRuntime {
 
     // Load the sources and source maps
     let mut files_loaded = Vec::with_capacity(128);
-    let mut source_mapper = SourceMapper::new(options.source_map_getter);
+    let loader = options
+      .module_loader
+      .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+    #[allow(deprecated)]
+    let mut source_mapper =
+      SourceMapper::new(loader.clone(), options.source_map_getter);
     let mut sources = extension_set::into_sources(
       options.extension_transpiler.as_deref(),
       &extensions,
@@ -890,9 +898,6 @@ impl JsRuntime {
     // ...now that JavaScript bindings to ops are available we can deserialize
     // modules stored in the snapshot (because they depend on the ops and external
     // references must match properly) and recreate a module map...
-    let loader = options
-      .module_loader
-      .unwrap_or_else(|| Rc::new(NoopModuleLoader));
     let import_meta_resolve_cb = options
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
