@@ -69,10 +69,6 @@ impl SourceMapper {
     }
   }
 
-  pub(crate) fn has_user_sources(&self) -> bool {
-    self.getter.is_some()
-  }
-
   /// Apply a source map to the passed location. If there is no source map for
   /// this location, or if the location remains unchanged after mapping, the
   /// changed values are returned.
@@ -154,27 +150,37 @@ impl SourceMapper {
     file_name: &str,
     line_number: i64,
   ) -> Option<String> {
-    let getter = self.getter.as_ref()?;
+    if let Some(maybe_source_line) =
+      self.source_lines.get(&(file_name.to_string(), line_number))
+    {
+      return maybe_source_line.clone();
+    }
 
-    self
-      .source_lines
-      .entry((file_name.to_string(), line_number))
-      .or_insert_with(|| {
-        // Source lookup expects a 0-based line number, ours are 1-based.
-        if let Some(source_line) = self
-          .loader
-          .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
-        {
-          if source_line.len() <= Self::MAX_SOURCE_LINE_LENGTH {
-            Some(source_line)
-          } else {
-            None
-          }
-        } else {
-          let s = getter.get_source_line(file_name, (line_number - 1) as usize);
-          s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
-        }
-      })
-      .clone()
+    // TODO(bartlomieju): shouldn't we cache `None` values to avoid computing it each time, instead of early return?
+    if let Some(source_line) = self
+      .loader
+      .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
+      .filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
+    {
+      // Cache and return
+      self.source_lines.insert(
+        (file_name.to_string(), line_number),
+        Some(source_line.to_string()),
+      );
+      return Some(source_line);
+    }
+
+    // TODO(bartlomieju): remove in deno_core 0.230.0
+    // Fallback to a deprecated API
+    let getter = self.getter.as_ref()?;
+    let s = getter.get_source_line(file_name, (line_number - 1) as usize);
+    let maybe_source_line =
+      s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH);
+    // Cache and return
+    self.source_lines.insert(
+      (file_name.to_string(), line_number),
+      maybe_source_line.clone(),
+    );
+    return maybe_source_line;
   }
 }
