@@ -125,7 +125,6 @@ pub fn create_runtime_from_snapshot(
       deno_core::error::get_custom_error_class(error).unwrap_or("Error")
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
-    source_map_getter: Some(module_loader),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector,
     ..Default::default()
