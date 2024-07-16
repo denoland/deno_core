@@ -254,7 +254,7 @@ fn load(
   if let Some(source_map) = source_map {
     source_mapper
       .ext_source_maps
-      .insert(source.specifier.to_owned(), source_map);
+      .insert(ModuleName::from_static(source.specifier), source_map);
   }
   Ok(source_code)
 }

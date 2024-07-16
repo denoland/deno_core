@@ -922,7 +922,9 @@ impl JsRuntime {
 
       let mut mapper = state_rc.source_mapper.borrow_mut();
       for (key, map) in snapshotted_data.ext_source_maps {
-        mapper.ext_source_maps.insert(key, map.into());
+        mapper
+          .ext_source_maps
+          .insert(ModuleName::from_static(key), map.into());
       }
     }
 
@@ -1958,7 +1960,7 @@ impl JsRuntimeForSnapshot {
     );
     let mut ext_source_maps = HashMap::with_capacity(source_maps.len());
     for (k, v) in &source_maps {
-      ext_source_maps.insert(k.clone(), v.as_ref());
+      ext_source_maps.insert(k.as_static_str().unwrap(), v.as_ref());
     }
 
     // Serialize the module map and store its data in the snapshot.

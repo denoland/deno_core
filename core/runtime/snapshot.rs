@@ -255,7 +255,7 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub source_count: usize,
   pub addl_refs_count: usize,
   #[serde(borrow)]
-  pub ext_source_maps: HashMap<String, &'snapshot [u8]>,
+  pub ext_source_maps: HashMap<&'snapshot str, &'snapshot [u8]>,
   #[serde(borrow)]
   pub external_strings: Vec<&'snapshot [u8]>,
 }
