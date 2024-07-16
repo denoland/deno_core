@@ -153,7 +153,7 @@ impl SourceMapper {
       SourceMap::from_slice(&contents).ok()?
     };
 
-    Some(Self::get_application(
+    Some(Self::compute_application(
       &source_map,
       file_name,
       line_number,
@@ -207,10 +207,10 @@ impl SourceMapper {
       return SourceMapApplication::Unchanged;
     };
 
-    Self::get_application(source_map, file_name, line_number, column_number)
+    Self::compute_application(source_map, file_name, line_number, column_number)
   }
 
-  fn get_application(
+  fn compute_application(
     source_map: &SourceMap,
     file_name: &str,
     line_number: u32,
