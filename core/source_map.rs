@@ -100,10 +100,10 @@ impl SourceMapper {
 
     // TODO(bartlomieju): This should be the last fallback and it's only useful
     // for eval - probably for `Deno.core.evalContext()`.
-    let maybe_source_url = unbound_module_script
-      .get_source_url(scope)
-      .to_rust_string_lossy(scope);
-    eprintln!("maybe source url {}", maybe_source_url);
+    // let maybe_source_url = unbound_module_script
+    //   .get_source_url(scope)
+    //   .to_rust_string_lossy(scope);
+    // eprintln!("maybe source url {}", maybe_source_url);
 
     if !maybe_source_mapping_url.is_string() {
       return None;
@@ -111,7 +111,7 @@ impl SourceMapper {
 
     let source_map_string =
       maybe_source_mapping_url.to_rust_string_lossy(scope);
-    eprintln!("maybe source mapping url {}", source_map_string);
+    // eprintln!("maybe source mapping url {}", source_map_string);
 
     // TODO(bartlomieju): this is a fast path - if it fails, we should try to parse
     // the URL (or resolve it from the current file being mapped) and fallback to
@@ -121,10 +121,10 @@ impl SourceMapper {
       source_map_string.strip_prefix("data:application/json;base64,")
     {
       let decoded_b64 = BASE64_STANDARD.decode(b64).ok()?;
-      eprintln!(
-        "source map {:?}",
-        String::from_utf8(decoded_b64.clone()).unwrap()
-      );
+      // eprintln!(
+      //   "source map {:?}",
+      //   String::from_utf8(decoded_b64.clone()).unwrap()
+      // );
       SourceMap::from_slice(&decoded_b64).ok()?
     } else {
       let url = match resolve_import(&source_map_string, file_name) {
@@ -136,12 +136,12 @@ impl SourceMapper {
           _ => None,
         },
       };
-      eprintln!(
-        "source map url sourceMappingURL={} file_name={} url={}",
-        source_map_string,
-        file_name,
-        url.as_ref().map(|s| s.as_str()).unwrap_or_default()
-      );
+      // eprintln!(
+      //   "source map url sourceMappingURL={} file_name={} url={}",
+      //   source_map_string,
+      //   file_name,
+      //   url.as_ref().map(|s| s.as_str()).unwrap_or_default()
+      // );
       let url = url?;
       if url.scheme() != "file" {
         return None;
@@ -149,7 +149,7 @@ impl SourceMapper {
       let contents = module_map
         .loader
         .borrow()
-        .get_source_map(&url.to_file_path().ok()?.to_str()?)?;
+        .get_source_map(url.to_file_path().ok()?.to_str()?)?;
       SourceMap::from_slice(&contents).ok()?
     };
 
