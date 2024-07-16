@@ -475,26 +475,15 @@ impl JsError {
       {
         let state = JsRuntime::state_from(scope);
         let mut source_mapper = state.source_mapper.borrow_mut();
-        if source_mapper.has_user_sources() {
-          for (i, frame) in frames.iter().enumerate() {
-            if let (Some(file_name), Some(line_number)) =
-              (&frame.file_name, frame.line_number)
-            {
-              if !file_name.trim_start_matches('[').starts_with("ext:") {
-                source_line =
-                  source_mapper.get_source_line(file_name, line_number);
-                source_line_frame_index = Some(i);
-                break;
-              }
-            }
-          }
-        } else if let Some(frame) = frames.first() {
-          if let Some(file_name) = &frame.file_name {
+        for (i, frame) in frames.iter().enumerate() {
+          if let (Some(file_name), Some(line_number)) =
+            (&frame.file_name, frame.line_number)
+          {
             if !file_name.trim_start_matches('[').starts_with("ext:") {
-              source_line = msg
-                .get_source_line(scope)
-                .map(|v| v.to_rust_string_lossy(scope));
-              source_line_frame_index = Some(0);
+              source_line =
+                source_mapper.get_source_line(file_name, line_number);
+              source_line_frame_index = Some(i);
+              break;
             }
           }
         }

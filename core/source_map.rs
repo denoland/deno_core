@@ -30,7 +30,7 @@ pub trait SourceMapGetter {
   ) -> Option<String>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SourceMapApplication {
   /// No mapping was applied, the location is unchanged.
   Unchanged,
@@ -267,27 +267,140 @@ impl SourceMapper {
     file_name: &str,
     line_number: i64,
   ) -> Option<String> {
-    let getter = self.getter.as_ref()?;
+    if let Some(maybe_source_line) =
+      self.source_lines.get(&(file_name.to_string(), line_number))
+    {
+      return maybe_source_line.clone();
+    }
 
-    self
-      .source_lines
-      .entry((file_name.to_string(), line_number))
-      .or_insert_with(|| {
-        // Source lookup expects a 0-based line number, ours are 1-based.
-        if let Some(source_line) = self
-          .loader
-          .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
-        {
-          if source_line.len() <= Self::MAX_SOURCE_LINE_LENGTH {
-            Some(source_line)
-          } else {
-            None
-          }
-        } else {
-          let s = getter.get_source_line(file_name, (line_number - 1) as usize);
-          s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
-        }
-      })
-      .clone()
+    // TODO(bartlomieju): shouldn't we cache `None` values to avoid computing it each time, instead of early return?
+    if let Some(source_line) = self
+      .loader
+      .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
+      .filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
+    {
+      // Cache and return
+      self.source_lines.insert(
+        (file_name.to_string(), line_number),
+        Some(source_line.to_string()),
+      );
+      return Some(source_line);
+    }
+
+    // TODO(bartlomieju): remove in deno_core 0.230.0
+    // Fallback to a deprecated API
+    let getter = self.getter.as_ref()?;
+    let s = getter.get_source_line(file_name, (line_number - 1) as usize);
+    let maybe_source_line =
+      s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH);
+    // Cache and return
+    self.source_lines.insert(
+      (file_name.to_string(), line_number),
+      maybe_source_line.clone(),
+    );
+    maybe_source_line
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use anyhow::Error;
+  use url::Url;
+
+  use super::*;
+  use crate::ascii_str;
+  use crate::ModuleCodeString;
+  use crate::ModuleLoadResponse;
+  use crate::ModuleSpecifier;
+  use crate::RequestedModuleType;
+  use crate::ResolutionKind;
+
+  struct SourceMapLoaderContent {
+    source_map: Option<ModuleCodeString>,
+  }
+
+  #[derive(Default)]
+  pub struct SourceMapLoader {
+    map: HashMap<ModuleSpecifier, SourceMapLoaderContent>,
+  }
+
+  impl ModuleLoader for SourceMapLoader {
+    fn resolve(
+      &self,
+      _specifier: &str,
+      _referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      unreachable!()
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+      _requested_module_type: RequestedModuleType,
+    ) -> ModuleLoadResponse {
+      unreachable!()
+    }
+
+    fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
+      let url = Url::parse(file_name).unwrap();
+      let content = self.map.get(&url)?;
+      content
+        .source_map
+        .as_ref()
+        .map(|s| s.to_string().into_bytes())
+    }
+
+    fn get_source_mapped_source_line(
+      &self,
+      _file_name: &str,
+      _line_number: usize,
+    ) -> Option<String> {
+      Some("fake source line".to_string())
+    }
+  }
+
+  #[test]
+  fn test_source_mapper() {
+    let mut loader = SourceMapLoader::default();
+    loader.map.insert(
+      Url::parse("file:///b.js").unwrap(),
+      SourceMapLoaderContent { source_map: None },
+    );
+    loader.map.insert(
+      Url::parse("file:///a.ts").unwrap(),
+      SourceMapLoaderContent {
+        source_map: Some(ascii_str!(r#"{"version":3,"sources":["file:///a.ts"],"sourcesContent":["export function a(): string {\n  return \"a\";\n}\n"],"names":[],"mappings":"AAAA,OAAO,SAAS;EACd,OAAO;AACT"}"#).into()),
+      },
+    );
+
+    let mut source_mapper = SourceMapper::new(Rc::new(loader), None);
+
+    // Non-existent file
+    let application =
+      source_mapper.apply_source_map("file:///doesnt_exist.js", 1, 1);
+    assert_eq!(application, SourceMapApplication::Unchanged);
+
+    // File with no source map
+    let application = source_mapper.apply_source_map("file:///b.js", 1, 1);
+    assert_eq!(application, SourceMapApplication::Unchanged);
+
+    // File with a source map
+    let application = source_mapper.apply_source_map("file:///a.ts", 1, 21);
+    assert_eq!(
+      application,
+      SourceMapApplication::LineAndColumn {
+        line_number: 1,
+        column_number: 17
+      }
+    );
+
+    let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
+    assert_eq!(line, "fake source line");
+    // Get again to hit a cache
+    let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
+    assert_eq!(line, "fake source line");
   }
 }
