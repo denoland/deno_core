@@ -82,10 +82,6 @@ impl SourceMapper {
     assert!(self.maybe_module_map.replace(module_map).is_none());
   }
 
-  pub(crate) fn has_user_sources(&self) -> bool {
-    self.getter.is_some()
-  }
-
   pub fn apply_source_map_from_module_map(
     &mut self,
     scope: &mut v8::HandleScope,
@@ -309,11 +305,13 @@ mod tests {
 
   use super::*;
   use crate::ascii_str;
+  use crate::JsRuntime;
   use crate::ModuleCodeString;
   use crate::ModuleLoadResponse;
   use crate::ModuleSpecifier;
   use crate::RequestedModuleType;
   use crate::ResolutionKind;
+  use crate::RuntimeOptions;
 
   struct SourceMapLoaderContent {
     source_map: Option<ModuleCodeString>,
@@ -376,19 +374,29 @@ mod tests {
       },
     );
 
-    let mut source_mapper = SourceMapper::new(Rc::new(loader), None);
+    let loader = Rc::new(loader);
+
+    let mut js_runtime = JsRuntime::new(RuntimeOptions {
+      module_loader: Some(loader.clone()),
+      ..Default::default()
+    });
+    let state = JsRuntime::state_from(js_runtime.v8_isolate());
+    let scope = &mut js_runtime.handle_scope();
+    let mut source_mapper = state.source_mapper.borrow_mut();
 
     // Non-existent file
     let application =
-      source_mapper.apply_source_map("file:///doesnt_exist.js", 1, 1);
+      source_mapper.apply_source_map(scope, "file:///doesnt_exist.js", 1, 1);
     assert_eq!(application, SourceMapApplication::Unchanged);
 
     // File with no source map
-    let application = source_mapper.apply_source_map("file:///b.js", 1, 1);
+    let application =
+      source_mapper.apply_source_map(scope, "file:///b.js", 1, 1);
     assert_eq!(application, SourceMapApplication::Unchanged);
 
     // File with a source map
-    let application = source_mapper.apply_source_map("file:///a.ts", 1, 21);
+    let application =
+      source_mapper.apply_source_map(scope, "file:///a.ts", 1, 21);
     assert_eq!(
       application,
       SourceMapApplication::LineAndColumn {
