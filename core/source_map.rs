@@ -217,31 +217,21 @@ mod tests {
   impl ModuleLoader for SourceMapLoader {
     fn resolve(
       &self,
-      specifier: &str,
-      referrer: &str,
+      _specifier: &str,
+      _referrer: &str,
       _kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, Error> {
-      Ok(resolve_import(specifier, referrer)?)
+      unreachable!()
     }
 
     fn load(
       &self,
-      module_specifier: &ModuleSpecifier,
+      _module_specifier: &ModuleSpecifier,
       _maybe_referrer: Option<&ModuleSpecifier>,
       _is_dyn_import: bool,
       _requested_module_type: RequestedModuleType,
     ) -> ModuleLoadResponse {
-      let res = if let Some(content) = self.map.get(module_specifier) {
-        Ok(ModuleSource::new(
-          ModuleType::JavaScript,
-          ModuleSourceCode::String(content.code.try_clone().unwrap()),
-          module_specifier,
-          None,
-        ))
-      } else {
-        Err(generic_error("Module not found"))
-      };
-      ModuleLoadResponse::Sync(res)
+      unreachable!()
     }
 
     fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
@@ -300,6 +290,10 @@ mod tests {
         column_number: 17
       }
     );
+
+    let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
+    assert_eq!(line, "fake source line");
+    // Get again to hit a cache
     let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
     assert_eq!(line, "fake source line");
   }
