@@ -24,6 +24,7 @@ pub trait SourceMapGetter {
   ) -> Option<String>;
 }
 
+#[derive(Debug, PartialEq)]
 pub enum SourceMapApplication {
   /// No mapping was applied, the location is unchanged.
   Unchanged,
@@ -182,5 +183,124 @@ impl SourceMapper {
       maybe_source_line.clone(),
     );
     maybe_source_line
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use anyhow::Error;
+  use url::Url;
+
+  use super::*;
+  use crate::ascii_str;
+  use crate::error::generic_error;
+  use crate::resolve_import;
+  use crate::ModuleCodeString;
+  use crate::ModuleLoadResponse;
+  use crate::ModuleSource;
+  use crate::ModuleSourceCode;
+  use crate::ModuleSpecifier;
+  use crate::ModuleType;
+  use crate::RequestedModuleType;
+  use crate::ResolutionKind;
+
+  struct SourceMapLoaderContent {
+    code: ModuleCodeString,
+    source_map: Option<ModuleCodeString>,
+  }
+
+  #[derive(Default)]
+  pub struct SourceMapLoader {
+    map: HashMap<ModuleSpecifier, SourceMapLoaderContent>,
+  }
+
+  impl ModuleLoader for SourceMapLoader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      Ok(resolve_import(specifier, referrer)?)
+    }
+
+    fn load(
+      &self,
+      module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+      _requested_module_type: RequestedModuleType,
+    ) -> ModuleLoadResponse {
+      let res = if let Some(content) = self.map.get(module_specifier) {
+        Ok(ModuleSource::new(
+          ModuleType::JavaScript,
+          ModuleSourceCode::String(content.code.try_clone().unwrap()),
+          module_specifier,
+          None,
+        ))
+      } else {
+        Err(generic_error("Module not found"))
+      };
+      ModuleLoadResponse::Sync(res)
+    }
+
+    fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
+      let url = Url::parse(file_name).unwrap();
+      let content = self.map.get(&url)?;
+      content
+        .source_map
+        .as_ref()
+        .map(|s| s.to_string().into_bytes())
+    }
+
+    fn get_source_mapped_source_line(
+      &self,
+      _file_name: &str,
+      _line_number: usize,
+    ) -> Option<String> {
+      Some("fake source line".to_string())
+    }
+  }
+
+  #[test]
+  fn test_source_mapper() {
+    let mut loader = SourceMapLoader::default();
+    loader.map.insert(
+      Url::parse("file:///b.js").unwrap(),
+      SourceMapLoaderContent {
+        code: ascii_str!("export function b() { return 'b' }").into(),
+        source_map: None,
+      },
+    );
+    loader.map.insert(
+      Url::parse("file:///a.ts").unwrap(),
+      SourceMapLoaderContent {
+        code: ascii_str!(r#"export function a() {\nreturn "a";\n}"#).into(),
+        source_map: Some(ascii_str!(r#"{"version":3,"sources":["file:///a.ts"],"sourcesContent":["export function a(): string {\n  return \"a\";\n}\n"],"names":[],"mappings":"AAAA,OAAO,SAAS;EACd,OAAO;AACT"}"#).into()),
+      },
+    );
+
+    let mut source_mapper = SourceMapper::new(Rc::new(loader), None);
+
+    // Non-existent file
+    let application =
+      source_mapper.apply_source_map("file:///doesnt_exist.js", 1, 1);
+    assert_eq!(application, SourceMapApplication::Unchanged);
+
+    // File with no source map
+    let application = source_mapper.apply_source_map("file:///b.js", 1, 1);
+    assert_eq!(application, SourceMapApplication::Unchanged);
+
+    // File with a source map
+    let application = source_mapper.apply_source_map("file:///a.ts", 1, 21);
+    assert_eq!(
+      application,
+      SourceMapApplication::LineAndColumn {
+        line_number: 1,
+        column_number: 17
+      }
+    );
+    let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
+    assert_eq!(line, "fake source line");
   }
 }
