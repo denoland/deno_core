@@ -193,19 +193,13 @@ mod tests {
 
   use super::*;
   use crate::ascii_str;
-  use crate::error::generic_error;
-  use crate::resolve_import;
   use crate::ModuleCodeString;
   use crate::ModuleLoadResponse;
-  use crate::ModuleSource;
-  use crate::ModuleSourceCode;
   use crate::ModuleSpecifier;
-  use crate::ModuleType;
   use crate::RequestedModuleType;
   use crate::ResolutionKind;
 
   struct SourceMapLoaderContent {
-    code: ModuleCodeString,
     source_map: Option<ModuleCodeString>,
   }
 
@@ -257,15 +251,11 @@ mod tests {
     let mut loader = SourceMapLoader::default();
     loader.map.insert(
       Url::parse("file:///b.js").unwrap(),
-      SourceMapLoaderContent {
-        code: ascii_str!("export function b() { return 'b' }").into(),
-        source_map: None,
-      },
+      SourceMapLoaderContent { source_map: None },
     );
     loader.map.insert(
       Url::parse("file:///a.ts").unwrap(),
       SourceMapLoaderContent {
-        code: ascii_str!(r#"export function a() {\nreturn "a";\n}"#).into(),
         source_map: Some(ascii_str!(r#"{"version":3,"sources":["file:///a.ts"],"sourcesContent":["export function a(): string {\n  return \"a\";\n}\n"],"names":[],"mappings":"AAAA,OAAO,SAAS;EACd,OAAO;AACT"}"#).into()),
       },
     );
