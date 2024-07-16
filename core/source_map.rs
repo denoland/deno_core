@@ -181,6 +181,6 @@ impl SourceMapper {
       (file_name.to_string(), line_number),
       maybe_source_line.clone(),
     );
-    return maybe_source_line;
+    maybe_source_line
   }
 }
