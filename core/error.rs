@@ -540,13 +540,35 @@ impl std::error::Error for JsError {}
 
 impl Display for JsError {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    eprintln!("inside js error {}", self.source_line.is_some());
     if let Some(stack) = &self.stack {
+      eprintln!("inside js error stack");
       let stack_lines = stack.lines();
       if stack_lines.count() > 1 {
         return write!(f, "{stack}");
       }
     }
+
     write!(f, "{}", self.exception_message)?;
+    if let Some(source_line) = self.source_line.as_ref() {
+      writeln!(f, "")?;
+      write!(f, "  {}", source_line)?;
+      let column_number = self
+        .source_line_frame_index
+        .and_then(|i| self.frames.get(i).unwrap().column_number);
+      if let Some(column_number) = column_number {
+        let mut s = String::new();
+        for _i in 0..(column_number - 1) {
+          if source_line.chars().nth(_i as usize).unwrap() == '\t' {
+            s.push('\t');
+          } else {
+            s.push(' ');
+          }
+        }
+        s.push('^');
+        write!(f, "  {}", s)?;
+      }
+    }
     let location = self.frames.first().and_then(|f| f.maybe_format_location());
     if let Some(location) = location {
       write!(f, "\n    at {location}")?;

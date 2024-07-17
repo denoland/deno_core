@@ -271,6 +271,7 @@ impl SourceMapper {
     file_name: &str,
     line_number: i64,
   ) -> Option<String> {
+    eprintln!("get_source_line {} {}", file_name, line_number);
     if let Some(maybe_source_line) =
       self.source_lines.get(&(file_name.to_string(), line_number))
     {
@@ -283,6 +284,7 @@ impl SourceMapper {
       .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
       .filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
     {
+      eprintln!("line {}", source_line);
       // Cache and return
       self.source_lines.insert(
         (file_name.to_string(), line_number),
