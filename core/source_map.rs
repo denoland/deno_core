@@ -6,9 +6,9 @@
 #![allow(deprecated)]
 
 use crate::module_specifier::ModuleResolutionError;
-use crate::modules::ModuleMap;
 use crate::resolve_import;
 use crate::resolve_url;
+use crate::runtime::JsRealm;
 use crate::ModuleLoader;
 use crate::ModuleName;
 use crate::RequestedModuleType;
@@ -63,7 +63,6 @@ pub struct SourceMapper {
   // This is not the right place for this, but it's the easiest way to make
   // op_apply_source_map a fast op. This stashing should happen in #[op2].
   pub(crate) stashed_file_name: Option<String>,
-  pub(crate) maybe_module_map: Option<Rc<ModuleMap>>,
 }
 
 impl SourceMapper {
@@ -78,7 +77,6 @@ impl SourceMapper {
       loader,
       getter,
       stashed_file_name: Default::default(),
-      maybe_module_map: None,
     }
   }
 
@@ -97,10 +95,6 @@ impl SourceMapper {
     std::mem::take(&mut self.ext_source_maps)
   }
 
-  pub fn set_module_map(&mut self, module_map: Rc<ModuleMap>) {
-    assert!(self.maybe_module_map.replace(module_map).is_none());
-  }
-
   pub fn apply_source_map_from_module_map(
     &mut self,
     scope: &mut v8::HandleScope,
@@ -108,10 +102,10 @@ impl SourceMapper {
     line_number: u32,
     column_number: u32,
   ) -> Option<SourceMapApplication> {
-    let module_map = self.maybe_module_map.as_ref()?;
-    let id = module_map.get_id(file_name, RequestedModuleType::None)?;
+    let module_map_rc = JsRealm::module_map_from(scope);
+    let id = module_map_rc.get_id(file_name, RequestedModuleType::None)?;
 
-    let module_handle = module_map.get_handle(id).unwrap();
+    let module_handle = module_map_rc.get_handle(id).unwrap();
     let module = v8::Local::new(scope, module_handle);
     let unbound_module_script = module.get_unbound_module_script(scope);
     let maybe_source_mapping_url =
@@ -165,7 +159,7 @@ impl SourceMapper {
       if url.scheme() != "file" {
         return None;
       }
-      let contents = module_map
+      let contents = module_map_rc
         .loader
         .borrow()
         .get_source_map(url.to_file_path().ok()?.to_str()?)?;
