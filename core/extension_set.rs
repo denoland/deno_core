@@ -262,9 +262,8 @@ pub fn into_sources_and_source_maps(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
   mut load_callback: impl FnMut(&ExtensionFileSource),
-) -> Result<(LoadedSources, Vec<(ModuleName, SourceMapData)>), AnyError> {
+) -> Result<LoadedSources, AnyError> {
   let mut sources = LoadedSources::default();
-  let mut source_maps = vec![];
 
   for extension in extensions {
     if let Some(esm_entry_point) = extension.esm_entry_point {
@@ -281,9 +280,6 @@ pub fn into_sources_and_source_maps(
         code,
         maybe_source_map,
       });
-      if let Some(source_map) = maybe_source_map {
-        source_maps.push((ModuleName::from_static(file.specifier), source_map));
-      }
     }
     for file in &*extension.js_files {
       let (code, maybe_source_map) =
@@ -294,9 +290,6 @@ pub fn into_sources_and_source_maps(
         code,
         maybe_source_map,
       });
-      if let Some(source_map) = maybe_source_map {
-        source_maps.push((ModuleName::from_static(file.specifier), source_map));
-      }
     }
     for file in &*extension.esm_files {
       let (code, maybe_source_map) =
@@ -307,10 +300,7 @@ pub fn into_sources_and_source_maps(
         code,
         maybe_source_map,
       });
-      if let Some(source_map) = maybe_source_map {
-        source_maps.push((ModuleName::from_static(file.specifier), source_map));
-      }
     }
   }
-  Ok((sources, source_maps))
+  Ok(sources)
 }
