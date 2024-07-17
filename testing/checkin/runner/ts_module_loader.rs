@@ -143,8 +143,16 @@ impl ModuleLoader for TypescriptModuleLoader {
     ))
   }
 
-  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.source_maps.borrow().get(specifier).cloned()
+  fn get_source_map_for_file(&self, file_name: &str) -> Option<Vec<u8>> {
+    self.source_maps.borrow().get(file_name).cloned()
+  }
+
+  fn load_source_map_file(
+    &self,
+    source_map_file_name: &str,
+    _file_name: &str,
+  ) -> Option<Vec<u8>> {
+    std::fs::read(source_map_file_name).ok()
   }
 }
 

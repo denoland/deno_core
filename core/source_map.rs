@@ -111,20 +111,12 @@ impl SourceMapper {
     let maybe_source_mapping_url =
       unbound_module_script.get_source_mapping_url(scope);
 
-    // TODO(bartlomieju): This should be the last fallback and it's only useful
-    // for eval - probably for `Deno.core.evalContext()`.
-    // let maybe_source_url = unbound_module_script
-    //   .get_source_url(scope)
-    //   .to_rust_string_lossy(scope);
-    // eprintln!("maybe source url {}", maybe_source_url);
-
     if !maybe_source_mapping_url.is_string() {
       return None;
     }
 
     let source_map_string =
       maybe_source_mapping_url.to_rust_string_lossy(scope);
-    // eprintln!("maybe source mapping url {}", source_map_string);
 
     // TODO(bartlomieju): this is a fast path - if it fails, we should try to parse
     // the URL (or resolve it from the current file being mapped) and fallback to
@@ -134,10 +126,6 @@ impl SourceMapper {
       source_map_string.strip_prefix("data:application/json;base64,")
     {
       let decoded_b64 = BASE64_STANDARD.decode(b64).ok()?;
-      // eprintln!(
-      //   "source map {:?}",
-      //   String::from_utf8(decoded_b64.clone()).unwrap()
-      // );
       SourceMap::from_slice(&decoded_b64).ok()?
     } else {
       let url = match resolve_import(&source_map_string, file_name) {
@@ -149,20 +137,16 @@ impl SourceMapper {
           _ => None,
         },
       };
-      // eprintln!(
-      //   "source map url sourceMappingURL={} file_name={} url={}",
-      //   source_map_string,
-      //   file_name,
-      //   url.as_ref().map(|s| s.as_str()).unwrap_or_default()
-      // );
       let url = url?;
       if url.scheme() != "file" {
         return None;
       }
+      let source_map_file_name = url.to_file_path().ok()?;
+      let source_map_file_name = source_map_file_name.to_str()?;
       let contents = module_map_rc
         .loader
         .borrow()
-        .get_source_map(url.to_file_path().ok()?.to_str()?)?;
+        .load_source_map_file(source_map_file_name, file_name)?;
       SourceMap::from_slice(&contents).ok()?
     };
 
@@ -190,8 +174,35 @@ impl SourceMapper {
     let line_number = line_number - 1;
     let column_number = column_number - 1;
 
-    // TODO(bartlomieju): requires scope and should only be called in a fallback op,
-    // that will access scope if the fast op doesn't return anything.
+    let getter = self.getter.as_ref();
+    let maybe_source_map =
+      self.maps.entry(file_name.to_owned()).or_insert_with(|| {
+        None
+          .or_else(|| {
+            SourceMap::from_slice(self.ext_source_maps.get(file_name)?).ok()
+          })
+          .or_else(|| {
+            SourceMap::from_slice(
+              &self.loader.get_source_map_for_file(file_name)?,
+            )
+            .ok()
+          })
+          .or_else(|| {
+            SourceMap::from_slice(&getter?.get_source_map(file_name)?).ok()
+          })
+      });
+
+    // If source map is provided externally, return early
+    if let Some(source_map) = maybe_source_map.as_ref() {
+      return Self::compute_application(
+        source_map,
+        file_name,
+        line_number,
+        column_number,
+      );
+    };
+
+    // Finally fallback to using V8 APIs to discover source map inside the source code of the module.
     if let Some(app) = self.apply_source_map_from_module_map(
       scope,
       file_name,
@@ -201,26 +212,7 @@ impl SourceMapper {
       return app;
     }
 
-    let getter = self.getter.as_ref();
-    let maybe_source_map =
-      self.maps.entry(file_name.to_owned()).or_insert_with(|| {
-        None
-          .or_else(|| {
-            SourceMap::from_slice(self.ext_source_maps.get(file_name)?).ok()
-          })
-          .or_else(|| {
-            SourceMap::from_slice(&self.loader.get_source_map(file_name)?).ok()
-          })
-          .or_else(|| {
-            SourceMap::from_slice(&getter?.get_source_map(file_name)?).ok()
-          })
-      });
-
-    let Some(source_map) = maybe_source_map.as_ref() else {
-      return SourceMapApplication::Unchanged;
-    };
-
-    Self::compute_application(source_map, file_name, line_number, column_number)
+    SourceMapApplication::Unchanged
   }
 
   fn compute_application(
@@ -355,7 +347,7 @@ mod tests {
       unreachable!()
     }
 
-    fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
+    fn get_source_map_for_file(&self, file_name: &str) -> Option<Vec<u8>> {
       let url = Url::parse(file_name).unwrap();
       let content = self.map.get(&url)?;
       content
