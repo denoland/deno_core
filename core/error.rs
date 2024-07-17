@@ -333,7 +333,7 @@ impl JsError {
     Self::inner_from_v8_exception(scope, exception, Default::default())
   }
 
-  pub fn from_v8_message<'a>(
+  pub(crate) fn from_v8_message<'a>(
     scope: &'a mut v8::HandleScope,
     msg: v8::Local<'a, v8::Message>,
   ) -> Self {
@@ -343,38 +343,36 @@ impl JsError {
 
     let exception_message = msg.get(scope).to_rust_string_lossy(scope);
 
-    // Convert them into Vec<JsStackFrame>
-    let mut frames: Vec<JsStackFrame> = vec![];
-    let mut source_line = None;
-    let mut source_line_frame_index = None;
-
-    if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
-      frames = vec![stack_frame];
-    }
-    {
-      let state = JsRuntime::state_from(scope);
-      let mut source_mapper = state.source_mapper.borrow_mut();
-      if let Some(frame) = frames.first() {
-        if let (Some(file_name), Some(line_number)) =
-          (&frame.file_name, frame.line_number)
-        {
-          source_line = source_mapper.get_source_line(file_name, line_number);
-          source_line_frame_index = Some(0);
-        }
-      }
-    }
-
-    Self {
+    let mut js_error = Self {
       name: None,
       message: None,
       exception_message,
       cause: None,
-      source_line,
-      source_line_frame_index,
-      frames,
+      source_line: None,
+      source_line_frame_index: None,
+      frames: vec![],
       stack: None,
       aggregated: None,
+    };
+
+    let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) else {
+      return js_error;
+    };
+
+    let state = JsRuntime::state_from(scope);
+    let mut source_mapper = state.source_mapper.borrow_mut();
+    if let (Some(file_name), Some(line_number)) =
+      (&stack_frame.file_name, stack_frame.line_number)
+    {
+      if !file_name.trim_start_matches('[').starts_with("ext:") {
+        js_error.source_line =
+          source_mapper.get_source_line(file_name, line_number);
+        js_error.source_line_frame_index = Some(0);
+      }
     }
+
+    js_error.frames = vec![stack_frame];
+    js_error
   }
 
   fn inner_from_v8_exception<'a>(
@@ -472,12 +470,16 @@ impl JsError {
       {
         let state = JsRuntime::state_from(scope);
         let mut source_mapper = state.source_mapper.borrow_mut();
-        if let Some(frame) = frames.first() {
+        for (index, frame) in frames.iter().enumerate() {
           if let (Some(file_name), Some(line_number)) =
             (&frame.file_name, frame.line_number)
           {
-            source_line = source_mapper.get_source_line(file_name, line_number);
-            source_line_frame_index = Some(0);
+            if !file_name.trim_start_matches('[').starts_with("ext:") {
+              source_line =
+                source_mapper.get_source_line(file_name, line_number);
+              source_line_frame_index = Some(index);
+              break;
+            }
           }
         }
       }
