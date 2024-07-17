@@ -679,11 +679,6 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
-    // TODO(bartlomieju): defer creation of `SourceMapper` until we can create a `ModuleMap`.
-    // The problem is that `op_apply_source_map` relies on `source_mapper` being presented in
-    // the `JsRuntimeState`. Maybe we can make it an `Option` and expect it always is present.
-    // Alternatively we could have a cheap default impl of `SourceMapper` that we later replace
-    // with actual impl.
     #[allow(deprecated)]
     let mut source_mapper =
       SourceMapper::new(loader.clone(), options.source_map_getter);
