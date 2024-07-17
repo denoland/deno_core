@@ -678,17 +678,31 @@ impl JsRuntime {
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+
     #[allow(deprecated)]
     let mut source_mapper =
       SourceMapper::new(loader.clone(), options.source_map_getter);
-    let mut sources = extension_set::into_sources(
+
+    let mut sources = extension_set::into_sources_and_source_maps(
       options.extension_transpiler.as_deref(),
       &extensions,
-      &mut source_mapper,
       |source| {
         mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
       },
     )?;
+
+    for loaded_source in sources
+      .js
+      .iter()
+      .chain(sources.esm.iter())
+      .chain(sources.lazy_esm.iter())
+      .filter(|s| s.maybe_source_map.is_some())
+    {
+      source_mapper.add_ext_source_map(
+        loaded_source.specifier.try_clone().unwrap(),
+        loaded_source.maybe_source_map.clone().unwrap(),
+      );
+    }
 
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
     // later, after `JsRuntime` is all set up...
@@ -922,7 +936,7 @@ impl JsRuntime {
 
       let mut mapper = state_rc.source_mapper.borrow_mut();
       for (key, map) in snapshotted_data.ext_source_maps {
-        mapper.ext_source_maps.insert(key, map.into());
+        mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
       }
     }
 
@@ -1953,12 +1967,15 @@ impl JsRuntimeForSnapshot {
     }
 
     // Borrow the source maps during the snapshot to avoid copies
-    let source_maps = std::mem::take(
-      &mut self.inner.state.source_mapper.borrow_mut().ext_source_maps,
-    );
+    let source_maps = self
+      .inner
+      .state
+      .source_mapper
+      .borrow_mut()
+      .take_ext_source_maps();
     let mut ext_source_maps = HashMap::with_capacity(source_maps.len());
     for (k, v) in &source_maps {
-      ext_source_maps.insert(k.clone(), v.as_ref());
+      ext_source_maps.insert(k.as_static_str().unwrap(), v.as_ref());
     }
 
     // Serialize the module map and store its data in the snapshot.
