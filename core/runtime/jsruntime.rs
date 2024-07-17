@@ -683,20 +683,25 @@ impl JsRuntime {
     let mut source_mapper =
       SourceMapper::new(loader.clone(), options.source_map_getter);
 
-    let (mut sources, source_maps) =
-      extension_set::into_sources_and_source_maps(
-        options.extension_transpiler.as_deref(),
-        &extensions,
-        |source| {
-          mark_as_loaded_from_fs_during_snapshot(
-            &mut files_loaded,
-            &source.code,
-          )
-        },
-      )?;
+    let mut sources = extension_set::into_sources_and_source_maps(
+      options.extension_transpiler.as_deref(),
+      &extensions,
+      |source| {
+        mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
+      },
+    )?;
 
-    for (module_name, source_map_data) in source_maps {
-      source_mapper.add_ext_source_map(module_name, source_map_data);
+    for loaded_source in sources
+      .js
+      .iter()
+      .chain(sources.esm.iter())
+      .chain(sources.lazy_esm.iter())
+      .filter(|s| s.maybe_source_map.is_some())
+    {
+      source_mapper.add_ext_source_map(
+        loaded_source.specifier.try_clone().unwrap(),
+        loaded_source.maybe_source_map.clone().unwrap(),
+      );
     }
 
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
