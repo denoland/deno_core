@@ -14,7 +14,6 @@ use crate::ops::OpCtx;
 use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
-use crate::source_map::SourceMapper;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::GetErrorClassFn;
@@ -22,6 +21,7 @@ use crate::ModuleCodeString;
 use crate::OpDecl;
 use crate::OpMetricsFactoryFn;
 use crate::OpState;
+use crate::SourceMapData;
 
 /// Contribute to the `OpState` from each extension.
 pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
@@ -241,9 +241,8 @@ impl<'a> IntoIterator for &'a mut LoadedSources {
 fn load(
   transpiler: Option<&ExtensionTranspiler>,
   source: &ExtensionFileSource,
-  source_mapper: &mut SourceMapper,
   load_callback: &mut impl FnMut(&ExtensionFileSource),
-) -> Result<ModuleCodeString, AnyError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
   load_callback(source);
   let mut source_code = source.load()?;
   let mut source_map = None;
@@ -251,21 +250,20 @@ fn load(
     (source_code, source_map) =
       transpiler(ModuleName::from_static(source.specifier), source_code)?;
   }
+  let mut maybe_source_map = None;
   if let Some(source_map) = source_map {
-    source_mapper
-      .ext_source_maps
-      .insert(source.specifier.to_owned(), source_map);
+    maybe_source_map = Some(source_map);
   }
-  Ok(source_code)
+  Ok((source_code, maybe_source_map))
 }
 
-pub fn into_sources(
+pub fn into_sources_and_source_maps(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
-  source_mapper: &mut SourceMapper,
   mut load_callback: impl FnMut(&ExtensionFileSource),
-) -> Result<LoadedSources, AnyError> {
+) -> Result<(LoadedSources, Vec<(ModuleName, SourceMapData)>), AnyError> {
   let mut sources = LoadedSources::default();
+  let mut source_maps = vec![];
 
   for extension in extensions {
     if let Some(esm_entry_point) = extension.esm_entry_point {
@@ -274,29 +272,41 @@ pub fn into_sources(
         .push(FastString::from_static(esm_entry_point));
     }
     for file in &*extension.lazy_loaded_esm_files {
-      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
       sources.lazy_esm.push(LoadedSource {
         source_type: ExtensionSourceType::LazyEsm,
         specifier: ModuleName::from_static(file.specifier),
         code,
       });
+      if let Some(source_map) = maybe_source_map {
+        source_maps.push((ModuleName::from_static(file.specifier), source_map));
+      }
     }
     for file in &*extension.js_files {
-      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
       sources.js.push(LoadedSource {
         source_type: ExtensionSourceType::Js,
         specifier: ModuleName::from_static(file.specifier),
         code,
       });
+      if let Some(source_map) = maybe_source_map {
+        source_maps.push((ModuleName::from_static(file.specifier), source_map));
+      }
     }
     for file in &*extension.esm_files {
-      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
       sources.esm.push(LoadedSource {
         source_type: ExtensionSourceType::Esm,
         specifier: ModuleName::from_static(file.specifier),
         code,
       });
+      if let Some(source_map) = maybe_source_map {
+        source_maps.push((ModuleName::from_static(file.specifier), source_map));
+      }
     }
   }
-  Ok(sources)
+  Ok((sources, source_maps))
 }

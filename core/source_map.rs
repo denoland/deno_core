@@ -10,6 +10,7 @@ use crate::modules::ModuleMap;
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::ModuleLoader;
+use crate::ModuleName;
 use crate::RequestedModuleType;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
@@ -50,12 +51,15 @@ pub enum SourceMapApplication {
 pub type SourceMapData = Cow<'static, [u8]>;
 
 pub struct SourceMapper {
+  // TODO(bartlomieju): I feel like these two should be cleared when Isolate
+  // reaches "near heap limit" to free up some space. This needs to be confirmed though.
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
-  loader: Rc<dyn ModuleLoader>,
 
+  loader: Rc<dyn ModuleLoader>,
   getter: Option<Rc<dyn SourceMapGetter>>,
-  pub(crate) ext_source_maps: HashMap<String, SourceMapData>,
+
+  ext_source_maps: HashMap<ModuleName, SourceMapData>,
   // This is not the right place for this, but it's the easiest way to make
   // op_apply_source_map a fast op. This stashing should happen in #[op2].
   pub(crate) stashed_file_name: Option<String>,
@@ -76,6 +80,21 @@ impl SourceMapper {
       stashed_file_name: Default::default(),
       maybe_module_map: None,
     }
+  }
+
+  /// Add a source map for particular `ext:` module.
+  pub(crate) fn add_ext_source_map(
+    &mut self,
+    module_name: ModuleName,
+    source_map_data: SourceMapData,
+  ) {
+    self.ext_source_maps.insert(module_name, source_map_data);
+  }
+
+  pub(crate) fn take_ext_source_maps(
+    &mut self,
+  ) -> HashMap<ModuleName, SourceMapData> {
+    std::mem::take(&mut self.ext_source_maps)
   }
 
   pub fn set_module_map(&mut self, module_map: Rc<ModuleMap>) {
