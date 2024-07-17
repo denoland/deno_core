@@ -150,12 +150,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
-
-[[package]]
 name = "base64-simd"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -525,7 +519,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f340bc18a3c351cb4af21e56a8af13cdcc08ff7616799429c745bce26fea6385"
 dependencies = [
  "anyhow",
- "base64 0.21.7",
+ "base64",
  "deno_media_type",
  "deno_terminal",
  "dprint-swc-ext",
@@ -563,7 +557,6 @@ name = "deno_core"
 version = "0.295.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "bencher",
  "bincode",
  "bit-set",
@@ -744,7 +737,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f63dd7b57f9b33b1741fa631c9522eb35d43e96dcca4a6a91d5e4ca7c93acdc1"
 dependencies = [
- "base64 0.21.7",
+ "base64",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -2282,7 +2275,7 @@ version = "0.183.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b7b7de90ff41560bf021acda3fb16fb0f4f5885aeb44b6b7e638b563124d087"
 dependencies = [
- "base64 0.21.7",
+ "base64",
  "dashmap",
  "indexmap",
  "once_cell",

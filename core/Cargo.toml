@@ -24,7 +24,6 @@ snapshot_flags_eager_parse = []
 
 [dependencies]
 anyhow.workspace = true
-base64 = "0.22.1"
 bincode.workspace = true
 bit-set.workspace = true
 bit-vec.workspace = true

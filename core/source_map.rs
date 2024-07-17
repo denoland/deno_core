@@ -12,13 +12,14 @@ use crate::runtime::JsRealm;
 use crate::ModuleLoader;
 use crate::ModuleName;
 use crate::RequestedModuleType;
-use base64::prelude::BASE64_STANDARD;
-use base64::Engine;
+use sourcemap::DecodedMap;
 pub use sourcemap::SourceMap;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::str;
+
+const BASE64_PREFIX: &str = "data:application/json;base64,";
 
 #[deprecated = "Use `ModuleLoader` methods instead. This trait will be removed in deno_core v0.300.0."]
 pub trait SourceMapGetter {
@@ -122,11 +123,13 @@ impl SourceMapper {
     // the URL (or resolve it from the current file being mapped) and fallback to
     // acquiring a source map from that URL. In Deno we might want to apply permissions
     // checks for fetching the map.
-    let source_map = if let Some(b64) =
-      source_map_string.strip_prefix("data:application/json;base64,")
-    {
-      let decoded_b64 = BASE64_STANDARD.decode(b64).ok()?;
-      SourceMap::from_slice(&decoded_b64).ok()?
+    let source_map = if source_map_string.starts_with(BASE64_PREFIX) {
+      let DecodedMap::Regular(sm) =
+        sourcemap::decode_data_url(&source_map_string).ok()?
+      else {
+        return None;
+      };
+      sm
     } else {
       let url = match resolve_import(&source_map_string, file_name) {
         Ok(url) => Some(url),
