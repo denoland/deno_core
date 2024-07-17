@@ -678,17 +678,31 @@ impl JsRuntime {
     let loader = options
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+
+    // TODO(bartlomieju): defer creation of `SourceMapper` until we can create a `ModuleMap`.
+    // The problem is that `op_apply_source_map` relies on `source_mapper` being presented in
+    // the `JsRuntimeState`. Maybe we can make it an `Option` and expect it always is present.
+    // Alternatively we could have a cheap default impl of `SourceMapper` that we later replace
+    // with actual impl.
     #[allow(deprecated)]
     let mut source_mapper =
       SourceMapper::new(loader.clone(), options.source_map_getter);
-    let mut sources = extension_set::into_sources(
-      options.extension_transpiler.as_deref(),
-      &extensions,
-      &mut source_mapper,
-      |source| {
-        mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
-      },
-    )?;
+
+    let (mut sources, source_maps) =
+      extension_set::into_sources_and_source_maps(
+        options.extension_transpiler.as_deref(),
+        &extensions,
+        |source| {
+          mark_as_loaded_from_fs_during_snapshot(
+            &mut files_loaded,
+            &source.code,
+          )
+        },
+      )?;
+
+    for (module_name, source_map_data) in source_maps {
+      source_mapper.add_ext_source_map(module_name, source_map_data);
+    }
 
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
     // later, after `JsRuntime` is all set up...
@@ -922,9 +936,7 @@ impl JsRuntime {
 
       let mut mapper = state_rc.source_mapper.borrow_mut();
       for (key, map) in snapshotted_data.ext_source_maps {
-        mapper
-          .ext_source_maps
-          .insert(ModuleName::from_static(key), map.into());
+        mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
       }
     }
 
@@ -1955,9 +1967,12 @@ impl JsRuntimeForSnapshot {
     }
 
     // Borrow the source maps during the snapshot to avoid copies
-    let source_maps = std::mem::take(
-      &mut self.inner.state.source_mapper.borrow_mut().ext_source_maps,
-    );
+    let source_maps = self
+      .inner
+      .state
+      .source_mapper
+      .borrow_mut()
+      .take_ext_source_maps();
     let mut ext_source_maps = HashMap::with_capacity(source_maps.len());
     for (k, v) in &source_maps {
       ext_source_maps.insert(k.as_static_str().unwrap(), v.as_ref());
