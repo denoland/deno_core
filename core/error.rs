@@ -161,13 +161,11 @@ pub fn to_v8_error<'a>(
   }
 }
 
+#[inline(always)]
 pub(crate) fn call_site_evals_key<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Private> {
-  const CALL_SITE_EVALS: v8::OneByteConst =
-    v8::String::create_external_onebyte_const(b"#callSiteEvals");
-  let name =
-    v8::String::new_from_onebyte_const(scope, &CALL_SITE_EVALS).unwrap();
+  let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope);
   v8::Private::for_api(scope, Some(name))
 }
 

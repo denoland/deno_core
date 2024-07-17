@@ -10,6 +10,7 @@ macro_rules! v8_static_strings {
 v8_static_strings!(
   BUILD_CUSTOM_ERROR = "buildCustomError",
   CALL_CONSOLE = "callConsole",
+  CALL_SITE_EVALS = "callSiteEvals",
   CAUSE = "cause",
   CODE = "code",
   CONSOLE = "console",
