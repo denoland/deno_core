@@ -354,7 +354,7 @@ impl JsError {
     {
       let state = JsRuntime::state_from(scope);
       let mut source_mapper = state.source_mapper.borrow_mut();
-      if let Some(frame) = frames.iter().next() {
+      if let Some(frame) = frames.first() {
         if let (Some(file_name), Some(line_number)) =
           (&frame.file_name, frame.line_number)
         {
@@ -472,7 +472,7 @@ impl JsError {
       {
         let state = JsRuntime::state_from(scope);
         let mut source_mapper = state.source_mapper.borrow_mut();
-        if let Some(frame) = frames.iter().next() {
+        if let Some(frame) = frames.first() {
           if let (Some(file_name), Some(line_number)) =
             (&frame.file_name, frame.line_number)
           {
