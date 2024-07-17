@@ -356,6 +356,14 @@ mod tests {
         .map(|s| s.to_string().into_bytes())
     }
 
+    fn load_source_map_file(
+      &self,
+      _source_map_file_name: &str,
+      _file_name: &str,
+    ) -> Option<Vec<u8>> {
+      todo!()
+    }
+
     fn get_source_mapped_source_line(
       &self,
       _file_name: &str,
