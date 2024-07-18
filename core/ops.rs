@@ -107,10 +107,10 @@ impl Drop for OpCtx {
     if let Some(ptr) = self.fast_fn_c_info {
       // SAFETY: Call drop manually because `fast_fn_c_info` is a `NonNull` and doesn't implement `Drop`.
       unsafe {
-        std::ptr::drop_in_place(ptr.as_ptr() as *mut CFunctionInfo);
+        std::ptr::drop_in_place(ptr.as_ptr());
         if let Some((args, ret)) = self.fast_fn_signature {
-          std::ptr::drop_in_place(args.as_ptr() as *mut CTypeInfo);
-          std::ptr::drop_in_place(ret.as_ptr() as *mut CTypeInfo);
+          std::ptr::drop_in_place(args.as_ptr());
+          std::ptr::drop_in_place(ret.as_ptr());
         }
       }
     }
