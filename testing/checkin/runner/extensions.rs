@@ -3,7 +3,9 @@ use crate::checkin::runner::ops;
 use crate::checkin::runner::ops_async;
 use crate::checkin::runner::ops_buffer;
 use crate::checkin::runner::ops_error;
+use crate::checkin::runner::ops_fs;
 use crate::checkin::runner::ops_io;
+use crate::checkin::runner::ops_transpiler;
 use crate::checkin::runner::ops_worker;
 use crate::checkin::runner::Output;
 use crate::checkin::runner::TestData;
@@ -39,6 +41,8 @@ deno_core::extension!(
     ops_error::op_error_custom_sync,
     ops_error::op_error_context_sync,
     ops_error::op_error_context_async,
+    ops_fs::op_fs_read_text_file,
+    ops_fs::op_fs_write_text_file,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
     ops_worker::op_worker_spawn,
@@ -47,6 +51,7 @@ deno_core::extension!(
     ops_worker::op_worker_parent,
     ops_worker::op_worker_await_close,
     ops_worker::op_worker_terminate,
+    ops_transpiler::op_transpile,
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [
@@ -55,9 +60,11 @@ deno_core::extension!(
     "checkin:async" = "async.ts",
     "checkin:console" = "console.ts",
     "checkin:error" = "error.ts",
-    "checkin:timers" = "timers.ts",
-    "checkin:worker" = "worker.ts",
+    "checkin:fs" = "fs.ts",
     "checkin:throw" = "throw.ts",
+    "checkin:timers" = "timers.ts",
+    "checkin:transpiler" = "transpiler.ts",
+    "checkin:worker" = "worker.ts",
   ],
   state = |state| {
     state.put(TestData::default());

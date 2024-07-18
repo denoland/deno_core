@@ -31,7 +31,9 @@ mod ops;
 mod ops_async;
 mod ops_buffer;
 mod ops_error;
+mod ops_fs;
 mod ops_io;
+mod ops_transpiler;
 mod ops_worker;
 pub mod snapshot;
 #[cfg(test)]
