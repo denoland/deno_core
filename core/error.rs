@@ -851,7 +851,7 @@ macro_rules! make_delegate {
     $(
       {
         let key = $field.v8_string($scope).into();
-        $template.set(
+        $template.set_with_attr(
           key,
           v8::FunctionBuilder::<v8::FunctionTemplate>::new(
             |scope: &mut v8::HandleScope<'_>,
@@ -871,6 +871,9 @@ macro_rules! make_delegate {
           )
           .build($scope)
           .into(),
+          v8::PropertyAttribute::DONT_DELETE
+          | v8::PropertyAttribute::DONT_ENUM
+          | v8::PropertyAttribute::READ_ONLY,
         );
       }
     )+
@@ -906,7 +909,7 @@ pub(crate) fn make_callsite_template<'s>(
   );
 
   let get_file_name_key = GET_FILE_NAME.v8_string(scope).into();
-  template.set(
+  template.set_with_attr(
     get_file_name_key,
     v8::FunctionBuilder::<v8::FunctionTemplate>::new(
       |scope: &mut v8::HandleScope<'_>,
@@ -943,6 +946,9 @@ pub(crate) fn make_callsite_template<'s>(
     )
     .build(scope)
     .into(),
+    v8::PropertyAttribute::DONT_DELETE
+      | v8::PropertyAttribute::DONT_ENUM
+      | v8::PropertyAttribute::READ_ONLY,
   );
 
   template
@@ -959,8 +965,7 @@ pub fn prepare_stack_trace_callback<'s>(
   let global_error = global
     .get(scope, error_key.into())
     .unwrap()
-    .cast::<v8::Object>()
-    .unwrap();
+    .casted::<v8::Object>();
   let prepare_fn = global_error
     .get(scope, prepare_stack_trace_key.into())
     .and_then(|v| v.cast::<v8::Function>().ok());
@@ -977,16 +982,15 @@ pub fn prepare_stack_trace_callback<'s>(
       let callsite = callsites
         .get_index(scope, i)
         .unwrap()
-        .cast::<v8::Object>()
-        .unwrap();
+        .casted::<v8::Object>();
       patched.push(make_patched_callsite(scope, callsite, template).into());
     }
     let patched_callsites = v8::Array::new_with_elements(scope, &patched);
 
     let this = global_error.into();
-    let args = [error.into(), patched_callsites.into()];
+    let args = &[error.into(), patched_callsites.into()];
     return prepare_fn
-      .call(scope, this, &args)
+      .call(scope, this, args)
       .unwrap_or_else(|| v8::undefined(scope).into());
   }
 
