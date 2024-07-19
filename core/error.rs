@@ -780,6 +780,227 @@ pub fn throw_type_error(scope: &mut v8::HandleScope, message: impl AsRef<str>) {
   scope.throw_exception(exception);
 }
 
+v8_static_strings::v8_static_strings! {
+  ERROR = "Error",
+  GET_FILE_NAME = "getFileName",
+  GET_THIS = "getThis",
+  GET_TYPE_NAME = "getTypeName",
+  GET_FUNCTION = "getFunction",
+  GET_FUNCTION_NAME = "getFunctionName",
+  GET_METHOD_NAME = "getMethodName",
+  GET_LINE_NUMBER = "getLineNumber",
+  GET_COLUMN_NUMBER = "getColumnNumber",
+  GET_EVAL_ORIGIN = "getEvalOrigin",
+  IS_TOPLEVEL = "isToplevel",
+  IS_EVAL = "isEval",
+  IS_NATIVE = "isNative",
+  IS_CONSTRUCTOR = "isConstructor",
+  IS_ASYNC = "isAsync",
+  IS_PROMISE_ALL = "isPromiseAll",
+  GET_PROMISE_INDEX = "getPromiseIndex",
+  PREPARE_STACK_TRACE = "prepareStackTrace",
+  ORIGINAL = "_orig",
+  DEFAULT_PREPARE = "defaultPrepareStackTrace",
+}
+
+trait Cast<'s, T>: Sized {
+  fn cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
+  where
+    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error = v8::DataError>;
+  fn casted<O>(self) -> v8::Local<'s, O>
+  where
+    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error: std::fmt::Debug>;
+}
+
+impl<'s, T> Cast<'s, T> for v8::Local<'s, T> {
+  fn cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
+  where
+    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error = v8::DataError>,
+  {
+    self.try_into()
+  }
+  fn casted<O>(self) -> v8::Local<'s, O>
+  where
+    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error: std::fmt::Debug>,
+  {
+    self.try_into().unwrap()
+  }
+}
+
+#[inline(always)]
+pub(crate) fn original_call_site_key<'a>(
+  scope: &mut v8::HandleScope<'a>,
+) -> v8::Local<'a, v8::Private> {
+  let name = ORIGINAL.v8_string(scope);
+  v8::Private::for_api(scope, Some(name))
+}
+
+fn make_patched_callsite<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  callsite: v8::Local<'s, v8::Object>,
+  template: v8::Local<'s, v8::ObjectTemplate>,
+) -> v8::Local<'s, v8::Object> {
+  let out_obj = template.new_instance(scope).unwrap();
+  let orig_key = original_call_site_key(scope);
+  out_obj.set_private(scope, orig_key, callsite.into());
+  out_obj
+}
+
+macro_rules! make_delegate {
+  ($scope: ident, $template: ident, [$($field: ident),+ $(,)?]) => {
+    $(
+      {
+        let key = $field.v8_string($scope).into();
+        $template.set(
+          key,
+          v8::FunctionBuilder::<v8::FunctionTemplate>::new(
+            |scope: &mut v8::HandleScope<'_>,
+            args: v8::FunctionCallbackArguments<'_>,
+            mut rv: v8::ReturnValue<'_>| {
+              let orig_key = original_call_site_key(scope);
+              let orig = args.this().get_private(scope, orig_key).unwrap();
+              let key = $field.v8_string(scope).into();
+              let orig_ret = orig
+                .casted::<v8::Object>()
+                .get(scope, key)
+                .unwrap()
+                .casted::<v8::Function>()
+                .call(scope, orig, &[]);
+              rv.set(orig_ret.unwrap_or_else(|| v8::undefined(scope).into()));
+            },
+          )
+          .build($scope)
+          .into(),
+        );
+      }
+    )+
+  };
+}
+
+pub(crate) fn make_callsite_template<'s>(
+  scope: &mut v8::HandleScope<'s>,
+) -> v8::Local<'s, v8::ObjectTemplate> {
+  let template = v8::ObjectTemplate::new(scope);
+
+  make_delegate!(
+    scope,
+    template,
+    [
+      // excludes getFileName, which we'll override below
+      GET_THIS,
+      GET_TYPE_NAME,
+      GET_FUNCTION,
+      GET_FUNCTION_NAME,
+      GET_METHOD_NAME,
+      GET_LINE_NUMBER,
+      GET_COLUMN_NUMBER,
+      GET_EVAL_ORIGIN,
+      IS_TOPLEVEL,
+      IS_EVAL,
+      IS_NATIVE,
+      IS_CONSTRUCTOR,
+      IS_ASYNC,
+      IS_PROMISE_ALL,
+      GET_PROMISE_INDEX,
+    ]
+  );
+
+  let get_file_name_key = GET_FILE_NAME.v8_string(scope).into();
+  template.set(
+    get_file_name_key,
+    v8::FunctionBuilder::<v8::FunctionTemplate>::new(
+      |scope: &mut v8::HandleScope<'_>,
+       args: v8::FunctionCallbackArguments<'_>,
+       mut rv: v8::ReturnValue<'_>| {
+        let mut inner = || -> Option<()> {
+          let orig_key = original_call_site_key(scope);
+          let orig = args.this().get_private(scope, orig_key).unwrap();
+          let key = GET_FILE_NAME.v8_string(scope).into();
+          let orig_ret = orig
+            .casted::<v8::Object>()
+            .get(scope, key)?
+            .casted::<v8::Function>()
+            .call(scope, orig, &[]);
+          if let Some(ret_val) = orig_ret {
+            let string = ret_val.to_rust_string_lossy(scope);
+            let file_name = if string.starts_with("file://") {
+              Url::parse(&string)
+                .ok()?
+                .to_file_path()
+                .ok()?
+                .to_string_lossy()
+                .into_owned()
+            } else {
+              string
+            };
+            let v8_str = crate::FastString::from(file_name).v8_string(scope);
+            rv.set(v8_str.into());
+          }
+          Some(())
+        };
+        inner().unwrap();
+      },
+    )
+    .build(scope)
+    .into(),
+  );
+
+  template
+}
+
+pub fn prepare_stack_trace_callback<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  error: v8::Local<'s, v8::Value>,
+  callsites: v8::Local<'s, v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+  let global = scope.get_current_context().global(scope);
+  let error_key = ERROR.v8_string(scope);
+  let prepare_stack_trace_key = PREPARE_STACK_TRACE.v8_string(scope);
+  let global_error = global
+    .get(scope, error_key.into())
+    .unwrap()
+    .cast::<v8::Object>()
+    .unwrap();
+  let prepare_fn = global_error
+    .get(scope, prepare_stack_trace_key.into())
+    .and_then(|v| v.cast::<v8::Function>().ok());
+  if let Some(prepare_fn) = prepare_fn {
+    let len = callsites.length();
+    let mut patched = Vec::with_capacity(len as usize);
+    let template = JsRuntime::state_from(scope)
+      .callsite_template
+      .borrow()
+      .clone()
+      .unwrap();
+    let template = v8::Local::new(scope, template);
+    for i in 0..len {
+      let callsite = callsites
+        .get_index(scope, i)
+        .unwrap()
+        .cast::<v8::Object>()
+        .unwrap();
+      patched.push(make_patched_callsite(scope, callsite, template).into());
+    }
+    let patched_callsites = v8::Array::new_with_elements(scope, &patched);
+
+    let this = global_error.into();
+    let args = [error.into(), patched_callsites.into()];
+    return prepare_fn
+      .call(scope, this, &args)
+      .unwrap_or_else(|| v8::undefined(scope).into());
+  }
+
+  let default_key = DEFAULT_PREPARE.v8_string(scope);
+  let default_prepare = global
+    .get(scope, default_key.into())
+    .unwrap()
+    .casted::<v8::Function>();
+  let undef = v8::undefined(scope).into();
+  default_prepare
+    .call(scope, undef, &[error, callsites.into()])
+    .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

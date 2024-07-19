@@ -174,5 +174,6 @@
     return stack;
   }
 
-  Error.prepareStackTrace = prepareStackTrace;
+  globalThis.defaultPrepareStackTrace = prepareStackTrace;
+  // Error.prepareStackTrace = prepareStackTrace;
 })(this);
