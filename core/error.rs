@@ -803,6 +803,10 @@ v8_static_strings::v8_static_strings! {
   DEFAULT_PREPARE = "defaultPrepareStackTrace",
 }
 
+/// Lets you write
+/// `v8_value.cast::<v8::Function>` instead of
+/// `v8::Local::<v8::Function>::try_from(v8_value)`
+/// or `let obj: Result<v8::Local<v8::Function>, _> = v8_value.try_into();`
 trait Cast<'s, T>: Sized {
   fn cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
   where
@@ -885,6 +889,7 @@ pub(crate) fn make_callsite_template<'s>(
 ) -> v8::Local<'s, v8::ObjectTemplate> {
   let template = v8::ObjectTemplate::new(scope);
 
+  // delegate to the original callsite object
   make_delegate!(
     scope,
     template,
@@ -916,15 +921,18 @@ pub(crate) fn make_callsite_template<'s>(
        args: v8::FunctionCallbackArguments<'_>,
        mut rv: v8::ReturnValue<'_>| {
         let mut inner = || -> Option<()> {
+          // lookup the original call site object
           let orig_key = original_call_site_key(scope);
           let orig = args.this().get_private(scope, orig_key).unwrap();
           let key = GET_FILE_NAME.v8_string(scope).into();
+          // call getFileName
           let orig_ret = orig
             .casted::<v8::Object>()
             .get(scope, key)?
             .casted::<v8::Function>()
             .call(scope, orig, &[]);
           if let Some(ret_val) = orig_ret {
+            // strip off `file://`
             let string = ret_val.to_rust_string_lossy(scope);
             let file_name = if string.starts_with("file://") {
               Url::parse(&string)
@@ -970,6 +978,9 @@ pub fn prepare_stack_trace_callback<'s>(
     .get(scope, prepare_stack_trace_key.into())
     .and_then(|v| v.cast::<v8::Function>().ok());
   if let Some(prepare_fn) = prepare_fn {
+    // User defined `Error.prepareStackTrace`.
+    // Patch the callsites to have file paths, then call
+    // the user's function
     let len = callsites.length();
     let mut patched = Vec::with_capacity(len as usize);
     let template = JsRuntime::state_from(scope)
@@ -987,6 +998,7 @@ pub fn prepare_stack_trace_callback<'s>(
     }
     let patched_callsites = v8::Array::new_with_elements(scope, &patched);
 
+    // call the user's `prepareStackTrace` with our patched "callsite" objects
     let this = global_error.into();
     let args = &[error.into(), patched_callsites.into()];
     return prepare_fn
@@ -994,6 +1006,7 @@ pub fn prepare_stack_trace_callback<'s>(
       .unwrap_or_else(|| v8::undefined(scope).into());
   }
 
+  // no user defined `prepareStackTrace`, just call our default
   let default_key = DEFAULT_PREPARE.v8_string(scope);
   let default_prepare = global
     .get(scope, default_key.into())
