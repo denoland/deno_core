@@ -92,13 +92,29 @@ pub struct OpCtx {
   pub get_error_class_fn: GetErrorClassFn,
 
   pub(crate) decl: OpDecl,
-  pub(crate) fast_fn_c_info: Option<NonNull<v8::fast_api::CFunctionInfo>>,
+  pub(crate) fast_fn_c_info: Option<NonNull<CFunctionInfo>>,
+  fast_fn_signature: Option<(NonNull<CTypeInfo>, NonNull<CTypeInfo>)>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
   op_driver: Rc<OpDriverImpl>,
   runtime_state: *const JsRuntimeState,
+}
+
+impl Drop for OpCtx {
+  fn drop(&mut self) {
+    if let Some(ptr) = self.fast_fn_c_info {
+      // SAFETY: Call drop manually because `fast_fn_c_info` is a `NonNull` and doesn't implement `Drop`.
+      unsafe {
+        std::ptr::drop_in_place(ptr.as_ptr());
+        if let Some((args, ret)) = self.fast_fn_signature {
+          std::ptr::drop_in_place(args.as_ptr());
+          std::ptr::drop_in_place(ret.as_ptr());
+        }
+      }
+    }
+  }
 }
 
 impl OpCtx {
@@ -114,6 +130,7 @@ impl OpCtx {
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
     let mut fast_fn_c_info = None;
+    let mut fast_fn_signature = None;
 
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
     // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
@@ -140,6 +157,7 @@ impl OpCtx {
         )
       };
       fast_fn_c_info = Some(c_fn);
+      fast_fn_signature = Some((args, ret));
     }
 
     Self {
@@ -150,6 +168,7 @@ impl OpCtx {
       decl,
       op_driver,
       fast_fn_c_info,
+      fast_fn_signature,
       last_fast_error: UnsafeCell::new(None),
       isolate,
       metrics_fn,

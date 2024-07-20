@@ -19,22 +19,22 @@ repository = "https://github.com/denoland/deno_core"
 
 [workspace.dependencies]
 # Local dependencies
-deno_core = { version = "0.290.0", path = "./core" }
-deno_ops = { version = "0.166.0", path = "./ops" }
-serde_v8 = { version = "0.199.0", path = "./serde_v8" }
+deno_core = { version = "0.296.0", path = "./core" }
+deno_ops = { version = "0.172.0", path = "./ops" }
+serde_v8 = { version = "0.205.0", path = "./serde_v8" }
 deno_core_testing = { path = "./testing" }
 
-v8 = { version = "0.93.1", default-features = false }
-deno_ast = { version = "=0.35.3", features = ["transpiling"] }
-deno_unsync = "0.3.2"
+v8 = { version = "0.98.1", default-features = false }
+deno_ast = { version = "=0.40.0", features = ["transpiling"] }
+deno_unsync = "0.3.10"
 deno_core_icudata = "0.0.73"
 
 anyhow = "1"
 bencher = "0.1"
 bincode = "1"
 criterion = "0.5"
-bit-set = "0"
-bit-vec = "0"
+bit-set = "0.5.3"
+bit-vec = "0.6.3"
 bytes = ">=1.6.0"
 cooked-waker = "5"
 fastrand = "2"

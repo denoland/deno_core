@@ -64,11 +64,14 @@ pub enum Op2Error {
 }
 
 #[derive(Debug, Error)]
+#[allow(clippy::enum_variant_names)]
 pub enum V8SignatureMappingError {
   #[error("Unable to map return value {1:?} to {0}")]
   NoRetValMapping(V8MappingError, RetVal),
   #[error("Unable to map argument {1:?} to {0}")]
   NoArgMapping(V8MappingError, Arg),
+  #[error("Unable to map self")]
+  NoSelfMapping(V8MappingError),
 }
 
 pub type V8MappingError = &'static str;
@@ -172,12 +175,14 @@ fn generate_op2(
     fast_function_metrics,
     promise_id,
     self_ty,
+    moves: vec![],
     needs_retval: false,
     needs_scope: false,
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,
     needs_js_runtime_state: false,
+    needs_fast_scope: false,
     needs_fast_opctx: false,
     needs_fast_api_callback_options: false,
     needs_fast_js_runtime_state: false,
@@ -323,7 +328,6 @@ mod tests {
   use pretty_assertions::assert_eq;
   use quote::ToTokens;
   use std::path::PathBuf;
-  use syn::parse_str;
   use syn::File;
   use syn::Item;
 
@@ -351,7 +355,8 @@ deno_ops_compile_test_runner::prelude!();";
       panic!("Source does not start with expected prelude:]n{PRELUDE}");
     }
 
-    let file = parse_str::<File>(&source).expect("Failed to parse Rust file");
+    let file =
+      syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
     let mut expected_out = vec![];
     for item in file.items {
       if let Item::Fn(mut func) = item {

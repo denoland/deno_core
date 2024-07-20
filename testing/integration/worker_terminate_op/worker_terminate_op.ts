@@ -9,4 +9,4 @@ console.log(`main got from worker "${message}"`);
 worker.terminate();
 await worker.closed;
 console.log("main exiting");
-await new Promise((r) => setTimeout(r, 100));
+await new Promise<void>((r) => setTimeout(r, 100));

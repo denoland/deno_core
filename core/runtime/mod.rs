@@ -10,7 +10,7 @@ pub mod ops_rust_to_v8;
 mod setup;
 mod snapshot;
 pub mod stats;
-mod v8_static_strings;
+pub(crate) mod v8_static_strings;
 
 #[cfg(all(test, not(miri)))]
 mod tests;

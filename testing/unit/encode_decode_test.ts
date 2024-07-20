@@ -72,13 +72,13 @@ test(function binaryEncode() {
 
   // invalid utf-8 code points
   const invalid = new Uint8Array([0xC0]);
-  assertArrayEquals(
+  assertEquals(
     Deno.core.encodeBinaryString(invalid),
     asBinaryString(invalid),
   );
 
   const invalid2 = new Uint8Array([0xC1]);
-  assertArrayEquals(
+  assertEquals(
     Deno.core.encodeBinaryString(invalid2),
     asBinaryString(invalid2),
   );
@@ -86,7 +86,7 @@ test(function binaryEncode() {
   for (let i = 0, j = 255; i <= 255; i++, j--) {
     const bytes = new Uint8Array([i, j]);
     const binaryString = Deno.core.encodeBinaryString(bytes);
-    assertArrayEquals(
+    assertEquals(
       binaryString,
       asBinaryString(bytes),
     );

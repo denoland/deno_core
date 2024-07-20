@@ -44,6 +44,7 @@ use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapData;
+#[allow(deprecated)]
 use crate::source_map::SourceMapGetter;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
@@ -150,7 +151,6 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
-  cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -190,10 +190,9 @@ impl InnerIsolateState {
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
     // SAFETY: We're copying out of self and then immediately forgetting self
-    let (state, _cpp_heap, isolate) = unsafe {
+    let (state, isolate) = unsafe {
       (
         ManuallyDrop::take(&mut self.state.0),
-        ManuallyDrop::take(&mut self.cpp_heap),
         ManuallyDrop::take(&mut self.v8_isolate),
       )
     };
@@ -216,7 +215,6 @@ impl Drop for InnerIsolateState {
           eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
         }
       } else {
-        ManuallyDrop::drop(&mut self.cpp_heap);
         ManuallyDrop::drop(&mut self.v8_isolate);
       }
     }
@@ -410,7 +408,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) source_mapper: RefCell<SourceMapper<Rc<dyn SourceMapGetter>>>,
+  pub(crate) source_mapper: RefCell<SourceMapper>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -421,6 +419,7 @@ pub struct JsRuntimeState {
   pub(crate) eval_context_get_code_cache_cb: Option<EvalContextGetCodeCacheCb>,
   pub(crate) eval_context_code_cache_ready_cb:
     Option<EvalContextCodeCacheReadyCb>,
+  pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -430,6 +429,8 @@ pub struct JsRuntimeState {
 #[derive(Default)]
 pub struct RuntimeOptions {
   /// Source map reference for errors.
+  #[deprecated = "Update `ModuleLoader` trait implementations. This option will be removed in deno_core v0.300.0."]
+  #[allow(deprecated)]
   pub source_map_getter: Option<Rc<dyn SourceMapGetter>>,
 
   /// Allows to map error type to a string "class" used to represent
@@ -674,16 +675,34 @@ impl JsRuntime {
 
     // Load the sources and source maps
     let mut files_loaded = Vec::with_capacity(128);
-    let mut source_mapper: SourceMapper<Rc<dyn SourceMapGetter>> =
-      SourceMapper::new(options.source_map_getter);
-    let mut sources = extension_set::into_sources(
+    let loader = options
+      .module_loader
+      .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+
+    #[allow(deprecated)]
+    let mut source_mapper =
+      SourceMapper::new(loader.clone(), options.source_map_getter);
+
+    let mut sources = extension_set::into_sources_and_source_maps(
       options.extension_transpiler.as_deref(),
       &extensions,
-      &mut source_mapper,
       |source| {
         mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
       },
     )?;
+
+    for loaded_source in sources
+      .js
+      .iter()
+      .chain(sources.esm.iter())
+      .chain(sources.lazy_esm.iter())
+      .filter(|s| s.maybe_source_map.is_some())
+    {
+      source_mapper.add_ext_source_map(
+        loaded_source.specifier.try_clone().unwrap(),
+        loaded_source.maybe_source_map.clone().unwrap(),
+      );
+    }
 
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
     // later, after `JsRuntime` is all set up...
@@ -709,6 +728,7 @@ impl JsRuntime {
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
       has_inspector: false.into(),
+      cppgc_template: None.into(),
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
@@ -776,9 +796,9 @@ impl JsRuntime {
       )));
 
     let external_refs: &v8::ExternalReferences =
-      isolate_allocations.external_refs.as_ref().unwrap().as_ref();
+      isolate_allocations.external_refs.as_ref().unwrap();
     // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
-    let external_refs_static = unsafe { std::mem::transmute(external_refs) };
+    let external_refs_static = unsafe { &*(external_refs as *const _) };
 
     let has_snapshot = maybe_startup_snapshot.is_some();
     let mut isolate = setup::create_isolate(
@@ -787,8 +807,6 @@ impl JsRuntime {
       maybe_startup_snapshot,
       external_refs_static,
     );
-
-    let cpp_heap = setup::init_cppgc(&mut isolate);
 
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
     // their' setup...
@@ -832,6 +850,12 @@ impl JsRuntime {
     let mut snapshotted_data = None;
     let main_context = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
+
+      let cppgc_template = crate::cppgc::make_cppgc_template(scope);
+      state_rc
+        .cppgc_template
+        .borrow_mut()
+        .replace(v8::Global::new(scope, cppgc_template));
 
       let context = create_context(
         scope,
@@ -888,9 +912,6 @@ impl JsRuntime {
     // ...now that JavaScript bindings to ops are available we can deserialize
     // modules stored in the snapshot (because they depend on the ops and external
     // references must match properly) and recreate a module map...
-    let loader = options
-      .module_loader
-      .unwrap_or_else(|| Rc::new(NoopModuleLoader));
     let import_meta_resolve_cb = options
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
@@ -899,6 +920,7 @@ impl JsRuntime {
       loader,
       exception_state.clone(),
       import_meta_resolve_cb,
+      will_snapshot,
     ));
 
     if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
@@ -914,7 +936,7 @@ impl JsRuntime {
 
       let mut mapper = state_rc.source_mapper.borrow_mut();
       for (key, map) in snapshotted_data.ext_source_maps {
-        mapper.ext_source_maps.insert(key, map.into());
+        mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
       }
     }
 
@@ -954,7 +976,6 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
-        cpp_heap: ManuallyDrop::new(cpp_heap),
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
@@ -1063,23 +1084,6 @@ impl JsRuntime {
   pub fn handle_scope(&mut self) -> v8::HandleScope {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.handle_scope(isolate)
-  }
-
-  #[inline(always)]
-  /// Create a scope on the stack with the given context
-  fn with_context_scope<'s, T>(
-    isolate: *mut v8::Isolate,
-    context: *mut v8::Context,
-    f: impl FnOnce(&mut v8::HandleScope<'s>) -> T,
-  ) -> T {
-    // SAFETY: We know this isolate is valid and non-null at this time
-    let mut isolate_scope =
-      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
-    // SAFETY: We know the context is valid and non-null at this time, and that a Local and pointer share the
-    // same representation
-    let context = unsafe { std::mem::transmute(context) };
-    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
-    f(&mut scope)
   }
 
   /// Create a synthetic module - `ext:core/ops` - that exports all ops registered
@@ -1723,12 +1727,13 @@ impl JsRuntime {
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    let isolate = self.v8_isolate_ptr();
-    Self::with_context_scope(
-      isolate,
-      self.inner.main_realm.context_ptr(),
-      move |scope| self.poll_event_loop_inner(cx, scope, poll_options),
-    )
+    // SAFETY: We know this isolate is valid and non-null at this time
+    let mut isolate_scope =
+      v8::HandleScope::new(unsafe { &mut *self.v8_isolate_ptr() });
+    let context =
+      v8::Local::new(&mut isolate_scope, self.inner.main_realm.context());
+    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
+    self.poll_event_loop_inner(cx, &mut scope, poll_options)
   }
 
   fn poll_event_loop_inner(
@@ -1903,16 +1908,9 @@ fn create_context<'a>(
 
   let scope = &mut v8::ContextScope::new(scope, context);
 
-  // Get the global wrapper object from the context, get the real inner
-  // global object from it, and and configure it using the middlewares.
-  let global_wrapper = context.global(scope);
-  let real_global = global_wrapper
-    .get_prototype(scope)
-    .unwrap()
-    .to_object(scope)
-    .unwrap();
+  let global = context.global(scope);
   for middleware in global_object_middlewares {
-    middleware(scope, real_global);
+    middleware(scope, global);
   }
   context
 }
@@ -1969,12 +1967,15 @@ impl JsRuntimeForSnapshot {
     }
 
     // Borrow the source maps during the snapshot to avoid copies
-    let source_maps = std::mem::take(
-      &mut self.inner.state.source_mapper.borrow_mut().ext_source_maps,
-    );
+    let source_maps = self
+      .inner
+      .state
+      .source_mapper
+      .borrow_mut()
+      .take_ext_source_maps();
     let mut ext_source_maps = HashMap::with_capacity(source_maps.len());
     for (k, v) in &source_maps {
-      ext_source_maps.insert(k.clone(), v.as_ref());
+      ext_source_maps.insert(k.as_static_str().unwrap(), v.as_ref());
     }
 
     // Serialize the module map and store its data in the snapshot.

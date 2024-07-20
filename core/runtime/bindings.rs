@@ -9,6 +9,7 @@ use v8::MapFnTo;
 use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
+use crate::cppgc::cppgc_template_constructor;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -60,6 +61,10 @@ pub(crate) fn create_external_references(
     synthetic_module_evaluation_steps.map_fn_to();
   references.push(v8::ExternalReference {
     pointer: syn_module_eval_fn as *mut c_void,
+  });
+
+  references.push(v8::ExternalReference {
+    function: cppgc_template_constructor.map_fn_to(),
   });
 
   // Using v8::OneByteConst and passing external references to it
@@ -143,7 +148,10 @@ pub(crate) fn externalize_sources(
     let offset = snapshot_sources.len();
     for (index, source) in sources.into_iter().enumerate() {
       externals[index + offset] =
-        FastStaticString::create_external_onebyte_const(std::mem::transmute(
+        FastStaticString::create_external_onebyte_const(std::mem::transmute::<
+          &[u8],
+          &[u8],
+        >(
           source.code.as_bytes(),
         ));
       let ptr = &externals[index + offset] as *const v8::OneByteConst;

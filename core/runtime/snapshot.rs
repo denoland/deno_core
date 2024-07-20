@@ -102,7 +102,9 @@ impl SnapshotStoreDataStore {
     // TODO(mmastrac): v8::Global needs From/Into
     // SAFETY: Because we've tested that Local<Data>: From<Local<T>>, we can assume this is safe.
     unsafe {
-      self.data.push(std::mem::transmute(global));
+      self.data.push(
+        std::mem::transmute::<v8::Global<T>, v8::Global<v8::Data>>(global),
+      );
     }
     id as _
   }
@@ -253,7 +255,7 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub source_count: usize,
   pub addl_refs_count: usize,
   #[serde(borrow)]
-  pub ext_source_maps: HashMap<String, &'snapshot [u8]>,
+  pub ext_source_maps: HashMap<&'snapshot str, &'snapshot [u8]>,
   #[serde(borrow)]
   pub external_strings: Vec<&'snapshot [u8]>,
 }
@@ -324,13 +326,15 @@ pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
 pub(crate) fn create_snapshot_creator(
   external_refs: &'static v8::ExternalReferences,
   maybe_startup_snapshot: Option<V8Snapshot>,
+  params: v8::CreateParams,
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
     v8::Isolate::snapshot_creator_from_existing_snapshot(
       snapshot.0,
       Some(external_refs),
+      Some(params),
     )
   } else {
-    v8::Isolate::snapshot_creator(Some(external_refs))
+    v8::Isolate::snapshot_creator(Some(external_refs), Some(params))
   }
 }
