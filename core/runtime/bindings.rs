@@ -9,6 +9,7 @@ use v8::MapFnTo;
 use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
+use crate::cppgc::cppgc_template_constructor;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -54,15 +55,16 @@ pub(crate) fn create_external_references(
     function: catch_dynamic_import_promise_error.map_fn_to(),
   });
   references.push(v8::ExternalReference {
-    function: empty_fn.map_fn_to(),
-  });
-  references.push(v8::ExternalReference {
     function: op_disabled_fn.map_fn_to(),
   });
   let syn_module_eval_fn: v8::SyntheticModuleEvaluationSteps =
     synthetic_module_evaluation_steps.map_fn_to();
   references.push(v8::ExternalReference {
     pointer: syn_module_eval_fn as *mut c_void,
+  });
+
+  references.push(v8::ExternalReference {
+    function: cppgc_template_constructor.map_fn_to(),
   });
 
   // Using v8::OneByteConst and passing external references to it
@@ -146,7 +148,10 @@ pub(crate) fn externalize_sources(
     let offset = snapshot_sources.len();
     for (index, source) in sources.into_iter().enumerate() {
       externals[index + offset] =
-        FastStaticString::create_external_onebyte_const(std::mem::transmute(
+        FastStaticString::create_external_onebyte_const(std::mem::transmute::<
+          &[u8],
+          &[u8],
+        >(
           source.code.as_bytes(),
         ));
       let ptr = &externals[index + offset] as *const v8::OneByteConst;
@@ -589,14 +594,6 @@ fn import_meta_resolve(
   };
 }
 
-fn empty_fn(
-  _scope: &mut v8::HandleScope,
-  _args: v8::FunctionCallbackArguments,
-  _rv: v8::ReturnValue,
-) {
-  //Do Nothing
-}
-
 pub(crate) fn op_disabled_fn(
   scope: &mut v8::HandleScope,
   _args: v8::FunctionCallbackArguments,
@@ -605,14 +602,6 @@ pub(crate) fn op_disabled_fn(
   let message = v8::String::new(scope, "op is disabled").unwrap();
   let exception = v8::Exception::error(scope, message);
   scope.throw_exception(exception);
-}
-
-//It creates a reference to an empty function which can be mantained after the snapshots
-pub fn create_empty_fn<'s>(
-  scope: &mut v8::HandleScope<'s>,
-) -> Option<v8::Local<'s, v8::Function>> {
-  let empty_fn = v8::FunctionTemplate::new(scope, empty_fn);
-  empty_fn.get_function(scope)
 }
 
 fn catch_dynamic_import_promise_error(

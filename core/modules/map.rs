@@ -139,6 +139,7 @@ pub(crate) struct ModuleMap {
   pending_code_cache_ready: Cell<bool>,
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
+  will_snapshot: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -146,6 +147,16 @@ pub(crate) struct ModuleMap {
 }
 
 impl ModuleMap {
+  /// There is a circular Rc reference between the module map and the futures,
+  /// so when destroying the module map we need to clear the pending futures.
+  pub(crate) fn destroy(&self) {
+    self.dynamic_import_map.borrow_mut().clear();
+    self.preparing_dynamic_imports.borrow_mut().clear();
+    self.pending_dynamic_imports.borrow_mut().clear();
+    self.code_cache_ready_futs.borrow_mut().clear();
+    std::mem::take(&mut *self.data.borrow_mut());
+  }
+
   pub(crate) fn next_load_id(&self) -> i32 {
     // TODO(mmastrac): move recursive module loading into here so we can avoid making this pub
     let mut data = self.data.borrow_mut();
@@ -192,8 +203,10 @@ impl ModuleMap {
     loader: Rc<dyn ModuleLoader>,
     exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
+    will_snapshot: bool,
   ) -> Self {
     Self {
+      will_snapshot,
       loader: loader.into(),
       exception_state,
       import_meta_resolve_cb,
@@ -339,9 +352,7 @@ impl ModuleMap {
 
     let module_id = match module_type {
       ModuleType::JavaScript => {
-        let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+        let code = ModuleSource::get_string_source(code);
 
         let (code_cache_info, module_url_found) =
           if let Some(code_cache) = code_cache {
@@ -379,9 +390,7 @@ impl ModuleMap {
         )));
       }
       ModuleType::Json => {
-        let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+        let code = ModuleSource::get_string_source(code);
         self.new_json_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
@@ -633,7 +642,9 @@ impl ModuleMap {
 
     let module = maybe_module.unwrap();
 
-    if try_store_code_cache {
+    // V8 does not support creating code caches while also snapshotting,
+    // and it's not needed anyway, as the snapshot already contains it.
+    if try_store_code_cache && !self.will_snapshot {
       if let Some(code_cache_info) = code_cache_info.take() {
         let unbound_module_script = module.get_unbound_module_script(tc_scope);
         let code_cache =
@@ -1191,9 +1202,9 @@ impl ModuleMap {
     // of module evaluation is a promise.
     //
     // This promise is internal, and not the same one that gets returned to
-    // the user. We add an empty `.catch()` handler so that it does not result
-    // in an exception if it rejects. That will instead happen for the other
-    // promise if not handled by the user.
+    // the user. We add handlers to wake the event loop when the promise resolves
+    // (or rejects). The catch handler also serves to prevent an exception if the internal promise
+    // rejects. That will instead happen for the other if not handled by the user.
     //
     // For more details see:
     // https://github.com/denoland/deno/issues/4908
@@ -1210,11 +1221,28 @@ impl ModuleMap {
         status == v8::ModuleStatus::Evaluated
           || status == v8::ModuleStatus::Errored
       );
+
+      fn wake_module(
+        scope: &mut v8::HandleScope<'_>,
+        _args: v8::FunctionCallbackArguments<'_>,
+        _rv: v8::ReturnValue,
+      ) {
+        let module_map = JsRealm::module_map_from(scope);
+        module_map.module_waker.wake();
+      }
+
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
-      let empty_fn =
-        crate::runtime::bindings::create_empty_fn(tc_scope).unwrap();
-      promise.catch(tc_scope, empty_fn);
+
+      let wake_module_cb = Function::builder(wake_module).build(tc_scope);
+
+      if let Some(wake_module_cb) = wake_module_cb {
+        promise.then2(tc_scope, wake_module_cb, wake_module_cb);
+      } else {
+        // If the runtime is shutting down, we can't attach the handlers.
+        // It doesn't really matter though, because they're just for waking the
+        // event loop.
+      }
       let promise_global = v8::Global::new(tc_scope, promise);
       let module_global = v8::Global::new(tc_scope, module);
 
@@ -1740,7 +1768,7 @@ impl ModuleMap {
     self.lazy_load_es_module_with_code(
       scope,
       module_specifier,
-      ModuleSource::get_string_source(specifier.as_str(), source.code)?,
+      ModuleSource::get_string_source(source.code),
       if let Some(code_cache) = source.code_cache {
         let loader = self.loader.borrow().clone();
         Some(CodeCacheInfo {

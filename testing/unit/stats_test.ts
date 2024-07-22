@@ -103,7 +103,7 @@ test(async function testAsyncLeakTrace() {
 
     assertEquals(tracesAfter.size, tracesBefore.size + 1);
     assertStackTraceEquals(
-      Deno.core.getLeakTraceForPromise(p1),
+      Deno.core.getLeakTraceForPromise(p1)!,
       `
       at op_async_barrier_await (ext:core/00_infra.js:line:col)
       at barrierAwait (checkin:async:line:col)
@@ -146,6 +146,23 @@ test(async function testIntervalLeakTrace() {
 
     assertEquals(tracesAfter.size, tracesBefore.size + 1);
     clearInterval(t1);
+    const tracesFinal = Deno.core.getAllLeakTraces();
+    assertEquals(tracesFinal.size, 0);
+  });
+});
+
+test(async function testSystemTimeoutLeakTrace() {
+  await enableTracingForTest(() => {
+    const tracesBefore = Deno.core.getAllLeakTraces();
+    using statsBefore = StatsFactory.capture();
+    const t1 = Deno.core.queueSystemTimer(undefined, false, 100_000, () => {});
+    const tracesAfter = Deno.core.getAllLeakTraces();
+    using statsAfter = StatsFactory.capture();
+    const diff = StatsFactory.diff(statsBefore, statsAfter);
+    assertEquals(diff.appeared.countWithTraces(LeakType.Timer), 0);
+
+    assertEquals(tracesAfter.size, tracesBefore.size);
+    clearTimeout(t1);
     const tracesFinal = Deno.core.getAllLeakTraces();
     assertEquals(tracesFinal.size, 0);
   });

@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
 use deno_core::v8;
+use deno_core::GarbageCollected;
 use deno_core::OpState;
 use deno_core::V8TaskSpawner;
 use futures::future::poll_fn;
@@ -65,6 +66,8 @@ pub struct TestResource {
   value: u32,
 }
 
+impl GarbageCollected for TestResource {}
+
 #[op2(async)]
 #[cppgc]
 pub async fn op_async_make_cppgc_resource() -> TestResource {
@@ -77,4 +80,9 @@ pub async fn op_async_get_cppgc_resource(
   #[cppgc] resource: &TestResource,
 ) -> u32 {
   resource.value
+}
+
+#[op2(async)]
+pub fn op_async_never_resolves() -> impl Future<Output = ()> {
+  futures::future::pending::<()>()
 }

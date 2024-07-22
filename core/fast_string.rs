@@ -384,6 +384,18 @@ impl From<Arc<str>> for FastString {
   }
 }
 
+impl From<FastString> for Arc<str> {
+  fn from(value: FastString) -> Self {
+    use FastStringInner::*;
+    match value.inner {
+      Static(text) | StaticAscii(text) => text.into(),
+      StaticConst(text) => text.as_ref().into(),
+      Owned(text) => text.into(),
+      Arc(text) => text,
+    }
+  }
+}
+
 impl serde::Serialize for FastString {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
@@ -430,7 +442,7 @@ macro_rules! ascii_str {
   ($str:expr) => {{
     const C: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const($str.as_bytes());
-    unsafe { std::mem::transmute::<_, $crate::FastStaticString>(&C) }
+    $crate::FastStaticString::new(&C)
   }};
 }
 

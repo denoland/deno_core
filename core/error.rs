@@ -9,10 +9,12 @@ use std::fmt::Formatter;
 
 use anyhow::Error;
 
+use crate::runtime::v8_static_strings;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntime;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
+use crate::FastStaticString;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
@@ -159,13 +161,11 @@ pub fn to_v8_error<'a>(
   }
 }
 
+#[inline(always)]
 pub(crate) fn call_site_evals_key<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Private> {
-  const CALL_SITE_EVALS: v8::OneByteConst =
-    v8::String::create_external_onebyte_const(b"#callSiteEvals");
-  let name =
-    v8::String::new_from_onebyte_const(scope, &CALL_SITE_EVALS).unwrap();
+  let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope);
   v8::Private::for_api(scope, Some(name))
 }
 
@@ -285,12 +285,13 @@ impl JsStackFrame {
   }
 }
 
+#[inline(always)]
 fn get_property<'a>(
   scope: &mut v8::HandleScope<'a>,
   object: v8::Local<v8::Object>,
-  key: &str,
+  key: FastStaticString,
 ) -> Option<v8::Local<'a, v8::Value>> {
-  let key = v8::String::new(scope, key).unwrap();
+  let key = key.v8_string(scope);
   object.get(scope, key.into())
 }
 
@@ -411,7 +412,7 @@ impl JsError {
       let v8_exception = exception;
       // The exception is a JS Error object.
       let exception: v8::Local<v8::Object> = exception.try_into().unwrap();
-      let cause = get_property(scope, exception, "cause");
+      let cause = get_property(scope, exception, v8_static_strings::CAUSE);
       let e: NativeJsError =
         serde_v8::from_v8(scope, exception.into()).unwrap_or_default();
       // Get the message by formatting error.name and error.message.
@@ -441,7 +442,7 @@ impl JsError {
 
       // Access error.stack to ensure that prepareStackTrace() has been called.
       // This should populate error.#callSiteEvals.
-      let stack = get_property(scope, exception, "stack");
+      let stack = get_property(scope, exception, v8_static_strings::STACK);
       let stack: Option<v8::Local<v8::String>> =
         stack.and_then(|s| s.try_into().ok());
       let stack = stack.map(|s| s.to_rust_string_lossy(scope));
@@ -475,26 +476,15 @@ impl JsError {
       {
         let state = JsRuntime::state_from(scope);
         let mut source_mapper = state.source_mapper.borrow_mut();
-        if source_mapper.has_user_sources() {
-          for (i, frame) in frames.iter().enumerate() {
-            if let (Some(file_name), Some(line_number)) =
-              (&frame.file_name, frame.line_number)
-            {
-              if !file_name.trim_start_matches('[').starts_with("ext:") {
-                source_line =
-                  source_mapper.get_source_line(file_name, line_number);
-                source_line_frame_index = Some(i);
-                break;
-              }
-            }
-          }
-        } else if let Some(frame) = frames.first() {
-          if let Some(file_name) = &frame.file_name {
+        for (i, frame) in frames.iter().enumerate() {
+          if let (Some(file_name), Some(line_number)) =
+            (&frame.file_name, frame.line_number)
+          {
             if !file_name.trim_start_matches('[').starts_with("ext:") {
-              source_line = msg
-                .get_source_line(scope)
-                .map(|v| v.to_rust_string_lossy(scope));
-              source_line_frame_index = Some(0);
+              source_line =
+                source_mapper.get_source_line(file_name, line_number);
+              source_line_frame_index = Some(i);
+              break;
             }
           }
         }
@@ -503,7 +493,8 @@ impl JsError {
       let mut aggregated: Option<Vec<JsError>> = None;
       if is_aggregate_error(scope, v8_exception) {
         // Read an array of stored errors, this is only defined for `AggregateError`
-        let aggregated_errors = get_property(scope, exception, "errors");
+        let aggregated_errors =
+          get_property(scope, exception, v8_static_strings::ERRORS);
         let aggregated_errors: Option<v8::Local<v8::Array>> =
           aggregated_errors.and_then(|a| a.try_into().ok());
 
@@ -651,13 +642,15 @@ pub(crate) fn is_aggregate_error(
     }
 
     let prototype = prototype.to_object(scope).unwrap();
-    let prototype_name = match get_property(scope, prototype, "constructor") {
-      Some(constructor) => {
-        let ctor = constructor.to_object(scope).unwrap();
-        get_property(scope, ctor, "name").map(|v| v.to_rust_string_lossy(scope))
-      }
-      None => return false,
-    };
+    let prototype_name =
+      match get_property(scope, prototype, v8_static_strings::CONSTRUCTOR) {
+        Some(constructor) => {
+          let ctor = constructor.to_object(scope).unwrap();
+          get_property(scope, ctor, v8_static_strings::NAME)
+            .map(|v| v.to_rust_string_lossy(scope))
+        }
+        None => return false,
+      };
 
     if prototype_name == Some(String::from("AggregateError")) {
       return true;
@@ -681,7 +674,7 @@ pub(crate) fn has_call_site(
   let exception = exception.to_object(scope).unwrap();
   // Access error.stack to ensure that prepareStackTrace() has been called.
   // This should populate error.#callSiteEvals.
-  get_property(scope, exception, "stack");
+  get_property(scope, exception, v8_static_strings::STACK);
   let frames_v8 = {
     let key = call_site_evals_key(scope);
     exception.get_private(scope, key)

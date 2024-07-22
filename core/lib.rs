@@ -69,6 +69,7 @@ pub use crate::async_cell::RcLike;
 pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
 pub use crate::convert::ToV8;
+pub use crate::cppgc::GarbageCollected;
 pub use crate::error::GetErrorClassFn;
 pub use crate::error::JsErrorCreateFn;
 pub use crate::extensions::Extension;
@@ -127,6 +128,7 @@ pub use crate::modules::SourceCodeCacheInfo;
 pub use crate::modules::StaticModuleLoader;
 pub use crate::modules::ValidateImportAttributesCb;
 pub use crate::normalize_path::normalize_path;
+pub use crate::ops::ExternalOpsTracker;
 pub use crate::ops::OpId;
 pub use crate::ops::OpMetadata;
 pub use crate::ops::OpState;
@@ -154,9 +156,12 @@ pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::PollEventLoopOptions;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
+pub use crate::runtime::CONTEXT_STATE_SLOT_INDEX;
+pub use crate::runtime::MODULE_MAP_SLOT_INDEX;
 pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::source_map::SourceMapData;
+#[allow(deprecated)]
 pub use crate::source_map::SourceMapGetter;
 pub use crate::tasks::V8CrossThreadTaskSpawner;
 pub use crate::tasks::V8TaskSpawner;
@@ -171,6 +176,8 @@ pub fn v8_version() -> &'static str {
 /// An internal module re-exporting functions used by the #[op] (`deno_ops`) macro
 #[doc(hidden)]
 pub mod _ops {
+  pub use super::cppgc::make_cppgc_object;
+  pub use super::cppgc::try_unwrap_cppgc_object;
   pub use super::error::throw_type_error;
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;

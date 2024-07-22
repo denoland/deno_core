@@ -1243,8 +1243,11 @@ async fn global_template_middleware() {
     _key: v8::Local<'s, v8::Name>,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
-  ) {
-    unsafe { CALLS.push("descriptor".to_string()) }
+  ) -> v8::Intercepted {
+    unsafe {
+      CALLS.push("descriptor".to_string());
+    }
+    v8::Intercepted::No
   }
 
   pub fn setter<'s>(
@@ -1253,10 +1256,11 @@ async fn global_template_middleware() {
     _value: v8::Local<'s, v8::Value>,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
-  ) {
+  ) -> v8::Intercepted {
     unsafe {
       CALLS.push("setter".to_string());
     }
+    v8::Intercepted::No
   }
 
   fn definer<'s>(
@@ -1265,10 +1269,11 @@ async fn global_template_middleware() {
     _descriptor: &v8::PropertyDescriptor,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
-  ) {
+  ) -> v8::Intercepted {
     unsafe {
       CALLS.push("definer".to_string());
     }
+    v8::Intercepted::No
   }
 
   pub fn gt_middleware<'s>(

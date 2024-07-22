@@ -14,7 +14,6 @@ use crate::ops::OpCtx;
 use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
-use crate::source_map::SourceMapper;
 use crate::ExtensionFileSource;
 use crate::FastString;
 use crate::GetErrorClassFn;
@@ -22,7 +21,7 @@ use crate::ModuleCodeString;
 use crate::OpDecl;
 use crate::OpMetricsFactoryFn;
 use crate::OpState;
-use crate::SourceMapGetter;
+use crate::SourceMapData;
 
 /// Contribute to the `OpState` from each extension.
 pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
@@ -190,6 +189,7 @@ pub struct LoadedSource {
   pub source_type: ExtensionSourceType,
   pub specifier: ModuleName,
   pub code: ModuleCodeString,
+  pub maybe_source_map: Option<SourceMapData>,
 }
 
 #[derive(Debug, Default)]
@@ -242,9 +242,8 @@ impl<'a> IntoIterator for &'a mut LoadedSources {
 fn load(
   transpiler: Option<&ExtensionTranspiler>,
   source: &ExtensionFileSource,
-  source_mapper: &mut SourceMapper<Rc<dyn SourceMapGetter>>,
   load_callback: &mut impl FnMut(&ExtensionFileSource),
-) -> Result<ModuleCodeString, AnyError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
   load_callback(source);
   let mut source_code = source.load()?;
   let mut source_map = None;
@@ -252,18 +251,16 @@ fn load(
     (source_code, source_map) =
       transpiler(ModuleName::from_static(source.specifier), source_code)?;
   }
+  let mut maybe_source_map = None;
   if let Some(source_map) = source_map {
-    source_mapper
-      .ext_source_maps
-      .insert(source.specifier.to_owned(), source_map);
+    maybe_source_map = Some(source_map);
   }
-  Ok(source_code)
+  Ok((source_code, maybe_source_map))
 }
 
-pub fn into_sources(
+pub fn into_sources_and_source_maps(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
-  source_mapper: &mut SourceMapper<Rc<dyn SourceMapGetter>>,
   mut load_callback: impl FnMut(&ExtensionFileSource),
 ) -> Result<LoadedSources, AnyError> {
   let mut sources = LoadedSources::default();
@@ -275,27 +272,33 @@ pub fn into_sources(
         .push(FastString::from_static(esm_entry_point));
     }
     for file in &*extension.lazy_loaded_esm_files {
-      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
       sources.lazy_esm.push(LoadedSource {
         source_type: ExtensionSourceType::LazyEsm,
         specifier: ModuleName::from_static(file.specifier),
         code,
+        maybe_source_map,
       });
     }
     for file in &*extension.js_files {
-      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
       sources.js.push(LoadedSource {
         source_type: ExtensionSourceType::Js,
         specifier: ModuleName::from_static(file.specifier),
         code,
+        maybe_source_map,
       });
     }
     for file in &*extension.esm_files {
-      let code = load(transpiler, file, source_mapper, &mut load_callback)?;
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
       sources.esm.push(LoadedSource {
         source_type: ExtensionSourceType::Esm,
         specifier: ModuleName::from_static(file.specifier),
         code,
+        maybe_source_map,
       });
     }
   }
