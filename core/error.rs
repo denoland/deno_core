@@ -955,34 +955,6 @@ v8_static_strings::v8_static_strings! {
   ORIGINAL = "_orig",
 }
 
-/// Lets you write
-/// `v8_value.cast::<v8::Function>` instead of
-/// `v8::Local::<v8::Function>::try_from(v8_value)`
-/// or `let obj: Result<v8::Local<v8::Function>, _> = v8_value.try_into();`
-trait Cast<'s, T>: Sized {
-  fn try_cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
-  where
-    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error = v8::DataError>;
-  fn cast<O>(self) -> v8::Local<'s, O>
-  where
-    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error: std::fmt::Debug>;
-}
-
-impl<'s, T> Cast<'s, T> for v8::Local<'s, T> {
-  fn try_cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
-  where
-    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error = v8::DataError>,
-  {
-    self.try_into()
-  }
-  fn cast<O>(self) -> v8::Local<'s, O>
-  where
-    v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error: std::fmt::Debug>,
-  {
-    self.try_into().unwrap()
-  }
-}
-
 #[inline(always)]
 pub(crate) fn original_call_site_key<'a>(
   scope: &mut v8::HandleScope<'a>,
