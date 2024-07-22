@@ -322,6 +322,8 @@ impl JsStackFrame {
     }
   }
 
+  /// Creates a `JsStackFrame` from a `CallSite`` JS object,
+  /// provided by V8.
   fn from_callsite_object<'s>(
     scope: &mut v8::HandleScope<'s>,
     callsite: v8::Local<'s, v8::Object>,
@@ -1131,20 +1133,27 @@ pub(crate) fn make_callsite_template<'s>(
   template
 }
 
+// called by V8 whenever a stack trace is created.
+// note that this is called _instead_ of `Error.prepareStackTrace`
+// so we have to explicitly call it to keep user code wrking
 pub fn prepare_stack_trace_callback<'s>(
   scope: &mut v8::HandleScope<'s>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
+  // stash the callsites on the error object. this is used by `JsError::from_exception_inner`
+  // to get more details on an error, because the v8 StackFrame API is missing some info.
   if let Ok(obj) = error.try_cast::<v8::Object>() {
     let key = call_site_evals_key(scope);
     obj.set_private(scope, key, callsites.into());
   }
 
+  // `globalThis.Error.prepareStackTrace`
   let global = scope.get_current_context().global(scope);
   let global_error = get_property(scope, global, ERROR).unwrap().cast();
   let prepare_fn = get_property(scope, global_error, PREPARE_STACK_TRACE)
     .and_then(|f| f.try_cast::<v8::Function>().ok());
+
   if let Some(prepare_fn) = prepare_fn {
     // User defined `Error.prepareStackTrace`.
     // Patch the callsites to have file paths, then call
@@ -1181,16 +1190,10 @@ fn format_stack_trace<'s>(
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
-  let mut frames = Vec::with_capacity(callsites.length() as usize);
-  for i in 0..callsites.length() {
-    let callsite = callsites.get_index(scope, i).unwrap();
-    let callsite = callsite.cast::<v8::Object>();
-    let frame = JsStackFrame::from_callsite_object(scope, callsite).unwrap();
-    frames.push(frame);
-  }
   let mut result = String::new();
 
   if let Some(obj) = error.try_cast().ok() {
+    // Write out the error name + message, if any
     let msg = get_property(scope, obj, v8_static_strings::MESSAGE)
       .filter(|v| !v.is_undefined())
       .map(|v| v.to_rust_string_lossy(scope))
@@ -1208,7 +1211,10 @@ fn format_stack_trace<'s>(
     }
   }
 
-  for frame in frames {
+  // format each stack frame
+  for i in 0..callsites.length() {
+    let callsite = callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
+    let frame = JsStackFrame::from_callsite_object(scope, callsite).unwrap();
     write!(result, "\n    at {}", format_frame::<NoAnsiColors>(&frame))
       .unwrap();
   }
@@ -1221,17 +1227,31 @@ fn format_stack_trace<'s>(
 pub struct NoAnsiColors;
 
 #[derive(Debug, Clone, Copy)]
+/// Part of an error stack trace
 pub enum ErrorElement {
+  /// An anonymous file or method name
   Anonymous,
+  /// Text signifying a native stack frame
   NativeFrame,
+  /// A source line number
   LineNumber,
+  /// A source column number
   ColumnNumber,
+  /// The name of a function (or method)
   FunctionName,
+  /// The name of a source file
   FileName,
+  /// The origin of an error coming from `eval`ed code
   EvalOrigin,
+  /// Text signifying a call to `Promise.all`
   PromiseAll,
 }
 
+/// Applies formatting to various parts of error stack traces.
+///
+/// This is to allow the `deno` crate to reuse `format_frame` and
+/// `format_location` but apply ANSI colors for terminal output,
+/// without adding extra dependencies to `deno_core`.
 pub trait ErrorFormat {
   fn fmt_element(element: ErrorElement, s: &str) -> Cow<'_, str>;
 }
