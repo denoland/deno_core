@@ -69,6 +69,9 @@ use futures::Future;
 use futures::FutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
+use std::ptr::NonNull;
+use v8::fast_api::CFunctionInfo;
+use v8::fast_api::CTypeInfo;
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -151,6 +154,12 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
+  fast_infos: Vec<FastInfo>,
+}
+
+struct FastInfo {
+  fn_info: Option<NonNull<CFunctionInfo>>,
+  fn_sig: Option<(NonNull<CTypeInfo>, NonNull<CTypeInfo>)>,
 }
 
 impl InnerIsolateState {
@@ -216,6 +225,18 @@ impl Drop for InnerIsolateState {
         }
       } else {
         ManuallyDrop::drop(&mut self.v8_isolate);
+      }
+    }
+    for fast_info in std::mem::take(&mut self.fast_infos) {
+      if let Some(ptr) = fast_info.fn_info {
+        // SAFETY: Call drop manually because `fast_fn_c_info` is a `NonNull` and doesn't implement `Drop`.
+        unsafe {
+          std::ptr::drop_in_place(ptr.as_ptr());
+          if let Some((args, ret)) = fast_info.fn_sig {
+            std::ptr::drop_in_place(args.as_ptr());
+            std::ptr::drop_in_place(ret.as_ptr());
+          }
+        }
       }
     }
   }
@@ -824,6 +845,14 @@ impl JsRuntime {
     };
     op_state.borrow_mut().put(isolate_ptr);
 
+    let mut fast_infos = Vec::new();
+    for op_ctx in &*op_ctxs {
+      fast_infos.push(FastInfo {
+        fn_info: op_ctx.fast_fn_c_info,
+        fn_sig: op_ctx.fast_fn_signature,
+      });
+    }
+
     // ...once ops and isolate are set up, we can create a `ContextState`...
     let context_state = Rc::new(ContextState::new(
       op_driver.clone(),
@@ -976,6 +1005,8 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
+
+        fast_infos,
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],

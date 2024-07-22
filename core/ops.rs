@@ -93,28 +93,14 @@ pub struct OpCtx {
 
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_c_info: Option<NonNull<CFunctionInfo>>,
-  fast_fn_signature: Option<(NonNull<CTypeInfo>, NonNull<CTypeInfo>)>,
+  pub(crate) fast_fn_signature:
+    Option<(NonNull<CTypeInfo>, NonNull<CTypeInfo>)>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
   op_driver: Rc<OpDriverImpl>,
   runtime_state: *const JsRuntimeState,
-}
-
-impl Drop for OpCtx {
-  fn drop(&mut self) {
-    if let Some(ptr) = self.fast_fn_c_info {
-      // SAFETY: Call drop manually because `fast_fn_c_info` is a `NonNull` and doesn't implement `Drop`.
-      unsafe {
-        std::ptr::drop_in_place(ptr.as_ptr());
-        if let Some((args, ret)) = self.fast_fn_signature {
-          std::ptr::drop_in_place(args.as_ptr());
-          std::ptr::drop_in_place(ret.as_ptr());
-        }
-      }
-    }
-  }
 }
 
 impl OpCtx {
