@@ -211,6 +211,93 @@ pub struct JsStackFrame {
   pub promise_index: Option<i64>,
 }
 
+/// Applies source map to the given V8 location
+/// (i.e. column number is 0-based).
+fn apply_source_map<'a>(
+  source_mapper: &mut crate::source_map::SourceMapper,
+  file_name: Cow<'a, str>,
+  line_number: i64,
+  column_number: i64,
+) -> (Cow<'a, str>, i64, i64) {
+  match source_mapper.apply_source_map(
+    &file_name,
+    line_number as u32,
+    column_number as u32,
+  ) {
+    SourceMapApplication::Unchanged => {
+      (file_name, line_number, column_number.into())
+    }
+    SourceMapApplication::LineAndColumn {
+      line_number,
+      column_number,
+    } => (file_name, line_number.into(), column_number.into()),
+    SourceMapApplication::LineAndColumnAndFileName {
+      file_name,
+      line_number,
+      column_number,
+    } => (file_name.into(), line_number.into(), column_number.into()),
+  }
+}
+
+/// Parses an eval origin string from V8, returning
+/// the contents before the location,
+/// (the file name, line number, and column number), and
+/// the contents after the location.
+///
+/// # Example
+/// ```ignore
+/// assert_eq!(
+///   parse_eval_origin("eval at foo (bar at (file://a.ts:1:2))"),
+///   Some(("eval at foo (bar at (", ("file://a.ts", 1, 2), "))")),
+/// );
+/// ```
+///
+fn parse_eval_origin(
+  eval_origin: &str,
+) -> Option<(&str, (&str, i64, i64), &str)> {
+  // The eval origin string we get from V8 looks like
+  // `eval at ${function_name} (${origin})`
+  // where origin can be either a file name, like
+  // "eval at foo (file:///path/to/script.ts:1:2)"
+  // or a nested eval origin, like
+  // "eval at foo (eval at bar (file:///path/to/script.ts:1:2))"
+  //
+  let eval_at = "eval at ";
+  // only the innermost eval origin can have location info, so find the last
+  // "eval at", then continue parsing the rest of the string
+  let mut innermost_start = eval_origin.rfind(eval_at)? + eval_at.len();
+  // skip over the function name
+  innermost_start += eval_origin[innermost_start..].find('(')? + 1;
+  if innermost_start >= eval_origin.len() {
+    // malformed
+    return None;
+  }
+
+  // from the right, split by ":" to get the column number, line number, file name
+  // (in that order, since we're iterating from the right). e.g.
+  // eval at foo (eval at bar (file://foo.ts:1:2))
+  //                           ^^^^^^^^^^^^^ ^ ^^^
+  let mut parts = eval_origin[innermost_start..].rsplitn(3, ':');
+  // the part with the column number will include extra stuff, the actual number ends at
+  // the closing paren
+  let column_number_with_rest = parts.next()?;
+  let column_number_end = column_number_with_rest.find(')')?;
+  let column_number = column_number_with_rest[..column_number_end]
+    .parse::<i64>()
+    .ok()?;
+  let line_number = parts.next()?.parse::<i64>().ok()?;
+  let file_name = parts.next()?;
+  // The column number starts after the last occurring ":".
+  let column_start = eval_origin.rfind(':')? + 1;
+  // the innermost origin ends at the end of the column number
+  let innermost_end = column_start + column_number_end;
+  Some((
+    &eval_origin[..innermost_start],
+    (file_name, line_number, column_number),
+    &eval_origin[innermost_end..],
+  ))
+}
+
 impl JsStackFrame {
   pub fn from_location(
     file_name: Option<String>,
@@ -239,28 +326,54 @@ impl JsStackFrame {
     scope: &mut v8::HandleScope<'s>,
     callsite: v8::Local<'s, v8::Object>,
   ) -> Option<Self> {
-    macro_rules! get {
-      ($key: ident) => {{
-        let temp = call_method(scope, callsite, $key, &[])?;
-        serde_v8::from_v8(scope, temp).ok()?
+    macro_rules! call {
+      ($key: ident : $t: ty) => {{
+        let res = call_method(scope, callsite, $key, &[])?;
+        let res: $t = serde_v8::from_v8(scope, res).ok()?;
+        res
       }};
+      ($key: ident) => { call!($key : _) };
     }
 
+    let state = JsRuntime::state_from(scope);
+    let mut source_mapper = state.source_mapper.borrow_mut();
+    // apply source map
+    let (file_name, line_number, column_number) = match (
+      call!(GET_FILE_NAME : Option<String>),
+      call!(GET_LINE_NUMBER),
+      call!(GET_COLUMN_NUMBER),
+    ) {
+      (Some(f), Some(l), Some(c)) => {
+        let (file_name, line_num, col_num) =
+          apply_source_map(&mut source_mapper, f.into(), l, c);
+        (Some(file_name.into_owned()), Some(line_num), Some(col_num))
+      }
+      (f, l, c) => (f, l, c),
+    };
+
+    // apply source map to the eval origin, if the error originates from `eval`ed code
+    let eval_origin = call!(GET_EVAL_ORIGIN: Option<String>).and_then(|o| {
+      let (before, (file, line, col), after) = parse_eval_origin(&o)?;
+      let (file, line, col) =
+        apply_source_map(&mut source_mapper, file.into(), line, col);
+      Some(format!("{before}{file}:{line}:{col}{after}"))
+    });
+
     Some(Self {
-      file_name: get!(GET_FILE_NAME),
-      type_name: get!(GET_TYPE_NAME),
-      function_name: get!(GET_FUNCTION_NAME),
-      method_name: get!(GET_METHOD_NAME),
-      line_number: get!(GET_LINE_NUMBER),
-      column_number: get!(GET_COLUMN_NUMBER),
-      eval_origin: get!(GET_EVAL_ORIGIN),
-      is_top_level: get!(IS_TOPLEVEL),
-      is_eval: get!(IS_EVAL),
-      is_native: get!(IS_NATIVE),
-      is_constructor: get!(IS_CONSTRUCTOR),
-      is_async: get!(IS_ASYNC),
-      is_promise_all: get!(IS_PROMISE_ALL),
-      promise_index: get!(GET_PROMISE_INDEX),
+      file_name,
+      line_number,
+      column_number,
+      eval_origin,
+      type_name: call!(GET_TYPE_NAME),
+      function_name: call!(GET_FUNCTION_NAME),
+      method_name: call!(GET_METHOD_NAME),
+      is_top_level: call!(IS_TOPLEVEL),
+      is_eval: call!(IS_EVAL),
+      is_native: call!(IS_NATIVE),
+      is_constructor: call!(IS_CONSTRUCTOR),
+      is_async: call!(IS_ASYNC),
+      is_promise_all: call!(IS_PROMISE_ALL),
+      promise_index: call!(GET_PROMISE_INDEX),
     })
   }
 
@@ -274,35 +387,18 @@ impl JsStackFrame {
     let f = message.get_script_resource_name(scope)?;
     let f: v8::Local<v8::String> = f.try_into().ok()?;
     let f = f.to_rust_string_lossy(scope);
-    let l = message.get_line_number(scope)? as u32;
+    let l = message.get_line_number(scope)? as i64;
     // V8's column numbers are 0-based, we want 1-based.
-    let c = message.get_start_column() as u32 + 1;
+    let c = message.get_start_column() as i64 + 1;
     let state = JsRuntime::state_from(scope);
     let mut source_mapper = state.source_mapper.borrow_mut();
-    match source_mapper.apply_source_map(&f, l, c) {
-      SourceMapApplication::Unchanged => Some(JsStackFrame::from_location(
-        Some(f),
-        Some(l.into()),
-        Some(c.into()),
-      )),
-      SourceMapApplication::LineAndColumn {
-        line_number,
-        column_number,
-      } => Some(JsStackFrame::from_location(
-        Some(f),
-        Some(line_number.into()),
-        Some(column_number.into()),
-      )),
-      SourceMapApplication::LineAndColumnAndFileName {
-        file_name,
-        line_number,
-        column_number,
-      } => Some(JsStackFrame::from_location(
-        Some(file_name),
-        Some(line_number.into()),
-        Some(column_number.into()),
-      )),
-    }
+    let (file_name, line_num, col_num) =
+      apply_source_map(&mut source_mapper, f.into(), l, c);
+    Some(JsStackFrame::from_location(
+      Some(file_name.into_owned()),
+      Some(line_num),
+      Some(col_num),
+    ))
   }
 
   pub fn maybe_format_location(&self) -> Option<String> {
@@ -1031,6 +1127,11 @@ pub fn prepare_stack_trace_callback<'s>(
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
+  if let Ok(obj) = error.try_cast::<v8::Object>() {
+    let key = call_site_evals_key(scope);
+    obj.set_private(scope, key, callsites.into());
+  }
+
   let global = scope.get_current_context().global(scope);
   let global_error = get_property(scope, global, ERROR).unwrap().cast();
   let prepare_fn = get_property(scope, global_error, PREPARE_STACK_TRACE)
@@ -1062,10 +1163,6 @@ pub fn prepare_stack_trace_callback<'s>(
       .unwrap_or_else(|| v8::undefined(scope).into());
   }
 
-  if let Ok(obj) = error.try_cast::<v8::Object>() {
-    let key = call_site_evals_key(scope);
-    obj.set_private(scope, key, callsites.into());
-  }
   // no user defined `prepareStackTrace`, just call our default
   format_stack_trace(scope, error, callsites)
 }
@@ -1281,5 +1378,58 @@ mod tests {
     let file_name =
       format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts");
     assert_eq!(file_name, "file:///東京/🦕.ts");
+  }
+
+  #[test]
+  fn test_parse_eval_origin() {
+    let cases = [
+      (
+        "eval at <anonymous> (file://path.ts:1:2)",
+        Some(("eval at <anonymous> (", ("file://path.ts", 1, 2), ")")),
+      ),
+      (
+        // malformed
+        "eval at (s:1:2",
+        None,
+      ),
+      (
+        // malformed
+        "at ()", None,
+      ),
+      (
+        // url with parens
+        "eval at foo (http://website.zzz/my-script).ts:1:2)",
+        Some((
+          "eval at foo (",
+          ("http://website.zzz/my-script).ts", 1, 2),
+          ")",
+        )),
+      ),
+      (
+        // nested
+        "eval at foo (eval at bar (file://path.ts:1:2))",
+        Some(("eval at foo (eval at bar (", ("file://path.ts", 1, 2), "))")),
+      ),
+    ];
+    for (input, expect) in cases {
+      match expect {
+        Some((
+          expect_before,
+          (expect_file, expect_line, expect_col),
+          expect_after,
+        )) => {
+          let (before, (file_name, line_number, column_number), after) =
+            parse_eval_origin(input).unwrap();
+          assert_eq!(before, expect_before);
+          assert_eq!(file_name, expect_file);
+          assert_eq!(line_number, expect_line);
+          assert_eq!(column_number, expect_col);
+          assert_eq!(after, expect_after);
+        }
+        None => {
+          assert!(parse_eval_origin(input).is_none());
+        }
+      }
+    }
   }
 }
