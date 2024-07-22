@@ -703,13 +703,13 @@ pub fn format_file_name(file_name: &str) -> String {
 }
 
 fn abbrev_file_name(file_name: &str) -> Option<String> {
-  let url = Url::parse(file_name).ok()?;
-  if url.scheme() != "data" {
+  if !file_name.starts_with("data:") {
     return None;
   }
   if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
     return Some(file_name.to_string());
   }
+  let url = Url::parse(file_name).ok()?;
   let (head, tail) = url.path().split_once(',')?;
   let len = tail.len();
   let start = tail.get(0..20)?;
