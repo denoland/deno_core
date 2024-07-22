@@ -798,7 +798,7 @@ mod tests {
 
   #[test]
   fn test_format_file_name() {
-    let file_name = format_file_name(&format!("data:,Hello%2C%20World%21"));
+    let file_name = format_file_name(&"data:,Hello%2C%20World%21".to_string());
     assert_eq!(file_name, "data:,Hello%2C%20World%21");
 
     let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
