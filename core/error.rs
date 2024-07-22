@@ -6,6 +6,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::fmt::Write as _;
 
 use anyhow::Error;
 
@@ -234,6 +235,35 @@ impl JsStackFrame {
     }
   }
 
+  fn from_callsite_object<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    callsite: v8::Local<'s, v8::Object>,
+  ) -> Option<Self> {
+    macro_rules! get {
+      ($key: ident) => {{
+        let temp = call_method(scope, callsite, $key, &[])?;
+        serde_v8::from_v8(scope, temp).ok()?
+      }};
+    }
+
+    Some(Self {
+      file_name: get!(GET_FILE_NAME),
+      type_name: get!(GET_TYPE_NAME),
+      function_name: get!(GET_FUNCTION_NAME),
+      method_name: get!(GET_METHOD_NAME),
+      line_number: get!(GET_LINE_NUMBER),
+      column_number: get!(GET_COLUMN_NUMBER),
+      eval_origin: get!(GET_EVAL_ORIGIN),
+      is_top_level: get!(IS_TOPLEVEL),
+      is_eval: get!(IS_EVAL),
+      is_native: get!(IS_NATIVE),
+      is_constructor: get!(IS_CONSTRUCTOR),
+      is_async: get!(IS_ASYNC),
+      is_promise_all: get!(IS_PROMISE_ALL),
+      promise_index: get!(GET_PROMISE_INDEX),
+    })
+  }
+
   /// Gets the source mapped stack frame corresponding to the
   /// (script_resource_name, line_number, column_number) from a v8 message.
   /// For non-syntax errors, it should also correspond to the first stack frame.
@@ -293,6 +323,22 @@ fn get_property<'a>(
 ) -> Option<v8::Local<'a, v8::Value>> {
   let key = key.v8_string(scope);
   object.get(scope, key.into())
+}
+
+fn call_method<'a, T>(
+  scope: &mut v8::HandleScope<'a>,
+  object: v8::Local<v8::Object>,
+  key: FastStaticString,
+  args: &[v8::Local<'a, v8::Value>],
+) -> Option<v8::Local<'a, T>>
+where
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+{
+  get_property(scope, object, key)?
+    .try_cast::<v8::Function>()
+    .ok()?
+    .call(scope, object.into(), args)
+    .and_then(|v| v8::Local::try_from(v).ok())
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -800,7 +846,6 @@ v8_static_strings::v8_static_strings! {
   GET_PROMISE_INDEX = "getPromiseIndex",
   PREPARE_STACK_TRACE = "prepareStackTrace",
   ORIGINAL = "_orig",
-  DEFAULT_PREPARE = "defaultPrepareStackTrace",
 }
 
 /// Lets you write
@@ -808,22 +853,22 @@ v8_static_strings::v8_static_strings! {
 /// `v8::Local::<v8::Function>::try_from(v8_value)`
 /// or `let obj: Result<v8::Local<v8::Function>, _> = v8_value.try_into();`
 trait Cast<'s, T>: Sized {
-  fn cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
+  fn try_cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
   where
     v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error = v8::DataError>;
-  fn casted<O>(self) -> v8::Local<'s, O>
+  fn cast<O>(self) -> v8::Local<'s, O>
   where
     v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error: std::fmt::Debug>;
 }
 
 impl<'s, T> Cast<'s, T> for v8::Local<'s, T> {
-  fn cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
+  fn try_cast<O>(self) -> Result<v8::Local<'s, O>, v8::DataError>
   where
     v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error = v8::DataError>,
   {
     self.try_into()
   }
-  fn casted<O>(self) -> v8::Local<'s, O>
+  fn cast<O>(self) -> v8::Local<'s, O>
   where
     v8::Local<'s, T>: TryInto<v8::Local<'s, O>, Error: std::fmt::Debug>,
   {
@@ -865,10 +910,10 @@ macro_rules! make_delegate {
               let orig = args.this().get_private(scope, orig_key).unwrap();
               let key = $field.v8_string(scope).into();
               let orig_ret = orig
-                .casted::<v8::Object>()
+                .cast::<v8::Object>()
                 .get(scope, key)
                 .unwrap()
-                .casted::<v8::Function>()
+                .cast::<v8::Function>()
                 .call(scope, orig, &[]);
               rv.set(orig_ret.unwrap_or_else(|| v8::undefined(scope).into()));
             },
@@ -884,6 +929,23 @@ macro_rules! make_delegate {
   };
 }
 
+/// Creates a template for a `Callsite`-like object, with
+/// a patched `getFileName`.
+/// Effectively:
+/// ```js
+/// const kOriginalCallsite = Symbol("_original");
+/// {
+///   [kOriginalCallsite]: originalCallSite,
+///   getLineNumber() {
+///     return this[kOriginalCallsite].getLineNumber();
+///   },
+///   // etc
+///   getFileName() {
+///     const fileName = this[kOriginalCallsite].getFileName();
+///     return fileUrlToPath(fileName);
+///   }
+/// }
+/// ```
 pub(crate) fn make_callsite_template<'s>(
   scope: &mut v8::HandleScope<'s>,
 ) -> v8::Local<'s, v8::ObjectTemplate> {
@@ -923,14 +985,16 @@ pub(crate) fn make_callsite_template<'s>(
         let mut inner = || -> Option<()> {
           // lookup the original call site object
           let orig_key = original_call_site_key(scope);
-          let orig = args.this().get_private(scope, orig_key).unwrap();
-          let key = GET_FILE_NAME.v8_string(scope).into();
+          let orig = args
+            .this()
+            .get_private(scope, orig_key)
+            .unwrap()
+            .cast::<v8::Object>();
           // call getFileName
-          let orig_ret = orig
-            .casted::<v8::Object>()
-            .get(scope, key)?
-            .casted::<v8::Function>()
-            .call(scope, orig, &[]);
+          let orig_ret = get_property(scope, orig, GET_FILE_NAME)
+            .unwrap()
+            .cast::<v8::Function>()
+            .call(scope, orig.into(), &[]);
           if let Some(ret_val) = orig_ret {
             // strip off `file://`
             let string = ret_val.to_rust_string_lossy(scope);
@@ -968,15 +1032,9 @@ pub fn prepare_stack_trace_callback<'s>(
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
   let global = scope.get_current_context().global(scope);
-  let error_key = ERROR.v8_string(scope);
-  let prepare_stack_trace_key = PREPARE_STACK_TRACE.v8_string(scope);
-  let global_error = global
-    .get(scope, error_key.into())
-    .unwrap()
-    .casted::<v8::Object>();
-  let prepare_fn = global_error
-    .get(scope, prepare_stack_trace_key.into())
-    .and_then(|v| v.cast::<v8::Function>().ok());
+  let global_error = get_property(scope, global, ERROR).unwrap().cast();
+  let prepare_fn = get_property(scope, global_error, PREPARE_STACK_TRACE)
+    .and_then(|f| f.try_cast::<v8::Function>().ok());
   if let Some(prepare_fn) = prepare_fn {
     // User defined `Error.prepareStackTrace`.
     // Patch the callsites to have file paths, then call
@@ -990,10 +1048,8 @@ pub fn prepare_stack_trace_callback<'s>(
       .unwrap();
     let template = v8::Local::new(scope, template);
     for i in 0..len {
-      let callsite = callsites
-        .get_index(scope, i)
-        .unwrap()
-        .casted::<v8::Object>();
+      let callsite =
+        callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
       patched.push(make_patched_callsite(scope, callsite, template).into());
     }
     let patched_callsites = v8::Array::new_with_elements(scope, &patched);
@@ -1006,16 +1062,187 @@ pub fn prepare_stack_trace_callback<'s>(
       .unwrap_or_else(|| v8::undefined(scope).into());
   }
 
+  if let Ok(obj) = error.try_cast::<v8::Object>() {
+    let key = call_site_evals_key(scope);
+    obj.set_private(scope, key, callsites.into());
+  }
   // no user defined `prepareStackTrace`, just call our default
-  let default_key = DEFAULT_PREPARE.v8_string(scope);
-  let default_prepare = global
-    .get(scope, default_key.into())
-    .unwrap()
-    .casted::<v8::Function>();
-  let undef = v8::undefined(scope).into();
-  default_prepare
-    .call(scope, undef, &[error, callsites.into()])
-    .unwrap()
+  format_stack_trace(scope, error, callsites)
+}
+
+fn format_stack_trace<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  error: v8::Local<'s, v8::Value>,
+  callsites: v8::Local<'s, v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+  let mut frames = Vec::with_capacity(callsites.length() as usize);
+  for i in 0..callsites.length() {
+    let callsite = callsites.get_index(scope, i).unwrap();
+    let callsite = callsite.cast::<v8::Object>();
+    let frame = JsStackFrame::from_callsite_object(scope, callsite).unwrap();
+    frames.push(frame);
+  }
+  let mut result = String::new();
+
+  if let Some(obj) = error.try_cast().ok() {
+    let msg = get_property(scope, obj, v8_static_strings::MESSAGE)
+      .map(|v| v.to_rust_string_lossy(scope))
+      .unwrap_or_default();
+    let name = get_property(scope, obj, v8_static_strings::NAME)
+      .map(|v| v.to_rust_string_lossy(scope))
+      .unwrap_or_else(|| "Error".to_string());
+
+    match (!msg.is_empty(), !name.is_empty()) {
+      (true, true) => write!(result, "{}: {}", name, msg).unwrap(),
+      (true, false) => write!(result, "{}", msg).unwrap(),
+      (false, true) => write!(result, "{}", name).unwrap(),
+      (false, false) => {}
+    }
+  }
+
+  for frame in frames {
+    write!(result, "\n    at {}", format_frame::<NoAnsiColors>(&frame))
+      .unwrap();
+  }
+
+  let result = v8::String::new(scope, &result).unwrap();
+  result.into()
+}
+
+/// Formats an error without using ansi colors.
+pub struct NoAnsiColors;
+
+#[derive(Debug, Clone, Copy)]
+pub enum ErrorElement {
+  Anonymous,
+  NativeFrame,
+  LineNumber,
+  ColumnNumber,
+  FunctionName,
+  FileName,
+  EvalOrigin,
+  PromiseAll,
+}
+
+pub trait ErrorFormat {
+  fn fmt_element(element: ErrorElement, s: &str) -> Cow<'_, str>;
+}
+
+impl ErrorFormat for NoAnsiColors {
+  fn fmt_element(_element: ErrorElement, s: &str) -> Cow<'_, str> {
+    s.into()
+  }
+}
+
+// Keep in sync with `/core/error.js`.
+pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
+  use ErrorElement::*;
+  let _internal = frame
+    .file_name
+    .as_ref()
+    .map(|f| f.starts_with("ext:"))
+    .unwrap_or(false);
+  if frame.is_native {
+    return F::fmt_element(NativeFrame, "native").to_string();
+  }
+  let mut result = String::new();
+  let file_name = frame.file_name.clone().unwrap_or_default();
+  if !file_name.is_empty() {
+    result += &F::fmt_element(FileName, &format_file_name(&file_name))
+  } else {
+    if frame.is_eval {
+      result += &(F::fmt_element(
+        ErrorElement::EvalOrigin,
+        &frame.eval_origin.as_ref().unwrap(),
+      )
+      .to_string()
+        + ", ");
+    }
+    result += &F::fmt_element(Anonymous, "<anonymous>");
+  }
+  if let Some(line_number) = frame.line_number {
+    write!(
+      result,
+      ":{}",
+      F::fmt_element(LineNumber, &line_number.to_string())
+    )
+    .unwrap();
+    if let Some(column_number) = frame.column_number {
+      write!(
+        result,
+        ":{}",
+        F::fmt_element(ColumnNumber, &column_number.to_string())
+      )
+      .unwrap();
+    }
+  }
+  result
+}
+
+fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
+  use ErrorElement::*;
+  let _internal = frame
+    .file_name
+    .as_ref()
+    .map(|f| f.starts_with("ext:"))
+    .unwrap_or(false);
+  let is_method_call =
+    !(frame.is_top_level.unwrap_or_default() || frame.is_constructor);
+  let mut result = String::new();
+  if frame.is_async {
+    result += "async ";
+  }
+  if frame.is_promise_all {
+    result += &F::fmt_element(
+      PromiseAll,
+      &format!(
+        "Promise.all (index {})",
+        frame.promise_index.unwrap_or_default()
+      ),
+    );
+    return result;
+  }
+  if is_method_call {
+    let mut formatted_method = String::new();
+    if let Some(function_name) = &frame.function_name {
+      if let Some(type_name) = &frame.type_name {
+        if !function_name.starts_with(type_name) {
+          write!(formatted_method, "{type_name}.").unwrap();
+        }
+      }
+      formatted_method += function_name;
+      if let Some(method_name) = &frame.method_name {
+        if !function_name.ends_with(method_name) {
+          write!(formatted_method, " [as {method_name}]").unwrap();
+        }
+      }
+    } else {
+      if let Some(type_name) = &frame.type_name {
+        write!(formatted_method, "{type_name}.").unwrap();
+      }
+      if let Some(method_name) = &frame.method_name {
+        formatted_method += method_name
+      } else {
+        formatted_method += "<anonymous>";
+      }
+    }
+    result += &F::fmt_element(FunctionName, &formatted_method).to_string();
+  } else if frame.is_constructor {
+    result += "new ";
+    if let Some(function_name) = &frame.function_name {
+      write!(result, "{}", F::fmt_element(FunctionName, &function_name))
+        .unwrap();
+    } else {
+      result += &F::fmt_element(Anonymous, "<anonymous>").to_string();
+    }
+  } else if let Some(function_name) = &frame.function_name {
+    result += &F::fmt_element(FunctionName, &function_name).to_string();
+  } else {
+    result += &format_location::<F>(frame);
+    return result;
+  }
+  write!(result, " ({})", format_location::<F>(frame)).unwrap();
+  result
 }
 
 #[cfg(test)]
