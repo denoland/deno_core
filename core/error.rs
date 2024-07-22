@@ -795,4 +795,24 @@ mod tests {
     let err = bad_resource_id();
     assert_eq!(err.to_string(), "Bad resource ID");
   }
+
+  #[test]
+  fn test_format_file_name() {
+    let file_name = format_file_name(&format!("data:,Hello%2C%20World%21"));
+    assert_eq!(file_name, "data:,Hello%2C%20World%21");
+
+    let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
+    let file_name =
+      format_file_name(&format!("data:text/plain;base64,{too_long_name}_🦕"));
+    assert_eq!(
+      file_name,
+      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
+    );
+
+    let file_name = format_file_name("file:///foo/bar.ts");
+    assert_eq!(file_name, "file:///foo/bar.ts");
+
+    let file_name = format_file_name("file:///東京/🦕.ts");
+    assert_eq!(file_name, "file:///東京/🦕.ts");
+  }
 }
