@@ -600,7 +600,16 @@ impl JsError {
 
       // Convert them into Vec<JsStackFrame>
       let mut frames: Vec<JsStackFrame> = match frames_v8 {
-        Some(frames_v8) => serde_v8::from_v8(scope, frames_v8.into()).unwrap(),
+        Some(frames_v8) => {
+          let mut buf = Vec::with_capacity(frames_v8.length() as usize);
+          for i in 0..frames_v8.length() {
+            let callsite = frames_v8.get_index(scope, i).unwrap().cast();
+            buf.push(
+              JsStackFrame::from_callsite_object(scope, callsite).unwrap(),
+            );
+          }
+          buf
+        }
         None => vec![],
       };
       let mut source_line = None;
@@ -1183,9 +1192,11 @@ fn format_stack_trace<'s>(
 
   if let Some(obj) = error.try_cast().ok() {
     let msg = get_property(scope, obj, v8_static_strings::MESSAGE)
+      .filter(|v| !v.is_undefined())
       .map(|v| v.to_rust_string_lossy(scope))
       .unwrap_or_default();
     let name = get_property(scope, obj, v8_static_strings::NAME)
+      .filter(|v| !v.is_undefined())
       .map(|v| v.to_rust_string_lossy(scope))
       .unwrap_or_else(|| "Error".to_string());
 
@@ -1276,7 +1287,7 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   result
 }
 
-fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
+pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   use ErrorElement::*;
   let _internal = frame
     .file_name
