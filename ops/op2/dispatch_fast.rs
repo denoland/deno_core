@@ -443,7 +443,7 @@ pub(crate) fn generate_dispatch_fast(
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
       let #opctx: &'s _ = unsafe {
-        &*(deno_core::v8::Local::<deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
+        &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(unsafe { #fast_api_callback_options.data.data }).value()
             as *const deno_core::_ops::OpCtx)
       };
     })
@@ -531,7 +531,7 @@ pub(crate) fn generate_dispatch_fast(
       let #fast_api_callback_options: &'s mut _ =
         unsafe { &mut *#fast_api_callback_options };
       let opctx: &'s _ = unsafe {
-          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(
             unsafe { #fast_api_callback_options.data.data }
           ).value() as *const deno_core::_ops::OpCtx)
       };

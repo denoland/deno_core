@@ -2727,9 +2727,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.98.1"
+version = "0.98.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d03f42deef61349d31ae100e7bcdcc5d9293c1126cb8aff8fd56ba3cba18340b"
+checksum = "e9b8009c63eec162cbcc41aa4db66b81974f641d32a35b1a3198ec2ce4712d6b"
 dependencies = [
  "bindgen",
  "bitflags",
