@@ -802,8 +802,9 @@ mod tests {
     assert_eq!(file_name, "data:,Hello%2C%20World%21");
 
     let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
-    let file_name =
-      format_file_name(&format!("data:text/plain;base64,{too_long_name}_🦕"));
+    let file_name = format_file_name(&format!(
+      "data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"
+    ));
     assert_eq!(
       file_name,
       "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
@@ -812,7 +813,7 @@ mod tests {
     let file_name = format_file_name("file:///foo/bar.ts");
     assert_eq!(file_name, "file:///foo/bar.ts");
 
-    let file_name = format_file_name("file:///東京/🦕.ts");
+    let file_name = format_file_name("file:///東京/%F0%9F%A6%95.ts");
     assert_eq!(file_name, "file:///東京/🦕.ts");
   }
 }
