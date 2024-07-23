@@ -777,6 +777,13 @@ impl ModuleMap {
       return Err(v8::Global::new(tc_scope, module.get_exception()));
     }
 
+    // FIXME: instantiate_module is called more than it should be,
+    // especially for dynamic imports. As a hack, bail out if the
+    // module status is already being instantiated.
+    if module.get_status() != v8::ModuleStatus::Uninstantiated {
+      return Ok(());
+    }
+
     tc_scope.set_slot(self as *const _);
     let instantiate_result =
       module.instantiate_module(tc_scope, Self::module_resolve_callback);
