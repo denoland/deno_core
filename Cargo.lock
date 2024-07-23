@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.296.0"
+version = "0.297.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.172.0"
+version = "0.173.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -1840,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.205.0"
+version = "0.206.0"
 dependencies = [
  "bencher",
  "num-bigint",
