@@ -354,7 +354,7 @@ fn op_ctx_function<'s>(
     builder.build_fast(
       scope,
       fast_function,
-      Some(op_ctx.fast_fn_c_info.unwrap().as_ptr()),
+      Some(op_ctx.fast_fn_info.unwrap().fn_info.as_ptr()),
       None,
       None,
     )

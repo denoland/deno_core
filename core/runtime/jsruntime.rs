@@ -38,6 +38,7 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
+use crate::ops::FastFunctionInfo;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
@@ -151,6 +152,7 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
+  fast_fn_infos: Vec<FastFunctionInfo>,
 }
 
 impl InnerIsolateState {
@@ -216,6 +218,20 @@ impl Drop for InnerIsolateState {
         }
       } else {
         ManuallyDrop::drop(&mut self.v8_isolate);
+      }
+    }
+    // Free the fast function infos manually.
+    for FastFunctionInfo {
+      fn_info,
+      fn_sig: (args, ret),
+    } in std::mem::take(&mut self.fast_fn_infos)
+    {
+      // SAFETY: We logically own these, and there are no remaining references because we just destroyed the
+      // realm and isolate above.
+      unsafe {
+        std::ptr::drop_in_place(fn_info.as_ptr());
+        std::ptr::drop_in_place(args.as_ptr());
+        std::ptr::drop_in_place(ret.as_ptr());
       }
     }
   }
@@ -824,6 +840,13 @@ impl JsRuntime {
     };
     op_state.borrow_mut().put(isolate_ptr);
 
+    let mut fast_fn_infos = Vec::with_capacity(op_ctxs.len());
+    for op_ctx in &*op_ctxs {
+      if let Some(fast_fn_info) = op_ctx.fast_fn_info {
+        fast_fn_infos.push(fast_fn_info);
+      }
+    }
+
     // ...once ops and isolate are set up, we can create a `ContextState`...
     let context_state = Rc::new(ContextState::new(
       op_driver.clone(),
@@ -976,6 +999,7 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
+        fast_fn_infos,
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
