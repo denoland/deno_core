@@ -74,6 +74,12 @@ impl OpMetadata {
   }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct FastFunctionInfo {
+  pub(crate) fn_info: NonNull<CFunctionInfo>,
+  pub(crate) fn_sig: (NonNull<CTypeInfo>, NonNull<CTypeInfo>),
+}
+
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
@@ -92,9 +98,7 @@ pub struct OpCtx {
   pub get_error_class_fn: GetErrorClassFn,
 
   pub(crate) decl: OpDecl,
-  pub(crate) fast_fn_c_info: Option<NonNull<CFunctionInfo>>,
-  pub(crate) fast_fn_signature:
-    Option<(NonNull<CTypeInfo>, NonNull<CTypeInfo>)>,
+  pub(crate) fast_fn_info: Option<FastFunctionInfo>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
   pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
@@ -115,9 +119,6 @@ impl OpCtx {
     get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
-    let mut fast_fn_c_info = None;
-    let mut fast_fn_signature = None;
-
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
     // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
     // version and require a slightly different set of arguments (for example, it may need the fastcall
@@ -128,7 +129,7 @@ impl OpCtx {
       &decl.fast_fn
     };
 
-    if let Some(fast_fn) = fast_fn {
+    let fast_fn_info = fast_fn.map(|fast_fn| {
       let args = CTypeInfo::new_from_slice(fast_fn.args);
       let ret = CTypeInfo::new(fast_fn.return_type);
 
@@ -142,9 +143,11 @@ impl OpCtx {
           fast_fn.repr,
         )
       };
-      fast_fn_c_info = Some(c_fn);
-      fast_fn_signature = Some((args, ret));
-    }
+      FastFunctionInfo {
+        fn_info: c_fn,
+        fn_sig: (args, ret),
+      }
+    });
 
     Self {
       id,
@@ -153,8 +156,7 @@ impl OpCtx {
       runtime_state,
       decl,
       op_driver,
-      fast_fn_c_info,
-      fast_fn_signature,
+      fast_fn_info,
       last_fast_error: UnsafeCell::new(None),
       isolate,
       metrics_fn,
@@ -187,14 +189,14 @@ impl OpCtx {
       let slow_fn = v8::ExternalReference {
         function: self.decl.slow_fn_with_metrics,
       };
-      if let (Some(fast_fn), Some(fast_fn_c_info)) =
-        (&self.decl.fast_fn_with_metrics, &self.fast_fn_c_info)
+      if let (Some(fast_fn), Some(fast_fn_info)) =
+        (&self.decl.fast_fn_with_metrics, &self.fast_fn_info)
       {
         let fast_fn = v8::ExternalReference {
           pointer: fast_fn.function as _,
         };
         let fast_info = v8::ExternalReference {
-          pointer: fast_fn_c_info.as_ptr() as _,
+          pointer: fast_fn_info.fn_info.as_ptr() as _,
         };
         [ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {
@@ -204,14 +206,14 @@ impl OpCtx {
       let slow_fn = v8::ExternalReference {
         function: self.decl.slow_fn,
       };
-      if let (Some(fast_fn), Some(fast_fn_c_info)) =
-        (&self.decl.fast_fn, &self.fast_fn_c_info)
+      if let (Some(fast_fn), Some(fast_fn_info)) =
+        (&self.decl.fast_fn, &self.fast_fn_info)
       {
         let fast_fn = v8::ExternalReference {
           pointer: fast_fn.function as _,
         };
         let fast_info = v8::ExternalReference {
-          pointer: fast_fn_c_info.as_ptr() as _,
+          pointer: fast_fn_info.fn_info.as_ptr() as _,
         };
         [ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {

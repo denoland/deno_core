@@ -38,6 +38,7 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
+use crate::ops::FastFunctionInfo;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
@@ -69,9 +70,6 @@ use futures::Future;
 use futures::FutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
-use std::ptr::NonNull;
-use v8::fast_api::CFunctionInfo;
-use v8::fast_api::CTypeInfo;
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -154,12 +152,7 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
-  fast_infos: Vec<FastInfo>,
-}
-
-struct FastInfo {
-  fn_info: Option<NonNull<CFunctionInfo>>,
-  fn_sig: Option<(NonNull<CTypeInfo>, NonNull<CTypeInfo>)>,
+  fast_fn_infos: Vec<FastFunctionInfo>,
 }
 
 impl InnerIsolateState {
@@ -227,16 +220,16 @@ impl Drop for InnerIsolateState {
         ManuallyDrop::drop(&mut self.v8_isolate);
       }
     }
-    for fast_info in std::mem::take(&mut self.fast_infos) {
-      if let Some(ptr) = fast_info.fn_info {
-        // SAFETY: Call drop manually because `fast_fn_c_info` is a `NonNull` and doesn't implement `Drop`.
-        unsafe {
-          std::ptr::drop_in_place(ptr.as_ptr());
-          if let Some((args, ret)) = fast_info.fn_sig {
-            std::ptr::drop_in_place(args.as_ptr());
-            std::ptr::drop_in_place(ret.as_ptr());
-          }
-        }
+    for FastFunctionInfo {
+      fn_info,
+      fn_sig: (args, ret),
+    } in std::mem::take(&mut self.fast_fn_infos)
+    {
+      // SAFETY: Call drop manually because `fast_fn_c_info` is a `NonNull` and doesn't implement `Drop`.
+      unsafe {
+        std::ptr::drop_in_place(fn_info.as_ptr());
+        std::ptr::drop_in_place(args.as_ptr());
+        std::ptr::drop_in_place(ret.as_ptr());
       }
     }
   }
@@ -845,12 +838,11 @@ impl JsRuntime {
     };
     op_state.borrow_mut().put(isolate_ptr);
 
-    let mut fast_infos = Vec::new();
+    let mut fast_fn_infos = Vec::with_capacity(op_ctxs.len());
     for op_ctx in &*op_ctxs {
-      fast_infos.push(FastInfo {
-        fn_info: op_ctx.fast_fn_c_info,
-        fn_sig: op_ctx.fast_fn_signature,
-      });
+      if let Some(fast_fn_info) = op_ctx.fast_fn_info {
+        fast_fn_infos.push(fast_fn_info);
+      }
     }
 
     // ...once ops and isolate are set up, we can create a `ContextState`...
@@ -1005,8 +997,7 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
-
-        fast_infos,
+        fast_fn_infos,
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
