@@ -112,9 +112,9 @@ impl SnapshotStoreDataStore {
 
 /// Options for [`create_snapshot`].
 ///
-/// See example use in [this blog post][1].
+/// See: [example][1].
 ///
-/// [1]: https://deno.com/blog/roll-your-own-javascript-runtime-pt3#diving-into-createsnapshotoptions
+/// [1]: https://github.com/denoland/deno_core/tree/main/core/examples/snapshot
 pub struct CreateSnapshotOptions {
   /// The directory which Cargo will compile everything into.
   ///
@@ -159,9 +159,6 @@ pub struct CreateSnapshotOutput {
 /// Create a snapshot of a JavaScript runtime, which may yield better startup
 /// time.
 ///
-/// There is a great [blog post] about how to use this function, but it's
-/// getting a little out of date.
-///
 /// At a high level, the steps are:
 ///
 ///  * In your project's `build.rs` file:
@@ -175,7 +172,9 @@ pub struct CreateSnapshotOutput {
 ///    * Pass those bytes to [`deno_core::JsRuntime::new`] via
 ///      [`RuntimeOptions::startup_snapshot`]
 ///
-/// [blog post]: https://deno.com/blog/roll-your-own-javascript-runtime-pt3#creating-a-snapshot-in-buildrs
+/// For a concrete example, see [core/examples/snapshot/][example].
+///
+/// [example]: https://github.com/denoland/deno_core/tree/main/core/examples/snapshot
 /// [OUT_DIR]: https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
 #[must_use = "The files listed by create_snapshot should be printed as 'cargo:rerun-if-changed' lines"]
 pub fn create_snapshot(
