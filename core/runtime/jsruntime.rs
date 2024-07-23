@@ -220,12 +220,14 @@ impl Drop for InnerIsolateState {
         ManuallyDrop::drop(&mut self.v8_isolate);
       }
     }
+    // Free the fast function infos manually.
     for FastFunctionInfo {
       fn_info,
       fn_sig: (args, ret),
     } in std::mem::take(&mut self.fast_fn_infos)
     {
-      // SAFETY: Call drop manually because `fast_fn_c_info` is a `NonNull` and doesn't implement `Drop`.
+      // SAFETY: We logically own these, and there are no remaining references because we just destroyed the
+      // realm and isolate above.
       unsafe {
         std::ptr::drop_in_place(fn_info.as_ptr());
         std::ptr::drop_in_place(args.as_ptr());
