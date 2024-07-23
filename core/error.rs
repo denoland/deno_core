@@ -974,40 +974,6 @@ fn make_patched_callsite<'s>(
   out_obj
 }
 
-macro_rules! make_delegate {
-  ($scope: ident, $template: ident, [$($field: ident),+ $(,)?]) => {
-    $(
-      {
-        let key = $field.v8_string($scope).into();
-        $template.set_with_attr(
-          key,
-          v8::FunctionBuilder::<v8::FunctionTemplate>::new(
-            |scope: &mut v8::HandleScope<'_>,
-            args: v8::FunctionCallbackArguments<'_>,
-            mut rv: v8::ReturnValue<'_>| {
-              let orig_key = original_call_site_key(scope);
-              let orig = args.this().get_private(scope, orig_key).unwrap();
-              let key = $field.v8_string(scope).into();
-              let orig_ret = orig
-                .cast::<v8::Object>()
-                .get(scope, key)
-                .unwrap()
-                .cast::<v8::Function>()
-                .call(scope, orig, &[]);
-              rv.set(orig_ret.unwrap_or_else(|| v8::undefined(scope).into()));
-            },
-          )
-          .build($scope)
-          .into(),
-          v8::PropertyAttribute::DONT_DELETE
-          | v8::PropertyAttribute::DONT_ENUM
-          | v8::PropertyAttribute::READ_ONLY,
-        );
-      }
-    )+
-  };
-}
-
 /// Creates a template for a `Callsite`-like object, with
 /// a patched `getFileName`.
 /// Effectively:
@@ -1029,6 +995,42 @@ pub(crate) fn make_callsite_template<'s>(
   scope: &mut v8::HandleScope<'s>,
 ) -> v8::Local<'s, v8::ObjectTemplate> {
   let template = v8::ObjectTemplate::new(scope);
+
+  // effectively
+  // `$field() { return this[kOriginalCallsite].$field() }`
+  macro_rules! make_delegate {
+    ($scope: ident, $template: ident, [$($field: ident),+ $(,)?]) => {
+      $(
+        {
+          let key = $field.v8_string($scope).into();
+          $template.set_with_attr(
+            key,
+            v8::FunctionBuilder::<v8::FunctionTemplate>::new(
+              |scope: &mut v8::HandleScope<'_>,
+              args: v8::FunctionCallbackArguments<'_>,
+              mut rv: v8::ReturnValue<'_>| {
+                let orig_key = original_call_site_key(scope);
+                let orig = args.this().get_private(scope, orig_key).unwrap();
+                let key = $field.v8_string(scope).into();
+                let orig_ret = orig
+                  .cast::<v8::Object>()
+                  .get(scope, key)
+                  .unwrap()
+                  .cast::<v8::Function>()
+                  .call(scope, orig, &[]);
+                rv.set(orig_ret.unwrap_or_else(|| v8::undefined(scope).into()));
+              },
+            )
+            .build($scope)
+            .into(),
+            v8::PropertyAttribute::DONT_DELETE
+            | v8::PropertyAttribute::DONT_ENUM
+            | v8::PropertyAttribute::READ_ONLY,
+          );
+        }
+      )+
+    };
+  }
 
   // delegate to the original callsite object
   make_delegate!(
@@ -1061,38 +1063,29 @@ pub(crate) fn make_callsite_template<'s>(
       |scope: &mut v8::HandleScope<'_>,
        args: v8::FunctionCallbackArguments<'_>,
        mut rv: v8::ReturnValue<'_>| {
-        let mut inner = || -> Option<()> {
-          // lookup the original call site object
-          let orig_key = original_call_site_key(scope);
-          let orig = args
-            .this()
-            .get_private(scope, orig_key)
-            .unwrap()
-            .cast::<v8::Object>();
-          // call getFileName
-          let orig_ret = get_property(scope, orig, GET_FILE_NAME)
-            .unwrap()
-            .cast::<v8::Function>()
-            .call(scope, orig.into(), &[]);
-          if let Some(ret_val) = orig_ret {
-            // strip off `file://`
-            let string = ret_val.to_rust_string_lossy(scope);
-            let file_name = if string.starts_with("file://") {
-              Url::parse(&string)
-                .ok()?
-                .to_file_path()
-                .ok()?
-                .to_string_lossy()
-                .into_owned()
-            } else {
-              string
-            };
-            let v8_str = crate::FastString::from(file_name).v8_string(scope);
-            rv.set(v8_str.into());
-          }
-          Some(())
-        };
-        inner().unwrap();
+        // lookup the original call site object
+        let orig_key = original_call_site_key(scope);
+        let orig = args.this().get_private(scope, orig_key).unwrap().cast();
+        // call getFileName
+        let orig_ret =
+          call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[]);
+        if let Some(ret_val) = orig_ret {
+          // strip off `file://`
+          let string = ret_val.to_rust_string_lossy(scope);
+          let file_name = if string.starts_with("file://") {
+            Url::parse(&string)
+              .unwrap()
+              .to_file_path()
+              .unwrap()
+              .to_string_lossy()
+              .into_owned()
+          } else {
+            string
+          };
+          let v8_str =
+            crate::FastString::from(file_name).v8_string(scope).into();
+          rv.set(v8_str);
+        }
       },
     )
     .build(scope)
@@ -1234,7 +1227,6 @@ impl ErrorFormat for NoAnsiColors {
   }
 }
 
-// Keep in sync with `/core/error.js`.
 pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   use ErrorElement::*;
   let _internal = frame
