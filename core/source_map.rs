@@ -54,9 +54,6 @@ pub struct SourceMapper {
   getter: Option<Rc<dyn SourceMapGetter>>,
 
   ext_source_maps: HashMap<ModuleName, SourceMapData>,
-  // This is not the right place for this, but it's the easiest way to make
-  // op_apply_source_map a fast op. This stashing should happen in #[op2].
-  pub(crate) stashed_file_name: Option<String>,
 }
 
 impl SourceMapper {
@@ -70,7 +67,6 @@ impl SourceMapper {
       ext_source_maps: Default::default(),
       loader,
       getter,
-      stashed_file_name: Default::default(),
     }
   }
 
