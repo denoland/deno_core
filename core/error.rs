@@ -211,8 +211,7 @@ pub struct JsStackFrame {
   pub promise_index: Option<i64>,
 }
 
-/// Applies source map to the given V8 location
-/// (i.e. column number is 0-based).
+/// Applies source map to the given location
 fn apply_source_map<'a>(
   source_mapper: &mut crate::source_map::SourceMapper,
   file_name: Cow<'a, str>,
@@ -224,9 +223,7 @@ fn apply_source_map<'a>(
     line_number as u32,
     column_number as u32,
   ) {
-    SourceMapApplication::Unchanged => {
-      (file_name, line_number, column_number.into())
-    }
+    SourceMapApplication::Unchanged => (file_name, line_number, column_number),
     SourceMapApplication::LineAndColumn {
       line_number,
       column_number,
@@ -1140,7 +1137,7 @@ pub fn prepare_stack_trace_callback<'s>(
 
     // call the user's `prepareStackTrace` with our patched "callsite" objects
     let this = global_error.into();
-    let args = &[error.into(), patched_callsites.into()];
+    let args = &[error, patched_callsites.into()];
     return prepare_fn
       .call(scope, this, args)
       .unwrap_or_else(|| v8::undefined(scope).into());
@@ -1157,7 +1154,7 @@ fn format_stack_trace<'s>(
 ) -> v8::Local<'s, v8::Value> {
   let mut result = String::new();
 
-  if let Some(obj) = error.try_cast().ok() {
+  if let Ok(obj) = error.try_cast() {
     // Write out the error name + message, if any
     let msg = get_property(scope, obj, v8_static_strings::MESSAGE)
       .filter(|v| !v.is_undefined())
@@ -1245,7 +1242,7 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
     if frame.is_eval {
       result += &(F::fmt_element(
         ErrorElement::EvalOrigin,
-        &frame.eval_origin.as_ref().unwrap(),
+        frame.eval_origin.as_ref().unwrap(),
       )
       .to_string()
         + ", ");
@@ -1318,17 +1315,17 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
         formatted_method += "<anonymous>";
       }
     }
-    result += &F::fmt_element(FunctionName, &formatted_method).to_string();
+    result += F::fmt_element(FunctionName, &formatted_method).as_ref();
   } else if frame.is_constructor {
     result += "new ";
     if let Some(function_name) = &frame.function_name {
-      write!(result, "{}", F::fmt_element(FunctionName, &function_name))
+      write!(result, "{}", F::fmt_element(FunctionName, function_name))
         .unwrap();
     } else {
-      result += &F::fmt_element(Anonymous, "<anonymous>").to_string();
+      result += F::fmt_element(Anonymous, "<anonymous>").as_ref();
     }
   } else if let Some(function_name) = &frame.function_name {
-    result += &F::fmt_element(FunctionName, &function_name).to_string();
+    result += F::fmt_element(FunctionName, function_name).as_ref();
   } else {
     result += &format_location::<F>(frame);
     return result;
