@@ -692,17 +692,24 @@ pub(crate) fn has_call_site(
 const DATA_URL_ABBREV_THRESHOLD: usize = 150;
 
 pub fn format_file_name(file_name: &str) -> String {
-  abbrev_file_name(file_name).unwrap_or_else(|| file_name.to_string())
+  abbrev_file_name(file_name).unwrap_or_else(|| {
+    // same as to_percent_decoded_str() in cli/util/path.rs
+    match percent_encoding::percent_decode_str(file_name).decode_utf8() {
+      Ok(s) => s.to_string(),
+      // when failing as utf-8, just return the original string
+      Err(_) => file_name.to_string(),
+    }
+  })
 }
 
 fn abbrev_file_name(file_name: &str) -> Option<String> {
-  if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
+  if !file_name.starts_with("data:") {
     return None;
+  }
+  if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
+    return Some(file_name.to_string());
   }
   let url = Url::parse(file_name).ok()?;
-  if url.scheme() != "data" {
-    return None;
-  }
   let (head, tail) = url.path().split_once(',')?;
   let len = tail.len();
   let start = tail.get(0..20)?;
@@ -787,5 +794,27 @@ mod tests {
   fn test_bad_resource_id() {
     let err = bad_resource_id();
     assert_eq!(err.to_string(), "Bad resource ID");
+  }
+
+  #[test]
+  fn test_format_file_name() {
+    let file_name = format_file_name("data:,Hello%2C%20World%21");
+    assert_eq!(file_name, "data:,Hello%2C%20World%21");
+
+    let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
+    let file_name = format_file_name(&format!(
+      "data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"
+    ));
+    assert_eq!(
+      file_name,
+      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
+    );
+
+    let file_name = format_file_name("file:///foo/bar.ts");
+    assert_eq!(file_name, "file:///foo/bar.ts");
+
+    let file_name =
+      format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts");
+    assert_eq!(file_name, "file:///東京/🦕.ts");
   }
 }
