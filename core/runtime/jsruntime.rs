@@ -45,8 +45,6 @@ use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapData;
-#[allow(deprecated)]
-use crate::source_map::SourceMapGetter;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
 use crate::Extension;
@@ -443,11 +441,6 @@ pub struct JsRuntimeState {
 
 #[derive(Default)]
 pub struct RuntimeOptions {
-  /// Source map reference for errors.
-  #[deprecated = "Update `ModuleLoader` trait implementations. This option will be removed in deno_core v0.300.0."]
-  #[allow(deprecated)]
-  pub source_map_getter: Option<Rc<dyn SourceMapGetter>>,
-
   /// Allows to map error type to a string "class" used to represent
   /// error in JavaScript.
   pub get_error_class_fn: Option<GetErrorClassFn>,
@@ -694,9 +687,7 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
-    #[allow(deprecated)]
-    let mut source_mapper =
-      SourceMapper::new(loader.clone(), options.source_map_getter);
+    let mut source_mapper = SourceMapper::new(loader.clone());
 
     let mut sources = extension_set::into_sources_and_source_maps(
       options.extension_transpiler.as_deref(),
