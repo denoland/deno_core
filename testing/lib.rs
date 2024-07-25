@@ -59,6 +59,7 @@ integration_test!(
   error_async_stack,
   error_rejection_catch,
   error_rejection_order,
+  error_eval_stack,
   error_ext_stack,
   error_with_stack,
   error_without_stack,

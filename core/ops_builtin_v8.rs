@@ -1,5 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::call_site_evals_key;
 use crate::error::custom_error;
 use crate::error::is_instance_of_error;
 use crate::error::range_error;
@@ -1038,74 +1037,6 @@ fn write_line_and_col_to_ret_buf(
 ) {
   ret_buf[0..4].copy_from_slice(&line_number.to_le_bytes());
   ret_buf[4..8].copy_from_slice(&column_number.to_le_bytes());
-}
-
-// Returns:
-// 0: no source mapping performed, use original location
-// 1: mapped line and column, but not file name. new line and column are in
-//    ret_buf, use original file name.
-// 2: mapped line, column, and file name. new line, column, and file name are in
-//    ret_buf. retrieve file name by calling `op_apply_source_map_filename`
-//    immediately after this op returns.
-#[op2(fast)]
-#[smi]
-pub fn op_apply_source_map(
-  state: &JsRuntimeState,
-  #[string] file_name: &str,
-  #[smi] line_number: u32,
-  #[smi] column_number: u32,
-  #[buffer] ret_buf: &mut [u8],
-) -> Result<u8, Error> {
-  if ret_buf.len() != 8 {
-    return Err(type_error("retBuf must be 8 bytes"));
-  }
-  let mut source_mapper = state.source_mapper.borrow_mut();
-  let application =
-    source_mapper.apply_source_map(file_name, line_number, column_number);
-  match application {
-    SourceMapApplication::Unchanged => Ok(0),
-    SourceMapApplication::LineAndColumn {
-      line_number,
-      column_number,
-    } => {
-      write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
-      Ok(1)
-    }
-    SourceMapApplication::LineAndColumnAndFileName {
-      line_number,
-      column_number,
-      file_name,
-    } => {
-      write_line_and_col_to_ret_buf(ret_buf, line_number, column_number);
-      source_mapper.stashed_file_name.replace(file_name);
-      Ok(2)
-    }
-  }
-}
-
-// Call to retrieve the stashed file name from a previous call to
-// `op_apply_source_map` that returned `2`.
-#[op2]
-#[string]
-pub fn op_apply_source_map_filename(
-  state: &JsRuntimeState,
-) -> Result<String, Error> {
-  state
-    .source_mapper
-    .borrow_mut()
-    .stashed_file_name
-    .take()
-    .ok_or_else(|| type_error("No stashed file name"))
-}
-
-#[op2]
-pub fn op_set_call_site_evals(
-  scope: &mut v8::HandleScope,
-  exception: v8::Local<v8::Object>,
-  value: v8::Local<v8::Value>,
-) {
-  let key = call_site_evals_key(scope);
-  assert!(exception.set_private(scope, key, value).unwrap())
 }
 
 #[op2]

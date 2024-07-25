@@ -325,10 +325,8 @@ pub(crate) static CONTEXT_SETUP_SOURCES: [InternalSourceFile; 2] = [
 
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
-pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 2] = [
-  internal_source_file!("01_core.js"),
-  internal_source_file!("02_error.js"),
-];
+pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
+  [internal_source_file!("01_core.js")];
 
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
@@ -436,6 +434,7 @@ pub struct JsRuntimeState {
   pub(crate) eval_context_code_cache_ready_cb:
     Option<EvalContextCodeCacheReadyCb>,
   pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
+  pub(crate) callsite_template: RefCell<Option<v8::Global<v8::ObjectTemplate>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -745,6 +744,7 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       cppgc_template: None.into(),
+      callsite_template: None.into(),
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
@@ -901,6 +901,12 @@ impl JsRuntime {
       v8::HandleScope::with_context(&mut isolate, &main_context);
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
+
+    let callsite_template = crate::error::make_callsite_template(scope);
+    state_rc
+      .callsite_template
+      .borrow_mut()
+      .replace(v8::Global::new(scope, callsite_template));
 
     // ...followed by creation of `Deno.core` namespace, as well as internal
     // infrastructure to provide JavaScript bindings for ops...

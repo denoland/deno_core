@@ -149,6 +149,9 @@ pub fn create_isolate(
 
   isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
   isolate.set_promise_reject_callback(bindings::promise_reject_callback);
+  isolate.set_prepare_stack_trace_callback(
+    crate::error::prepare_stack_trace_callback,
+  );
   isolate.set_host_initialize_import_meta_object_callback(
     bindings::host_initialize_import_meta_object_callback,
   );
