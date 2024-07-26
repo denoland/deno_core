@@ -166,26 +166,6 @@ pub(crate) fn externalize_sources(
   }
 }
 
-// TODO(nayeemrmn): Move to runtime and/or make `pub(crate)`.
-pub fn script_origin<'a>(
-  s: &mut v8::HandleScope<'a>,
-  resource_name: v8::Local<'a, v8::String>,
-) -> v8::ScriptOrigin<'a> {
-  let source_map_url = v8::String::empty(s);
-  v8::ScriptOrigin::new(
-    s,
-    resource_name.into(),
-    0,
-    0,
-    false,
-    123,
-    source_map_url.into(),
-    true,
-    false,
-    false,
-  )
-}
-
 pub(crate) fn get<'s, T>(
   scope: &mut v8::HandleScope<'s>,
   from: v8::Local<v8::Object>,
@@ -275,7 +255,7 @@ pub(crate) fn initialize_primordials_and_infra(
     let name = source_file.specifier.v8_string(scope);
     let source = source_file.source.v8_string(scope);
 
-    let origin = script_origin(scope, name);
+    let origin = crate::modules::script_origin(scope, name, false, None);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source, Some(&origin))
       .with_context(|| format!("Failed to parse {}", source_file.specifier))?;

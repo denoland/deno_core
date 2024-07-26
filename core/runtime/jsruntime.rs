@@ -25,6 +25,7 @@ use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
+use crate::modules::script_origin;
 use crate::modules::CustomModuleEvaluationCb;
 use crate::modules::EvalContextCodeCacheReadyCb;
 use crate::modules::EvalContextGetCodeCacheCb;
@@ -1152,7 +1153,7 @@ impl JsRuntime {
       let name = source_file.specifier.v8_string(scope);
       let source = source_file.source.v8_string(scope);
 
-      let origin = bindings::script_origin(scope, name);
+      let origin = script_origin(scope, name, false, None);
       let script = v8::Script::compile(scope, source, Some(&origin))
         .with_context(|| {
           format!("Failed to parse {}", source_file.specifier)

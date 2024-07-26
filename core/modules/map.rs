@@ -598,8 +598,11 @@ impl ModuleMap {
 
     let name_str = name.v8_string(scope);
     let source_str = source.v8_string(scope);
-
-    let origin = module_origin(scope, name_str);
+    let host_defined_options = self
+      .loader
+      .borrow()
+      .get_host_defined_options(scope, name.as_str());
+    let origin = script_origin(scope, name_str, true, host_defined_options);
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 
@@ -1830,21 +1833,23 @@ pub(crate) fn synthetic_module_evaluation_steps<'a>(
   Some(resolver.get_promise(tc_scope).into())
 }
 
-pub fn module_origin<'a>(
+pub fn script_origin<'a>(
   s: &mut v8::HandleScope<'a>,
   resource_name: v8::Local<'a, v8::String>,
+  is_module: bool,
+  host_defined_options: Option<v8::Local<'a, v8::Data>>,
 ) -> v8::ScriptOrigin<'a> {
-  let source_map_url = v8::String::empty(s);
   v8::ScriptOrigin::new(
     s,
     resource_name.into(),
     0,
     0,
     false,
-    123,
-    source_map_url.into(),
-    true,
+    0,
+    None,
     false,
-    true,
+    false,
+    is_module,
+    host_defined_options,
   )
 }
