@@ -172,7 +172,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       return None;
     }
     let path = url.to_file_path().unwrap();
-    let code = std::fs::read_to_string(&path).ok()?;
+    let code = std::fs::read_to_string(path).ok()?;
     eprintln!("code {}", code);
     // Do NOT use .lines(): it skips the terminating empty line.
     // (due to internally using_terminator() instead of .split())

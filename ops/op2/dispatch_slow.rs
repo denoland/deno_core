@@ -171,7 +171,7 @@ pub(crate) fn generate_dispatch_slow(
         let info: &'s _ = unsafe { &*#info };
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info);
         let #opctx: &'s _ = unsafe {
-          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()
               as *const deno_core::_ops::OpCtx)
         };
 
@@ -220,7 +220,7 @@ pub(crate) fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
   generator_state.needs_args = true;
   gs_quote!(generator_state(opctx, fn_args) =>
     (let #opctx: &'s _ = unsafe {
-    &*(deno_core::v8::Local::<deno_core::v8::External>::cast(#fn_args.data()).value()
+    &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(#fn_args.data()).value()
         as *const deno_core::_ops::OpCtx)
     };)
   )

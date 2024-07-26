@@ -2,15 +2,12 @@
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
-// TODO(bartlomieju): remove once `SourceMapGetter` is removed.
-#![allow(deprecated)]
-
-use crate::module_specifier::ModuleResolutionError;
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRealm;
 use crate::ModuleLoader;
 use crate::ModuleName;
+use crate::ModuleResolutionError;
 use crate::RequestedModuleType;
 use sourcemap::DecodedMap;
 pub use sourcemap::SourceMap;
@@ -20,17 +17,6 @@ use std::rc::Rc;
 use std::str;
 
 const BASE64_PREFIX: &str = "data:application/json;base64,";
-
-#[deprecated = "Use `ModuleLoader` methods instead. This trait will be removed in deno_core v0.300.0."]
-pub trait SourceMapGetter {
-  /// Returns the raw source map file.
-  fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>>;
-  fn get_source_line(
-    &self,
-    file_name: &str,
-    line_number: usize,
-  ) -> Option<String>;
-}
 
 #[derive(Debug, PartialEq)]
 pub enum SourceMapApplication {
@@ -58,26 +44,17 @@ pub struct SourceMapper {
   source_lines: HashMap<(String, i64), Option<String>>,
 
   loader: Rc<dyn ModuleLoader>,
-  getter: Option<Rc<dyn SourceMapGetter>>,
 
   ext_source_maps: HashMap<ModuleName, SourceMapData>,
-  // This is not the right place for this, but it's the easiest way to make
-  // op_apply_source_map a fast op. This stashing should happen in #[op2].
-  pub(crate) stashed_file_name: Option<String>,
 }
 
 impl SourceMapper {
-  pub fn new(
-    loader: Rc<dyn ModuleLoader>,
-    getter: Option<Rc<dyn SourceMapGetter>>,
-  ) -> Self {
+  pub fn new(loader: Rc<dyn ModuleLoader>) -> Self {
     Self {
       maps: Default::default(),
       source_lines: Default::default(),
       ext_source_maps: Default::default(),
       loader,
-      getter,
-      stashed_file_name: Default::default(),
     }
   }
 
@@ -177,7 +154,6 @@ impl SourceMapper {
     let line_number = line_number - 1;
     let column_number = column_number - 1;
 
-    let getter = self.getter.as_ref();
     let maybe_source_map =
       self.maps.entry(file_name.to_owned()).or_insert_with(|| {
         None
@@ -189,9 +165,6 @@ impl SourceMapper {
               &self.loader.get_source_map_for_file(file_name)?,
             )
             .ok()
-          })
-          .or_else(|| {
-            SourceMap::from_slice(&getter?.get_source_map(file_name)?).ok()
           })
       });
 
@@ -271,32 +244,16 @@ impl SourceMapper {
     file_name: &str,
     line_number: i64,
   ) -> Option<String> {
-    eprintln!("get_source_line {} {}", file_name, line_number);
+    // eprintln!("get_source_line {} {}", file_name, line_number);
     if let Some(maybe_source_line) =
       self.source_lines.get(&(file_name.to_string(), line_number))
     {
       return maybe_source_line.clone();
     }
 
-    // TODO(bartlomieju): shouldn't we cache `None` values to avoid computing it each time, instead of early return?
-    if let Some(source_line) = self
+    let s = self
       .loader
-      .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
-      .filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
-    {
-      eprintln!("line {}", source_line);
-      // Cache and return
-      self.source_lines.insert(
-        (file_name.to_string(), line_number),
-        Some(source_line.to_string()),
-      );
-      return Some(source_line);
-    }
-
-    // TODO(bartlomieju): remove in deno_core 0.230.0
-    // Fallback to a deprecated API
-    let getter = self.getter.as_ref()?;
-    let s = getter.get_source_line(file_name, (line_number - 1) as usize);
+      .get_source_mapped_source_line(file_name, (line_number - 1) as usize);
     let maybe_source_line =
       s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH);
     // Cache and return

@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.295.0"
+version = "0.299.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -574,6 +574,7 @@ dependencies = [
  "libc",
  "memoffset",
  "parking_lot",
+ "percent-encoding",
  "pin-project",
  "pretty_assertions",
  "rstest",
@@ -623,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.171.0"
+version = "0.175.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -665,9 +666,9 @@ dependencies = [
 
 [[package]]
 name = "deno_unsync"
-version = "0.3.10"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3c8b95582c2023dbb66fccc37421b374026f5915fa507d437cb566904db9a3a"
+checksum = "03ee1607db298c8f12124b345a52d5f2f504a7504c9d535f1d8f07127b237010"
 dependencies = [
  "parking_lot",
  "tokio",
@@ -1840,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.204.0"
+version = "0.208.0"
 dependencies = [
  "bencher",
  "num-bigint",
@@ -2727,9 +2728,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.98.1"
+version = "0.100.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d03f42deef61349d31ae100e7bcdcc5d9293c1126cb8aff8fd56ba3cba18340b"
+checksum = "393945ec4b535f31c59f048ad3fb1c3b56d432d5f8d2379cbf9f2506bf2b037f"
 dependencies = [
  "bindgen",
  "bitflags",

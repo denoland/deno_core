@@ -38,14 +38,13 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
+use crate::ops::FastFunctionInfo;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapData;
-#[allow(deprecated)]
-use crate::source_map::SourceMapGetter;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
 use crate::Extension;
@@ -151,6 +150,7 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
+  fast_fn_infos: Vec<FastFunctionInfo>,
 }
 
 impl InnerIsolateState {
@@ -216,6 +216,20 @@ impl Drop for InnerIsolateState {
         }
       } else {
         ManuallyDrop::drop(&mut self.v8_isolate);
+      }
+    }
+    // Free the fast function infos manually.
+    for FastFunctionInfo {
+      fn_info,
+      fn_sig: (args, ret),
+    } in std::mem::take(&mut self.fast_fn_infos)
+    {
+      // SAFETY: We logically own these, and there are no remaining references because we just destroyed the
+      // realm and isolate above.
+      unsafe {
+        std::ptr::drop_in_place(fn_info.as_ptr());
+        std::ptr::drop_in_place(args.as_ptr());
+        std::ptr::drop_in_place(ret.as_ptr());
       }
     }
   }
@@ -309,10 +323,8 @@ pub(crate) static CONTEXT_SETUP_SOURCES: [InternalSourceFile; 2] = [
 
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
-pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 2] = [
-  internal_source_file!("01_core.js"),
-  internal_source_file!("02_error.js"),
-];
+pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
+  [internal_source_file!("01_core.js")];
 
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
@@ -420,6 +432,7 @@ pub struct JsRuntimeState {
   pub(crate) eval_context_code_cache_ready_cb:
     Option<EvalContextCodeCacheReadyCb>,
   pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
+  pub(crate) callsite_template: RefCell<Option<v8::Global<v8::ObjectTemplate>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -428,11 +441,6 @@ pub struct JsRuntimeState {
 
 #[derive(Default)]
 pub struct RuntimeOptions {
-  /// Source map reference for errors.
-  #[deprecated = "Update `ModuleLoader` trait implementations. This option will be removed in deno_core v0.300.0."]
-  #[allow(deprecated)]
-  pub source_map_getter: Option<Rc<dyn SourceMapGetter>>,
-
   /// Allows to map error type to a string "class" used to represent
   /// error in JavaScript.
   pub get_error_class_fn: Option<GetErrorClassFn>,
@@ -679,9 +687,7 @@ impl JsRuntime {
       .module_loader
       .unwrap_or_else(|| Rc::new(NoopModuleLoader));
 
-    #[allow(deprecated)]
-    let mut source_mapper =
-      SourceMapper::new(loader.clone(), options.source_map_getter);
+    let mut source_mapper = SourceMapper::new(loader.clone());
 
     let mut sources = extension_set::into_sources_and_source_maps(
       options.extension_transpiler.as_deref(),
@@ -729,6 +735,7 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       cppgc_template: None.into(),
+      callsite_template: None.into(),
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
@@ -824,6 +831,13 @@ impl JsRuntime {
     };
     op_state.borrow_mut().put(isolate_ptr);
 
+    let mut fast_fn_infos = Vec::with_capacity(op_ctxs.len());
+    for op_ctx in &*op_ctxs {
+      if let Some(fast_fn_info) = op_ctx.fast_fn_info {
+        fast_fn_infos.push(fast_fn_info);
+      }
+    }
+
     // ...once ops and isolate are set up, we can create a `ContextState`...
     let context_state = Rc::new(ContextState::new(
       op_driver.clone(),
@@ -878,6 +892,12 @@ impl JsRuntime {
       v8::HandleScope::with_context(&mut isolate, &main_context);
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
+
+    let callsite_template = crate::error::make_callsite_template(scope);
+    state_rc
+      .callsite_template
+      .borrow_mut()
+      .replace(v8::Global::new(scope, callsite_template));
 
     // ...followed by creation of `Deno.core` namespace, as well as internal
     // infrastructure to provide JavaScript bindings for ops...
@@ -976,6 +996,7 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
+        fast_fn_infos,
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
