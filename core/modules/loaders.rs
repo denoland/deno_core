@@ -110,6 +110,17 @@ pub trait ModuleLoader {
   ) -> Option<String> {
     None
   }
+
+  /// Implementors can attach arbitrary data to scripts and modules
+  /// by implementing this method. V8 currently requires that the
+  /// returned data be a `v8::PrimitiveArray`.
+  fn get_host_defined_options<'s>(
+    &self,
+    _scope: &mut v8::HandleScope<'s>,
+    _name: &str,
+  ) -> Option<v8::Local<'s, v8::Data>> {
+    None
+  }
 }
 
 /// Placeholder structure used when creating

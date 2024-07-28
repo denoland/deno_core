@@ -45,5 +45,3 @@ pub(crate) use snapshot::SnapshotDataId;
 pub(crate) use snapshot::SnapshotLoadDataStore;
 pub(crate) use snapshot::SnapshotStoreDataStore;
 pub(crate) use snapshot::SnapshottedData;
-
-pub use bindings::script_origin;

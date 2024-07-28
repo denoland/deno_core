@@ -656,8 +656,13 @@
     evalContext: (
       source,
       specifier,
+      hostDefinedOptions,
     ) => {
-      const [result, error] = op_eval_context(source, specifier);
+      const [result, error] = op_eval_context(
+        source,
+        specifier,
+        hostDefinedOptions,
+      );
       if (error) {
         const { 0: thrown, 1: isNativeError, 2: isCompileError } = error;
         return [
