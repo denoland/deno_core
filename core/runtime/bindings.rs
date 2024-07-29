@@ -569,7 +569,7 @@ fn import_meta_resolve(
       rv.set(resolved_val);
     }
     Err(err) => {
-      throw_type_error(scope, &err.to_string());
+      throw_type_error(scope, err.to_string());
     }
   };
 }
