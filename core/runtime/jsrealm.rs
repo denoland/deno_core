@@ -1,10 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use super::bindings;
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::script_origin;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeString;
@@ -314,7 +314,7 @@ impl JsRealm {
 
     let source = source_code.into_module_code().v8_string(scope);
     let name = name.into_module_name().v8_string(scope);
-    let origin = bindings::script_origin(scope, name);
+    let origin = script_origin(scope, name, false, None);
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 
