@@ -585,7 +585,6 @@ extern "C" fn isolate_message_listener(
   message: v8::Local<v8::Message>,
   _exception: v8::Local<v8::Value>,
 ) {
-  eprintln!("isoalte message listener");
   let scope = &mut unsafe { v8::CallbackScope::new(message) };
   let scope = &mut v8::HandleScope::new(scope);
   let message_v8_str = message.get(scope);
@@ -603,20 +602,24 @@ extern "C" fn isolate_message_listener(
   let js_runtime_state = JsRuntime::state_from(scope);
   match &js_runtime_state.import_assertions_support {
     ImportAssertionsSupport::Warning => {
-      eprintln!("⚠️  Import assertions are deprecated. Use `with` keyword, instead of 'assert' keyword.");
+      let mut msg = "⚠️  Import assertions are deprecated. Use `with` keyword, instead of 'assert' keyword.".to_string();
       if let Some(specifier) = maybe_script_resource_name {
         if let Some(source_line) = maybe_source_line {
-          eprintln!();
-          eprintln!("{}", source_line.to_rust_string_lossy(scope));
-          eprintln!();
-          eprintln!("{:0width$}^", " ", width = start_column);
+          msg.push('\n');
+          msg.push_str(&source_line.to_rust_string_lossy(scope));
+          msg.push('\n');
+          msg.push_str(&format!("{:0width$}^", " ", width = start_column));
         }
-        eprintln!(
+        msg.push_str(&format!(
           "  at {}:{}:{}",
           specifier.to_rust_string_lossy(scope),
           maybe_line_number.unwrap(),
           start_column
-        );
+        ));
+        #[allow(clippy::print_stderr)]
+        {
+          eprintln!("{}", msg);
+        }
       }
     }
     ImportAssertionsSupport::CustomCallback(cb) => {
@@ -902,10 +905,6 @@ impl JsRuntime {
     );
 
     if state_rc.import_assertions_support.has_warning() {
-      eprintln!(
-        "ImportAssertionsSupport {}",
-        state_rc.import_assertions_support.has_warning()
-      );
       isolate.add_message_listener_with_error_level(
         isolate_message_listener,
         MessageErrorLevel::ALL,
