@@ -63,7 +63,6 @@ integration_test!(
   error_ext_stack,
   error_with_stack,
   error_without_stack,
-  import_assertions_warning,
   main_module_handler,
   module_types,
   pending_unref_op_tla,
