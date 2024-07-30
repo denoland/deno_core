@@ -556,18 +556,32 @@ pub struct RuntimeOptions {
   pub import_assertions_support: ImportAssertionsSupport,
 }
 
+pub struct ImportAssertionsSupportCustomCallbackArgs {
+  pub maybe_specifier: Option<String>,
+  pub maybe_line_number: Option<usize>,
+  pub column_number: usize,
+  pub maybe_source_line: Option<String>,
+}
+
 #[derive(Default)]
 pub enum ImportAssertionsSupport {
-  // TODO(bartlomieju): we probably don't want it to be default, but rather `Warning` or `Error`.
-  // `assert` keyword is supported.
+  /// `assert` keyword is no longer supported and causes a SyntaxError.
+  /// This is the default setting, because V8 unshipped import assertions
+  /// support in v12.6. To enable import assertion one must pass
+  /// `--harmony-import-assertions` V8 flag when initializing the runtime.
   #[default]
-  Yes,
-  // `assert` keyword is supported, but prints a warning message on occurence.
-  Warning,
-  // `assert` keyword is no longer supported and causes a SyntaxError
   Error,
-  // `assert` keyword is supported, provided callback is called on each occurence.
-  CustomCallback(Box<dyn Fn()>),
+
+  /// `assert` keyword is supported.
+  Yes,
+
+  /// `assert` keyword is supported, but prints a warning message on occurence.
+  Warning,
+
+  /// `assert` keyword is supported, provided callback is called on each occurence.
+  /// Callback receives optional specifier, optional line number, column number and optional
+  /// source line.
+  CustomCallback(Box<dyn Fn(ImportAssertionsSupportCustomCallbackArgs)>),
 }
 
 impl ImportAssertionsSupport {
@@ -594,8 +608,12 @@ extern "C" fn isolate_message_listener(
     return;
   }
 
-  let maybe_script_resource_name = message.get_script_resource_name(scope);
-  let maybe_source_line = message.get_source_line(scope);
+  let maybe_script_resource_name = message
+    .get_script_resource_name(scope)
+    .map(|s| s.to_rust_string_lossy(scope));
+  let maybe_source_line = message
+    .get_source_line(scope)
+    .map(|s| s.to_rust_string_lossy(scope));
   let maybe_line_number = message.get_line_number(scope);
   let start_column = message.get_start_column();
 
@@ -606,13 +624,13 @@ extern "C" fn isolate_message_listener(
       if let Some(specifier) = maybe_script_resource_name {
         if let Some(source_line) = maybe_source_line {
           msg.push('\n');
-          msg.push_str(&source_line.to_rust_string_lossy(scope));
+          msg.push_str(&source_line);
           msg.push('\n');
           msg.push_str(&format!("{:0width$}^", " ", width = start_column));
         }
         msg.push_str(&format!(
           "  at {}:{}:{}",
-          specifier.to_rust_string_lossy(scope),
+          specifier,
           maybe_line_number.unwrap(),
           start_column
         ));
@@ -623,7 +641,12 @@ extern "C" fn isolate_message_listener(
       }
     }
     ImportAssertionsSupport::CustomCallback(cb) => {
-      cb();
+      cb(ImportAssertionsSupportCustomCallbackArgs {
+        maybe_specifier: maybe_script_resource_name,
+        maybe_line_number,
+        column_number: start_column,
+        maybe_source_line,
+      });
     }
     _ => unreachable!(),
   }
