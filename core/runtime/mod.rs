@@ -27,6 +27,7 @@ pub use jsruntime::CompiledWasmModuleStore;
 pub use jsruntime::CreateRealmOptions;
 pub use jsruntime::CrossIsolateStore;
 pub use jsruntime::ExtensionTranspiler;
+pub use jsruntime::ImportAssertionsSupport;
 pub(crate) use jsruntime::InitMode;
 pub use jsruntime::JsRuntime;
 pub use jsruntime::JsRuntimeForSnapshot;
