@@ -609,7 +609,7 @@ extern "C" fn isolate_message_listener(
           eprintln!();
           eprintln!("{}", source_line.to_rust_string_lossy(scope));
           eprintln!();
-          eprintln!("{:0width$}^^^^^^", " ", width = start_column);
+          eprintln!("{:0width$}^", " ", width = start_column);
         }
         eprintln!(
           "  at {}:{}:{}",
