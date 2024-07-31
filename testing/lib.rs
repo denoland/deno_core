@@ -57,6 +57,7 @@ integration_test!(
   dyn_import_op,
   dyn_import_no_hang,
   error_async_stack,
+  error_callsite,
   error_rejection_catch,
   error_rejection_order,
   error_eval_stack,
