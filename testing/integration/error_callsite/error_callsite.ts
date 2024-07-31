@@ -1,4 +1,6 @@
-function toObj(callsite) {
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// deno-lint-ignore-file no-explicit-any
+function toObj(callsite: any) {
   const keys = [
     "getThis",
     "getTypeName",
@@ -19,8 +21,8 @@ function toObj(callsite) {
   ];
   return Object.fromEntries(keys.map((key) => [key, callsite[key]()]));
 }
-Error.prepareStackTrace = function (_, callsites) {
-  callsites.forEach((callsite) => {
+(Error as any).prepareStackTrace = function (_: any, callsites: any) {
+  callsites.forEach((callsite: any) => {
     console.log(toObj(callsite));
     console.log(callsite.toString());
   });

@@ -996,7 +996,7 @@ where
 fn maybe_to_path_str(s: &str) -> Option<String> {
   if s.starts_with("file://") {
     Some(
-      Url::parse(&s)
+      Url::parse(s)
         .unwrap()
         .to_file_path()
         .unwrap()
