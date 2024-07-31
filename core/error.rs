@@ -1042,16 +1042,15 @@ pub(crate) fn make_callsite_template<'s>(
   // effectively
   // `$field() { return this[kOriginalCallsite].$field() }`
   macro_rules! make_delegate {
-    ($scope: ident, $template: ident, [$($field: ident),+ $(,)?]) => {
+    ($($field: ident),+ $(,)?) => {
       $(
         {
-          let key = $field.v8_string($scope).into();
-          $template.set_with_attr(
+          let key = $field.v8_string(scope).into();
+          template.set_with_attr(
             key,
-            v8::FunctionBuilder::<v8::FunctionTemplate>::new(
-              |scope: &mut v8::HandleScope<'_>,
-              args: v8::FunctionCallbackArguments<'_>,
-              mut rv: v8::ReturnValue<'_>| {
+            make_fn_template(
+              scope,
+              |scope, args, mut rv| {
                 let orig = original_call_site(scope, args.this());
                 let key = $field.v8_string(scope).into();
                 let orig_ret = orig
@@ -1062,7 +1061,6 @@ pub(crate) fn make_callsite_template<'s>(
                 rv.set(orig_ret.unwrap_or_else(|| v8::undefined(scope).into()));
               },
             )
-            .build($scope)
             .into(),
             v8::PropertyAttribute::DONT_DELETE
             | v8::PropertyAttribute::DONT_ENUM
@@ -1075,26 +1073,22 @@ pub(crate) fn make_callsite_template<'s>(
 
   // delegate to the original callsite object
   make_delegate!(
-    scope,
-    template,
-    [
-      // excludes getFileName, which we'll override below
-      GET_THIS,
-      GET_TYPE_NAME,
-      GET_FUNCTION,
-      GET_FUNCTION_NAME,
-      GET_METHOD_NAME,
-      GET_LINE_NUMBER,
-      GET_COLUMN_NUMBER,
-      GET_EVAL_ORIGIN,
-      IS_TOPLEVEL,
-      IS_EVAL,
-      IS_NATIVE,
-      IS_CONSTRUCTOR,
-      IS_ASYNC,
-      IS_PROMISE_ALL,
-      GET_PROMISE_INDEX,
-    ]
+    // excludes getFileName and toString, which we'll override below
+    GET_THIS,
+    GET_TYPE_NAME,
+    GET_FUNCTION,
+    GET_FUNCTION_NAME,
+    GET_METHOD_NAME,
+    GET_LINE_NUMBER,
+    GET_COLUMN_NUMBER,
+    GET_EVAL_ORIGIN,
+    IS_TOPLEVEL,
+    IS_EVAL,
+    IS_NATIVE,
+    IS_CONSTRUCTOR,
+    IS_ASYNC,
+    IS_PROMISE_ALL,
+    GET_PROMISE_INDEX,
   );
 
   let get_file_name_key = GET_FILE_NAME.v8_string(scope).into();
@@ -1107,7 +1101,7 @@ pub(crate) fn make_callsite_template<'s>(
       let orig_ret = call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[]);
       if let Some(ret_val) = orig_ret {
         // strip off `file://`
-        let string = ret_val.to_rust_string_lossy(scope);
+        let string = serde_v8::to_utf8(ret_val, scope);
         let file_name = maybe_to_path_str(&string).unwrap_or(string);
         let v8_str = crate::FastString::from(file_name).v8_string(scope).into();
         rv.set(v8_str);
@@ -1133,7 +1127,7 @@ pub(crate) fn make_callsite_template<'s>(
         call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[])
       {
         // replace file URL with file path in original `toString`
-        let orig_file_name = orig_file_name.to_rust_string_lossy(scope);
+        let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
         if let Some(file_name) = maybe_to_path_str(&orig_file_name) {
           let to_string = orig_to_string.replace(&orig_file_name, &file_name);
           let v8_str =
