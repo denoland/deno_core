@@ -200,6 +200,7 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
     V: Visitor<'de>,
   {
     if self.input.is_string() || self.input.is_string_object() {
+      // fixme: this unwrap is not safe because stringifier could have thrown
       let v8_string = self.input.to_string(self.scope).unwrap();
       let string = to_utf8(v8_string, self.scope);
       visitor.visit_string(string)
@@ -265,10 +266,10 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
   where
     V: Visitor<'de>,
   {
-    let obj = v8::Local::<v8::Object>::try_from(self.input).unwrap();
-    if obj.is_array() {
+    let obj = v8::Local::<v8::Object>::try_from(self.input)
+      .map_err(|_| Error::ExpectedObject(self.input.type_repr()))?;
+    if let Ok(array) = v8::Local::<v8::Array>::try_from(obj) {
       // If the obj is an array fail if it's length differs from the tuple length
-      let array = v8::Local::<v8::Array>::try_from(self.input).unwrap();
       let array_len = array.length() as usize;
       if array_len != len {
         return Err(Error::LengthMismatch(array_len, len));
@@ -298,10 +299,8 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
     let obj = v8::Local::<v8::Object>::try_from(self.input)
       .map_err(|_| Error::ExpectedObject(self.input.type_repr()))?;
 
-    if v8::Local::<v8::Map>::try_from(self.input).is_ok() {
-      let pairs_array = v8::Local::<v8::Map>::try_from(self.input)
-        .unwrap()
-        .as_array(self.scope);
+    if let Ok(map) = v8::Local::<v8::Map>::try_from(self.input) {
+      let pairs_array = map.as_array(self.scope);
       let map = MapPairsAccess {
         pos: 0,
         len: pairs_array.length(),
@@ -394,9 +393,7 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
       })
     }
     // Struct or tuple variant
-    else if self.input.is_object() {
-      // Assume object
-      let obj = v8::Local::<v8::Object>::try_from(self.input).unwrap();
+    else if let Ok(obj) = v8::Local::<v8::Object>::try_from(self.input) {
       // Unpack single-key
       let tag = {
         let prop_names =
@@ -407,9 +404,11 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
         if prop_names_len != 1 {
           return Err(Error::LengthMismatch(prop_names_len as usize, 1));
         }
+        // fixme: this unwrap  is not safe because of proxies
         prop_names.get_index(self.scope, 0).unwrap()
       };
 
+      // fixme: this unwrap  is not safe because of proxies
       let payload = obj.get(self.scope, tag).unwrap();
       visitor.visit_enum(EnumAccess {
         scope: self.scope,
@@ -629,6 +628,7 @@ impl<'de> de::SeqAccess<'de> for SeqAccess<'_, '_> {
     seed: T,
   ) -> Result<Option<T::Value>> {
     if let Some(pos) = self.range.next() {
+      // fixme: this unwrap  is not safe because of proxies
       let val = self.obj.get_index(self.scope, pos).unwrap();
       let mut deserializer = Deserializer::new(self.scope, val, None);
       seed.deserialize(&mut deserializer).map(Some)
