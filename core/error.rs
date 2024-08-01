@@ -328,7 +328,19 @@ impl JsStackFrame {
     macro_rules! call {
       ($key: ident : $t: ty) => {{
         let res = call_method(scope, callsite, $key, &[])?;
-        let res: $t = serde_v8::from_v8(scope, res).ok()?;
+        let res: $t = match serde_v8::from_v8(scope, res) {
+          Ok(res) => res,
+          Err(err) => {
+            let message = format!(
+              "Failed to deserialize return value from callsite property '{}' to correct type: {err:?}.",
+              $key
+            );
+            let message = v8::String::new(scope, &message).unwrap();
+            let exception = v8::Exception::type_error(scope, message);
+            scope.throw_exception(exception);
+            return None;
+          }
+        };
         res
       }};
       ($key: ident) => { call!($key : _) };
@@ -430,13 +442,37 @@ fn call_method<'a, T>(
   args: &[v8::Local<'a, v8::Value>],
 ) -> Option<v8::Local<'a, T>>
 where
-  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>>,
+  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>, Error: Debug>,
 {
-  get_property(scope, object, key)?
-    .try_cast::<v8::Function>()
-    .ok()?
-    .call(scope, object.into(), args)
-    .and_then(|v| v8::Local::try_from(v).ok())
+  let func = match get_property(scope, object, key)?.try_cast::<v8::Function>()
+  {
+    Ok(func) => func,
+    Err(err) => {
+      let message =
+        format!("Callsite property '{key}' is not a function: {err}");
+      let message = v8::String::new(scope, &message).unwrap();
+      let exception = v8::Exception::type_error(scope, message);
+      scope.throw_exception(exception);
+      return None;
+    }
+  };
+
+  let res = func.call(scope, object.into(), args)?;
+
+  let result = match v8::Local::try_from(res) {
+    Ok(result) => result,
+    Err(err) => {
+      let message = format!(
+        "Failed to cast callsite method '{key}' return value to correct value: {err:?}."
+      );
+      let message = v8::String::new(scope, &message).unwrap();
+      let exception = v8::Exception::type_error(scope, message);
+      scope.throw_exception(exception);
+      return None;
+    }
+  };
+
+  Some(result)
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -606,9 +642,21 @@ impl JsError {
           let mut buf = Vec::with_capacity(frames_v8.length() as usize);
           for i in 0..frames_v8.length() {
             let callsite = frames_v8.get_index(scope, i).unwrap().cast();
-            buf.push(
-              JsStackFrame::from_callsite_object(scope, callsite).unwrap(),
-            );
+            let tc_scope = &mut v8::TryCatch::new(scope);
+            let Some(stack_frame) =
+              JsStackFrame::from_callsite_object(tc_scope, callsite)
+            else {
+              let message = tc_scope
+                .exception()
+                .expect(
+                  "JsStackFrame::from_callsite_object raised an exception",
+                )
+                .to_rust_string_lossy(tc_scope);
+              panic!(
+                "Failed to create JsStackFrame from callsite object: {message}"
+              );
+            };
+            buf.push(stack_frame);
           }
           buf
         }
@@ -1230,7 +1278,15 @@ fn format_stack_trace<'s>(
   // format each stack frame
   for i in 0..callsites.length() {
     let callsite = callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
-    let frame = JsStackFrame::from_callsite_object(scope, callsite).unwrap();
+    let tc_scope = &mut v8::TryCatch::new(scope);
+    let Some(frame) = JsStackFrame::from_callsite_object(tc_scope, callsite)
+    else {
+      let message = tc_scope
+        .exception()
+        .expect("JsStackFrame::from_callsite_object raised an exception")
+        .to_rust_string_lossy(tc_scope);
+      panic!("Failed to create JsStackFrame from callsite object: {message}");
+    };
     write!(result, "\n    at {}", format_frame::<NoAnsiColors>(&frame))
       .unwrap();
   }
