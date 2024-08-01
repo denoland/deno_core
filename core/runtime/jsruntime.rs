@@ -434,7 +434,7 @@ pub struct JsRuntimeState {
   pub(crate) eval_context_code_cache_ready_cb:
     Option<EvalContextCodeCacheReadyCb>,
   pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
-  pub(crate) callsite_template: RefCell<Option<v8::Global<v8::ObjectTemplate>>>,
+  pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
@@ -846,7 +846,7 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       cppgc_template: None.into(),
-      callsite_template: None.into(),
+      callsite_prototype: None.into(),
       import_assertions_support: options.import_assertions_support,
     });
 
@@ -1012,11 +1012,11 @@ impl JsRuntime {
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
 
-    let callsite_template = crate::error::make_callsite_template(scope);
+    let callsite_prototype = crate::error::make_callsite_prototype(scope);
     state_rc
-      .callsite_template
+      .callsite_prototype
       .borrow_mut()
-      .replace(v8::Global::new(scope, callsite_template));
+      .replace(v8::Global::new(scope, callsite_prototype));
 
     // ...followed by creation of `Deno.core` namespace, as well as internal
     // infrastructure to provide JavaScript bindings for ops...
