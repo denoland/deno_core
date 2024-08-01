@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 let errorCallsitePrototype;
-Error.prepareStackTrace = (err, frames) => {
+Error.prepareStackTrace = (_err, frames) => {
   return frames.map((frame) => {
     errorCallsitePrototype = Object.getPrototypeOf(frame);
     console.log(Object.getOwnPropertyNames(Object.getPrototypeOf(frame)));
