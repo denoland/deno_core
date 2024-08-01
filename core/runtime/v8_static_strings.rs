@@ -12,7 +12,7 @@ pub(crate) use v8_static_strings;
 v8_static_strings!(
   BUILD_CUSTOM_ERROR = "buildCustomError",
   CALL_CONSOLE = "callConsole",
-  CALL_SITE_EVALS = "callSiteEvals",
+  CALL_SITE_EVALS = "deno_core::call_site_evals",
   CAUSE = "cause",
   CODE = "code",
   CONSOLE = "console",

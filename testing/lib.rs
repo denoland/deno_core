@@ -63,6 +63,7 @@ integration_test!(
   error_rejection_order,
   error_eval_stack,
   error_ext_stack,
+  error_prepare_stack_trace,
   error_with_stack,
   error_without_stack,
   main_module_handler,
