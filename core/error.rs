@@ -352,7 +352,10 @@ impl JsStackFrame {
 
     // apply source map to the eval origin, if the error originates from `eval`ed code
     let eval_origin = call!(GET_EVAL_ORIGIN: Option<String>).and_then(|o| {
-      let (before, (file, line, col), after) = parse_eval_origin(&o)?;
+      let Some((before, (file, line, col), after)) = parse_eval_origin(&o)
+      else {
+        return Some(o);
+      };
       let (file, line, col) =
         apply_source_map(&mut source_mapper, file.into(), line, col);
       Some(format!("{before}{file}:{line}:{col}{after}"))
