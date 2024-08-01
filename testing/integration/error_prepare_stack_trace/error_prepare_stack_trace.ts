@@ -11,7 +11,6 @@ Error.prepareStackTrace = (err, frames) => {
 
 console.log(new Error("fail").stack);
 
-
 for (const prop of Object.getOwnPropertyNames(errorCallsitePrototype)) {
   if (typeof errorCallsitePrototype[prop] === "function") {
     let error;
