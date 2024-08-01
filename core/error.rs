@@ -352,7 +352,10 @@ impl JsStackFrame {
 
     // apply source map to the eval origin, if the error originates from `eval`ed code
     let eval_origin = call!(GET_EVAL_ORIGIN: Option<String>).and_then(|o| {
-      let (before, (file, line, col), after) = parse_eval_origin(&o)?;
+      let Some((before, (file, line, col), after)) = parse_eval_origin(&o)
+      else {
+        return Some(o);
+      };
       let (file, line, col) =
         apply_source_map(&mut source_mapper, file.into(), line, col);
       Some(format!("{before}{file}:{line}:{col}{after}"))
@@ -950,6 +953,7 @@ v8_static_strings::v8_static_strings! {
   GET_PROMISE_INDEX = "getPromiseIndex",
   PREPARE_STACK_TRACE = "prepareStackTrace",
   ORIGINAL = "_orig",
+  TO_STRING = "toString",
 }
 
 #[inline(always)]
@@ -969,6 +973,51 @@ fn make_patched_callsite<'s>(
   let orig_key = original_call_site_key(scope);
   out_obj.set_private(scope, orig_key, callsite.into());
   out_obj
+}
+
+fn make_fn_template<'a, F>(
+  scope: &mut v8::HandleScope<'a>,
+  f: F,
+) -> v8::Local<'a, v8::FunctionTemplate>
+where
+  F: for<'s, 't> FnOnce(
+      &mut v8::HandleScope<'s>,
+      v8::FunctionCallbackArguments<'t>,
+      v8::ReturnValue<'t>,
+    ) + Copy,
+{
+  v8::FunctionBuilder::<v8::FunctionTemplate>::new(
+    move |scope: &mut v8::HandleScope<'_>,
+          args: v8::FunctionCallbackArguments<'_>,
+          rv: v8::ReturnValue<'_>| {
+      f(scope, args, rv);
+    },
+  )
+  .build(scope)
+}
+
+fn maybe_to_path_str(s: &str) -> Option<String> {
+  if s.starts_with("file://") {
+    Some(
+      Url::parse(s)
+        .unwrap()
+        .to_file_path()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned(),
+    )
+  } else {
+    None
+  }
+}
+
+fn original_call_site<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  object: v8::Local<v8::Object>,
+) -> v8::Local<'s, v8::Object> {
+  // lookup the original call site object
+  let orig_key = original_call_site_key(scope);
+  object.get_private(scope, orig_key).unwrap().cast()
 }
 
 /// Creates a template for a `Callsite`-like object, with
@@ -996,29 +1045,25 @@ pub(crate) fn make_callsite_template<'s>(
   // effectively
   // `$field() { return this[kOriginalCallsite].$field() }`
   macro_rules! make_delegate {
-    ($scope: ident, $template: ident, [$($field: ident),+ $(,)?]) => {
+    ($($field: ident),+ $(,)?) => {
       $(
         {
-          let key = $field.v8_string($scope).into();
-          $template.set_with_attr(
+          let key = $field.v8_string(scope).into();
+          template.set_with_attr(
             key,
-            v8::FunctionBuilder::<v8::FunctionTemplate>::new(
-              |scope: &mut v8::HandleScope<'_>,
-              args: v8::FunctionCallbackArguments<'_>,
-              mut rv: v8::ReturnValue<'_>| {
-                let orig_key = original_call_site_key(scope);
-                let orig = args.this().get_private(scope, orig_key).unwrap();
+            make_fn_template(
+              scope,
+              |scope, args, mut rv| {
+                let orig = original_call_site(scope, args.this());
                 let key = $field.v8_string(scope).into();
                 let orig_ret = orig
-                  .cast::<v8::Object>()
                   .get(scope, key)
                   .unwrap()
                   .cast::<v8::Function>()
-                  .call(scope, orig, &[]);
+                  .call(scope, orig.into(), &[]);
                 rv.set(orig_ret.unwrap_or_else(|| v8::undefined(scope).into()));
               },
             )
-            .build($scope)
             .into(),
             v8::PropertyAttribute::DONT_DELETE
             | v8::PropertyAttribute::DONT_ENUM
@@ -1031,67 +1076,76 @@ pub(crate) fn make_callsite_template<'s>(
 
   // delegate to the original callsite object
   make_delegate!(
-    scope,
-    template,
-    [
-      // excludes getFileName, which we'll override below
-      GET_THIS,
-      GET_TYPE_NAME,
-      GET_FUNCTION,
-      GET_FUNCTION_NAME,
-      GET_METHOD_NAME,
-      GET_LINE_NUMBER,
-      GET_COLUMN_NUMBER,
-      GET_EVAL_ORIGIN,
-      IS_TOPLEVEL,
-      IS_EVAL,
-      IS_NATIVE,
-      IS_CONSTRUCTOR,
-      IS_ASYNC,
-      IS_PROMISE_ALL,
-      GET_PROMISE_INDEX,
-    ]
+    // excludes getFileName and toString, which we'll override below
+    GET_THIS,
+    GET_TYPE_NAME,
+    GET_FUNCTION,
+    GET_FUNCTION_NAME,
+    GET_METHOD_NAME,
+    GET_LINE_NUMBER,
+    GET_COLUMN_NUMBER,
+    GET_EVAL_ORIGIN,
+    IS_TOPLEVEL,
+    IS_EVAL,
+    IS_NATIVE,
+    IS_CONSTRUCTOR,
+    IS_ASYNC,
+    IS_PROMISE_ALL,
+    GET_PROMISE_INDEX,
   );
 
   let get_file_name_key = GET_FILE_NAME.v8_string(scope).into();
   template.set_with_attr(
     get_file_name_key,
-    v8::FunctionBuilder::<v8::FunctionTemplate>::new(
-      |scope: &mut v8::HandleScope<'_>,
-       args: v8::FunctionCallbackArguments<'_>,
-       mut rv: v8::ReturnValue<'_>| {
-        // lookup the original call site object
-        let orig_key = original_call_site_key(scope);
-        let orig = args.this().get_private(scope, orig_key).unwrap().cast();
-        // call getFileName
-        let orig_ret =
-          call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[]);
-        if let Some(ret_val) = orig_ret {
-          // strip off `file://`
-          let string = ret_val.to_rust_string_lossy(scope);
-          let file_name = if string.starts_with("file://") {
-            Url::parse(&string)
-              .unwrap()
-              .to_file_path()
-              .unwrap()
-              .to_string_lossy()
-              .into_owned()
-          } else {
-            string
-          };
-          let v8_str =
-            crate::FastString::from(file_name).v8_string(scope).into();
-          rv.set(v8_str);
-        }
-      },
-    )
-    .build(scope)
+    make_fn_template(scope, |scope, args, mut rv| {
+      // lookup the original call site object
+      let orig = original_call_site(scope, args.this());
+      // call getFileName
+      let orig_ret = call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[]);
+      if let Some(ret_val) = orig_ret {
+        // strip off `file://`
+        let string = serde_v8::to_utf8(ret_val, scope);
+        let file_name = maybe_to_path_str(&string).unwrap_or(string);
+        let v8_str = crate::FastString::from(file_name).v8_string(scope).into();
+        rv.set(v8_str);
+      }
+    })
     .into(),
     v8::PropertyAttribute::DONT_DELETE
       | v8::PropertyAttribute::DONT_ENUM
       | v8::PropertyAttribute::READ_ONLY,
   );
 
+  let to_string_key = TO_STRING.v8_string(scope).into();
+  template.set_with_attr(
+    to_string_key,
+    make_fn_template(scope, |scope, args, mut rv| {
+      let orig = original_call_site(scope, args.this());
+      // `this[kOriginalCallsite].toString()`
+      let orig_to_string_v8 =
+        call_method::<v8::String>(scope, orig, TO_STRING, &[]).unwrap();
+      let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
+      // `this[kOriginalCallsite].getFileName()`
+      if let Some(orig_file_name) =
+        call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[])
+      {
+        // replace file URL with file path in original `toString`
+        let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
+        if let Some(file_name) = maybe_to_path_str(&orig_file_name) {
+          let to_string = orig_to_string.replace(&orig_file_name, &file_name);
+          let v8_str =
+            crate::FastString::from(to_string).v8_string(scope).into();
+          rv.set(v8_str);
+          return;
+        }
+      }
+      rv.set(orig_to_string_v8.into());
+    })
+    .into(),
+    v8::PropertyAttribute::DONT_DELETE
+      | v8::PropertyAttribute::DONT_ENUM
+      | v8::PropertyAttribute::READ_ONLY,
+  );
   template
 }
 
