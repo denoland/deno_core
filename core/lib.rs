@@ -151,6 +151,8 @@ pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::ContextState;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
+pub use crate::runtime::ImportAssertionsSupport;
+pub use crate::runtime::ImportAssertionsSupportCustomCallbackArgs;
 pub use crate::runtime::JsRuntime;
 pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::PollEventLoopOptions;
