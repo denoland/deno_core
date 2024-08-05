@@ -111,6 +111,7 @@ builtin_ops! {
   ops_builtin_v8::op_get_proxy_details,
   ops_builtin_v8::op_get_non_index_property_names,
   ops_builtin_v8::op_get_constructor_name,
+  ops_builtin_v8::op_get_extras_binding_object,
   ops_builtin_v8::op_memory_usage,
   ops_builtin_v8::op_set_wasm_streaming_callback,
   ops_builtin_v8::op_abort_wasm_streaming,

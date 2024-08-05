@@ -1133,3 +1133,11 @@ pub fn op_set_format_exception_callback<'a>(
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::has_more_work(scope)
 }
+
+#[op2]
+pub fn op_get_extras_binding_object<'a>(
+  scope: &mut v8::HandleScope<'a>,
+) -> v8::Local<'a, v8::Value> {
+  let context = scope.get_current_context();
+  context.get_extras_binding_object(scope).into()
+}
