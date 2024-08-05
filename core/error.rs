@@ -985,6 +985,7 @@ pub fn throw_type_error(scope: &mut v8::HandleScope, message: impl AsRef<str>) {
 v8_static_strings::v8_static_strings! {
   ERROR = "Error",
   GET_FILE_NAME = "getFileName",
+  GET_SCRIPT_NAME_OR_SOURCE_URL = "getScriptNameOrSourceURL",
   GET_THIS = "getThis",
   GET_TYPE_NAME = "getTypeName",
   GET_FUNCTION = "getFunction",
@@ -1124,6 +1125,10 @@ pub mod callsite_fns {
   make_callsite_fn!(is_async, IS_ASYNC);
   make_callsite_fn!(is_promise_all, IS_PROMISE_ALL);
   make_callsite_fn!(get_promise_index, GET_PROMISE_INDEX);
+  make_callsite_fn!(
+    get_script_name_or_source_url,
+    GET_SCRIPT_NAME_OR_SOURCE_URL
+  );
 
   pub fn to_string(
     scope: &mut v8::HandleScope<'_>,
@@ -1213,6 +1218,12 @@ pub(crate) fn make_callsite_prototype<'s>(
   set_attr!(scope, template, is_async, IS_ASYNC);
   set_attr!(scope, template, is_promise_all, IS_PROMISE_ALL);
   set_attr!(scope, template, get_promise_index, GET_PROMISE_INDEX);
+  set_attr!(
+    scope,
+    template,
+    get_script_name_or_source_url,
+    GET_SCRIPT_NAME_OR_SOURCE_URL
+  );
   set_attr!(scope, template, to_string, TO_STRING);
 
   template.new_instance(scope).unwrap()

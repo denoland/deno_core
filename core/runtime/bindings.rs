@@ -124,6 +124,9 @@ pub(crate) fn create_external_references(
     function: callsite_fns::get_file_name.map_fn_to(),
   });
   references.push(v8::ExternalReference {
+    function: callsite_fns::get_script_name_or_source_url.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
     function: callsite_fns::get_line_number.map_fn_to(),
   });
   references.push(v8::ExternalReference {
