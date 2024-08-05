@@ -22,7 +22,7 @@ fn magic_basic() {
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Decode
@@ -48,7 +48,7 @@ fn magic_buffer() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
 
@@ -124,7 +124,7 @@ fn magic_byte_string() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
 
@@ -196,7 +196,7 @@ fn magic_value() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     let v8_string = js_exec(scope, "'test'");

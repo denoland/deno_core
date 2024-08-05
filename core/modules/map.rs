@@ -630,9 +630,12 @@ impl ModuleMap {
         })
       })
       .unwrap_or_else(|| {
-        let source =
+        let mut source =
           v8::script_compiler::Source::new(source_str, Some(&origin));
-        (v8::script_compiler::compile_module(tc_scope, source), true)
+        (
+          v8::script_compiler::compile_module(tc_scope, &mut source),
+          true,
+        )
       });
 
     if tc_scope.has_caught() {

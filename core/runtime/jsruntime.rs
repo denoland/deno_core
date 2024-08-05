@@ -2033,8 +2033,9 @@ fn create_context<'a>(
 ) -> v8::Local<'a, v8::Context> {
   let context = if has_snapshot {
     // Try to load the 1st index first, embedder may have used 0th for something else (like node:vm).
-    v8::Context::from_snapshot(scope, 1)
-      .unwrap_or_else(|| v8::Context::from_snapshot(scope, 0).unwrap())
+    v8::Context::from_snapshot(scope, 1, Default::default()).unwrap_or_else(
+      || v8::Context::from_snapshot(scope, 0, Default::default()).unwrap(),
+    )
   } else {
     // Set up the global object template and create context from it.
     let mut global_object_template = v8::ObjectTemplate::new(scope);
@@ -2043,7 +2044,13 @@ fn create_context<'a>(
     }
 
     global_object_template.set_internal_field_count(2);
-    v8::Context::new_from_template(scope, global_object_template)
+    v8::Context::new(
+      scope,
+      v8::ContextOptions {
+        global_template: Some(global_object_template),
+        ..Default::default()
+      },
+    )
   };
 
   let scope = &mut v8::ContextScope::new(scope, context);
@@ -2100,7 +2107,7 @@ impl JsRuntimeForSnapshot {
     // Set the context to be snapshot's default context
     {
       let mut scope = realm.handle_scope(self.v8_isolate());
-      let default_context = v8::Context::new(&mut scope);
+      let default_context = v8::Context::new(&mut scope, Default::default());
       scope.set_default_context(default_context);
 
       let local_context = v8::Local::new(&mut scope, realm.context());
