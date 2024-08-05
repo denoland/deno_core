@@ -211,7 +211,7 @@ impl JsRealmInner {
           std::ptr::null_mut(),
         );
       }
-      ctx.clear_all_slots(isolate);
+      ctx.clear_all_slots();
       // Expect that this context is dead (we only check this in debug mode)
       // TODO(bartlomieju): This check fails for some tests, will need to fix this
       // debug_assert_eq!(Rc::strong_count(&module_map), 1, "ModuleMap still in use.");
