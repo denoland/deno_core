@@ -66,6 +66,7 @@ integration_test!(
   error_prepare_stack_trace,
   error_with_stack,
   error_without_stack,
+  error_get_file_name,
   main_module_handler,
   module_types,
   pending_unref_op_tla,

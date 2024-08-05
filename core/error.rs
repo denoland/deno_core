@@ -1099,8 +1099,10 @@ pub mod callsite_fns {
     };
     // call getFileName
     let orig_ret =
-      call_method::<v8::String>(scope, orig, super::GET_FILE_NAME, &[]);
-    if let Some(ret_val) = orig_ret {
+      call_method::<v8::Value>(scope, orig, super::GET_FILE_NAME, &[]);
+    if let Some(ret_val) =
+      orig_ret.and_then(|v| v.try_cast::<v8::String>().ok())
+    {
       // strip off `file://`
       let string = ret_val.to_rust_string_lossy(scope);
       if let Some(file_name) = maybe_to_path_str(&string) {
