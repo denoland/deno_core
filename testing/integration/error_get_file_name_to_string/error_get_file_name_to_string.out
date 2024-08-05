@@ -1,5 +1,5 @@
 [
-  "test:///integration/error_get_file_name_to_string/error_get_file_name_to_string.ts",
+  "test:///integration/error_get_file_name_to_string/error_get_file_name_to_string.ts:7:10",
   null,
-  "test:///integration/error_get_file_name_to_string/error_get_file_name_to_string.ts"
+  "test:///integration/error_get_file_name_to_string/error_get_file_name_to_string.ts:6:1"
 ]
