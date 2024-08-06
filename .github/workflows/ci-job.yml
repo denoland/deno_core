@@ -32,12 +32,12 @@ jobs:
 
       # ************************************************************************************************
       #  BEGIN COMMON STEPS
-      #  These steps are run for each and every sub-job, on a clean runner. 
+      #  These steps are run for each and every sub-job, on a clean runner.
       # ************************************************************************************
 
       # TODO(mmastrac): these could be extracted to a `ci-common.yml`
       - name: Clone repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install ARM runner tools
         if: ${{ inputs.os == 'ubuntu-22.04-arm64' }}
