@@ -15,6 +15,7 @@
   "isAsync",
   "isPromiseAll",
   "getPromiseIndex",
+  "getScriptNameOrSourceURL",
   "toString"
 ]
 []
@@ -37,4 +38,5 @@ isConstructor() threw an error: The receiver is not a valid callsite object.
 isAsync() threw an error: The receiver is not a valid callsite object.
 isPromiseAll() threw an error: The receiver is not a valid callsite object.
 getPromiseIndex() threw an error: The receiver is not a valid callsite object.
+getScriptNameOrSourceURL() threw an error: The receiver is not a valid callsite object.
 toString() threw an error: The receiver is not a valid callsite object.
