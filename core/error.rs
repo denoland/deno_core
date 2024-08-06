@@ -1141,8 +1141,10 @@ pub mod callsite_fns {
     };
     let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
     // `this[kOriginalCallsite].getFileName()`
+    let orig_ret_file_name =
+      call_method::<v8::Value>(scope, orig, GET_FILE_NAME, &[]);
     let Some(orig_file_name) =
-      call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[])
+      orig_ret_file_name.and_then(|v| v.try_cast::<v8::String>().ok())
     else {
       return;
     };
