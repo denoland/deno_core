@@ -1,0 +1,11 @@
+{
+  "version": 3,
+  "file": "",
+  "sourceRoot": "",
+  "sources": ["http://localhost:4545/run/inline_js_source_map_2.ts"],
+  "sourcesContent": [
+    "1+1;\ninterface Test {\n  hello: string;\n}\n\nthrow new Error(\"Hello world!\" as unknown as string);\n"
+  ],
+  "names": [],
+  "mappings": ";AAAA,CAAC,GAAC,CAAC,CAAC;AAKJ,MAAM,IAAI,KAAK,CAAC,cAA+B,CAAC,CAAC"
+}

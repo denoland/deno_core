@@ -1082,7 +1082,7 @@ pub fn op_current_user_call_site(
     let application = js_runtime_state
       .source_mapper
       .borrow_mut()
-      .apply_source_map(&file_name, line_number, column_number);
+      .apply_source_map(scope, &file_name, line_number, column_number);
 
     match application {
       SourceMapApplication::Unchanged => {

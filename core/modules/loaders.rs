@@ -98,11 +98,34 @@ pub trait ModuleLoader {
 
   /// Returns a source map for given `file_name`.
   ///
-  /// This function will soon be deprecated or renamed.
-  fn get_source_map(&self, _file_name: &str) -> Option<Vec<u8>> {
+  /// Some embedders might opt into stripping out inlined source map from the source
+  /// code before it's loaded into V8. The source mapping logic will first ask
+  /// embedder to provide a source map for given file, before falling back
+  /// to looking for source map inlined in the code.
+  fn get_source_map_for_file(&self, _file_name: &str) -> Option<Vec<u8>> {
     None
   }
 
+  /// Returns a source map file.
+  ///
+  /// This is fallback API for [`Self::get_source_map_for_file`] that will only be called
+  /// if a module contains magic comment like `//# sourceMappingURL=foo.js.map`.
+  ///
+  /// Embedders might apply additional logic to decide if the source map should be returned.
+  /// Eg. if a local file tries to link to a remote source map, embedder might opt into
+  /// refusing to load it.
+  fn load_source_map_file(
+    &self,
+    _source_map_file_name: &str,
+    _file_name: &str,
+  ) -> Option<Vec<u8>> {
+    None
+  }
+
+  /// Return an "original" version of the given line for a file.
+  ///
+  /// In the future this API might be deprecated in favor of handling it internally
+  /// in `deno_core` using contents of the source map.
   fn get_source_mapped_source_line(
     &self,
     _file_name: &str,
