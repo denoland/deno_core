@@ -124,7 +124,7 @@ pub fn resolve_url_or_path(
 /// ModuleSpecifier. A relative path is considered relative to the passed
 /// `current_dir`.
 pub fn resolve_path(
-  path_str: &str,
+  path_str: impl AsRef<Path>,
   current_dir: &Path,
 ) -> Result<ModuleSpecifier, ModuleResolutionError> {
   let path = current_dir.join(path_str);
