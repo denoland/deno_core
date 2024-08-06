@@ -110,22 +110,72 @@ impl SnapshotStoreDataStore {
   }
 }
 
+/// Options for [`create_snapshot`].
+///
+/// See: [example][1].
+///
+/// [1]: https://github.com/denoland/deno_core/tree/main/core/examples/snapshot
 pub struct CreateSnapshotOptions {
+  /// The directory which Cargo will compile everything into.
+  ///
+  /// This should always be the CARGO_MANIFEST_DIR environment variable.
   pub cargo_manifest_dir: &'static str,
+
+  /// An optional starting snapshot atop which to build this snapshot.
+  ///
+  /// Passed to: [`RuntimeOptions::startup_snapshot`]
   pub startup_snapshot: Option<&'static [u8]>,
+
+  /// Passed to [`RuntimeOptions::skip_op_registration`] while initializing the snapshot runtime.
   pub skip_op_registration: bool,
+
+  /// Extensions to include within the generated snapshot.
+  ///
+  /// Passed to [`RuntimeOptions::extensions`]
   pub extensions: Vec<Extension>,
+
+  /// An optional transpiler to modify the module source before inclusion in the snapshot.
+  ///
+  /// For example, this might transpile from TypeScript to JavaScript.
+  ///
+  /// Passed to: [`RuntimeOptions::extension_transpiler`]
   pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
+
+  /// An optional callback to perform further modification of the runtime before
+  /// taking the snapshot.
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
 }
 
+/// See [`create_snapshot`] for usage overview.
 pub struct CreateSnapshotOutput {
   /// Any files marked as LoadedFromFsDuringSnapshot are collected here and should be
   /// printed as 'cargo:rerun-if-changed' lines from your build script.
   pub files_loaded_during_snapshot: Vec<PathBuf>,
+
+  /// The resulting snapshot file's bytes.
   pub output: Box<[u8]>,
 }
 
+/// Create a snapshot of a JavaScript runtime, which may yield better startup
+/// time.
+///
+/// At a high level, the steps are:
+///
+///  * In your project's `build.rs` file:
+///    * Call `create_snapshot()` from your `build.rs` file.
+///    * Output the resulting snapshot to a path, preferably in [OUT_DIR].
+///    * Make sure to print a `cargo:rerun-if-changed` line for each
+///      [`CreateSnapshotOutput::files_loaded_during_snapshot`].
+///  * In your project's source:
+///    * Load the bytes of the generated snapshot file
+///      ([`include_bytes`] is useful here)
+///    * Pass those bytes to [`deno_core::JsRuntime::new`] via
+///      [`RuntimeOptions::startup_snapshot`]
+///
+/// For a concrete example, see [core/examples/snapshot/][example].
+///
+/// [example]: https://github.com/denoland/deno_core/tree/main/core/examples/snapshot
+/// [OUT_DIR]: https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
 #[must_use = "The files listed by create_snapshot should be printed as 'cargo:rerun-if-changed' lines"]
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
