@@ -852,15 +852,16 @@ impl JsRuntime {
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
     // and get ready to actually create V8 isolate...
-    let op_decls =
+    let (op_decls, op_method_decls) =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
 
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
     let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
-    let mut op_ctxs = extension_set::create_op_ctxs(
+    let (mut op_ctxs, mut op_method_ctxs) = extension_set::create_op_ctxs(
       op_decls,
+      op_method_decls,
       op_metrics_factory_fn,
       op_driver.clone(),
       op_state.clone(),
@@ -908,6 +909,7 @@ impl JsRuntime {
     isolate_allocations.external_refs =
       Some(Box::new(bindings::create_external_references(
         &op_ctxs,
+        &op_method_ctxs,
         &additional_references,
         &isolate_allocations.externalized_sources,
         ops_in_snapshot,
@@ -939,6 +941,12 @@ impl JsRuntime {
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate.as_mut() as *mut Isolate;
     }
+    for op_method_ctx in op_method_ctxs.iter_mut() {
+      op_method_ctx.constructor.isolate = isolate.as_mut() as *mut Isolate;
+      for op in &mut op_method_ctx.methods {
+        op.isolate = isolate.as_mut() as *mut Isolate;
+      }
+    }
 
     // TODO(Bartlomieju): this can be simplified
     let isolate_ptr = setup::create_isolate_ptr();
@@ -963,6 +971,7 @@ impl JsRuntime {
       isolate_ptr,
       options.get_error_class_fn.unwrap_or(&|_| "Error"),
       op_ctxs,
+      op_method_ctxs,
       op_state.borrow().external_ops_tracker.clone(),
     ));
 
@@ -1029,8 +1038,10 @@ impl JsRuntime {
     if init_mode.needs_ops_bindings() {
       bindings::initialize_deno_core_ops_bindings(
         scope,
+        op_state,
         context,
         &context_state.op_ctxs,
+        &context_state.op_method_ctxs,
       );
     }
 
@@ -1239,6 +1250,7 @@ impl JsRuntime {
     let global = context_local.global(scope);
     let synthetic_module_exports = create_exports_for_ops_virtual_module(
       &context_state.op_ctxs,
+      &context_state.op_method_ctxs,
       scope,
       global,
     );

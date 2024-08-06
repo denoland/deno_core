@@ -74,6 +74,18 @@ impl OpMetadata {
   }
 }
 
+/// Per-object contexts for members.
+pub struct OpMethodCtx {
+  /// TypeId of the wrapped type
+  pub id: std::any::TypeId,
+  /// Op context for the constructor
+  pub constructor: OpCtx,
+  /// Per-op context for the methods
+  pub methods: Vec<OpCtx>,
+  /// Per-op context for the static methods
+  pub static_methods: Vec<OpCtx>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct FastFunctionInfo {
   pub(crate) fn_info: NonNull<CFunctionInfo>,
