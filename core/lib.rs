@@ -151,6 +151,8 @@ pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::ContextState;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
+pub use crate::runtime::ImportAssertionsSupport;
+pub use crate::runtime::ImportAssertionsSupportCustomCallbackArgs;
 pub use crate::runtime::JsRuntime;
 pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::PollEventLoopOptions;
@@ -161,7 +163,6 @@ pub use crate::runtime::MODULE_MAP_SLOT_INDEX;
 pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::source_map::SourceMapData;
-pub use crate::source_map::SourceMapGetter;
 pub use crate::tasks::V8CrossThreadTaskSpawner;
 pub use crate::tasks::V8TaskSpawner;
 

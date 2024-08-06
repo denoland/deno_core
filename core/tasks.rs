@@ -84,7 +84,8 @@ impl V8TaskSpawnerFactory {
 
     // SAFETY: we are removing the Send trait as we return the tasks here to prevent
     // these tasks from accidentally leaking to another thread.
-    let tasks = unsafe { std::mem::transmute(tasks) };
+    let tasks =
+      unsafe { std::mem::transmute::<Vec<SendTask>, Vec<UnsendTask>>(tasks) };
     Poll::Ready(tasks)
   }
 

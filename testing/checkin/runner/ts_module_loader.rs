@@ -12,7 +12,6 @@ use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::url::Url;
@@ -28,30 +27,17 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::SourceMapData;
-use deno_core::SourceMapGetter;
 
-#[derive(Clone, Default)]
-struct SourceMapStore(Rc<RefCell<HashMap<String, Vec<u8>>>>);
+// TODO(bartlomieju): this is duplicated in `core/examples/ts_modules_loader.rs`.
+type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
 
-impl SourceMapGetter for TypescriptModuleLoader {
-  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.source_maps.0.borrow().get(specifier).cloned()
-  }
-
-  fn get_source_line(
-    &self,
-    _file_name: &str,
-    _line_number: usize,
-  ) -> Option<String> {
-    None
-  }
-}
-
+// TODO(bartlomieju): this is duplicated in `core/examples/ts_modules_loader.rs`.
 #[derive(Default)]
 pub struct TypescriptModuleLoader {
   source_maps: SourceMapStore,
 }
 
+// TODO(bartlomieju): this is duplicated in `core/examples/ts_modules_loader.rs`.
 impl ModuleLoader for TypescriptModuleLoader {
   fn resolve(
     &self,
@@ -120,25 +106,31 @@ impl ModuleLoader for TypescriptModuleLoader {
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
           specifier: module_specifier.clone(),
-          text_info: SourceTextInfo::from_string(code),
+          text: code.into(),
           media_type,
           capture_tokens: false,
           scope_analysis: false,
           maybe_syntax: None,
         })?;
-        let res = parsed.transpile(&deno_ast::EmitOptions {
-          imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-          source_map: SourceMapOption::Separate,
-          inline_sources: false,
-          use_decorators_proposal: true,
-          ..Default::default()
-        })?;
+        let res = parsed.transpile(
+          &deno_ast::TranspileOptions {
+            imports_not_used_as_values:
+              deno_ast::ImportsNotUsedAsValues::Remove,
+            use_decorators_proposal: true,
+            ..Default::default()
+          },
+          &deno_ast::EmitOptions {
+            source_map: SourceMapOption::Separate,
+            inline_sources: false,
+            ..Default::default()
+          },
+        )?;
+        let res = res.into_source();
         let source_map = res.source_map.unwrap();
         source_maps
-          .0
           .borrow_mut()
-          .insert(module_specifier.to_string(), source_map.into_bytes());
-        res.text
+          .insert(module_specifier.to_string(), source_map);
+        String::from_utf8(res.source).unwrap()
       } else {
         code
       };
@@ -155,6 +147,10 @@ impl ModuleLoader for TypescriptModuleLoader {
       module_specifier,
       requested_module_type,
     ))
+  }
+
+  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
+    self.source_maps.borrow().get(specifier).cloned()
   }
 }
 
@@ -181,22 +177,29 @@ pub fn maybe_transpile_source(
 
   let parsed = deno_ast::parse_module(ParseParams {
     specifier: Url::parse(&specifier).unwrap(),
-    text_info: SourceTextInfo::from_string(source.as_str().to_owned()),
+    text: source.as_str().into(),
     media_type,
     capture_tokens: false,
     scope_analysis: false,
     maybe_syntax: None,
   })?;
-  let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
-    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-    source_map: SourceMapOption::Separate,
-    inline_sources: false,
-    use_decorators_proposal: true,
-    ..Default::default()
-  })?;
+  let transpiled_source = parsed
+    .transpile(
+      &deno_ast::TranspileOptions {
+        imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+        use_decorators_proposal: true,
+        ..Default::default()
+      },
+      &deno_ast::EmitOptions {
+        source_map: SourceMapOption::Separate,
+        inline_sources: false,
+        ..Default::default()
+      },
+    )?
+    .into_source();
 
   Ok((
-    transpiled_source.text.into(),
-    transpiled_source.source_map.map(|s| s.into_bytes().into()),
+    String::from_utf8(transpiled_source.source).unwrap().into(),
+    transpiled_source.source_map.map(|s| s.into()),
   ))
 }

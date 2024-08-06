@@ -1,10 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use super::bindings;
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::script_origin;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeString;
@@ -27,7 +27,6 @@ use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
 use std::rc::Rc;
 use std::sync::Arc;
-use v8::Handle;
 
 pub const CONTEXT_STATE_SLOT_INDEX: i32 = 1;
 pub const MODULE_MAP_SLOT_INDEX: i32 = 2;
@@ -216,7 +215,7 @@ impl JsRealmInner {
           std::ptr::null_mut(),
         );
       }
-      ctx.clear_all_slots(isolate);
+      ctx.clear_all_slots();
       // Expect that this context is dead (we only check this in debug mode)
       // TODO(bartlomieju): This check fails for some tests, will need to fix this
       // debug_assert_eq!(Rc::strong_count(&module_map), 1, "ModuleMap still in use.");
@@ -295,10 +294,6 @@ impl JsRealm {
     self.0.context()
   }
 
-  pub(crate) fn context_ptr(&self) -> *mut v8::Context {
-    unsafe { self.0.context.get_unchecked() as *const _ as _ }
-  }
-
   /// Executes traditional JavaScript code (traditional = not ES modules) in the
   /// realm's context.
   ///
@@ -323,7 +318,7 @@ impl JsRealm {
 
     let source = source_code.into_module_code().v8_string(scope);
     let name = name.into_module_name().v8_string(scope);
-    let origin = bindings::script_origin(scope, name);
+    let origin = script_origin(scope, name, false, None);
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 

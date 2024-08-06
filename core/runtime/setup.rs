@@ -15,6 +15,7 @@ fn v8_init(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
   snapshot: bool,
   expose_natives: bool,
+  import_assertions_enabled: bool,
 ) {
   #[cfg(feature = "include_icu_data")]
   {
@@ -35,14 +36,34 @@ fn v8_init(
   } else {
     ""
   };
+  let import_assertions_flag = if import_assertions_enabled {
+    "--harmony-import-assertions"
+  } else {
+    "--no-harmony-import-assertions"
+  };
+  // TODO(bartlomieju): this is ridiculous, rewrite this
   #[allow(clippy::useless_format)]
-  let flags = match (snapshot, expose_natives) {
-    (false, false) => format!("{base_flags}"),
-    (true, false) => format!("{base_flags} {snapshot_flags} {lazy_flags}"),
-    (false, true) => format!("{base_flags} {expose_natives_flags}"),
-    (true, true) => {
+  let flags = match (snapshot, expose_natives, import_assertions_enabled) {
+    (false, false, false) => format!("{base_flags}"),
+    (false, false, true) => format!("{base_flags} {import_assertions_flag}"),
+    (true, false, false) => {
+      format!("{base_flags} {snapshot_flags} {lazy_flags}")
+    }
+    (true, false, true) => format!(
+      "{base_flags} {snapshot_flags} {lazy_flags} {import_assertions_flag}"
+    ),
+    (false, true, false) => format!("{base_flags} {expose_natives_flags}"),
+    (false, true, true) => {
+      format!("{base_flags} {expose_natives_flags} {import_assertions_flag}")
+    }
+    (true, true, false) => {
       format!(
         "{base_flags} {snapshot_flags} {lazy_flags} {expose_natives_flags}"
+      )
+    }
+    (true, true, true) => {
+      format!(
+        "{base_flags} {snapshot_flags} {lazy_flags} {expose_natives_flags} {import_assertions_flag}"
       )
     }
   };
@@ -67,6 +88,7 @@ pub fn init_v8(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
   snapshot: bool,
   expose_natives: bool,
+  import_assertions_enabled: bool,
 ) {
   static DENO_INIT: Once = Once::new();
   static DENO_SNAPSHOT: AtomicBool = AtomicBool::new(false);
@@ -79,7 +101,14 @@ pub fn init_v8(
     DENO_SNAPSHOT.store(snapshot, Ordering::SeqCst);
   }
 
-  DENO_INIT.call_once(move || v8_init(v8_platform, snapshot, expose_natives));
+  DENO_INIT.call_once(move || {
+    v8_init(
+      v8_platform,
+      snapshot,
+      expose_natives,
+      import_assertions_enabled,
+    )
+  });
 }
 
 fn create_cpp_heap() -> v8::UniqueRef<v8::cppgc::Heap> {
@@ -149,6 +178,9 @@ pub fn create_isolate(
 
   isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
   isolate.set_promise_reject_callback(bindings::promise_reject_callback);
+  isolate.set_prepare_stack_trace_callback(
+    crate::error::prepare_stack_trace_callback,
+  );
   isolate.set_host_initialize_import_meta_object_callback(
     bindings::host_initialize_import_meta_object_callback,
   );

@@ -197,7 +197,7 @@ export async function main(command: string, flag: string) {
         "copyright": $`tools/copyright_checker.js`,
         "deno lint": $`deno lint`,
         "tsc":
-          $`deno run --allow-read --allow-env npm:typescript@5.3.3/tsc --noEmit -p testing/tsconfig.json`,
+          $`deno run --allow-read --allow-env npm:typescript@5.5.3/tsc --noEmit -p testing/tsconfig.json`,
         "cargo clippy":
           $`cargo clippy --locked --release --all-features --all-targets -- -D clippy::all`,
       });

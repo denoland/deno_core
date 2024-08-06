@@ -170,7 +170,7 @@ pub(crate) fn generate_dispatch_async(
         let info: &'s _ = unsafe { &*#info };
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info);
         let #opctx: &'s _ = unsafe {
-          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()
             as *const deno_core::_ops::OpCtx)
         };
         deno_core::_ops::dispatch_metrics_async(#opctx, deno_core::_ops::OpMetricsEvent::Dispatched);

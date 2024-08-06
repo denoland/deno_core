@@ -598,8 +598,11 @@ impl ModuleMap {
 
     let name_str = name.v8_string(scope);
     let source_str = source.v8_string(scope);
-
-    let origin = module_origin(scope, name_str);
+    let host_defined_options = self
+      .loader
+      .borrow()
+      .get_host_defined_options(scope, name.as_str());
+    let origin = script_origin(scope, name_str, true, host_defined_options);
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 
@@ -627,9 +630,12 @@ impl ModuleMap {
         })
       })
       .unwrap_or_else(|| {
-        let source =
+        let mut source =
           v8::script_compiler::Source::new(source_str, Some(&origin));
-        (v8::script_compiler::compile_module(tc_scope, source), true)
+        (
+          v8::script_compiler::compile_module(tc_scope, &mut source),
+          true,
+        )
       });
 
     if tc_scope.has_caught() {
@@ -775,6 +781,13 @@ impl ModuleMap {
 
     if module.get_status() == v8::ModuleStatus::Errored {
       return Err(v8::Global::new(tc_scope, module.get_exception()));
+    }
+
+    // FIXME: instantiate_module is called more than it should be,
+    // especially for dynamic imports. As a hack, bail out if the
+    // module status is already being instantiated.
+    if module.get_status() != v8::ModuleStatus::Uninstantiated {
+      return Ok(());
     }
 
     tc_scope.set_slot(self as *const _);
@@ -1823,21 +1836,23 @@ pub(crate) fn synthetic_module_evaluation_steps<'a>(
   Some(resolver.get_promise(tc_scope).into())
 }
 
-pub fn module_origin<'a>(
+pub fn script_origin<'a>(
   s: &mut v8::HandleScope<'a>,
   resource_name: v8::Local<'a, v8::String>,
+  is_module: bool,
+  host_defined_options: Option<v8::Local<'a, v8::Data>>,
 ) -> v8::ScriptOrigin<'a> {
-  let source_map_url = v8::String::empty(s);
   v8::ScriptOrigin::new(
     s,
     resource_name.into(),
     0,
     0,
     false,
-    123,
-    source_map_url.into(),
-    true,
+    0,
+    None,
     false,
-    true,
+    false,
+    is_module,
+    host_defined_options,
   )
 }

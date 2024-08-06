@@ -171,7 +171,7 @@ pub(crate) fn generate_dispatch_slow(
         let info: &'s _ = unsafe { &*#info };
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info);
         let #opctx: &'s _ = unsafe {
-          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()
               as *const deno_core::_ops::OpCtx)
         };
 
@@ -220,7 +220,7 @@ pub(crate) fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
   generator_state.needs_args = true;
   gs_quote!(generator_state(opctx, fn_args) =>
     (let #opctx: &'s _ = unsafe {
-    &*(deno_core::v8::Local::<deno_core::v8::External>::cast(#fn_args.data()).value()
+    &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(#fn_args.data()).value()
         as *const deno_core::_ops::OpCtx)
     };)
   )
@@ -257,26 +257,23 @@ pub(crate) fn with_self(
   let tokens = if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
   {
     let tokens = gs_quote!(generator_state(self_ty, fn_args, scope) => {
-      let self_handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into());
-      if self_handle_..borrow().is_none() {
+      let Some(mut self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
-      }
-      let mut self_persistent_ = deno_core::v8::cppgc::Persistent::empty();
-      self_persistent_.set(&self_handle_);
-      drop(self_handle_);
+      };
+      self_.root();
     });
 
     generator_state.moves.push(quote! {
-      let self_ = self_persistent_.borrow().unwrap();
+      let self_ = &*self_;
     });
 
     tokens
   } else {
     gs_quote!(generator_state(self_ty, fn_args, scope) => {
-      let self_handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into());
-      let Some(self_) = self_handle_.borrow() else {
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
       };
+      let self_ = &*self_;
     })
   };
   Ok(tokens)
@@ -582,24 +579,21 @@ pub fn from_arg(
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
         let tokens = quote! {
-          let handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident);
-          if handle_.borrow().is_none() {
+          let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
             #throw_exception;
-          }
-          let mut #arg_ident = deno_core::v8::cppgc::Persistent::empty();
-          #arg_ident.set(&handle_);
-          drop(handle_);
+          };
+          #arg_ident.root();
         };
         generator_state.moves.push(quote! {
-          let #arg_ident = #arg_ident.borrow().unwrap();
+          let #arg_ident = &*#arg_ident;
         });
         tokens
       } else {
         quote! {
-          let handle_ = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident);
-          let Some(#arg_ident) = handle_.borrow() else {
+          let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
             #throw_exception;
           };
+          let #arg_ident = &*#arg_ident;
         }
       }
     }
@@ -613,37 +607,30 @@ pub fn from_arg(
       if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
-            deno_core::v8::cppgc::Persistent::empty()
+            None
+          } else if let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+            #arg_ident.root();
+            Some(#arg_ident)
           } else {
-            let handle = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident);
-            if handle.borrow().is_none() {
-              #throw_exception;
-            }
-            let mut persistent = deno_core::v8::cppgc::Persistent::empty();
-            persistent.set(&handle);
-            persistent
+            #throw_exception;
           };
         };
 
         generator_state.moves.push(quote! {
-          let #arg_ident = #arg_ident.borrow();
+          let #arg_ident = #arg_ident.as_deref();
         });
 
         tokens
       } else {
         quote! {
-          let mut handle_ = deno_core::v8::cppgc::Member::empty();
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
+          } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+            Some(#arg_ident)
           } else {
-            handle_.set(&deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident));
-            match handle_.borrow() {
-              Some(r) => Some(r),
-              None => {
-                #throw_exception;
-              }
-            }
+            #throw_exception;
           };
+          let #arg_ident = #arg_ident.as_deref();
         }
       }
     }

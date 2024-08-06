@@ -102,7 +102,9 @@ impl SnapshotStoreDataStore {
     // TODO(mmastrac): v8::Global needs From/Into
     // SAFETY: Because we've tested that Local<Data>: From<Local<T>>, we can assume this is safe.
     unsafe {
-      self.data.push(std::mem::transmute(global));
+      self.data.push(
+        std::mem::transmute::<v8::Global<T>, v8::Global<v8::Data>>(global),
+      );
     }
     id as _
   }
@@ -253,7 +255,7 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub source_count: usize,
   pub addl_refs_count: usize,
   #[serde(borrow)]
-  pub ext_source_maps: HashMap<String, &'snapshot [u8]>,
+  pub ext_source_maps: HashMap<&'snapshot str, &'snapshot [u8]>,
   #[serde(borrow)]
   pub external_strings: Vec<&'snapshot [u8]>,
 }

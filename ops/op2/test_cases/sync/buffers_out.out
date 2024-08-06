@@ -87,7 +87,9 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 info,
             );
             let opctx: &'s _ = unsafe {
-                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
             deno_core::_ops::dispatch_metrics_slow(
@@ -216,7 +218,9 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
                 info,
             );
             let opctx: &'s _ = unsafe {
-                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
             deno_core::_ops::dispatch_metrics_slow(
@@ -331,7 +335,9 @@ const fn op_arraybuffers() -> ::deno_core::_ops::OpDecl {
                 info,
             );
             let opctx: &'s _ = unsafe {
-                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
             deno_core::_ops::dispatch_metrics_slow(

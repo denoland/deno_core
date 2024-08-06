@@ -442,7 +442,7 @@ macro_rules! ascii_str {
   ($str:expr) => {{
     const C: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const($str.as_bytes());
-    unsafe { std::mem::transmute::<_, $crate::FastStaticString>(&C) }
+    $crate::FastStaticString::new(&C)
   }};
 }
 

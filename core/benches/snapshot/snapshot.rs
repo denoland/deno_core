@@ -3,7 +3,6 @@ use criterion::*;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_ast::SourceTextInfo;
 use deno_core::error::AnyError;
 use deno_core::Extension;
 use deno_core::JsRuntime;
@@ -58,22 +57,28 @@ pub fn maybe_transpile_source(
 
   let parsed = deno_ast::parse_module(ParseParams {
     specifier: Url::parse(&specifier).unwrap(),
-    text_info: SourceTextInfo::from_string(source.as_str().to_owned()),
+    text: source.as_str().into(),
     media_type,
     capture_tokens: false,
     scope_analysis: false,
     maybe_syntax: None,
   })?;
-  let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
-    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-    source_map: SourceMapOption::Separate,
-    inline_sources: true,
-    ..Default::default()
-  })?;
-
+  let transpiled_source = parsed
+    .transpile(
+      &deno_ast::TranspileOptions {
+        imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+        ..Default::default()
+      },
+      &deno_ast::EmitOptions {
+        source_map: SourceMapOption::Separate,
+        inline_sources: true,
+        ..Default::default()
+      },
+    )?
+    .into_source();
   Ok((
-    transpiled_source.text.into(),
-    transpiled_source.source_map.map(|s| s.into_bytes().into()),
+    String::from_utf8(transpiled_source.source).unwrap().into(),
+    transpiled_source.source_map.map(|s| s.into()),
   ))
 }
 

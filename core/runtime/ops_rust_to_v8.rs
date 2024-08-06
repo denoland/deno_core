@@ -360,7 +360,7 @@ to_v8!(RustToV8Marker<ArrayBufferMarker, Box<[u8]>>: |buf, scope| {
 });
 to_v8_fallible!(Box<[u8]>: |buf, scope| {
   let len = buf.len();
-  let ab = unsafe { v8::Local::cast(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
+  let ab = unsafe { v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
   v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
 to_v8!(RustToV8Marker<ArrayBufferMarker, Vec<u8>>: |value, scope| {
@@ -389,7 +389,7 @@ to_v8!(RustToV8Marker<ArrayBufferMarker, BytesMut>: |value, scope| {
 });
 to_v8_fallible!(BytesMut: |buf, scope| {
   let len = buf.len();
-  let ab = unsafe { v8::Local::cast(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
+  let ab = unsafe { v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
   v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
 

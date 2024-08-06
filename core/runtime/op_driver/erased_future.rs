@@ -94,7 +94,10 @@ impl<const MAX_SIZE: usize, Output> ErasedFuture<MAX_SIZE, Output> {
   where
     F: Future<Output = Output>,
   {
-    F::poll(std::mem::transmute(pin), cx)
+    F::poll(
+      std::mem::transmute::<Pin<&mut TypeErased<MAX_SIZE>>, Pin<&mut F>>(pin),
+      cx,
+    )
   }
 
   #[allow(dead_code)]
