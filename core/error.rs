@@ -1020,8 +1020,8 @@ fn make_patched_callsite<'s>(
   callsite: v8::Local<'s, v8::Object>,
   prototype: v8::Local<'s, v8::Object>,
 ) -> v8::Local<'s, v8::Object> {
-  let out_obj = Object::new(scope);
-  out_obj.set_prototype(scope, prototype.into());
+  let out_obj =
+    Object::with_prototype_and_properties(scope, prototype.into(), &[], &[]);
   let orig_key = original_call_site_key(scope);
   out_obj.set_private(scope, orig_key, callsite.into());
   out_obj
