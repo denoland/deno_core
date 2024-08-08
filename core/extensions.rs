@@ -10,7 +10,10 @@ use anyhow::Error;
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use v8::fast_api::FastFunction;
+use v8::fast_api::CFunction;
+use v8::fast_api::CFunctionInfo;
+use v8::fast_api::Int64Representation;
+use v8::fast_api::Type;
 use v8::MapFnTo;
 
 #[derive(Clone)]
@@ -168,6 +171,11 @@ pub type GlobalObjectMiddlewareFn =
 
 extern "C" fn noop() {}
 
+const NOOP_FN: CFunction = CFunction::new(
+  noop as _,
+  &CFunctionInfo::new(Type::Void.scalar(), &[], Int64Representation::Number),
+);
+
 #[derive(Clone, Copy)]
 pub struct OpDecl {
   pub name: &'static str,
@@ -180,9 +188,9 @@ pub struct OpDecl {
   /// The slow dispatch call with metrics enabled. If metrics are enabled, the `v8::Function` is created with this callback.
   pub(crate) slow_fn_with_metrics: OpFnRef,
   /// The fast dispatch call. If metrics are disabled, the `v8::Function`'s fastcall is created with this callback.
-  pub(crate) fast_fn: Option<FastFunction>,
+  pub(crate) fast_fn: Option<CFunction>,
   /// The fast dispatch call with metrics enabled. If metrics are enabled, the `v8::Function`'s fastcall is created with this callback.
-  pub(crate) fast_fn_with_metrics: Option<FastFunction>,
+  pub(crate) fast_fn_with_metrics: Option<CFunction>,
   /// Any metadata associated with this op.
   pub metadata: OpMetadata,
 }
@@ -198,8 +206,8 @@ impl OpDecl {
     arg_count: u8,
     slow_fn: OpFnRef,
     slow_fn_with_metrics: OpFnRef,
-    fast_fn: Option<FastFunction>,
-    fast_fn_with_metrics: Option<FastFunction>,
+    fast_fn: Option<CFunction>,
+    fast_fn_with_metrics: Option<CFunction>,
     metadata: OpMetadata,
   ) -> Self {
     #[allow(deprecated)]
@@ -227,26 +235,8 @@ impl OpDecl {
       // ideally we would add a fallback that would throw, but it's unclear
       // if disabled op (that throws in JS) would ever get optimized to become
       // a fast function.
-      fast_fn: if self.fast_fn.is_some() {
-        Some(FastFunction {
-          args: &[],
-          function: noop as _,
-          repr: v8::fast_api::Int64Representation::Number,
-          return_type: v8::fast_api::CType::Void,
-        })
-      } else {
-        None
-      },
-      fast_fn_with_metrics: if self.fast_fn_with_metrics.is_some() {
-        Some(FastFunction {
-          args: &[],
-          function: noop as _,
-          repr: v8::fast_api::Int64Representation::Number,
-          return_type: v8::fast_api::CType::Void,
-        })
-      } else {
-        None
-      },
+      fast_fn: self.fast_fn.map(|_| NOOP_FN),
+      fast_fn_with_metrics: self.fast_fn_with_metrics.map(|_| NOOP_FN),
       ..self
     }
   }
@@ -262,7 +252,7 @@ impl OpDecl {
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn(&self) -> FastFunction {
+  pub const fn fast_fn(&self) -> CFunction {
     let Some(f) = self.fast_fn else {
       panic!("Not a fast function");
     };
@@ -270,7 +260,7 @@ impl OpDecl {
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn_with_metrics(&self) -> FastFunction {
+  pub const fn fast_fn_with_metrics(&self) -> CFunction {
     let Some(f) = self.fast_fn_with_metrics else {
       panic!("Not a fast function");
     };
