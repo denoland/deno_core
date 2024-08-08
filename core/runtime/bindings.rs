@@ -387,14 +387,8 @@ fn op_ctx_function<'s>(
       .data(external.into())
       .length(op_ctx.decl.arg_count as i32);
 
-  let template = if let Some(fast_function) = &fast_fn {
-    builder.build_fast(
-      scope,
-      fast_function,
-      Some(op_ctx.fast_fn_info.unwrap().fn_info.as_ptr()),
-      None,
-      None,
-    )
+  let template = if let Some(fast_function) = fast_fn {
+    builder.build_fast(scope, &[fast_function])
   } else {
     builder.build(scope)
   };
