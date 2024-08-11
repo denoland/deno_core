@@ -268,7 +268,11 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
   {
     let obj = v8::Local::<v8::Object>::try_from(self.input)
       .map_err(|_| Error::ExpectedObject(self.input.type_repr()))?;
+<<<<<<< Updated upstream
     if let Ok(array) = v8::Local::<v8::Array>::try_from(obj) {
+=======
+    if obj.is_array() {
+>>>>>>> Stashed changes
       // If the obj is an array fail if it's length differs from the tuple length
       let array_len = array.length() as usize;
       if array_len != len {
