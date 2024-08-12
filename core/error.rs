@@ -1382,12 +1382,11 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
     result += &F::fmt_element(FileName, &format_file_name(&file_name))
   } else {
     if frame.is_eval {
-      result += &(F::fmt_element(
-        ErrorElement::EvalOrigin,
-        frame.eval_origin.as_ref().unwrap(),
-      )
-      .to_string()
-        + ", ");
+      if let Some(eval_origin) = frame.eval_origin.as_ref() {
+        result += &(F::fmt_element(ErrorElement::EvalOrigin, eval_origin)
+          .to_string()
+          + ", ");
+      }
     }
     result += &F::fmt_element(Anonymous, "<anonymous>");
   }
