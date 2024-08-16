@@ -13,6 +13,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             0usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
@@ -150,6 +151,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             0usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({

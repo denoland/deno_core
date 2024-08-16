@@ -11,6 +11,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
@@ -191,6 +192,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
@@ -379,6 +381,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             0usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             None,
@@ -471,6 +474,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
@@ -651,6 +655,7 @@ const fn op_make_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             0usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             None,
@@ -746,6 +751,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({

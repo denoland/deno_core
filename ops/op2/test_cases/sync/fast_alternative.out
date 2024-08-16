@@ -11,6 +11,7 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             3usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({ op_fast().fast_fn() }),
@@ -127,6 +128,7 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             2usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
@@ -305,6 +307,7 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             3usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({ op_fast_generic::<T>().fast_fn() }),
@@ -421,6 +424,7 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             2usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
