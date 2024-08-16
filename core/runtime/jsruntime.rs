@@ -934,20 +934,12 @@ impl JsRuntime {
       );
     }
 
+    let isolate_ptr = isolate.as_mut() as *mut Isolate;
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
     // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
-      op_ctx.isolate = isolate.as_mut() as *mut Isolate;
+      op_ctx.isolate = isolate_ptr;
     }
-
-    // TODO(Bartlomieju): this can be simplified
-    let isolate_ptr = setup::create_isolate_ptr();
-    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
-    // not overwriting an existing pointer.
-    isolate = unsafe {
-      isolate_ptr.write(isolate);
-      isolate_ptr.read()
-    };
     op_state.borrow_mut().put(isolate_ptr);
 
     let mut fast_fn_infos = Vec::with_capacity(op_ctxs.len());
