@@ -11,6 +11,7 @@ const fn op_state_rc() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
