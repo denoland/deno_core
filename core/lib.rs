@@ -92,7 +92,6 @@ pub use crate::inspector::JsRuntimeInspector;
 pub use crate::inspector::LocalInspectorSession;
 pub use crate::io::AsyncResult;
 pub use crate::io::BufMutView;
-pub use crate::io::BufMutViewWhole;
 pub use crate::io::BufView;
 pub use crate::io::Resource;
 pub use crate::io::ResourceHandle;
