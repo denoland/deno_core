@@ -175,6 +175,7 @@ pub struct OpDecl {
   pub is_async: bool,
   pub is_reentrant: bool,
   pub arg_count: u8,
+  pub no_side_effects: bool,
   /// The slow dispatch call. If metrics are disabled, the `v8::Function` is created with this callback.
   pub(crate) slow_fn: OpFnRef,
   /// The slow dispatch call with metrics enabled. If metrics are enabled, the `v8::Function` is created with this callback.
@@ -196,6 +197,7 @@ impl OpDecl {
     is_async: bool,
     is_reentrant: bool,
     arg_count: u8,
+    no_side_effects: bool,
     slow_fn: OpFnRef,
     slow_fn_with_metrics: OpFnRef,
     fast_fn: Option<FastFunction>,
@@ -209,6 +211,7 @@ impl OpDecl {
       is_async,
       is_reentrant,
       arg_count,
+      no_side_effects,
       slow_fn,
       slow_fn_with_metrics,
       fast_fn,
