@@ -44,25 +44,25 @@ pub fn op_set_handled_promise_rejection_handler(
   *exception_state.js_handled_promise_rejection_cb.borrow_mut() = f;
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().remove(&promise_id);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().insert(promise_id);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_leak_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.set_enabled(enabled);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_leak_tracing_submit(
   scope: &mut v8::HandleScope,
   #[smi] kind: u8,
@@ -168,7 +168,7 @@ pub fn op_timer_queue_immediate(
   context_state.timers.queue_timer(0, (task, 0)) as _
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
@@ -177,13 +177,13 @@ pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
     .complete(RuntimeActivityType::Timer, id as _);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_timer_ref(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.ref_timer(id as _);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.unref_timer(id as _);
@@ -225,14 +225,14 @@ pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   };
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
     .get()
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
@@ -776,7 +776,7 @@ pub fn op_get_promise_details<'a>(
   out.into()
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_set_promise_hooks(
   scope: &mut v8::HandleScope,
   init_hook: v8::Local<v8::Value>,
@@ -1005,7 +1005,7 @@ pub fn op_destructure_error(
 /// Effectively throw an uncatchable error. This will terminate runtime
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
-#[op2(reentrant)]
+#[op2(fast, reentrant)]
 pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
@@ -1129,7 +1129,7 @@ pub fn op_set_format_exception_callback<'a>(
   old.map(|func| func.into())
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::has_more_work(scope)
 }

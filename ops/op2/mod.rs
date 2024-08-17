@@ -156,9 +156,9 @@ fn generate_op2(
     Ident::new("UNINIT", Span::call_site())
   };
 
-  let mut generator_state = GeneratorState {
+  let base_generator_state = GeneratorState {
     name,
-    args,
+    args: args.clone(),
     fn_args,
     scope,
     info,
@@ -169,8 +169,8 @@ fn generate_op2(
     result,
     retval,
     needs_args,
-    slow_function,
-    slow_function_metrics,
+    slow_function: slow_function.clone(),
+    slow_function_metrics: slow_function_metrics.clone(),
     fast_function,
     fast_function_metrics,
     promise_id,
@@ -182,18 +182,18 @@ fn generate_op2(
     needs_opctx: false,
     needs_opstate: false,
     needs_js_runtime_state: false,
-    needs_fast_opctx: false,
     needs_fast_api_callback_options: false,
-    needs_fast_js_runtime_state: false,
     needs_self: config.method.is_some(),
   };
+
+  let mut slow_generator_state = base_generator_state.clone();
 
   let name = func.sig.ident;
 
   let slow_fn = if signature.ret_val.is_async() {
-    generate_dispatch_async(&config, &mut generator_state, &signature)?
+    generate_dispatch_async(&config, &mut slow_generator_state, &signature)?
   } else {
-    generate_dispatch_slow(&config, &mut generator_state, &signature)?
+    generate_dispatch_slow(&config, &mut slow_generator_state, &signature)?
   };
   let is_async = signature.ret_val.is_async();
   let is_reentrant = config.reentrant;
@@ -205,8 +205,14 @@ fn generate_op2(
     _ => {}
   }
 
+  let mut fast_generator_state = base_generator_state.clone();
+
   let (fast_definition, fast_definition_metrics, fast_fn) =
-    match generate_dispatch_fast(&config, &mut generator_state, &signature)? {
+    match generate_dispatch_fast(
+      &config,
+      &mut fast_generator_state,
+      &signature,
+    )? {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast && !config.nofast && config.fast_alternatives.is_empty()
         {
@@ -234,13 +240,7 @@ fn generate_op2(
       }
     };
 
-  let GeneratorState {
-    slow_function,
-    slow_function_metrics,
-    ..
-  } = &generator_state;
-
-  let arg_count: usize = generator_state.args.len() + is_async as usize;
+  let arg_count: usize = args.len() + is_async as usize;
   let vis = func.vis;
   let generic = signature
     .generic_bounds

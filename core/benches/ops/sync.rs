@@ -101,7 +101,7 @@ pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
 #[op2(fast)]
 pub fn op_local(_s: v8::Local<v8::String>) {}
 
-#[op2]
+#[op2(fast)]
 pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
 }
 
@@ -118,7 +118,7 @@ pub fn op_global_scope(
 ) {
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_scope(_scope: &mut v8::HandleScope) {}
 
 #[op2(nofast)]

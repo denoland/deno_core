@@ -98,8 +98,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
                 Err(err) => {
                     let err = err.into();
                     let mut scope = unsafe {
-                        let isolate = &mut *fast_api_callback_options.isolate;
-                        deno_core::v8::HandleScope::for_fast_call(isolate)
+                        deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
                     };
                     let exception = deno_core::error::to_v8_error(
                         &mut scope,

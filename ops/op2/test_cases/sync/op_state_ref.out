@@ -557,8 +557,9 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                 >(arg1) else {
                     {
                         let mut scope = unsafe {
-                            let isolate = &mut *fast_api_callback_options.isolate;
-                            deno_core::v8::HandleScope::for_fast_call(isolate)
+                            deno_core::v8::CallbackScope::new(
+                                &*fast_api_callback_options,
+                            )
                         };
                         let msg = deno_core::v8::String::new_from_one_byte(
                                 &mut scope,
