@@ -119,7 +119,6 @@ pub enum V8Arg {
   SharedArrayBuffer,
   StringObject,
   SymbolObject,
-  WasmMemoryObject,
   WasmModuleObject,
   Primitive,
   BigInt,
@@ -207,10 +206,7 @@ impl BufferType {
           expand!(Copy)
         }
         JsBuffer | V8Slice(..) => expand!(Copy, Detach, Default),
-        Slice(..) | Ptr(..) => expand!(
-          extra = AttributeModifier::WasmMemory(WasmMemorySource::Caller),
-          Default
-        ),
+        Slice(..) | Ptr(..) => expand!(Default),
       },
       Position::RetVal => match self {
         Bytes | BytesMut | JsBuffer | V8Slice(..) | Vec(..) | BoxSlice(..) => {
@@ -280,8 +276,6 @@ pub enum Arg {
   OptionState(RefType, String),
   CppGcResource(String),
   OptionCppGcResource(String),
-  WasmMemory(RefType, WasmMemorySource),
-  OptionWasmMemory(RefType, WasmMemorySource),
   FromV8(String),
   ToV8(String),
 }
@@ -309,14 +303,7 @@ impl Arg {
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
       CBare(TString(string)) => Ok(Arg::String(string)),
       CBare(TBuffer(buffer)) => {
-        if let Some(AttributeModifier::WasmMemory(mode)) = attr.primary {
-          let BufferType::Slice(ref_type, NumericArg::u8) = buffer else {
-            unreachable!("non-u8-slice buffer");
-          };
-          Ok(Arg::WasmMemory(ref_type, mode))
-        } else {
-          Ok(Arg::Buffer(buffer, buffer_mode()?, buffer_source()?))
-        }
+        Ok(Arg::Buffer(buffer, buffer_mode()?, buffer_source()?))
       }
       COption(TNumeric(special)) => {
         Ok(Arg::OptionNumeric(special, NumericFlag::None))
@@ -324,14 +311,7 @@ impl Arg {
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       COption(TString(string)) => Ok(Arg::OptionString(string)),
       COption(TBuffer(buffer)) => {
-        if let Some(AttributeModifier::WasmMemory(mode)) = attr.primary {
-          let BufferType::Slice(ref_type, NumericArg::u8) = buffer else {
-            unreachable!("non-u8-slice buffer");
-          };
-          Ok(Arg::OptionWasmMemory(ref_type, mode))
-        } else {
-          Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
-        }
+        Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
       }
       CRc(TSpecial(special)) => Ok(Arg::Rc(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
@@ -371,8 +351,6 @@ impl Arg {
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
-      Self::WasmMemory(_, WasmMemorySource::Caller)
-      | Self::OptionWasmMemory(_, WasmMemorySource::Caller) => true,
       _ => false,
     }
   }
@@ -753,16 +731,6 @@ pub enum BufferSource {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum WasmMemorySource {
-  /// The calling wasm module's memory space.
-  Caller,
-  // TODO(mmastrac): This needs to be implemented
-  /// A v8::WasmMemoryObject.
-  #[allow(unused)]
-  WasmMemoryObject,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
@@ -785,8 +753,6 @@ pub enum AttributeModifier {
   Bigint,
   /// #[number], for u64/usize/i64/isize indicating value is a Number
   Number,
-  /// #[memory], for a WasmMemory-backed buffer
-  WasmMemory(WasmMemorySource),
   /// #[cppgc], for a resource backed managed by cppgc.
   CppGcResource,
 }
@@ -804,7 +770,6 @@ impl AttributeModifier {
       AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
-      AttributeModifier::WasmMemory(..) => "memory",
       AttributeModifier::CppGcResource => "cppgc",
     }
   }
@@ -1271,7 +1236,6 @@ fn parse_attribute(
       (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
-      (#[memory(caller)]) => Some(AttributeModifier::WasmMemory(WasmMemorySource::Caller)),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
@@ -1377,7 +1341,6 @@ fn parse_type_path(
           Arg::String(string) => Ok(COption(TString(string))),
           Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
           Arg::Buffer(buffer, ..) => Ok(COption(TBuffer(buffer))),
-          Arg::WasmMemory(ref_type, ..) => Ok(COption(TBuffer(BufferType::Slice(ref_type, NumericArg::u8)))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
@@ -1611,7 +1574,6 @@ pub(crate) fn parse_type(
       }
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
-      | AttributeModifier::WasmMemory(..)
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
@@ -2033,10 +1995,6 @@ mod tests {
       AnyError,
     >;
     (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
-  );
-  test!(
-    fn op_wasm_memory(#[memory(caller)] memory: Option<&[u8]>);
-    (OptionWasmMemory(Ref, Caller)) -> Infallible(Void)
   );
   expect_fail!(
     op_cppgc_resource_owned,

@@ -182,7 +182,6 @@ fn generate_op2(
     needs_opctx: false,
     needs_opstate: false,
     needs_js_runtime_state: false,
-    needs_fast_scope: false,
     needs_fast_opctx: false,
     needs_fast_api_callback_options: false,
     needs_fast_js_runtime_state: false,
@@ -260,14 +259,14 @@ fn generate_op2(
   let callable = if let Some(ty) = config.method {
     let ident = format_ident!("{ty}");
     quote! {
-        trait Callable {
-          #op_fn_sig;
-        }
-        impl Callable for #ident {
-          #[inline(always)]
-          #(#attrs)*
-          #op_fn
-        }
+      trait Callable {
+        #op_fn_sig;
+      }
+      impl Callable for #ident {
+        #[inline(always)]
+        #(#attrs)*
+        #op_fn
+      }
     }
   } else {
     quote! {
@@ -310,7 +309,7 @@ fn generate_op2(
 
       impl <#(#generic : #bound),*> #name <#(#generic),*> {
         pub const fn name() -> &'static str {
-          stringify!(#name)
+          <Self as deno_core::_ops::Op>::NAME
         }
 
         #fast_fn

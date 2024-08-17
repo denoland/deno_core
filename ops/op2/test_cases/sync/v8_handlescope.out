@@ -23,7 +23,7 @@ const fn op_handlescope() -> ::deno_core::_ops::OpDecl {
     }
     impl op_handlescope {
         pub const fn name() -> &'static str {
-            stringify!(op_handlescope)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

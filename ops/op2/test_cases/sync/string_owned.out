@@ -47,7 +47,7 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
     }
     impl op_string_owned {
         pub const fn name() -> &'static str {
-            stringify!(op_string_owned)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(

@@ -23,7 +23,7 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
     }
     impl op_string_return {
         pub const fn name() -> &'static str {
-            stringify!(op_string_return)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -120,7 +120,7 @@ pub const fn op_string_return_ref() -> ::deno_core::_ops::OpDecl {
     }
     impl op_string_return_ref {
         pub const fn name() -> &'static str {
-            stringify!(op_string_return_ref)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -217,7 +217,7 @@ pub const fn op_string_return_cow() -> ::deno_core::_ops::OpDecl {
     }
     impl op_string_return_cow {
         pub const fn name() -> &'static str {
-            stringify!(op_string_return_cow)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

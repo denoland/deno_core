@@ -43,7 +43,7 @@ pub const fn op_generics<T: Trait>() -> ::deno_core::_ops::OpDecl {
     }
     impl<T: Trait> op_generics<T> {
         pub const fn name() -> &'static str {
-            stringify!(op_generics)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
@@ -183,7 +183,7 @@ pub const fn op_generics_static<T: Trait + 'static>() -> ::deno_core::_ops::OpDe
     }
     impl<T: Trait + 'static> op_generics_static<T> {
         pub const fn name() -> &'static str {
-            stringify!(op_generics_static)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
@@ -323,7 +323,7 @@ pub const fn op_generics_static_where<T: Trait + 'static>() -> ::deno_core::_ops
     }
     impl<T: Trait + 'static> op_generics_static_where<T> {
         pub const fn name() -> &'static str {
-            stringify!(op_generics_static_where)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
