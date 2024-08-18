@@ -602,6 +602,14 @@ extern "C" fn isolate_message_listener(
   let start_column = message.get_start_column();
 
   let js_runtime_state = JsRuntime::state_from(scope);
+  if let Some(specifier) = maybe_script_resource_name.as_ref() {
+    let module_map = JsRealm::module_map_from(scope);
+    module_map
+      .loader
+      .borrow()
+      .purge_and_prevent_code_cache(specifier);
+  }
+
   match &js_runtime_state.import_assertions_support {
     ImportAssertionsSupport::Warning => {
       let mut msg = "⚠️  Import assertions are deprecated. Use `with` keyword, instead of 'assert' keyword.".to_string();
