@@ -92,7 +92,6 @@ pub use crate::inspector::JsRuntimeInspector;
 pub use crate::inspector::LocalInspectorSession;
 pub use crate::io::AsyncResult;
 pub use crate::io::BufMutView;
-pub use crate::io::BufMutViewWhole;
 pub use crate::io::BufView;
 pub use crate::io::Resource;
 pub use crate::io::ResourceHandle;
@@ -151,6 +150,8 @@ pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::ContextState;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
+pub use crate::runtime::ImportAssertionsSupport;
+pub use crate::runtime::ImportAssertionsSupportCustomCallbackArgs;
 pub use crate::runtime::JsRuntime;
 pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::PollEventLoopOptions;
@@ -166,10 +167,6 @@ pub use crate::tasks::V8TaskSpawner;
 
 // Ensure we can use op2 in deno_core without any hackery.
 extern crate self as deno_core;
-
-pub fn v8_version() -> &'static str {
-  v8::V8::get_version()
-}
 
 /// An internal module re-exporting functions used by the #[op] (`deno_ops`) macro
 #[doc(hidden)]
@@ -238,11 +235,6 @@ mod tests {
       "[ext:core/lib.rs:"
     };
     assert_eq!(&name[..expected.len()], expected);
-  }
-
-  #[test]
-  fn test_v8_version() {
-    assert!(v8_version().len() > 3);
   }
 
   // If the deno command is available, we ensure the async stubs are correctly rebuilt.

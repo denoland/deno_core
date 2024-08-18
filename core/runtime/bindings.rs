@@ -10,6 +10,7 @@ use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
 use crate::cppgc::cppgc_template_constructor;
+use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
@@ -42,7 +43,8 @@ pub(crate) fn create_external_references(
       + BUILTIN_SOURCES.len()
       + (ops.len() * 4)
       + additional_references.len()
-      + sources.len(),
+      + sources.len()
+      + 18, // for callsite_fns
   );
 
   references.push(v8::ExternalReference {
@@ -102,6 +104,61 @@ pub(crate) fn create_external_references(
       pointer: source as *const _ as _,
     })
   }
+
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_this.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_type_name.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_function.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_function_name.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_method_name.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_file_name.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_script_name_or_source_url.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_line_number.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_column_number.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_eval_origin.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::is_toplevel.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::is_eval.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::is_native.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::is_constructor.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::is_async.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::is_promise_all.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::get_promise_index.map_fn_to(),
+  });
+  references.push(v8::ExternalReference {
+    function: callsite_fns::to_string.map_fn_to(),
+  });
 
   v8::ExternalReferences::new(&references)
 }
@@ -328,16 +385,15 @@ fn op_ctx_function<'s>(
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
     v8::FunctionTemplate::builder_raw(slow_fn)
       .data(external.into())
+      .side_effect_type(if op_ctx.decl.no_side_effects {
+        v8::SideEffectType::HasNoSideEffect
+      } else {
+        v8::SideEffectType::HasSideEffect
+      })
       .length(op_ctx.decl.arg_count as i32);
 
-  let template = if let Some(fast_function) = &fast_fn {
-    builder.build_fast(
-      scope,
-      fast_function,
-      Some(op_ctx.fast_fn_info.unwrap().fn_info.as_ptr()),
-      None,
-      None,
-    )
+  let template = if let Some(fast_function) = fast_fn {
+    builder.build_fast(scope, &[fast_function])
   } else {
     builder.build(scope)
   };
@@ -569,7 +625,7 @@ fn import_meta_resolve(
       rv.set(resolved_val);
     }
     Err(err) => {
-      throw_type_error(scope, &err.to_string());
+      throw_type_error(scope, err.to_string());
     }
   };
 }

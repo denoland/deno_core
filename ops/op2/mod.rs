@@ -198,6 +198,7 @@ fn generate_op2(
   };
   let is_async = signature.ret_val.is_async();
   let is_reentrant = config.reentrant;
+  let no_side_effect = config.no_side_effects;
 
   match (is_async, config.r#async) {
     (true, false) => return Err(Op2Error::ShouldBeAsync),
@@ -295,6 +296,7 @@ fn generate_op2(
           /*is_async*/ #is_async,
           /*is_reentrant*/ #is_reentrant,
           /*arg_count*/ #arg_count as u8,
+          /*no_side_effect*/ #no_side_effect,
           /*slow_fn*/ Self::#slow_function as _,
           /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
           /*fast_fn*/ #fast_definition,
