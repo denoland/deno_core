@@ -653,9 +653,13 @@ impl JsError {
                   "JsStackFrame::from_callsite_object raised an exception",
                 )
                 .to_rust_string_lossy(tc_scope);
-              panic!(
-                "Failed to create JsStackFrame from callsite object: {message}"
-              );
+              #[allow(clippy::print_stderr)]
+              {
+                eprintln!(
+                  "warning: Failed to create JsStackFrame from callsite object: {message}. This is a bug in deno"
+                );
+              }
+              break;
             };
             buf.push(stack_frame);
           }
@@ -1317,7 +1321,11 @@ fn format_stack_trace<'s>(
         .exception()
         .expect("JsStackFrame::from_callsite_object raised an exception")
         .to_rust_string_lossy(tc_scope);
-      panic!("Failed to create JsStackFrame from callsite object: {message}");
+      #[allow(clippy::print_stderr)]
+      {
+        eprintln!("warning: Failed to create JsStackFrame from callsite object: {message}; Result so far: {result}. This is a bug in deno");
+      }
+      break;
     };
     write!(result, "\n    at {}", format_frame::<NoAnsiColors>(&frame))
       .unwrap();
