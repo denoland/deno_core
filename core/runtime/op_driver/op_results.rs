@@ -4,7 +4,7 @@ use super::future_arena::FutureContextMapper;
 use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
-use anyhow::Error;
+use deno_core::error::AnyError;
 use serde::Serialize;
 
 const MAX_RESULT_SIZE: usize = 32;
@@ -25,7 +25,7 @@ pub trait OpMappingContextLifetime<'s> {
 
   fn map_error(
     context: &mut Self::Context,
-    err: Error,
+    err: AnyError,
     get_error_class_fn: GetErrorClassFn,
   ) -> UnmappedResult<'s, Self>;
   fn map_mapping_error(
@@ -67,7 +67,7 @@ impl<'s> OpMappingContextLifetime<'s> for V8OpMappingContext {
   #[inline(always)]
   fn map_error(
     scope: &mut v8::HandleScope<'s>,
-    err: Error,
+    err: AnyError,
     get_error_class_fn: GetErrorClassFn,
   ) -> UnmappedResult<'s, Self> {
     serde_v8::to_v8(scope, OpError::new(get_error_class_fn, err))
@@ -106,7 +106,7 @@ pub struct PendingOp<C: OpMappingContext>(pub PendingOpInfo, pub OpResult<C>);
 
 impl<C: OpMappingContext> PendingOp<C> {
   #[inline(always)]
-  pub fn new<R: 'static, E: Into<Error> + 'static>(
+  pub fn new<R: 'static, E: Into<AnyError> + 'static>(
     info: PendingOpInfo,
     rv_map: C::MappingFn<R>,
     result: Result<R, E>,
@@ -149,7 +149,7 @@ impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Clone
   }
 }
 
-impl<C: OpMappingContext, R: 'static, E: Into<Error> + 'static>
+impl<C: OpMappingContext, R: 'static, E: Into<AnyError> + 'static>
   FutureContextMapper<PendingOp<C>, PendingOpInfo, Result<R, E>>
   for PendingOpMappingInfo<C, R, true>
 {
@@ -225,7 +225,7 @@ impl<C: OpMappingContext, R> ValueLargeFn<C> for ValueLarge<C, R> {
 
 pub enum OpResult<C: OpMappingContext> {
   /// Errors.
-  Err(Error),
+  Err(AnyError),
   /// For small ops, we include them in an erased type container.
   Value(OpValue<C>),
   /// For ops that return "large" results (> MAX_RESULT_SIZE bytes) we just box a function
@@ -272,7 +272,7 @@ pub struct OpError {
 }
 
 impl OpError {
-  pub fn new(get_class: GetErrorClassFn, err: Error) -> Self {
+  pub fn new(get_class: GetErrorClassFn, err: AnyError) -> Self {
     Self {
       class_name: (get_class)(&err),
       message: format!("{err:#}"),

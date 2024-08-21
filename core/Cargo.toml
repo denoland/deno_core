@@ -47,6 +47,7 @@ static_assertions.workspace = true
 tokio.workspace = true
 url.workspace = true
 v8.workspace = true
+thiserror = "1.0.60"
 
 [dev-dependencies]
 bencher.workspace = true

@@ -1,8 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::OpId;
 use crate::PromiseId;
-use anyhow::Error;
 use bit_set::BitSet;
+use deno_core::error::AnyError;
 use std::future::Future;
 use std::task::Context;
 use std::task::Poll;
@@ -84,7 +84,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// might return an error (`Result`).
   fn submit_op_fallible<
     R: 'static,
-    E: Into<Error> + 'static,
+    E: Into<AnyError> + 'static,
     const LAZY: bool,
     const DEFERRED: bool,
   >(
@@ -98,7 +98,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// Submits an operation that is expected to complete successfully without errors.
   #[inline(always)]
   #[allow(clippy::too_many_arguments)]
-  fn submit_op_fallible_scheduling<R: 'static, E: Into<Error> + 'static>(
+  fn submit_op_fallible_scheduling<R: 'static, E: Into<AnyError> + 'static>(
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
@@ -160,7 +160,7 @@ mod tests {
 
     fn map_error(
       _context: &mut Self::Context,
-      err: Error,
+      err: AnyError,
       _get_error_class_fn: GetErrorClassFn,
     ) -> UnmappedResult<'s, Self> {
       Ok(format!("{err:?}"))

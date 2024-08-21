@@ -1,11 +1,9 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
-use crate::error::AnyError;
+use crate::error::PubError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use crate::FastStaticString;
-use anyhow::bail;
-use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -28,6 +26,7 @@ pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;
 pub use loaders::ModuleLoadResponse;
 pub use loaders::ModuleLoader;
+pub use loaders::ModuleLoaderError;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
 pub(crate) use map::script_origin;
@@ -180,16 +179,20 @@ impl From<&'static [u8]> for ModuleCodeBytes {
 
 /// Callback to customize value of `import.meta.resolve("./foo.ts")`.
 pub type ImportMetaResolveCallback = Box<
-  dyn Fn(&dyn ModuleLoader, String, String) -> Result<ModuleSpecifier, Error>,
+  dyn Fn(
+    &dyn ModuleLoader,
+    String,
+    String,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError>,
 >;
 
 pub(crate) fn default_import_meta_resolve_cb(
   loader: &dyn ModuleLoader,
   specifier: String,
   referrer: String,
-) -> Result<ModuleSpecifier, Error> {
+) -> Result<ModuleSpecifier, ModuleLoaderError> {
   if specifier.starts_with("npm:") {
-    bail!("\"npm:\" specifiers are currently not supported in import.meta.resolve()");
+    return Err(ModuleLoaderError::NpmUnsupportedMetaResolve);
   }
 
   loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
@@ -208,13 +211,13 @@ pub type CustomModuleEvaluationCb = Box<
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, AnyError>,
+  ) -> Result<CustomModuleEvaluationKind, anyhow::Error>,
 >;
 
 /// A callback to get the code cache for a script.
 /// (specifier, code) -> ...
 pub type EvalContextGetCodeCacheCb =
-  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, AnyError>>;
+  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, anyhow::Error>>;
 
 /// Callback when the code cache is ready.
 /// (specifier, hash, data) -> ()
@@ -472,7 +475,8 @@ impl ModuleSource {
   }
 }
 
-pub type ModuleSourceFuture = dyn Future<Output = Result<ModuleSource, Error>>;
+pub type ModuleSourceFuture =
+  dyn Future<Output = Result<ModuleSource, ModuleLoaderError>>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResolutionKind {
@@ -620,18 +624,18 @@ pub(crate) struct ModuleInfo {
 }
 
 #[derive(Debug)]
-pub(crate) enum ModuleError {
+pub enum ModuleError {
   Exception(v8::Global<v8::Value>),
-  Other(Error),
+  Other(PubError),
 }
 
 impl ModuleError {
-  pub fn into_any_error(
+  pub fn into_error(
     self,
     scope: &mut v8::HandleScope,
     in_promise: bool,
     clear_error: bool,
-  ) -> AnyError {
+  ) -> PubError {
     match self {
       ModuleError::Exception(exception) => {
         let exception = v8::Local::new(scope, exception);

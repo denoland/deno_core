@@ -1,52 +1,30 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::normalize_path;
-use std::error::Error;
-use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
 use url::ParseError;
 use url::Url;
 
 /// Error indicating the reason resolving a module specifier failed.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ModuleResolutionError {
-  InvalidUrl(ParseError),
-  InvalidBaseUrl(ParseError),
+  #[error("invalid URL: {0}")]
+  InvalidUrl(#[source] ParseError),
+  #[error("invalid base URL for relative import: {0}")]
+  InvalidBaseUrl(#[source] ParseError),
+  #[error("invalid module path: {0:?}")]
   InvalidPath(PathBuf),
-  ImportPrefixMissing(String, Option<String>),
+  #[error(
+    "Relative import path \"{specifier}\" not prefixed with / or ./ or ../{}",
+    .maybe_referrer.as_ref().map_or(String::new(), |referrer| format!(" from \"{referrer}\""))
+  )]
+  ImportPrefixMissing {
+    specifier: String,
+    maybe_referrer: Option<String>,
+  },
 }
 use ModuleResolutionError::*;
-
-impl Error for ModuleResolutionError {
-  fn source(&self) -> Option<&(dyn Error + 'static)> {
-    match self {
-      InvalidUrl(ref err) | InvalidBaseUrl(ref err) => Some(err),
-      _ => None,
-    }
-  }
-}
-
-impl fmt::Display for ModuleResolutionError {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    match self {
-      InvalidUrl(ref err) => write!(f, "invalid URL: {err}"),
-      InvalidBaseUrl(ref err) => {
-        write!(f, "invalid base URL for relative import: {err}")
-      }
-      InvalidPath(ref path) => write!(f, "invalid module path: {path:?}"),
-      ImportPrefixMissing(ref specifier, ref maybe_referrer) => write!(
-        f,
-        "Relative import path \"{}\" not prefixed with / or ./ or ../{}",
-        specifier,
-        match maybe_referrer {
-          Some(referrer) => format!(" from \"{referrer}\""),
-          None => String::new(),
-        }
-      ),
-    }
-  }
-}
 
 /// Resolved module specifier
 pub type ModuleSpecifier = Url;
@@ -76,7 +54,10 @@ pub fn resolve_import(
       } else {
         Some(base.to_string())
       };
-      return Err(ImportPrefixMissing(specifier.to_string(), maybe_referrer));
+      return Err(ImportPrefixMissing {
+        specifier: specifier.to_string(),
+        maybe_referrer,
+      });
     }
 
     // 3. Return the result of applying the URL parser to specifier with base
@@ -252,50 +233,60 @@ mod tests {
       (
         "awesome.ts",
         "<unknown>",
-        ImportPrefixMissing(
-          "awesome.ts".to_string(),
-          Some("<unknown>".to_string()),
-        ),
+        ImportPrefixMissing {
+          specifier: "awesome.ts".to_string(),
+          maybe_referrer: Some("<unknown>".to_string()),
+        },
       ),
       (
         "005_more_imports.ts",
         "http://deno.land/core/tests/006_url_imports.ts",
-        ImportPrefixMissing(
-          "005_more_imports.ts".to_string(),
-          Some("http://deno.land/core/tests/006_url_imports.ts".to_string()),
-        ),
+        ImportPrefixMissing {
+          specifier: "005_more_imports.ts".to_string(),
+          maybe_referrer: Some(
+            "http://deno.land/core/tests/006_url_imports.ts".to_string(),
+          ),
+        },
       ),
       (
         ".tomato",
         "http://deno.land/core/tests/006_url_imports.ts",
-        ImportPrefixMissing(
-          ".tomato".to_string(),
-          Some("http://deno.land/core/tests/006_url_imports.ts".to_string()),
-        ),
+        ImportPrefixMissing {
+          specifier: ".tomato".to_string(),
+          maybe_referrer: Some(
+            "http://deno.land/core/tests/006_url_imports.ts".to_string(),
+          ),
+        },
       ),
       (
         "..zucchini.mjs",
         "http://deno.land/core/tests/006_url_imports.ts",
-        ImportPrefixMissing(
-          "..zucchini.mjs".to_string(),
-          Some("http://deno.land/core/tests/006_url_imports.ts".to_string()),
-        ),
+        ImportPrefixMissing {
+          specifier: "..zucchini.mjs".to_string(),
+          maybe_referrer: Some(
+            "http://deno.land/core/tests/006_url_imports.ts".to_string(),
+          ),
+        },
       ),
       (
         r".\yam.es",
         "http://deno.land/core/tests/006_url_imports.ts",
-        ImportPrefixMissing(
-          r".\yam.es".to_string(),
-          Some("http://deno.land/core/tests/006_url_imports.ts".to_string()),
-        ),
+        ImportPrefixMissing {
+          specifier: r".\yam.es".to_string(),
+          maybe_referrer: Some(
+            "http://deno.land/core/tests/006_url_imports.ts".to_string(),
+          ),
+        },
       ),
       (
         r"..\yam.es",
         "http://deno.land/core/tests/006_url_imports.ts",
-        ImportPrefixMissing(
-          r"..\yam.es".to_string(),
-          Some("http://deno.land/core/tests/006_url_imports.ts".to_string()),
-        ),
+        ImportPrefixMissing {
+          specifier: r"..\yam.es".to_string(),
+          maybe_referrer: Some(
+            "http://deno.land/core/tests/006_url_imports.ts".to_string(),
+          ),
+        },
       ),
       (
         "https://eggplant:b/c",

@@ -1,6 +1,9 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use super::op_driver::OpDriver;
+use super::op_driver::OpScheduling;
+use super::op_driver::V8RetValMapper;
+use crate::error::AnyError;
 use crate::ops::*;
-use anyhow::Error;
 use futures::future::Future;
 use serde::Deserialize;
 use serde_v8::from_v8;
@@ -10,10 +13,6 @@ use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 use v8::WriteOptions;
-
-use super::op_driver::OpDriver;
-use super::op_driver::OpScheduling;
-use super::op_driver::V8RetValMapper;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -49,7 +48,7 @@ pub fn map_async_op_infallible<R: 'static>(
 }
 
 #[inline(always)]
-pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
+pub fn map_async_op_fallible<R: 'static, E: Into<AnyError> + 'static>(
   ctx: &OpCtx,
   lazy: bool,
   deferred: bool,
@@ -760,7 +759,7 @@ mod tests {
 
     runtime.run_event_loop(Default::default()).await?;
     if FAIL.with(|b| b.get()) {
-      Err(generic_error(format!("{op} test failed ({test})")))
+      Err(generic_error(format!("{op} test failed ({test})")).into())
     } else {
       Ok(())
     }

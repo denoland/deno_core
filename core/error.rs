@@ -7,10 +7,10 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-
-use anyhow::Error;
+use thiserror::__private::AsDynError;
 use v8::Object;
 
+pub use crate::modules::ModuleLoaderError;
 use crate::runtime::v8_static_strings;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntime;
@@ -22,115 +22,153 @@ use crate::FastStaticString;
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
 
-pub type JsErrorCreateFn = dyn Fn(JsError) -> Error;
-pub type GetErrorClassFn = &'static dyn for<'e> Fn(&'e Error) -> &'static str;
+pub type JsErrorCreateFn = dyn Fn(JsError) -> anyhow::Error;
+pub type GetErrorClassFn =
+  &'static dyn for<'e> Fn(&'e anyhow::Error) -> &'static str;
 
-/// Creates a new error with a caller-specified error class name and message.
-pub fn custom_error(
-  class: &'static str,
-  message: impl Into<Cow<'static, str>>,
-) -> Error {
-  CustomError {
-    class,
-    message: message.into(),
+#[derive(Debug, thiserror::Error)]
+pub enum PubError {
+  #[error("level await is not allowed in extensions")]
+  TLA(JsError),
+  #[error(transparent)]
+  Js(#[from] JsError),
+  #[error(transparent)]
+  Io(#[from] std::io::Error),
+  #[error(transparent)]
+  ExtensionTranspiler(anyhow::Error),
+  #[error("Failed to parse {0}")]
+  Parse(FastStaticString),
+  #[error("Failed to execute {0}")]
+  Execute(FastStaticString),
+  #[error(
+    "Following modules were passed to ExtModuleLoader but never used:\n{}",
+    .0.iter().map(|s| format!("  - {}\n", s)).collect::<Vec<_>>().join("")
+  )]
+  UnusedModules(Vec<String>),
+  #[error(
+    "Following modules were not evaluated; make sure they are imported from other code:\n{}",
+    .0.iter().map(|s| format!("  - {}\n", s)).collect::<Vec<_>>().join("")
+  )]
+  NonEvaluatedModules(Vec<String>),
+  #[error("not present in the module map")]
+  MissingFromModuleMap(String),
+  #[error(transparent)]
+  ModuleLoader(Box<ModuleLoaderError>),
+  #[error("Could not execute {specifier}")]
+  CouldNotExecute { error: Box<Self>, specifier: String },
+  #[error(
+    "\"npm:\" specifiers are currently not supported in import.meta.resolve()"
+  )]
+  NpmMetaResolve,
+  #[error(transparent)]
+  Custom(#[from] CustomError),
+  #[error(transparent)]
+  Url(#[from] url::ParseError),
+  #[error(transparent)]
+  FutureCanceled(#[from] futures::channel::oneshot::Canceled),
+  #[error(
+    "Cannot evaluate module, because JavaScript execution has been terminated"
+  )]
+  ExecutionTerminated,
+  #[error("Promise resolution is still pending but the event loop has already resolved."
+  )]
+  PendingPromiseResolution,
+  #[error(transparent)]
+  Anyhow(anyhow::Error),
+}
+
+impl From<ModuleLoaderError> for PubError {
+  fn from(err: ModuleLoaderError) -> Self {
+    PubError::ModuleLoader(Box::new(err))
   }
-  .into()
 }
 
-pub fn generic_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("Error", message)
-}
-
-pub fn type_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("TypeError", message)
-}
-
-pub fn range_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("RangeError", message)
-}
-
-pub fn invalid_hostname(hostname: &str) -> Error {
-  type_error(format!("Invalid hostname: '{hostname}'"))
-}
-
-pub fn uri_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("URIError", message)
-}
-
-pub fn bad_resource(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("BadResource", message)
-}
-
-pub fn bad_resource_id() -> Error {
-  custom_error("BadResource", "Bad resource ID")
-}
-
-pub fn not_supported() -> Error {
-  custom_error("NotSupported", "The operation is not supported")
-}
-
-pub fn resource_unavailable() -> Error {
-  custom_error(
-    "Busy",
-    "Resource is unavailable because it is in use by a promise",
-  )
+pub trait JsClassError: std::error::Error {
+  fn get_class(&self) -> &'static str;
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string()
+  }
 }
 
 /// A simple error type that lets the creator specify both the error message and
 /// the error class name. This type is private; externally it only ever appears
 /// wrapped in an `anyhow::Error`. To retrieve the error class name from a wrapped
 /// `CustomError`, use the function `get_custom_error_class()`.
-#[derive(Debug)]
-struct CustomError {
-  class: &'static str,
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct CustomError {
+  pub class: &'static str,
   message: Cow<'static, str>,
 }
 
-impl Display for CustomError {
-  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-    f.write_str(&self.message)
+impl JsClassError for CustomError {
+  fn get_class(&self) -> &'static str {
+    self.class
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.message.clone()
   }
 }
 
-impl std::error::Error for CustomError {}
+/// Creates a new error with a caller-specified error class name and message.
+pub fn custom_error(
+  class: &'static str,
+  message: impl Into<Cow<'static, str>>,
+) -> PubError {
+  PubError::Custom(CustomError {
+    class,
+    message: message.into(),
+  })
+}
 
-/// If this error was crated with `custom_error()`, return the specified error
-/// class name. In all other cases this function returns `None`.
-pub fn get_custom_error_class(error: &Error) -> Option<&'static str> {
+pub fn generic_error(message: impl Into<Cow<'static, str>>) -> PubError {
+  custom_error("Error", message)
+}
+
+pub fn type_error(message: impl Into<Cow<'static, str>>) -> PubError {
+  custom_error("TypeError", message)
+}
+
+pub fn range_error(message: impl Into<Cow<'static, str>>) -> PubError {
+  custom_error("RangeError", message)
+}
+
+pub fn invalid_hostname(hostname: &str) -> PubError {
+  type_error(format!("Invalid hostname: '{hostname}'"))
+}
+
+pub fn uri_error(message: impl Into<Cow<'static, str>>) -> PubError {
+  custom_error("URIError", message)
+}
+
+pub fn bad_resource(message: impl Into<Cow<'static, str>>) -> PubError {
+  custom_error("BadResource", message)
+}
+
+pub fn bad_resource_id() -> PubError {
+  custom_error("BadResource", "Bad resource ID")
+}
+
+pub fn not_supported() -> PubError {
+  custom_error("NotSupported", "The operation is not supported")
+}
+
+pub fn resource_unavailable() -> PubError {
+  custom_error(
+    "Busy",
+    "Resource is unavailable because it is in use by a promise",
+  )
+}
+
+pub fn get_custom_error_class(error: &anyhow::Error) -> Option<&'static str> {
   error.downcast_ref::<CustomError>().map(|e| e.class)
-}
-
-/// A wrapper around `anyhow::Error` that implements `std::error::Error`
-#[repr(transparent)]
-pub struct StdAnyError(pub Error);
-impl std::fmt::Debug for StdAnyError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{:?}", self.0)
-  }
-}
-
-impl std::fmt::Display for StdAnyError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}", self.0)
-  }
-}
-
-impl std::error::Error for StdAnyError {
-  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-    self.0.source()
-  }
-}
-
-impl From<Error> for StdAnyError {
-  fn from(err: Error) -> Self {
-    Self(err)
-  }
 }
 
 pub fn to_v8_error<'a>(
   scope: &mut v8::HandleScope<'a>,
   get_class: GetErrorClassFn,
-  error: &Error,
+  error: &anyhow::Error,
 ) -> v8::Local<'a, v8::Value> {
   let tc_scope = &mut v8::TryCatch::new(scope);
   let cb = JsRealm::exception_state_from_scope(tc_scope)
@@ -501,7 +539,7 @@ impl JsError {
       // TODO(mmastrac): we need consistency around when we insert "in promise" and when we don't. For now, we
       // are going to manually replace this part of the string.
       && (a.exception_message == b.exception_message
-        || a.exception_message.replace(" (in promise) ", " ") == b.exception_message.replace(" (in promise) ", " "))
+      || a.exception_message.replace(" (in promise) ", " ") == b.exception_message.replace(" (in promise) ", " "))
       && a.frames == b.frames
       && a.source_line == b.source_line
       && a.source_line_frame_index == b.source_line_frame_index
@@ -768,15 +806,24 @@ impl Display for JsError {
 // values of type v8::Global<T>.
 pub(crate) fn to_v8_type_error(
   scope: &mut v8::HandleScope,
-  err: Error,
+  err: PubError,
 ) -> v8::Global<v8::Value> {
   let err_string = err.to_string();
-  let error_chain = err
-    .chain()
-    .skip(1)
-    .filter(|e| e.to_string() != err_string)
-    .map(|e| e.to_string())
-    .collect::<Vec<_>>();
+  let mut error_chain = vec![];
+  let mut intermediary_error = Some(err.as_dyn_error());
+
+  while let Some(err) = intermediary_error {
+    if let Some(source) = err.source() {
+      let source_str = source.to_string();
+      if source_str != err_string {
+        error_chain.push(source_str);
+      }
+
+      intermediary_error = Some(source);
+    } else {
+      intermediary_error = None;
+    }
+  }
 
   let message = if !error_chain.is_empty() {
     format!(
@@ -924,7 +971,7 @@ pub(crate) fn exception_to_err_result<T>(
   exception: v8::Local<v8::Value>,
   mut in_promise: bool,
   clear_error: bool,
-) -> Result<T, Error> {
+) -> Result<T, PubError> {
   let state = JsRealm::exception_state_from_scope(scope);
 
   let mut was_terminating_execution = scope.is_execution_terminating();

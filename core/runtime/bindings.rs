@@ -1,5 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use anyhow::Context;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
@@ -14,8 +13,8 @@ use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::throw_type_error;
-use crate::error::AnyError;
 use crate::error::JsStackFrame;
+use crate::error::PubError;
 use crate::extension_set::LoadedSources;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
@@ -307,7 +306,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 /// to function properly
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
-) -> Result<(), AnyError> {
+) -> Result<(), PubError> {
   for source_file in &CONTEXT_SETUP_SOURCES {
     let name = source_file.specifier.v8_string(scope);
     let source = source_file.source.v8_string(scope);
@@ -315,10 +314,10 @@ pub(crate) fn initialize_primordials_and_infra(
     let origin = crate::modules::script_origin(scope, name, false, None);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source, Some(&origin))
-      .with_context(|| format!("Failed to parse {}", source_file.specifier))?;
-    script.run(scope).with_context(|| {
-      format!("Failed to execute {}", source_file.specifier)
-    })?;
+      .ok_or_else(|| PubError::Parse(source_file.specifier))?;
+    script
+      .run(scope)
+      .ok_or_else(|| PubError::Execute(source_file.specifier))?;
   }
 
   Ok(())

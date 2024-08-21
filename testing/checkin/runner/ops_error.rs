@@ -7,22 +7,22 @@ use deno_core::op2;
 
 #[op2(async)]
 pub async fn op_async_throw_error_eager() -> Result<(), Error> {
-  Err(type_error("Error"))
+  Err(type_error("Error").into())
 }
 
 #[op2(async(deferred), fast)]
 pub async fn op_async_throw_error_deferred() -> Result<(), Error> {
-  Err(type_error("Error"))
+  Err(type_error("Error").into())
 }
 
 #[op2(async(lazy), fast)]
 pub async fn op_async_throw_error_lazy() -> Result<(), Error> {
-  Err(type_error("Error"))
+  Err(type_error("Error").into())
 }
 
 #[op2(fast)]
 pub fn op_error_custom_sync(#[string] message: String) -> Result<(), Error> {
-  Err(custom_error("BadResource", message))
+  Err(custom_error("BadResource", message).into())
 }
 
 #[op2(fast)]

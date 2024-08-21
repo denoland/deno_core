@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::StdAnyError;
+use crate::error::PubError;
 use crate::runtime::ops;
 use std::convert::Infallible;
 
@@ -122,7 +122,7 @@ pub trait FromV8<'a>: Sized {
 // impls
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.  
+/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.
 #[repr(transparent)]
 pub struct Smi<T: SmallInt>(pub T);
 
@@ -170,7 +170,7 @@ impl<'a, T: SmallInt> ToV8<'a> for Smi<T> {
 }
 
 impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
-  type Error = StdAnyError;
+  type Error = PubError;
 
   #[inline]
   fn from_v8(
@@ -185,7 +185,7 @@ impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.  
+/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.
 #[repr(transparent)]
 pub struct Number<T: Numeric>(pub T);
 
@@ -240,7 +240,7 @@ impl<'a, T: Numeric> ToV8<'a> for Number<T> {
 }
 
 impl<'a, T: Numeric> FromV8<'a> for Number<T> {
-  type Error = StdAnyError;
+  type Error = PubError;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,

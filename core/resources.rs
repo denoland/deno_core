@@ -12,7 +12,6 @@ use crate::error::not_supported;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::io::WriteOutcome;
-use anyhow::Error;
 use futures::Future;
 use std::any::type_name;
 use std::any::Any;

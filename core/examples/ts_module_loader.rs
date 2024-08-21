@@ -15,7 +15,6 @@ use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::resolve_path;
 use deno_core::JsRuntime;
@@ -59,7 +58,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     fn load(
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
-    ) -> Result<ModuleSource, AnyError> {
+    ) -> Result<ModuleSource, Error> {
       let path = module_specifier
         .to_file_path()
         .map_err(|_| anyhow!("Only file:// URLs are supported."))?;
@@ -164,4 +163,5 @@ fn main() -> Result<(), Error> {
     .build()
     .unwrap()
     .block_on(future)
+    .map_err(|e| e.into())
 }

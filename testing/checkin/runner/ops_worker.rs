@@ -138,7 +138,9 @@ async fn run_worker_task(
       // This matches the v8 error. We'll hit both, depending on timing.
       return Poll::Ready(Err(anyhow!("Uncaught Error: execution terminated")));
     }
-    runtime.poll_event_loop(cx, PollEventLoopOptions::default())
+    runtime
+      .poll_event_loop(cx, PollEventLoopOptions::default())
+      .map_err(|e| e.into())
   })
   .await
   {

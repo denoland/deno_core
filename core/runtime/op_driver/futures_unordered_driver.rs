@@ -6,7 +6,6 @@ use super::OpDriver;
 use super::OpInflightStats;
 use crate::OpId;
 use crate::PromiseId;
-use anyhow::Error;
 use bit_set::BitSet;
 use deno_unsync::spawn;
 use deno_unsync::JoinHandle;
@@ -124,7 +123,7 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
 impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   fn submit_op_fallible<
     R: 'static,
-    E: Into<Error> + 'static,
+    E: Into<anyhow::Error> + 'static,
     const LAZY: bool,
     const DEFERRED: bool,
   >(

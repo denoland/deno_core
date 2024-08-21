@@ -5,6 +5,7 @@
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
 use crate::error::generic_error;
+use crate::error::PubError;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
@@ -19,7 +20,6 @@ use crate::futures::task::Context;
 use crate::futures::task::Poll;
 use crate::serde_json::json;
 use crate::serde_json::Value;
-use anyhow::Error;
 use parking_lot::Mutex;
 use std::cell::BorrowMutError;
 use std::cell::RefCell;
@@ -766,7 +766,7 @@ impl LocalInspectorSession {
     &mut self,
     method: &str,
     params: Option<T>,
-  ) -> Result<serde_json::Value, Error> {
+  ) -> Result<serde_json::Value, PubError> {
     let id = self.next_message_id;
     self.next_message_id += 1;
 

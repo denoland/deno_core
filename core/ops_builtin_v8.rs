@@ -3,7 +3,9 @@ use crate::error::custom_error;
 use crate::error::is_instance_of_error;
 use crate::error::range_error;
 use crate::error::type_error;
+use crate::error::AnyError;
 use crate::error::JsError;
+use crate::error::PubError;
 use crate::modules::script_origin;
 use crate::op2;
 use crate::ops_builtin::WasmStreamingResource;
@@ -15,7 +17,6 @@ use crate::stats::RuntimeActivityType;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
-use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -194,9 +195,11 @@ pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
 pub fn op_lazy_load_esm(
   scope: &mut v8::HandleScope,
   #[string] module_specifier: String,
-) -> Result<v8::Global<v8::Value>, Error> {
+) -> Result<v8::Global<v8::Value>, AnyError> {
   let module_map_rc = JsRealm::module_map_from(scope);
-  module_map_rc.lazy_load_esm_module(scope, &module_specifier)
+  module_map_rc
+    .lazy_load_esm_module(scope, &module_specifier)
+    .map_err(|e| e.into())
 }
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
@@ -263,7 +266,7 @@ pub fn op_eval_context<'a>(
   source: v8::Local<'a, v8::Value>,
   #[string] specifier: String,
   host_defined_options: Option<v8::Local<'a, v8::Array>>,
-) -> Result<v8::Local<'a, v8::Value>, Error> {
+) -> Result<v8::Local<'a, v8::Value>, AnyError> {
   let out = v8::Array::new(scope, 2);
   let state = JsRuntime::state_from(scope);
   let tc_scope = &mut v8::TryCatch::new(scope);
@@ -376,7 +379,7 @@ pub fn op_eval_context<'a>(
 pub fn op_encode<'a>(
   scope: &mut v8::HandleScope<'a>,
   text: v8::Local<'a, v8::Value>,
-) -> Result<v8::Local<'a, v8::Uint8Array>, Error> {
+) -> Result<v8::Local<'a, v8::Uint8Array>, AnyError> {
   let text = v8::Local::<v8::String>::try_from(text)
     .map_err(|_| type_error("Invalid argument"))?;
   let text_str = serde_v8::to_utf8(text, scope);
@@ -393,7 +396,7 @@ pub fn op_encode<'a>(
 pub fn op_decode<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: &[u8],
-) -> Result<v8::Local<'a, v8::String>, Error> {
+) -> Result<v8::Local<'a, v8::String>, AnyError> {
   let buf = &zero_copy;
 
   // Strip BOM
@@ -414,7 +417,7 @@ pub fn op_decode<'a>(
   // - https://github.com/v8/v8/blob/d68fb4733e39525f9ff0a9222107c02c28096e2a/include/v8.h#L3277-L3278
   match v8::String::new_from_utf8(scope, buf, v8::NewStringType::Normal) {
     Some(text) => Ok(text),
-    None => Err(range_error("string too long")),
+    None => Err(range_error("string too long").into()),
   }
 }
 
@@ -594,7 +597,7 @@ pub fn op_serialize(
   transferred_array_buffers: Option<v8::Local<v8::Value>>,
   for_storage: bool,
   error_callback: Option<v8::Local<v8::Value>>,
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>, AnyError> {
   let error_callback = match error_callback {
     Some(cb) => Some(
       v8::Local::<v8::Function>::try_from(cb)
@@ -642,16 +645,20 @@ pub fn op_serialize(
       if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store
       {
         if !buf.is_detachable() {
-          return Err(type_error(
-            "item in transferredArrayBuffers is not transferable",
-          ));
+          return Err(
+            type_error("item in transferredArrayBuffers is not transferable")
+              .into(),
+          );
         }
 
         if buf.was_detached() {
-          return Err(custom_error(
-            "DOMExceptionOperationError",
-            format!("ArrayBuffer at index {index} is already detached"),
-          ));
+          return Err(
+            custom_error(
+              "DOMExceptionOperationError",
+              format!("ArrayBuffer at index {index} is already detached"),
+            )
+            .into(),
+          );
         }
 
         let backing_store = buf.get_backing_store();
@@ -674,7 +681,7 @@ pub fn op_serialize(
     let vector = value_serializer.release();
     Ok(vector)
   } else {
-    Err(type_error("Failed to serialize response"))
+    Err(type_error("Failed to serialize response").into())
   }
 }
 
@@ -685,7 +692,7 @@ pub fn op_deserialize<'a>(
   host_objects: Option<v8::Local<v8::Value>>,
   transferred_array_buffers: Option<v8::Local<v8::Value>>,
   for_storage: bool,
-) -> Result<v8::Local<'a, v8::Value>, Error> {
+) -> Result<v8::Local<'a, v8::Value>, AnyError> {
   let host_objects = match host_objects {
     Some(value) => Some(
       v8::Local::<v8::Array>::try_from(value)
@@ -713,7 +720,7 @@ pub fn op_deserialize<'a>(
     .read_header(scope.get_current_context())
     .unwrap_or_default();
   if !parsed_header {
-    return Err(range_error("could not deserialize value"));
+    return Err(range_error("could not deserialize value").into());
   }
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
@@ -725,9 +732,9 @@ pub fn op_deserialize<'a>(
         let id = match id_val.number_value(scope) {
           Some(id) => id as u32,
           None => {
-            return Err(type_error(
-              "item in transferredArrayBuffers not number",
-            ))
+            return Err(
+              type_error("item in transferredArrayBuffers not number").into(),
+            )
           }
         };
         if let Some(backing_store) = shared_array_buffer_store.take(id) {
@@ -738,7 +745,7 @@ pub fn op_deserialize<'a>(
         } else {
           return Err(type_error(
             "transferred array buffer not present in shared_array_buffer_store",
-          ));
+          ).into());
         }
       }
     }
@@ -747,7 +754,7 @@ pub fn op_deserialize<'a>(
   let value = value_deserializer.read_value(scope.get_current_context());
   match value {
     Some(deserialized) => Ok(deserialized),
-    None => Err(range_error("could not deserialize value")),
+    None => Err(range_error("could not deserialize value").into()),
   }
 }
 
@@ -783,7 +790,7 @@ pub fn op_set_promise_hooks(
   before_hook: v8::Local<v8::Value>,
   after_hook: v8::Local<v8::Value>,
   resolve_hook: v8::Local<v8::Value>,
-) -> Result<(), Error> {
+) -> Result<(), AnyError> {
   let v8_fns = [init_hook, before_hook, after_hook, resolve_hook]
     .into_iter()
     .enumerate()
@@ -792,7 +799,7 @@ pub fn op_set_promise_hooks(
       let v8_fn = v8::Local::<v8::Function>::try_from(hook)
         .map_err(|err| type_error(err.to_string()))?;
       v8_fns[i] = Some(v8_fn);
-      Ok::<_, Error>(v8_fns)
+      Ok::<_, AnyError>(v8_fns)
     })?;
 
   scope.set_promise_hooks(
@@ -929,7 +936,7 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
   #[global] cb: v8::Global<v8::Function>,
-) -> Result<(), Error> {
+) -> Result<(), PubError> {
   let context_state_rc = JsRealm::state_from_scope(scope);
   // The callback to pass to the v8 API has to be a unit type, so it can't
   // borrow or move any local variables. Therefore, we're storing the JS
@@ -974,7 +981,7 @@ pub fn op_abort_wasm_streaming(
   state: Rc<RefCell<OpState>>,
   rid: u32,
   error: v8::Local<v8::Value>,
-) -> Result<(), Error> {
+) -> Result<(), AnyError> {
   // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
   let wasm_streaming = state
     .borrow_mut()

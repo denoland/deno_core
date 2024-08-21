@@ -7,7 +7,6 @@ use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
-use crate::error::AnyError;
 use crate::error::JsError;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
@@ -31,9 +30,6 @@ use crate::JsRuntime;
 use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
-use anyhow::bail;
-use anyhow::Context as _;
-use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
@@ -44,6 +40,11 @@ use futures::StreamExt;
 use v8::Function;
 use v8::PromiseState;
 
+use super::module_map_data::ModuleMapData;
+use super::CustomModuleEvaluationKind;
+use super::LazyEsmModuleLoader;
+use super::RequestedModuleType;
+use deno_core::error::PubError;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -55,13 +56,8 @@ use std::task::Context;
 use std::task::Poll;
 use tokio::sync::oneshot;
 
-use super::module_map_data::ModuleMapData;
-use super::CustomModuleEvaluationKind;
-use super::LazyEsmModuleLoader;
-use super::RequestedModuleType;
-
 type PrepareLoadFuture =
-  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
+  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, PubError>)>;
 
 type CodeCacheReadyFuture = dyn Future<Output = ()>;
 
@@ -69,7 +65,7 @@ use super::ImportMetaResolveCallback;
 
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
-  sender: Option<oneshot::Sender<Result<(), Error>>>,
+  sender: Option<oneshot::Sender<Result<(), PubError>>>,
   module: Option<v8::Global<v8::Module>>,
   notify: Vec<v8::Global<v8::Function>>,
 }
@@ -169,7 +165,7 @@ impl ModuleMap {
   pub(crate) fn check_all_modules_evaluated(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), Error> {
+  ) -> Result<(), PubError> {
     let mut not_evaluated = vec![];
     let data = self.data.borrow();
 
@@ -189,11 +185,7 @@ impl ModuleMap {
     }
 
     if !not_evaluated.is_empty() {
-      let mut msg = String::new();
-      for m in not_evaluated {
-        msg.push_str(&format!("  - {}\n", m));
-      }
-      bail!("Following modules were not evaluated; make sure they are imported from other code:\n {}", msg);
+      return Err(PubError::NonEvaluatedModules(not_evaluated));
     }
 
     Ok(())
@@ -415,7 +407,7 @@ impl ModuleMap {
           &module_url_found,
           code,
         )
-        .map_err(ModuleError::Other)?;
+        .map_err(|e| ModuleError::Other(PubError::Anyhow(e)))?;
 
         match module_evaluation_kind {
           // Simple case, we just got a single value so we create a regular
@@ -857,7 +849,7 @@ impl ModuleMap {
     specifier: &str,
     referrer: &str,
     kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, AnyError> {
+  ) -> Result<ModuleSpecifier, PubError> {
     if specifier.starts_with("ext:")
       && !referrer.starts_with("ext:")
       && !referrer.starts_with("node:")
@@ -874,7 +866,11 @@ impl ModuleMap {
       return Err(generic_error(msg));
     }
 
-    self.loader.borrow().resolve(specifier, referrer, kind)
+    self
+      .loader
+      .borrow()
+      .resolve(specifier, referrer, kind)
+      .map_err(|e| e.into())
   }
 
   /// Called by `module_resolve_callback` during module instantiation.
@@ -917,7 +913,7 @@ impl ModuleMap {
   pub(crate) async fn load_main(
     module_map_rc: Rc<ModuleMap>,
     specifier: impl AsRef<str>,
-  ) -> Result<RecursiveModuleLoad, Error> {
+  ) -> Result<RecursiveModuleLoad, PubError> {
     let load =
       RecursiveModuleLoad::main(specifier.as_ref(), module_map_rc.clone());
     load.prepare().await?;
@@ -927,7 +923,7 @@ impl ModuleMap {
   pub(crate) async fn load_side(
     module_map_rc: Rc<ModuleMap>,
     specifier: impl AsRef<str>,
-  ) -> Result<RecursiveModuleLoad, Error> {
+  ) -> Result<RecursiveModuleLoad, PubError> {
     let load =
       RecursiveModuleLoad::side(specifier.as_ref(), module_map_rc.clone());
     load.prepare().await?;
@@ -992,7 +988,7 @@ impl ModuleMap {
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), Error>> + Unpin {
+  ) -> impl Future<Output = Result<(), PubError>> + Unpin {
     let tc_scope = &mut v8::TryCatch::new(scope);
 
     let module = self
@@ -1014,11 +1010,8 @@ impl ModuleMap {
     );
 
     let (sender, receiver) = oneshot::channel();
-    let receiver = receiver.map(|res| {
-      res.unwrap_or_else(|_| {
-        bail!("Cannot evaluate module, because JavaScript execution has been terminated")
-      }
-    )});
+    let receiver = receiver
+      .map(|res| res.unwrap_or_else(|_| Err(PubError::ExecutionTerminated)));
 
     let Some(value) = module.evaluate(tc_scope) else {
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
@@ -1166,7 +1159,7 @@ impl ModuleMap {
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
     id: ModuleId,
-  ) -> Result<(), Error> {
+  ) -> Result<(), PubError> {
     let mut receiver = self.mod_evaluate(scope, id);
 
     // After evaluate_pending_module, if the module isn't fully evaluated
@@ -1174,9 +1167,9 @@ impl ModuleMap {
     // uses TLA.
     match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
       Poll::Ready(result) => {
-        result.with_context(|| {
-          let specifier = self.get_name_by_id(id).unwrap();
-          format!("Couldn't execute '{specifier}'")
+        result.map_err(|e| PubError::CouldNotExecute {
+          error: Box::new(e),
+          specifier: self.get_name_by_id(id).unwrap(),
         })?;
       }
       Poll::Pending => {
@@ -1185,8 +1178,7 @@ impl ModuleMap {
         assert!(!messages.is_empty());
         let msg = v8::Local::new(scope, &messages[0]);
         let js_error = JsError::from_v8_message(scope, msg);
-        return Err(Error::from(js_error))
-          .with_context(|| "Top-level await is not allowed in extensions");
+        return Err(PubError::TLA(js_error));
       }
     }
 
@@ -1198,7 +1190,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     load_id: ModuleLoadId,
     id: ModuleId,
-  ) -> Result<(), Error> {
+  ) -> Result<(), PubError> {
     let module_handle = self.get_handle(id).expect("ModuleInfo not found");
 
     let status = {
@@ -1390,7 +1382,7 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), Error> {
+  ) -> Result<(), PubError> {
     let mut has_evaluated = true;
 
     // TODO(mmastrac): We register this waker unconditionally because we occasionally need to re-run
@@ -1441,7 +1433,7 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Poll<Result<(), Error>> {
+  ) -> Poll<Result<(), PubError>> {
     if !self.preparing_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
@@ -1485,7 +1477,7 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Poll<Result<(), Error>> {
+  ) -> Poll<Result<(), PubError>> {
     if !self.pending_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
@@ -1564,7 +1556,10 @@ impl ModuleMap {
     }
   }
 
-  fn poll_code_cache_ready(&self, cx: &mut Context) -> Poll<Result<(), Error>> {
+  fn poll_code_cache_ready(
+    &self,
+    cx: &mut Context,
+  ) -> Poll<Result<(), PubError>> {
     if !self.pending_code_cache_ready.get() {
       return Poll::Ready(Ok(()));
     }
@@ -1592,7 +1587,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, Error> {
+  ) -> Result<v8::Global<v8::Object>, PubError> {
     let module_handle = self
       .data
       .borrow()
@@ -1689,7 +1684,7 @@ impl ModuleMap {
     module_specifier: &str,
     source_code: ModuleCodeString,
     code_cache_info: Option<CodeCacheInfo>,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, PubError> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
       .new_es_module(
@@ -1700,7 +1695,7 @@ impl ModuleMap {
         false,
         code_cache_info,
       )
-      .map_err(|e| e.into_any_error(scope, false, true))?;
+      .map_err(|e| e.into_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
@@ -1750,7 +1745,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     module_specifier: &str,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, PubError> {
     let lazy_esm_sources = self.data.borrow().lazy_esm_sources.clone();
     let loader = LazyEsmModuleLoader::new(lazy_esm_sources);
 

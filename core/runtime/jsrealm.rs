@@ -3,6 +3,7 @@ use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
+use crate::error::PubError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::script_origin;
 use crate::modules::IntoModuleCodeString;
@@ -17,7 +18,6 @@ use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
 use crate::GetErrorClassFn;
-use anyhow::Error;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -309,7 +309,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, PubError> {
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.into_module_code().v8_string(scope);
@@ -347,7 +347,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, Error> {
+  ) -> Result<v8::Global<v8::Object>, PubError> {
     self
       .0
       .module_map()
@@ -383,14 +383,14 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, PubError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let scope = &mut self.handle_scope(isolate);
       // true for main module
       module_map_rc
         .new_es_module(scope, true, specifier.to_owned(), code, false, None)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load =
@@ -401,7 +401,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       load
         .register_and_recurse(scope, &request, info)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -428,7 +428,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, PubError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let specifier = specifier.to_owned();
@@ -436,7 +436,7 @@ impl JsRealm {
       // false for side module (not main module)
       module_map_rc
         .new_es_module(scope, false, specifier, code, false, None)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load =
@@ -447,7 +447,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       load
         .register_and_recurse(scope, &request, info)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -471,7 +471,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     module_specifier: ModuleName,
     code: ModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, PubError> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);
     module_map_rc.lazy_load_es_module_with_code(

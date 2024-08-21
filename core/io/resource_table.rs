@@ -5,7 +5,7 @@ use super::ResourceHandleFd;
 use super::ResourceHandleSocket;
 use crate::error::bad_resource_id;
 use crate::error::custom_error;
-use anyhow::Error;
+use crate::error::PubError;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -80,7 +80,7 @@ impl ResourceTable {
   /// Returns a reference counted pointer to the resource of type `T` with the
   /// given `rid`. If `rid` is not present or has a type different than `T`,
   /// this function returns `None`.
-  pub fn get<T: Resource>(&self, rid: ResourceId) -> Result<Rc<T>, Error> {
+  pub fn get<T: Resource>(&self, rid: ResourceId) -> Result<Rc<T>, PubError> {
     self
       .index
       .get(&rid)
@@ -89,7 +89,7 @@ impl ResourceTable {
       .ok_or_else(bad_resource_id)
   }
 
-  pub fn get_any(&self, rid: ResourceId) -> Result<Rc<dyn Resource>, Error> {
+  pub fn get_any(&self, rid: ResourceId) -> Result<Rc<dyn Resource>, PubError> {
     self.index.get(&rid).cloned().ok_or_else(bad_resource_id)
   }
 
@@ -113,7 +113,10 @@ impl ResourceTable {
   /// assume that `Rc::strong_count(&returned_rc)` is always equal to 1 on success.
   /// In particular, be really careful when you want to extract the inner value of
   /// type `T` from `Rc<T>`.
-  pub fn take<T: Resource>(&mut self, rid: ResourceId) -> Result<Rc<T>, Error> {
+  pub fn take<T: Resource>(
+    &mut self,
+    rid: ResourceId,
+  ) -> Result<Rc<T>, PubError> {
     let resource = self.get::<T>(rid)?;
     self.index.remove(&rid);
     Ok(resource)
@@ -130,7 +133,7 @@ impl ResourceTable {
   pub fn take_any(
     &mut self,
     rid: ResourceId,
-  ) -> Result<Rc<dyn Resource>, Error> {
+  ) -> Result<Rc<dyn Resource>, PubError> {
     self.index.remove(&rid).ok_or_else(bad_resource_id)
   }
 
@@ -141,7 +144,7 @@ impl ResourceTable {
   /// may implement the `close()` method to perform clean-ups such as canceling
   /// ops.
   #[deprecated = "This method may deadlock. Use take() and close() instead."]
-  pub fn close(&mut self, rid: ResourceId) -> Result<(), Error> {
+  pub fn close(&mut self, rid: ResourceId) -> Result<(), PubError> {
     self
       .index
       .remove(&rid)
@@ -170,7 +173,7 @@ impl ResourceTable {
 
   /// Retrieves the [`ResourceHandleFd`] for a given resource, for potential optimization
   /// purposes within ops.
-  pub fn get_fd(&self, rid: ResourceId) -> Result<ResourceHandleFd, Error> {
+  pub fn get_fd(&self, rid: ResourceId) -> Result<ResourceHandleFd, PubError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
       return Err(bad_resource_id());
     };
@@ -188,7 +191,7 @@ impl ResourceTable {
   pub fn get_socket(
     &self,
     rid: ResourceId,
-  ) -> Result<ResourceHandleSocket, Error> {
+  ) -> Result<ResourceHandleSocket, PubError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
       return Err(bad_resource_id());
     };
@@ -206,7 +209,7 @@ impl ResourceTable {
   pub fn get_handle(
     &self,
     rid: ResourceId,
-  ) -> ::std::result::Result<ResourceHandle, ::anyhow::Error> {
+  ) -> Result<ResourceHandle, PubError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
       return Err(bad_resource_id());
     };

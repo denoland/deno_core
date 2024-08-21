@@ -1897,7 +1897,7 @@ fn test_load_with_code_cache() {
 
 #[test]
 fn ext_module_loader_relative() {
-  let loader = ExtModuleLoader::new(vec![]).unwrap();
+  let loader = ExtModuleLoader::new(vec![]);
   let cases = [
     (
       ("../../foo.js", "ext:test/nested/mod/bar.js"),

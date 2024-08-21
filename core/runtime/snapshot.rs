@@ -1,6 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use anyhow::Error;
+use crate::error::PubError;
+use crate::modules::ModuleMapSnapshotData;
+use crate::Extension;
+use crate::JsRuntimeForSnapshot;
+use crate::RuntimeOptions;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -8,11 +12,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
-
-use crate::modules::ModuleMapSnapshotData;
-use crate::Extension;
-use crate::JsRuntimeForSnapshot;
-use crate::RuntimeOptions;
 
 use super::ExtensionTranspiler;
 
@@ -130,7 +129,7 @@ pub struct CreateSnapshotOutput {
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
   warmup_script: Option<&'static str>,
-) -> Result<CreateSnapshotOutput, Error> {
+) -> Result<CreateSnapshotOutput, PubError> {
   let mut mark = Instant::now();
   #[allow(clippy::print_stdout)]
   {
