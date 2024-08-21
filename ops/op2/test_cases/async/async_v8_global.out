@@ -23,7 +23,7 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
     }
     impl op_async_v8_global {
         pub const fn name() -> &'static str {
-            stringify!(op_async_v8_global)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

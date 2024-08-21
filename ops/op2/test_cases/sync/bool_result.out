@@ -51,7 +51,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
     }
     impl op_bool {
         pub const fn name() -> &'static str {
-            stringify!(op_bool)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
@@ -110,10 +110,15 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
                 Ok(result) => result,
                 Err(err) => {
                     let err = err.into();
-                    unsafe {
-                        opctx.unsafely_set_last_error_for_ops_only(err);
-                    }
-                    fast_api_callback_options.fallback = true;
+                    let mut scope = unsafe {
+                        deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
+                    };
+                    let exception = deno_core::error::to_v8_error(
+                        &mut scope,
+                        opctx.get_error_class_fn,
+                        &err,
+                    );
+                    scope.throw_exception(exception);
                     return unsafe { std::mem::zeroed() };
                 }
             };
@@ -131,23 +136,6 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
             );
-            let opctx: &'s _ = unsafe {
-                &*(deno_core::v8::Local::<
-                    deno_core::v8::External,
-                >::cast_unchecked(args.data())
-                    .value() as *const deno_core::_ops::OpCtx)
-            };
-            if let Some(err) = unsafe { opctx.unsafely_take_last_error_for_ops_only() } {
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                let err = err.into();
-                let exception = deno_core::error::to_v8_error(
-                    &mut scope,
-                    opctx.get_error_class_fn,
-                    &err,
-                );
-                scope.throw_exception(exception);
-                return 1;
-            }
             let result = {
                 let arg0 = args.get(0usize as i32);
                 let arg0 = arg0.is_true();
@@ -157,6 +145,12 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
                 Ok(result) => deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv),
                 Err(err) => {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                    let opctx: &'s _ = unsafe {
+                        &*(deno_core::v8::Local::<
+                            deno_core::v8::External,
+                        >::cast_unchecked(args.data())
+                            .value() as *const deno_core::_ops::OpCtx)
+                    };
                     let err = err.into();
                     let exception = deno_core::error::to_v8_error(
                         &mut scope,

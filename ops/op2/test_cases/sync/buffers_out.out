@@ -23,7 +23,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
     }
     impl op_buffers {
         pub const fn name() -> &'static str {
-            stringify!(op_buffers)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -145,7 +145,7 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
     }
     impl op_buffers_option {
         pub const fn name() -> &'static str {
-            stringify!(op_buffers_option)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -277,7 +277,7 @@ const fn op_arraybuffers() -> ::deno_core::_ops::OpDecl {
     }
     impl op_arraybuffers {
         pub const fn name() -> &'static str {
-            stringify!(op_arraybuffers)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

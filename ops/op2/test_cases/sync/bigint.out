@@ -43,7 +43,7 @@ pub const fn op_bigint() -> ::deno_core::_ops::OpDecl {
     }
     impl op_bigint {
         pub const fn name() -> &'static str {
-            stringify!(op_bigint)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(

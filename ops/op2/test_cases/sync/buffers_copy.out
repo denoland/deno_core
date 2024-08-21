@@ -54,7 +54,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
     }
     impl op_buffers {
         pub const fn name() -> &'static str {
-            stringify!(op_buffers)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
@@ -288,7 +288,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
     }
     impl op_buffers_32 {
         pub const fn name() -> &'static str {
-            stringify!(op_buffers_32)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(

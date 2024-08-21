@@ -23,7 +23,7 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
     }
     impl op_to_v8_return {
         pub const fn name() -> &'static str {
-            stringify!(op_to_v8_return)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

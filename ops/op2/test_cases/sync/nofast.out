@@ -23,7 +23,7 @@ const fn op_nofast() -> ::deno_core::_ops::OpDecl {
     }
     impl op_nofast {
         pub const fn name() -> &'static str {
-            stringify!(op_nofast)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

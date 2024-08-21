@@ -23,7 +23,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_make_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_make_cppgc_object)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -147,7 +147,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_use_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_use_cppgc_object)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -271,7 +271,7 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_use_optional_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_use_optional_cppgc_object)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

@@ -44,7 +44,7 @@ pub const fn op_has_doc_comment() -> ::deno_core::_ops::OpDecl {
     }
     impl op_has_doc_comment {
         pub const fn name() -> &'static str {
-            stringify!(op_has_doc_comment)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(

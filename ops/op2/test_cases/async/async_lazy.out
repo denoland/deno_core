@@ -51,7 +51,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
     }
     impl op_async_lazy {
         pub const fn name() -> &'static str {
-            stringify!(op_async_lazy)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
