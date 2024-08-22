@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::PubError;
+use crate::error::JsNativeError;
 use crate::runtime::ops;
 use std::convert::Infallible;
 
@@ -170,15 +170,15 @@ impl<'a, T: SmallInt> ToV8<'a> for Smi<T> {
 }
 
 impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
-  type Error = PubError;
+  type Error = JsNativeError;
 
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    let v = crate::runtime::ops::to_i32_option(&value).ok_or_else(|| {
-      crate::error::JsNativeError::type_error(format!("Expected {}", T::NAME))
+    let v = ops::to_i32_option(&value).ok_or_else(|| {
+      JsNativeError::type_error(format!("Expected {}", T::NAME))
     })?;
     Ok(Smi(T::from_i32(v)))
   }
@@ -240,16 +240,15 @@ impl<'a, T: Numeric> ToV8<'a> for Number<T> {
 }
 
 impl<'a, T: Numeric> FromV8<'a> for Number<T> {
-  type Error = PubError;
+  type Error = JsNativeError;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    T::from_value(&value).map(Number).ok_or_else(|| {
-      crate::error::JsNativeError::type_error(format!("Expected {}", T::NAME))
-        .into()
-    })
+    T::from_value(&value)
+      .map(Number)
+      .ok_or_else(|| JsNativeError::type_error(format!("Expected {}", T::NAME)))
   }
 }
 
