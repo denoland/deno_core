@@ -54,9 +54,9 @@ pub struct V8OpMappingContext {}
 
 pub type V8RetValMapper<R> =
   for<'r> fn(
-    &mut v8::HandleScope<'r>,
-    R,
-  ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>;
+  &mut v8::HandleScope<'r>,
+  R,
+) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>;
 
 impl<'s> OpMappingContextLifetime<'s> for V8OpMappingContext {
   type Context = v8::HandleScope<'s>;
@@ -135,11 +135,10 @@ pub struct PendingOpMappingInfo<
 >(pub PendingOpInfo, pub C::MappingFn<R>);
 
 impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Copy
-  for PendingOpMappingInfo<C, R, FALLIBLE>
-{
-}
+for PendingOpMappingInfo<C, R, FALLIBLE>
+{}
 impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Clone
-  for PendingOpMappingInfo<C, R, FALLIBLE>
+for PendingOpMappingInfo<C, R, FALLIBLE>
 {
   #[inline(always)]
   fn clone(&self) -> Self {
@@ -148,8 +147,8 @@ impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Clone
 }
 
 impl<C: OpMappingContext, R: 'static, E: Into<OpError> + 'static>
-  FutureContextMapper<PendingOp<C>, PendingOpInfo, Result<R, E>>
-  for PendingOpMappingInfo<C, R, true>
+FutureContextMapper<PendingOp<C>, PendingOpInfo, Result<R, E>>
+for PendingOpMappingInfo<C, R, true>
 {
   fn context(&self) -> PendingOpInfo {
     self.0
@@ -161,8 +160,8 @@ impl<C: OpMappingContext, R: 'static, E: Into<OpError> + 'static>
 }
 
 impl<C: OpMappingContext, R: 'static>
-  FutureContextMapper<PendingOp<C>, PendingOpInfo, R>
-  for PendingOpMappingInfo<C, R, false>
+FutureContextMapper<PendingOp<C>, PendingOpInfo, R>
+for PendingOpMappingInfo<C, R, false>
 {
   fn context(&self) -> PendingOpInfo {
     self.0
@@ -263,6 +262,16 @@ impl<C: OpMappingContext> OpResult<C> {
 pub struct OpError {
   error: Box<dyn JsErrorClass>,
   error_code: Option<&'static str>,
+}
+
+impl JsErrorClass for OpError {
+  fn get_class(&self) -> &'static str {
+    self.error.get_class()
+  }
+
+  fn get_message(&self) -> std::borrow::Cow<'static, str> {
+    self.error.get_message()
+  }
 }
 
 impl<T: JsErrorClass> From<T> for OpError {

@@ -79,7 +79,7 @@ impl From<ModuleLoaderError> for PubError {
   }
 }
 
-pub trait JsErrorClass: std::any::Any + Debug + 'static {
+pub trait JsErrorClass: Debug + 'static {
   fn get_class(&self) -> &'static str;
   fn get_message(&self) -> Cow<'static, str>;
 }
@@ -126,13 +126,16 @@ impl JsErrorClass for std::io::Error {
       UnexpectedEof => "UnexpectedEof",
       Other => "Error",
       WouldBlock => "WouldBlock",
-      FilesystemLoop => "FilesystemLoop",
-      IsADirectory => "IsADirectory",
-      NetworkUnreachable => "NetworkUnreachable",
-      NotADirectory => "NotADirectory",
-      // Non-exhaustive enum - might add new variants
-      // in the future
-      _ => "Error",
+      kind => {
+        let kind_str = kind.to_string();
+        match kind_str.as_str() {
+          "FilesystemLoop" => "FilesystemLoop",
+          "IsADirectory" => "IsADirectory",
+          "NetworkUnreachable" => "NetworkUnreachable",
+          "NotADirectory" => "NotADirectory",
+          _ => "Error",
+        }
+      }
     }
   }
 
@@ -1527,7 +1530,7 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
         ErrorElement::EvalOrigin,
         frame.eval_origin.as_ref().unwrap(),
       )
-        .to_string()
+      .to_string()
         + ", ");
     }
     result += &F::fmt_element(Anonymous, "<anonymous>");
@@ -1538,14 +1541,14 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
       ":{}",
       F::fmt_element(LineNumber, &line_number.to_string())
     )
-      .unwrap();
+    .unwrap();
     if let Some(column_number) = frame.column_number {
       write!(
         result,
         ":{}",
         F::fmt_element(ColumnNumber, &column_number.to_string())
       )
-        .unwrap();
+      .unwrap();
     }
   }
   result
@@ -1689,10 +1692,10 @@ mod tests {
     for (input, expect) in cases {
       match expect {
         Some((
-               expect_before,
-               (expect_file, expect_line, expect_col),
-               expect_after,
-             )) => {
+          expect_before,
+          (expect_file, expect_line, expect_col),
+          expect_after,
+        )) => {
           let (before, (file_name, line_number, column_number), after) =
             parse_eval_origin(input).unwrap();
           assert_eq!(before, expect_before);
