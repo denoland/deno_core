@@ -432,7 +432,10 @@ impl JsRuntimeInspector {
 
   /// Create a local inspector session that can be used on
   /// the same thread as the isolate.
-  pub fn create_local_session(&self) -> LocalInspectorSession {
+  pub fn create_local_session(
+    &self,
+    options: LocalInspectorSessionOptions,
+  ) -> LocalInspectorSession {
     // The 'outbound' channel carries messages sent to the session.
     let (outbound_tx, outbound_rx) = mpsc::unbounded();
 
@@ -446,8 +449,11 @@ impl JsRuntimeInspector {
 
     // InspectorSessions for a local session is added directly to the "established"
     // sessions, so it doesn't need to go through the session sender.
-    let inspector_session =
-      InspectorSession::new(self.v8_inspector.clone(), proxy, true);
+    let inspector_session = InspectorSession::new(
+      self.v8_inspector.clone(),
+      proxy,
+      options.is_blocking,
+    );
     self
       .sessions
       .borrow_mut()
@@ -457,6 +463,13 @@ impl JsRuntimeInspector {
 
     LocalInspectorSession::new(inbound_tx, outbound_rx)
   }
+}
+
+#[derive(Debug)]
+pub struct LocalInspectorSessionOptions {
+  /// Should this inspector session keep the event loop alive?
+  /// Ie. should this session be "refed" or "unrefed".
+  pub is_blocking: bool,
 }
 
 #[derive(Default)]
