@@ -13,9 +13,9 @@ use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::ascii_str;
 use crate::ascii_str_include;
-use crate::error::GetErrorClassFn;
+use crate::error::exception_to_err_result;
 use crate::error::JsError;
-use crate::error::{exception_to_err_result, PubError};
+use crate::error::PubError;
 use crate::extension_set;
 use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
@@ -439,10 +439,6 @@ pub struct JsRuntimeState {
 
 #[derive(Default)]
 pub struct RuntimeOptions {
-  /// Allows to map error type to a string "class" used to represent
-  /// error in JavaScript.
-  pub get_error_class_fn: Option<GetErrorClassFn>,
-
   /// Implementation of `ModuleLoader` which will be
   /// called when V8 requests to load ES modules in the main realm.
   ///
@@ -852,7 +848,6 @@ impl JsRuntime {
 
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
-    let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
     let mut op_ctxs = extension_set::create_op_ctxs(
       op_decls,
@@ -860,7 +855,6 @@ impl JsRuntime {
       op_driver.clone(),
       op_state.clone(),
       state_rc.clone(),
-      get_error_class_fn,
     );
 
     // ...ops are now almost fully set up; let's create a V8 isolate...
@@ -956,7 +950,6 @@ impl JsRuntime {
     let context_state = Rc::new(ContextState::new(
       op_driver.clone(),
       isolate_ptr,
-      options.get_error_class_fn.unwrap_or(&|_| "Error"),
       op_ctxs,
       op_state.borrow().external_ops_tracker.clone(),
     ));
@@ -2510,7 +2503,7 @@ impl JsRuntime {
         break;
       };
 
-      let res = res.unwrap(scope, context_state.get_error_class_fn);
+      let res = res.unwrap(scope);
 
       {
         let op_ctx = &context_state.op_ctxs[op_id as usize];

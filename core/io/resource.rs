@@ -6,8 +6,8 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use crate::error::not_supported;
 use crate::error::AnyError;
+use crate::error::JsNativeError;
 use crate::io::AsyncResult;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -85,7 +85,7 @@ pub trait Resource: Any + 'static {
   /// implement `read_byob()`.
   fn read(self: Rc<Self>, limit: usize) -> AsyncResult<BufView> {
     _ = limit;
-    Box::pin(futures::future::err(not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
   }
 
   /// Read a single chunk of data from the resource into the provided `BufMutView`.
@@ -111,7 +111,7 @@ pub trait Resource: Any + 'static {
 
   /// Write an error state to this resource, if the resource supports it.
   fn write_error(self: Rc<Self>, _error: AnyError) -> AsyncResult<()> {
-    Box::pin(futures::future::err(not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
   }
 
   /// Write a single chunk of data to the resource. The operation may not be
@@ -123,7 +123,7 @@ pub trait Resource: Any + 'static {
   /// with a "not supported" error.
   fn write(self: Rc<Self>, buf: BufView) -> AsyncResult<WriteOutcome> {
     _ = buf;
-    Box::pin(futures::future::err(not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
   }
 
   /// Write an entire chunk of data to the resource. Unlike `write()`, this will
@@ -160,13 +160,13 @@ pub trait Resource: Any + 'static {
     data: &mut [u8],
   ) -> Result<usize, AnyError> {
     _ = data;
-    Err(not_supported().into())
+    Err(JsNativeError::not_supported().into())
   }
 
   /// The same as [`write()`][Resource::write], but synchronous.
   fn write_sync(self: Rc<Self>, data: &[u8]) -> Result<usize, AnyError> {
     _ = data;
-    Err(not_supported().into())
+    Err(JsNativeError::not_supported().into())
   }
 
   /// The shutdown method can be used to asynchronously close the resource. It
@@ -175,7 +175,7 @@ pub trait Resource: Any + 'static {
   /// If this method is not implemented, the default implementation will error
   /// with a "not supported" error.
   fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
-    Box::pin(futures::future::err(not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
   }
 
   /// Resources may implement the `close()` trait method if they need to do

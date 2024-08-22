@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::AnyError;
 use crate::error::JsError;
+use crate::error::OpError;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
@@ -150,7 +150,10 @@ async fn test_wakers_for_async_ops() {
   "Promise.reject(new Error('fail'))",
   Err("Error: fail\n    at a.js:1:16")
 )]
-#[case("new Promise(resolve => {})", Err("Promise resolution is still pending but the event loop has already resolved."))]
+#[case("new Promise(resolve => {})",
+  Err("Promise resolution is still pending but the event loop has already resolved."
+  )
+)]
 #[tokio::test]
 async fn test_resolve_promise(
   #[case] script: &'static str,
@@ -225,7 +228,9 @@ async fn test_resolve_promise(
   "() => { Deno.core.reportUnhandledException(new Error('fail')); return 1; }",
   Ok(Some(1))
 )]
-#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }", Err("Uncaught Error: fail"))]
+#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
+  Err("Uncaught Error: fail")
+)]
 #[tokio::test]
 async fn test_resolve_value(
   #[case] runner: &'static str,
@@ -291,7 +296,7 @@ fn terminate_execution_webassembly() {
 
   // Run an infinite loop in WebAssembly code, which should be terminated.
   let promise = runtime.execute_script("infinite_wasm_loop.js",
-                               r#"
+                                       r#"
                                (async () => {
                                 const wasmCode = new Uint8Array([
                                     0,    97,   115,  109,  1,    0,    0,    0,    1,   4,    1,
@@ -374,7 +379,7 @@ async fn wasm_streaming_op_invocation_in_import() {
 
   // Run an infinite loop in WebAssembly code, which should be terminated.
   runtime.execute_script("setup.js",
-                               r#"
+                         r#"
                                 Deno.core.setWasmStreamingCallback((source, rid) => {
                                   Deno.core.ops.op_wasm_streaming_set_url(rid, "file:///foo.wasm");
                                   Deno.core.ops.op_wasm_streaming_feed(rid, source);
@@ -383,7 +388,7 @@ async fn wasm_streaming_op_invocation_in_import() {
                                "#).unwrap();
 
   let promise = runtime.execute_script("main.js",
-                            r#"
+                                       r#"
                              // (module (import "env" "data" (global i64)))
                              const bytes = new Uint8Array([0,97,115,109,1,0,0,0,2,13,1,3,101,110,118,4,100,97,116,97,3,126,0,0,8,4,110,97,109,101,2,1,0]);
                              WebAssembly.instantiateStreaming(bytes, {
@@ -694,13 +699,13 @@ fn test_has_tick_scheduled() {
   static NEXT_TICK: AtomicUsize = AtomicUsize::new(0);
 
   #[op2(fast)]
-  fn op_macrotask() -> Result<(), AnyError> {
+  fn op_macrotask() -> Result<(), OpError> {
     MACROTASK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
 
   #[op2(fast)]
-  fn op_next_tick() -> Result<(), AnyError> {
+  fn op_next_tick() -> Result<(), OpError> {
     NEXT_TICK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
@@ -851,7 +856,7 @@ async fn test_promise_rejection_handler_generic(
       }
     }
   "#
-  .replace("__CASE__", case);
+    .replace("__CASE__", case);
 
   let future = if module {
     let id = runtime
@@ -964,7 +969,7 @@ async fn test_dynamic_import_module_error_stack() {
   #[op2(async)]
   async fn op_async_error() -> Result<(), Error> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    Err(crate::error::type_error("foo"))
+    Err(crate::error::JsNativeError::type_error("foo"))
   }
   deno_core::extension!(test_ext, ops = [op_async_error]);
   let loader = StaticModuleLoader::new([

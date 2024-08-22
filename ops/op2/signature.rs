@@ -818,19 +818,25 @@ pub enum SignatureError {
   RetError(#[from] RetError),
   #[error("Only one lifetime is permitted")]
   TooManyLifetimes,
-  #[error("Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)")]
+  #[error("Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)"
+  )]
   GenericBoundCardinality(String),
-  #[error("Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)")]
+  #[error("Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)"
+  )]
   WherePredicateMustAppearInGenerics(String),
-  #[error("All generics must appear only once in the generics parameter list or where clause")]
+  #[error("All generics must appear only once in the generics parameter list or where clause"
+  )]
   DuplicateGeneric(String),
   #[error("Generic lifetime '{0}' may not have bounds (eg: <'a: 'b>)")]
   LifetimesMayNotHaveBounds(String),
-  #[error("Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)")]
+  #[error("Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)"
+  )]
   InvalidGeneric(String),
-  #[error("Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)")]
+  #[error("Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)"
+  )]
   InvalidWherePredicate(String),
-  #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s")]
+  #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s"
+  )]
   InvalidOpStateCombination,
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
@@ -842,7 +848,8 @@ pub enum SignatureError {
 pub enum AttributeError {
   #[error("Unknown or invalid attribute '{0}'")]
   InvalidAttribute(String),
-  #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead.")]
+  #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead."
+  )]
   InvalidInnerAttribute,
   #[error("Too many attributes")]
   TooManyAttributes,
@@ -884,7 +891,8 @@ pub enum ArgError {
   AttributeError(#[from] AttributeError),
   #[error("The type '{0}' is not allowed in this position")]
   NotAllowedInThisPosition(String),
-  #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
+  #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position."
+  )]
   InvalidDenoCorePrefix(String, String, String),
   #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
   ExpectedCppGcReference(String),
@@ -1329,7 +1337,7 @@ fn parse_type_path(
     CBare(TNumeric(numeric))
   } else {
     std::panic::catch_unwind(|| {
-    rules!(tokens => {
+      rules!(tokens => {
       ( $( std :: str  :: )? String ) => {
         Ok(CBare(TString(Strings::String)))
       }
@@ -1395,7 +1403,7 @@ fn parse_type_path(
         Err(ArgError::InvalidTypePath(stringify_token(any)))
       }
     })
-  }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
+    }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
   };
 
   // Ensure that we have the correct reference state. This is a bit awkward but it's
@@ -1917,19 +1925,19 @@ mod tests {
     (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None))
   );
   test!(
-    fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, AnyError>;
+    fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, OpError>;
     (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None))
   );
   test!(
-    #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, AnyError>;
+    #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, OpError>;
     (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
   );
   test!(
-    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, AnyError>;
+    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, OpError>;
     (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
   );
   test!(
-    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, AnyError>;
+    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, OpError>;
     (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
   );
   test!(
@@ -2030,7 +2038,7 @@ mod tests {
       #[smi] rid: ResourceId
     ) -> Result<
       ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas,
-      AnyError,
+      OpError,
     >;
     (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
   );

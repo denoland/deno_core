@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use bencher::*;
-use deno_core::error::generic_error;
+use deno_core::error::JsNativeError;
 use deno_core::*;
 use std::ffi::c_void;
 use tokio::runtime::Runtime;
@@ -118,7 +118,7 @@ fn bench_op(
     ..Default::default()
   });
   let err_mapper =
-    |err| generic_error(format!("{op} test failed ({call}): {err:?}"));
+    |err| JsNativeError::generic(format!("{op} test failed ({call}): {err:?}"));
 
   let args = (0..arg_count)
     .map(|n| format!("arg{n}"))

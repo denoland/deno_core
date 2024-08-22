@@ -1,9 +1,9 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use anyhow::Error;
-
-pub fn get_error_code(err: &Error) -> Option<&'static str> {
-  err
+pub fn get_error_code(
+  err: &impl crate::error::JsErrorClass,
+) -> Option<&'static str> {
+  (&err as &dyn std::any::Any)
     .downcast_ref::<std::io::Error>()
     .map(|e| match e.raw_os_error() {
       Some(code) => get_os_error_code(code),

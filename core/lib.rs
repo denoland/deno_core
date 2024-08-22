@@ -70,8 +70,6 @@ pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
 pub use crate::convert::ToV8;
 pub use crate::cppgc::GarbageCollected;
-pub use crate::error::GetErrorClassFn;
-pub use crate::error::JsErrorCreateFn;
 pub use crate::extensions::Extension;
 pub use crate::extensions::ExtensionFileSource;
 pub use crate::extensions::ExtensionFileSourceCode;
@@ -179,7 +177,6 @@ pub mod _ops {
   pub use super::cppgc::make_cppgc_object;
   pub use super::cppgc::try_unwrap_cppgc_object;
   pub use super::error::throw_type_error;
-  pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
   #[cfg(debug_assertions)]

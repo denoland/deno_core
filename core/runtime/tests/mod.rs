@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::AnyError;
+use crate::error::OpError;
 use crate::op2;
 use crate::CrossIsolateStore;
 use crate::JsRuntime;
@@ -36,7 +36,7 @@ async fn op_test(
   rc_op_state: Rc<RefCell<OpState>>,
   control: u8,
   #[buffer] buf: Option<JsBuffer>,
-) -> Result<u8, AnyError> {
+) -> Result<u8, OpError> {
   let op_state_ = rc_op_state.borrow();
   let test_state = op_state_.borrow::<TestState>();
   test_state.dispatch_count.fetch_add(1, Ordering::Relaxed);
@@ -80,9 +80,6 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init_ops(mode, dispatch_count.clone())],
-    get_error_class_fn: Some(&|error| {
-      crate::error::get_custom_error_class(error).unwrap()
-    }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   });

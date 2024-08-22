@@ -4,7 +4,7 @@
 
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
-use crate::error::generic_error;
+use crate::error::JsNativeError;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
@@ -799,7 +799,7 @@ fn test_custom_module_type_callback_synthetic() {
     module_code: ModuleSourceCode,
   ) -> Result<CustomModuleEvaluationKind, Error> {
     if module_type != "bytes" {
-      return Err(generic_error(format!(
+      return Err(JsNativeError::generic(format!(
         "Can't load '{}' module",
         module_type
       )));
@@ -883,7 +883,7 @@ fn test_custom_module_type_callback_computed() {
     module_code: ModuleSourceCode,
   ) -> Result<CustomModuleEvaluationKind, Error> {
     if module_type != "foobar" {
-      return Err(generic_error(format!(
+      return Err(JsNativeError::generic(format!(
         "Can't load '{}' module",
         module_type
       )));

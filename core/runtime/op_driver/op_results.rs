@@ -1,10 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::erased_future::TypeErased;
 use super::future_arena::FutureContextMapper;
-use crate::GetErrorClassFn;
+use crate::error::JsErrorClass;
 use crate::OpId;
 use crate::PromiseId;
-use deno_core::error::AnyError;
+use serde::ser::SerializeStruct;
 use serde::Serialize;
 
 const MAX_RESULT_SIZE: usize = 32;
@@ -25,8 +25,7 @@ pub trait OpMappingContextLifetime<'s> {
 
   fn map_error(
     context: &mut Self::Context,
-    err: AnyError,
-    get_error_class_fn: GetErrorClassFn,
+    err: OpError,
   ) -> UnmappedResult<'s, Self>;
   fn map_mapping_error(
     context: &mut Self::Context,
@@ -67,17 +66,16 @@ impl<'s> OpMappingContextLifetime<'s> for V8OpMappingContext {
   #[inline(always)]
   fn map_error(
     scope: &mut v8::HandleScope<'s>,
-    err: AnyError,
-    get_error_class_fn: GetErrorClassFn,
+    err: OpError,
   ) -> UnmappedResult<'s, Self> {
-    serde_v8::to_v8(scope, OpError::new(get_error_class_fn, err))
+    serde_v8::to_v8(scope, err)
   }
 
   fn map_mapping_error(
     scope: &mut v8::HandleScope<'s>,
     err: Self::MappingError,
   ) -> v8::Local<'s, v8::Value> {
-    serde_v8::to_v8(scope, OpError::new(&|_| "TypeError", err.into())).unwrap()
+    serde_v8::to_v8(scope, OpError::from(err)).unwrap()
   }
 }
 
@@ -106,7 +104,7 @@ pub struct PendingOp<C: OpMappingContext>(pub PendingOpInfo, pub OpResult<C>);
 
 impl<C: OpMappingContext> PendingOp<C> {
   #[inline(always)]
-  pub fn new<R: 'static, E: Into<AnyError> + 'static>(
+  pub fn new<R: 'static, E: Into<OpError> + 'static>(
     info: PendingOpInfo,
     rv_map: C::MappingFn<R>,
     result: Result<R, E>,
@@ -149,7 +147,7 @@ impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Clone
   }
 }
 
-impl<C: OpMappingContext, R: 'static, E: Into<AnyError> + 'static>
+impl<C: OpMappingContext, R: 'static, E: Into<OpError> + 'static>
   FutureContextMapper<PendingOp<C>, PendingOpInfo, Result<R, E>>
   for PendingOpMappingInfo<C, R, true>
 {
@@ -225,7 +223,7 @@ impl<C: OpMappingContext, R> ValueLargeFn<C> for ValueLarge<C, R> {
 
 pub enum OpResult<C: OpMappingContext> {
   /// Errors.
-  Err(AnyError),
+  Err(OpError),
   /// For small ops, we include them in an erased type container.
   Value(OpValue<C>),
   /// For ops that return "large" results (> MAX_RESULT_SIZE bytes) we just box a function
@@ -245,10 +243,9 @@ impl<C: OpMappingContext> OpResult<C> {
   pub fn unwrap<'a>(
     self,
     context: &mut <C as OpMappingContextLifetime<'a>>::Context,
-    get_error_class_fn: GetErrorClassFn,
   ) -> MappedResult<'a, C> {
     let (success, res) = match self {
-      Self::Err(err) => (false, C::map_error(context, err, get_error_class_fn)),
+      Self::Err(err) => (false, C::map_error(context, err)),
       Self::Value(f) => (true, (f.map_fn)(&(), context, f.rv_map, f.value)),
       Self::ValueLarge(f) => (true, f.unwrap(context)),
     };
@@ -262,21 +259,42 @@ impl<C: OpMappingContext> OpResult<C> {
   }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct OpError {
-  #[serde(rename = "$err_class_name")]
-  class_name: &'static str,
-  message: String,
-  code: Option<&'static str>,
+  error: Box<dyn JsErrorClass>,
+  error_code: Option<&'static str>,
 }
 
-impl OpError {
-  pub fn new(get_class: GetErrorClassFn, err: AnyError) -> Self {
+impl<T: JsErrorClass> From<T> for OpError {
+  fn from(err: T) -> Self {
     Self {
-      class_name: (get_class)(&err),
-      message: format!("{err:#}"),
-      code: crate::error_codes::get_error_code(&err),
+      error_code: crate::error_codes::get_error_code(&err),
+      error: Box::new(err),
     }
+  }
+}
+
+impl From<anyhow::Error> for OpError {
+  fn from(err: anyhow::Error) -> Self {
+    match err.downcast::<dyn JsErrorClass>() {
+      Ok(err) => err.into(),
+      Err(_) => todo!(),
+    }
+  }
+}
+
+impl Serialize for OpError {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    let class_name = self.error.get_class();
+    let message = self.error.get_message();
+
+    let mut serde_state = serializer.serialize_struct("OpError", 3)?;
+    serde_state.serialize_field("$err_class_name", class_name)?;
+    serde_state.serialize_field("message", &message)?;
+    serde_state.serialize_field("code", &self.error_code)?;
+    serde_state.end()
   }
 }

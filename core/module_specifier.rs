@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::normalize_path;
+use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 use url::ParseError;
@@ -24,6 +25,17 @@ pub enum ModuleResolutionError {
     maybe_referrer: Option<String>,
   },
 }
+
+impl super::error::JsErrorClass for ModuleResolutionError {
+  fn get_class(&self) -> &'static str {
+    "URIError"
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+}
+
 use ModuleResolutionError::*;
 
 /// Resolved module specifier

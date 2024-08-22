@@ -69,7 +69,7 @@ pub(crate) fn generate_dispatch_slow(
     generator_state.needs_opctx = true;
     let throw_exception = throw_exception(generator_state);
     // If the fast op returned an error, we must throw it rather than doing work.
-    output.extend(quote!{
+    output.extend(quote! {
       // FASTCALL FALLBACK: This is where we pick up the errors for the slow-call error pickup
       // path. There is no code running between this and the other FASTCALL FALLBACK comment,
       // except some V8 code required to perform the fallback process. This is why the below call is safe.
@@ -1005,14 +1005,13 @@ pub(crate) fn throw_exception(
     with_fn_args(generator_state)
   };
 
-  gs_quote!(generator_state(scope, opctx) => {
+  gs_quote!(generator_state(scope) => {
     #maybe_scope
     #maybe_args
     #maybe_opctx
     let err = err.into();
     let exception = deno_core::error::to_v8_error(
       &mut #scope,
-      #opctx.get_error_class_fn,
       &err,
     );
     #scope.throw_exception(exception);

@@ -178,7 +178,7 @@ impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     let v = crate::runtime::ops::to_i32_option(&value).ok_or_else(|| {
-      crate::error::type_error(format!("Expected {}", T::NAME))
+      crate::error::JsNativeError::type_error(format!("Expected {}", T::NAME))
     })?;
     Ok(Smi(T::from_i32(v)))
   }
@@ -247,7 +247,8 @@ impl<'a, T: Numeric> FromV8<'a> for Number<T> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     T::from_value(&value).map(Number).ok_or_else(|| {
-      crate::error::type_error(format!("Expected {}", T::NAME)).into()
+      crate::error::JsNativeError::type_error(format!("Expected {}", T::NAME))
+        .into()
     })
   }
 }

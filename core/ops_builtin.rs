@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::format_file_name;
-use crate::error::type_error;
-use crate::error::AnyError;
+use crate::error::OpError;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -168,14 +167,14 @@ pub async fn op_void_async() {}
 
 #[allow(clippy::unused_async)]
 #[op2(async)]
-pub async fn op_error_async() -> Result<(), AnyError> {
-  Err(AnyError::msg("error"))
+pub async fn op_error_async() -> Result<(), OpError> {
+  Err(anyhow::Error::msg("error").into())
 }
 
 #[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
-pub async fn op_error_async_deferred() -> Result<(), AnyError> {
-  Err(AnyError::msg("error"))
+pub async fn op_error_async_deferred() -> Result<(), OpError> {
+  Err(anyhow::Error::msg("error").into())
 }
 
 #[allow(clippy::unused_async)]
@@ -187,7 +186,7 @@ pub async fn op_void_async_deferred() {}
 pub fn op_close(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-) -> Result<(), AnyError> {
+) -> Result<(), OpError> {
   let resource = state.borrow_mut().resource_table.take_any(rid)?;
   resource.close();
   Ok(())
@@ -204,7 +203,7 @@ pub fn op_try_close(state: Rc<RefCell<OpState>>, #[smi] rid: ResourceId) {
 
 /// Builtin utility to print to stdout/stderr
 #[op2(fast)]
-pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), AnyError> {
+pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), OpError> {
   if is_err {
     stderr().write_all(msg.as_bytes())?;
     stderr().flush().unwrap();
@@ -236,7 +235,7 @@ pub fn op_wasm_streaming_feed(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] bytes: &[u8],
-) -> Result<(), AnyError> {
+) -> Result<(), OpError> {
   let wasm_streaming = state
     .borrow_mut()
     .resource_table
@@ -252,7 +251,7 @@ pub fn op_wasm_streaming_set_url(
   state: &mut OpState,
   #[smi] rid: ResourceId,
   #[string] url: &str,
-) -> Result<(), AnyError> {
+) -> Result<(), OpError> {
   let wasm_streaming =
     state.resource_table.get::<WasmStreamingResource>(rid)?;
 
@@ -266,10 +265,14 @@ async fn op_read(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
-) -> Result<u32, AnyError> {
+) -> Result<u32, OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufMutView::from(buf);
-  resource.read_byob(view).await.map(|(n, _)| n as u32)
+  resource
+    .read_byob(view)
+    .await
+    .map(|(n, _)| n as u32)
+    .map_err(|err| err.into())
 }
 
 #[op2(async)]
@@ -277,7 +280,7 @@ async fn op_read(
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-) -> Result<BytesMut, AnyError> {
+) -> Result<BytesMut, OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
 
   let (min, maybe_max) = resource.size_hint();
@@ -312,7 +315,7 @@ async fn op_write(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
-) -> Result<u32, AnyError> {
+) -> Result<u32, OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufView::from(buf);
   let resp = resource.write(view).await?;
@@ -324,9 +327,12 @@ fn op_read_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] data: &mut [u8],
-) -> Result<u32, AnyError> {
+) -> Result<u32, OpError> {
   let resource = state.borrow_mut().resource_table.get_any(rid)?;
-  resource.read_byob_sync(data).map(|n| n as u32)
+  resource
+    .read_byob_sync(data)
+    .map(|n| n as u32)
+    .map_err(|err| err.into())
 }
 
 #[op2(fast)]
@@ -334,7 +340,7 @@ fn op_write_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] data: &[u8],
-) -> Result<u32, AnyError> {
+) -> Result<u32, OpError> {
   let resource = state.borrow_mut().resource_table.get_any(rid)?;
   let nwritten = resource.write_sync(data)?;
   Ok(nwritten as u32)
@@ -345,7 +351,7 @@ async fn op_write_all(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
-) -> Result<(), AnyError> {
+) -> Result<(), OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   let view = BufView::from(buf);
   resource.write_all(view).await?;
@@ -357,9 +363,11 @@ async fn op_write_type_error(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[string] error: String,
-) -> Result<(), AnyError> {
+) -> Result<(), OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
-  resource.write_error(type_error(error).into()).await?;
+  resource
+    .write_error(super::error::JsNativeError::type_error(error).into())
+    .await?;
   Ok(())
 }
 
@@ -367,9 +375,9 @@ async fn op_write_type_error(
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-) -> Result<(), AnyError> {
+) -> Result<(), OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
-  resource.shutdown().await
+  resource.shutdown().await.map_err(|err| err.into())
 }
 
 #[op2]
@@ -407,7 +415,7 @@ fn op_encode_binary_string(#[buffer] s: &[u8]) -> ByteString {
 fn op_is_terminal(
   state: &mut OpState,
   #[smi] rid: ResourceId,
-) -> Result<bool, AnyError> {
+) -> Result<bool, OpError> {
   let handle = state.resource_table.get_handle(rid)?;
   Ok(handle.is_terminal())
 }

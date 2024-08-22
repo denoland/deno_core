@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+pub use super::runtime::op_driver::OpError;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt;
@@ -8,7 +9,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
 use thiserror::__private::AsDynError;
-use v8::Object;
 
 pub use crate::modules::ModuleLoaderError;
 use crate::runtime::v8_static_strings;
@@ -22,13 +22,9 @@ use crate::FastStaticString;
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
 
-pub type JsErrorCreateFn = dyn Fn(JsError) -> anyhow::Error;
-pub type GetErrorClassFn =
-  &'static dyn for<'e> Fn(&'e anyhow::Error) -> &'static str;
-
 #[derive(Debug, thiserror::Error)]
 pub enum PubError {
-  #[error("level await is not allowed in extensions")]
+  #[error("top level await is not allowed in extensions")]
   TLA(JsError),
   #[error(transparent)]
   Js(#[from] JsError),
@@ -61,7 +57,7 @@ pub enum PubError {
   )]
   NpmMetaResolve,
   #[error(transparent)]
-  Custom(#[from] CustomError),
+  JsNativeError(#[from] JsNativeError),
   #[error(transparent)]
   Url(#[from] url::ParseError),
   #[error(transparent)]
@@ -83,10 +79,107 @@ impl From<ModuleLoaderError> for PubError {
   }
 }
 
-pub trait JsClassError: std::error::Error {
+pub trait JsErrorClass: std::any::Any + Debug + 'static {
   fn get_class(&self) -> &'static str;
+  fn get_message(&self) -> Cow<'static, str>;
+}
+
+pub fn get_error_class(error: &dyn std::any::Any) -> &'static str {
+  if let Some(error) = error.downcast_ref::<dyn JsErrorClass>() {
+    error.get_class()
+  } else {
+    // Default value when trait is not implemented
+    "Error"
+  }
+}
+
+impl JsErrorClass for serde_v8::Error {
+  fn get_class(&self) -> &'static str {
+    "TypeError"
+  }
+
   fn get_message(&self) -> Cow<'static, str> {
-    self.to_string()
+    self.to_string().into()
+  }
+}
+
+impl JsErrorClass for std::io::Error {
+  fn get_class(&self) -> &'static str {
+    use std::io::ErrorKind::*;
+
+    match self.kind() {
+      NotFound => "NotFound",
+      PermissionDenied => "PermissionDenied",
+      ConnectionRefused => "ConnectionRefused",
+      ConnectionReset => "ConnectionReset",
+      ConnectionAborted => "ConnectionAborted",
+      NotConnected => "NotConnected",
+      AddrInUse => "AddrInUse",
+      AddrNotAvailable => "AddrNotAvailable",
+      BrokenPipe => "BrokenPipe",
+      AlreadyExists => "AlreadyExists",
+      InvalidInput => "TypeError",
+      InvalidData => "InvalidData",
+      TimedOut => "TimedOut",
+      Interrupted => "Interrupted",
+      WriteZero => "WriteZero",
+      UnexpectedEof => "UnexpectedEof",
+      Other => "Error",
+      WouldBlock => "WouldBlock",
+      FilesystemLoop => "FilesystemLoop",
+      IsADirectory => "IsADirectory",
+      NetworkUnreachable => "NetworkUnreachable",
+      NotADirectory => "NotADirectory",
+      // Non-exhaustive enum - might add new variants
+      // in the future
+      _ => "Error",
+    }
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+}
+
+impl JsErrorClass for v8::DataError {
+  fn get_class(&self) -> &'static str {
+    todo!()
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+}
+
+impl JsErrorClass for serde_json::Error {
+  fn get_class(&self) -> &'static str {
+    use serde::de::StdError;
+    use serde_json::error::*;
+
+    match self.classify() {
+      Category::Io => self
+        .source()
+        .and_then(|e| e.downcast_ref::<std::io::Error>())
+        .unwrap()
+        .get_class(),
+      Category::Syntax => "SyntaxError",
+      Category::Data => "InvalidData",
+      Category::Eof => "UnexpectedEof",
+    }
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+}
+
+impl JsErrorClass for url::ParseError {
+  fn get_class(&self) -> &'static str {
+    "URIError"
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
   }
 }
 
@@ -95,13 +188,13 @@ pub trait JsClassError: std::error::Error {
 /// wrapped in an `anyhow::Error`. To retrieve the error class name from a wrapped
 /// `CustomError`, use the function `get_custom_error_class()`.
 #[derive(Debug, thiserror::Error)]
-#[error("{message}")]
-pub struct CustomError {
+#[error("{class}: {message}")]
+pub struct JsNativeError {
   pub class: &'static str,
   message: Cow<'static, str>,
 }
 
-impl JsClassError for CustomError {
+impl JsErrorClass for JsNativeError {
   fn get_class(&self) -> &'static str {
     self.class
   }
@@ -111,64 +204,61 @@ impl JsClassError for CustomError {
   }
 }
 
-/// Creates a new error with a caller-specified error class name and message.
-pub fn custom_error(
-  class: &'static str,
-  message: impl Into<Cow<'static, str>>,
-) -> PubError {
-  PubError::Custom(CustomError {
-    class,
-    message: message.into(),
-  })
-}
+impl JsNativeError {
+  pub fn new(
+    class: &'static str,
+    message: impl Into<Cow<'static, str>>,
+  ) -> JsNativeError {
+    JsNativeError {
+      class,
+      message: message.into(),
+    }
+  }
 
-pub fn generic_error(message: impl Into<Cow<'static, str>>) -> PubError {
-  custom_error("Error", message)
-}
+  pub fn generic(message: impl Into<Cow<'static, str>>) -> JsNativeError {
+    Self::new("Error", message)
+  }
 
-pub fn type_error(message: impl Into<Cow<'static, str>>) -> PubError {
-  custom_error("TypeError", message)
-}
+  pub fn type_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
+    Self::new("TypeError", message)
+  }
 
-pub fn range_error(message: impl Into<Cow<'static, str>>) -> PubError {
-  custom_error("RangeError", message)
-}
+  pub fn range_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
+    Self::new("RangeError", message)
+  }
 
-pub fn invalid_hostname(hostname: &str) -> PubError {
-  type_error(format!("Invalid hostname: '{hostname}'"))
-}
+  pub fn reference_error(
+    message: impl Into<Cow<'static, str>>,
+  ) -> JsNativeError {
+    Self::new("RangeError", message)
+  }
 
-pub fn uri_error(message: impl Into<Cow<'static, str>>) -> PubError {
-  custom_error("URIError", message)
-}
+  pub fn uri_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
+    Self::new("URIError", message)
+  }
 
-pub fn bad_resource(message: impl Into<Cow<'static, str>>) -> PubError {
-  custom_error("BadResource", message)
-}
+  // Non-standard errors
 
-pub fn bad_resource_id() -> PubError {
-  custom_error("BadResource", "Bad resource ID")
-}
+  pub fn bad_resource(message: impl Into<Cow<'static, str>>) -> JsNativeError {
+    Self::new("BadResource", message)
+  }
 
-pub fn not_supported() -> PubError {
-  custom_error("NotSupported", "The operation is not supported")
-}
+  pub fn bad_resource_id() -> JsNativeError {
+    Self::bad_resource("Bad resource ID")
+  }
 
-pub fn resource_unavailable() -> PubError {
-  custom_error(
-    "Busy",
-    "Resource is unavailable because it is in use by a promise",
-  )
+  pub fn not_supported() -> JsNativeError {
+    Self::new("NotSupported", "The operation is not supported")
+  }
 }
 
 pub fn get_custom_error_class(error: &anyhow::Error) -> Option<&'static str> {
-  error.downcast_ref::<CustomError>().map(|e| e.class)
+  error.downcast_ref::<JsNativeError>().map(|e| e.class)
 }
 
 pub fn to_v8_error<'a>(
   scope: &mut v8::HandleScope<'a>,
-  get_class: GetErrorClassFn,
-  error: &anyhow::Error,
+  error: &impl JsErrorClass,
 ) -> v8::Local<'a, v8::Value> {
   let tc_scope = &mut v8::TryCatch::new(scope);
   let cb = JsRealm::exception_state_from_scope(tc_scope)
@@ -178,8 +268,8 @@ pub fn to_v8_error<'a>(
     .expect("Custom error builder must be set");
   let cb = cb.open(tc_scope);
   let this = v8::undefined(tc_scope).into();
-  let class = v8::String::new(tc_scope, get_class(error)).unwrap();
-  let message = v8::String::new(tc_scope, &format!("{error:#}")).unwrap();
+  let class = v8::String::new(tc_scope, error.get_class()).unwrap();
+  let message = v8::String::new(tc_scope, &error.get_message()).unwrap();
   let mut args = vec![class.into(), message.into()];
   if let Some(code) = crate::error_codes::get_error_code(error) {
     args.push(v8::String::new(tc_scope, code).unwrap().into());
@@ -1067,8 +1157,12 @@ fn make_patched_callsite<'s>(
   callsite: v8::Local<'s, v8::Object>,
   prototype: v8::Local<'s, v8::Object>,
 ) -> v8::Local<'s, v8::Object> {
-  let out_obj =
-    Object::with_prototype_and_properties(scope, prototype.into(), &[], &[]);
+  let out_obj = v8::Object::with_prototype_and_properties(
+    scope,
+    prototype.into(),
+    &[],
+    &[],
+  );
   let orig_key = original_call_site_key(scope);
   out_obj.set_private(scope, orig_key, callsite.into());
   out_obj
@@ -1433,7 +1527,7 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
         ErrorElement::EvalOrigin,
         frame.eval_origin.as_ref().unwrap(),
       )
-      .to_string()
+        .to_string()
         + ", ");
     }
     result += &F::fmt_element(Anonymous, "<anonymous>");
@@ -1444,14 +1538,14 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
       ":{}",
       F::fmt_element(LineNumber, &line_number.to_string())
     )
-    .unwrap();
+      .unwrap();
     if let Some(column_number) = frame.column_number {
       write!(
         result,
         ":{}",
         F::fmt_element(ColumnNumber, &column_number.to_string())
       )
-      .unwrap();
+        .unwrap();
     }
   }
   result
@@ -1529,13 +1623,13 @@ mod tests {
 
   #[test]
   fn test_bad_resource() {
-    let err = bad_resource("Resource has been closed");
+    let err = JsNativeError::bad_resource("Resource has been closed");
     assert_eq!(err.to_string(), "Resource has been closed");
   }
 
   #[test]
   fn test_bad_resource_id() {
-    let err = bad_resource_id();
+    let err = JsNativeError::bad_resource_id();
     assert_eq!(err.to_string(), "Bad resource ID");
   }
 
@@ -1595,10 +1689,10 @@ mod tests {
     for (input, expect) in cases {
       match expect {
         Some((
-          expect_before,
-          (expect_file, expect_line, expect_col),
-          expect_after,
-        )) => {
+               expect_before,
+               (expect_file, expect_line, expect_col),
+               expect_after,
+             )) => {
           let (before, (file_name, line_number, column_number), after) =
             parse_eval_origin(input).unwrap();
           assert_eq!(before, expect_before);

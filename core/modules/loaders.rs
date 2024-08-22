@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::generic_error;
+use crate::error::JsNativeError;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
@@ -24,15 +24,18 @@ use std::rc::Rc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModuleLoaderError {
-  #[error("Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot.")]
+  #[error("Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot."
+  )]
   SpecifierExcludedFromSnapshot(ModuleSpecifier),
-  #[error("Specifier \"{0}\" cannot be lazy-loaded as it was not included in the binary.")]
+  #[error("Specifier \"{0}\" cannot be lazy-loaded as it was not included in the binary."
+  )]
   SpecifierMissingLazyLoadable(ModuleSpecifier),
   #[error(
     "\"npm:\" specifiers are currently not supported in import.meta.resolve()"
   )]
   NpmUnsupportedMetaResolve,
-  #[error("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement.")]
+  #[error("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."
+  )]
   JsonMissingAttribute,
   #[error("Module not found")]
   NotFound,
@@ -374,7 +377,7 @@ impl ModuleLoader for FsModuleLoader {
     let module_specifier = module_specifier.clone();
     let fut = async move {
       let path = module_specifier.to_file_path().map_err(|_| {
-        anyhow::Error::from(generic_error(format!(
+        anyhow::Error::from(JsNativeError::generic(format!(
           "Provided module specifier \"{module_specifier}\" is not a file URL."
         )))
       })?;

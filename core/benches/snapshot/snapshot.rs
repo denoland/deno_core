@@ -3,7 +3,6 @@ use criterion::*;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::AnyError;
 use deno_core::Extension;
 use deno_core::JsRuntime;
 use deno_core::JsRuntimeForSnapshot;
@@ -52,7 +51,7 @@ fn make_extensions_ops() -> Vec<Extension> {
 pub fn maybe_transpile_source(
   specifier: ModuleName,
   source: ModuleCodeString,
-) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), anyhow::Error> {
   let media_type = MediaType::TypeScript;
 
   let parsed = deno_ast::parse_module(ParseParams {

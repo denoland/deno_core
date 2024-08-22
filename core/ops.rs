@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::AnyError;
-use crate::error::GetErrorClassFn;
+use crate::error::OpError;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
@@ -94,14 +93,12 @@ pub struct OpCtx {
 
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
-  #[doc(hidden)]
-  pub get_error_class_fn: GetErrorClassFn,
 
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_info: Option<FastFunctionInfo>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
   /// If the last fast op failed, stores the error to be picked up by the slow op.
-  pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
+  pub(crate) last_fast_error: UnsafeCell<Option<OpError>>,
 
   op_driver: Rc<OpDriverImpl>,
   runtime_state: *const JsRuntimeState,
@@ -116,7 +113,6 @@ impl OpCtx {
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: *const JsRuntimeState,
-    get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
@@ -152,7 +148,6 @@ impl OpCtx {
     Self {
       id,
       state,
-      get_error_class_fn,
       runtime_state,
       decl,
       op_driver,
@@ -231,7 +226,7 @@ impl OpCtx {
   #[inline(always)]
   pub unsafe fn unsafely_take_last_error_for_ops_only(
     &self,
-  ) -> Option<AnyError> {
+  ) -> Option<OpError> {
     let opt_mut = &mut *self.last_fast_error.get();
     opt_mut.take()
   }
@@ -243,7 +238,7 @@ impl OpCtx {
   ///
   /// Must only be called from op implementations.
   #[inline(always)]
-  pub unsafe fn unsafely_set_last_error_for_ops_only(&self, error: AnyError) {
+  pub unsafe fn unsafely_set_last_error_for_ops_only(&self, error: OpError) {
     let opt_mut = &mut *self.last_fast_error.get();
     *opt_mut = Some(error);
   }

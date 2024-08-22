@@ -3,9 +3,7 @@ use super::Resource;
 use super::ResourceHandle;
 use super::ResourceHandleFd;
 use super::ResourceHandleSocket;
-use crate::error::bad_resource_id;
-use crate::error::custom_error;
-use crate::error::PubError;
+use crate::error::JsNativeError;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -80,17 +78,27 @@ impl ResourceTable {
   /// Returns a reference counted pointer to the resource of type `T` with the
   /// given `rid`. If `rid` is not present or has a type different than `T`,
   /// this function returns `None`.
-  pub fn get<T: Resource>(&self, rid: ResourceId) -> Result<Rc<T>, PubError> {
+  pub fn get<T: Resource>(
+    &self,
+    rid: ResourceId,
+  ) -> Result<Rc<T>, JsNativeError> {
     self
       .index
       .get(&rid)
       .and_then(|rc| rc.downcast_rc::<T>())
       .cloned()
-      .ok_or_else(bad_resource_id)
+      .ok_or_else(JsNativeError::bad_resource_id)
   }
 
-  pub fn get_any(&self, rid: ResourceId) -> Result<Rc<dyn Resource>, PubError> {
-    self.index.get(&rid).cloned().ok_or_else(bad_resource_id)
+  pub fn get_any(
+    &self,
+    rid: ResourceId,
+  ) -> Result<Rc<dyn Resource>, JsNativeError> {
+    self
+      .index
+      .get(&rid)
+      .cloned()
+      .ok_or_else(JsNativeError::bad_resource_id)
   }
 
   /// Replaces a resource with a new resource.
@@ -116,7 +124,7 @@ impl ResourceTable {
   pub fn take<T: Resource>(
     &mut self,
     rid: ResourceId,
-  ) -> Result<Rc<T>, PubError> {
+  ) -> Result<Rc<T>, JsNativeError> {
     let resource = self.get::<T>(rid)?;
     self.index.remove(&rid);
     Ok(resource)
@@ -133,8 +141,11 @@ impl ResourceTable {
   pub fn take_any(
     &mut self,
     rid: ResourceId,
-  ) -> Result<Rc<dyn Resource>, PubError> {
-    self.index.remove(&rid).ok_or_else(bad_resource_id)
+  ) -> Result<Rc<dyn Resource>, JsNativeError> {
+    self
+      .index
+      .remove(&rid)
+      .ok_or_else(JsNativeError::bad_resource_id)
   }
 
   /// Removes the resource with the given `rid` from the resource table. If the
@@ -144,11 +155,11 @@ impl ResourceTable {
   /// may implement the `close()` method to perform clean-ups such as canceling
   /// ops.
   #[deprecated = "This method may deadlock. Use take() and close() instead."]
-  pub fn close(&mut self, rid: ResourceId) -> Result<(), PubError> {
+  pub fn close(&mut self, rid: ResourceId) -> Result<(), JsNativeError> {
     self
       .index
       .remove(&rid)
-      .ok_or_else(bad_resource_id)
+      .ok_or_else(JsNativeError::bad_resource_id)
       .map(|resource| resource.close())
   }
 
@@ -173,15 +184,18 @@ impl ResourceTable {
 
   /// Retrieves the [`ResourceHandleFd`] for a given resource, for potential optimization
   /// purposes within ops.
-  pub fn get_fd(&self, rid: ResourceId) -> Result<ResourceHandleFd, PubError> {
+  pub fn get_fd(
+    &self,
+    rid: ResourceId,
+  ) -> Result<ResourceHandleFd, JsNativeError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
-      return Err(bad_resource_id());
+      return Err(JsNativeError::bad_resource_id());
     };
     let Some(fd) = handle.as_fd_like() else {
-      return Err(bad_resource_id());
+      return Err(JsNativeError::bad_resource_id());
     };
     if !handle.is_valid() {
-      return Err(custom_error("ReferenceError", "null or invalid handle"));
+      return Err(JsNativeError::reference_error("null or invalid handle"));
     }
     Ok(fd)
   }
@@ -191,15 +205,15 @@ impl ResourceTable {
   pub fn get_socket(
     &self,
     rid: ResourceId,
-  ) -> Result<ResourceHandleSocket, PubError> {
+  ) -> Result<ResourceHandleSocket, JsNativeError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
-      return Err(bad_resource_id());
+      return Err(JsNativeError::bad_resource_id());
     };
     let Some(socket) = handle.as_socket_like() else {
-      return Err(bad_resource_id());
+      return Err(JsNativeError::bad_resource_id());
     };
     if !handle.is_valid() {
-      return Err(custom_error("ReferenceError", "null or invalid handle"));
+      return Err(JsNativeError::reference_error("null or invalid handle"));
     }
     Ok(socket)
   }
@@ -209,12 +223,12 @@ impl ResourceTable {
   pub fn get_handle(
     &self,
     rid: ResourceId,
-  ) -> Result<ResourceHandle, PubError> {
+  ) -> Result<ResourceHandle, JsNativeError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
-      return Err(bad_resource_id());
+      return Err(JsNativeError::bad_resource_id());
     };
     if !handle.is_valid() {
-      return Err(custom_error("ReferenceError", "null or invalid handle"));
+      return Err(JsNativeError::reference_error("null or invalid handle"));
     }
     Ok(handle)
   }

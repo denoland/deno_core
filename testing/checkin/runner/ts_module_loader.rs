@@ -10,7 +10,6 @@ use anyhow::Context;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::AnyError;
 use deno_core::error::ModuleLoaderError;
 use deno_core::resolve_import;
 use deno_core::url::Url;
@@ -114,7 +113,7 @@ impl ModuleLoader for TypescriptModuleLoader {
           scope_analysis: false,
           maybe_syntax: None,
         })
-        .map_err(AnyError::from)?;
+        .map_err(anyhow::Error::from)?;
         let res = parsed
           .transpile(
             &deno_ast::TranspileOptions {
@@ -129,7 +128,7 @@ impl ModuleLoader for TypescriptModuleLoader {
               ..Default::default()
             },
           )
-          .map_err(AnyError::from)?;
+          .map_err(anyhow::Error::from)?;
         let res = res.into_source();
         let source_map = res.source_map.unwrap();
         source_maps
@@ -162,7 +161,7 @@ impl ModuleLoader for TypescriptModuleLoader {
 pub fn maybe_transpile_source(
   specifier: ModuleName,
   source: ModuleCodeString,
-) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), anyhow::Error> {
   // Always transpile `checkin:` built-in modules, since they might be TypeScript.
   let media_type = if specifier.starts_with("checkin:") {
     MediaType::TypeScript

@@ -4,10 +4,10 @@ use super::IntoModuleCodeString;
 use super::IntoModuleName;
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
-use crate::error::generic_error;
 use crate::error::throw_type_error;
 use crate::error::to_v8_type_error;
 use crate::error::JsError;
+use crate::error::JsNativeError;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
@@ -377,9 +377,12 @@ impl ModuleMap {
         )?
       }
       ModuleType::Wasm => {
-        return Err(ModuleError::Other(generic_error(
-          "Importing Wasm modules is currently not supported.",
-        )));
+        return Err(ModuleError::Other(
+          JsNativeError::generic(
+            "Importing Wasm modules is currently not supported.",
+          )
+          .into(),
+        ));
       }
       ModuleType::Json => {
         let code = ModuleSource::get_string_source(code);
@@ -391,10 +394,13 @@ impl ModuleMap {
           state.custom_module_evaluation_cb.as_ref();
 
         let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
-          return Err(ModuleError::Other(generic_error(format!(
-            "Importing '{}' modules is not supported",
-            module_type
-          ))));
+          return Err(ModuleError::Other(
+            JsNativeError::generic(format!(
+              "Importing '{}' modules is not supported",
+              module_type
+            ))
+            .into(),
+          ));
         };
 
         // TODO(bartlomieju): creating a global just to create a local from it
@@ -580,11 +586,11 @@ impl ModuleMap {
       let data = self.data.borrow();
       if let Some(main_module) = data.main_module_id {
         let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
-        return Err(ModuleError::Other(generic_error(
+        return Err(ModuleError::Other(JsNativeError::generic(
           format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name,
-          main_name,
-        ))));
+                  name,
+                  main_name,
+          )).into()));
       }
     }
 
@@ -647,9 +653,12 @@ impl ModuleMap {
         let unbound_module_script = module.get_unbound_module_script(tc_scope);
         let code_cache =
           unbound_module_script.create_code_cache().ok_or_else(|| {
-            ModuleError::Other(generic_error(
-              "Unable to get code cache from unbound module script",
-            ))
+            ModuleError::Other(
+              JsNativeError::generic(
+                "Unable to get code cache from unbound module script",
+              )
+              .into(),
+            )
           })?;
         let fut =
           async move { (code_cache_info.ready_callback)(&code_cache).await }
@@ -863,7 +872,7 @@ impl ModuleMap {
         referrer
       };
       let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
-      return Err(generic_error(msg));
+      return Err(JsNativeError::generic(msg).into());
     }
 
     self
@@ -1265,7 +1274,7 @@ impl ModuleMap {
       self.pending_dyn_mod_evaluations_pending.set(true);
     } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
       return Err(
-        generic_error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.")
+        JsNativeError::generic("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.").into()
       );
     } else {
       assert_eq!(status, v8::ModuleStatus::Errored);
@@ -1606,9 +1615,10 @@ impl ModuleMap {
       v8::ModuleStatus::Instantiated | v8::ModuleStatus::Evaluated
     ));
 
-    let module_namespace: v8::Local<v8::Object> =
-      v8::Local::try_from(module.get_module_namespace())
-        .map_err(|err: v8::DataError| generic_error(err.to_string()))?;
+    let module_namespace: v8::Local<v8::Object> = v8::Local::try_from(
+      module.get_module_namespace(),
+    )
+    .map_err(|err: v8::DataError| JsNativeError::generic(err.to_string()))?;
 
     Ok(v8::Global::new(scope, module_namespace))
   }

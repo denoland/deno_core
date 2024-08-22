@@ -123,7 +123,7 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
 impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   fn submit_op_fallible<
     R: 'static,
-    E: Into<anyhow::Error> + 'static,
+    E: Into<OpError> + 'static,
     const LAZY: bool,
     const DEFERRED: bool,
   >(

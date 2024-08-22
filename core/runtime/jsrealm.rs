@@ -17,7 +17,6 @@ use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
-use crate::GetErrorClassFn;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -70,7 +69,6 @@ pub struct ContextState {
   pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
-  pub(crate) get_error_class_fn: GetErrorClassFn,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
 }
 
@@ -78,13 +76,11 @@ impl ContextState {
   pub(crate) fn new(
     op_driver: Rc<OpDriverImpl>,
     isolate_ptr: *mut v8::OwnedIsolate,
-    get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
     external_ops_tracker: ExternalOpsTracker,
   ) -> Self {
     Self {
       isolate: Some(isolate_ptr),
-      get_error_class_fn,
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
