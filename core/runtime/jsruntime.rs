@@ -421,8 +421,8 @@ pub struct JsRuntimeState {
   pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
-  inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
-  has_inspector: Cell<bool>,
+  pub(crate) inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
+  pub(crate) has_inspector: Cell<bool>,
   import_assertions_support: ImportAssertionsSupport,
 }
 

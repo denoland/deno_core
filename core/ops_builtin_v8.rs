@@ -12,14 +12,18 @@ use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::source_map::SourceMapApplication;
 use crate::stats::RuntimeActivityType;
+use crate::InspectorSessionKind;
 use crate::JsBuffer;
 use crate::JsRuntime;
+use crate::JsRuntimeInspector;
+use crate::LocalInspectorSessionOptions;
 use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
@@ -255,6 +259,38 @@ impl<'s> EvalContextError<'s> {
     arr.set_index(scope, 2, v.into());
     arr.into()
   }
+}
+
+#[op2(fast, reentrant)]
+pub fn op_create_inspector_session<'a>(
+  scope: &mut v8::HandleScope<'a>,
+  op_state: &mut OpState,
+) {
+  let state = JsRuntime::state_from(scope);
+
+  {
+    let inspector = &mut state.inspector.borrow_mut();
+    if inspector.is_some() {
+      return;
+    }
+
+    let context = scope.get_current_context();
+
+    state.has_inspector.set(true);
+    **inspector = Some(JsRuntimeInspector::new(scope, context, false));
+  }
+
+  state.with_inspector(|inspector| {
+    let mut session =
+      inspector.create_local_session(LocalInspectorSessionOptions {
+        kind: InspectorSessionKind::LocalNonblocking,
+      });
+
+    let recv = session.take_notification_rx();
+    // TODO(bartlomieju): check that these don't exist already
+    op_state.put(Arc::new(tokio::sync::Mutex::new(recv)));
+    op_state.put(Arc::new(tokio::sync::Mutex::new(session)));
+  });
 }
 
 #[op2(reentrant)]
