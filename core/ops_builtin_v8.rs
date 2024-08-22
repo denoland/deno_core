@@ -261,6 +261,8 @@ impl<'s> EvalContextError<'s> {
   }
 }
 
+// TODO(bartlomieju): registration of this op should be conditional based on the
+// option passed to the built-in extension.
 #[op2(fast, reentrant)]
 pub fn op_create_inspector_session<'a>(
   scope: &mut v8::HandleScope<'a>,
