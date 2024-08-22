@@ -15,6 +15,7 @@
     ObjectHasOwn,
     setQueueMicrotask,
     SafeMap,
+    SafeWeakMap,
     Set,
     StringPrototypeSlice,
     Symbol,
