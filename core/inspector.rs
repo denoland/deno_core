@@ -256,12 +256,8 @@ impl JsRuntimeInspector {
     );
   }
 
-  pub fn has_active_sessions(&self) -> bool {
-    self.sessions.borrow().has_active_sessions()
-  }
-
-  pub fn has_blocking_sessions(&self) -> bool {
-    self.sessions.borrow().has_blocking_sessions()
+  pub fn sessions_state(&self) -> SessionsState {
+    self.sessions.borrow().sessions_state()
   }
 
   pub fn poll_sessions(
@@ -312,7 +308,7 @@ impl JsRuntimeInspector {
           let session = InspectorSession::new(
             sessions.v8_inspector.clone(),
             session_proxy,
-            false,
+            InspectorSessionKind::Remote,
           );
           let prev = sessions.handshake.replace(session);
           assert!(prev.is_none());
@@ -449,11 +445,8 @@ impl JsRuntimeInspector {
 
     // InspectorSessions for a local session is added directly to the "established"
     // sessions, so it doesn't need to go through the session sender.
-    let inspector_session = InspectorSession::new(
-      self.v8_inspector.clone(),
-      proxy,
-      options.is_blocking,
-    );
+    let inspector_session =
+      InspectorSession::new(self.v8_inspector.clone(), proxy, options.kind);
     self
       .sessions
       .borrow_mut()
@@ -467,9 +460,7 @@ impl JsRuntimeInspector {
 
 #[derive(Debug)]
 pub struct LocalInspectorSessionOptions {
-  /// Should this inspector session keep the event loop alive?
-  /// Ie. should this session be "refed" or "unrefed".
-  pub is_blocking: bool,
+  pub kind: InspectorSessionKind,
 }
 
 #[derive(Default)]
@@ -485,6 +476,14 @@ struct SessionContainer {
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
   handshake: Option<Box<InspectorSession>>,
   established: SelectAll<Box<InspectorSession>>,
+}
+
+#[derive(Debug)]
+pub struct SessionsState {
+  pub has_active: bool,
+  pub has_remote: bool,
+  pub has_local_blocking: bool,
+  pub has_local_nonblocking: bool,
 }
 
 impl SessionContainer {
@@ -510,12 +509,22 @@ impl SessionContainer {
     self.established.clear();
   }
 
-  fn has_active_sessions(&self) -> bool {
-    !self.established.is_empty() || self.handshake.is_some()
-  }
-
-  fn has_blocking_sessions(&self) -> bool {
-    self.established.iter().any(|s| s.blocking)
+  fn sessions_state(&self) -> SessionsState {
+    SessionsState {
+      has_active: !self.established.is_empty() || self.handshake.is_some(),
+      has_remote: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::Remote)),
+      has_local_blocking: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::LocalBlocking)),
+      has_local_nonblocking: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::LocalBlocking)),
+    }
   }
 
   /// A temporary placeholder that should be used before actual
@@ -608,6 +617,14 @@ impl task::ArcWake for InspectorWaker {
   }
 }
 
+// TODO(bartlomieju): feels overly specific, should deno_core have notion of remote session at all?
+#[derive(Debug)]
+pub enum InspectorSessionKind {
+  Remote,
+  LocalBlocking,
+  LocalNonblocking,
+}
+
 /// An inspector session that proxies messages to concrete "transport layer",
 /// eg. Websocket or another set of channels.
 struct InspectorSession {
@@ -616,7 +633,7 @@ struct InspectorSession {
   proxy: InspectorSessionProxy,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
-  blocking: bool,
+  kind: InspectorSessionKind,
 }
 
 impl InspectorSession {
@@ -625,7 +642,7 @@ impl InspectorSession {
   pub fn new(
     v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
     session_proxy: InspectorSessionProxy,
-    blocking: bool,
+    kind: InspectorSessionKind,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
       let v8_channel = v8::inspector::ChannelBase::new::<Self>();
@@ -646,7 +663,7 @@ impl InspectorSession {
         v8_channel,
         v8_session,
         proxy: session_proxy,
-        blocking,
+        kind,
       }
     })
   }
