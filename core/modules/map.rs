@@ -1262,9 +1262,7 @@ impl ModuleMap {
         .push(dyn_import_mod_evaluate);
       self.pending_dyn_mod_evaluations_pending.set(true);
     } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Err(
-        JsNativeError::generic("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.").into()
-      );
+      return Err(CoreError::EvaluateDynamicImportedModule);
     } else {
       assert_eq!(status, v8::ModuleStatus::Errored);
     }
@@ -1607,10 +1605,8 @@ impl ModuleMap {
       v8::ModuleStatus::Instantiated | v8::ModuleStatus::Evaluated
     ));
 
-    let module_namespace: v8::Local<v8::Object> = v8::Local::try_from(
-      module.get_module_namespace(),
-    )
-    .map_err(|err: v8::DataError| JsNativeError::generic(err.to_string()))?;
+    let module_namespace: v8::Local<v8::Object> =
+      v8::Local::try_from(module.get_module_namespace())?;
 
     Ok(v8::Global::new(scope, module_namespace))
   }

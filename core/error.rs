@@ -46,12 +46,16 @@ pub enum CoreError {
     .0.iter().map(|s| format!("  - {}\n", s)).collect::<Vec<_>>().join("")
   )]
   NonEvaluatedModules(Vec<String>),
-  #[error("not present in the module map")]
+  #[error("{0} not present in the module map")]
   MissingFromModuleMap(String),
   #[error(transparent)]
   ModuleLoader(Box<ModuleLoaderError>),
   #[error("Could not execute {specifier}")]
-  CouldNotExecute { error: Box<Self>, specifier: String },
+  CouldNotExecute {
+    #[source]
+    error: Box<Self>,
+    specifier: String,
+  },
   #[error(transparent)]
   JsNativeError(#[from] JsNativeError),
   #[error(transparent)]
@@ -62,11 +66,16 @@ pub enum CoreError {
     "Cannot evaluate module, because JavaScript execution has been terminated"
   )]
   ExecutionTerminated,
-  #[error("Promise resolution is still pending but the event loop has already resolved."
+  #[error("Promise resolution is still pending but the event loop has already resolved"
   )]
   PendingPromiseResolution,
+  #[error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated"
+  )]
+  EvaluateDynamicImportedModule,
   #[error(transparent)]
   Module(super::modules::ModuleConcreteError),
+  #[error(transparent)]
+  DataError(#[from] v8::DataError),
   #[error(transparent)]
   Other(anyhow::Error),
 }
@@ -79,16 +88,82 @@ impl From<ModuleLoaderError> for CoreError {
 
 pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
   fn get_class(&self) -> &'static str;
-  fn get_message(&self) -> Cow<'static, str>;
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+}
+
+impl JsErrorClass for anyhow::Error {
+  fn get_class(&self) -> &'static str {
+    match self.downcast_ref::<&dyn JsErrorClass>() {
+      Some(err) => err.get_class(),
+      None => "Error",
+    }
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    match self.downcast_ref::<&dyn JsErrorClass>() {
+      Some(err) => err.get_message(),
+      None => self.to_string().into(),
+    }
+  }
+}
+
+impl JsErrorClass for CoreError {
+  fn get_class(&self) -> &'static str {
+    match self {
+      CoreError::TLA(_) => todo!(),
+      CoreError::Js(_) => todo!(),
+      CoreError::Io(err) => err.get_class(),
+      CoreError::ExtensionTranspiler(err) => err.get_class(),
+      CoreError::Parse(_) => "Error",
+      CoreError::Execute(_) => "Error",
+      CoreError::UnusedModules(_) => "Error",
+      CoreError::NonEvaluatedModules(_) => "Error",
+      CoreError::MissingFromModuleMap(_) => "Error",
+      CoreError::ModuleLoader(err) => err.get_class(),
+      CoreError::CouldNotExecute { error, .. } => error.get_class(),
+      CoreError::JsNativeError(err) => err.get_class(),
+      CoreError::Url(err) => err.get_class(),
+      CoreError::FutureCanceled(_) => "Interrupted",
+      CoreError::ExecutionTerminated => "Error",
+      CoreError::PendingPromiseResolution => "Error",
+      CoreError::EvaluateDynamicImportedModule => "Error",
+      CoreError::Module(err) => err.get_class(),
+      CoreError::DataError(err) => err.get_class(),
+      CoreError::Other(err) => err.get_class(),
+    }
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    match self {
+      CoreError::TLA(_) => todo!(),
+      CoreError::Js(_) => todo!(),
+      CoreError::Io(err) => err.get_message(),
+      CoreError::ExtensionTranspiler(err) => err.get_message(),
+      CoreError::ModuleLoader(err) => err.get_message(),
+      CoreError::CouldNotExecute { error, .. } => error.get_message(),
+      CoreError::JsNativeError(err) => err.get_message(),
+      CoreError::Url(err) => err.get_message(),
+      CoreError::Module(err) => err.get_message(),
+      CoreError::DataError(err) => err.get_message(),
+      CoreError::Other(err) => err.get_message(),
+      CoreError::Parse(_)
+      | CoreError::Execute(_)
+      | CoreError::UnusedModules(_)
+      | CoreError::NonEvaluatedModules(_)
+      | CoreError::MissingFromModuleMap(_)
+      | CoreError::FutureCanceled(_)
+      | CoreError::ExecutionTerminated
+      | CoreError::PendingPromiseResolution
+      | CoreError::EvaluateDynamicImportedModule => self.to_string().into(),
+    }
+  }
 }
 
 impl JsErrorClass for serde_v8::Error {
   fn get_class(&self) -> &'static str {
     "TypeError"
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
   }
 }
 
@@ -127,19 +202,20 @@ impl JsErrorClass for std::io::Error {
       }
     }
   }
+}
 
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
+impl JsErrorClass for std::env::VarError {
+  fn get_class(&self) -> &'static str {
+    match self {
+      std::env::VarError::NotPresent => "NotFound",
+      std::env::VarError::NotUnicode(..) => "InvalidData",
+    }
   }
 }
 
 impl JsErrorClass for v8::DataError {
   fn get_class(&self) -> &'static str {
-    todo!()
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
+    "Error"
   }
 }
 
@@ -159,26 +235,14 @@ impl JsErrorClass for serde_json::Error {
       Category::Eof => "UnexpectedEof",
     }
   }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
 }
 
 impl JsErrorClass for url::ParseError {
   fn get_class(&self) -> &'static str {
     "URIError"
   }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
 }
 
-/// A simple error type that lets the creator specify both the error message and
-/// the error class name. This type is private; externally it only ever appears
-/// wrapped in an `anyhow::Error`. To retrieve the error class name from a wrapped
-/// `CustomError`, use the function `get_custom_error_class()`.
 #[derive(Debug, thiserror::Error)]
 #[error("{class}: {message}")]
 pub struct JsNativeError {

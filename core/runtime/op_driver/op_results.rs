@@ -295,15 +295,6 @@ impl<T: JsErrorClass> From<T> for OpError {
   }
 }
 
-impl From<anyhow::Error> for OpError {
-  fn from(err: anyhow::Error) -> Self {
-    match err.downcast::<dyn JsErrorClass>() {
-      Ok(err) => OpError::from(err),
-      Err(_) => todo!(),
-    }
-  }
-}
-
 impl Serialize for OpError {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where

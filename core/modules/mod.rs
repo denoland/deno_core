@@ -643,10 +643,6 @@ impl super::error::JsErrorClass for ModuleConcreteError {
   fn get_class(&self) -> &'static str {
     "Error"
   }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
 }
 
 #[derive(Debug)]

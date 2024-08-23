@@ -221,9 +221,7 @@ fn test_op_detached_buffer() {
 
   #[op2]
   #[buffer]
-  fn op_boomerang(
-    #[buffer(detach)] b: JsBuffer,
-  ) -> Result<JsBuffer, OpError> {
+  fn op_boomerang(#[buffer(detach)] b: JsBuffer) -> Result<JsBuffer, OpError> {
     Ok(b)
   }
 

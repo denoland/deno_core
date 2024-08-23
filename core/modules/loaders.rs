@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use crate::error::JsErrorClass;
 use crate::error::JsNativeError;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
@@ -50,18 +51,33 @@ pub enum ModuleLoaderError {
   #[error(transparent)]
   Resolution(#[from] crate::ModuleResolutionError),
   #[error(transparent)]
-  Other(#[from] CoreError),
+  Core(#[from] CoreError),
+}
+
+impl JsErrorClass for ModuleLoaderError {
+  fn get_class(&self) -> &'static str {
+    match self {
+      ModuleLoaderError::SpecifierExcludedFromSnapshot(_) => "Error",
+      ModuleLoaderError::SpecifierMissingLazyLoadable(_) => "Error",
+      ModuleLoaderError::NpmUnsupportedMetaResolve => "Error",
+      ModuleLoaderError::JsonMissingAttribute => "Error",
+      ModuleLoaderError::NotFound => "Error",
+      ModuleLoaderError::Unsupported { .. } => "Error",
+      ModuleLoaderError::Resolution(err) => err.get_class(),
+      ModuleLoaderError::Core(err) => err.get_class(),
+    }
+  }
 }
 
 impl From<anyhow::Error> for ModuleLoaderError {
   fn from(err: anyhow::Error) -> Self {
-    ModuleLoaderError::Other(CoreError::Other(err))
+    ModuleLoaderError::Core(CoreError::Other(err))
   }
 }
 
 impl From<std::io::Error> for ModuleLoaderError {
   fn from(err: std::io::Error) -> Self {
-    ModuleLoaderError::Other(CoreError::Io(err))
+    ModuleLoaderError::Core(CoreError::Io(err))
   }
 }
 
