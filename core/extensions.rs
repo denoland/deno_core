@@ -374,6 +374,8 @@ macro_rules! or {
 ///  * state: a state initialization function, with the signature `fn (&mut OpState, ...) -> ()`, where `...` are parameters matching the fields of the options struct
 ///  * global_template_middleware: a global template middleware function (see [`Extension::global_template_middleware`])
 ///  * global_object_middleware: a global object middleware function (see [`Extension::global_object_middleware`])
+///  * external_references: a comma-separated list of [`v8::ExternalReference`], eg: `external_references = [ ref1, ref2 ]`
+///  * customizer: a customizer function with the signature `fn (&mut Extension) -> ()`, eg. `customizer = |ext: &mut deno_core::Extension| { ext.enabled = false; }`
 ///  * docs: comma separated list of toplevel #[doc=...] tags to be applied to the extension's resulting struct
 #[macro_export]
 macro_rules! extension {
