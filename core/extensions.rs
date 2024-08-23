@@ -369,9 +369,9 @@ macro_rules! or {
 ///  * lazy_loaded_esm: a comma-separated list of ESM module filenames (see [`include_js_files`]), that will be included in
 ///     the produced binary, but not automatically evaluated. Eg: `lazy_loaded_esm = [ dir "dir", "my_file.js" ]`
 ///  * js: a comma-separated list of JS filenames (see [`include_js_files`]), eg: `js = [ dir "dir", "my_file.js" ]`
-///  * config: a structure-like definition for configuration parameters which will be required when initializing this extension, eg: `config = { my_param: Option<usize> }`
+///  * options: a structure-like definition for configuration parameters which will be required when initializing this extension, eg: `options = { my_param: Option<usize> }`
 ///  * middleware: an [`OpDecl`] middleware function with the signature `fn (OpDecl) -> OpDecl`
-///  * state: a state initialization function, with the signature `fn (&mut OpState, ...) -> ()`, where `...` are parameters matching the fields of the config struct
+///  * state: a state initialization function, with the signature `fn (&mut OpState, ...) -> ()`, where `...` are parameters matching the fields of the options struct
 ///  * global_template_middleware: a global template middleware function (see [`Extension::global_template_middleware`])
 ///  * global_object_middleware: a global object middleware function (see [`Extension::global_object_middleware`])
 ///  * docs: comma separated list of toplevel #[doc=...] tags to be applied to the extension's resulting struct
