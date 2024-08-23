@@ -449,7 +449,7 @@ macro_rules! extension {
             $( #[ $m ] )*
             $( $op )::+ $( :: < $($op_param),* > )? ()
           }),+)?]),
-          external_references: ::std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
+          external_references: ::std::borrow::Cow::Borrowed(&[ $( $( $external_reference ),* )? ]),
           global_template_middleware: ::std::option::Option::None,
           global_object_middleware: ::std::option::Option::None,
           // Computed at runtime:
