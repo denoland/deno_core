@@ -475,7 +475,7 @@ macro_rules! extension {
       fn with_state_and_middleware$( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::Extension, $( $( $options_id : $options_type ),* )? )
       $( where $( $bound : $bound_type ),+ )?
       {
-        $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
+        $crate::__internal__extension_config_state_fn!(ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
 
         $(
           ext.global_template_middleware = ::std::option::Option::Some($global_template_middleware_fn);
@@ -538,8 +538,37 @@ macro_rules! extension {
     }
   };
 
-  // This branch of the macro generates a config object that calls the state function with itself.
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } $( state_fn = $state_fn:expr )? ) => {
+  (! __ops__ $ext:ident __eot__) => {
+  };
+
+  (! __ops__ $ext:ident $ops_symbol:ident __eot__) => {
+    $ext.ops.to_mut().extend($ops_symbol())
+  };
+
+  (! __ops__ $ext:ident $ops_symbol:ident < $ops_param:ident > __eot__) => {
+    $ext.ops.to_mut().extend($ops_symbol::<$ops_param>())
+  };
+}
+
+// This private macro generates a config object that calls the state_fn with
+// itself, depending on the presence of the config and state_fn.
+#[macro_export]
+macro_rules! __internal__extension_config_state_fn {
+  // Neither config nor state_fn are provided
+  ($ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? ) => {
+  };
+
+  // Config values are provided, but state_fn is not
+  ($ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* }) => {
+  };
+
+  // Config values are not provided, but state_fn is
+  ($ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? state_fn = $state_fn:expr ) => {
+    $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn));
+  };
+
+  // Both config values and state_fn are provided
+  ($ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } state_fn = $state_fn:expr ) => {
     {
       #[doc(hidden)]
       struct Config $( <  $( $param : $type + 'static ),+ > )? {
@@ -551,26 +580,11 @@ macro_rules! extension {
         $( __phantom_data: ::std::marker::PhantomData::<($( $param ),+)>::default() )?
       };
 
-      let state_fn: fn(&mut $crate::OpState, Config $( <  $( $param ),+ > )? ) = $(  $state_fn  )?;
+      let state_fn: fn(&mut $crate::OpState, Config $( <  $( $param ),+ > )? ) = $state_fn;
       $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new(move |state: &mut $crate::OpState| {
         state_fn(state, config);
       }));
     }
-  };
-
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr )? ) => {
-    $( $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn)); )?
-  };
-
-  (! __ops__ $ext:ident __eot__) => {
-  };
-
-  (! __ops__ $ext:ident $ops_symbol:ident __eot__) => {
-    $ext.ops.to_mut().extend($ops_symbol())
-  };
-
-  (! __ops__ $ext:ident $ops_symbol:ident < $ops_param:ident > __eot__) => {
-    $ext.ops.to_mut().extend($ops_symbol::<$ops_param>())
   };
 }
 
