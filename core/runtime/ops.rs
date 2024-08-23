@@ -531,8 +531,7 @@ mod tests {
   use crate::OpState;
   use crate::RuntimeOptions;
   use crate::ToV8;
-  use anyhow::bail;
-  use anyhow::Error;
+  use anyhow::anyhow;
   use bytes::BytesMut;
   use futures::Future;
   use serde::Deserialize;
@@ -2154,9 +2153,9 @@ mod tests {
   }
 
   #[op2(async)]
-  pub async fn op_async_sleep_error() -> Result<(), Error> {
+  pub async fn op_async_sleep_error() -> Result<(), OpError> {
     tokio::time::sleep(Duration::from_millis(500)).await;
-    bail!("whoops")
+    Err(anyhow!("whoops").into())
   }
 
   #[tokio::test]
@@ -2172,13 +2171,13 @@ mod tests {
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_success() -> Result<u32, Error> {
+  pub async fn op_async_deferred_success() -> Result<u32, OpError> {
     Ok(42)
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_error() -> Result<(), Error> {
-    bail!("whoops")
+  pub async fn op_async_deferred_error() -> Result<(), OpError> {
+    Err(anyhow!("whoops").into())
   }
 
   #[tokio::test]
@@ -2200,13 +2199,13 @@ mod tests {
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_success() -> Result<u32, Error> {
+  pub async fn op_async_lazy_success() -> Result<u32, OpError> {
     Ok(42)
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_error() -> Result<(), Error> {
-    bail!("whoops")
+  pub async fn op_async_lazy_error() -> Result<(), OpError> {
+    Err(anyhow!("whoops").into())
   }
 
   #[tokio::test]
@@ -2231,7 +2230,7 @@ mod tests {
   #[op2(async)]
   pub fn op_async_result_impl(
     mode: u8,
-  ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+  ) -> Result<impl Future<Output = Result<(), OpError>>, OpError> {
     if mode == 0 {
       return Err(JsNativeError::generic("early exit").into());
     }

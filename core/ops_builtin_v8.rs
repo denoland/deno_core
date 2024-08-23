@@ -3,7 +3,6 @@ use crate::error::is_instance_of_error;
 use crate::error::JsError;
 use crate::error::JsNativeError;
 use crate::error::OpError;
-use crate::error::PubError;
 use crate::modules::script_origin;
 use crate::op2;
 use crate::ops_builtin::WasmStreamingResource;
@@ -444,7 +443,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
         return;
       };
     }
-    let error = v8::Exception::CustomError::type_error(scope, message);
+    let error = v8::Exception::type_error(scope, message);
     scope.throw_exception(error);
   }
 
@@ -949,7 +948,7 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
   #[global] cb: v8::Global<v8::Function>,
-) -> Result<(), PubError> {
+) -> Result<(), OpError> {
   let context_state_rc = JsRealm::state_from_scope(scope);
   // The callback to pass to the v8 API has to be a unit type, so it can't
   // borrow or move any local variables. Therefore, we're storing the JS

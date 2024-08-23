@@ -3,7 +3,7 @@ use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
-use crate::error::PubError;
+use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::script_origin;
 use crate::modules::IntoModuleCodeString;
@@ -305,7 +305,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, PubError> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.into_module_code().v8_string(scope);
@@ -343,7 +343,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, PubError> {
+  ) -> Result<v8::Global<v8::Object>, CoreError> {
     self
       .0
       .module_map()
@@ -379,7 +379,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, PubError> {
+  ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let scope = &mut self.handle_scope(isolate);
@@ -424,7 +424,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, PubError> {
+  ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let specifier = specifier.to_owned();
@@ -467,7 +467,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     module_specifier: ModuleName,
     code: ModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, PubError> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);
     module_map_rc.lazy_load_es_module_with_code(

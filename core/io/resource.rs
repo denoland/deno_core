@@ -6,7 +6,6 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use crate::error::AnyError;
 use crate::error::JsNativeError;
 use crate::io::AsyncResult;
 use crate::io::BufMutView;
@@ -110,7 +109,10 @@ pub trait Resource: Any + 'static {
   }
 
   /// Write an error state to this resource, if the resource supports it.
-  fn write_error(self: Rc<Self>, _error: AnyError) -> AsyncResult<()> {
+  fn write_error(
+    self: Rc<Self>,
+    _error: crate::error::AnyError,
+  ) -> AsyncResult<()> {
     Box::pin(futures::future::err(JsNativeError::not_supported().into()))
   }
 
@@ -158,13 +160,16 @@ pub trait Resource: Any + 'static {
   fn read_byob_sync(
     self: Rc<Self>,
     data: &mut [u8],
-  ) -> Result<usize, AnyError> {
+  ) -> Result<usize, crate::error::AnyError> {
     _ = data;
     Err(JsNativeError::not_supported().into())
   }
 
   /// The same as [`write()`][Resource::write], but synchronous.
-  fn write_sync(self: Rc<Self>, data: &[u8]) -> Result<usize, AnyError> {
+  fn write_sync(
+    self: Rc<Self>,
+    data: &[u8],
+  ) -> Result<usize, crate::error::AnyError> {
     _ = data;
     Err(JsNativeError::not_supported().into())
   }

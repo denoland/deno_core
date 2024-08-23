@@ -265,6 +265,17 @@ pub struct OpError {
   error_code: Option<&'static str>,
 }
 
+impl std::fmt::Display for OpError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{}: {}",
+      self.error.get_class(),
+      self.error.get_message()
+    )
+  }
+}
+
 impl JsErrorClass for OpError {
   fn get_class(&self) -> &'static str {
     self.error.get_class()
@@ -287,7 +298,7 @@ impl<T: JsErrorClass> From<T> for OpError {
 impl From<anyhow::Error> for OpError {
   fn from(err: anyhow::Error) -> Self {
     match err.downcast::<dyn JsErrorClass>() {
-      Ok(err) => err.into(),
+      Ok(err) => OpError::from(err),
       Err(_) => todo!(),
     }
   }
@@ -298,12 +309,9 @@ impl Serialize for OpError {
   where
     S: serde::Serializer,
   {
-    let class_name = self.error.get_class();
-    let message = self.error.get_message();
-
     let mut serde_state = serializer.serialize_struct("OpError", 3)?;
-    serde_state.serialize_field("$err_class_name", class_name)?;
-    serde_state.serialize_field("message", &message)?;
+    serde_state.serialize_field("$err_class_name", self.error.get_class())?;
+    serde_state.serialize_field("message", &self.error.get_message())?;
     serde_state.serialize_field("code", &self.error_code)?;
     serde_state.end()
   }

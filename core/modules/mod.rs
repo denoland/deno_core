@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
-use crate::error::PubError;
+use crate::error::CoreError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use crate::FastStaticString;
@@ -623,10 +623,37 @@ pub(crate) struct ModuleInfo {
   pub module_type: ModuleType,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ModuleConcreteError {
+  #[error("Trying to create \"main\" module ({new_module:?}), when one already exists ({main_module:?})"
+  )]
+  MainModuleAlreadyExists {
+    main_module: String,
+    new_module: String,
+  },
+  #[error("Unable to get code cache from unbound module script")]
+  UnboundModuleScriptCodeCache,
+  #[error("Importing Wasm modules is currently not supported")]
+  WasmUnsupported,
+  #[error("Importing '{0}' modules is not supported")]
+  UnsupportedKind(String),
+}
+
+impl super::error::JsErrorClass for ModuleConcreteError {
+  fn get_class(&self) -> &'static str {
+    "Error"
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+}
+
 #[derive(Debug)]
 pub enum ModuleError {
   Exception(v8::Global<v8::Value>),
-  Other(PubError),
+  Concrete(ModuleConcreteError),
+  Core(CoreError),
 }
 
 impl ModuleError {
@@ -635,14 +662,15 @@ impl ModuleError {
     scope: &mut v8::HandleScope,
     in_promise: bool,
     clear_error: bool,
-  ) -> PubError {
+  ) -> CoreError {
     match self {
       ModuleError::Exception(exception) => {
         let exception = v8::Local::new(scope, exception);
         exception_to_err_result::<()>(scope, exception, in_promise, clear_error)
           .unwrap_err()
       }
-      ModuleError::Other(error) => error,
+      ModuleError::Core(error) => error,
+      ModuleError::Concrete(error) => CoreError::Module(error),
     }
   }
 }

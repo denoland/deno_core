@@ -4,7 +4,7 @@
 //! <https://chromedevtools.github.io/devtools-protocol/>
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
-use crate::error::PubError;
+use crate::error::CoreError;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
@@ -766,7 +766,7 @@ impl LocalInspectorSession {
     &mut self,
     method: &str,
     params: Option<T>,
-  ) -> Result<serde_json::Value, PubError> {
+  ) -> Result<serde_json::Value, CoreError> {
     let id = self.next_message_id;
     self.next_message_id += 1;
 

@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use anyhow::Error;
+use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::AsyncRefCell;
 use deno_core::BufView;
@@ -92,7 +92,7 @@ impl Resource for FileResource {
 pub async fn op_file_open(
   #[string] path: String,
   op_state: Rc<RefCell<OpState>>,
-) -> Result<ResourceId, Error> {
+) -> Result<ResourceId, OpError> {
   let tokio_file = tokio::fs::OpenOptions::new()
     .read(true)
     .write(false)

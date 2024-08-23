@@ -5,7 +5,6 @@ use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
-use anyhow::Error;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
@@ -86,7 +85,7 @@ async fn test_wakers_for_async_ops() {
   static STATE: AtomicI8 = AtomicI8::new(0);
 
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), Error> {
+  async fn op_async_sleep() -> Result<(), OpError> {
     STATE.store(1, Ordering::SeqCst);
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     STATE.store(2, Ordering::SeqCst);
@@ -649,7 +648,7 @@ fn test_is_proxy() {
 #[tokio::test]
 async fn test_set_macrotask_callback_set_next_tick_callback() {
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), Error> {
+  async fn op_async_sleep() -> Result<(), OpError> {
     // Future must be Poll::Pending on first call
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     Ok(())
@@ -967,9 +966,9 @@ async fn test_stalled_tla() {
 #[tokio::test]
 async fn test_dynamic_import_module_error_stack() {
   #[op2(async)]
-  async fn op_async_error() -> Result<(), Error> {
+  async fn op_async_error() -> Result<(), OpError> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    Err(crate::error::JsNativeError::type_error("foo"))
+    Err(error::JsNativeError::type_error("foo").into())
   }
   deno_core::extension!(test_ext, ops = [op_async_error]);
   let loader = StaticModuleLoader::new([
@@ -1193,7 +1192,7 @@ async fn task_spawner_cross_thread_blocking() {
 #[tokio::test]
 async fn terminate_execution_run_event_loop_js() {
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), Error> {
+  async fn op_async_sleep() -> Result<(), OpError> {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     Ok(())
   }

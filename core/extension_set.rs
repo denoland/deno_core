@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::PubError;
+use crate::error::CoreError;
 use crate::extensions::Extension;
 use crate::extensions::ExtensionSourceType;
 use crate::extensions::GlobalObjectMiddlewareFn;
@@ -239,14 +239,14 @@ fn load(
   transpiler: Option<&ExtensionTranspiler>,
   source: &ExtensionFileSource,
   load_callback: &mut impl FnMut(&ExtensionFileSource),
-) -> Result<(ModuleCodeString, Option<SourceMapData>), PubError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), CoreError> {
   load_callback(source);
   let mut source_code = source.load()?;
   let mut source_map = None;
   if let Some(transpiler) = transpiler {
     (source_code, source_map) =
       transpiler(ModuleName::from_static(source.specifier), source_code)
-        .map_err(PubError::ExtensionTranspiler)?;
+        .map_err(CoreError::ExtensionTranspiler)?;
   }
   let mut maybe_source_map = None;
   if let Some(source_map) = source_map {
@@ -259,7 +259,7 @@ pub fn into_sources_and_source_maps(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
   mut load_callback: impl FnMut(&ExtensionFileSource),
-) -> Result<LoadedSources, PubError> {
+) -> Result<LoadedSources, CoreError> {
   let mut sources = LoadedSources::default();
 
   for extension in extensions {

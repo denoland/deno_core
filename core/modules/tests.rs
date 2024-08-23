@@ -29,7 +29,6 @@ use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use anyhow::bail;
-use anyhow::Error;
 use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
@@ -210,7 +209,7 @@ struct DelayedSourceCodeFuture {
 }
 
 impl Future for DelayedSourceCodeFuture {
-  type Output = Result<ModuleSource, Error>;
+  type Output = Result<ModuleSource, anyhow::Error>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
     let inner = self.get_mut();
@@ -257,7 +256,7 @@ impl ModuleLoader for MockLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     let referrer = if referrer == "." {
       "file:///"
     } else {
@@ -780,7 +779,7 @@ fn test_custom_module_type_default() {
   };
 
   match err {
-    ModuleError::Other(err) => {
+    ModuleError::Core(err) => {
       assert_eq!(
         err.to_string(),
         "Importing 'bytes' modules is not supported"
@@ -797,12 +796,12 @@ fn test_custom_module_type_callback_synthetic() {
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, Error> {
+  ) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
     if module_type != "bytes" {
-      return Err(JsNativeError::generic(format!(
-        "Can't load '{}' module",
-        module_type
-      )));
+      return Err(
+        JsNativeError::generic(format!("Can't load '{}' module", module_type))
+          .into(),
+      );
     }
 
     let buf = match module_code {
@@ -848,7 +847,7 @@ fn test_custom_module_type_callback_synthetic() {
   };
 
   match err {
-    ModuleError::Other(err) => {
+    ModuleError::Core(err) => {
       assert_eq!(err.to_string(), "Can't load 'foo' module");
     }
     _ => unreachable!(),
@@ -881,12 +880,12 @@ fn test_custom_module_type_callback_computed() {
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, Error> {
+  ) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
     if module_type != "foobar" {
-      return Err(JsNativeError::generic(format!(
-        "Can't load '{}' module",
-        module_type
-      )));
+      return Err(
+        JsNativeError::generic(format!("Can't load '{}' module", module_type))
+          .into(),
+      );
     }
 
     let buf = match module_code {
@@ -1604,7 +1603,7 @@ async fn no_duplicate_loads() {
       specifier: &str,
       referrer: &str,
       _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
       let referrer = if referrer == "." {
         "file:///"
       } else {
@@ -1675,7 +1674,7 @@ async fn import_meta_resolve_cb() {
     _loader: &dyn ModuleLoader,
     specifier: String,
     _referrer: String,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, anyhow::Error> {
     if specifier == "foo" {
       return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
     }

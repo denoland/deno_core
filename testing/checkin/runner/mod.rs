@@ -5,7 +5,6 @@ use self::ops_worker::WorkerHostSide;
 use self::ts_module_loader::maybe_transpile_source;
 use anyhow::anyhow;
 use anyhow::Context;
-use anyhow::Error;
 use deno_core::v8;
 use deno_core::CrossIsolateStore;
 use deno_core::CustomModuleEvaluationKind;
@@ -135,7 +134,7 @@ pub fn create_runtime_from_snapshot(
   runtime
 }
 
-fn run_async(f: impl Future<Output = Result<(), Error>>) {
+fn run_async(f: impl Future<Output = Result<(), anyhow::Error>>) {
   let tokio = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
@@ -167,7 +166,7 @@ fn custom_module_evaluation_cb(
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
+) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
   match &*module_type {
     "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
@@ -182,7 +181,7 @@ fn custom_module_evaluation_cb(
 fn bytes_module(
   scope: &mut v8::HandleScope,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
+) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -203,7 +202,7 @@ fn text_module(
   scope: &mut v8::HandleScope,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
+) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()

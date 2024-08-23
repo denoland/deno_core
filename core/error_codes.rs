@@ -3,7 +3,7 @@
 pub fn get_error_code(
   err: &impl crate::error::JsErrorClass,
 ) -> Option<&'static str> {
-  (&err as &dyn std::any::Any)
+  (err as &dyn std::any::Any)
     .downcast_ref::<std::io::Error>()
     .map(|e| match e.raw_os_error() {
       Some(code) => get_os_error_code(code),

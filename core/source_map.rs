@@ -165,7 +165,6 @@ impl SourceMapper {
 
 #[cfg(test)]
 mod tests {
-  use anyhow::Error;
   use url::Url;
 
   use super::*;
@@ -191,7 +190,7 @@ mod tests {
       _specifier: &str,
       _referrer: &str,
       _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
+    ) -> Result<ModuleSpecifier, anyhow::Error> {
       unreachable!()
     }
 

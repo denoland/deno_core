@@ -14,7 +14,7 @@ use crate::resolve_import;
 use crate::ModuleSourceCode;
 
 use anyhow::Context;
-use deno_core::error::PubError;
+use deno_core::error::CoreError;
 use futures::future::FutureExt;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -50,18 +50,18 @@ pub enum ModuleLoaderError {
   #[error(transparent)]
   Resolution(#[from] crate::ModuleResolutionError),
   #[error(transparent)]
-  Other(#[from] PubError),
+  Other(#[from] CoreError),
 }
 
 impl From<anyhow::Error> for ModuleLoaderError {
   fn from(err: anyhow::Error) -> Self {
-    ModuleLoaderError::Other(PubError::Anyhow(err))
+    ModuleLoaderError::Other(CoreError::Other(err))
   }
 }
 
 impl From<std::io::Error> for ModuleLoaderError {
   fn from(err: std::io::Error) -> Self {
-    ModuleLoaderError::Other(PubError::Io(err))
+    ModuleLoaderError::Other(CoreError::Io(err))
   }
 }
 
@@ -213,12 +213,12 @@ impl ExtModuleLoader {
     }
   }
 
-  pub fn finalize(self) -> Result<(), PubError> {
+  pub fn finalize(self) -> Result<(), CoreError> {
     let sources = self.sources.take();
     let unused_modules: Vec<_> = sources.iter().collect();
 
     if !unused_modules.is_empty() {
-      return Err(PubError::UnusedModules(
+      return Err(CoreError::UnusedModules(
         unused_modules
           .into_iter()
           .map(|(name, _)| name.to_string())

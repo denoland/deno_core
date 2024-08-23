@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::PubError;
+use crate::error::CoreError;
 use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
@@ -129,7 +129,7 @@ pub struct CreateSnapshotOutput {
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
   warmup_script: Option<&'static str>,
-) -> Result<CreateSnapshotOutput, PubError> {
+) -> Result<CreateSnapshotOutput, CoreError> {
   let mut mark = Instant::now();
   #[allow(clippy::print_stdout)]
   {

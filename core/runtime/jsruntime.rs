@@ -14,8 +14,8 @@ use super::SnapshottedData;
 use crate::ascii_str;
 use crate::ascii_str_include;
 use crate::error::exception_to_err_result;
+use crate::error::CoreError;
 use crate::error::JsError;
-use crate::error::PubError;
 use crate::extension_set;
 use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
@@ -266,7 +266,7 @@ impl InitMode {
 
 #[derive(Default)]
 struct PromiseFuture {
-  resolved: Cell<Option<Result<v8::Global<v8::Value>, PubError>>>,
+  resolved: Cell<Option<Result<v8::Global<v8::Value>, CoreError>>>,
   waker: Cell<Option<Waker>>,
 }
 
@@ -274,7 +274,7 @@ struct PromiseFuture {
 struct RcPromiseFuture(Rc<PromiseFuture>);
 
 impl RcPromiseFuture {
-  pub fn new(res: Result<v8::Global<v8::Value>, PubError>) -> Self {
+  pub fn new(res: Result<v8::Global<v8::Value>, CoreError>) -> Self {
     Self(Rc::new(PromiseFuture {
       resolved: Some(res).into(),
       ..Default::default()
@@ -283,7 +283,7 @@ impl RcPromiseFuture {
 }
 
 impl Future for RcPromiseFuture {
-  type Output = Result<v8::Global<v8::Value>, PubError>;
+  type Output = Result<v8::Global<v8::Value>, CoreError>;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
     if let Some(resolved) = this.0.resolved.take() {
@@ -727,7 +727,7 @@ impl JsRuntime {
 
   /// Only constructor, configuration is done through `options`.
   /// Returns an error if the runtime cannot be initialized.
-  pub fn try_new(mut options: RuntimeOptions) -> Result<JsRuntime, PubError> {
+  pub fn try_new(mut options: RuntimeOptions) -> Result<JsRuntime, CoreError> {
     setup::init_v8(
       options.v8_platform.take(),
       cfg!(test),
@@ -774,7 +774,7 @@ impl JsRuntime {
   fn new_inner(
     mut options: RuntimeOptions,
     will_snapshot: bool,
-  ) -> Result<JsRuntime, PubError> {
+  ) -> Result<JsRuntime, CoreError> {
     let init_mode = InitMode::from_options(&options);
     let mut extensions = std::mem::take(&mut options.extensions);
     let mut isolate_allocations = IsolateAllocations::default();
@@ -1230,14 +1230,12 @@ impl JsRuntime {
       scope,
       global,
     );
-    let mod_id = module_map
-      .new_synthetic_module(
-        scope,
-        VIRTUAL_OPS_MODULE_NAME,
-        crate::ModuleType::JavaScript,
-        synthetic_module_exports,
-      )
-      .unwrap();
+    let mod_id = module_map.new_synthetic_module(
+      scope,
+      VIRTUAL_OPS_MODULE_NAME,
+      crate::ModuleType::JavaScript,
+      synthetic_module_exports,
+    );
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
@@ -1252,7 +1250,7 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
-  ) -> Result<(), PubError> {
+  ) -> Result<(), CoreError> {
     let scope = &mut realm.handle_scope(self.v8_isolate());
 
     for source_file in &BUILTIN_SOURCES {
@@ -1261,10 +1259,10 @@ impl JsRuntime {
 
       let origin = script_origin(scope, name, false, None);
       let script = v8::Script::compile(scope, source, Some(&origin))
-        .ok_or_else(|| PubError::Parse(source_file.specifier))?;
+        .ok_or_else(|| CoreError::Parse(source_file.specifier))?;
       script
         .run(scope)
-        .ok_or_else(|| PubError::Execute(source_file.specifier))?;
+        .ok_or_else(|| CoreError::Execute(source_file.specifier))?;
     }
 
     for file_source in &BUILTIN_ES_MODULES {
@@ -1286,7 +1284,7 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
-  ) -> Result<(), PubError> {
+  ) -> Result<(), CoreError> {
     // First, add all the lazy ESM
     for source in loaded_sources.lazy_esm {
       module_map.add_lazy_loaded_esm_source(source.specifier, source.code);
@@ -1324,7 +1322,7 @@ impl JsRuntime {
       let Some(mod_id) =
         module_map.get_id(&specifier, RequestedModuleType::None)
       else {
-        return Err(PubError::MissingFromModuleMap(specifier.to_string()));
+        return Err(CoreError::MissingFromModuleMap(specifier.to_string()));
       };
 
       let isolate = self.v8_isolate();
@@ -1354,7 +1352,7 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
-  ) -> Result<(), PubError> {
+  ) -> Result<(), CoreError> {
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
       module_map,
@@ -1486,7 +1484,7 @@ impl JsRuntime {
     &mut self,
     name: &'static str,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, PubError> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.execute_script(
       isolate,
@@ -1505,7 +1503,7 @@ impl JsRuntime {
   pub fn call(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, PubError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
     self.call_with_args(function, &[])
   }
 
@@ -1519,7 +1517,7 @@ impl JsRuntime {
   pub fn scoped_call(
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, PubError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
     Self::scoped_call_with_args(scope, function, &[])
   }
 
@@ -1534,7 +1532,7 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, PubError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
     let scope = &mut self.handle_scope();
     Self::scoped_call_with_args(scope, function, args)
   }
@@ -1550,7 +1548,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, PubError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
     let scope = &mut v8::TryCatch::new(scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
@@ -1592,7 +1590,7 @@ impl JsRuntime {
   pub async fn call_and_await(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> Result<v8::Global<v8::Value>, PubError> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let call = self.call(function);
     self
       .with_event_loop_promise(call, PollEventLoopOptions::default())
@@ -1607,7 +1605,7 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> Result<v8::Global<v8::Value>, PubError> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let call = self.call_with_args(function, args);
     self
       .with_event_loop_promise(call, PollEventLoopOptions::default())
@@ -1621,7 +1619,7 @@ impl JsRuntime {
   pub fn get_module_namespace(
     &mut self,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, PubError> {
+  ) -> Result<v8::Global<v8::Object>, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -1668,7 +1666,7 @@ impl JsRuntime {
   fn pump_v8_message_loop(
     &mut self,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), PubError> {
+  ) -> Result<(), CoreError> {
     while v8::Platform::pump_message_loop(
       &v8::V8::get_current_platform(),
       scope,
@@ -1715,7 +1713,7 @@ impl JsRuntime {
   pub fn resolve(
     &mut self,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, PubError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
     let scope = &mut self.handle_scope();
     Self::scoped_resolve(scope, promise)
   }
@@ -1727,7 +1725,7 @@ impl JsRuntime {
   pub fn scoped_resolve(
     scope: &mut v8::HandleScope,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, PubError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
     let promise = v8::Local::new(scope, promise);
     if !promise.is_promise() {
       return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
@@ -1744,7 +1742,7 @@ impl JsRuntime {
   pub async fn resolve_value(
     &mut self,
     global: v8::Global<v8::Value>,
-  ) -> Result<v8::Global<v8::Value>, PubError> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let resolve = self.resolve(global);
     self
       .with_event_loop_promise(resolve, PollEventLoopOptions::default())
@@ -1782,7 +1780,7 @@ impl JsRuntime {
   pub async fn run_event_loop(
     &mut self,
     poll_options: PollEventLoopOptions,
-  ) -> Result<(), PubError> {
+  ) -> Result<(), CoreError> {
     poll_fn(|cx| self.poll_event_loop(cx, poll_options)).await
   }
 
@@ -1794,9 +1792,9 @@ impl JsRuntime {
     &mut self,
     mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
-  ) -> Result<T, PubError>
+  ) -> Result<T, CoreError>
   where
-    PubError: From<E>,
+    CoreError: From<E>,
   {
     // Manually implement tokio::select
     poll_fn(|cx| {
@@ -1808,7 +1806,7 @@ impl JsRuntime {
         if let Poll::Ready(t) = fut.poll_unpin(cx) {
           return Poll::Ready(t.map_err(|e| e.into()));
         }
-        return Poll::Ready(Err(PubError::PendingPromiseResolution));
+        return Poll::Ready(Err(CoreError::PendingPromiseResolution));
       }
       Poll::Pending
     })
@@ -1825,9 +1823,9 @@ impl JsRuntime {
     &mut self,
     mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
-  ) -> Result<T, PubError>
+  ) -> Result<T, CoreError>
   where
-    PubError: From<E>,
+    CoreError: From<E>,
   {
     // Manually implement tokio::select
     poll_fn(|cx| {
@@ -1853,7 +1851,7 @@ impl JsRuntime {
     &mut self,
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
-  ) -> Poll<Result<(), PubError>> {
+  ) -> Poll<Result<(), CoreError>> {
     // SAFETY: We know this isolate is valid and non-null at this time
     let mut isolate_scope =
       v8::HandleScope::new(unsafe { &mut *self.v8_isolate_ptr() });
@@ -1868,7 +1866,7 @@ impl JsRuntime {
     cx: &mut Context,
     scope: &mut v8::HandleScope,
     poll_options: PollEventLoopOptions,
-  ) -> Poll<Result<(), PubError>> {
+  ) -> Poll<Result<(), CoreError>> {
     let has_inspector = self.inner.state.has_inspector.get();
     self.inner.state.waker.register(cx.waker());
 
@@ -1995,7 +1993,7 @@ impl JsRuntime {
 fn find_and_report_stalled_level_await_in_any_realm(
   scope: &mut v8::HandleScope,
   inner_realm: &JsRealmInner,
-) -> PubError {
+) -> CoreError {
   let module_map = inner_realm.module_map();
   let messages = module_map.find_stalled_top_level_await(scope);
 
@@ -2063,7 +2061,7 @@ impl JsRuntimeForSnapshot {
   /// Try to create a new runtime, returning an error if the process fails.
   pub fn try_new(
     mut options: RuntimeOptions,
-  ) -> Result<JsRuntimeForSnapshot, PubError> {
+  ) -> Result<JsRuntimeForSnapshot, CoreError> {
     setup::init_v8(
       options.v8_platform.take(),
       true,
@@ -2319,7 +2317,7 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), PubError>> {
+  ) -> impl Future<Output = Result<(), CoreError>> {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
@@ -2342,7 +2340,7 @@ impl JsRuntime {
     &mut self,
     specifier: &ModuleSpecifier,
     code: impl IntoModuleCodeString,
-  ) -> Result<ModuleId, PubError> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2366,7 +2364,7 @@ impl JsRuntime {
   pub async fn load_main_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
-  ) -> Result<ModuleId, PubError> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2392,7 +2390,7 @@ impl JsRuntime {
     &mut self,
     specifier: &ModuleSpecifier,
     code: impl IntoModuleCodeString,
-  ) -> Result<ModuleId, PubError> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2416,7 +2414,7 @@ impl JsRuntime {
   pub async fn load_side_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
-  ) -> Result<ModuleId, PubError> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2436,7 +2434,7 @@ impl JsRuntime {
     &mut self,
     specifier: impl IntoModuleName,
     code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, PubError> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.lazy_load_es_module_with_code(
       isolate,
@@ -2450,7 +2448,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     context_state: &ContextState,
     exception_state: &ExceptionState,
-  ) -> Result<bool, PubError> {
+  ) -> Result<bool, CoreError> {
     let mut dispatched_ops = false;
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise

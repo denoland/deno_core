@@ -11,10 +11,10 @@ use std::rc::Rc;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
-use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
+use deno_core::error::ModuleLoaderError;
 use deno_core::resolve_import;
 use deno_core::resolve_path;
 use deno_core::JsRuntime;
@@ -43,7 +43,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, anyhow::Error> {
     Ok(resolve_import(specifier, referrer)?)
   }
 
@@ -58,7 +58,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     fn load(
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
-    ) -> Result<ModuleSource, Error> {
+    ) -> Result<ModuleSource, ModuleLoaderError> {
       let path = module_specifier
         .to_file_path()
         .map_err(|_| anyhow!("Only file:// URLs are supported."))?;
@@ -128,7 +128,7 @@ impl ModuleLoader for TypescriptModuleLoader {
   }
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), anyhow::Error> {
   let args: Vec<String> = std::env::args().collect();
   if args.len() < 2 {
     println!("Usage: target/examples/debug/ts_module_loader <path_to_module>");

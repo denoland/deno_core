@@ -23,7 +23,7 @@ use crate::FastStaticString;
 pub type AnyError = anyhow::Error;
 
 #[derive(Debug, thiserror::Error)]
-pub enum PubError {
+pub enum CoreError {
   #[error("top level await is not allowed in extensions")]
   TLA(JsError),
   #[error(transparent)]
@@ -52,10 +52,6 @@ pub enum PubError {
   ModuleLoader(Box<ModuleLoaderError>),
   #[error("Could not execute {specifier}")]
   CouldNotExecute { error: Box<Self>, specifier: String },
-  #[error(
-    "\"npm:\" specifiers are currently not supported in import.meta.resolve()"
-  )]
-  NpmMetaResolve,
   #[error(transparent)]
   JsNativeError(#[from] JsNativeError),
   #[error(transparent)]
@@ -70,27 +66,20 @@ pub enum PubError {
   )]
   PendingPromiseResolution,
   #[error(transparent)]
-  Anyhow(anyhow::Error),
+  Module(super::modules::ModuleConcreteError),
+  #[error(transparent)]
+  Other(anyhow::Error),
 }
 
-impl From<ModuleLoaderError> for PubError {
+impl From<ModuleLoaderError> for CoreError {
   fn from(err: ModuleLoaderError) -> Self {
-    PubError::ModuleLoader(Box::new(err))
+    CoreError::ModuleLoader(Box::new(err))
   }
 }
 
-pub trait JsErrorClass: Debug + 'static {
+pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
   fn get_class(&self) -> &'static str;
   fn get_message(&self) -> Cow<'static, str>;
-}
-
-pub fn get_error_class(error: &dyn std::any::Any) -> &'static str {
-  if let Some(error) = error.downcast_ref::<dyn JsErrorClass>() {
-    error.get_class()
-  } else {
-    // Default value when trait is not implemented
-    "Error"
-  }
 }
 
 impl JsErrorClass for serde_v8::Error {
@@ -253,10 +242,6 @@ impl JsNativeError {
   pub fn not_supported() -> JsNativeError {
     Self::new("NotSupported", "The operation is not supported")
   }
-}
-
-pub fn get_custom_error_class(error: &anyhow::Error) -> Option<&'static str> {
-  error.downcast_ref::<JsNativeError>().map(|e| e.class)
 }
 
 pub fn to_v8_error<'a>(
@@ -899,7 +884,7 @@ impl Display for JsError {
 // values of type v8::Global<T>.
 pub(crate) fn to_v8_type_error(
   scope: &mut v8::HandleScope,
-  err: PubError,
+  err: CoreError,
 ) -> v8::Global<v8::Value> {
   let err_string = err.to_string();
   let mut error_chain = vec![];
@@ -1064,7 +1049,7 @@ pub(crate) fn exception_to_err_result<T>(
   exception: v8::Local<v8::Value>,
   mut in_promise: bool,
   clear_error: bool,
-) -> Result<T, PubError> {
+) -> Result<T, CoreError> {
   let state = JsRealm::exception_state_from_scope(scope);
 
   let mut was_terminating_execution = scope.is_execution_terminating();

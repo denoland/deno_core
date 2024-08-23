@@ -107,7 +107,7 @@ pub struct TryCancelable<F> {
 
 impl<F, T, E> Future for TryCancelable<F>
 where
-  F: Future<Output = Result<T, E>>,
+  F: Future<Output=Result<T, E>>,
   Canceled: Into<E>,
 {
   type Output = F::Output;
@@ -124,7 +124,7 @@ where
 
 impl<F, T, E> FusedFuture for TryCancelable<F>
 where
-  F: Future<Output = Result<T, E>>,
+  F: Future<Output=Result<T, E>>,
   Canceled: Into<E>,
 {
   fn is_terminated(&self) -> bool {
@@ -144,7 +144,7 @@ where
 
 impl<F, T> Future for Abortable<F>
 where
-  F: Future<Output = T> + Unpin,
+  F: Future<Output=T> + Unpin,
 {
   type Output = Result<F::Output, F>;
 
@@ -171,7 +171,7 @@ where
 
 impl<F, T, E> FusedFuture for Abortable<F>
 where
-  F: Future<Output = Result<T, E>> + Unpin,
+  F: Future<Output=Result<T, E>> + Unpin,
   Canceled: Into<E>,
 {
   fn is_terminated(&self) -> bool {
@@ -222,8 +222,7 @@ impl<F> CancelTryFuture for F
 where
   F: TryFuture,
   Canceled: Into<F::Error>,
-{
-}
+{}
 
 #[derive(Copy, Clone, Default, Debug, Eq, Hash, PartialEq)]
 pub struct Canceled;
@@ -666,7 +665,6 @@ mod internal {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use anyhow::Error;
   use futures::future::pending;
   use futures::future::poll_fn;
   use futures::future::ready;
@@ -685,7 +683,7 @@ mod tests {
 
   fn box_fused<'a, F: FusedFuture + 'a>(
     future: F,
-  ) -> Pin<Box<dyn FusedFuture<Output = F::Output> + 'a>> {
+  ) -> Pin<Box<dyn FusedFuture<Output=F::Output> + 'a>> {
     Box::pin(future)
   }
 
@@ -700,7 +698,7 @@ mod tests {
         Poll::Pending
       }
     })
-    .await
+      .await
   }
 
   #[test]
@@ -782,7 +780,7 @@ mod tests {
       // Cancel a spawned task before it actually runs.
       let cancel_handle = Rc::new(CancelHandle::new());
       let future = spawn(async { panic!("the task should not be spawned") })
-        .map_err(Error::from)
+        .map_err(anyhow::Error::from)
         .try_or_cancel(&cancel_handle);
       cancel_handle.cancel();
       let error = future.await.unwrap_err();
@@ -884,7 +882,7 @@ mod tests {
         tokio::task::yield_now().await;
         1_u8
       })
-      .or_abort(&cancel_handle);
+        .or_abort(&cancel_handle);
       cancel_handle.cancel();
 
       for _ in 0..10 {
@@ -919,8 +917,8 @@ mod tests {
         yield_now().await;
         unreachable!();
       }
-      .or_cancel(&cancel_handle)
-      .await;
+        .or_cancel(&cancel_handle)
+        .await;
       assert_eq!(result.unwrap_err(), Canceled);
     })
   }
@@ -941,8 +939,8 @@ mod tests {
         pending!();
         unreachable!();
       }
-      .or_cancel(&cancel_handle)
-      .await;
+        .or_cancel(&cancel_handle)
+        .await;
       assert_eq!(result.unwrap_err(), Canceled);
     });
   }
@@ -962,8 +960,8 @@ mod tests {
         cancel_handle.cancel();
         Ok::<_, io::Error>("done")
       }
-      .try_or_cancel(&cancel_handle)
-      .await;
+        .try_or_cancel(&cancel_handle)
+        .await;
       assert_eq!(result.unwrap(), "done");
     });
   }

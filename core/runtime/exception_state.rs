@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
-use crate::error::PubError;
+use crate::error::CoreError;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -70,7 +70,7 @@ impl ExceptionState {
   pub(crate) fn check_exception_condition(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), PubError> {
+  ) -> Result<(), CoreError> {
     if self.has_dispatched_exception() {
       let undefined = v8::undefined(scope);
       exception_to_err_result(
