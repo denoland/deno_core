@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::OpError;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
@@ -10,16 +9,13 @@ use crate::FeatureChecker;
 use crate::OpDecl;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
-use std::cell::UnsafeCell;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use v8::fast_api::CFunctionInfo;
-use v8::fast_api::CTypeInfo;
+use v8::fast_api::CFunction;
 use v8::Isolate;
 
 pub type PromiseId = i32;
@@ -73,12 +69,6 @@ impl OpMetadata {
   }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct FastFunctionInfo {
-  pub(crate) fn_info: NonNull<CFunctionInfo>,
-  pub(crate) fn_sig: (NonNull<CTypeInfo>, NonNull<CTypeInfo>),
-}
-
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
@@ -95,10 +85,8 @@ pub struct OpCtx {
   pub state: Rc<RefCell<OpState>>,
 
   pub(crate) decl: OpDecl,
-  pub(crate) fast_fn_info: Option<FastFunctionInfo>,
+  pub(crate) fast_fn_info: Option<CFunction>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
-  /// If the last fast op failed, stores the error to be picked up by the slow op.
-  pub(crate) last_fast_error: UnsafeCell<Option<OpError>>,
 
   op_driver: Rc<OpDriverImpl>,
   runtime_state: *const JsRuntimeState,
@@ -116,34 +104,14 @@ impl OpCtx {
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
-    // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
+    // `CFunction`. For some extremely fast ops, the parameter list may change for the metrics
     // version and require a slightly different set of arguments (for example, it may need the fastcall
     // callback information to get the `OpCtx`).
-    let fast_fn = if metrics_fn.is_some() {
-      &decl.fast_fn_with_metrics
+    let fast_fn_info = if metrics_fn.is_some() {
+      decl.fast_fn_with_metrics
     } else {
-      &decl.fast_fn
+      decl.fast_fn
     };
-
-    let fast_fn_info = fast_fn.map(|fast_fn| {
-      let args = CTypeInfo::new_from_slice(fast_fn.args);
-      let ret = CTypeInfo::new(fast_fn.return_type);
-
-      // SAFETY: all arguments are coming from the trait and they have
-      // static lifetime
-      let c_fn = unsafe {
-        CFunctionInfo::new(
-          args.as_ptr(),
-          fast_fn.args.len(),
-          ret.as_ptr(),
-          fast_fn.repr,
-        )
-      };
-      FastFunctionInfo {
-        fn_info: c_fn,
-        fn_sig: (args, ret),
-      }
-    });
 
     Self {
       id,
@@ -152,7 +120,6 @@ impl OpCtx {
       decl,
       op_driver,
       fast_fn_info,
-      last_fast_error: UnsafeCell::new(None),
       isolate,
       metrics_fn,
     }
@@ -185,13 +152,13 @@ impl OpCtx {
         function: self.decl.slow_fn_with_metrics,
       };
       if let (Some(fast_fn), Some(fast_fn_info)) =
-        (&self.decl.fast_fn_with_metrics, &self.fast_fn_info)
+        (self.decl.fast_fn_with_metrics, self.fast_fn_info)
       {
         let fast_fn = v8::ExternalReference {
-          pointer: fast_fn.function as _,
+          pointer: fast_fn.address() as _,
         };
         let fast_info = v8::ExternalReference {
-          pointer: fast_fn_info.fn_info.as_ptr() as _,
+          type_info: fast_fn_info.type_info(),
         };
         [ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {
@@ -202,45 +169,19 @@ impl OpCtx {
         function: self.decl.slow_fn,
       };
       if let (Some(fast_fn), Some(fast_fn_info)) =
-        (&self.decl.fast_fn, &self.fast_fn_info)
+        (self.decl.fast_fn, self.fast_fn_info)
       {
         let fast_fn = v8::ExternalReference {
-          pointer: fast_fn.function as _,
+          pointer: fast_fn.address() as _,
         };
         let fast_info = v8::ExternalReference {
-          pointer: fast_fn_info.fn_info.as_ptr() as _,
+          type_info: fast_fn_info.type_info(),
         };
         [ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {
         [ctx_ptr, slow_fn, null, null]
       }
     }
-  }
-
-  /// This takes the last error from an [`OpCtx`], assuming that no other code anywhere
-  /// can hold a `&mut` to the last_fast_error field.
-  ///
-  /// # Safety
-  ///
-  /// Must only be called from op implementations.
-  #[inline(always)]
-  pub unsafe fn unsafely_take_last_error_for_ops_only(
-    &self,
-  ) -> Option<OpError> {
-    let opt_mut = &mut *self.last_fast_error.get();
-    opt_mut.take()
-  }
-
-  /// This set the last error for an [`OpCtx`], assuming that no other code anywhere
-  /// can hold a `&mut` to the last_fast_error field.
-  ///
-  /// # Safety
-  ///
-  /// Must only be called from op implementations.
-  #[inline(always)]
-  pub unsafe fn unsafely_set_last_error_for_ops_only(&self, error: OpError) {
-    let opt_mut = &mut *self.last_fast_error.get();
-    *opt_mut = Some(error);
   }
 
   pub(crate) fn op_driver(&self) -> &OpDriverImpl {

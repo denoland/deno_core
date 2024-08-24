@@ -386,7 +386,7 @@ fn op_format_file_name(#[string] file_name: &str) -> String {
   format_file_name(file_name)
 }
 
-#[op2]
+#[op2(fast)]
 fn op_str_byte_length(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,

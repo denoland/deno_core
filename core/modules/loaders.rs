@@ -153,6 +153,13 @@ pub trait ModuleLoader {
     async {}.boxed_local()
   }
 
+  /// Called when V8 code cache should be ignored for this module. This can happen
+  /// if eg. module causes a V8 warning, like when using deprecated import assertions.
+  /// Implementors should make sure that the code cache for this module is purged and not saved anymore.
+  ///
+  /// It's not required to implement this method.
+  fn purge_and_prevent_code_cache(&self, _module_specifier: &str) {}
+
   /// Returns a source map for given `file_name`.
   ///
   /// This function will soon be deprecated or renamed.

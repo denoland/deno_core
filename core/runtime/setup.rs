@@ -118,20 +118,6 @@ fn create_cpp_heap() -> v8::UniqueRef<v8::cppgc::Heap> {
   )
 }
 
-pub fn create_isolate_ptr() -> *mut v8::OwnedIsolate {
-  let align = std::mem::align_of::<usize>();
-  let layout = std::alloc::Layout::from_size_align(
-    std::mem::size_of::<*mut v8::OwnedIsolate>(),
-    align,
-  )
-  .unwrap();
-  assert!(layout.size() > 0);
-  let isolate_ptr: *mut v8::OwnedIsolate =
-    // SAFETY: we just asserted that layout has non-0 size.
-    unsafe { std::alloc::alloc(layout) as *mut _ };
-  isolate_ptr
-}
-
 pub fn create_isolate(
   will_snapshot: bool,
   maybe_create_params: Option<v8::CreateParams>,

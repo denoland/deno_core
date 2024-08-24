@@ -384,16 +384,15 @@ fn op_ctx_function<'s>(
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
     v8::FunctionTemplate::builder_raw(slow_fn)
       .data(external.into())
+      .side_effect_type(if op_ctx.decl.no_side_effects {
+        v8::SideEffectType::HasNoSideEffect
+      } else {
+        v8::SideEffectType::HasSideEffect
+      })
       .length(op_ctx.decl.arg_count as i32);
 
-  let template = if let Some(fast_function) = &fast_fn {
-    builder.build_fast(
-      scope,
-      fast_function,
-      Some(op_ctx.fast_fn_info.unwrap().fn_info.as_ptr()),
-      None,
-      None,
-    )
+  let template = if let Some(fast_function) = fast_fn {
+    builder.build_fast(scope, &[fast_function])
   } else {
     builder.build(scope)
   };

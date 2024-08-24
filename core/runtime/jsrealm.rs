@@ -66,7 +66,7 @@ pub struct ContextState {
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,
-  pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
+  pub(crate) isolate: Option<*mut v8::Isolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
@@ -75,7 +75,7 @@ pub struct ContextState {
 impl ContextState {
   pub(crate) fn new(
     op_driver: Rc<OpDriverImpl>,
-    isolate_ptr: *mut v8::OwnedIsolate,
+    isolate_ptr: *mut v8::Isolate,
     op_ctxs: Box<[OpCtx]>,
     external_ops_tracker: ExternalOpsTracker,
   ) -> Self {

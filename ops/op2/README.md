@@ -827,62 +827,6 @@ External
 <td>
 
 ```text
-#[memory(caller)] &[u8]
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory. Throws an exception if called from another context.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[memory(caller)] &mut [u8]
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory. Throws an exception if called from another context.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[memory(caller)] Option<&[u8]>
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory, otherwise `None`.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[memory(caller)] Option<&mut [u8]>
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory, otherwise `None`.
-</td></tr>
-<tr>
-<td>
-
-```text
 &OpState
 ```
 

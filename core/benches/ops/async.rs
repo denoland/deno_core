@@ -26,7 +26,7 @@ deno_core::extension!(
   ],
 );
 
-#[op2]
+#[op2(fast)]
 pub fn op_call_promise_resolver(scope: &mut v8::HandleScope, f: &v8::Function) {
   let recv = v8::undefined(scope).into();
   f.call(scope, recv, &[]);

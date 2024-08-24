@@ -17,7 +17,6 @@ mod resource_table;
 
 pub use buffer_strategy::AdaptiveBufferStrategy;
 pub use buffers::BufMutView;
-pub use buffers::BufMutViewWhole;
 pub use buffers::BufView;
 pub use resource::Resource;
 pub use resource_handle::ResourceHandle;
