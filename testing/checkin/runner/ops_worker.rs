@@ -124,7 +124,7 @@ async fn run_worker_task(
   base_url: String,
   main_script: String,
   mut shutdown_rx: UnboundedReceiver<()>,
-) -> Result<(), OpError> {
+) -> Result<(), anyhow::Error> {
   let url = Url::try_from(base_url.as_str())?.join(&main_script)?;
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);

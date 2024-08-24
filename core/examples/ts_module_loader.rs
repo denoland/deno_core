@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
@@ -43,7 +42,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, anyhow::Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     Ok(resolve_import(specifier, referrer)?)
   }
 
@@ -77,7 +76,11 @@ impl ModuleLoader for TypescriptModuleLoader {
         | MediaType::Dcts
         | MediaType::Tsx => (ModuleType::JavaScript, true),
         MediaType::Json => (ModuleType::Json, false),
-        _ => bail!("Unknown extension {:?}", path.extension()),
+        _ => {
+          return Err(
+            anyhow!("Unknown extension {:?}", path.extension()).into(),
+          )
+        }
       };
 
       let code = std::fs::read_to_string(&path)?;
@@ -89,20 +92,23 @@ impl ModuleLoader for TypescriptModuleLoader {
           capture_tokens: false,
           scope_analysis: false,
           maybe_syntax: None,
-        })?;
-        let res = parsed.transpile(
-          &deno_ast::TranspileOptions {
-            imports_not_used_as_values:
-              deno_ast::ImportsNotUsedAsValues::Remove,
-            use_decorators_proposal: true,
-            ..Default::default()
-          },
-          &deno_ast::EmitOptions {
-            source_map: SourceMapOption::Separate,
-            inline_sources: true,
-            ..Default::default()
-          },
-        )?;
+        })
+        .map_err(anyhow::Error::new)?;
+        let res = parsed
+          .transpile(
+            &deno_ast::TranspileOptions {
+              imports_not_used_as_values:
+                deno_ast::ImportsNotUsedAsValues::Remove,
+              use_decorators_proposal: true,
+              ..Default::default()
+            },
+            &deno_ast::EmitOptions {
+              source_map: SourceMapOption::Separate,
+              inline_sources: true,
+              ..Default::default()
+            },
+          )
+          .map_err(anyhow::Error::new)?;
         let res = res.into_source();
         let source_map = res.source_map.unwrap();
         source_maps

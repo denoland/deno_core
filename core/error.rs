@@ -1,8 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 pub use super::runtime::op_driver::OpError;
+pub use super::runtime::op_driver::OpErrorWrapper;
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -25,8 +27,8 @@ pub type AnyError = anyhow::Error;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
-  #[error("top level await is not allowed in extensions")]
-  TLA(JsError),
+  #[error("Top-level await is not allowed in extensions")]
+  TLA(#[source] JsError),
   #[error(transparent)]
   Js(#[from] JsError),
   #[error(transparent)]
@@ -79,6 +81,21 @@ pub enum CoreError {
   DataError(#[from] v8::DataError),
   #[error(transparent)]
   Other(anyhow::Error),
+}
+
+impl CoreError {
+  pub fn print_with_cause(&self) -> String {
+    let mut err_message = self.to_string();
+
+    if let Some(source) = self.source() {
+      err_message.push_str(&format!(
+        "\n\nCaused by:\n    {}",
+        source.to_string().replace("\n", "\n    ")
+      ));
+    }
+
+    err_message
+  }
 }
 
 impl From<ModuleLoaderError> for CoreError {
@@ -214,7 +231,21 @@ impl JsErrorClass for std::env::VarError {
   }
 }
 
+impl JsErrorClass for std::sync::mpsc::RecvError {
+  fn get_class(&self) -> &'static str {
+    "Error"
+  }
+}
+
 impl JsErrorClass for v8::DataError {
+  fn get_class(&self) -> &'static str {
+    "Error"
+  }
+}
+
+impl<T: Send + Sync + 'static> JsErrorClass
+  for tokio::sync::mpsc::error::SendError<T>
+{
   fn get_class(&self) -> &'static str {
     "Error"
   }
@@ -245,7 +276,7 @@ impl JsErrorClass for url::ParseError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{class}: {message}")]
+#[error("{message}")] // TODO: {class}: {message}
 pub struct JsNativeError {
   pub class: &'static str,
   message: Cow<'static, str>,

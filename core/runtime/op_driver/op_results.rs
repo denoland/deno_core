@@ -276,16 +276,6 @@ impl std::fmt::Display for OpError {
   }
 }
 
-impl JsErrorClass for OpError {
-  fn get_class(&self) -> &'static str {
-    self.error.get_class()
-  }
-
-  fn get_message(&self) -> std::borrow::Cow<'static, str> {
-    self.error.get_message()
-  }
-}
-
 impl<T: JsErrorClass> From<T> for OpError {
   fn from(err: T) -> Self {
     Self {
@@ -305,5 +295,25 @@ impl Serialize for OpError {
     serde_state.serialize_field("message", &self.error.get_message())?;
     serde_state.serialize_field("code", &self.error_code)?;
     serde_state.end()
+  }
+}
+
+/// Wrapper type to avoid circular trait implementation error due to From implementation
+#[derive(Debug)]
+pub struct OpErrorWrapper(pub OpError);
+
+impl std::fmt::Display for OpErrorWrapper {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.fmt(f)
+  }
+}
+
+impl JsErrorClass for OpErrorWrapper {
+  fn get_class(&self) -> &'static str {
+    self.0.error.get_class()
+  }
+
+  fn get_message(&self) -> std::borrow::Cow<'static, str> {
+    self.0.error.get_message()
   }
 }

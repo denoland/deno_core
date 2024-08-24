@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::JsError;
+use crate::error::CoreError;
 use crate::error::OpError;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
@@ -150,7 +150,7 @@ async fn test_wakers_for_async_ops() {
   Err("Error: fail\n    at a.js:1:16")
 )]
 #[case("new Promise(resolve => {})",
-  Err("Promise resolution is still pending but the event loop has already resolved."
+  Err("Promise resolution is still pending but the event loop has already resolved"
   )
 )]
 #[tokio::test]
@@ -265,7 +265,7 @@ async fn test_resolve_value_generic(
     Ok(None) => {
       let error_string = result_global.unwrap_err().to_string();
       assert_eq!(
-        "Promise resolution is still pending but the event loop has already resolved.",
+        "Promise resolution is still pending but the event loop has already resolved",
         error_string,
       );
     }
@@ -283,7 +283,10 @@ async fn test_resolve_value_generic(
           value.to_rust_string_lossy(scope)
         );
       };
-      assert_eq!(e, err.downcast::<JsError>().unwrap().exception_message);
+      let CoreError::Js(js_err) = err else {
+        unreachable!()
+      };
+      assert_eq!(e, js_err.exception_message);
     }
   }
 }
@@ -507,9 +510,12 @@ fn test_heap_limits() {
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
+  let CoreError::Js(js_err) = err else {
+    unreachable!()
+  };
   assert_eq!(
     "Uncaught Error: execution terminated",
-    err.downcast::<JsError>().unwrap().exception_message
+    js_err.exception_message
   );
   assert!(callback_invoke_count.load(Ordering::SeqCst) > 0)
 }
@@ -556,9 +562,12 @@ fn test_heap_limit_cb_multiple() {
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
+  let CoreError::Js(js_err) = err else {
+    unreachable!()
+  };
   assert_eq!(
     "Uncaught Error: execution terminated",
-    err.downcast::<JsError>().unwrap().exception_message
+    js_err.exception_message
   );
   assert_eq!(0, callback_invoke_count_first.load(Ordering::SeqCst));
   assert!(callback_invoke_count_second.load(Ordering::SeqCst) > 0);
@@ -874,7 +883,7 @@ async fn test_promise_rejection_handler_generic(
   let res = runtime.run_event_loop(Default::default()).await;
   if let Some(error) = error {
     let err = res.expect_err("Expected a failure");
-    let Ok(js_error) = err.downcast::<JsError>() else {
+    let CoreError::Js(js_error) = err else {
       panic!("Expected a JsError");
     };
     assert_eq!(js_error.exception_message, error);
@@ -948,7 +957,9 @@ async fn test_stalled_tla() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let js_error = error.downcast::<JsError>().unwrap();
+  let CoreError::Js(js_error) = error else {
+    unreachable!()
+  };
   assert_eq!(
     &js_error.exception_message,
     "Top-level await promise never resolved"
@@ -998,10 +1009,12 @@ async fn test_dynamic_import_module_error_stack() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let js_error = error.downcast::<JsError>().unwrap();
+  let CoreError::Js(js_error) = error else {
+    unreachable!()
+  };
   assert_eq!(
     js_error.to_string(),
-    "Error: foo
+    "TypeError: foo
     at async file:///import.js:1:43"
   );
 }

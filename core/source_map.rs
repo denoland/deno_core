@@ -169,6 +169,7 @@ mod tests {
 
   use super::*;
   use crate::ascii_str;
+  use crate::error::ModuleLoaderError;
   use crate::ModuleCodeString;
   use crate::ModuleLoadResponse;
   use crate::ModuleSpecifier;
@@ -190,7 +191,7 @@ mod tests {
       _specifier: &str,
       _referrer: &str,
       _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, anyhow::Error> {
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
       unreachable!()
     }
 

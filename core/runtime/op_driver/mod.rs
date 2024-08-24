@@ -15,6 +15,7 @@ mod op_results;
 pub use futures_unordered_driver::FuturesUnorderedDriver;
 
 pub use self::op_results::OpError;
+pub use self::op_results::OpErrorWrapper;
 pub use self::op_results::OpMappingContext;
 pub use self::op_results::OpResult;
 use self::op_results::PendingOpInfo;

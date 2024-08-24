@@ -370,7 +370,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
   let dyn_import_result =
     futures::executor::block_on(runtime.resolve_value(dyn_import_promise));
   assert_eq!(
-    dyn_import_result.err().unwrap().to_string().as_str(),
+    dbg!(dyn_import_result.err().unwrap()).to_string().as_str(),
     r#"Uncaught (in promise) TypeError: Importing ext: modules is only allowed from ext: and node: modules. Tried to import ext:module_snapshot/test.js from (no referrer)"#
   );
 

@@ -87,10 +87,10 @@ pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
 
 pub type ExtensionTranspiler =
-  dyn Fn(
-    ModuleName,
-    ModuleCodeString,
-  ) -> Result<(ModuleCodeString, Option<SourceMapData>), anyhow::Error>;
+dyn Fn(
+  ModuleName,
+  ModuleCodeString,
+) -> Result<(ModuleCodeString, Option<SourceMapData>), anyhow::Error>;
 
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
@@ -410,7 +410,7 @@ impl<T> Clone for CrossIsolateStore<T> {
 }
 
 pub type SharedArrayBufferStore =
-  CrossIsolateStore<v8::SharedRef<v8::BackingStore>>;
+CrossIsolateStore<v8::SharedRef<v8::BackingStore>>;
 
 pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 
@@ -720,7 +720,10 @@ impl JsRuntime {
     match Self::try_new(options) {
       Ok(runtime) => runtime,
       Err(err) => {
-        panic!("Failed to initialize a JsRuntime: {:?}", err);
+        panic!(
+          "Failed to initialize a JsRuntime: {}",
+          err.print_with_cause()
+        );
       }
     }
   }
@@ -1367,7 +1370,7 @@ impl JsRuntime {
     code: &str,
   ) -> Option<v8::Local<'s, T>>
   where
-    v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Value>, Error = v8::DataError>,
+    v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Value>, Error=v8::DataError>,
   {
     let scope = &mut v8::EscapableHandleScope::new(scope);
     let source = v8::String::new(scope, code).unwrap();
@@ -1503,7 +1506,7 @@ impl JsRuntime {
   pub fn call(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output=Result<v8::Global<v8::Value>, CoreError>> {
     self.call_with_args(function, &[])
   }
 
@@ -1517,7 +1520,7 @@ impl JsRuntime {
   pub fn scoped_call(
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output=Result<v8::Global<v8::Value>, CoreError>> {
     Self::scoped_call_with_args(scope, function, &[])
   }
 
@@ -1532,7 +1535,7 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output=Result<v8::Global<v8::Value>, CoreError>> {
     let scope = &mut self.handle_scope();
     Self::scoped_call_with_args(scope, function, args)
   }
@@ -1548,7 +1551,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output=Result<v8::Global<v8::Value>, CoreError>> {
     let scope = &mut v8::TryCatch::new(scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
@@ -1713,7 +1716,7 @@ impl JsRuntime {
   pub fn resolve(
     &mut self,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output=Result<v8::Global<v8::Value>, CoreError>> {
     let scope = &mut self.handle_scope();
     Self::scoped_resolve(scope, promise)
   }
@@ -1725,7 +1728,7 @@ impl JsRuntime {
   pub fn scoped_resolve(
     scope: &mut v8::HandleScope,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output=Result<v8::Global<v8::Value>, CoreError>> {
     let promise = v8::Local::new(scope, promise);
     if !promise.is_promise() {
       return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
@@ -1787,10 +1790,10 @@ impl JsRuntime {
   /// A utility function that run provided future concurrently with the event loop.
   ///
   /// If the event loop resolves while polling the future, it return an error with the text
-  /// `Promise resolution is still pending but the event loop has already resolved.`
+  /// `Promise resolution is still pending but the event loop has already resolved`
   pub async fn with_event_loop_promise<'fut, T, E>(
     &mut self,
-    mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
+    mut fut: impl Future<Output=Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
   ) -> Result<T, CoreError>
   where
@@ -1810,7 +1813,7 @@ impl JsRuntime {
       }
       Poll::Pending
     })
-    .await
+      .await
   }
 
   /// A utility function that run provided future concurrently with the event loop.
@@ -1821,7 +1824,7 @@ impl JsRuntime {
   /// Useful for interacting with local inspector session.
   pub async fn with_event_loop_future<'fut, T, E>(
     &mut self,
-    mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
+    mut fut: impl Future<Output=Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
   ) -> Result<T, CoreError>
   where
@@ -1840,7 +1843,7 @@ impl JsRuntime {
       }
       Poll::Pending
     })
-    .await
+      .await
   }
 
   /// Runs a single tick of event loop
@@ -2130,7 +2133,7 @@ impl JsRuntimeForSnapshot {
           .borrow()
           .clone()
       }
-      .map(|cb| data_store.register(cb));
+        .map(|cb| data_store.register(cb));
 
       let snapshotted_data = SnapshottedData {
         module_map_data,
@@ -2200,10 +2203,10 @@ impl EventLoopPendingState {
       .borrow()
       .is_empty()
       || !state
-        .exception_state
-        .pending_handled_promise_rejections
-        .borrow()
-        .is_empty();
+      .exception_state
+      .pending_handled_promise_rejections
+      .borrow()
+      .is_empty();
     let has_pending_refed_ops = has_pending_tasks
       || has_pending_refed_timers
       || num_pending_ops > num_unrefed_ops;
@@ -2317,7 +2320,7 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), CoreError>> {
+  ) -> impl Future<Output=Result<(), CoreError>> {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
@@ -2591,11 +2594,11 @@ impl JsRuntime {
               .complete(RuntimeActivityType::Timer, timers[i].0 as _);
           }
           // depth, id, function
-          let value = v8::Integer::new(scope, timers[i].1 .1 as _);
+          let value = v8::Integer::new(scope, timers[i].1.1 as _);
           arr.set_index(scope, (i * 3) as _, value.into());
           let value = v8::Number::new(scope, timers[i].0 as _);
           arr.set_index(scope, (i * 3 + 1) as _, value.into());
-          let value = v8::Local::new(scope, timers[i].1 .0.clone());
+          let value = v8::Local::new(scope, timers[i].1.0.clone());
           arr.set_index(scope, (i * 3 + 2) as _, value.into());
         }
         arr.into()

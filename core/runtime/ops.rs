@@ -518,7 +518,7 @@ pub fn to_v8_slice_any(
 mod tests {
   use crate::convert::Number;
   use crate::convert::Smi;
-  use crate::error::JsError;
+  use crate::error::CoreError;
   use crate::error::JsNativeError;
   use crate::error::OpError;
   use crate::external;
@@ -917,7 +917,9 @@ mod tests {
       "op_test_result_void_switch();",
     )
     .expect_err("Expected this to fail");
-    let js_err = err.downcast::<JsError>().unwrap();
+    let CoreError::Js(js_err) = err.downcast::<CoreError>().unwrap() else {
+      unreachable!();
+    };
     assert_eq!(js_err.message, Some("failed!!!".into()));
     assert_eq!(RETURN_COUNT.with(|count| count.get()), 5001);
     Ok(())

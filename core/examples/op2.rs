@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
-use deno_core::anyhow::Error;
+use deno_core::error::OpError;
 use deno_core::*;
 use std::rc::Rc;
 
@@ -8,7 +8,7 @@ use std::rc::Rc;
 fn op_use_state(
   state: &mut OpState,
   #[global] callback: v8::Global<v8::Function>,
-) -> Result<(), Error> {
+) -> Result<(), OpError> {
   state.put(callback);
   Ok(())
 }
@@ -21,7 +21,7 @@ extension!(
   docs = "A small example demonstrating op2 usage.", "Contains one op."
 );
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), anyhow::Error> {
   let module_name = "test.js";
   let module_code = "
       op2_sample.use_state(() => {
@@ -49,7 +49,8 @@ fn main() -> Result<(), Error> {
 
     let result = js_runtime.mod_evaluate(mod_id);
     js_runtime.run_event_loop(Default::default()).await?;
-    result.await
+    result.await?;
+    Ok::<(), anyhow::Error>(())
   };
 
   tokio::runtime::Builder::new_current_thread()
