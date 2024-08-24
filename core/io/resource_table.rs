@@ -3,7 +3,6 @@ use super::Resource;
 use super::ResourceHandle;
 use super::ResourceHandleFd;
 use super::ResourceHandleSocket;
-use crate::error::JsNativeError;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -81,24 +80,24 @@ impl ResourceTable {
   pub fn get<T: Resource>(
     &self,
     rid: ResourceId,
-  ) -> Result<Rc<T>, JsNativeError> {
+  ) -> Result<Rc<T>, ResourceError> {
     self
       .index
       .get(&rid)
       .and_then(|rc| rc.downcast_rc::<T>())
       .cloned()
-      .ok_or_else(JsNativeError::bad_resource_id)
+      .ok_or_else(|| ResourceError::BadResourceId)
   }
 
   pub fn get_any(
     &self,
     rid: ResourceId,
-  ) -> Result<Rc<dyn Resource>, JsNativeError> {
+  ) -> Result<Rc<dyn Resource>, ResourceError> {
     self
       .index
       .get(&rid)
       .cloned()
-      .ok_or_else(JsNativeError::bad_resource_id)
+      .ok_or_else(|| ResourceError::BadResourceId)
   }
 
   /// Replaces a resource with a new resource.
@@ -124,7 +123,7 @@ impl ResourceTable {
   pub fn take<T: Resource>(
     &mut self,
     rid: ResourceId,
-  ) -> Result<Rc<T>, JsNativeError> {
+  ) -> Result<Rc<T>, ResourceError> {
     let resource = self.get::<T>(rid)?;
     self.index.remove(&rid);
     Ok(resource)
@@ -141,11 +140,11 @@ impl ResourceTable {
   pub fn take_any(
     &mut self,
     rid: ResourceId,
-  ) -> Result<Rc<dyn Resource>, JsNativeError> {
+  ) -> Result<Rc<dyn Resource>, ResourceError> {
     self
       .index
       .remove(&rid)
-      .ok_or_else(JsNativeError::bad_resource_id)
+      .ok_or_else(|| ResourceError::BadResourceId)
   }
 
   /// Removes the resource with the given `rid` from the resource table. If the
@@ -155,11 +154,11 @@ impl ResourceTable {
   /// may implement the `close()` method to perform clean-ups such as canceling
   /// ops.
   #[deprecated = "This method may deadlock. Use take() and close() instead."]
-  pub fn close(&mut self, rid: ResourceId) -> Result<(), JsNativeError> {
+  pub fn close(&mut self, rid: ResourceId) -> Result<(), ResourceError> {
     self
       .index
       .remove(&rid)
-      .ok_or_else(JsNativeError::bad_resource_id)
+      .ok_or_else(|| ResourceError::BadResourceId)
       .map(|resource| resource.close())
   }
 
@@ -187,15 +186,15 @@ impl ResourceTable {
   pub fn get_fd(
     &self,
     rid: ResourceId,
-  ) -> Result<ResourceHandleFd, JsNativeError> {
+  ) -> Result<ResourceHandleFd, ResourceError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
-      return Err(JsNativeError::bad_resource_id());
+      return Err(ResourceError::BadResourceId);
     };
     let Some(fd) = handle.as_fd_like() else {
-      return Err(JsNativeError::bad_resource_id());
+      return Err(ResourceError::BadResourceId);
     };
     if !handle.is_valid() {
-      return Err(JsNativeError::reference_error("null or invalid handle"));
+      return Err(ResourceError::Reference);
     }
     Ok(fd)
   }
@@ -205,15 +204,15 @@ impl ResourceTable {
   pub fn get_socket(
     &self,
     rid: ResourceId,
-  ) -> Result<ResourceHandleSocket, JsNativeError> {
+  ) -> Result<ResourceHandleSocket, ResourceError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
-      return Err(JsNativeError::bad_resource_id());
+      return Err(ResourceError::BadResourceId);
     };
     let Some(socket) = handle.as_socket_like() else {
-      return Err(JsNativeError::bad_resource_id());
+      return Err(ResourceError::BadResourceId);
     };
     if !handle.is_valid() {
-      return Err(JsNativeError::reference_error("null or invalid handle"));
+      return Err(ResourceError::Reference);
     }
     Ok(socket)
   }
@@ -223,13 +222,33 @@ impl ResourceTable {
   pub fn get_handle(
     &self,
     rid: ResourceId,
-  ) -> Result<ResourceHandle, JsNativeError> {
+  ) -> Result<ResourceHandle, ResourceError> {
     let Some(handle) = self.get_any(rid)?.backing_handle() else {
-      return Err(JsNativeError::bad_resource_id());
+      return Err(ResourceError::BadResourceId);
     };
     if !handle.is_valid() {
-      return Err(JsNativeError::reference_error("null or invalid handle"));
+      return Err(ResourceError::Reference);
     }
     Ok(handle)
+  }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ResourceError {
+  #[error("null or invalid handle")]
+  Reference,
+  #[error("Bad resource ID")]
+  BadResourceId,
+  #[error("{0}")]
+  Other(String),
+}
+
+impl crate::error::JsErrorClass for ResourceError {
+  fn get_class(&self) -> &'static str {
+    match self {
+      ResourceError::Reference => "ReferenceError",
+      ResourceError::BadResourceId => "BadResource",
+      ResourceError::Other(_) => "BadResource",
+    }
   }
 }

@@ -2,6 +2,7 @@
 use anyhow::anyhow;
 use deno_core::error::JsNativeError;
 use deno_core::error::OpError;
+use deno_core::error::ResourceError;
 use deno_core::op2;
 use deno_core::Op;
 
@@ -22,7 +23,7 @@ pub async fn op_async_throw_error_lazy() -> Result<(), OpError> {
 
 #[op2(fast)]
 pub fn op_error_custom_sync(#[string] message: String) -> Result<(), OpError> {
-  Err(JsNativeError::bad_resource(message).into())
+  Err(ResourceError::Other(message).into())
 }
 
 #[op2(fast)]

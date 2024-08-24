@@ -10,6 +10,7 @@ use std::fmt::Formatter;
 use std::fmt::Write as _;
 use thiserror::__private::AsDynError;
 
+pub use crate::io::ResourceError;
 pub use crate::modules::ModuleLoaderError;
 use crate::runtime::v8_static_strings;
 use crate::runtime::JsRealm;
@@ -116,22 +117,22 @@ impl JsErrorClass for CoreError {
       CoreError::Js(_) => todo!(),
       CoreError::Io(err) => err.get_class(),
       CoreError::ExtensionTranspiler(err) => err.get_class(),
-      CoreError::Parse(_) => "Error",
-      CoreError::Execute(_) => "Error",
-      CoreError::UnusedModules(_) => "Error",
-      CoreError::NonEvaluatedModules(_) => "Error",
-      CoreError::MissingFromModuleMap(_) => "Error",
       CoreError::ModuleLoader(err) => err.get_class(),
       CoreError::CouldNotExecute { error, .. } => error.get_class(),
       CoreError::JsNativeError(err) => err.get_class(),
       CoreError::Url(err) => err.get_class(),
-      CoreError::FutureCanceled(_) => "Interrupted",
-      CoreError::ExecutionTerminated => "Error",
-      CoreError::PendingPromiseResolution => "Error",
-      CoreError::EvaluateDynamicImportedModule => "Error",
       CoreError::Module(err) => err.get_class(),
       CoreError::DataError(err) => err.get_class(),
       CoreError::Other(err) => err.get_class(),
+      CoreError::FutureCanceled(_) => "Interrupted",
+      CoreError::Parse(_)
+      | CoreError::Execute(_)
+      | CoreError::UnusedModules(_)
+      | CoreError::NonEvaluatedModules(_)
+      | CoreError::MissingFromModuleMap(_)
+      | CoreError::ExecutionTerminated
+      | CoreError::PendingPromiseResolution
+      | CoreError::EvaluateDynamicImportedModule => "Error",
     }
   }
 
@@ -283,26 +284,7 @@ impl JsNativeError {
     Self::new("RangeError", message)
   }
 
-  pub fn reference_error(
-    message: impl Into<Cow<'static, str>>,
-  ) -> JsNativeError {
-    Self::new("RangeError", message)
-  }
-
-  pub fn uri_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new("URIError", message)
-  }
-
   // Non-standard errors
-
-  pub fn bad_resource(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new("BadResource", message)
-  }
-
-  pub fn bad_resource_id() -> JsNativeError {
-    Self::bad_resource("Bad resource ID")
-  }
-
   pub fn not_supported() -> JsNativeError {
     Self::new("NotSupported", "The operation is not supported")
   }
@@ -1672,18 +1654,6 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  #[test]
-  fn test_bad_resource() {
-    let err = JsNativeError::bad_resource("Resource has been closed");
-    assert_eq!(err.to_string(), "Resource has been closed");
-  }
-
-  #[test]
-  fn test_bad_resource_id() {
-    let err = JsNativeError::bad_resource_id();
-    assert_eq!(err.to_string(), "Bad resource ID");
-  }
 
   #[test]
   fn test_format_file_name() {

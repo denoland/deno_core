@@ -87,15 +87,16 @@ pub trait ToV8<'a> {
 ///
 /// ```ignore
 /// use deno_core::FromV8;
+/// use deno_core::error::JsNativeError;
 /// use deno_core::convert::Smi;
 /// use deno_core::op2;
 ///
 /// struct Foo(i32);
 ///
 /// impl<'a> FromV8<'a> for Foo {
-///   // This conversion can fail, so we use `deno_core::error::StdAnyError` as the error type.
+///   // This conversion can fail, so we use `JsNativeError` as the error type.
 ///   // Any error type that implements `std::error::Error` can be used here.
-///   type Error = deno_core::error::StdAnyError;
+///   type Error = JsNativeError;
 ///
 ///   fn from_v8(scope: &mut v8::HandleScope<'a>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
 ///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::convert::Smi] wrapper type to convert it.
