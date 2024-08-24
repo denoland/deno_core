@@ -35,6 +35,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
+use v8::cppgc::GarbageCollected;
 use v8::HandleScope;
 
 pub enum InspectorMsgKind {
@@ -762,8 +763,10 @@ impl Stream for InspectorSession {
 /// TODO:
 pub struct LocalInspectorSessionRaw {
   v8_session_tx: UnboundedSender<String>,
-  v8_session_rx: AsyncRefCell<UnboundedReceiver<InspectorMsg>>,
+  v8_session_rx: tokio::sync::Mutex<UnboundedReceiver<InspectorMsg>>,
 }
+
+impl GarbageCollected for LocalInspectorSessionRaw {}
 
 impl LocalInspectorSessionRaw {
   pub fn new(
@@ -772,7 +775,7 @@ impl LocalInspectorSessionRaw {
   ) -> Self {
     Self {
       v8_session_tx,
-      v8_session_rx: AsyncRefCell::new(v8_session_rx),
+      v8_session_rx: tokio::sync::Mutex::new(v8_session_rx),
     }
   }
 
@@ -792,17 +795,27 @@ impl LocalInspectorSessionRaw {
     self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
   }
 
-  pub async fn receive_from_v8_session(self: Rc<Self>) -> Option<InspectorMsg> {
-    let v8_session_rx = RcRef::map(self, |this| &this.v8_session_rx);
-    let mut v8_session_rx = v8_session_rx.borrow_mut().await;
+  pub async fn receive_from_v8_session(&self) -> Option<InspectorMsg> {
+    let mut v8_session_rx = self.v8_session_rx.lock().await;
     (*v8_session_rx).next().await
+  }
+
+  pub fn disconnect(&self) {
+    // TODO(bartlomieju): this should at least have a cancel handle and cancel pending
+    // `self.receive_from_v8_session()` calls
+    eprintln!("LocalInspectorSessionRaw::disconnect not implemented");
   }
 }
 
+impl Drop for LocalInspectorSessionRaw {
+  fn drop(&mut self) {
+    eprintln!("Dropping LocalInspectorSessionRaw");
+  }
+}
 /// A local inspector session that can be used to send and receive protocol messages directly on
 /// the same thread as an isolate.
 pub struct LocalInspectorSession {
-  raw: Rc<LocalInspectorSessionRaw>,
+  raw: LocalInspectorSessionRaw,
   response_tx_map: HashMap<i32, oneshot::Sender<serde_json::Value>>,
   next_message_id: i32,
   notification_tx: UnboundedSender<Value>,
@@ -814,8 +827,7 @@ impl LocalInspectorSession {
     v8_session_tx: UnboundedSender<String>,
     v8_session_rx: UnboundedReceiver<InspectorMsg>,
   ) -> Self {
-    let raw =
-      Rc::new(LocalInspectorSessionRaw::new(v8_session_tx, v8_session_rx));
+    let raw = LocalInspectorSessionRaw::new(v8_session_tx, v8_session_rx);
     let response_tx_map = HashMap::new();
     let next_message_id = 0;
 
@@ -830,7 +842,7 @@ impl LocalInspectorSession {
     }
   }
 
-  pub fn into_raw(self) -> Rc<LocalInspectorSessionRaw> {
+  pub fn into_raw(self) -> LocalInspectorSessionRaw {
     self.raw
   }
 
@@ -872,8 +884,7 @@ impl LocalInspectorSession {
 
   // TODO(bartlomieju): should this return a result or an option?
   pub async fn receive_from_v8_session(&mut self) {
-    let inspector_msg =
-      self.raw.clone().receive_from_v8_session().await.unwrap();
+    let inspector_msg = self.raw.receive_from_v8_session().await.unwrap();
     if let InspectorMsgKind::Message(msg_id) = inspector_msg.kind {
       let message: serde_json::Value =
         match serde_json::from_str(&inspector_msg.content) {

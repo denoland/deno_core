@@ -17,6 +17,7 @@ use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::JsRuntimeInspector;
 use crate::LocalInspectorSessionOptions;
+use crate::LocalInspectorSessionRaw;
 use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
@@ -291,6 +292,32 @@ pub fn op_create_inspector_session(
     let session_raw = session.into_raw();
     op_state.put(session_raw);
   });
+}
+
+#[op2]
+#[cppgc]
+pub fn op_create_inspector_session2(
+  scope: &mut v8::HandleScope,
+) -> Option<LocalInspectorSessionRaw> {
+  let state = JsRuntime::state_from(scope);
+
+  {
+    let inspector = &mut state.inspector.borrow_mut();
+    if inspector.is_none() {
+      let context = scope.get_current_context();
+
+      state.has_inspector.set(true);
+      **inspector = Some(JsRuntimeInspector::new(scope, context, false));
+    }
+  }
+
+  state.with_inspector(|inspector| {
+    let session =
+      inspector.create_local_session(LocalInspectorSessionOptions {
+        kind: InspectorSessionKind::LocalNonblocking,
+      });
+    session.into_raw()
+  })
 }
 
 #[op2(reentrant)]
