@@ -102,7 +102,6 @@ builtin_ops! {
   ops_builtin_v8::op_set_has_tick_scheduled,
   ops_builtin_v8::op_eval_context,
   ops_builtin_v8::op_create_inspector_session,
-  ops_builtin_v8::op_create_inspector_session2,
   ops_builtin_v8::op_queue_microtask,
   ops_builtin_v8::op_encode,
   ops_builtin_v8::op_decode,

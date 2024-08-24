@@ -263,40 +263,9 @@ impl<'s> EvalContextError<'s> {
 
 // TODO(bartlomieju): registration of this op should be conditional based on the
 // option passed to the built-in extension.
-// TODO(bartlomieju): might not need to be reentrant
-// TODO(bartlomieju): consider returning CppGc object instead of using `OpState`.
-#[op2(fast, reentrant)]
-pub fn op_create_inspector_session(
-  scope: &mut v8::HandleScope,
-  op_state: &mut OpState,
-) {
-  let state = JsRuntime::state_from(scope);
-
-  {
-    let inspector = &mut state.inspector.borrow_mut();
-    if inspector.is_some() {
-      return;
-    }
-
-    let context = scope.get_current_context();
-
-    state.has_inspector.set(true);
-    **inspector = Some(JsRuntimeInspector::new(scope, context, false));
-  }
-
-  state.with_inspector(|inspector| {
-    let session =
-      inspector.create_local_session(LocalInspectorSessionOptions {
-        kind: InspectorSessionKind::LocalNonblocking,
-      });
-    let session_raw = session.into_raw();
-    op_state.put(session_raw);
-  });
-}
-
 #[op2]
 #[cppgc]
-pub fn op_create_inspector_session2(
+pub fn op_create_inspector_session(
   scope: &mut v8::HandleScope,
 ) -> Option<LocalInspectorSessionRaw> {
   let state = JsRuntime::state_from(scope);
