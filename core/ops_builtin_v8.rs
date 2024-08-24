@@ -283,15 +283,12 @@ pub fn op_create_inspector_session<'a>(
   }
 
   state.with_inspector(|inspector| {
-    let mut session =
+    let session =
       inspector.create_local_session(LocalInspectorSessionOptions {
         kind: InspectorSessionKind::LocalNonblocking,
       });
-
-    let recv = session.take_notification_rx();
-    // TODO(bartlomieju): check that these don't exist already
-    op_state.put(Arc::new(tokio::sync::Mutex::new(recv)));
-    op_state.put(Arc::new(tokio::sync::Mutex::new(session)));
+    let session_raw = session.into_raw();
+    op_state.put(session_raw);
   });
 }
 

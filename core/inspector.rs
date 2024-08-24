@@ -19,6 +19,8 @@ use crate::futures::task::Context;
 use crate::futures::task::Poll;
 use crate::serde_json::json;
 use crate::serde_json::Value;
+use crate::AsyncRefCell;
+use crate::RcRef;
 use anyhow::Error;
 use parking_lot::Mutex;
 use std::cell::BorrowMutError;
@@ -757,11 +759,50 @@ impl Stream for InspectorSession {
   }
 }
 
+/// TODO:
+pub struct LocalInspectorSessionRaw {
+  v8_session_tx: UnboundedSender<String>,
+  v8_session_rx: AsyncRefCell<UnboundedReceiver<InspectorMsg>>,
+}
+
+impl LocalInspectorSessionRaw {
+  pub fn new(
+    v8_session_tx: UnboundedSender<String>,
+    v8_session_rx: UnboundedReceiver<InspectorMsg>,
+  ) -> Self {
+    Self {
+      v8_session_tx,
+      v8_session_rx: AsyncRefCell::new(v8_session_rx),
+    }
+  }
+
+  // TODO(bartlomieju): should this return a result or anything else?
+  pub fn post_message<T: serde::Serialize>(
+    &self,
+    id: i32,
+    method: &str,
+    params: Option<T>,
+  ) {
+    let msg = json!({
+      "id": id,
+      "method": method,
+      "params": params
+    });
+    let stringified_msg = serde_json::to_string(&msg).unwrap();
+    self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
+  }
+
+  pub async fn receive_from_v8_session(self: Rc<Self>) -> Option<InspectorMsg> {
+    let v8_session_rx = RcRef::map(self, |this| &this.v8_session_rx);
+    let mut v8_session_rx = v8_session_rx.borrow_mut().await;
+    (&mut *v8_session_rx).next().await
+  }
+}
+
 /// A local inspector session that can be used to send and receive protocol messages directly on
 /// the same thread as an isolate.
 pub struct LocalInspectorSession {
-  v8_session_tx: UnboundedSender<String>,
-  v8_session_rx: UnboundedReceiver<InspectorMsg>,
+  raw: Rc<LocalInspectorSessionRaw>,
   response_tx_map: HashMap<i32, oneshot::Sender<serde_json::Value>>,
   next_message_id: i32,
   notification_tx: UnboundedSender<Value>,
@@ -773,19 +814,24 @@ impl LocalInspectorSession {
     v8_session_tx: UnboundedSender<String>,
     v8_session_rx: UnboundedReceiver<InspectorMsg>,
   ) -> Self {
+    let raw =
+      Rc::new(LocalInspectorSessionRaw::new(v8_session_tx, v8_session_rx));
     let response_tx_map = HashMap::new();
     let next_message_id = 0;
 
     let (notification_tx, notification_rx) = mpsc::unbounded::<Value>();
 
     Self {
-      v8_session_tx,
-      v8_session_rx,
+      raw,
       response_tx_map,
       next_message_id,
       notification_tx,
       notification_rx: Some(notification_rx),
     }
+  }
+
+  pub fn into_raw(self) -> Rc<LocalInspectorSessionRaw> {
+    self.raw
   }
 
   pub fn take_notification_rx(&mut self) -> UnboundedReceiver<Value> {
@@ -797,6 +843,7 @@ impl LocalInspectorSession {
     method: &str,
     params: Option<T>,
   ) -> Result<serde_json::Value, Error> {
+    // TODO(bartlomieju): this should belong to a higher level wrapper
     let id = self.next_message_id;
     self.next_message_id += 1;
 
@@ -804,14 +851,7 @@ impl LocalInspectorSession {
       oneshot::channel::<serde_json::Value>();
     self.response_tx_map.insert(id, response_tx);
 
-    let message = json!({
-        "id": id,
-        "method": method,
-        "params": params,
-    });
-
-    let stringified_msg = serde_json::to_string(&message).unwrap();
-    self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
+    self.raw.post_message(id, method, params);
 
     loop {
       let receive_fut = self.receive_from_v8_session().boxed_local();
@@ -830,8 +870,10 @@ impl LocalInspectorSession {
     }
   }
 
+  // TODO(bartlomieju): should this return a result or an option?
   pub async fn receive_from_v8_session(&mut self) {
-    let inspector_msg = self.v8_session_rx.next().await.unwrap();
+    let inspector_msg =
+      self.raw.clone().receive_from_v8_session().await.unwrap();
     if let InspectorMsgKind::Message(msg_id) = inspector_msg.kind {
       let message: serde_json::Value =
         match serde_json::from_str(&inspector_msg.content) {
