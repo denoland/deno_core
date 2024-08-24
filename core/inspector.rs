@@ -795,7 +795,7 @@ impl LocalInspectorSessionRaw {
   pub async fn receive_from_v8_session(self: Rc<Self>) -> Option<InspectorMsg> {
     let v8_session_rx = RcRef::map(self, |this| &this.v8_session_rx);
     let mut v8_session_rx = v8_session_rx.borrow_mut().await;
-    (&mut *v8_session_rx).next().await
+    (*v8_session_rx).next().await
   }
 }
 

@@ -23,7 +23,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
@@ -263,9 +262,11 @@ impl<'s> EvalContextError<'s> {
 
 // TODO(bartlomieju): registration of this op should be conditional based on the
 // option passed to the built-in extension.
+// TODO(bartlomieju): might not need to be reentrant
+// TODO(bartlomieju): consider returning CppGc object instead of using `OpState`.
 #[op2(fast, reentrant)]
-pub fn op_create_inspector_session<'a>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn op_create_inspector_session(
+  scope: &mut v8::HandleScope,
   op_state: &mut OpState,
 ) {
   let state = JsRuntime::state_from(scope);
