@@ -322,6 +322,7 @@ fn duplicate_op_names() {
 
 #[test]
 fn ops_in_js_have_proper_names() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
   fn op_test_sync() -> Result<String, OpError> {
