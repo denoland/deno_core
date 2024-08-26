@@ -706,12 +706,14 @@ fn test_has_tick_scheduled() {
   static MACROTASK: AtomicUsize = AtomicUsize::new(0);
   static NEXT_TICK: AtomicUsize = AtomicUsize::new(0);
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   fn op_macrotask() -> Result<(), OpError> {
     MACROTASK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   fn op_next_tick() -> Result<(), OpError> {
     NEXT_TICK.fetch_add(1, Ordering::Relaxed);

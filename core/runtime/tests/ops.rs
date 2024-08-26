@@ -59,6 +59,7 @@ async fn test_async_opstate_borrow() {
 
 #[tokio::test]
 async fn test_sync_op_serialize_object_with_numbers_as_keys() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   fn op_sync_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
@@ -144,6 +145,7 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
 
 #[test]
 fn test_op_return_serde_v8_error() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[serde]
   fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, OpError> {
@@ -165,6 +167,7 @@ fn test_op_return_serde_v8_error() {
 
 #[test]
 fn test_op_high_arity() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   #[number]
   fn op_add_4(
@@ -190,6 +193,7 @@ fn test_op_high_arity() {
 
 #[test]
 fn test_op_disabled() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   #[number]
   fn op_foo() -> Result<i64, OpError> {
@@ -214,11 +218,13 @@ fn test_op_disabled() {
 
 #[test]
 fn test_op_detached_buffer() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, OpError> {
     Ok(b.as_ref().iter().clone().map(|x| *x as u32).sum())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[buffer]
   fn op_boomerang(#[buffer(detach)] b: JsBuffer) -> Result<JsBuffer, OpError> {
@@ -293,6 +299,7 @@ fn duplicate_op_names() {
   mod a {
     use super::*;
 
+    #[allow(clippy::unnecessary_wraps)]
     #[op2]
     #[string]
     pub fn op_test() -> Result<String, OpError> {

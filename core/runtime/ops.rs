@@ -34,7 +34,7 @@ pub fn map_async_op_infallible<R: 'static>(
   lazy: bool,
   deferred: bool,
   promise_id: i32,
-  op: impl Future<Output = R> + 'static,
+  op: impl Future<Output=R> + 'static,
   rv_map: V8RetValMapper<R>,
 ) -> Option<R> {
   ctx.op_driver().submit_op_infallible_scheduling(
@@ -55,7 +55,7 @@ pub fn map_async_op_fallible<
   lazy: bool,
   deferred: bool,
   promise_id: i32,
-  op: impl Future<Output = Result<R, E>> + 'static,
+  op: impl Future<Output=Result<R, E>> + 'static,
   rv_map: V8RetValMapper<R>,
 ) -> Option<Result<R, E>> {
   ctx.op_driver().submit_op_fallible_scheduling(
@@ -886,6 +886,7 @@ mod tests {
     Err(JsNativeError::generic("failed!!!").into())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   pub fn op_test_result_void_ok() -> Result<(), OpError> {
     Ok(())
@@ -908,15 +909,14 @@ mod tests {
   }
 
   #[tokio::test(flavor = "current_thread")]
-  pub async fn test_op_result_void_switch(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_void_switch() -> Result<(), Box<dyn std::error::Error>> {
     RETURN_COUNT.with(|count| count.set(0));
     let err = run_test2(
       JIT_ITERATIONS,
       "op_test_result_void_switch",
       "op_test_result_void_switch();",
     )
-    .expect_err("Expected this to fail");
+      .expect_err("Expected this to fail");
     let CoreError::Js(js_err) = err.downcast::<CoreError>().unwrap() else {
       unreachable!();
     };
@@ -930,14 +930,14 @@ mod tests {
     Err(JsNativeError::generic("failed!!!").into())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   pub fn op_test_result_primitive_ok() -> Result<u32, OpError> {
     Ok(123)
   }
 
   #[tokio::test]
-  pub async fn test_op_result_primitive(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_primitive() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_test_result_primitive_err",
@@ -1663,8 +1663,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_jsbuffer(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_jsbuffer() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_jsbuffer",
@@ -1739,8 +1738,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any_length(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any_length() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_any_length",
@@ -1799,8 +1797,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_arraybuffer_slice(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_arraybuffer_slice() -> Result<(), Box<dyn std::error::Error>> {
     // Zero-length buffers
     run_test2(
       JIT_ITERATIONS,
@@ -1890,8 +1887,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
@@ -2114,19 +2110,19 @@ mod tests {
       "op_async_number",
       "assert(await op_async_number(__index__) == __index__)",
     )
-    .await?;
+      .await?;
     run_async_test(
       JIT_ITERATIONS,
       "op_async_add",
       "assert(await op_async_add(__index__, 100) == __index__ + 100)",
     )
-    .await?;
+      .await?;
     run_async_test(
       10,
       "op_async_add_smi",
       "assert(await op_async_add_smi(__index__, 100) == __index__ + 100)",
     )
-    .await?;
+      .await?;
     // See note about overflow on the op method
     run_async_test(
       10,
@@ -2142,7 +2138,7 @@ mod tests {
   }
 
   #[op2(async)]
-  fn op_async_sleep_impl() -> impl Future<Output = ()> {
+  fn op_async_sleep_impl() -> impl Future<Output=()> {
     tokio::time::sleep(Duration::from_millis(500))
   }
 
@@ -2161,14 +2157,13 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_sleep_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_sleep_error() -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       5,
       "op_async_sleep_error",
       "try { await op_async_sleep_error(); assert(false) } catch (e) {}",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
@@ -2190,7 +2185,7 @@ mod tests {
       "op_async_deferred_success",
       "assert(await op_async_deferred_success() == 42)",
     )
-    .await?;
+      .await?;
     run_async_test(
       JIT_SLOW_ITERATIONS,
       "op_async_deferred_error",
@@ -2217,7 +2212,7 @@ mod tests {
       "op_async_lazy_success",
       "assert(await op_async_lazy_success() == 42)",
     )
-    .await?;
+      .await?;
     run_async_test(
       JIT_SLOW_ITERATIONS,
       "op_async_lazy_error",
@@ -2232,7 +2227,7 @@ mod tests {
   #[op2(async)]
   pub fn op_async_result_impl(
     mode: u8,
-  ) -> Result<impl Future<Output = Result<(), OpError>>, OpError> {
+  ) -> Result<impl Future<Output=Result<(), OpError>>, OpError> {
     if mode == 0 {
       return Err(JsNativeError::generic("early exit").into());
     }
@@ -2249,8 +2244,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_result_impl(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_result_impl() -> Result<(), Box<dyn std::error::Error>> {
     for (n, msg) in [
       (0, "early exit"),
       (1, "early async exit"),
@@ -2303,7 +2297,7 @@ mod tests {
   }
 
   #[op2(async)]
-  fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
+  fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output=u32> {
     let l = input.len();
     async move { l as _ }
   }
@@ -2328,7 +2322,7 @@ mod tests {
       "op_async_buffer_impl",
       "assert(await op_async_buffer_impl(new Uint8Array(10)) == 10)",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
@@ -2348,7 +2342,7 @@ mod tests {
       "op_external_make, op_async_external",
       "await op_async_external(op_external_make())",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
@@ -2362,14 +2356,13 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_serde_option_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_serde_option_v8() -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       2,
       "op_async_serde_option_v8",
       "assert((await op_async_serde_option_v8({s: 'abc'})).s == 'abc!')",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
@@ -2400,8 +2393,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_number_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_number_to_from_v8() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_number_to_from_v8",
@@ -2459,8 +2451,7 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",

@@ -230,6 +230,7 @@ fn es_snapshot() {
     }
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
   fn op_test() -> Result<String, OpError> {
