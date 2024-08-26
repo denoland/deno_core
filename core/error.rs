@@ -18,7 +18,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-use thiserror::__private::AsDynError;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
@@ -84,6 +83,7 @@ pub enum CoreError {
 
 impl CoreError {
   pub fn print_with_cause(&self) -> String {
+    use std::error::Error;
     let mut err_message = self.to_string();
 
     if let Some(source) = self.source() {
@@ -102,7 +102,7 @@ impl CoreError {
   ) -> v8::Global<v8::Value> {
     let err_string = self.get_message().to_string();
     let mut error_chain = vec![];
-    let mut intermediary_error = Some(self.as_dyn_error());
+    let mut intermediary_error: Option<&(dyn Error)> = Some(&self);
 
     while let Some(err) = intermediary_error {
       if let Some(source) = err.source() {
@@ -389,7 +389,7 @@ impl JsNativeError {
 #[macro_export]
 macro_rules! js_error_wrapper {
   ($err_path:path, $err_name:ident, $js_err_type:tt) => {
-    deno_core::js_error_wrapper!($err_path, $err_name, |_| $js_err_type);
+    deno_core::js_error_wrapper!($err_path, $err_name, |_error| $js_err_type);
   };
   ($err_path:path, $err_name:ident, |$inner:ident| $js_err_type:tt) => {
     #[derive(Debug)]
@@ -404,14 +404,15 @@ macro_rules! js_error_wrapper {
         self.0.source()
       }
     }
+    impl std::fmt::Display for $err_name {
+      fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+      }
+    }
     impl deno_core::error::JsErrorClass for $err_name {
       fn get_class(&self) -> &'static str {
         let $inner = &self.0;
         $js_err_type
-      }
-
-      fn get_message(&self) -> Cow<'static, str> {
-        self.0.to_string().into()
       }
     }
   };
@@ -427,7 +428,7 @@ impl std::fmt::Debug for StdAnyError {
 }
 
 impl std::fmt::Display for StdAnyError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{}", self.0)
   }
 }
