@@ -239,6 +239,8 @@ pub enum ResourceError {
   Reference,
   #[error("Bad resource ID")]
   BadResourceId,
+  #[error("Resource is unavailable because it is in use by a promise")]
+  Unavailable,
   #[error("{0}")]
   Other(String),
 }
@@ -248,6 +250,7 @@ impl crate::error::JsErrorClass for ResourceError {
     match self {
       ResourceError::Reference => "ReferenceError",
       ResourceError::BadResourceId => "BadResource",
+      ResourceError::Unavailable => "Busy",
       ResourceError::Other(_) => "BadResource",
     }
   }

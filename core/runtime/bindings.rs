@@ -12,8 +12,9 @@ use crate::cppgc::cppgc_template_constructor;
 use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
-use crate::error::throw_type_error;
 use crate::error::CoreError;
+use crate::error::JsErrorClass;
+use crate::error::JsNativeError;
 use crate::error::JsStackFrame;
 use crate::extension_set::LoadedSources;
 use crate::modules::get_requested_module_type_from_attributes;
@@ -596,12 +597,12 @@ fn import_meta_resolve(
   mut rv: v8::ReturnValue,
 ) {
   if args.length() > 1 {
-    return throw_type_error(scope, "Invalid arguments");
+    return JsNativeError::type_error("Invalid arguments").throw(scope);
   }
 
   let maybe_arg_str = args.get(0).to_string(scope);
   if maybe_arg_str.is_none() {
-    return throw_type_error(scope, "Invalid arguments");
+    return JsNativeError::type_error("Invalid arguments").throw(scope);
   }
   let specifier = maybe_arg_str.unwrap();
   let referrer = {
@@ -624,7 +625,7 @@ fn import_meta_resolve(
       rv.set(resolved_val);
     }
     Err(err) => {
-      throw_type_error(scope, err.to_string());
+      err.throw(scope);
     }
   };
 }
@@ -724,7 +725,7 @@ fn call_console(
     || !args.get(0).is_function()
     || !args.get(1).is_function()
   {
-    return throw_type_error(scope, "Invalid arguments");
+    return JsNativeError::type_error("Invalid arguments").throw(scope);
   }
 
   let mut call_args = vec![];

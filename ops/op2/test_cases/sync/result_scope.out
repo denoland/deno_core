@@ -102,14 +102,12 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
             let result = match result {
                 Ok(result) => result,
                 Err(err) => {
-                    let err = err.into();
                     let mut scope = unsafe {
                         deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
                     };
                     let exception = deno_core::error::to_v8_error(
                         &mut scope,
-                        opctx.get_error_class_fn,
-                        &err,
+                        &deno_core::error::OpErrorWrapper(err.into()),
                     );
                     scope.throw_exception(exception);
                     return unsafe { std::mem::zeroed() };
@@ -143,11 +141,9 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
                         >::cast_unchecked(args.data())
                             .value() as *const deno_core::_ops::OpCtx)
                     };
-                    let err = err.into();
                     let exception = deno_core::error::to_v8_error(
                         &mut scope,
-                        opctx.get_error_class_fn,
-                        &err,
+                        &deno_core::error::OpErrorWrapper(err.into()),
                     );
                     scope.throw_exception(exception);
                     return 1;
@@ -192,7 +188,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
     }
     impl op_void_with_result {
         #[inline(always)]
-        pub fn call(_scope: &mut v8::HandleScope) -> Result<(), AnyError> {
+        pub fn call(_scope: &mut v8::HandleScope) -> Result<(), OpError> {
             Ok(())
         }
     }

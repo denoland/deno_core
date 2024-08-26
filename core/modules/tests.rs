@@ -845,7 +845,7 @@ fn test_custom_module_type_callback_synthetic() {
 
   match err {
     ModuleError::Core(err) => {
-      assert_eq!(err.to_string(), "Can't load 'foo' module");
+      assert_eq!(err.to_string(), "Error: Can't load 'foo' module");
     }
     _ => unreachable!(),
   };
@@ -1339,7 +1339,7 @@ async fn loader_disappears_after_error() {
   let spec = resolve_url("file:///bad_import.js").unwrap();
   let result = runtime.load_main_es_module(&spec).await;
 
-  let CoreError::ModuleLoader(err) = dbg!(result).unwrap_err() else {
+  let CoreError::ModuleLoader(err) = result.unwrap_err() else {
     unreachable!();
   };
   let ModuleLoaderError::Core(CoreError::Other(err)) = *err else {
@@ -1702,7 +1702,7 @@ async fn import_meta_resolve_cb() {
     try {
       import.meta.resolve("boom!");
     } catch (e) {
-      if (!(e instanceof TypeError)) throw new Error("c");
+      if (!(e instanceof Error)) throw new Error("c");
       caught = true;
     }
     if (!caught) throw new Error("d");

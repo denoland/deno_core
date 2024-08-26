@@ -30,7 +30,7 @@ pub fn op_error_context_sync(
   #[string] message: String,
   #[string] context: String,
 ) -> Result<(), OpError> {
-  Err(anyhow!(message).context(context).into())
+  Err(anyhow::Error::msg(message).context(context).into())
 }
 
 #[op2(async)]

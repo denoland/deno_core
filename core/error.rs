@@ -2,6 +2,14 @@
 
 pub use super::runtime::op_driver::OpError;
 pub use super::runtime::op_driver::OpErrorWrapper;
+pub use crate::io::ResourceError;
+pub use crate::modules::ModuleLoaderError;
+use crate::runtime::v8_static_strings;
+use crate::runtime::JsRealm;
+use crate::runtime::JsRuntime;
+use crate::source_map::SourceMapApplication;
+use crate::url::Url;
+use crate::FastStaticString;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
@@ -11,15 +19,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
 use thiserror::__private::AsDynError;
-
-pub use crate::io::ResourceError;
-pub use crate::modules::ModuleLoaderError;
-use crate::runtime::v8_static_strings;
-use crate::runtime::JsRealm;
-use crate::runtime::JsRuntime;
-use crate::source_map::SourceMapApplication;
-use crate::url::Url;
-use crate::FastStaticString;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
@@ -60,7 +59,7 @@ pub enum CoreError {
     specifier: String,
   },
   #[error(transparent)]
-  JsNativeError(#[from] JsNativeError),
+  JsNative(#[from] JsNativeError),
   #[error(transparent)]
   Url(#[from] url::ParseError),
   #[error(transparent)]
@@ -80,7 +79,7 @@ pub enum CoreError {
   #[error(transparent)]
   DataError(#[from] v8::DataError),
   #[error(transparent)]
-  Other(anyhow::Error),
+  Other(#[from] anyhow::Error),
 }
 
 impl CoreError {
@@ -96,6 +95,42 @@ impl CoreError {
 
     err_message
   }
+
+  pub fn to_v8_error(
+    &self,
+    scope: &mut v8::HandleScope,
+  ) -> v8::Global<v8::Value> {
+    let err_string = self.get_message().to_string();
+    let mut error_chain = vec![];
+    let mut intermediary_error = Some(self.as_dyn_error());
+
+    while let Some(err) = intermediary_error {
+      if let Some(source) = err.source() {
+        let source_str = source.to_string();
+        if source_str != err_string {
+          error_chain.push(source_str);
+        }
+
+        intermediary_error = Some(source);
+      } else {
+        intermediary_error = None;
+      }
+    }
+
+    let message = if !error_chain.is_empty() {
+      format!(
+        "{}\n  Caused by:\n    {}",
+        err_string,
+        error_chain.join("\n    ")
+      )
+    } else {
+      err_string
+    };
+
+    let exception =
+      js_class_and_message_to_exception(scope, self.get_class(), &message);
+    v8::Global::new(scope, exception)
+  }
 }
 
 impl From<ModuleLoaderError> for CoreError {
@@ -108,6 +143,30 @@ pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
   fn get_class(&self) -> &'static str;
   fn get_message(&self) -> Cow<'static, str> {
     self.to_string().into()
+  }
+
+  fn throw(&self, scope: &mut v8::HandleScope) {
+    let exception = js_class_and_message_to_exception(
+      scope,
+      self.get_class(),
+      &self.get_message(),
+    );
+    scope.throw_exception(exception);
+  }
+}
+
+fn js_class_and_message_to_exception<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  class: &str,
+  message: &str,
+) -> v8::Local<'s, v8::Value> {
+  let message = v8::String::new(scope, message).unwrap();
+  match class {
+    "TypeError" => v8::Exception::type_error(scope, message),
+    "RangeError" => v8::Exception::range_error(scope, message),
+    "ReferenceError" => v8::Exception::reference_error(scope, message),
+    "SyntaxError" => v8::Exception::syntax_error(scope, message),
+    "Error" | _ => v8::Exception::error(scope, message),
   }
 }
 
@@ -122,7 +181,7 @@ impl JsErrorClass for anyhow::Error {
   fn get_message(&self) -> Cow<'static, str> {
     match self.downcast_ref::<&dyn JsErrorClass>() {
       Some(err) => err.get_message(),
-      None => self.to_string().into(),
+      None => format!("{:#}", self).into(),
     }
   }
 }
@@ -130,13 +189,14 @@ impl JsErrorClass for anyhow::Error {
 impl JsErrorClass for CoreError {
   fn get_class(&self) -> &'static str {
     match self {
-      CoreError::TLA(_) => todo!(),
-      CoreError::Js(_) => todo!(),
+      CoreError::TLA(js_error) | CoreError::Js(js_error) => {
+        unreachable!("JsError's should not be reachable: {}", js_error)
+      }
       CoreError::Io(err) => err.get_class(),
       CoreError::ExtensionTranspiler(err) => err.get_class(),
       CoreError::ModuleLoader(err) => err.get_class(),
       CoreError::CouldNotExecute { error, .. } => error.get_class(),
-      CoreError::JsNativeError(err) => err.get_class(),
+      CoreError::JsNative(err) => err.get_class(),
       CoreError::Url(err) => err.get_class(),
       CoreError::Module(err) => err.get_class(),
       CoreError::DataError(err) => err.get_class(),
@@ -155,13 +215,14 @@ impl JsErrorClass for CoreError {
 
   fn get_message(&self) -> Cow<'static, str> {
     match self {
-      CoreError::TLA(_) => todo!(),
-      CoreError::Js(_) => todo!(),
+      CoreError::TLA(js_error) | CoreError::Js(js_error) => {
+        unreachable!("JsError's should not be reachable: {}", js_error)
+      }
       CoreError::Io(err) => err.get_message(),
       CoreError::ExtensionTranspiler(err) => err.get_message(),
       CoreError::ModuleLoader(err) => err.get_message(),
       CoreError::CouldNotExecute { error, .. } => error.get_message(),
-      CoreError::JsNativeError(err) => err.get_message(),
+      CoreError::JsNative(err) => err.get_message(),
       CoreError::Url(err) => err.get_message(),
       CoreError::Module(err) => err.get_message(),
       CoreError::DataError(err) => err.get_message(),
@@ -239,7 +300,7 @@ impl JsErrorClass for std::sync::mpsc::RecvError {
 
 impl JsErrorClass for v8::DataError {
   fn get_class(&self) -> &'static str {
-    "Error"
+    "TypeError"
   }
 }
 
@@ -276,7 +337,7 @@ impl JsErrorClass for url::ParseError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{message}")] // TODO: {class}: {message}
+#[error("{class}: {message}")]
 pub struct JsNativeError {
   pub class: &'static str,
   message: Cow<'static, str>,
@@ -315,9 +376,71 @@ impl JsNativeError {
     Self::new("RangeError", message)
   }
 
+  pub fn uri_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
+    Self::new("URIError", message)
+  }
+
   // Non-standard errors
   pub fn not_supported() -> JsNativeError {
     Self::new("NotSupported", "The operation is not supported")
+  }
+}
+
+#[macro_export]
+macro_rules! js_error_wrapper {
+  ($err_path:path, $err_name:ident, $js_err_type:tt) => {
+    deno_core::js_error_wrapper!($err_path, $err_name, |_| $js_err_type);
+  };
+  ($err_path:path, $err_name:ident, |$inner:ident| $js_err_type:tt) => {
+    #[derive(Debug)]
+    pub struct $err_name(pub $err_path);
+    impl From<$err_path> for $err_name {
+      fn from(err: $err_path) -> Self {
+        Self(err)
+      }
+    }
+    impl std::error::Error for $err_name {
+      fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+      }
+    }
+    impl deno_core::error::JsErrorClass for $err_name {
+      fn get_class(&self) -> &'static str {
+        let $inner = &self.0;
+        $js_err_type
+      }
+
+      fn get_message(&self) -> Cow<'static, str> {
+        self.0.to_string().into()
+      }
+    }
+  };
+}
+
+/// A wrapper around `anyhow::Error` that implements `std::error::Error`
+#[repr(transparent)]
+pub struct StdAnyError(pub anyhow::Error);
+impl std::fmt::Debug for StdAnyError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:?}", self.0)
+  }
+}
+
+impl std::fmt::Display for StdAnyError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+impl std::error::Error for StdAnyError {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    self.0.source()
+  }
+}
+
+impl From<anyhow::Error> for StdAnyError {
+  fn from(err: anyhow::Error) -> Self {
+    Self(err)
   }
 }
 
@@ -961,44 +1084,6 @@ impl Display for JsError {
   }
 }
 
-// TODO(piscisaureus): rusty_v8 should implement the Error trait on
-// values of type v8::Global<T>.
-pub(crate) fn to_v8_type_error(
-  scope: &mut v8::HandleScope,
-  err: CoreError,
-) -> v8::Global<v8::Value> {
-  let err_string = err.to_string();
-  let mut error_chain = vec![];
-  let mut intermediary_error = Some(err.as_dyn_error());
-
-  while let Some(err) = intermediary_error {
-    if let Some(source) = err.source() {
-      let source_str = source.to_string();
-      if source_str != err_string {
-        error_chain.push(source_str);
-      }
-
-      intermediary_error = Some(source);
-    } else {
-      intermediary_error = None;
-    }
-  }
-
-  let message = if !error_chain.is_empty() {
-    format!(
-      "{}\n  Caused by:\n    {}",
-      err_string,
-      error_chain.join("\n    ")
-    )
-  } else {
-    err_string
-  };
-
-  let message = v8::String::new(scope, &message).unwrap();
-  let exception = v8::Exception::type_error(scope, message);
-  v8::Global::new(scope, exception)
-}
-
 /// Implements `value instanceof primordials.Error` in JS. Similar to
 /// `Value::is_native_error()` but more closely matches the semantics
 /// of `instanceof`. `Value::is_native_error()` also checks for static class
@@ -1180,12 +1265,6 @@ pub(crate) fn exception_to_err_result<T>(
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
   Err(js_error.into())
-}
-
-pub fn throw_type_error(scope: &mut v8::HandleScope, message: impl AsRef<str>) {
-  let message = v8::String::new(scope, message.as_ref()).unwrap();
-  let exception = v8::Exception::type_error(scope, message);
-  scope.throw_exception(exception);
 }
 
 v8_static_strings::v8_static_strings! {

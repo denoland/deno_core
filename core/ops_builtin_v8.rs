@@ -808,8 +808,7 @@ pub fn op_set_promise_hooks(
     .enumerate()
     .filter(|(_, hook)| !hook.is_undefined())
     .try_fold([None; 4], |mut v8_fns, (i, hook)| {
-      let v8_fn = v8::Local::<v8::Function>::try_from(hook)
-        .map_err(|err| JsNativeError::type_error(err.to_string()))?;
+      let v8_fn = v8::Local::<v8::Function>::try_from(hook)?;
       v8_fns[i] = Some(v8_fn);
       Ok::<_, OpError>(v8_fns)
     })?;

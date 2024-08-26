@@ -1,12 +1,12 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::module_map_data::ModuleMapSnapshotData;
+use super::IntoModuleCodeString;
 use super::IntoModuleName;
-use super::{IntoModuleCodeString, ModuleConcreteError};
+use super::ModuleConcreteError;
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
-use crate::error::throw_type_error;
-use crate::error::to_v8_type_error;
 use crate::error::JsError;
+use crate::error::JsErrorClass;
 use crate::error::JsNativeError;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
@@ -832,10 +832,10 @@ impl ModuleMap {
       return Some(module);
     }
 
-    let msg = format!(
+    JsNativeError::type_error(format!(
       r#"Cannot resolve module "{specifier_str}" from "{referrer_name}""#
-    );
-    throw_type_error(scope, msg);
+    ))
+    .throw(scope);
     None
   }
 
@@ -861,7 +861,7 @@ impl ModuleMap {
         referrer
       };
       let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
-      return Err(JsNativeError::generic(msg).into());
+      return Err(JsNativeError::type_error(msg).into());
     }
 
     self
@@ -883,7 +883,7 @@ impl ModuleMap {
       match self.resolve(specifier, referrer, ResolutionKind::Import) {
         Ok(s) => s,
         Err(e) => {
-          throw_type_error(scope, e.to_string());
+          e.throw(scope);
           return None;
         }
       };
@@ -1453,7 +1453,7 @@ impl ModuleMap {
             self.pending_dynamic_imports_pending.set(true);
           }
           Err(err) => {
-            let exception = to_v8_type_error(scope, err);
+            let exception = err.to_v8_error(scope);
             self.dynamic_import_reject(scope, dyn_import_id, exception);
           }
         }
@@ -1510,9 +1510,9 @@ impl ModuleMap {
                 Err(err) => {
                   let exception = match err {
                     ModuleError::Exception(e) => e,
-                    ModuleError::Core(e) => to_v8_type_error(scope, e),
+                    ModuleError::Core(e) => e.to_v8_error(scope),
                     ModuleError::Concrete(e) => {
-                      to_v8_type_error(scope, CoreError::Module(e))
+                      CoreError::Module(e).to_v8_error(scope)
                     }
                   };
                   self.dynamic_import_reject(scope, dyn_import_id, exception)
@@ -1520,10 +1520,10 @@ impl ModuleMap {
               }
             }
             Err(err) => {
-              // A non-javascript error occurred; this could be due to a an invalid
+              // A non-javascript error occurred; this could be due to an invalid
               // module specifier, or a problem with the source map, or a failure
               // to fetch the module source code.
-              let exception = to_v8_type_error(scope, err);
+              let exception = err.to_v8_error(scope);
               self.dynamic_import_reject(scope, dyn_import_id, exception);
             }
           }
