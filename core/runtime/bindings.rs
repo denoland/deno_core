@@ -419,6 +419,7 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
   }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn host_import_module_dynamically_callback<'s>(
   scope: &mut v8::HandleScope<'s>,
   _host_defined_options: v8::Local<'s, v8::Data>,
@@ -534,7 +535,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
         scope,
         "WebAssembly is not available in this environment",
       )
-      .unwrap();
+        .unwrap();
       let exception = v8::Exception::error(scope, message);
       scope.throw_exception(exception);
       return;
@@ -753,10 +754,10 @@ pub(crate) fn watch_promise<'s, F>(
 ) -> Option<v8::Local<'s, v8::Promise>>
 where
   F: FnOnce(
-      &mut v8::HandleScope,
-      v8::ReturnValue,
-      Result<v8::Local<v8::Value>, v8::Local<v8::Value>>,
-    ) + 'static,
+    &mut v8::HandleScope,
+    v8::ReturnValue,
+    Result<v8::Local<v8::Value>, v8::Local<v8::Value>>,
+  ) + 'static,
 {
   let external =
     v8::External::new(scope, Box::into_raw(Box::new(Some(f))) as _);
@@ -776,8 +777,8 @@ where
       f(scope, rv, Ok(args.get(0)));
     },
   )
-  .data(external.into())
-  .build(scope);
+    .data(external.into())
+    .build(scope);
 
   let on_rejected = v8::Function::builder(
     |scope: &mut v8::HandleScope,
@@ -788,8 +789,8 @@ where
       f(scope, rv, Err(args.get(0)));
     },
   )
-  .data(external.into())
-  .build(scope);
+    .data(external.into())
+    .build(scope);
 
   // function builders will return None if the runtime is shutting down
   let (Some(on_fulfilled), Some(on_rejected)) = (on_fulfilled, on_rejected)

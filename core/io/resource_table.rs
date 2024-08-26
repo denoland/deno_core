@@ -86,7 +86,7 @@ impl ResourceTable {
       .get(&rid)
       .and_then(|rc| rc.downcast_rc::<T>())
       .cloned()
-      .ok_or_else(|| ResourceError::BadResourceId)
+      .ok_or(ResourceError::BadResourceId)
   }
 
   pub fn get_any(
@@ -97,7 +97,7 @@ impl ResourceTable {
       .index
       .get(&rid)
       .cloned()
-      .ok_or_else(|| ResourceError::BadResourceId)
+      .ok_or(ResourceError::BadResourceId)
   }
 
   /// Replaces a resource with a new resource.
@@ -141,10 +141,7 @@ impl ResourceTable {
     &mut self,
     rid: ResourceId,
   ) -> Result<Rc<dyn Resource>, ResourceError> {
-    self
-      .index
-      .remove(&rid)
-      .ok_or_else(|| ResourceError::BadResourceId)
+    self.index.remove(&rid).ok_or(ResourceError::BadResourceId)
   }
 
   /// Removes the resource with the given `rid` from the resource table. If the
@@ -158,7 +155,7 @@ impl ResourceTable {
     self
       .index
       .remove(&rid)
-      .ok_or_else(|| ResourceError::BadResourceId)
+      .ok_or(ResourceError::BadResourceId)
       .map(|resource| resource.close())
   }
 

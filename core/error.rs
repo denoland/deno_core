@@ -166,7 +166,7 @@ fn js_class_and_message_to_exception<'s>(
     "RangeError" => v8::Exception::range_error(scope, message),
     "ReferenceError" => v8::Exception::reference_error(scope, message),
     "SyntaxError" => v8::Exception::syntax_error(scope, message),
-    "Error" | _ => v8::Exception::error(scope, message),
+    _ => v8::Exception::error(scope, message),
   }
 }
 
