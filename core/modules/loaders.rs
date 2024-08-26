@@ -45,8 +45,8 @@ pub enum ModuleLoaderError {
     .maybe_referrer.as_ref().map_or("(no referrer)", |referrer| referrer.as_str())
   )]
   Unsupported {
-    specifier: ModuleSpecifier,
-    maybe_referrer: Option<ModuleSpecifier>,
+    specifier: Box<ModuleSpecifier>,
+    maybe_referrer: Option<Box<ModuleSpecifier>>,
   },
   #[error(transparent)]
   Resolution(#[from] crate::ModuleResolutionError),
@@ -209,8 +209,8 @@ impl ModuleLoader for NoopModuleLoader {
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
     ModuleLoadResponse::Sync(Err(ModuleLoaderError::Unsupported {
-      specifier: module_specifier.clone(),
-      maybe_referrer: maybe_referrer.cloned(),
+      specifier: Box::new(module_specifier.clone()),
+      maybe_referrer: maybe_referrer.map(|referrer| Box::new(referrer.clone())),
     }))
   }
 }

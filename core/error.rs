@@ -1775,6 +1775,17 @@ mod tests {
   use super::*;
 
   #[test]
+  fn test_anyhow_js_class() {
+    let err = anyhow::Error::msg("foo");
+    assert_eq!(err.get_class(), "Error");
+    assert_eq!(err.get_message(), "foo");
+
+    let err = anyhow::Error::new(JsNativeError::type_error("bar"));
+    assert_eq!(err.get_class(), "TypeError");
+    assert_eq!(err.get_message(), "bar");
+  }
+
+  #[test]
   fn test_format_file_name() {
     let file_name = format_file_name("data:,Hello%2C%20World%21");
     assert_eq!(file_name, "data:,Hello%2C%20World%21");
