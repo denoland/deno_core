@@ -20,6 +20,8 @@ use crate::futures::task::Poll;
 use crate::serde_json::json;
 use crate::serde_json::Value;
 use crate::AsyncRefCell;
+use crate::CancelFuture;
+use crate::CancelHandle;
 use crate::RcRef;
 use anyhow::Error;
 use parking_lot::Mutex;
@@ -764,6 +766,7 @@ impl Stream for InspectorSession {
 pub struct LocalInspectorSessionRaw {
   v8_session_tx: UnboundedSender<String>,
   v8_session_rx: tokio::sync::Mutex<UnboundedReceiver<InspectorMsg>>,
+  cancel_handle: Rc<CancelHandle>,
 }
 
 impl GarbageCollected for LocalInspectorSessionRaw {}
@@ -776,6 +779,7 @@ impl LocalInspectorSessionRaw {
     Self {
       v8_session_tx,
       v8_session_rx: tokio::sync::Mutex::new(v8_session_rx),
+      cancel_handle: CancelHandle::new_rc(),
     }
   }
 
@@ -795,9 +799,13 @@ impl LocalInspectorSessionRaw {
     self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
   }
 
-  pub async fn receive_from_v8_session(&self) -> Option<InspectorMsg> {
-    let mut v8_session_rx = self.v8_session_rx.lock().await;
-    (*v8_session_rx).next().await
+  pub async fn receive_from_v8_session(self) -> Option<InspectorMsg> {
+    let cancel_handle = &RcRef::map(self.cancel_handle, |this| &this);
+    let mut v8_session_rx: Result<
+      tokio::sync::MutexGuard<UnboundedReceiver<InspectorMsg>>,
+      crate::Canceled,
+    > = self.v8_session_rx.lock().or_cancel(cancel_handle).await;
+    (*v8_session_rx).next().or_cancel(cancel_handle).await
   }
 
   pub fn disconnect(&self) {
