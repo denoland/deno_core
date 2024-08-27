@@ -6,7 +6,8 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use crate::error::JsNativeError;
+use crate::error::{JsErrorClass};
+use crate::error::{JsNativeError};
 use crate::io::AsyncResult;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -111,7 +112,7 @@ pub trait Resource: Any + 'static {
   /// Write an error state to this resource, if the resource supports it.
   fn write_error(
     self: Rc<Self>,
-    _error: crate::error::AnyError,
+    _error: impl JsErrorClass,
   ) -> AsyncResult<()> {
     Box::pin(futures::future::err(JsNativeError::not_supported().into()))
   }
@@ -160,18 +161,18 @@ pub trait Resource: Any + 'static {
   fn read_byob_sync(
     self: Rc<Self>,
     data: &mut [u8],
-  ) -> Result<usize, crate::error::AnyError> {
+  ) -> Result<usize, impl JsErrorClass> {
     _ = data;
-    Err(JsNativeError::not_supported().into())
+    Err(JsNativeError::not_supported())
   }
 
   /// The same as [`write()`][Resource::write], but synchronous.
   fn write_sync(
     self: Rc<Self>,
     data: &[u8],
-  ) -> Result<usize, crate::error::AnyError> {
+  ) -> Result<usize, impl JsErrorClass> {
     _ = data;
-    Err(JsNativeError::not_supported().into())
+    Err(JsNativeError::not_supported())
   }
 
   /// The shutdown method can be used to asynchronously close the resource. It

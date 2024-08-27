@@ -37,6 +37,7 @@ mod web_timeout;
 
 // Re-exports
 pub use anyhow;
+pub use thiserror;
 pub use deno_unsync as unsync;
 pub use futures;
 pub use parking_lot;

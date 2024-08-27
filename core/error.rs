@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use serde::de::StdError;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
@@ -144,6 +145,9 @@ pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
   fn get_message(&self) -> Cow<'static, str> {
     self.to_string().into()
   }
+  fn get_additional_properties(&self) -> Option<Vec<(String, String)>> {
+    None
+  }
 
   fn throw(&self, scope: &mut v8::HandleScope) {
     let exception = js_class_and_message_to_exception(
@@ -172,17 +176,11 @@ fn js_class_and_message_to_exception<'s>(
 
 impl JsErrorClass for anyhow::Error {
   fn get_class(&self) -> &'static str {
-    match self.downcast_ref::<&dyn JsErrorClass>() {
-      Some(err) => err.get_class(),
-      None => "Error",
-    }
+    "Error"
   }
 
   fn get_message(&self) -> Cow<'static, str> {
-    match self.downcast_ref::<&dyn JsErrorClass>() {
-      Some(err) => err.get_message(),
-      None => format!("{:#}", self).into(),
-    }
+    format!("{:#}", self).into()
   }
 }
 
@@ -281,6 +279,9 @@ impl JsErrorClass for std::io::Error {
       }
     }
   }
+  fn get_additional_properties(&self) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    crate::error_codes::get_error_code(&self).map(|code| vec![("code".into(), code.into())])
+  }
 }
 
 impl JsErrorClass for std::env::VarError {
@@ -307,6 +308,11 @@ impl JsErrorClass for v8::DataError {
 impl<T: Send + Sync + 'static> JsErrorClass
   for tokio::sync::mpsc::error::SendError<T>
 {
+  fn get_class(&self) -> &'static str {
+    "Error"
+  }
+}
+impl JsErrorClass for tokio::task::JoinError {
   fn get_class(&self) -> &'static str {
     "Error"
   }
@@ -1780,7 +1786,7 @@ mod tests {
     assert_eq!(err.get_class(), "Error");
     assert_eq!(err.get_message(), "foo");
 
-    let err = anyhow::Error::new(JsNativeError::type_error("bar"));
+    let err = anyhow::Error::new(MaybeJsErrorClass::JsError(Box::new(JsNativeError::type_error("bar"))));
     assert_eq!(err.get_class(), "TypeError");
     assert_eq!(err.get_message(), "bar");
   }

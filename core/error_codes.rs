@@ -1,18 +1,17 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 pub fn get_error_code(
-  err: &impl crate::error::JsErrorClass,
+  err: &std::io::Error,
 ) -> Option<&'static str> {
-  (err as &dyn std::any::Any)
-    .downcast_ref::<std::io::Error>()
-    .map(|e| match e.raw_os_error() {
-      Some(code) => get_os_error_code(code),
-      None => get_io_error_code(e),
-    })
-    .and_then(|code| match code.is_empty() {
-      true => None,
-      false => Some(code),
-    })
+  let code = match err.raw_os_error() {
+    Some(code) => get_os_error_code(code),
+    None => get_io_error_code(err),
+  };
+
+  match code.is_empty() {
+    true => None,
+    false => Some(code),
+  }
 }
 
 fn get_io_error_code(err: &std::io::Error) -> &'static str {

@@ -260,28 +260,22 @@ impl<C: OpMappingContext> OpResult<C> {
 }
 
 #[derive(Debug)]
-pub struct OpError {
-  error: Box<dyn JsErrorClass>,
-  error_code: Option<&'static str>,
-}
+pub struct OpError(Box<dyn JsErrorClass>);
 
 impl std::fmt::Display for OpError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
       "{}: {}",
-      self.error.get_class(),
-      self.error.get_message()
+      self.0.get_class(),
+      self.0.get_message()
     )
   }
 }
 
 impl<T: JsErrorClass> From<T> for OpError {
   fn from(err: T) -> Self {
-    Self {
-      error_code: crate::error_codes::get_error_code(&err),
-      error: Box::new(err),
-    }
+    Self(Box::new(err))
   }
 }
 
@@ -291,9 +285,9 @@ impl Serialize for OpError {
     S: serde::Serializer,
   {
     let mut serde_state = serializer.serialize_struct("OpError", 3)?;
-    serde_state.serialize_field("$err_class_name", self.error.get_class())?;
-    serde_state.serialize_field("message", &self.error.get_message())?;
-    serde_state.serialize_field("code", &self.error_code)?;
+    serde_state.serialize_field("$err_class_name", self.0.get_class())?;
+    serde_state.serialize_field("message", &self.0.get_message())?;
+    serde_state.serialize_field("additional_properties", &self.0.get_additional_properties())?;
     serde_state.end()
   }
 }

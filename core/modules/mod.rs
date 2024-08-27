@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::exception_to_err_result;
+use crate::error::{exception_to_err_result, JsErrorClass};
 use crate::error::CoreError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
