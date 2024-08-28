@@ -1,8 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-pub fn get_error_code(
-  err: &std::io::Error,
-) -> Option<&'static str> {
+pub fn get_error_code(err: &std::io::Error) -> Option<&'static str> {
   let code = match err.raw_os_error() {
     Some(code) => get_os_error_code(code),
     None => get_io_error_code(err),

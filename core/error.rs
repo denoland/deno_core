@@ -18,7 +18,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-use serde::de::StdError;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
@@ -33,7 +32,7 @@ pub enum CoreError {
   #[error(transparent)]
   Io(#[from] std::io::Error),
   #[error(transparent)]
-  ExtensionTranspiler(anyhow::Error),
+  ExtensionTranspiler(JsNativeError),
   #[error("Failed to parse {0}")]
   Parse(FastStaticString),
   #[error("Failed to execute {0}")]
@@ -145,8 +144,11 @@ pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
   fn get_message(&self) -> Cow<'static, str> {
     self.to_string().into()
   }
-  fn get_additional_properties(&self) -> Option<Vec<(String, String)>> {
+  fn get_additional_properties(&self) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
     None
+  }
+  fn to_native(self) -> JsNativeError where Self: Sized  {
+    JsNativeError::from_err(self)
   }
 
   fn throw(&self, scope: &mut v8::HandleScope) {
@@ -279,8 +281,12 @@ impl JsErrorClass for std::io::Error {
       }
     }
   }
-  fn get_additional_properties(&self) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    crate::error_codes::get_error_code(&self).map(|code| vec![("code".into(), code.into())])
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    crate::error_codes::get_error_code(&self)
+      .map(|code| vec![("code".into(), code.into())])
   }
 }
 
@@ -342,12 +348,20 @@ impl JsErrorClass for url::ParseError {
   }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("{class}: {message}")]
+#[derive(Debug)]
 pub struct JsNativeError {
-  pub class: &'static str,
+  class: &'static str,
   message: Cow<'static, str>,
+  pub source: Option<Box<dyn JsErrorClass>>,
 }
+
+impl Display for JsNativeError {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}: {}", self.class, self.message)
+  }
+}
+
+impl Error for JsNativeError {}
 
 impl JsErrorClass for JsNativeError {
   fn get_class(&self) -> &'static str {
@@ -367,8 +381,18 @@ impl JsNativeError {
     JsNativeError {
       class,
       message: message.into(),
+      source: None,
     }
   }
+
+  pub fn from_err<T: JsErrorClass>(err: T) -> Self {
+    Self {
+      class: err.get_class(),
+      message: err.get_message(),
+      source: Some(Box::new(err)),
+    }
+  }
+
 
   pub fn generic(message: impl Into<Cow<'static, str>>) -> JsNativeError {
     Self::new("Error", message)
@@ -466,7 +490,8 @@ pub fn to_v8_error<'a>(
   let class = v8::String::new(tc_scope, error.get_class()).unwrap();
   let message = v8::String::new(tc_scope, &error.get_message()).unwrap();
   let mut args = vec![class.into(), message.into()];
-  if let Some(code) = crate::error_codes::get_error_code(error) {
+
+  if let Some(code) = (error as &dyn std::any::Any).downcast_ref::<std::io::Error>().and_then(crate::error_codes::get_error_code) {
     args.push(v8::String::new(tc_scope, code).unwrap().into());
   }
   let maybe_exception = cb.call(tc_scope, this, &args);
@@ -1779,17 +1804,6 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  #[test]
-  fn test_anyhow_js_class() {
-    let err = anyhow::Error::msg("foo");
-    assert_eq!(err.get_class(), "Error");
-    assert_eq!(err.get_message(), "foo");
-
-    let err = anyhow::Error::new(MaybeJsErrorClass::JsError(Box::new(JsNativeError::type_error("bar"))));
-    assert_eq!(err.get_class(), "TypeError");
-    assert_eq!(err.get_message(), "bar");
-  }
 
   #[test]
   fn test_format_file_name() {

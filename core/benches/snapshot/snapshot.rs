@@ -3,6 +3,7 @@ use criterion::*;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
+use deno_core::error::JsErrorClass;
 use deno_core::Extension;
 use deno_core::JsRuntime;
 use deno_core::JsRuntimeForSnapshot;
@@ -48,10 +49,16 @@ fn make_extensions_ops() -> Vec<Extension> {
   fake_extensions!(init_ops, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
 }
 
+deno_core::js_error_wrapper!(
+  deno_ast::ParseDiagnostic,
+  JsParseDiagnostic,
+  "TypeError"
+);
+
 pub fn maybe_transpile_source(
   specifier: ModuleName,
   source: ModuleCodeString,
-) -> Result<(ModuleCodeString, Option<SourceMapData>), anyhow::Error> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), Box<dyn JsErrorClass>> {
   let media_type = MediaType::TypeScript;
 
   let parsed = deno_ast::parse_module(ParseParams {
@@ -61,7 +68,8 @@ pub fn maybe_transpile_source(
     capture_tokens: false,
     scope_analysis: false,
     maybe_syntax: None,
-  })?;
+  })
+  .map_err(JsParseDiagnostic)?;
   let transpiled_source = parsed
     .transpile(
       &deno_ast::TranspileOptions {
@@ -73,7 +81,8 @@ pub fn maybe_transpile_source(
         inline_sources: true,
         ..Default::default()
       },
-    )?
+    )
+    .map_err(anyhow::Error::new)?
     .into_source();
   Ok((
     String::from_utf8(transpiled_source.source).unwrap().into(),

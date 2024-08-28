@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::{exception_to_err_result, JsErrorClass};
 use crate::error::CoreError;
+use crate::error::exception_to_err_result;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use crate::FastStaticString;
@@ -21,7 +21,6 @@ mod recursive_load;
 mod tests;
 
 pub(crate) use loaders::ExtModuleLoader;
-pub use loaders::ExtModuleLoaderCb;
 pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;
 pub use loaders::ModuleLoadResponse;
@@ -211,13 +210,13 @@ pub type CustomModuleEvaluationCb = Box<
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, anyhow::Error>,
+  ) -> Result<CustomModuleEvaluationKind, crate::error::JsNativeError>,
 >;
 
 /// A callback to get the code cache for a script.
 /// (specifier, code) -> ...
 pub type EvalContextGetCodeCacheCb =
-  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, anyhow::Error>>;
+  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, crate::error::JsNativeError>>;
 
 /// Callback when the code cache is ready.
 /// (specifier, hash, data) -> ()

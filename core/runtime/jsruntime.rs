@@ -13,7 +13,7 @@ use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::ascii_str;
 use crate::ascii_str_include;
-use crate::error::exception_to_err_result;
+use crate::error::{exception_to_err_result, JsNativeError};
 use crate::error::CoreError;
 use crate::error::JsError;
 use crate::extension_set;
@@ -89,7 +89,7 @@ pub type ExtensionTranspiler =
   dyn Fn(
     ModuleName,
     ModuleCodeString,
-  ) -> Result<(ModuleCodeString, Option<SourceMapData>), anyhow::Error>;
+  ) -> Result<(ModuleCodeString, Option<SourceMapData>), JsNativeError>;
 
 /// Objects that need to live as long as the isolate
 #[derive(Default)]

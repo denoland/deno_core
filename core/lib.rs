@@ -37,7 +37,6 @@ mod web_timeout;
 
 // Re-exports
 pub use anyhow;
-pub use thiserror;
 pub use deno_unsync as unsync;
 pub use futures;
 pub use parking_lot;
@@ -51,6 +50,7 @@ pub use serde_v8::StringOrBuffer;
 pub use serde_v8::ToJsBuffer;
 pub use serde_v8::U16String;
 pub use sourcemap;
+pub use thiserror;
 pub use url;
 pub use v8;
 
@@ -108,7 +108,6 @@ pub use crate::module_specifier::specifier_has_uri_scheme;
 pub use crate::module_specifier::ModuleResolutionError;
 pub use crate::module_specifier::ModuleSpecifier;
 pub use crate::modules::CustomModuleEvaluationKind;
-pub use crate::modules::ExtModuleLoaderCb;
 pub use crate::modules::FsModuleLoader;
 pub use crate::modules::ModuleCodeBytes;
 pub use crate::modules::ModuleCodeString;

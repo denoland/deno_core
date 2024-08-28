@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::JsErrorClass;
 use crate::error::JsNativeError;
-use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
@@ -78,6 +77,11 @@ impl From<anyhow::Error> for ModuleLoaderError {
 impl From<std::io::Error> for ModuleLoaderError {
   fn from(err: std::io::Error) -> Self {
     ModuleLoaderError::Core(CoreError::Io(err))
+  }
+}
+impl From<JsNativeError> for ModuleLoaderError {
+  fn from(err: JsNativeError) -> Self {
+    ModuleLoaderError::Core(CoreError::JsNative(err))
   }
 }
 
@@ -214,11 +218,6 @@ impl ModuleLoader for NoopModuleLoader {
     }))
   }
 }
-
-/// Function that can be passed to the `ExtModuleLoader` that allows to
-/// transpile sources before passing to V8.
-pub type ExtModuleLoaderCb =
-  Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCodeString, anyhow::Error>>;
 
 pub(crate) struct ExtModuleLoader {
   sources: RefCell<HashMap<ModuleName, ModuleCodeString>>,
@@ -400,9 +399,9 @@ impl ModuleLoader for FsModuleLoader {
     let module_specifier = module_specifier.clone();
     let fut = async move {
       let path = module_specifier.to_file_path().map_err(|_| {
-        anyhow::Error::from(JsNativeError::generic(format!(
+        JsNativeError::generic(format!(
           "Provided module specifier \"{module_specifier}\" is not a file URL."
-        )))
+        ))
       })?;
       let module_type = if let Some(extension) = path.extension() {
         let ext = extension.to_string_lossy().to_lowercase();

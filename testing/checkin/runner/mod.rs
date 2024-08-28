@@ -3,7 +3,6 @@ use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
 use self::ts_module_loader::maybe_transpile_source;
-use anyhow::anyhow;
 use anyhow::Context;
 use deno_core::v8;
 use deno_core::CrossIsolateStore;
@@ -25,6 +24,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use deno_core::error::JsNativeError;
 
 mod extensions;
 mod ops;
@@ -166,22 +166,22 @@ fn custom_module_evaluation_cb(
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
+) -> Result<CustomModuleEvaluationKind, JsNativeError> {
   match &*module_type {
     "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
-    _ => Err(anyhow!(
-      "Can't import {:?} because of unknown module type {}",
+    _ => Err(JsNativeError::generic(
+      format!("Can't import {:?} because of unknown module type {}",
       module_name,
       module_type
-    )),
+      ))),
   }
 }
 
 fn bytes_module(
   scope: &mut v8::HandleScope,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
+) -> Result<CustomModuleEvaluationKind, JsNativeError> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -202,7 +202,7 @@ fn text_module(
   scope: &mut v8::HandleScope,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
+) -> Result<CustomModuleEvaluationKind, JsNativeError> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -210,7 +210,7 @@ fn text_module(
 
   let code = std::str::from_utf8(buf.as_bytes()).with_context(|| {
     format!("Can't convert {:?} source code to string", module_name)
-  })?;
+  }).map_err(JsNativeError::from_err)?;
   let str_ = v8::String::new(scope, code).unwrap();
   let value: v8::Local<v8::Value> = str_.into();
   Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(

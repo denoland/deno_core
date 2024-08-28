@@ -25,10 +25,11 @@ pub use resource_handle::ResourceHandleSocket;
 pub use resource_table::ResourceError;
 pub use resource_table::ResourceId;
 pub use resource_table::ResourceTable;
+use crate::error::JsNativeError;
 
 /// Returned by resource shutdown methods
 pub type AsyncResult<T> =
-  Pin<Box<dyn Future<Output = Result<T, anyhow::Error>>>>;
+  Pin<Box<dyn Future<Output = Result<T, JsNativeError>>>>;
 
 pub enum WriteOutcome {
   Partial { nwritten: usize, view: BufView },

@@ -6,8 +6,8 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use crate::error::{JsErrorClass};
-use crate::error::{JsNativeError};
+use crate::error::JsErrorClass;
+use crate::error::JsNativeError;
 use crate::io::AsyncResult;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -112,9 +112,9 @@ pub trait Resource: Any + 'static {
   /// Write an error state to this resource, if the resource supports it.
   fn write_error(
     self: Rc<Self>,
-    _error: impl JsErrorClass,
+    _error: &dyn JsErrorClass,
   ) -> AsyncResult<()> {
-    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported()))
   }
 
   /// Write a single chunk of data to the resource. The operation may not be
@@ -126,7 +126,7 @@ pub trait Resource: Any + 'static {
   /// with a "not supported" error.
   fn write(self: Rc<Self>, buf: BufView) -> AsyncResult<WriteOutcome> {
     _ = buf;
-    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported()))
   }
 
   /// Write an entire chunk of data to the resource. Unlike `write()`, this will
@@ -161,7 +161,7 @@ pub trait Resource: Any + 'static {
   fn read_byob_sync(
     self: Rc<Self>,
     data: &mut [u8],
-  ) -> Result<usize, impl JsErrorClass> {
+  ) -> Result<usize, JsNativeError> {
     _ = data;
     Err(JsNativeError::not_supported())
   }
@@ -170,7 +170,7 @@ pub trait Resource: Any + 'static {
   fn write_sync(
     self: Rc<Self>,
     data: &[u8],
-  ) -> Result<usize, impl JsErrorClass> {
+  ) -> Result<usize, JsNativeError> {
     _ = data;
     Err(JsNativeError::not_supported())
   }
@@ -181,7 +181,7 @@ pub trait Resource: Any + 'static {
   /// If this method is not implemented, the default implementation will error
   /// with a "not supported" error.
   fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
-    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported()))
   }
 
   /// Resources may implement the `close()` trait method if they need to do

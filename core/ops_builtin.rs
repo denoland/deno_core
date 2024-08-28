@@ -366,7 +366,7 @@ async fn op_write_type_error(
 ) -> Result<(), OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   resource
-    .write_error(super::error::JsNativeError::type_error(error).into())
+    .write_error(&super::error::JsNativeError::type_error(error))
     .await?;
   Ok(())
 }

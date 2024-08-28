@@ -264,18 +264,18 @@ pub struct OpError(Box<dyn JsErrorClass>);
 
 impl std::fmt::Display for OpError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "{}: {}",
-      self.0.get_class(),
-      self.0.get_message()
-    )
+    write!(f, "{}: {}", self.0.get_class(), self.0.get_message())
   }
 }
 
 impl<T: JsErrorClass> From<T> for OpError {
   fn from(err: T) -> Self {
     Self(Box::new(err))
+  }
+}
+impl From<Box<dyn JsErrorClass>> for OpError {
+  fn from(err: Box<dyn JsErrorClass>) -> Self {
+    Self(err)
   }
 }
 
@@ -287,7 +287,10 @@ impl Serialize for OpError {
     let mut serde_state = serializer.serialize_struct("OpError", 3)?;
     serde_state.serialize_field("$err_class_name", self.0.get_class())?;
     serde_state.serialize_field("message", &self.0.get_message())?;
-    serde_state.serialize_field("additional_properties", &self.0.get_additional_properties())?;
+    serde_state.serialize_field(
+      "additional_properties",
+      &self.0.get_additional_properties(),
+    )?;
     serde_state.end()
   }
 }
@@ -304,10 +307,10 @@ impl std::fmt::Display for OpErrorWrapper {
 
 impl JsErrorClass for OpErrorWrapper {
   fn get_class(&self) -> &'static str {
-    self.0.error.get_class()
+    self.0 .0.get_class()
   }
 
   fn get_message(&self) -> std::borrow::Cow<'static, str> {
-    self.0.error.get_message()
+    self.0 .0.get_message()
   }
 }

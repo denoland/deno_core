@@ -793,12 +793,9 @@ fn test_custom_module_type_callback_synthetic() {
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
+  ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
     if module_type != "bytes" {
-      return Err(
-        JsNativeError::generic(format!("Can't load '{}' module", module_type))
-          .into(),
-      );
+      return Err(JsNativeError::generic(format!("Can't load '{}' module", module_type)));
     }
 
     let buf = match module_code {
@@ -877,12 +874,9 @@ fn test_custom_module_type_callback_computed() {
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, anyhow::Error> {
+  ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
     if module_type != "foobar" {
-      return Err(
-        JsNativeError::generic(format!("Can't load '{}' module", module_type))
-          .into(),
-      );
+      return Err(JsNativeError::generic(format!("Can't load '{}' module", module_type)));
     }
 
     let buf = match module_code {
