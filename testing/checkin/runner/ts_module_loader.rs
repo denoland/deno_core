@@ -10,8 +10,8 @@ use anyhow::Context;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::{JsNativeError};
-use deno_core::error::{ModuleLoaderError};
+use deno_core::error::JsNativeError;
+use deno_core::error::ModuleLoaderError;
 use deno_core::resolve_import;
 use deno_core::url::Url;
 use deno_core::ModuleCodeBytes;
@@ -187,7 +187,8 @@ pub fn maybe_transpile_source(
     capture_tokens: false,
     scope_analysis: false,
     maybe_syntax: None,
-  }).map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?;
+  })
+  .map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?;
   let transpiled_source = parsed
     .transpile(
       &deno_ast::TranspileOptions {
@@ -200,7 +201,8 @@ pub fn maybe_transpile_source(
         inline_sources: false,
         ..Default::default()
       },
-    ).map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?
+    )
+    .map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?
     .into_source();
 
   Ok((

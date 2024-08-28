@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::CoreError;
 use crate::error::exception_to_err_result;
+use crate::error::CoreError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use crate::FastStaticString;
@@ -215,8 +215,12 @@ pub type CustomModuleEvaluationCb = Box<
 
 /// A callback to get the code cache for a script.
 /// (specifier, code) -> ...
-pub type EvalContextGetCodeCacheCb =
-  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, crate::error::JsNativeError>>;
+pub type EvalContextGetCodeCacheCb = Box<
+  dyn Fn(
+    &Url,
+    &v8::String,
+  ) -> Result<SourceCodeCacheInfo, crate::error::JsNativeError>,
+>;
 
 /// Callback when the code cache is ready.
 /// (specifier, hash, data) -> ()

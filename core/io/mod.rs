@@ -15,6 +15,7 @@ mod resource;
 mod resource_handle;
 mod resource_table;
 
+use crate::error::JsNativeError;
 pub use buffer_strategy::AdaptiveBufferStrategy;
 pub use buffers::BufMutView;
 pub use buffers::BufView;
@@ -25,7 +26,6 @@ pub use resource_handle::ResourceHandleSocket;
 pub use resource_table::ResourceError;
 pub use resource_table::ResourceId;
 pub use resource_table::ResourceTable;
-use crate::error::JsNativeError;
 
 /// Returned by resource shutdown methods
 pub type AsyncResult<T> =

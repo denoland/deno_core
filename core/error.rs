@@ -144,10 +144,15 @@ pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
   fn get_message(&self) -> Cow<'static, str> {
     self.to_string().into()
   }
-  fn get_additional_properties(&self) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
     None
   }
-  fn to_native(self) -> JsNativeError where Self: Sized  {
+  fn to_native(self) -> JsNativeError
+  where
+    Self: Sized,
+  {
     JsNativeError::from_err(self)
   }
 
@@ -393,7 +398,6 @@ impl JsNativeError {
     }
   }
 
-
   pub fn generic(message: impl Into<Cow<'static, str>>) -> JsNativeError {
     Self::new("Error", message)
   }
@@ -491,7 +495,10 @@ pub fn to_v8_error<'a>(
   let message = v8::String::new(tc_scope, &error.get_message()).unwrap();
   let mut args = vec![class.into(), message.into()];
 
-  if let Some(code) = (error as &dyn std::any::Any).downcast_ref::<std::io::Error>().and_then(crate::error_codes::get_error_code) {
+  if let Some(code) = (error as &dyn std::any::Any)
+    .downcast_ref::<std::io::Error>()
+    .and_then(crate::error_codes::get_error_code)
+  {
     args.push(v8::String::new(tc_scope, code).unwrap().into());
   }
   let maybe_exception = cb.call(tc_scope, this, &args);

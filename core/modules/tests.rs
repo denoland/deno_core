@@ -795,7 +795,10 @@ fn test_custom_module_type_callback_synthetic() {
     module_code: ModuleSourceCode,
   ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
     if module_type != "bytes" {
-      return Err(JsNativeError::generic(format!("Can't load '{}' module", module_type)));
+      return Err(JsNativeError::generic(format!(
+        "Can't load '{}' module",
+        module_type
+      )));
     }
 
     let buf = match module_code {
@@ -876,7 +879,10 @@ fn test_custom_module_type_callback_computed() {
     module_code: ModuleSourceCode,
   ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
     if module_type != "foobar" {
-      return Err(JsNativeError::generic(format!("Can't load '{}' module", module_type)));
+      return Err(JsNativeError::generic(format!(
+        "Can't load '{}' module",
+        module_type
+      )));
     }
 
     let buf = match module_code {

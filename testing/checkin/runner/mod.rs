@@ -4,6 +4,7 @@ use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
 use self::ts_module_loader::maybe_transpile_source;
 use anyhow::Context;
+use deno_core::error::JsNativeError;
 use deno_core::v8;
 use deno_core::CrossIsolateStore;
 use deno_core::CustomModuleEvaluationKind;
@@ -24,7 +25,6 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
-use deno_core::error::JsNativeError;
 
 mod extensions;
 mod ops;
@@ -170,11 +170,10 @@ fn custom_module_evaluation_cb(
   match &*module_type {
     "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
-    _ => Err(JsNativeError::generic(
-      format!("Can't import {:?} because of unknown module type {}",
-      module_name,
-      module_type
-      ))),
+    _ => Err(JsNativeError::generic(format!(
+      "Can't import {:?} because of unknown module type {}",
+      module_name, module_type
+    ))),
   }
 }
 
@@ -208,9 +207,11 @@ fn text_module(
     unreachable!()
   };
 
-  let code = std::str::from_utf8(buf.as_bytes()).with_context(|| {
-    format!("Can't convert {:?} source code to string", module_name)
-  }).map_err(JsNativeError::from_err)?;
+  let code = std::str::from_utf8(buf.as_bytes())
+    .with_context(|| {
+      format!("Can't convert {:?} source code to string", module_name)
+    })
+    .map_err(JsNativeError::from_err)?;
   let str_ = v8::String::new(scope, code).unwrap();
   let value: v8::Local<v8::Value> = str_.into();
   Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(

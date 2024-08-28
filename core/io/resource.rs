@@ -110,10 +110,7 @@ pub trait Resource: Any + 'static {
   }
 
   /// Write an error state to this resource, if the resource supports it.
-  fn write_error(
-    self: Rc<Self>,
-    _error: &dyn JsErrorClass,
-  ) -> AsyncResult<()> {
+  fn write_error(self: Rc<Self>, _error: &dyn JsErrorClass) -> AsyncResult<()> {
     Box::pin(futures::future::err(JsNativeError::not_supported()))
   }
 
@@ -167,10 +164,7 @@ pub trait Resource: Any + 'static {
   }
 
   /// The same as [`write()`][Resource::write], but synchronous.
-  fn write_sync(
-    self: Rc<Self>,
-    data: &[u8],
-  ) -> Result<usize, JsNativeError> {
+  fn write_sync(self: Rc<Self>, data: &[u8]) -> Result<usize, JsNativeError> {
     _ = data;
     Err(JsNativeError::not_supported())
   }
