@@ -290,7 +290,7 @@ impl JsErrorClass for std::io::Error {
   fn get_additional_properties(
     &self,
   ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    crate::error_codes::get_error_code(&self)
+    crate::error_codes::get_error_code(self)
       .map(|code| vec![("code".into(), code.into())])
   }
 }

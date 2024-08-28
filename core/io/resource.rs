@@ -85,7 +85,7 @@ pub trait Resource: Any + 'static {
   /// implement `read_byob()`.
   fn read(self: Rc<Self>, limit: usize) -> AsyncResult<BufView> {
     _ = limit;
-    Box::pin(futures::future::err(JsNativeError::not_supported().into()))
+    Box::pin(futures::future::err(JsNativeError::not_supported()))
   }
 
   /// Read a single chunk of data from the resource into the provided `BufMutView`.
