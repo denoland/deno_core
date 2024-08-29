@@ -2425,7 +2425,7 @@ impl JsRuntime {
       .load_side_es_module_from_code(isolate, specifier, None)
       .await
   }
-  
+
   /// Remove the specified side module from the module map.
   ///
   /// This method is useful when you need to update a previously loaded side
