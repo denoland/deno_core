@@ -426,6 +426,8 @@ pub fn host_import_module_dynamically_callback<'s>(
   specifier: v8::Local<'s, v8::String>,
   import_attributes: v8::Local<'s, v8::FixedArray>,
 ) -> Option<v8::Local<'s, v8::Promise>> {
+  let cped = scope.get_continuation_preserved_embedder_data();
+
   // NOTE(bartlomieju): will crash for non-UTF-8 specifier
   let specifier_str = specifier
     .to_string(scope)
@@ -465,6 +467,7 @@ pub fn host_import_module_dynamically_callback<'s>(
     get_requested_module_type_from_attributes(&assertions);
 
   let resolver_handle = v8::Global::new(scope, resolver);
+  let cped_handle = v8::Global::new(scope, cped);
   {
     let state = JsRuntime::state_from(scope);
     let module_map_rc = JsRealm::module_map_from(scope);
@@ -475,6 +478,7 @@ pub fn host_import_module_dynamically_callback<'s>(
       &referrer_name_str,
       requested_module_type,
       resolver_handle,
+      cped_handle,
     );
     state.notify_new_dynamic_import();
   }
