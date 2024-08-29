@@ -248,6 +248,7 @@ impl ModuleMap {
     self.data.borrow().get_id(name, requested_module_type)
   }
 
+  // Removes a module or its alias from the module map.
   pub(crate) fn remove_id(
     &self,
     name: &str,

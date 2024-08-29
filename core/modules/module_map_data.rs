@@ -227,22 +227,21 @@ impl ModuleMapData {
     }
   }
 
+  // Removes a module or its alias from the module map.
   pub fn remove_id(
     &mut self,
     name: &str,
     requested_module_type: impl AsRef<RequestedModuleType>,
     main: bool,
   ) -> Option<ModuleId> {
-    let mut map = &mut self.by_name;
+    let map = &mut self.by_name;
     let first_symbolic_module =
       map.remove(requested_module_type.as_ref(), name)?;
-
     let mod_id = match first_symbolic_module {
       SymbolicModule::Mod(mod_id) => mod_id,
       SymbolicModule::Alias(mut mod_name) => loop {
         let symbolic_module =
           map.remove(requested_module_type.as_ref(), &mod_name)?;
-
         match symbolic_module {
           SymbolicModule::Alias(target) => {
             debug_assert_ne!(mod_name, target);
@@ -258,7 +257,6 @@ impl ModuleMapData {
         debug_assert_eq!(main_id, mod_id);
       }
     }
-
     Some(mod_id)
   }
 
