@@ -86,6 +86,8 @@ pub struct JsRuntimeInspector {
   waker: Arc<InspectorWaker>,
   deregister_tx: Option<oneshot::Sender<()>>,
   is_dispatching_message: RefCell<bool>,
+  isolate_ptr: *mut v8::Isolate,
+  context: v8::Global<v8::Context>,
 }
 
 impl Drop for JsRuntimeInspector {
@@ -143,6 +145,17 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.flags.borrow_mut().waiting_for_session = false;
   }
+
+  fn ensure_default_context_in_group(
+    &mut self,
+    context_group_id: i32,
+  ) -> Option<v8::Local<v8::Context>> {
+    eprintln!("ensure default context in group");
+    assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
+    let isolate: &mut v8::Isolate = unsafe { &mut *self.isolate_ptr };
+    let mut scope = &mut unsafe { v8::CallbackScope::new(isolate) };
+    Some(v8::Local::new(&mut scope, self.context.clone()))
+  }
 }
 
 impl JsRuntimeInspector {
@@ -151,6 +164,7 @@ impl JsRuntimeInspector {
   const CONTEXT_GROUP_ID: i32 = 1;
 
   pub fn new(
+    isolate_ptr: *mut v8::Isolate,
     scope: &mut v8::HandleScope,
     context: v8::Local<v8::Context>,
     is_main_runtime: bool,
@@ -173,6 +187,8 @@ impl JsRuntimeInspector {
       waker,
       deregister_tx: None,
       is_dispatching_message: Default::default(),
+      isolate_ptr,
+      context: v8::Global::new(scope, context),
     }));
     let mut self_ = self__.borrow_mut();
     self_.v8_inspector = Rc::new(RefCell::new(
@@ -799,13 +815,15 @@ impl LocalInspectorSessionRaw {
     self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
   }
 
-  pub async fn receive_from_v8_session(self) -> Option<InspectorMsg> {
-    let cancel_handle = &RcRef::map(self.cancel_handle, |this| &this);
-    let mut v8_session_rx: Result<
-      tokio::sync::MutexGuard<UnboundedReceiver<InspectorMsg>>,
-      crate::Canceled,
-    > = self.v8_session_rx.lock().or_cancel(cancel_handle).await;
-    (*v8_session_rx).next().or_cancel(cancel_handle).await
+  pub async fn receive_from_v8_session(&self) -> Option<InspectorMsg> {
+    // let cancel_handle = &RcRef::map(self.cancel_handle, |this| &this);
+    // let mut v8_session_rx: Result<
+    //   tokio::sync::MutexGuard<UnboundedReceiver<InspectorMsg>>,
+    //   crate::Canceled,
+    // > = self.v8_session_rx.lock().or_cancel(cancel_handle).await;
+    // (*v8_session_rx).next().or_cancel(cancel_handle).await
+    let mut v8_session_rx = self.v8_session_rx.lock().await;
+    (*v8_session_rx).next().await
   }
 
   pub fn disconnect(&self) {

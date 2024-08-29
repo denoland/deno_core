@@ -1020,7 +1020,12 @@ impl JsRuntime {
     }
 
     let inspector = if options.inspector {
-      Some(JsRuntimeInspector::new(scope, context, options.is_main))
+      Some(JsRuntimeInspector::new(
+        isolate_ptr.clone(),
+        scope,
+        context,
+        options.is_main,
+      ))
     } else {
       None
     };
@@ -1686,6 +1691,7 @@ impl JsRuntime {
     }
 
     let context = self.main_context();
+    let isolate_ptr = self.inner.v8_isolate.as_mut() as *mut _;
     let scope = &mut v8::HandleScope::with_context(
       self.inner.v8_isolate.as_mut(),
       context.clone(),
@@ -1694,6 +1700,7 @@ impl JsRuntime {
 
     self.inner.state.has_inspector.set(true);
     **inspector = Some(JsRuntimeInspector::new(
+      isolate_ptr,
       scope,
       context,
       self.is_main_runtime,
