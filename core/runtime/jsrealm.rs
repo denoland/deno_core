@@ -489,7 +489,7 @@ impl JsRealm {
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     let removed_id = module_map_rc.remove_id(
-      &specifier.as_str(),
+      specifier.as_str(),
       RequestedModuleType::None,
       false,
     );
