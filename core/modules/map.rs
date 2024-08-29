@@ -248,6 +248,18 @@ impl ModuleMap {
     self.data.borrow().get_id(name, requested_module_type)
   }
 
+  pub(crate) fn remove_id(
+    &self,
+    name: &str,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+    main: bool,
+  ) -> Option<ModuleId> {
+    self
+      .data
+      .borrow_mut()
+      .remove_id(name, requested_module_type, main)
+  }
+
   pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
     self.data.borrow().is_main_module(global)
   }

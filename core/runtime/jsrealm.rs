@@ -16,7 +16,7 @@ use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
-use crate::GetErrorClassFn;
+use crate::{GetErrorClassFn, RequestedModuleType};
 use anyhow::Error;
 use futures::stream::StreamExt;
 use std::cell::Cell;
@@ -413,6 +413,22 @@ impl JsRealm {
     Ok(root_id)
   }
 
+  pub(crate) async fn remove_main_es_module(
+    &self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    let module_map_rc = self.0.module_map();
+    let removed_id = module_map_rc.remove_id(
+      specifier.as_str(),
+      RequestedModuleType::None,
+      true,
+    );
+
+    let module_id =
+      removed_id.expect("Module id was not found in the module map");
+    Ok(module_id)
+  }
+
   /// Asynchronously load specified ES module and all of its dependencies.
   ///
   /// This method is meant to be used when loading some utility code that
@@ -457,6 +473,22 @@ impl JsRealm {
       exception_to_err_result::<()>(scope, exception, false, false).unwrap_err()
     })?;
     Ok(root_id)
+  }
+
+  pub(crate) async fn remove_side_es_module(
+    &self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    let module_map_rc = self.0.module_map();
+    let removed_id = module_map_rc.remove_id(
+      &specifier.as_str(),
+      RequestedModuleType::None,
+      false,
+    );
+
+    let module_id =
+      removed_id.expect("Module id was not found in the module map");
+    Ok(module_id)
   }
 
   /// Load and evaluate an ES module provided the specifier and source code.

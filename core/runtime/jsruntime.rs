@@ -2364,6 +2364,13 @@ impl JsRuntime {
       .await
   }
 
+  pub async fn remove_main_es_module(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    self.inner.main_realm.remove_main_es_module(specifier).await
+  }
+
   /// Asynchronously load specified ES module and all of its dependencies from the
   /// provided source.
   ///
@@ -2412,6 +2419,13 @@ impl JsRuntime {
       .main_realm
       .load_side_es_module_from_code(isolate, specifier, None)
       .await
+  }
+
+  pub async fn remove_side_es_module(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    self.inner.main_realm.remove_side_es_module(specifier).await
   }
 
   /// Load and evaluate an ES module provided the specifier and source code.
