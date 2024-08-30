@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::GetErrorClassFn;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
@@ -84,8 +83,6 @@ pub struct OpCtx {
 
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
-  #[doc(hidden)]
-  pub get_error_class_fn: GetErrorClassFn,
 
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_info: Option<CFunction>,
@@ -104,7 +101,6 @@ impl OpCtx {
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: *const JsRuntimeState,
-    get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
   ) -> Self {
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
@@ -120,7 +116,6 @@ impl OpCtx {
     Self {
       id,
       state,
-      get_error_class_fn,
       runtime_state,
       decl,
       op_driver,
