@@ -1,28 +1,47 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+use std::mem::size_of;
+use std::ops::Deref;
+use std::ops::DerefMut;
+
+use smallvec::SmallVec;
+
 use super::transl8::FromV8;
 use super::transl8::ToV8;
 use crate::magic::transl8::impl_magic;
 use crate::Error;
-use smallvec::SmallVec;
-use std::mem::size_of;
 
 const USIZE2X: usize = size_of::<usize>() * 2;
 
-#[derive(
-  PartialEq,
-  Eq,
-  Clone,
-  Debug,
-  Default,
-  derive_more::Deref,
-  derive_more::DerefMut,
-  derive_more::AsRef,
-  derive_more::AsMut,
-)]
-#[as_mut(forward)]
-#[as_ref(forward)]
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct ByteString(SmallVec<[u8; USIZE2X]>);
 impl_magic!(ByteString);
+
+impl Deref for ByteString {
+  type Target = SmallVec<[u8; USIZE2X]>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for ByteString {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
+impl AsRef<[u8]> for ByteString {
+  fn as_ref(&self) -> &[u8] {
+    &self.0
+  }
+}
+
+impl AsMut<[u8]> for ByteString {
+  fn as_mut(&mut self) -> &mut [u8] {
+    &mut self.0
+  }
+}
 
 // const-assert that Vec<u8> and SmallVec<[u8; size_of::<usize>() * 2]> have a same size.
 // Note from https://docs.rs/smallvec/latest/smallvec/#union -
@@ -33,7 +52,7 @@ const _: () =
 
 impl ToV8 for ByteString {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     let v =

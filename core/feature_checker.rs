@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::collections::BTreeSet;
 use std::fmt::Debug;
@@ -6,7 +6,13 @@ use std::fmt::Debug;
 pub type ExitCb = Box<dyn Fn(&str, &str) + Send + Sync>;
 pub type WarnCb = Box<dyn Fn(&str, &str) + Send + Sync>;
 
-fn exit(_feature: &str, _api_name: &str) {
+fn exit(feature: &str, api_name: &str) {
+  #[allow(clippy::print_stderr)]
+  {
+    eprintln!(
+      "Feature '{feature}' for '{api_name}' was not specified, exiting."
+    );
+  }
   std::process::exit(70);
 }
 

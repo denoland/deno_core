@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -8,6 +8,8 @@ use quote::quote;
 use quote::ToTokens;
 use quote::TokenStreamExt;
 use std::collections::BTreeMap;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
 
 use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
@@ -117,7 +119,6 @@ pub enum V8Arg {
   SharedArrayBuffer,
   StringObject,
   SymbolObject,
-  WasmMemoryObject,
   WasmModuleObject,
   Primitive,
   BigInt,
@@ -205,10 +206,7 @@ impl BufferType {
           expand!(Copy)
         }
         JsBuffer | V8Slice(..) => expand!(Copy, Detach, Default),
-        Slice(..) | Ptr(..) => expand!(
-          extra = AttributeModifier::WasmMemory(WasmMemorySource::Caller),
-          Default
-        ),
+        Slice(..) | Ptr(..) => expand!(Default),
       },
       Position::RetVal => match self {
         Bytes | BytesMut | JsBuffer | V8Slice(..) | Vec(..) | BoxSlice(..) => {
@@ -277,8 +275,9 @@ pub enum Arg {
   State(RefType, String),
   OptionState(RefType, String),
   CppGcResource(String),
-  WasmMemory(RefType, WasmMemorySource),
-  OptionWasmMemory(RefType, WasmMemorySource),
+  OptionCppGcResource(String),
+  FromV8(String),
+  ToV8(String),
 }
 
 impl Arg {
@@ -304,14 +303,7 @@ impl Arg {
       CBare(TSpecial(special)) => Ok(Arg::Special(special)),
       CBare(TString(string)) => Ok(Arg::String(string)),
       CBare(TBuffer(buffer)) => {
-        if let Some(AttributeModifier::WasmMemory(mode)) = attr.primary {
-          let BufferType::Slice(ref_type, NumericArg::u8) = buffer else {
-            unreachable!("non-u8-slice buffer");
-          };
-          Ok(Arg::WasmMemory(ref_type, mode))
-        } else {
-          Ok(Arg::Buffer(buffer, buffer_mode()?, buffer_source()?))
-        }
+        Ok(Arg::Buffer(buffer, buffer_mode()?, buffer_source()?))
       }
       COption(TNumeric(special)) => {
         Ok(Arg::OptionNumeric(special, NumericFlag::None))
@@ -319,14 +311,7 @@ impl Arg {
       COption(TSpecial(special)) => Ok(Arg::Option(special)),
       COption(TString(string)) => Ok(Arg::OptionString(string)),
       COption(TBuffer(buffer)) => {
-        if let Some(AttributeModifier::WasmMemory(mode)) = attr.primary {
-          let BufferType::Slice(ref_type, NumericArg::u8) = buffer else {
-            unreachable!("non-u8-slice buffer");
-          };
-          Ok(Arg::OptionWasmMemory(ref_type, mode))
-        } else {
-          Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
-        }
+        Ok(Arg::OptionBuffer(buffer, buffer_mode()?, buffer_source()?))
       }
       CRc(TSpecial(special)) => Ok(Arg::Rc(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
@@ -366,8 +351,6 @@ impl Arg {
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
-      Self::WasmMemory(_, WasmMemorySource::Caller)
-      | Self::OptionWasmMemory(_, WasmMemorySource::Caller) => true,
       _ => false,
     }
   }
@@ -408,6 +391,7 @@ impl Arg {
         | Arg::OptionString(..)
         | Arg::OptionBuffer(..)
         | Arg::OptionState(..)
+        | Arg::OptionCppGcResource(..)
     )
   }
 
@@ -422,6 +406,7 @@ impl Arg {
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
+      Arg::OptionCppGcResource(t) => Arg::CppGcResource(t.clone()),
       _ => return None,
     })
   }
@@ -457,6 +442,7 @@ impl Arg {
         // Fast return value path for empty strings
         Arg::String(_) => ArgSlowRetval::RetValFallible,
         Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
+        Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
         // No scope required for these
         Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
         Arg::V8Global(_) => ArgSlowRetval::V8Local,
@@ -474,6 +460,7 @@ impl Arg {
         Arg::OptionBuffer(.., BufferSource::TypedArray) => {
           ArgSlowRetval::V8LocalFalliable
         }
+        Arg::CppGcResource(_) => ArgSlowRetval::V8Local,
         _ => ArgSlowRetval::None,
       }
     }
@@ -489,6 +476,8 @@ impl Arg {
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
+      Arg::CppGcResource(_) | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
+      Arg::ToV8(_) => ArgMarker::ToV8,
       _ => ArgMarker::None,
     }
   }
@@ -525,6 +514,10 @@ pub enum ArgMarker {
   Number,
   /// This buffer type should be serialized as an ArrayBuffer.
   ArrayBuffer,
+  /// This type should be wrapped as a cppgc V8 object.
+  Cppgc,
+  /// This type should be converted with `ToV8``
+  ToV8,
 }
 
 #[derive(Debug)]
@@ -698,6 +691,8 @@ pub struct ParsedSignature {
   pub lifetime: Option<String>,
   // Generic bounds: each generic must have one and only simple trait bound
   pub generic_bounds: BTreeMap<String, String>,
+  // Metadata keys and values
+  pub metadata: BTreeMap<Ident, syn::Lit>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -736,19 +731,13 @@ pub enum BufferSource {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum WasmMemorySource {
-  /// The calling wasm module's memory space.
-  Caller,
-  // TODO(mmastrac): This needs to be implemented
-  /// A v8::WasmMemoryObject.
-  #[allow(unused)]
-  WasmMemoryObject,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
+  /// #[to_v8], for types that impl `ToV8`
+  ToV8,
+  /// #[from_v8] for types that impl `FromV8`
+  FromV8,
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
@@ -764,8 +753,6 @@ pub enum AttributeModifier {
   Bigint,
   /// #[number], for u64/usize/i64/isize indicating value is a Number
   Number,
-  /// #[memory], for a WasmMemory-backed buffer
-  WasmMemory(WasmMemorySource),
   /// #[cppgc], for a resource backed managed by cppgc.
   CppGcResource,
 }
@@ -773,6 +760,8 @@ pub enum AttributeModifier {
 impl AttributeModifier {
   fn name(&self) -> &'static str {
     match self {
+      AttributeModifier::ToV8 => "to_v8",
+      AttributeModifier::FromV8 => "from_v8",
       AttributeModifier::Bigint => "bigint",
       AttributeModifier::Number => "number",
       AttributeModifier::Buffer(..) => "buffer",
@@ -781,7 +770,6 @@ impl AttributeModifier {
       AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
-      AttributeModifier::WasmMemory(..) => "memory",
       AttributeModifier::CppGcResource => "cppgc",
     }
   }
@@ -811,6 +799,8 @@ pub enum SignatureError {
   InvalidOpStateCombination,
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
+  #[error("Invalid metadata attribute: {0}")]
+  InvalidMetaAttribute(#[source] syn::Error),
 }
 
 #[derive(Error, Debug)]
@@ -845,8 +835,6 @@ pub enum ArgError {
   InvalidSerdeType(String, &'static str),
   #[error("Invalid #[{0}] for type: {1}")]
   InvalidAttributeType(&'static str, String),
-  #[error("Cannot use #[serde] for type: {0}")]
-  InvalidSerdeAttributeType(String),
   #[error("Cannot use #[number] for type: {0}")]
   InvalidNumberAttributeType(String),
   #[error("Invalid v8 type: {0}")]
@@ -867,6 +855,8 @@ pub enum ArgError {
   ExpectedCppGcReference(String),
   #[error("Invalid #[cppgc] type '{0}'")]
   InvalidCppGcType(String),
+  #[error("#[{0}] is only valid in {1} position")]
+  InvalidAttributePosition(&'static str, &'static str),
 }
 
 #[derive(Error, Debug)]
@@ -911,6 +901,66 @@ pub(crate) fn stringify_token(tokens: impl ToTokens) -> String {
     .replace(" , ", ", ")
 }
 
+struct MetadataPair {
+  key: Ident,
+  _eq: syn::Token![=],
+  value: syn::Lit,
+}
+
+impl Parse for MetadataPair {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    Ok(Self {
+      key: input.parse()?,
+      _eq: input.parse()?,
+      value: input.parse()?,
+    })
+  }
+}
+
+impl Parse for MetadataPairs {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    let pairs = input.parse_terminated(MetadataPair::parse, syn::Token![,])?;
+    Ok(Self { pairs })
+  }
+}
+
+struct MetadataPairs {
+  pairs: syn::punctuated::Punctuated<MetadataPair, syn::Token![,]>,
+}
+
+fn parse_metadata_pairs(
+  attr: &Attribute,
+) -> Result<Vec<(Ident, syn::Lit)>, SignatureError> {
+  let syn::Meta::List(meta) = &attr.meta else {
+    return Ok(vec![]);
+  };
+  if !meta.path.is_ident("meta") {
+    return Ok(vec![]);
+  }
+
+  let pairs = meta
+    .parse_args_with(MetadataPairs::parse)
+    .map_err(SignatureError::InvalidMetaAttribute)?;
+  Ok(
+    pairs
+      .pairs
+      .into_iter()
+      .map(|pair| (pair.key, pair.value))
+      .collect(),
+  )
+}
+
+fn parse_metadata(
+  attributes: &[Attribute],
+) -> Result<BTreeMap<Ident, syn::Lit>, SignatureError> {
+  let mut metadata = BTreeMap::new();
+  for attr in attributes {
+    let pairs = parse_metadata_pairs(attr)?;
+    metadata.extend(pairs);
+  }
+  Ok(metadata)
+}
+
 pub fn parse_signature(
   attributes: Vec<Attribute>,
   signature: Signature,
@@ -919,7 +969,8 @@ pub fn parse_signature(
   let mut names = vec![];
   for input in signature.inputs {
     let name = match &input {
-      FnArg::Receiver(_) => "self".to_owned(),
+      // Skip receiver
+      FnArg::Receiver(_) => continue,
       FnArg::Typed(ty) => match &*ty.pat {
         Pat::Ident(ident) => ident.ident.to_string(),
         _ => "(complex)".to_owned(),
@@ -978,12 +1029,15 @@ pub fn parse_signature(
     return Err(SignatureError::InvalidMultipleJsRuntimeState);
   }
 
+  let metadata = parse_metadata(&attributes)?;
+
   Ok(ParsedSignature {
     args,
     names,
     ret_val,
     lifetime,
     generic_bounds,
+    metadata,
   })
 }
 
@@ -1138,13 +1192,17 @@ fn parse_attributes(
     return Err(AttributeError::TooManyAttributes);
   }
   Ok(Attributes {
-    primary: Some(*attrs.get(0).unwrap()),
+    primary: Some(*attrs.first().unwrap()),
   })
 }
 
 /// Is this a special attribute that we understand?
 pub fn is_attribute_special(attr: &Attribute) -> bool {
   parse_attribute(attr).unwrap_or_default().is_some()
+    // this is kind of ugly, but #[meta(..)] is the only
+    // attribute that we want to omit from the generated code
+    // that doesn't have a semantic meaning
+    || attr.path().is_ident("meta")
 }
 
 /// Parses an attribute, returning None if this is an attribute we support but is
@@ -1178,11 +1236,13 @@ fn parse_attribute(
       (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
-      (#[memory(caller)]) => Some(AttributeModifier::WasmMemory(WasmMemorySource::Caller)),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
+      (#[to_v8]) => Some(AttributeModifier::ToV8),
+      (#[from_v8]) => Some(AttributeModifier::FromV8),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
+      (#[meta ($($_key: ident = $_value: literal),*)]) => None,
     })
   }).map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
   Ok(res)
@@ -1281,7 +1341,6 @@ fn parse_type_path(
           Arg::String(string) => Ok(COption(TString(string))),
           Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
           Arg::Buffer(buffer, ..) => Ok(COption(TBuffer(buffer))),
-          Arg::WasmMemory(ref_type, ..) => Ok(COption(TBuffer(BufferType::Slice(ref_type, NumericArg::u8)))),
           Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
           Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
           Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
@@ -1375,14 +1434,66 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
-fn parse_cppgc(ty: &Type) -> Result<Arg, ArgError> {
-  match ty {
-    Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
-      Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
-      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-    },
-    _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
+  match (position, ty) {
+    (Position::Arg, Type::Reference(of)) if of.mutability.is_none() => {
+      match &*of.elem {
+        Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+        _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+      }
+    }
+    (Position::Arg, Type::Path(of)) => {
+      rules!(of.to_token_stream() => {
+        ( Option < $ty:ty $(,)? > ) => {
+          match ty {
+            Type::Reference(of) if of.mutability.is_none() => {
+              match &*of.elem {
+                Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path))),
+                _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+              }
+            }
+            _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+          }
+        }
+        ( $_ty:ty ) => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+      })
+    }
+    (Position::Arg, _) => {
+      Err(ArgError::ExpectedCppGcReference(stringify_token(ty)))
+    }
+    (Position::RetVal, ty) => {
+      rules!(ty.to_token_stream() => {
+        ( Option < $ty:ty $(,)? > ) => {
+          match ty {
+            Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path))),
+            _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+          }
+        }
+        ( $ty:ty ) => match ty {
+          Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+          _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+        },
+      })
+    }
   }
+}
+
+fn better_alternative_exists(position: Position, of: &TypePath) -> bool {
+  // If this type will parse without #[serde]/#[to_v8]/#[from_v8], it is illegal to use this type
+  // with #[serde]/#[to_v8]/#[from_v8]
+  if parse_type_path(position, Attributes::default(), TypePathContext::None, of)
+    .is_ok()
+  {
+    return true;
+  }
+  // If this type will parse with #[string], it is illegal to use this type with #[serde]/#[to_v8]/#[from_v8]
+  if parse_type_path(position, Attributes::string(), TypePathContext::None, of)
+    .is_ok()
+  {
+    return true;
+  }
+
+  false
 }
 
 pub(crate) fn parse_type(
@@ -1395,64 +1506,74 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.primary {
     match primary {
-      AttributeModifier::CppGcResource => return parse_cppgc(ty),
-      AttributeModifier::Serde => match ty {
-        Type::Tuple(of) => {
-          return Ok(Arg::SerdeV8(stringify_token(of)));
-        }
-        Type::Path(of) => {
-          // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(
-            position,
-            Attributes::default(),
-            TypePathContext::None,
-            of,
-          )
-          .is_ok()
-          {
-            return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
-              ty,
-            )));
-          }
-          // If this type will parse without #[serde] (or with #[string]), it is illegal to use this type with #[serde]
-          if parse_type_path(
-            position,
-            Attributes::string(),
-            TypePathContext::None,
-            of,
-          )
-          .is_ok()
-          {
-            return Err(ArgError::InvalidSerdeAttributeType(stringify_token(
-              ty,
-            )));
-          }
+      AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
+      AttributeModifier::FromV8 if position == Position::RetVal => {
+        return Err(ArgError::InvalidAttributePosition(
+          primary.name(),
+          "argument",
+        ))
+      }
+      AttributeModifier::ToV8 if position == Position::Arg => {
+        return Err(ArgError::InvalidAttributePosition(
+          primary.name(),
+          "return value",
+        ))
+      }
+      AttributeModifier::Serde
+      | AttributeModifier::FromV8
+      | AttributeModifier::ToV8 => {
+        let make_arg = match primary {
+          AttributeModifier::Serde => Arg::SerdeV8,
+          AttributeModifier::FromV8 => Arg::FromV8,
+          AttributeModifier::ToV8 => Arg::ToV8,
+          _ => unreachable!(),
+        };
+        match ty {
+          Type::Tuple(of) => return Ok(make_arg(stringify_token(of))),
+          Type::Path(of) => {
+            if better_alternative_exists(position, of) {
+              return Err(ArgError::InvalidAttributeType(
+                primary.name(),
+                stringify_token(ty),
+              ));
+            }
 
-          // Denylist of serde_v8 types with better alternatives
-          let ty = of.into_token_stream();
-          let token = stringify_token(of.path.clone());
-          if let Ok(Some(err)) = std::panic::catch_unwind(|| {
-            rules!(ty => {
-              ( serde_v8::Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use v8::Value"),
-              ( Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("use a fully-qualified type: v8::Value or serde_json::Value"),
-              ( $_ty:ty ) => None,
-            })
-          }) {
-            return Err(ArgError::InvalidSerdeType(stringify_token(ty), err));
-          }
+            let ty = of.into_token_stream();
+            if let Ok(Some(err)) = std::panic::catch_unwind(|| {
+              rules!(ty => {
+                ( Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("a fully-qualified type: v8::Value or serde_json::Value"),
+                ( $_ty:ty ) => None,
+              })
+            }) {
+              if primary == AttributeModifier::Serde {
+                return Err(ArgError::InvalidSerdeType(
+                  stringify_token(ty),
+                  err,
+                ));
+              } else {
+                return Err(ArgError::InvalidAttributeType(
+                  primary.name(),
+                  stringify_token(ty),
+                ));
+              }
+            }
 
-          return Ok(Arg::SerdeV8(token));
+            return Ok(make_arg(stringify_token(of.path.clone())));
+          }
+          _ => {
+            return Err(ArgError::InvalidAttributeType(
+              primary.name(),
+              stringify_token(ty),
+            ));
+          }
         }
-        _ => {
-          return Err(ArgError::InvalidSerdeAttributeType(stringify_token(ty)))
-        }
-      },
+      }
+
       AttributeModifier::State => {
         return parse_type_state(ty);
       }
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
-      | AttributeModifier::WasmMemory(..)
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
@@ -1697,23 +1818,23 @@ mod tests {
     ($name:ident, $error:expr, $f:item) => {
       #[test]
       pub fn $name() {
-        expect_fail(stringify!($f), stringify!($error));
+        #[allow(unused)]
+        use super::ArgError::*;
+        #[allow(unused)]
+        use super::AttributeError::*;
+        #[allow(unused)]
+        use super::SignatureError::*;
+
+        let op = stringify!($f);
+        // Parse the provided macro input as an ItemFn
+        let item_fn = parse_str::<ItemFn>(op)
+          .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
+        let attrs = item_fn.attrs;
+        let error = parse_signature(attrs, item_fn.sig)
+          .expect_err("Expected function to fail to parse");
+        assert_eq!(format!("{error:?}"), format!("{:?}", $error));
       }
     };
-  }
-
-  fn expect_fail(op: &str, error: &str) {
-    // Parse the provided macro input as an ItemFn
-    let item_fn = parse_str::<ItemFn>(op)
-      .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
-    let attrs = item_fn.attrs;
-    let err = parse_signature(attrs, item_fn.sig)
-      .expect_err("Expected function to fail to parse");
-    // TODO(mmastrac): this might fail if debug output spacing changes
-    assert_eq!(
-      format!("{err:?}").replace("\n     ", " "),
-      error.to_owned().replace("\n    ", " ")
-    );
   }
 
   test!(
@@ -1875,62 +1996,96 @@ mod tests {
     >;
     (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
   );
-  test!(
-    fn op_wasm_memory(#[memory(caller)] memory: Option<&[u8]>);
-    (OptionWasmMemory(Ref, Caller)) -> Infallible(Void)
-  );
   expect_fail!(
     op_cppgc_resource_owned,
-    ArgError("resource", ExpectedCppGcReference("std::fs::File")),
+    ArgError(
+      "resource".into(),
+      ExpectedCppGcReference("std::fs::File".into())
+    ),
     fn f(#[cppgc] resource: std::fs::File) {}
+  );
+  expect_fail!(
+    op_cppgc_resource_option_owned,
+    ArgError(
+      "resource".into(),
+      ExpectedCppGcReference("std::fs::File".into())
+    ),
+    fn f(#[cppgc] resource: Option<std::fs::File>) {}
+  );
+  expect_fail!(
+    op_cppgc_resource_invalid_type,
+    ArgError(
+      "resource".into(),
+      InvalidCppGcType("[std :: fs :: File]".into())
+    ),
+    fn f(#[cppgc] resource: &[std::fs::File]) {}
+  );
+  expect_fail!(
+    op_cppgc_resource_option_invalid_type,
+    ArgError(
+      "resource".into(),
+      InvalidCppGcType("[std :: fs :: File]".into())
+    ),
+    fn f(#[cppgc] resource: Option<&[std::fs::File]>) {}
   );
 
   // Args
 
   expect_fail!(
     op_with_bad_string1,
-    ArgError("s", MissingAttribute("string", "str")),
+    ArgError("s".into(), MissingAttribute("string", "str".into())),
     fn f(s: &str) {}
   );
   expect_fail!(
     op_with_bad_string2,
-    ArgError("s", MissingAttribute("string", "String")),
+    ArgError("s".into(), MissingAttribute("string", "String".into())),
     fn f(s: String) {}
   );
   expect_fail!(
     op_with_bad_string3,
-    ArgError("s", MissingAttribute("string", "Cow<str>")),
+    ArgError("s".into(), MissingAttribute("string", "Cow<str>".into())),
     fn f(s: Cow<str>) {}
   );
   expect_fail!(
     op_with_invalid_string,
-    ArgError("x", InvalidAttributeType("string", "u32")),
+    ArgError("x".into(), InvalidAttributeType("string", "u32".into())),
     fn f(#[string] x: u32) {}
   );
   expect_fail!(
     op_with_invalid_buffer,
-    ArgError("x", InvalidAttributeType("buffer", "u32")),
+    ArgError("x".into(), InvalidAttributeType("buffer", "u32".into())),
     fn f(#[buffer] x: u32) {}
   );
   expect_fail!(
     op_with_bad_attr,
-    RetError(AttributeError(InvalidAttribute("#[badattr]"))),
+    RetError(super::RetError::AttributeError(InvalidAttribute(
+      "#[badattr]".into()
+    ))),
     #[badattr]
     fn f() {}
   );
   expect_fail!(
     op_with_bad_attr2,
-    ArgError("a", AttributeError(InvalidAttribute("#[badattr]"))),
+    ArgError(
+      "a".into(),
+      AttributeError(InvalidAttribute("#[badattr]".into()))
+    ),
     fn f(#[badattr] a: u32) {}
   );
   expect_fail!(
     op_with_missing_global,
-    ArgError("g", MissingAttribute("global", "v8::Global<v8::String>")),
+    ArgError(
+      "g".into(),
+      MissingAttribute("global", "v8::Global<v8::String>".into())
+    ),
     fn f(g: v8::Global<v8::String>) {}
   );
   expect_fail!(
     op_with_invalid_global,
-    ArgError("l", InvalidAttributeType("global", "v8::Local<v8::String>")),
+    ArgError(
+      "l".into(),
+      InvalidAttributeType("global", "v8::Local<v8::String>".into())
+    ),
     fn f(#[global] l: v8::Local<v8::String>) {}
   );
   expect_fail!(
@@ -1941,16 +2096,24 @@ mod tests {
   expect_fail!(
     op_extra_deno_core_v8,
     ArgError(
-      "a",
-      InvalidDenoCorePrefix("deno_core::v8::Function", "v8", "v8::Function")
+      "a".into(),
+      InvalidDenoCorePrefix(
+        "deno_core::v8::Function".into(),
+        "v8".into(),
+        "v8::Function".into()
+      )
     ),
     fn f(a: &deno_core::v8::Function) {}
   );
   expect_fail!(
     op_extra_deno_core_opstate,
     ArgError(
-      "a",
-      InvalidDenoCorePrefix("deno_core::OpState", "OpState", "OpState")
+      "a".into(),
+      InvalidDenoCorePrefix(
+        "deno_core::OpState".into(),
+        "OpState".into(),
+        "OpState".into()
+      )
     ),
     fn f(a: &deno_core::OpState) {}
   );
@@ -1960,17 +2123,17 @@ mod tests {
   expect_fail!(op_with_two_lifetimes, TooManyLifetimes, fn f<'a, 'b>() {});
   expect_fail!(
     op_with_lifetime_bounds,
-    LifetimesMayNotHaveBounds("'a"),
+    LifetimesMayNotHaveBounds("'a".into()),
     fn f<'a: 'b, 'b>() {}
   );
   expect_fail!(
     op_with_missing_bounds,
-    GenericBoundCardinality("B"),
+    GenericBoundCardinality("B".into()),
     fn f<'a, B>() {}
   );
   expect_fail!(
     op_with_duplicate_bounds,
-    GenericBoundCardinality("B"),
+    GenericBoundCardinality("B".into()),
     fn f<'a, B: Trait>()
     where
       B: Trait,
@@ -1979,7 +2142,7 @@ mod tests {
   );
   expect_fail!(
     op_with_extra_bounds,
-    WherePredicateMustAppearInGenerics("C"),
+    WherePredicateMustAppearInGenerics("C".into()),
     fn f<'a, B>()
     where
       B: Trait,
@@ -1990,17 +2153,36 @@ mod tests {
 
   expect_fail!(
     op_with_bad_serde_string,
-    ArgError("s", InvalidSerdeAttributeType("String")),
+    ArgError("s".into(), InvalidAttributeType("serde", "String".into())),
     fn f(#[serde] s: String) {}
   );
   expect_fail!(
     op_with_bad_serde_str,
-    ArgError("s", InvalidSerdeAttributeType("&str")),
+    ArgError("s".into(), InvalidAttributeType("serde", "&str".into())),
     fn f(#[serde] s: &str) {}
   );
+
   expect_fail!(
-    op_with_bad_serde_value,
-    ArgError("v", InvalidSerdeType("serde_v8::Value", "use v8::Value")),
-    fn f(#[serde] v: serde_v8::Value) {}
+    op_with_bad_from_v8_string,
+    ArgError("s".into(), InvalidAttributeType("from_v8", "String".into())),
+    fn f(#[from_v8] s: String) {}
+  );
+
+  expect_fail!(
+    op_with_to_v8_arg,
+    ArgError(
+      "s".into(),
+      InvalidAttributePosition("to_v8", "return value")
+    ),
+    fn f(#[to_v8] s: Foo) {}
+  );
+
+  expect_fail!(
+    op_with_from_v8_ret,
+    RetError(super::RetError::InvalidType(InvalidAttributePosition(
+      "from_v8", "argument"
+    ))),
+    #[from_v8]
+    fn f() -> Foo {}
   );
 }

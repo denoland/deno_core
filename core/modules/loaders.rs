@@ -1,24 +1,25 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::generic_error;
 use crate::extensions::ExtensionFileSource;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
+use crate::modules::ModuleName;
 use crate::modules::ModuleSource;
 use crate::modules::ModuleSourceFuture;
 use crate::modules::ModuleType;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
-use crate::Extension;
 use crate::ModuleSourceCode;
 
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
 use futures::future::FutureExt;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -81,6 +82,52 @@ pub trait ModuleLoader {
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
     async { Ok(()) }.boxed_local()
   }
+
+  /// Called when new v8 code cache is available for this module. Implementors
+  /// can store the provided code cache for future executions of the same module.
+  ///
+  /// It's not required to implement this method.
+  fn code_cache_ready(
+    &self,
+    _module_specifier: ModuleSpecifier,
+    _hash: u64,
+    _code_cache: &[u8],
+  ) -> Pin<Box<dyn Future<Output = ()>>> {
+    async {}.boxed_local()
+  }
+
+  /// Called when V8 code cache should be ignored for this module. This can happen
+  /// if eg. module causes a V8 warning, like when using deprecated import assertions.
+  /// Implementors should make sure that the code cache for this module is purged and not saved anymore.
+  ///
+  /// It's not required to implement this method.
+  fn purge_and_prevent_code_cache(&self, _module_specifier: &str) {}
+
+  /// Returns a source map for given `file_name`.
+  ///
+  /// This function will soon be deprecated or renamed.
+  fn get_source_map(&self, _file_name: &str) -> Option<Vec<u8>> {
+    None
+  }
+
+  fn get_source_mapped_source_line(
+    &self,
+    _file_name: &str,
+    _line_number: usize,
+  ) -> Option<String> {
+    None
+  }
+
+  /// Implementors can attach arbitrary data to scripts and modules
+  /// by implementing this method. V8 currently requires that the
+  /// returned data be a `v8::PrimitiveArray`.
+  fn get_host_defined_options<'s>(
+    &self,
+    _scope: &mut v8::HandleScope<'s>,
+    _name: &str,
+  ) -> Option<v8::Local<'s, v8::Data>> {
+    None
+  }
 }
 
 /// Placeholder structure used when creating
@@ -122,23 +169,40 @@ pub type ExtModuleLoaderCb =
   Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCodeString, Error>>;
 
 pub(crate) struct ExtModuleLoader {
-  sources: RefCell<HashMap<String, ExtensionFileSource>>,
-  used_specifiers: RefCell<HashSet<String>>,
+  sources: RefCell<HashMap<ModuleName, ModuleCodeString>>,
 }
 
 impl ExtModuleLoader {
-  pub fn new(extensions: &[Extension]) -> Self {
-    let mut sources = HashMap::new();
-    sources.extend(
-      extensions
-        .iter()
-        .flat_map(|e| e.get_esm_sources())
-        .map(|s| (s.specifier.to_string(), s.clone())),
-    );
-    ExtModuleLoader {
-      sources: RefCell::new(sources),
-      used_specifiers: Default::default(),
+  pub fn new(
+    loaded_sources: Vec<(ModuleName, ModuleCodeString)>,
+  ) -> Result<Self, Error> {
+    // Guesstimate a length
+    let mut sources = HashMap::with_capacity(loaded_sources.len());
+    for source in loaded_sources {
+      sources.insert(source.0, source.1);
     }
+    Ok(ExtModuleLoader {
+      sources: RefCell::new(sources),
+    })
+  }
+
+  pub fn finalize(self) -> Result<(), Error> {
+    let sources = self.sources.take();
+    let unused_modules: Vec<_> = sources.iter().collect();
+
+    if !unused_modules.is_empty() {
+      let mut msg =
+        "Following modules were passed to ExtModuleLoader but never used:\n"
+          .to_string();
+      for m in unused_modules {
+        msg.push_str("  - ");
+        msg.push_str(m.0);
+        msg.push('\n');
+      }
+      bail!(msg);
+    }
+
+    Ok(())
   }
 }
 
@@ -149,6 +213,21 @@ impl ModuleLoader for ExtModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, Error> {
+    // If specifier is relative to an extension module, we need to do some special handling
+    if specifier.starts_with("../")
+      || specifier.starts_with("./")
+      || referrer.starts_with("ext:")
+    {
+      // add `/` to the referrer to make it a valid base URL, so we can join the specifier to it
+      return Ok(crate::resolve_url(
+        &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())?
+          .join(specifier)
+          .map_err(crate::ModuleResolutionError::InvalidBaseUrl)?
+          .as_str()
+          // remove the `/` we added
+          .replace("ext:/", "ext:"),
+      )?);
+    }
     Ok(resolve_import(specifier, referrer)?)
   }
 
@@ -159,23 +238,17 @@ impl ModuleLoader for ExtModuleLoader {
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
-    let sources = self.sources.borrow();
-    let source = match sources.get(specifier.as_str()) {
+    let mut sources = self.sources.borrow_mut();
+    let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
       None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier))),
     };
-    self
-      .used_specifiers
-      .borrow_mut()
-      .insert(specifier.to_string());
-    let result = source.load().map(|code| {
-      ModuleSource::new(
-        ModuleType::JavaScript,
-        ModuleSourceCode::String(code),
-        specifier,
-      )
-    });
-    ModuleLoadResponse::Sync(result)
+    ModuleLoadResponse::Sync(Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(source),
+      specifier,
+      None,
+    )))
   }
 
   fn prepare_load(
@@ -192,12 +265,12 @@ impl ModuleLoader for ExtModuleLoader {
 /// ES modules that were embedded in the binary using `lazy_loaded_esm`
 /// option in `extension!` macro.
 pub(crate) struct LazyEsmModuleLoader {
-  sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+  sources: Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
 }
 
 impl LazyEsmModuleLoader {
   pub fn new(
-    sources: Rc<RefCell<HashMap<&'static str, ExtensionFileSource>>>,
+    sources: Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
   ) -> Self {
     LazyEsmModuleLoader { sources }
   }
@@ -220,19 +293,17 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
-    let sources = self.sources.borrow();
-    let source = match sources.get(specifier.as_str()) {
+    let mut sources = self.sources.borrow_mut();
+    let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
       None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the binary.", specifier))),
     };
-    let result = source.load().map(|code| {
-      ModuleSource::new(
-        ModuleType::JavaScript,
-        ModuleSourceCode::String(code),
-        specifier,
-      )
-    });
-    ModuleLoadResponse::Sync(result)
+    ModuleLoadResponse::Sync(Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(source),
+      specifier,
+      None,
+    )))
   }
 
   fn prepare_load(
@@ -242,29 +313,6 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
     async { Ok(()) }.boxed_local()
-  }
-}
-
-impl Drop for ExtModuleLoader {
-  fn drop(&mut self) {
-    let sources = self.sources.get_mut();
-    let used_specifiers = self.used_specifiers.get_mut();
-    let unused_modules: Vec<_> = sources
-      .iter()
-      .filter(|(k, _)| !used_specifiers.contains(k.as_str()))
-      .collect();
-
-    if !unused_modules.is_empty() {
-      let mut msg =
-        "Following modules were passed to ExtModuleLoader but never used:\n"
-          .to_string();
-      for m in unused_modules {
-        msg.push_str("  - ");
-        msg.push_str(m.0);
-        msg.push('\n');
-      }
-      panic!("{}", msg);
-    }
   }
 }
 
@@ -331,6 +379,7 @@ impl ModuleLoader for FsModuleLoader {
         module_type,
         ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
         &module_specifier,
+        None,
       );
       Ok(module)
     }
@@ -342,6 +391,7 @@ impl ModuleLoader for FsModuleLoader {
 
 /// A module loader that you can pre-load a number of modules into and resolve from. Useful for testing and
 /// embedding situations where the filesystem and snapshot systems are not usable or a good fit.
+#[derive(Default)]
 pub struct StaticModuleLoader {
   map: HashMap<ModuleSpecifier, ModuleCodeString>,
 }
@@ -349,19 +399,22 @@ pub struct StaticModuleLoader {
 impl StaticModuleLoader {
   /// Create a new [`StaticModuleLoader`] from an `Iterator` of specifiers and code.
   pub fn new(
-    from: impl IntoIterator<Item = (ModuleSpecifier, ModuleCodeString)>,
+    from: impl IntoIterator<Item = (ModuleSpecifier, impl IntoModuleCodeString)>,
   ) -> Self {
     Self {
       map: HashMap::from_iter(
-        from
-          .into_iter()
-          .map(|(url, code)| (url, code.into_cheap_copy().0)),
+        from.into_iter().map(|(url, code)| {
+          (url, code.into_module_code().into_cheap_copy().0)
+        }),
       ),
     }
   }
 
   /// Create a new [`StaticModuleLoader`] from a single code item.
-  pub fn with(specifier: ModuleSpecifier, code: ModuleCodeString) -> Self {
+  pub fn with(
+    specifier: ModuleSpecifier,
+    code: impl IntoModuleCodeString,
+  ) -> Self {
     Self::new([(specifier, code)])
   }
 }
@@ -388,6 +441,7 @@ impl ModuleLoader for StaticModuleLoader {
         ModuleType::JavaScript,
         ModuleSourceCode::String(code.try_clone().unwrap()),
         module_specifier,
+        None,
       ))
     } else {
       Err(generic_error("Module not found"))

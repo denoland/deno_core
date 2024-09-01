@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { assert, assertEquals, test } from "checkin:testing";
 
 test(async function testTimeout() {
@@ -61,4 +61,78 @@ test(async function testTimerDepth() {
     }, 1);
   }, 1);
   await promise;
+});
+
+// The timers must drain the microtask queue before attempting to run the
+// next timer.
+test(async function testMicrotaskOrdering() {
+  const { promise, resolve } = Promise.withResolvers();
+  let s = "";
+  let i = 0;
+  setTimeout(() => {
+    Promise.resolve().then(() => {
+      s += "promise\n";
+    });
+    if (++i == 2) {
+      resolve(0);
+    }
+  });
+  setTimeout(() => {
+    s += "no promise\n";
+    if (++i == 2) {
+      resolve(0);
+    }
+  });
+  await promise;
+  assertEquals(s, "promise\nno promise\n");
+});
+
+test(async function testTimerException() {
+  const { promise, resolve } = Promise.withResolvers<Error>();
+  globalThis.onerror = ((e: ErrorEvent) => {
+    resolve(e.error);
+    e.preventDefault();
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    setTimeout(() => {
+      throw new Error("timeout error");
+    });
+    assertEquals("timeout error", (await promise).message);
+  } finally {
+    globalThis.onerror = null;
+  }
+});
+
+test(async function testTimerThis() {
+  const { promise, resolve, reject } = Promise.withResolvers();
+  setTimeout(function (this: unknown) {
+    try {
+      assertEquals(this, globalThis);
+      resolve(0);
+    } catch (e) {
+      reject(e);
+    }
+  }, 1);
+  await promise;
+});
+
+test(async function testCancellationDuringDispatch() {
+  const timers: number[] = [];
+  let timeouts = 0;
+
+  // If a timer is ready to be dispatched, but is cancelled during the
+  // dispatch of a previous timer that is also ready, that timer should
+  // not be dispatched.
+  function onTimeout() {
+    ++timeouts;
+    for (let i = 1; i < timers.length; i++) {
+      clearTimeout(timers[i]);
+    }
+  }
+  for (let i = 0; i < 10; i++) {
+    timers[i] = setTimeout(onTimeout, 1);
+  }
+  await new Promise((r) => setTimeout(r, 10));
+  assertEquals(timeouts, 1);
 });

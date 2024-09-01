@@ -1,9 +1,9 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::fmt::Display;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
   #[error("{0}")]
@@ -58,6 +58,9 @@ pub enum Error {
 
   #[error("serde_v8 error: can't create slice from resizable ArrayBuffer")]
   ResizableBackingStoreNotSupported,
+
+  #[error("{0}")]
+  Custom(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 impl serde::ser::Error for Error {

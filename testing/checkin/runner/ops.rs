@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -8,12 +8,13 @@ use deno_core::stats::RuntimeActivitySnapshot;
 use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
-use deno_core::v8;
+use deno_core::GarbageCollected;
+use deno_core::OpDecl;
 use deno_core::OpState;
 
-use super::testing::Output;
-use super::testing::TestData;
-use super::testing::TestFunctions;
+use super::extensions::SomeType;
+use super::Output;
+use super::TestData;
 
 #[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
@@ -24,15 +25,6 @@ pub fn op_log_debug(#[string] s: &str) {
 pub fn op_log_info(#[state] output: &mut Output, #[string] s: String) {
   println!("{s}");
   output.line(s);
-}
-
-#[op2]
-pub fn op_test_register(
-  #[state] tests: &mut TestFunctions,
-  #[string] name: String,
-  #[global] f: v8::Global<v8::Function>,
-) {
-  tests.functions.push((name, f));
 }
 
 #[op2(fast)]
@@ -75,4 +67,40 @@ pub fn op_stats_delete(
   #[state] test_data: &mut TestData,
 ) {
   test_data.take::<RuntimeActivityStats>(name);
+}
+
+pub struct Stateful {
+  name: String,
+}
+
+impl GarbageCollected for Stateful {}
+
+impl Stateful {
+  #[op2(method(Stateful))]
+  #[string]
+  fn get_name(&self) -> String {
+    self.name.clone()
+  }
+
+  #[op2(fast, method(Stateful))]
+  #[smi]
+  fn len(&self) -> u32 {
+    self.name.len() as u32
+  }
+
+  #[op2(async, method(Stateful))]
+  async fn delay(&self, #[smi] millis: u32) {
+    tokio::time::sleep(std::time::Duration::from_millis(millis as u64)).await;
+    println!("name: {}", self.name);
+  }
+}
+
+// Make sure this compiles, we'll use it when we add registration.
+#[allow(dead_code)]
+const STATEFUL_DECL: [OpDecl; 3] =
+  [Stateful::get_name(), Stateful::len(), Stateful::delay()];
+
+#[op2(fast)]
+pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
+  state.take::<T>();
 }

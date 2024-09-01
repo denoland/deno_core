@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use serde::ser;
 use serde::ser::Serialize;
 
@@ -9,8 +9,6 @@ use crate::error::Error;
 use crate::error::Result;
 use crate::keys::v8_struct_key;
 use crate::magic;
-use crate::magic::transl8::opaque_deref_mut;
-use crate::magic::transl8::opaque_recv;
 use crate::magic::transl8::MagicType;
 use crate::magic::transl8::ToV8;
 use crate::magic::transl8::MAGIC_FIELD;
@@ -254,16 +252,20 @@ impl<'a, 'b, 'c, T: MagicType + ToV8> ser::SerializeStruct
     value: &U,
   ) -> Result<()> {
     assert_eq!(key, MAGIC_FIELD);
-    let ptr: &U = value;
+    // SERIALIZATION CRIMES
+
     // SAFETY: MagicalSerializer only ever receives single field u64s,
     // type-safety is ensured by MAGIC_NAME checks in `serialize_struct()`
-    self.opaque = unsafe { opaque_recv(ptr) };
+    self.opaque = unsafe { std::ptr::read(value as *const _ as *const u64) };
     Ok(())
   }
 
   fn end(self) -> JsResult<'a> {
+    // SERIALIZATION CRIMES
+
     // SAFETY: transerialization assumptions imply `T` is still alive.
-    let x: &mut T = unsafe { opaque_deref_mut(self.opaque) };
+    let x: &T =
+      unsafe { (self.opaque as *const T).as_ref().unwrap_unchecked() };
     let scope = &mut *self.scope.borrow_mut();
     x.to_v8(scope)
   }
@@ -273,6 +275,7 @@ impl<'a, 'b, 'c, T: MagicType + ToV8> ser::SerializeStruct
 pub enum StructSerializers<'a, 'b, 'c> {
   ExternalPointer(MagicalSerializer<'a, 'b, 'c, magic::ExternalPointer>),
   Magic(MagicalSerializer<'a, 'b, 'c, magic::Value<'a>>),
+  GlobalMagic(MagicalSerializer<'a, 'b, 'c, magic::GlobalValue>),
   RustToV8Buf(MagicalSerializer<'a, 'b, 'c, ToJsBuffer>),
   MagicAnyValue(MagicalSerializer<'a, 'b, 'c, AnyValue>),
   MagicDetached(MagicalSerializer<'a, 'b, 'c, DetachedBuffer>),
@@ -294,6 +297,7 @@ impl<'a, 'b, 'c> ser::SerializeStruct for StructSerializers<'a, 'b, 'c> {
     match self {
       StructSerializers::ExternalPointer(s) => s.serialize_field(key, value),
       StructSerializers::Magic(s) => s.serialize_field(key, value),
+      StructSerializers::GlobalMagic(s) => s.serialize_field(key, value),
       StructSerializers::RustToV8Buf(s) => s.serialize_field(key, value),
       StructSerializers::MagicAnyValue(s) => s.serialize_field(key, value),
       StructSerializers::MagicDetached(s) => s.serialize_field(key, value),
@@ -308,6 +312,7 @@ impl<'a, 'b, 'c> ser::SerializeStruct for StructSerializers<'a, 'b, 'c> {
     match self {
       StructSerializers::ExternalPointer(s) => s.end(),
       StructSerializers::Magic(s) => s.end(),
+      StructSerializers::GlobalMagic(s) => s.end(),
       StructSerializers::RustToV8Buf(s) => s.end(),
       StructSerializers::MagicAnyValue(s) => s.end(),
       StructSerializers::MagicDetached(s) => s.end(),
@@ -601,6 +606,10 @@ impl<'a, 'b, 'c> ser::Serializer for Serializer<'a, 'b, 'c> {
       magic::Value::MAGIC_NAME => {
         let m = MagicalSerializer::<magic::Value<'a>>::new(self.scope);
         Ok(StructSerializers::Magic(m))
+      }
+      magic::GlobalValue::MAGIC_NAME => {
+        let m = MagicalSerializer::<magic::GlobalValue>::new(self.scope);
+        Ok(StructSerializers::GlobalMagic(m))
       }
       _ => {
         // Regular structs

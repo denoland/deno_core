@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use bytes::Buf;
 use bytes::BytesMut;
 use serde_v8::JsBuffer;
@@ -162,24 +162,6 @@ impl From<bytes::Bytes> for BufView {
   fn from(buf: bytes::Bytes) -> Self {
     Self::from_inner(BufViewInner::Bytes(buf))
   }
-}
-
-impl From<BufView> for bytes::Bytes {
-  fn from(buf: BufView) -> Self {
-    match buf.inner {
-      BufViewInner::Empty => bytes::Bytes::new(),
-      BufViewInner::Bytes(bytes) => bytes,
-      BufViewInner::JsBuffer(js_buf) => js_buf.into(),
-    }
-  }
-}
-
-/// BufMutViewWhole is equivalent to `BufMutView`, but cannot be split, preventing
-/// someone from accidentally holding a `BufView` down the road that is being actively
-/// mutated from JavaScript.
-pub struct BufMutViewWhole {
-  inner: BufMutViewInner,
-  cursor: usize,
 }
 
 /// BufMutView is a wrapper around an underlying contiguous chunk of writable
@@ -424,124 +406,6 @@ impl From<JsBuffer> for BufMutView {
 }
 
 impl From<BytesMut> for BufMutView {
-  fn from(buf: BytesMut) -> Self {
-    Self::from_inner(BufMutViewInner::Bytes(buf))
-  }
-}
-
-impl BufMutViewWhole {
-  fn from_inner(inner: BufMutViewInner) -> Self {
-    Self { inner, cursor: 0 }
-  }
-
-  pub fn new(len: usize) -> Self {
-    let bytes = BytesMut::zeroed(len);
-    Self::from_inner(BufMutViewInner::Bytes(bytes))
-  }
-
-  /// Get the length of the buffer view. This is the length of the underlying
-  /// buffer minus the cursor position.
-  pub fn len(&self) -> usize {
-    match &self.inner {
-      BufMutViewInner::JsBuffer(js_buf) => js_buf.len() - self.cursor,
-      BufMutViewInner::Bytes(bytes) => bytes.len() - self.cursor,
-    }
-  }
-
-  /// Is the buffer view empty?
-  pub fn is_empty(&self) -> bool {
-    self.len() == 0
-  }
-
-  /// Advance the internal cursor of the buffer view by `n` bytes.
-  pub fn advance_cursor(&mut self, n: usize) {
-    assert!(self.len() >= n);
-    self.cursor += n;
-  }
-
-  /// Reset the internal cursor of the buffer view to the beginning of the
-  /// buffer. Returns the old cursor position.
-  pub fn reset_cursor(&mut self) -> usize {
-    let old = self.cursor;
-    self.cursor = 0;
-    old
-  }
-
-  /// Turn this `BufMutView` into a `BufView`.
-  pub fn into_view(self) -> BufView {
-    let inner = match self.inner {
-      BufMutViewInner::JsBuffer(js_buf) => BufViewInner::JsBuffer(js_buf),
-      BufMutViewInner::Bytes(bytes) => BufViewInner::Bytes(bytes.into()),
-    };
-    BufView {
-      inner,
-      cursor: self.cursor,
-    }
-  }
-
-  /// Attempts to unwrap the underlying buffer into a [`BytesMut`], consuming the `BufMutView`. If
-  /// this buffer does not have a [`BytesMut`], returns `Self`.
-  pub fn maybe_unwrap_bytes(self) -> Result<BytesMut, Self> {
-    match self.inner {
-      BufMutViewInner::JsBuffer(_) => Err(self),
-      BufMutViewInner::Bytes(bytes) => Ok(bytes),
-    }
-  }
-
-  /// Adjust the length of the remaining buffer and ensure that the cursor continues to
-  /// stay in-bounds.
-  pub fn truncate(&mut self, size: usize) {
-    match &mut self.inner {
-      BufMutViewInner::Bytes(bytes) => bytes.truncate(size + self.cursor),
-      BufMutViewInner::JsBuffer(buffer) => buffer.truncate(size + self.cursor),
-    }
-    self.cursor = std::cmp::min(self.cursor, self.len());
-  }
-}
-
-impl Buf for BufMutViewWhole {
-  fn remaining(&self) -> usize {
-    self.len()
-  }
-
-  fn chunk(&self) -> &[u8] {
-    self.deref()
-  }
-
-  fn advance(&mut self, cnt: usize) {
-    self.advance_cursor(cnt)
-  }
-}
-
-impl Deref for BufMutViewWhole {
-  type Target = [u8];
-
-  fn deref(&self) -> &[u8] {
-    let buf = match &self.inner {
-      BufMutViewInner::JsBuffer(js_buf) => js_buf.deref(),
-      BufMutViewInner::Bytes(vec) => vec.deref(),
-    };
-    &buf[self.cursor..]
-  }
-}
-
-impl DerefMut for BufMutViewWhole {
-  fn deref_mut(&mut self) -> &mut [u8] {
-    let buf = match &mut self.inner {
-      BufMutViewInner::JsBuffer(js_buf) => js_buf.deref_mut(),
-      BufMutViewInner::Bytes(vec) => vec.deref_mut(),
-    };
-    &mut buf[self.cursor..]
-  }
-}
-
-impl From<JsBuffer> for BufMutViewWhole {
-  fn from(buf: JsBuffer) -> Self {
-    Self::from_inner(BufMutViewInner::JsBuffer(buf.into_parts()))
-  }
-}
-
-impl From<BytesMut> for BufMutViewWhole {
   fn from(buf: BytesMut) -> Self {
     Self::from_inner(BufMutViewInner::Bytes(buf))
   }

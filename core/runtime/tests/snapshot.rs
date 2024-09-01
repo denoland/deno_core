@@ -1,27 +1,31 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::extensions::Op;
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
 use anyhow::Error;
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use self::runtime::create_snapshot;
+use self::runtime::CreateSnapshotOptions;
 
 #[test]
 fn will_snapshot() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
-    runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
+    runtime.execute_script("a.js", "a = 1 + 2").unwrap();
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
@@ -29,13 +33,11 @@ fn will_snapshot() {
 fn will_snapshot2() {
   let startup_data = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
-    runtime
-      .execute_script_static("a.js", "let a = 1 + 2")
-      .unwrap();
+    runtime.execute_script("a.js", "let a = 1 + 2").unwrap();
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(startup_data);
+  let snapshot = Box::leak(startup_data);
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
@@ -43,23 +45,23 @@ fn will_snapshot2() {
 
   let startup_data = {
     runtime
-      .execute_script_static("check_a.js", "if (a != 3) throw Error('x')")
+      .execute_script("check_a.js", "if (a != 3) throw Error('x')")
       .unwrap();
-    runtime.execute_script_static("b.js", "b = 2 + 3").unwrap();
+    runtime.execute_script("b.js", "b = 2 + 3").unwrap();
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(startup_data);
+  let snapshot = Box::leak(startup_data);
   {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       startup_snapshot: Some(snapshot),
       ..Default::default()
     });
     runtime
-      .execute_script_static("check_b.js", "if (b != 5) throw Error('x')")
+      .execute_script("check_b.js", "if (b != 5) throw Error('x')")
       .unwrap();
     runtime
-      .execute_script_static("check2.js", "if (!Deno.core) throw Error('x')")
+      .execute_script("check2.js", "if (!Deno.core) throw Error('x')")
       .unwrap();
   }
 }
@@ -69,7 +71,7 @@ fn test_snapshot_callbacks() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
     runtime
-      .execute_script_static(
+      .execute_script(
         "a.js",
         r#"
         Deno.core.setMacrotaskCallback(() => {
@@ -88,32 +90,97 @@ fn test_snapshot_callbacks() {
     runtime.snapshot()
   };
 
-  let snapshot = Snapshot::JustCreated(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
 #[test]
-fn test_from_boxed_snapshot() {
+fn test_from_snapshot() {
   let snapshot = {
     let mut runtime = JsRuntimeForSnapshot::new(Default::default());
-    runtime.execute_script_static("a.js", "a = 1 + 2").unwrap();
-    let snap: &[u8] = &runtime.snapshot();
-    Vec::from(snap).into_boxed_slice()
+    runtime.execute_script("a.js", "a = 1 + 2").unwrap();
+    runtime.snapshot()
   };
 
-  let snapshot = Snapshot::Boxed(snapshot);
+  let snapshot = Box::leak(snapshot);
   let mut runtime2 = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
     ..Default::default()
   });
   runtime2
-    .execute_script_static("check.js", "if (a != 3) throw Error('x')")
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
+    .unwrap();
+}
+
+/// Smoke test for create_snapshot.
+#[test]
+fn test_snapshot_creator() {
+  let output = create_snapshot(
+    CreateSnapshotOptions {
+      cargo_manifest_dir: "",
+      startup_snapshot: None,
+      skip_op_registration: false,
+      extension_transpiler: None,
+      extensions: vec![],
+      with_runtime_cb: Some(Box::new(|runtime| {
+        runtime.execute_script("a.js", "a = 1 + 2").unwrap();
+      })),
+    },
+    None,
+  )
+  .unwrap();
+
+  let snapshot = Box::leak(output.output);
+
+  let mut runtime2 = JsRuntime::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    ..Default::default()
+  });
+  runtime2
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
+    .unwrap();
+}
+
+#[test]
+fn test_snapshot_creator_warmup() {
+  let counter = Rc::new(RefCell::new(0));
+
+  let c = counter.clone();
+  let output = create_snapshot(
+    CreateSnapshotOptions {
+      cargo_manifest_dir: "",
+      startup_snapshot: None,
+      skip_op_registration: false,
+      extensions: vec![],
+      extension_transpiler: None,
+      with_runtime_cb: Some(Box::new(move |runtime| {
+        c.replace_with(|&mut c| c + 1);
+
+        runtime.execute_script("a.js", "a = 1 + 2").unwrap();
+      })),
+    },
+    Some("const b = 'Hello'"),
+  )
+  .unwrap();
+
+  // `with_runtime_cb` executes twice, once for snapshot creation
+  // and one for the warmup.
+  assert_eq!(*counter.borrow(), 2);
+
+  let snapshot = Box::leak(output.output);
+
+  let mut runtime2 = JsRuntime::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    ..Default::default()
+  });
+  runtime2
+    .execute_script("check.js", "if (a != 3) throw Error('x')")
     .unwrap();
 }
 
@@ -131,17 +198,16 @@ fn es_snapshot() {
       import {{ f{prev} }} from "file:///{prev}.js";
       export function f{i}() {{ return f{prev}() }}
       "#
-    )
-    .into();
+    );
 
     let id = if main {
       futures::executor::block_on(
-        runtime.load_main_module(&specifier, Some(source_code)),
+        runtime.load_main_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     } else {
       futures::executor::block_on(
-        runtime.load_side_module(&specifier, Some(source_code)),
+        runtime.load_side_es_module_from_code(&specifier, source_code),
       )
       .unwrap()
     };
@@ -157,10 +223,11 @@ fn es_snapshot() {
       main,
       name: specifier.into(),
       requests: vec![crate::modules::ModuleRequest {
-        specifier: format!("file:///{prev}.js"),
+        specifier: ModuleSpecifier::parse(&format!("file:///{prev}.js"))
+          .unwrap(),
         requested_module_type: RequestedModuleType::None,
       }],
-      module_type: RequestedModuleType::None,
+      module_type: ModuleType::JavaScript,
     }
   }
 
@@ -169,22 +236,20 @@ fn es_snapshot() {
   fn op_test() -> Result<String, Error> {
     Ok(String::from("test"))
   }
-
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
     extensions: vec![Extension {
       name: "test_ext",
-      ops: Cow::Borrowed(&[op_test::DECL]),
+      ops: Cow::Borrowed(&[DECL]),
       ..Default::default()
     }],
     ..Default::default()
   });
 
   let specifier = crate::resolve_url("file:///0.js").unwrap();
-  let source_code =
-    ascii_str!(r#"export function f0() { return "hello world" }"#);
-  let id = futures::executor::block_on(
-    runtime.load_side_module(&specifier, Some(source_code)),
-  )
+  let id = futures::executor::block_on(runtime.load_side_es_module_from_code(
+    &specifier,
+    r#"export function f0() { return "hello world" }"#,
+  ))
   .unwrap();
 
   #[allow(clippy::let_underscore_future)]
@@ -198,7 +263,7 @@ fn es_snapshot() {
     main: false,
     name: specifier.into(),
     requests: vec![],
-    module_type: RequestedModuleType::None,
+    module_type: ModuleType::JavaScript,
   });
 
   modules.extend((1..200).map(|i| create_module(&mut runtime, i, false)));
@@ -206,12 +271,13 @@ fn es_snapshot() {
   runtime.module_map().assert_module_map(&modules);
 
   let snapshot = runtime.snapshot();
+  let snapshot = Box::leak(snapshot);
 
   let mut runtime2 = JsRuntimeForSnapshot::new(RuntimeOptions {
-    startup_snapshot: Some(Snapshot::JustCreated(snapshot)),
+    startup_snapshot: Some(snapshot),
     extensions: vec![Extension {
       name: "test_ext",
-      ops: Cow::Borrowed(&[op_test::DECL]),
+      ops: Cow::Borrowed(&[DECL]),
       ..Default::default()
     }],
     ..Default::default()
@@ -225,12 +291,14 @@ fn es_snapshot() {
   runtime2.module_map().assert_module_map(&modules);
 
   let snapshot2 = runtime2.snapshot();
+  let snapshot2 = Box::leak(snapshot2);
 
+  const DECL: OpDecl = op_test();
   let mut runtime3 = JsRuntime::new(RuntimeOptions {
-    startup_snapshot: Some(Snapshot::JustCreated(snapshot2)),
+    startup_snapshot: Some(snapshot2),
     extensions: vec![Extension {
       name: "test_ext",
-      ops: Cow::Borrowed(&[op_test::DECL]),
+      ops: Cow::Borrowed(&[DECL]),
       ..Default::default()
     }],
     ..Default::default()
@@ -242,7 +310,7 @@ fn es_snapshot() {
     const mod = await import("file:///400.js");
     return mod.f400() + " " + Deno.core.ops.op_test();
   })();"#;
-  let val = runtime3.execute_script_static(".", source_code).unwrap();
+  let val = runtime3.execute_script(".", source_code).unwrap();
   #[allow(deprecated)]
   let val = futures::executor::block_on(runtime3.resolve_value(val)).unwrap();
   {
@@ -256,29 +324,26 @@ fn es_snapshot() {
 #[test]
 pub(crate) fn es_snapshot_without_runtime_module_loader() {
   let startup_data = {
-    let extension = Extension {
-      name: "module_snapshot",
-      esm_files: Cow::Borrowed(&[ExtensionFileSource {
-        specifier: "ext:module_snapshot/test.js",
-        code: ExtensionFileSourceCode::IncludedInBinary(
-          "globalThis.TEST = 'foo'; export const TEST = 'bar';",
-        ),
-      }]),
-      esm_entry_point: Some("ext:module_snapshot/test.js"),
-      ..Default::default()
-    };
+    deno_core::extension!(
+      module_snapshot,
+      esm_entry_point = "ext:module_snapshot/test.js",
+      esm = ["ext:module_snapshot/test.js" =
+        { source = "globalThis.TEST = 'foo'; export const TEST = 'bar';" },]
+    );
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![extension],
+      extensions: vec![module_snapshot::init_ops_and_esm()],
       ..Default::default()
     });
 
     runtime.snapshot()
   };
 
+  let snapshot = Box::leak(startup_data);
+
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: None,
-    startup_snapshot: Some(Snapshot::JustCreated(startup_data)),
+    startup_snapshot: Some(snapshot),
     ..Default::default()
   });
   let realm = runtime.main_realm();
@@ -296,7 +361,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 
   // Dynamic imports of ext: from non-ext: modules are not allowed.
   let dyn_import_promise = realm
-    .execute_script_static(
+    .execute_script(
       runtime.v8_isolate(),
       "",
       "import('ext:module_snapshot/test.js')",
@@ -312,7 +377,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 
   // But not a new one
   let dyn_import_promise = realm
-    .execute_script_static(
+    .execute_script(
       runtime.v8_isolate(),
       "",
       "import('ext:module_snapshot/test2.js')",
@@ -326,4 +391,67 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     dyn_import_result.err().unwrap().to_string().as_str(),
     r#"Uncaught (in promise) TypeError: Importing ext: modules is only allowed from ext: and node: modules. Tried to import ext:module_snapshot/test2.js from (no referrer)"#
   );
+}
+
+#[test]
+pub fn snapshot_with_additional_extensions() {
+  #[op2]
+  #[string]
+  fn op_before() -> String {
+    "before".to_owned()
+  }
+
+  #[op2]
+  #[string]
+  fn op_after() -> String {
+    "after".to_owned()
+  }
+
+  deno_core::extension!(
+    before_snapshot,
+    ops = [op_before],
+    esm_entry_point = "ext:module_snapshot/before.js",
+    esm = ["ext:module_snapshot/before.js" =
+      // If this throws, we accidentally tried to evaluate this module twice
+      { source = "if (globalThis.before) { throw 'twice?' } globalThis.before = () => { globalThis.BEFORE = Deno.core.ops.op_before(); };" },]
+  );
+  deno_core::extension!(
+    after_snapshot,
+    ops = [op_after],
+    esm_entry_point = "ext:module_snapshot/after.js",
+    esm = ["ext:module_snapshot/after.js" = {
+      source =
+        "globalThis.before(); globalThis.AFTER = Deno.core.ops.op_after();"
+    },]
+  );
+
+  let snapshot = {
+    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+      extensions: vec![before_snapshot::init_ops_and_esm()],
+      ..Default::default()
+    });
+
+    Box::leak(runtime.snapshot())
+  };
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    startup_snapshot: Some(snapshot),
+    extensions: vec![
+      before_snapshot::init_ops(),
+      after_snapshot::init_ops_and_esm(),
+    ],
+    ..Default::default()
+  });
+
+  // Make sure the module was evaluated.
+  {
+    let scope = &mut runtime.main_realm().handle_scope(runtime.v8_isolate());
+    let global_test: v8::Local<v8::String> =
+      JsRuntime::eval(scope, "globalThis.BEFORE + '/' + globalThis.AFTER")
+        .unwrap();
+    assert_eq!(
+      serde_v8::to_utf8(global_test.to_string(scope).unwrap(), scope),
+      String::from("before/after"),
+    );
+  }
 }

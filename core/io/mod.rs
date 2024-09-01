@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 // Think of Resources as File Descriptors. They are integers that are allocated
 // by the privileged side of Deno which refer to various rust objects that need
@@ -18,7 +18,6 @@ mod resource_table;
 
 pub use buffer_strategy::AdaptiveBufferStrategy;
 pub use buffers::BufMutView;
-pub use buffers::BufMutViewWhole;
 pub use buffers::BufView;
 pub use resource::Resource;
 pub use resource_handle::ResourceHandle;

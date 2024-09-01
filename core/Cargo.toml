@@ -1,8 +1,8 @@
-# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 [package]
 name = "deno_core"
-version = "0.256.0"
+version = "0.307.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,32 +14,29 @@ description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and T
 path = "lib.rs"
 
 [features]
-default = ["include_icu_data", "v8_use_custom_libcxx", "op_driver_futuresunordered"]
+default = ["include_icu_data", "v8_use_custom_libcxx"]
 include_icu_data = ["deno_core_icudata"]
 v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 unsafe_use_unprotected_platform = []
-
-# Use the old, slower (but better tested) JoinSet driver
-op_driver_joinset = []
-# Use the new, faster FuturesUnordered driver
-op_driver_futuresunordered = []
+snapshot_flags_eager_parse = []
 
 [dependencies]
 anyhow.workspace = true
+bincode.workspace = true
 bit-set.workspace = true
 bit-vec.workspace = true
 bytes.workspace = true
 cooked-waker.workspace = true
+deno_core_icudata = { workspace = true, optional = true }
 deno_ops.workspace = true
 deno_unsync.workspace = true
-deno_core_icudata = { workspace = true, optional = true }
 futures.workspace = true
 libc.workspace = true
-log.workspace = true
 memoffset.workspace = true
 parking_lot.workspace = true
+percent-encoding.workspace = true
 pin-project.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -52,11 +49,13 @@ url.workspace = true
 v8.workspace = true
 
 [dev-dependencies]
-deno_ast.workspace = true
 bencher.workspace = true
+criterion.workspace = true
+deno_ast.workspace = true
+fastrand.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
-fastrand.workspace = true
+twox-hash.workspace = true
 unicycle = "0"
 
 [[bench]]
@@ -79,4 +78,9 @@ harness = false
 [[bench]]
 name = "arena"
 path = "benches/infra/arena.rs"
+harness = false
+
+[[bench]]
+name = "snapshot"
+path = "benches/snapshot/snapshot.rs"
 harness = false

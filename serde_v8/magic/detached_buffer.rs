@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use core::ops::Range;
 use std::ops::Deref;
@@ -41,7 +41,7 @@ impl DerefMut for DetachedBuffer {
 
 impl ToV8 for DetachedBuffer {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     let buffer = v8::ArrayBuffer::with_backing_store(scope, &self.0.store);

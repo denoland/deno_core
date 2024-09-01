@@ -1,10 +1,10 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
+use crate::FastStaticString;
 use anyhow::bail;
-use anyhow::Context;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -12,6 +12,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use url::Url;
 
 mod loaders;
 mod map;
@@ -21,11 +22,6 @@ mod recursive_load;
 #[cfg(all(test, not(miri)))]
 mod tests;
 
-#[cfg(test)]
-pub use loaders::ModuleLoadEventCounts;
-#[cfg(test)]
-pub use loaders::TestingModuleLoader;
-
 pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::ExtModuleLoaderCb;
 pub use loaders::FsModuleLoader;
@@ -34,9 +30,10 @@ pub use loaders::ModuleLoadResponse;
 pub use loaders::ModuleLoader;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
+pub(crate) use map::script_origin;
 pub(crate) use map::synthetic_module_evaluation_steps;
 pub(crate) use map::ModuleMap;
-pub(crate) use module_map_data::ModuleMapSnapshottedData;
+pub(crate) use module_map_data::ModuleMapSnapshotData;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
@@ -44,16 +41,95 @@ pub(crate) type ModuleLoadId = i32;
 /// The actual source code returned from the loader. Most embedders should
 /// try to return bytes and let deno_core interpret if the module should be
 /// converted to a string or not.
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub enum ModuleSourceCode {
   String(ModuleCodeString),
   Bytes(ModuleCodeBytes),
 }
 
+impl ModuleSourceCode {
+  pub fn as_bytes(&self) -> &[u8] {
+    match self {
+      Self::String(s) => s.as_bytes(),
+      Self::Bytes(b) => b.as_bytes(),
+    }
+  }
+}
+
 pub type ModuleCodeString = FastString;
 pub type ModuleName = FastString;
 
-#[derive(Debug)]
+/// Converts various string-like things into `ModuleName`.
+pub trait IntoModuleName {
+  fn into_module_name(self) -> ModuleName;
+}
+
+impl IntoModuleName for ModuleName {
+  fn into_module_name(self) -> ModuleName {
+    self
+  }
+}
+
+impl IntoModuleName for &'static str {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from_static(self)
+  }
+}
+
+impl IntoModuleName for String {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from(self)
+  }
+}
+
+impl IntoModuleName for Url {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from(self)
+  }
+}
+
+impl IntoModuleName for FastStaticString {
+  fn into_module_name(self) -> ModuleName {
+    ModuleName::from(self)
+  }
+}
+
+/// Converts various string-like things into `ModuleCodeString`.
+pub trait IntoModuleCodeString {
+  fn into_module_code(self) -> ModuleCodeString;
+}
+
+impl IntoModuleCodeString for ModuleCodeString {
+  fn into_module_code(self) -> ModuleCodeString {
+    self
+  }
+}
+
+impl IntoModuleCodeString for &'static str {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from_static(self)
+  }
+}
+
+impl IntoModuleCodeString for String {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from(self)
+  }
+}
+
+impl IntoModuleCodeString for FastStaticString {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from(self)
+  }
+}
+
+impl IntoModuleCodeString for Arc<str> {
+  fn into_module_code(self) -> ModuleCodeString {
+    ModuleCodeString::from(self)
+  }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub enum ModuleCodeBytes {
   /// Created from static data.
   Static(&'static [u8]),
@@ -135,6 +211,15 @@ pub type CustomModuleEvaluationCb = Box<
   ) -> Result<CustomModuleEvaluationKind, AnyError>,
 >;
 
+/// A callback to get the code cache for a script.
+/// (specifier, code) -> ...
+pub type EvalContextGetCodeCacheCb =
+  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, AnyError>>;
+
+/// Callback when the code cache is ready.
+/// (specifier, hash, data) -> ()
+pub type EvalContextCodeCacheReadyCb = Box<dyn Fn(Url, u64, &[u8])>;
+
 pub enum CustomModuleEvaluationKind {
   /// This evaluation results in a single, "synthetic" module.
   Synthetic(v8::Global<v8::Value>),
@@ -211,13 +296,13 @@ pub(crate) fn get_requested_module_type_from_attributes(
 
 /// A type of module to be executed.
 ///
-/// `deno_core` supports loading and executing JavaScript and JSON modules,
+/// `deno_core` supports loading and executing JavaScript, Wasm and JSON modules,
 /// by default, but embedders can customize it further by providing
 /// [`CustomModuleEvaluationCb`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[repr(u32)]
 pub enum ModuleType {
   JavaScript,
+  Wasm,
   Json,
   Other(Cow<'static, str>),
 }
@@ -226,10 +311,49 @@ impl std::fmt::Display for ModuleType {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::JavaScript => write!(f, "JavaScript"),
+      Self::Wasm => write!(f, "Wasm"),
       Self::Json => write!(f, "JSON"),
       Self::Other(ty) => write!(f, "{}", ty),
     }
   }
+}
+
+impl ModuleType {
+  pub fn to_v8<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> v8::Local<'s, v8::Value> {
+    match self {
+      ModuleType::JavaScript => v8::Integer::new(scope, 0).into(),
+      ModuleType::Wasm => v8::Integer::new(scope, 1).into(),
+      ModuleType::Json => v8::Integer::new(scope, 2).into(),
+      ModuleType::Other(ty) => v8::String::new(scope, ty).unwrap().into(),
+    }
+  }
+
+  pub fn try_from_v8(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+  ) -> Option<Self> {
+    Some(if let Some(int) = value.to_integer(scope) {
+      match int.int32_value(scope).unwrap_or_default() {
+        0 => ModuleType::JavaScript,
+        1 => ModuleType::Wasm,
+        2 => ModuleType::Json,
+        _ => return None,
+      }
+    } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
+      ModuleType::Other(Cow::Owned(str.to_rust_string_lossy(scope)))
+    } else {
+      return None;
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct SourceCodeCacheInfo {
+  pub hash: u64,
+  pub data: Option<Cow<'static, [u8]>>,
 }
 
 /// EsModule source code that will be loaded into V8.
@@ -252,6 +376,7 @@ impl std::fmt::Display for ModuleType {
 pub struct ModuleSource {
   pub code: ModuleSourceCode,
   pub module_type: ModuleType,
+  pub code_cache: Option<SourceCodeCacheInfo>,
   module_url_specified: ModuleName,
   /// If the module was found somewhere other than the specified address, this will be [`Some`].
   module_url_found: Option<ModuleName>,
@@ -263,11 +388,13 @@ impl ModuleSource {
     module_type: impl Into<ModuleType>,
     code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
+    code_cache: Option<SourceCodeCacheInfo>,
   ) -> Self {
     let module_url_specified = specifier.as_ref().to_owned().into();
     Self {
       code,
       module_type: module_type.into(),
+      code_cache,
       module_url_specified,
       module_url_found: None,
     }
@@ -280,6 +407,7 @@ impl ModuleSource {
     code: ModuleSourceCode,
     specifier: &ModuleSpecifier,
     specifier_found: &ModuleSpecifier,
+    code_cache: Option<SourceCodeCacheInfo>,
   ) -> Self {
     let module_url_found = if specifier == specifier_found {
       None
@@ -290,6 +418,7 @@ impl ModuleSource {
     Self {
       code,
       module_type: module_type.into(),
+      code_cache,
       module_url_specified,
       module_url_found,
     }
@@ -298,8 +427,9 @@ impl ModuleSource {
   #[cfg(test)]
   pub fn for_test(code: &'static str, file: impl AsRef<str>) -> Self {
     Self {
-      code: ModuleSourceCode::String(FastString::from_static(code)),
+      code: ModuleSourceCode::String(code.into_module_code()),
       module_type: ModuleType::JavaScript,
+      code_cache: None,
       module_url_specified: file.as_ref().to_owned().into(),
       module_url_found: None,
     }
@@ -311,6 +441,7 @@ impl ModuleSource {
     code: &'static str,
     specified: impl AsRef<str>,
     found: impl AsRef<str>,
+    code_cache: Option<SourceCodeCacheInfo>,
   ) -> Self {
     let specified = specified.as_ref().to_string();
     let found = found.as_ref().to_string();
@@ -320,24 +451,22 @@ impl ModuleSource {
       Some(found.into())
     };
     Self {
-      code: ModuleSourceCode::String(FastString::from_static(code)),
+      code: ModuleSourceCode::String(code.into_module_code()),
       module_type: ModuleType::JavaScript,
+      code_cache,
       module_url_specified: specified.into(),
       module_url_found: found,
     }
   }
 
-  pub fn get_string_source(
-    specifier: &str,
-    code: ModuleSourceCode,
-  ) -> Result<ModuleCodeString, AnyError> {
+  pub fn get_string_source(code: ModuleSourceCode) -> ModuleCodeString {
     match code {
-      ModuleSourceCode::String(code) => Ok(code),
+      ModuleSourceCode::String(code) => code,
       ModuleSourceCode::Bytes(bytes) => {
-        let str_ = String::from_utf8(bytes.to_vec()).with_context(|| {
-          format!("Can't convert source code to string for {}", specifier)
-        })?;
-        Ok(ModuleCodeString::from(str_))
+        match String::from_utf8_lossy(bytes.as_bytes()) {
+          Cow::Borrowed(s) => ModuleCodeString::from(s.to_owned()),
+          Cow::Owned(s) => ModuleCodeString::from(s),
+        }
       }
     }
   }
@@ -361,7 +490,6 @@ pub enum ResolutionKind {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[repr(u8)]
 pub enum RequestedModuleType {
   /// There was no attribute specified in the import statement.
   ///
@@ -443,6 +571,7 @@ impl PartialEq<ModuleType> for RequestedModuleType {
   fn eq(&self, other: &ModuleType) -> bool {
     match other {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
+      ModuleType::Wasm => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
       ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
@@ -453,6 +582,7 @@ impl From<ModuleType> for RequestedModuleType {
   fn from(module_type: ModuleType) -> RequestedModuleType {
     match module_type {
       ModuleType::JavaScript => RequestedModuleType::None,
+      ModuleType::Wasm => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
       ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
@@ -475,18 +605,18 @@ impl std::fmt::Display for RequestedModuleType {
 /// which case this will have a `RequestedModuleType::Json`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ModuleRequest {
-  pub specifier: String,
+  pub specifier: ModuleSpecifier,
   pub requested_module_type: RequestedModuleType,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ModuleInfo {
   #[allow(unused)]
   pub id: ModuleId,
   pub main: bool,
   pub name: ModuleName,
   pub requests: Vec<ModuleRequest>,
-  pub module_type: RequestedModuleType,
+  pub module_type: ModuleType,
 }
 
 #[derive(Debug)]

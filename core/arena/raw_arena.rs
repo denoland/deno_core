@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::alloc::Layout;
 use std::cell::Cell;
 use std::mem::ManuallyDrop;
@@ -484,6 +484,7 @@ mod tests {
 
   #[test]
   fn test_drops_full() {
+    #[allow(dead_code)]
     struct Droppable(String);
 
     let arena = RawArena::<_>::with_capacity(16);

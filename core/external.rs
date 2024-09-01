@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 
@@ -145,11 +145,11 @@ mod tests {
   struct External1(u32);
   external!(External1, "external 1");
 
-  struct External2(u32);
+  struct External2(());
   external!(External2, "external 2");
 
   // Use the same name as External 1
-  struct External1b(u32);
+  struct External1b(());
   external!(External1b, "external 1");
 
   /// Use this to avoid leaking in miri tests

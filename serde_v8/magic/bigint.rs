@@ -1,4 +1,7 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 use smallvec::smallvec;
 use smallvec::SmallVec;
@@ -8,25 +11,27 @@ use super::transl8::ToV8;
 use crate::magic::transl8::impl_magic;
 use crate::Error;
 
-#[derive(
-  PartialEq,
-  Eq,
-  Clone,
-  Debug,
-  Default,
-  derive_more::Deref,
-  derive_more::DerefMut,
-  derive_more::AsRef,
-  derive_more::AsMut,
-)]
-#[as_mut(forward)]
-#[as_ref(forward)]
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct BigInt(num_bigint::BigInt);
 impl_magic!(BigInt);
 
+impl Deref for BigInt {
+  type Target = num_bigint::BigInt;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for BigInt {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
 impl ToV8 for BigInt {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     let (sign, words) = self.0.to_u64_digits();

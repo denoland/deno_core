@@ -1,12 +1,12 @@
 #!/usr/bin/env -S deno run -A --lock=tools/deno.lock.json
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-import { DenoWorkspace } from "./deno_core_workspace.ts";
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+import { Crate, DenoWorkspace } from "./deno_core_workspace.ts";
 
 const workspace = await DenoWorkspace.load();
 const repo = workspace.repo;
 const denoCoreCrate = workspace.getDenoCoreCrate();
 
-const allCrates = {};
+const allCrates: { [key: string]: Crate } = {};
 allCrates[denoCoreCrate.name] = denoCoreCrate;
 
 for (const crate of workspace.getDenoCoreDependencyCrates()) {
@@ -14,7 +14,8 @@ for (const crate of workspace.getDenoCoreDependencyCrates()) {
 }
 
 // We have the crates in the correct publish order here
-const cratesInOrder = repo.getCratesPublishOrder().map(c => allCrates[c.name]).filter(c => !!c);
+const cratesInOrder = repo.getCratesPublishOrder().map((c) => allCrates[c.name])
+  .filter((c) => !!c);
 
 for (const crate of cratesInOrder) {
   await crate.increment("minor");
@@ -31,10 +32,14 @@ Deno.writeTextFileSync(DenoWorkspace.manifest, manifest);
 
 for (const crate of cratesInOrder) {
   await crate.publish(
-    "-p", crate.name,
-    "--allow-dirty", 
-    "--registry", "upstream",
-    "--token", "Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD", 
-    "--config", 'registries.upstream.index="sparse+http://localhost:8000/api/v1/crates/"'
+    "-p",
+    crate.name,
+    "--allow-dirty",
+    "--registry",
+    "upstream",
+    "--token",
+    "Zy9HhJ02RJmg0GCrgLfaCVfU6IwDfhXD",
+    "--config",
+    'registries.upstream.index="sparse+http://localhost:8000/api/v1/crates/"',
   );
 }

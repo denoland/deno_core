@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -6,21 +6,15 @@ use serde_v8::Result;
 use serde_v8_utilities::js_exec;
 use serde_v8_utilities::v8_do;
 
-#[derive(Deserialize)]
-struct MagicOp<'s> {
+#[derive(Serialize, Deserialize)]
+struct MagicOp {
   #[allow(unused)]
   pub a: u64,
   #[allow(unused)]
   pub b: u64,
-  pub c: serde_v8::Value<'s>,
+  pub c: String,
   #[allow(unused)]
   pub operator: Option<String>,
-}
-
-#[derive(Serialize)]
-struct MagicContainer<'s> {
-  pub magic: bool,
-  pub contains: serde_v8::Value<'s>,
 }
 
 #[test]
@@ -28,31 +22,23 @@ fn magic_basic() {
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Decode
     let v = js_exec(scope, "({a: 1, b: 3, c: 'abracadabra'})");
     let mop: MagicOp = serde_v8::from_v8(scope, v).unwrap();
-    // Check string
-    let v8_value: v8::Local<v8::Value> = mop.c.into();
-    let vs = v8::Local::<v8::String>::try_from(v8_value).unwrap();
-    let s = vs.to_rust_string_lossy(scope);
-    assert_eq!(s, "abracadabra");
+    assert_eq!(mop.a, 1);
+    assert_eq!(mop.b, 3);
+    assert_eq!(mop.c, "abracadabra");
+    assert!(mop.operator.is_none());
 
     // Encode
-    let container = MagicContainer {
-      magic: true,
-      contains: v.into(),
-    };
-    let vc = serde_v8::to_v8(scope, container).unwrap();
+    let vc = serde_v8::to_v8(scope, mop).unwrap();
     // JSON stringify & check
     let json = v8::json::stringify(scope, vc).unwrap();
     let s2 = json.to_rust_string_lossy(scope);
-    assert_eq!(
-      s2,
-      r#"{"magic":true,"contains":{"a":1,"b":3,"c":"abracadabra"}}"#
-    );
+    assert_eq!(s2, r#"{"a":1,"b":3,"c":"abracadabra","operator":null}"#);
   })
 }
 
@@ -62,7 +48,7 @@ fn magic_buffer() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
 
@@ -129,19 +115,6 @@ fn magic_buffer() {
     assert!(eq.is_true());
     let eq = js_exec(scope, "t3.b[4] === 11");
     assert!(eq.is_true());
-
-    // JsBuffer as bytes::Bytes
-    let v8_array = js_exec(scope, "new Uint8Array([1,2,3,4,5])");
-    let zbuf: serde_v8::JsBuffer = serde_v8::from_v8(scope, v8_array).unwrap();
-    let buf: bytes::Bytes = zbuf.into();
-    assert_eq!(buf, bytes::Bytes::from_static(&[1, 2, 3, 4, 5]));
-    assert_eq!(buf, bytes::Bytes::from_static(&[1, 2, 3, 4, 5]));
-    assert_eq!(buf.slice(0..2), bytes::Bytes::from_static(&[1, 2]));
-    assert_eq!(buf.slice(2..), bytes::Bytes::from_static(&[3, 4, 5]));
-    // We're specifically testing that slices are preserved post-clone
-    #[allow(clippy::redundant_clone)]
-    let buf2 = buf.slice(2..).clone();
-    assert_eq!(buf2, bytes::Bytes::from_static(&[3, 4, 5]));
   })
 }
 
@@ -151,7 +124,7 @@ fn magic_byte_string() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
 
@@ -188,5 +161,54 @@ fn magic_byte_string() {
     global.set(scope, key_expected, v8_value_expected);
     let eq = js_exec(scope, "actual === expected");
     assert!(eq.is_true());
+  })
+}
+
+#[test]
+fn magic_value() {
+  use serde_v8_utilities::{js_exec, v8_do};
+
+  struct TestLocal<'a>(v8::Local<'a, v8::Value>);
+  impl<'de> serde::Deserialize<'de> for TestLocal<'_> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+      D: serde::Deserializer<'de>,
+    {
+      let value = serde_v8::Value::deserialize(deserializer)?;
+      let value = value.v8_value;
+      Ok(Self(value))
+    }
+  }
+
+  struct TestGlobal(v8::Global<v8::Value>);
+  impl<'de> serde::Deserialize<'de> for TestGlobal {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+      D: serde::Deserializer<'de>,
+    {
+      let value = serde_v8::GlobalValue::deserialize(deserializer)?;
+      let value = value.v8_value;
+      Ok(Self(value))
+    }
+  }
+
+  v8_do(|| {
+    // Init isolate
+    let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
+    let handle_scope = &mut v8::HandleScope::new(isolate);
+    let context = v8::Context::new(handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(handle_scope, context);
+
+    let v8_string = js_exec(scope, "'test'");
+    let test: TestGlobal = serde_v8::from_v8(scope, v8_string).unwrap();
+    let local = v8::Local::new(scope, test.0);
+    let test = local.to_rust_string_lossy(scope);
+    assert_eq!(test.as_str(), "test");
+
+    let v8_string = js_exec(scope, "'test'");
+    let test: TestLocal = serde_v8::from_v8(scope, v8_string).unwrap();
+    let local = test.0;
+    let test = local.to_rust_string_lossy(scope);
+    assert_eq!(test.as_str(), "test");
   })
 }

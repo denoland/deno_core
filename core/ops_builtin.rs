@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::format_file_name;
 use crate::error::type_error;
 use crate::io::AdaptiveBufferStrategy;
@@ -8,13 +8,14 @@ use crate::io::ResourceId;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
+use crate::CancelHandle;
 use crate::JsBuffer;
-use crate::Op;
 use crate::OpDecl;
 use crate::OpState;
 use crate::Resource;
 use anyhow::Error;
 use bytes::BytesMut;
+use serde_v8::ByteString;
 use std::cell::RefCell;
 use std::io::stderr;
 use std::io::stdout;
@@ -24,7 +25,7 @@ use std::rc::Rc;
 macro_rules! builtin_ops {
   ( $($op:ident $(:: $sub:ident)*),* ) => {
     pub const BUILTIN_OPS: &'static [OpDecl] = &[
-      $( $op $(:: $sub)*::DECL, )*
+      $( $op $(:: $sub) * () ),*
     ];
   }
 }
@@ -54,6 +55,9 @@ builtin_ops! {
   op_format_file_name,
   op_str_byte_length,
   op_panic,
+  op_cancel_handle,
+  op_encode_binary_string,
+  op_is_terminal,
   ops_builtin_types::op_is_any_array_buffer,
   ops_builtin_types::op_is_arguments_object,
   ops_builtin_types::op_is_array_buffer,
@@ -82,8 +86,11 @@ builtin_ops! {
   ops_builtin_types::op_is_typed_array,
   ops_builtin_types::op_is_weak_map,
   ops_builtin_types::op_is_weak_set,
+  ops_builtin_v8::op_add_main_module_handler,
   ops_builtin_v8::op_set_handled_promise_rejection_handler,
   ops_builtin_v8::op_timer_queue,
+  ops_builtin_v8::op_timer_queue_system,
+  ops_builtin_v8::op_timer_queue_immediate,
   ops_builtin_v8::op_timer_cancel,
   ops_builtin_v8::op_timer_ref,
   ops_builtin_v8::op_timer_unref,
@@ -104,23 +111,28 @@ builtin_ops! {
   ops_builtin_v8::op_get_proxy_details,
   ops_builtin_v8::op_get_non_index_property_names,
   ops_builtin_v8::op_get_constructor_name,
+  ops_builtin_v8::op_get_extras_binding_object,
   ops_builtin_v8::op_memory_usage,
   ops_builtin_v8::op_set_wasm_streaming_callback,
   ops_builtin_v8::op_abort_wasm_streaming,
   ops_builtin_v8::op_destructure_error,
   ops_builtin_v8::op_dispatch_exception,
   ops_builtin_v8::op_op_names,
-  ops_builtin_v8::op_apply_source_map,
-  ops_builtin_v8::op_apply_source_map_filename,
   ops_builtin_v8::op_current_user_call_site,
   ops_builtin_v8::op_set_format_exception_callback,
   ops_builtin_v8::op_event_loop_has_more_work,
-  ops_builtin_v8::op_arraybuffer_was_detached
+  ops_builtin_v8::op_leak_tracing_enable,
+  ops_builtin_v8::op_leak_tracing_submit,
+  ops_builtin_v8::op_leak_tracing_get_all,
+  ops_builtin_v8::op_leak_tracing_get
 }
 
 #[op2(fast)]
 pub fn op_panic(#[string] message: String) {
-  eprintln!("JS PANIC: {}", message);
+  #[allow(clippy::print_stderr)]
+  {
+    eprintln!("JS PANIC: {}", message);
+  }
   panic!("JS PANIC: {}", message);
 }
 
@@ -141,6 +153,7 @@ fn op_add(a: i32, b: i32) -> i32 {
   a + b
 }
 
+#[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
@@ -149,19 +162,23 @@ pub async fn op_add_async(a: i32, b: i32) -> i32 {
 #[op2(fast)]
 pub fn op_void_sync() {}
 
+#[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_void_async() {}
 
+#[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_error_async() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+#[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
 pub async fn op_error_async_deferred() -> Result<(), Error> {
   Err(Error::msg("error"))
 }
 
+#[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
 pub async fn op_void_async_deferred() {}
 
@@ -361,7 +378,7 @@ fn op_format_file_name(#[string] file_name: &str) -> String {
   format_file_name(file_name)
 }
 
-#[op2]
+#[op2(fast)]
 fn op_str_byte_length(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,
@@ -371,4 +388,26 @@ fn op_str_byte_length(
   } else {
     0
   }
+}
+
+/// Creates a [`CancelHandle`] resource that can be used to cancel invocations of certain ops.
+#[op2(fast)]
+#[smi]
+pub fn op_cancel_handle(state: &mut OpState) -> u32 {
+  state.resource_table.add(CancelHandle::new())
+}
+
+#[op2]
+#[serde]
+fn op_encode_binary_string(#[buffer] s: &[u8]) -> ByteString {
+  ByteString::from(s)
+}
+
+#[op2(fast)]
+fn op_is_terminal(
+  state: &mut OpState,
+  #[smi] rid: ResourceId,
+) -> Result<bool, Error> {
+  let handle = state.resource_table.get_handle(rid)?;
+  Ok(handle.is_terminal())
 }

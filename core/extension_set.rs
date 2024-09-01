@@ -1,19 +1,27 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::cell::RefCell;
+use std::iter::Chain;
 use std::rc::Rc;
 
+use crate::error::AnyError;
 use crate::extensions::Extension;
+use crate::extensions::ExtensionSourceType;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpMiddlewareFn;
+use crate::modules::ModuleName;
 use crate::ops::OpCtx;
+use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
+use crate::ExtensionFileSource;
+use crate::FastString;
 use crate::GetErrorClassFn;
+use crate::ModuleCodeString;
 use crate::OpDecl;
 use crate::OpMetricsFactoryFn;
 use crate::OpState;
+use crate::SourceMapData;
 
 /// Contribute to the `OpState` from each extension.
 pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
@@ -54,6 +62,7 @@ pub fn init_ops(
   for core_op in deno_core_ops {
     ops.push(OpDecl {
       name: core_op.name,
+      name_fast: core_op.name_fast,
       ..macroware(*core_op)
     });
   }
@@ -63,6 +72,7 @@ pub fn init_ops(
     for ext_op in ext_ops {
       ops.push(OpDecl {
         name: ext_op.name,
+        name_fast: ext_op.name_fast,
         ..macroware(*ext_op)
       });
     }
@@ -92,10 +102,7 @@ fn check_no_duplicate_op_names(ops: &[OpDecl]) {
   let mut count_by_name = HashMap::new();
 
   for op in ops.iter() {
-    count_by_name
-      .entry(&op.name)
-      .or_insert(vec![])
-      .push(op.name.to_string());
+    count_by_name.entry(op.name).or_insert(vec![]).push(op.name);
   }
 
   let mut duplicate_ops = vec![];
@@ -123,6 +130,7 @@ pub fn create_op_ctxs(
   let op_count = op_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
 
+  let runtime_state_ptr = runtime_state.as_ref() as *const _;
   for (index, decl) in op_decls.into_iter().enumerate() {
     let metrics_fn = op_metrics_factory_fn
       .as_ref()
@@ -134,7 +142,7 @@ pub fn create_op_ctxs(
       op_driver.clone(),
       decl,
       op_state.clone(),
-      runtime_state.clone(),
+      runtime_state_ptr,
       get_error_class_fn,
       metrics_fn,
     );
@@ -165,7 +173,6 @@ pub fn get_middlewares_and_external_refs(
     if let Some(middleware) = extension.get_global_object_middleware() {
       global_object_middlewares.push(middleware);
     }
-
     additional_references
       .extend_from_slice(extension.get_external_references());
   }
@@ -175,4 +182,125 @@ pub fn get_middlewares_and_external_refs(
     global_object_middlewares,
     additional_references,
   )
+}
+
+#[derive(Debug)]
+pub struct LoadedSource {
+  pub source_type: ExtensionSourceType,
+  pub specifier: ModuleName,
+  pub code: ModuleCodeString,
+  pub maybe_source_map: Option<SourceMapData>,
+}
+
+#[derive(Debug, Default)]
+pub struct LoadedSources {
+  pub js: Vec<LoadedSource>,
+  pub esm: Vec<LoadedSource>,
+  pub lazy_esm: Vec<LoadedSource>,
+  pub esm_entry_points: Vec<FastString>,
+}
+
+impl LoadedSources {
+  pub fn len(&self) -> usize {
+    self.js.len() + self.esm.len() + self.lazy_esm.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.js.is_empty() && self.esm.is_empty() && self.lazy_esm.is_empty()
+  }
+}
+
+type VecIntoIter<'a> = <&'a Vec<LoadedSource> as IntoIterator>::IntoIter;
+type VecIntoIterMut<'a> = <&'a mut Vec<LoadedSource> as IntoIterator>::IntoIter;
+
+impl<'a> IntoIterator for &'a LoadedSources {
+  type Item = &'a LoadedSource;
+  type IntoIter =
+    Chain<Chain<VecIntoIter<'a>, VecIntoIter<'a>>, VecIntoIter<'a>>;
+  fn into_iter(self) -> Self::IntoIter {
+    self
+      .js
+      .iter()
+      .chain(self.esm.iter())
+      .chain(self.lazy_esm.iter())
+  }
+}
+
+impl<'a> IntoIterator for &'a mut LoadedSources {
+  type Item = &'a mut LoadedSource;
+  type IntoIter =
+    Chain<Chain<VecIntoIterMut<'a>, VecIntoIterMut<'a>>, VecIntoIterMut<'a>>;
+  fn into_iter(self) -> Self::IntoIter {
+    self
+      .js
+      .iter_mut()
+      .chain(self.esm.iter_mut())
+      .chain(self.lazy_esm.iter_mut())
+  }
+}
+
+fn load(
+  transpiler: Option<&ExtensionTranspiler>,
+  source: &ExtensionFileSource,
+  load_callback: &mut impl FnMut(&ExtensionFileSource),
+) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
+  load_callback(source);
+  let mut source_code = source.load()?;
+  let mut source_map = None;
+  if let Some(transpiler) = transpiler {
+    (source_code, source_map) =
+      transpiler(ModuleName::from_static(source.specifier), source_code)?;
+  }
+  let mut maybe_source_map = None;
+  if let Some(source_map) = source_map {
+    maybe_source_map = Some(source_map);
+  }
+  Ok((source_code, maybe_source_map))
+}
+
+pub fn into_sources_and_source_maps(
+  transpiler: Option<&ExtensionTranspiler>,
+  extensions: &[Extension],
+  mut load_callback: impl FnMut(&ExtensionFileSource),
+) -> Result<LoadedSources, AnyError> {
+  let mut sources = LoadedSources::default();
+
+  for extension in extensions {
+    if let Some(esm_entry_point) = extension.esm_entry_point {
+      sources
+        .esm_entry_points
+        .push(FastString::from_static(esm_entry_point));
+    }
+    for file in &*extension.lazy_loaded_esm_files {
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
+      sources.lazy_esm.push(LoadedSource {
+        source_type: ExtensionSourceType::LazyEsm,
+        specifier: ModuleName::from_static(file.specifier),
+        code,
+        maybe_source_map,
+      });
+    }
+    for file in &*extension.js_files {
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
+      sources.js.push(LoadedSource {
+        source_type: ExtensionSourceType::Js,
+        specifier: ModuleName::from_static(file.specifier),
+        code,
+        maybe_source_map,
+      });
+    }
+    for file in &*extension.esm_files {
+      let (code, maybe_source_map) =
+        load(transpiler, file, &mut load_callback)?;
+      sources.esm.push(LoadedSource {
+        source_type: ExtensionSourceType::Esm,
+        specifier: ModuleName::from_static(file.specifier),
+        code,
+        maybe_source_map,
+      });
+    }
+  }
+  Ok(sources)
 }

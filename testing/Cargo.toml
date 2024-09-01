@@ -1,25 +1,27 @@
-# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 [package]
 name = "deno_core_testing"
 version = "0.0.0"
-publish = false
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 readme = "README.md"
 repository.workspace = true
 
 [lib]
 path = "./lib.rs"
 
-[dev-dependencies]
+[dependencies]
+anyhow.workspace = true
+deno_ast.workspace = true
 deno_core.workspace = true
-deno_core.features = ["unsafe_use_unprotected_platform"]
+deno_core.features = ["unsafe_use_unprotected_platform", "snapshot_flags_eager_parse"]
+futures.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
 pretty_assertions.workspace = true
 prettyplease.workspace = true
 testing_macros.workspace = true
-anyhow.workspace = true
-deno_ast.workspace = true
-futures.workspace = true
-tokio.workspace = true

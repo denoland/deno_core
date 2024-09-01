@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 //! The documentation for the inspector API is sparse, but these are helpful:
 //! <https://chromedevtools.github.io/devtools-protocol/>
@@ -17,7 +17,6 @@ use crate::futures::stream::StreamExt;
 use crate::futures::task;
 use crate::futures::task::Context;
 use crate::futures::task::Poll;
-use crate::serde_json;
 use crate::serde_json::json;
 use crate::serde_json::Value;
 use anyhow::Error;

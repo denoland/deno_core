@@ -1,13 +1,11 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ops::Range;
-use std::rc::Rc;
 
-use super::rawbytes;
 use super::transl8::FromV8;
 
 /// A type that may be represented as a [`V8Slice`].
@@ -371,70 +369,6 @@ where
   fn as_mut(&mut self) -> &mut [T] {
     self.as_slice_mut()
   }
-}
-
-// Implement V8Slice -> bytes::Bytes
-impl V8Slice<u8> {
-  fn rc_into_byte_parts(
-    self: Rc<Self>,
-  ) -> (*const u8, usize, *mut V8Slice<u8>) {
-    let (ptr, len) = {
-      let slice = self.as_ref();
-      (slice.as_ptr(), slice.len())
-    };
-    let rc_raw = Rc::into_raw(self);
-    let data = rc_raw as *mut V8Slice<u8>;
-    (ptr, len, data)
-  }
-}
-
-impl From<V8Slice<u8>> for bytes::Bytes {
-  fn from(v8slice: V8Slice<u8>) -> Self {
-    let (ptr, len, data) = Rc::new(v8slice).rc_into_byte_parts();
-    rawbytes::RawBytes::new_raw(ptr, len, data.cast(), &V8SLICE_VTABLE)
-  }
-}
-
-// NOTE: in the limit we could avoid extra-indirection and use the C++ shared_ptr
-// but we can't store both the underlying data ptr & ctrl ptr ... so instead we
-// use a shared rust ptr (Rc/Arc) that itself controls the C++ shared_ptr
-const V8SLICE_VTABLE: rawbytes::Vtable = rawbytes::Vtable {
-  clone: v8slice_clone,
-  drop: v8slice_drop,
-  to_vec: v8slice_to_vec,
-};
-
-unsafe fn v8slice_clone(
-  data: &rawbytes::AtomicPtr<()>,
-  ptr: *const u8,
-  len: usize,
-) -> bytes::Bytes {
-  let rc = Rc::from_raw(*data as *const V8Slice<u8>);
-  let (_, _, data) = rc.clone().rc_into_byte_parts();
-  std::mem::forget(rc);
-  // NOTE: `bytes::Bytes` does bounds checking so we trust its ptr, len inputs
-  // and must use them to allow cloning Bytes it has sliced
-  rawbytes::RawBytes::new_raw(ptr, len, data.cast(), &V8SLICE_VTABLE)
-}
-
-unsafe fn v8slice_to_vec(
-  _data: &rawbytes::AtomicPtr<()>,
-  ptr: *const u8,
-  len: usize,
-) -> Vec<u8> {
-  // SAFETY: It's extremely unlikely we can convert this backing store to a vector directly, as this would require
-  // the store to have been created with the appropriate allocator, and have no other references (either
-  // in JS or in Rust). We instead just create a copy here, using the raw buffer/length.
-  let vec = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() };
-  vec
-}
-
-unsafe fn v8slice_drop(
-  data: &mut rawbytes::AtomicPtr<()>,
-  _: *const u8,
-  _: usize,
-) {
-  drop(Rc::from_raw(*data as *const V8Slice<u8>))
 }
 
 #[cfg(test)]

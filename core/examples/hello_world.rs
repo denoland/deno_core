@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 //!  This example shows you how to define ops in Rust and then call them from
 //!  JavaScript.
 
@@ -16,9 +16,10 @@ fn op_sum(#[serde] nums: Vec<f64>) -> Result<f64, deno_core::error::AnyError> {
 
 fn main() {
   // Build a deno_core::Extension providing custom ops
+  const DECL: OpDecl = op_sum();
   let ext = Extension {
     name: "my_ext",
-    ops: std::borrow::Cow::Borrowed(&[op_sum::DECL]),
+    ops: std::borrow::Cow::Borrowed(&[DECL]),
     ..Default::default()
   };
 
@@ -32,7 +33,7 @@ fn main() {
   // contains a Deno.core object with several functions for interacting with it.
   // You can find its definition in core.js.
   runtime
-    .execute_script_static(
+    .execute_script(
       "<usage>",
       r#"
 // Print helper function, calling Deno.core.print()

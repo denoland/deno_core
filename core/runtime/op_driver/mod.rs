@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
@@ -10,13 +10,10 @@ use std::task::Poll;
 mod erased_future;
 mod future_arena;
 mod futures_unordered_driver;
-mod joinset_driver;
 mod op_results;
 
 #[allow(unused)]
 pub use futures_unordered_driver::FuturesUnorderedDriver;
-#[allow(unused)]
-pub use joinset_driver::JoinSetDriver;
 
 pub use self::op_results::OpMappingContext;
 pub use self::op_results::OpResult;
@@ -131,6 +128,10 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// picked up in `poll_ready`.
   fn len(&self) -> usize;
 
+  /// Shuts down this driver, preventing any tasks from being polled beyond this point. It is legal
+  /// to call this shutdown method multiple times, and further calls have no effect.
+  fn shutdown(&self);
+
   /// Capture the statistics of in-flight ops, for op sanitizer purposes. Note that this
   /// may not be a cheap operation and calling it large number of times (for example, in an
   /// event loop) may cause slowdowns.
@@ -186,12 +187,6 @@ mod tests {
       let f: Self::MappingFn<R> = unsafe { std::mem::transmute(f) };
       f(r)
     }
-
-    fn unerase_mapping_fn_raw<R: 'static>(
-      f: *const fn(),
-    ) -> Self::MappingFn<R> {
-      unsafe { std::mem::transmute(f) }
-    }
   }
 
   fn submit_task(
@@ -242,7 +237,6 @@ mod tests {
   }
 
   #[rstest]
-  #[case::joinset(JoinSetDriver::<TestMappingContext>::default())]
   #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
   fn test_driver<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
@@ -273,7 +267,6 @@ mod tests {
   }
 
   #[rstest]
-  #[case::joinset(JoinSetDriver::<TestMappingContext>::default())]
   #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
   fn test_driver_yield<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
@@ -311,7 +304,6 @@ mod tests {
   }
 
   #[rstest]
-  #[case::joinset(JoinSetDriver::<TestMappingContext>::default())]
   #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
   fn test_driver_large<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
@@ -349,9 +341,8 @@ mod tests {
     });
   }
 
-  #[cfg(not(miri))]
+  #[cfg(not(miri))] // needs I/O
   #[rstest]
-  #[case::joinset(JoinSetDriver::<TestMappingContext>::default())]
   #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
   fn test_driver_io<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,

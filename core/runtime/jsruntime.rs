@@ -1,34 +1,42 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
-use super::bindings::v8_static_strings;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
 use super::jsrealm::JsRealmInner;
 use super::op_driver::OpDriver;
 use super::setup;
-use super::snapshot_util;
+use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
+use super::v8_static_strings::*;
+use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
+use crate::ascii_str;
+use crate::ascii_str_include;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
 use crate::error::JsError;
 use crate::extension_set;
+use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
+use crate::modules::script_origin;
 use crate::modules::CustomModuleEvaluationCb;
+use crate::modules::EvalContextCodeCacheReadyCb;
+use crate::modules::EvalContextGetCodeCacheCb;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
-use crate::modules::ModuleCodeString;
+use crate::modules::IntoModuleCodeString;
+use crate::modules::IntoModuleName;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleMap;
-use crate::modules::ModuleMapSnapshottedData;
+use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
 use crate::ops_metrics::dispatch_metrics_async;
@@ -36,18 +44,23 @@ use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
-use crate::source_map::SourceMapCache;
-use crate::source_map::SourceMapGetter;
+use crate::source_map::SourceMapData;
+use crate::source_map::SourceMapper;
+use crate::stats::RuntimeActivityType;
 use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
+use crate::FastStaticString;
 use crate::FastString;
 use crate::FeatureChecker;
+use crate::ModuleCodeString;
 use crate::NoopModuleLoader;
+use crate::OpMetadata;
 use crate::OpMetricsEvent;
 use crate::OpState;
 use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::Context as _;
 use anyhow::Error;
 use futures::future::poll_fn;
 use futures::task::AtomicWaker;
@@ -55,14 +68,16 @@ use futures::Future;
 use futures::FutureExt;
 use smallvec::SmallVec;
 use std::any::Any;
+use v8::MessageErrorLevel;
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::option::Option;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -75,15 +90,18 @@ use v8::Isolate;
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
 
-pub enum Snapshot {
-  Static(&'static [u8]),
-  JustCreated(v8::StartupData),
-  Boxed(Box<[u8]>),
-}
+pub type ExtensionTranspiler =
+  dyn Fn(
+    ModuleName,
+    ModuleCodeString,
+  ) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError>;
 
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
 pub(crate) struct IsolateAllocations {
+  pub(crate) external_refs: Option<Box<v8::ExternalReferences>>,
+  pub(crate) externalized_sources: Box<[v8::OneByteConst]>,
+  pub(crate) original_sources: Box<[FastString]>,
   pub(crate) near_heap_limit_callback_data:
     Option<(Box<RefCell<dyn Any>>, v8::NearHeapLimitCallback)>,
 }
@@ -126,10 +144,13 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
+  extension_count: usize,
+  op_count: usize,
+  source_count: usize,
+  addl_refs_count: usize,
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
-  cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -137,6 +158,9 @@ impl InnerIsolateState {
   /// after we've torn down the contexts. If the inspector is not correctly torn down, random crashes
   /// happen in tests (and possibly for users using the inspector).
   pub fn prepare_for_cleanup(&mut self) {
+    // Explicitly shut down the op driver here, just in case there are other references to it
+    // that prevent it from dropping after we invalidate the state.
+    self.main_realm.0.context_state.pending_ops.shutdown();
     let inspector = self.state.inspector.take();
     self.state.op_state.borrow_mut().clear();
     if let Some(inspector) = inspector {
@@ -166,10 +190,9 @@ impl InnerIsolateState {
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
     // SAFETY: We're copying out of self and then immediately forgetting self
-    let (state, _cpp_heap, isolate) = unsafe {
+    let (state, isolate) = unsafe {
       (
         ManuallyDrop::take(&mut self.state.0),
-        ManuallyDrop::take(&mut self.cpp_heap),
         ManuallyDrop::take(&mut self.v8_isolate),
       )
     };
@@ -187,9 +210,11 @@ impl Drop for InnerIsolateState {
       ManuallyDrop::drop(&mut self.state.0);
       if self.will_snapshot {
         // Create the snapshot and just drop it.
-        eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
+        #[allow(clippy::print_stderr)]
+        {
+          eprintln!("WARNING: v8::OwnedIsolate for snapshot was leaked");
+        }
       } else {
-        ManuallyDrop::drop(&mut self.cpp_heap);
         ManuallyDrop::drop(&mut self.v8_isolate);
       }
     }
@@ -215,11 +240,6 @@ impl InitMode {
         skip_op_registration: options.skip_op_registration,
       },
     }
-  }
-
-  #[inline]
-  pub fn is_from_snapshot(&self) -> bool {
-    matches!(self, Self::FromSnapshot { .. })
   }
 
   #[inline]
@@ -264,26 +284,37 @@ impl Future for RcPromiseFuture {
   }
 }
 
-const VIRTUAL_OPS_MODULE_NAME: &str = "ext:core/ops";
+static VIRTUAL_OPS_MODULE_NAME: FastStaticString = ascii_str!("ext:core/ops");
+
+pub(crate) struct InternalSourceFile {
+  pub specifier: FastStaticString,
+  pub source: FastStaticString,
+}
+
+macro_rules! internal_source_file {
+  ($str_:literal) => {{
+    InternalSourceFile {
+      specifier: ascii_str!(concat!("ext:core/", $str_)),
+      source: ascii_str_include!(concat!("../", $str_)),
+    }
+  }};
+}
 
 /// These files are executed just after a new context is created. They provided
 /// the necessary infrastructure to bind ops.
-pub(crate) const CONTEXT_SETUP_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
-  core
-  "00_primordials.js",
-  "00_infra.js",
-);
+pub(crate) static CONTEXT_SETUP_SOURCES: [InternalSourceFile; 2] = [
+  internal_source_file!("00_primordials.js"),
+  internal_source_file!("00_infra.js"),
+];
 
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
-pub(crate) const BUILTIN_SOURCES: [ExtensionFileSource; 2] = include_js_files!(
-  core
-  "01_core.js",
-  "02_error.js",
-);
+pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
+  [internal_source_file!("01_core.js")];
+
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
-pub(crate) const BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
+pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   include_js_files!(core "mod.js",);
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
@@ -375,8 +406,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) source_map_getter: Option<Rc<Box<dyn SourceMapGetter>>>,
-  pub(crate) source_map_cache: Rc<RefCell<SourceMapCache>>,
+  pub(crate) source_mapper: RefCell<SourceMapper>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -384,17 +414,20 @@ pub struct JsRuntimeState {
     Option<WaitForInspectorDisconnectCallback>,
   pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
   pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
+  pub(crate) eval_context_get_code_cache_cb: Option<EvalContextGetCodeCacheCb>,
+  pub(crate) eval_context_code_cache_ready_cb:
+    Option<EvalContextCodeCacheReadyCb>,
+  pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
+  pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
   has_inspector: Cell<bool>,
+  import_assertions_support: ImportAssertionsSupport,
 }
 
 #[derive(Default)]
 pub struct RuntimeOptions {
-  /// Source map reference for errors.
-  pub source_map_getter: Option<Box<dyn SourceMapGetter>>,
-
   /// Allows to map error type to a string "class" used to represent
   /// error in JavaScript.
   pub get_error_class_fn: Option<GetErrorClassFn>,
@@ -405,6 +438,9 @@ pub struct RuntimeOptions {
   /// If not provided runtime will error if code being
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
+
+  /// If specified, transpiles extensions before loading.
+  pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
 
   /// Provide a function that may optionally provide a metrics collector
   /// for a given op.
@@ -420,7 +456,10 @@ pub struct RuntimeOptions {
   pub extensions: Vec<Extension>,
 
   /// V8 snapshot that should be loaded on startup.
-  pub startup_snapshot: Option<Snapshot>,
+  ///
+  /// For testing, use `runtime.snapshot()` and then [`Box::leak`] to acquire
+  // a static slice.
+  pub startup_snapshot: Option<&'static [u8]>,
 
   /// Should op registration be skipped?
   pub skip_op_registration: bool,
@@ -492,6 +531,117 @@ pub struct RuntimeOptions {
   /// A callback that allows to evaluate a custom type of a module - eg.
   /// embedders might implement loading WASM or test modules.
   pub custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
+
+  /// Callbacks to retrieve and store code cache for scripts evaluated
+  /// through evalContext.
+  pub eval_context_code_cache_cbs:
+    Option<(EvalContextGetCodeCacheCb, EvalContextCodeCacheReadyCb)>,
+
+  pub import_assertions_support: ImportAssertionsSupport,
+}
+
+pub struct ImportAssertionsSupportCustomCallbackArgs {
+  pub maybe_specifier: Option<String>,
+  pub maybe_line_number: Option<usize>,
+  pub column_number: usize,
+  pub maybe_source_line: Option<String>,
+}
+
+#[derive(Default)]
+pub enum ImportAssertionsSupport {
+  /// `assert` keyword is no longer supported and causes a SyntaxError.
+  /// This is the default setting, because V8 unshipped import assertions
+  /// support in v12.6. To enable import assertion one must pass
+  /// `--harmony-import-assertions` V8 flag when initializing the runtime.
+  #[default]
+  Error,
+
+  /// `assert` keyword is supported.
+  Yes,
+
+  /// `assert` keyword is supported, but prints a warning message on occurence.
+  Warning,
+
+  /// `assert` keyword is supported, provided callback is called on each occurence.
+  /// Callback receives optional specifier, optional line number, column number and optional
+  /// source line.
+  CustomCallback(Box<dyn Fn(ImportAssertionsSupportCustomCallbackArgs)>),
+}
+
+impl ImportAssertionsSupport {
+  fn is_enabled(&self) -> bool {
+    matches!(self, Self::Yes | Self::Warning | Self::CustomCallback(_))
+  }
+
+  fn has_warning(&self) -> bool {
+    matches!(self, Self::Warning | Self::CustomCallback(_))
+  }
+}
+
+/// Currently only handles warnings for "import assertions" deprecation
+extern "C" fn isolate_message_listener(
+  message: v8::Local<v8::Message>,
+  _exception: v8::Local<v8::Value>,
+) {
+  let scope = &mut unsafe { v8::CallbackScope::new(message) };
+  let scope = &mut v8::HandleScope::new(scope);
+  let message_v8_str = message.get(scope);
+  let message_str = message_v8_str.to_rust_string_lossy(scope);
+
+  if !message_str.starts_with("'assert' is deprecated") {
+    return;
+  }
+
+  let maybe_script_resource_name = message
+    .get_script_resource_name(scope)
+    .map(|s| s.to_rust_string_lossy(scope));
+  let maybe_source_line = message
+    .get_source_line(scope)
+    .map(|s| s.to_rust_string_lossy(scope));
+  let maybe_line_number = message.get_line_number(scope);
+  let start_column = message.get_start_column();
+
+  let js_runtime_state = JsRuntime::state_from(scope);
+  if let Some(specifier) = maybe_script_resource_name.as_ref() {
+    let module_map = JsRealm::module_map_from(scope);
+    module_map
+      .loader
+      .borrow()
+      .purge_and_prevent_code_cache(specifier);
+  }
+
+  match &js_runtime_state.import_assertions_support {
+    ImportAssertionsSupport::Warning => {
+      let mut msg = "⚠️  Import assertions are deprecated. Use `with` keyword, instead of 'assert' keyword.".to_string();
+      if let Some(specifier) = maybe_script_resource_name {
+        if let Some(source_line) = maybe_source_line {
+          msg.push('\n');
+          msg.push_str(&source_line);
+          msg.push('\n');
+          msg.push_str(&format!("{:0width$}^", " ", width = start_column));
+        }
+        msg.push_str(&format!(
+          "  at {}:{}:{}",
+          specifier,
+          maybe_line_number.unwrap(),
+          start_column
+        ));
+        #[allow(clippy::print_stderr)]
+        {
+          eprintln!("{}", msg);
+        }
+      }
+    }
+    ImportAssertionsSupport::CustomCallback(cb) => {
+      cb(ImportAssertionsSupportCustomCallbackArgs {
+        maybe_specifier: maybe_script_resource_name,
+        maybe_line_number,
+        column_number: start_column,
+        maybe_source_line,
+      });
+    }
+    _ => unreachable!(),
+  }
 }
 
 impl RuntimeOptions {
@@ -536,8 +686,11 @@ impl JsRuntime {
   /// should only be called once per process. Further calls will be silently
   /// ignored.
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
-  pub fn init_platform(v8_platform: Option<v8::SharedRef<v8::Platform>>) {
-    setup::init_v8(v8_platform, cfg!(test), false);
+  pub fn init_platform(
+    v8_platform: Option<v8::SharedRef<v8::Platform>>,
+    import_assertions_enabled: bool,
+  ) {
+    setup::init_v8(v8_platform, cfg!(test), false, import_assertions_enabled);
   }
 
   /// Explicitly initalizes the V8 platform using the passed platform. This
@@ -552,23 +705,37 @@ impl JsRuntime {
   pub fn init_platform(
     v8_platform: Option<v8::SharedRef<v8::Platform>>,
     expose_natives: bool,
+    import_assertions_enabled: bool,
   ) {
-    setup::init_v8(v8_platform, cfg!(test), expose_natives);
+    setup::init_v8(
+      v8_platform,
+      cfg!(test),
+      expose_natives,
+      import_assertions_enabled,
+    );
   }
 
   /// Only constructor, configuration is done through `options`.
-  pub fn new(mut options: RuntimeOptions) -> JsRuntime {
-    setup::init_v8(
-      options.v8_platform.take(),
-      cfg!(test),
-      options.unsafe_expose_natives_and_gc(),
-    );
-    match JsRuntime::new_inner(options, false) {
+  /// Panics if the runtime cannot be initialized.
+  pub fn new(options: RuntimeOptions) -> JsRuntime {
+    match Self::try_new(options) {
       Ok(runtime) => runtime,
       Err(err) => {
         panic!("Failed to initialize a JsRuntime: {:?}", err);
       }
     }
+  }
+
+  /// Only constructor, configuration is done through `options`.
+  /// Returns an error if the runtime cannot be initialized.
+  pub fn try_new(mut options: RuntimeOptions) -> Result<JsRuntime, Error> {
+    setup::init_v8(
+      options.v8_platform.take(),
+      cfg!(test),
+      options.unsafe_expose_natives_and_gc(),
+      options.import_assertions_support.is_enabled(),
+    );
+    JsRuntime::new_inner(options, false)
   }
 
   pub(crate) fn state_from(isolate: &v8::Isolate) -> Rc<JsRuntimeState> {
@@ -592,24 +759,71 @@ impl JsRuntime {
     EventLoopPendingState::new_from_scope(scope).is_pending()
   }
 
+  /// Returns the `OpMetadata` associated with the op `name`.
+  /// Note this is linear with respect to the number of ops registered.
+  pub fn op_metadata(&self, name: &str) -> Option<OpMetadata> {
+    let state = &self.inner.main_realm.0.context_state;
+    state.op_ctxs.iter().find_map(|ctx| {
+      if ctx.decl.name == name {
+        Some(ctx.decl.metadata)
+      } else {
+        None
+      }
+    })
+  }
+
   fn new_inner(
     mut options: RuntimeOptions,
     will_snapshot: bool,
   ) -> Result<JsRuntime, Error> {
     let init_mode = InitMode::from_options(&options);
     let mut extensions = std::mem::take(&mut options.extensions);
+    let mut isolate_allocations = IsolateAllocations::default();
 
     // First let's create an `OpState` and contribute to it from extensions...
     let mut op_state = OpState::new(options.feature_checker.take());
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
+    // Load the sources and source maps
+    let mut files_loaded = Vec::with_capacity(128);
+    let loader = options
+      .module_loader
+      .unwrap_or_else(|| Rc::new(NoopModuleLoader));
+
+    let mut source_mapper = SourceMapper::new(loader.clone());
+
+    let mut sources = extension_set::into_sources_and_source_maps(
+      options.extension_transpiler.as_deref(),
+      &extensions,
+      |source| {
+        mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
+      },
+    )?;
+
+    for loaded_source in sources
+      .js
+      .iter()
+      .chain(sources.esm.iter())
+      .chain(sources.lazy_esm.iter())
+      .filter(|s| s.maybe_source_map.is_some())
+    {
+      source_mapper.add_ext_source_map(
+        loaded_source.specifier.try_clone().unwrap(),
+        loaded_source.maybe_source_map.clone().unwrap(),
+      );
+    }
+
     // ...now let's set up ` JsRuntimeState`, we'll need to set some fields
     // later, after `JsRuntime` is all set up...
     let waker = op_state.waker.clone();
     let op_state = Rc::new(RefCell::new(op_state));
+    let (eval_context_get_code_cache_cb, eval_context_set_code_cache_cb) =
+      options
+        .eval_context_code_cache_cbs
+        .map(|cbs| (Some(cbs.0), Some(cbs.1)))
+        .unwrap_or_default();
     let state_rc = Rc::new(JsRuntimeState {
-      source_map_getter: options.source_map_getter.map(Rc::new),
-      source_map_cache: Default::default(),
+      source_mapper: RefCell::new(source_mapper),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       wait_for_inspector_disconnect_callback: options
@@ -617,10 +831,15 @@ impl JsRuntime {
       op_state: op_state.clone(),
       validate_import_attributes_cb: options.validate_import_attributes_cb,
       custom_module_evaluation_cb: options.custom_module_evaluation_cb,
+      eval_context_get_code_cache_cb,
+      eval_context_code_cache_ready_cb: eval_context_set_code_cache_cb,
       waker,
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
       has_inspector: false.into(),
+      cppgc_template: None.into(),
+      callsite_prototype: None.into(),
+      import_assertions_support: options.import_assertions_support,
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
@@ -647,32 +866,72 @@ impl JsRuntime {
       global_object_middlewares,
       additional_references,
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
-    let external_refs =
-      bindings::create_external_references(&op_ctxs, &additional_references);
 
+    // Capture the extension, op and source counts
+    let extension_count = extensions.len();
+    let op_count = op_ctxs.len();
+    let source_count = sources.len();
+    let addl_refs_count = additional_references.len();
+
+    let (maybe_startup_snapshot, mut sidecar_data) = options
+      .startup_snapshot
+      .take()
+      .map(snapshot::deconstruct)
+      .unzip();
+
+    let ops_in_snapshot = sidecar_data
+      .as_ref()
+      .map(|d| d.snapshot_data.op_count)
+      .unwrap_or_default();
+    let sources_in_snapshot = sidecar_data
+      .as_ref()
+      .map(|d| d.snapshot_data.source_count)
+      .unwrap_or_default();
+
+    let snapshot_sources: Vec<&[u8]> = sidecar_data
+      .as_mut()
+      .map(|s| std::mem::take(&mut s.snapshot_data.external_strings))
+      .unwrap_or_default();
+    (
+      isolate_allocations.externalized_sources,
+      isolate_allocations.original_sources,
+    ) = bindings::externalize_sources(&mut sources, snapshot_sources);
+
+    isolate_allocations.external_refs =
+      Some(Box::new(bindings::create_external_references(
+        &op_ctxs,
+        &additional_references,
+        &isolate_allocations.externalized_sources,
+        ops_in_snapshot,
+        sources_in_snapshot,
+      )));
+
+    let external_refs: &v8::ExternalReferences =
+      isolate_allocations.external_refs.as_ref().unwrap();
+    // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
+    let external_refs_static = unsafe { &*(external_refs as *const _) };
+
+    let has_snapshot = maybe_startup_snapshot.is_some();
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
-      options.startup_snapshot.take(),
-      external_refs,
+      maybe_startup_snapshot,
+      external_refs_static,
     );
 
-    let cpp_heap = setup::init_cppgc(&mut isolate);
+    if state_rc.import_assertions_support.has_warning() {
+      isolate.add_message_listener_with_error_level(
+        isolate_message_listener,
+        MessageErrorLevel::ALL,
+      );
+    }
 
+    let isolate_ptr = isolate.as_mut() as *mut Isolate;
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
     // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
-      op_ctx.isolate = isolate.as_mut() as *mut Isolate;
+      op_ctx.isolate = isolate_ptr;
     }
-
-    // TODO(Bartlomieju): this can be simplified
-    let isolate_ptr = setup::create_isolate_ptr();
-    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
-    // not overwriting an existing pointer.
-    isolate = unsafe {
-      isolate_ptr.write(isolate);
-      isolate_ptr.read()
-    };
     op_state.borrow_mut().put(isolate_ptr);
 
     // ...once ops and isolate are set up, we can create a `ContextState`...
@@ -681,6 +940,7 @@ impl JsRuntime {
       isolate_ptr,
       options.get_error_class_fn.unwrap_or(&|_| "Error"),
       op_ctxs,
+      op_state.borrow().external_ops_tracker.clone(),
     ));
 
     // TODO(bartlomieju): factor out
@@ -701,16 +961,24 @@ impl JsRuntime {
     let main_context = {
       let scope = &mut v8::HandleScope::new(&mut isolate);
 
+      let cppgc_template = crate::cppgc::make_cppgc_template(scope);
+      state_rc
+        .cppgc_template
+        .borrow_mut()
+        .replace(v8::Global::new(scope, cppgc_template));
+
       let context = create_context(
         scope,
         &global_template_middleware,
         &global_object_middlewares,
+        has_snapshot,
       );
 
       // Get module map data from the snapshot
-      if init_mode.is_from_snapshot() {
-        snapshotted_data =
-          Some(snapshot_util::get_snapshotted_data(scope, context));
+      if let Some(raw_data) = sidecar_data {
+        snapshotted_data = Some(snapshot::load_snapshotted_data_from_snapshot(
+          scope, context, raw_data,
+        ));
       }
 
       v8::Global::new(scope, context)
@@ -720,6 +988,12 @@ impl JsRuntime {
       v8::HandleScope::with_context(&mut isolate, &main_context);
     let scope = &mut context_scope;
     let context = v8::Local::new(scope, &main_context);
+
+    let callsite_prototype = crate::error::make_callsite_prototype(scope);
+    state_rc
+      .callsite_prototype
+      .borrow_mut()
+      .replace(v8::Global::new(scope, callsite_prototype));
 
     // ...followed by creation of `Deno.core` namespace, as well as internal
     // infrastructure to provide JavaScript bindings for ops...
@@ -737,7 +1011,13 @@ impl JsRuntime {
       );
     }
 
-    context.set_slot(scope, context_state.clone());
+    // SAFETY: Initialize the context state slot.
+    unsafe {
+      context.set_aligned_pointer_in_embedder_data(
+        super::jsrealm::CONTEXT_STATE_SLOT_INDEX,
+        Rc::into_raw(context_state.clone()) as *mut c_void,
+      );
+    }
 
     let inspector = if options.inspector {
       Some(JsRuntimeInspector::new(scope, context, options.is_main))
@@ -748,9 +1028,6 @@ impl JsRuntime {
     // ...now that JavaScript bindings to ops are available we can deserialize
     // modules stored in the snapshot (because they depend on the ops and external
     // references must match properly) and recreate a module map...
-    let loader = options
-      .module_loader
-      .unwrap_or_else(|| Rc::new(NoopModuleLoader));
     let import_meta_resolve_cb = options
       .import_meta_resolve_callback
       .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
@@ -759,20 +1036,33 @@ impl JsRuntime {
       loader,
       exception_state.clone(),
       import_meta_resolve_cb,
+      will_snapshot,
     ));
 
-    if let Some(snapshotted_data) = snapshotted_data {
+    if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
       *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
-        snapshotted_data.js_handled_promise_rejection_cb;
-      let module_map_snapshotted_data = ModuleMapSnapshottedData {
-        module_map_data: snapshotted_data.module_map_data,
-        module_handles: snapshotted_data.module_handles,
-      };
-      module_map
-        .update_with_snapshotted_data(scope, module_map_snapshotted_data);
+        snapshotted_data
+          .js_handled_promise_rejection_cb
+          .map(|cb| data_store.get(scope, cb));
+      module_map.update_with_snapshotted_data(
+        scope,
+        &mut data_store,
+        snapshotted_data.module_map_data,
+      );
+
+      let mut mapper = state_rc.source_mapper.borrow_mut();
+      for (key, map) in snapshotted_data.ext_source_maps {
+        mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
+      }
     }
 
-    context.set_slot(scope, module_map.clone());
+    // SAFETY: Set the module map slot in the context
+    unsafe {
+      context.set_aligned_pointer_in_embedder_data(
+        super::jsrealm::MODULE_MAP_SLOT_INDEX,
+        Rc::into_raw(module_map.clone()) as *mut c_void,
+      );
+    }
 
     // ...we are ready to create a "realm" for the context...
     let main_realm = {
@@ -795,17 +1085,18 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
+        extension_count,
+        op_count,
+        source_count,
+        addl_refs_count,
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
-        cpp_heap: ManuallyDrop::new(cpp_heap),
       },
-      allocations: IsolateAllocations::default(),
+      allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
       is_main_runtime: options.is_main,
     };
-
-    let mut files_loaded = Vec::with_capacity(128);
 
     // ...we're almost done with the setup, all that's left is to execute
     // internal JS and then execute code provided by extensions...
@@ -836,14 +1127,9 @@ impl JsRuntime {
         )?;
       }
 
-      js_runtime.store_js_callbacks(&realm);
+      js_runtime.store_js_callbacks(&realm, will_snapshot);
 
-      js_runtime.init_extension_js(
-        &realm,
-        &module_map,
-        extensions,
-        &mut files_loaded,
-      )?;
+      js_runtime.init_extension_js(&realm, &module_map, sources)?;
     }
 
     if will_snapshot {
@@ -916,23 +1202,6 @@ impl JsRuntime {
     self.inner.main_realm.handle_scope(isolate)
   }
 
-  #[inline(always)]
-  /// Create a scope on the stack with the given context
-  fn with_context_scope<'s, T>(
-    isolate: *mut v8::Isolate,
-    context: *mut v8::Context,
-    f: impl FnOnce(&mut v8::HandleScope<'s>) -> T,
-  ) -> T {
-    // SAFETY: We know this isolate is valid and non-null at this time
-    let mut isolate_scope =
-      v8::HandleScope::new(unsafe { isolate.as_mut().unwrap_unchecked() });
-    // SAFETY: We know the context is valid and non-null at this time, and that a Local and pointer share the
-    // same representation
-    let context = unsafe { std::mem::transmute(context) };
-    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
-    f(&mut scope)
-  }
-
   /// Create a synthetic module - `ext:core/ops` - that exports all ops registered
   /// with the runtime.
   fn execute_virtual_ops_module(
@@ -952,12 +1221,11 @@ impl JsRuntime {
     let mod_id = module_map
       .new_synthetic_module(
         scope,
-        FastString::StaticAscii(VIRTUAL_OPS_MODULE_NAME),
+        VIRTUAL_OPS_MODULE_NAME,
         crate::ModuleType::JavaScript,
         synthetic_module_exports,
       )
       .unwrap();
-    module_map.instantiate_module(scope, mod_id).unwrap();
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
@@ -973,22 +1241,29 @@ impl JsRuntime {
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), Error> {
-    for file_source in &BUILTIN_SOURCES {
-      mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-      realm.execute_script(
-        self.v8_isolate(),
-        file_source.specifier,
-        file_source.load()?,
-      )?;
+    let scope = &mut realm.handle_scope(self.v8_isolate());
+
+    for source_file in &BUILTIN_SOURCES {
+      let name = source_file.specifier.v8_string(scope);
+      let source = source_file.source.v8_string(scope);
+
+      let origin = script_origin(scope, name, false, None);
+      let script = v8::Script::compile(scope, source, Some(&origin))
+        .with_context(|| {
+          format!("Failed to parse {}", source_file.specifier)
+        })?;
+      script.run(scope).with_context(|| {
+        format!("Failed to execute {}", source_file.specifier)
+      })?;
     }
 
     for file_source in &BUILTIN_ES_MODULES {
       mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-      let mut scope = realm.handle_scope(self.v8_isolate());
-      module_map.lazy_load_es_module_from_code(
-        &mut scope,
+      module_map.lazy_load_es_module_with_code(
+        scope,
         file_source.specifier,
         file_source.load()?,
+        None,
       )?;
     }
 
@@ -1000,56 +1275,44 @@ impl JsRuntime {
     &mut self,
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
-    extensions: Vec<Extension>,
-    files_loaded: &mut Vec<&'static str>,
+    loaded_sources: LoadedSources,
   ) -> Result<(), Error> {
-    // Initialization of JS happens in phases:
-    // 1. Iterate through all extensions:
-    //  a. Execute all extension "script" JS files
-    //  b. Load all extension "module" JS files (but do not execute them yet)
-    //  c. If extension has an "entrypoint" collect it
-    // 2. Execute all collected entrypoints.
-    // 3. Verify that all extension files have been executed.
+    // First, add all the lazy ESM
+    for source in loaded_sources.lazy_esm {
+      module_map.add_lazy_loaded_esm_source(source.specifier, source.code);
+    }
 
-    let mut esm_entrypoints = vec![];
+    // Temporarily override the loader of the `ModuleMap` so we can load
+    // extension code.
 
-    for extension in extensions {
-      // If the extension provides "lazy loaded ES modules" then store them
-      // on the ModuleMap.
-      module_map
-        .add_lazy_loaded_esm_sources(extension.get_lazy_loaded_esm_sources());
+    // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
+    // instead of explicitly changing the `.loader` field?
+    let loader = module_map.loader.borrow().clone();
+    let mut modules = Vec::with_capacity(loaded_sources.esm.len());
+    let mut sources = Vec::with_capacity(loaded_sources.esm.len());
+    for esm in loaded_sources.esm {
+      modules.push(ModuleSpecifier::parse(&esm.specifier).unwrap());
+      sources.push((esm.specifier, esm.code));
+    }
+    let ext_loader = Rc::new(ExtModuleLoader::new(sources)?);
+    *module_map.loader.borrow_mut() = ext_loader.clone();
 
-      let maybe_esm_entry_point = extension.get_esm_entry_point();
+    // Next, load the extension modules as side modules (but do not execute them)
+    for module in modules {
+      realm
+        .load_side_es_module_from_code(self.v8_isolate(), &module, None)
+        .await?;
+    }
 
-      for file_source in extension.get_esm_sources() {
-        mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-        realm
-          .load_side_module(
-            self.v8_isolate(),
-            &ModuleSpecifier::parse(file_source.specifier)?,
-            None,
-          )
-          .await?;
-      }
-
-      if let Some(entry_point) = maybe_esm_entry_point {
-        esm_entrypoints.push(entry_point);
-      }
-
-      for file_source in extension.get_js_sources() {
-        mark_as_loaded_from_fs_during_snapshot(files_loaded, &file_source.code);
-        realm.execute_script(
-          self.v8_isolate(),
-          file_source.specifier,
-          file_source.load()?,
-        )?;
-      }
+    // Execute extension scripts
+    for source in loaded_sources.js {
+      realm.execute_script(self.v8_isolate(), source.specifier, source.code)?;
     }
 
     // ...then execute all entry points
-    for specifier in esm_entrypoints {
+    for specifier in loaded_sources.esm_entry_points {
       let Some(mod_id) =
-        module_map.get_id(specifier, RequestedModuleType::None)
+        module_map.get_id(&specifier, RequestedModuleType::None)
       else {
         bail!("{} not present in the module map", specifier);
       };
@@ -1059,33 +1322,6 @@ impl JsRuntime {
       module_map.mod_evaluate_sync(scope, mod_id)?;
     }
 
-    Ok(())
-  }
-
-  /// Initializes JS of provided Extensions in the given realm.
-  fn init_extension_js(
-    &mut self,
-    realm: &JsRealm,
-    module_map: &Rc<ModuleMap>,
-    extensions: Vec<Extension>,
-    files_loaded: &mut Vec<&'static str>,
-  ) -> Result<(), Error> {
-    // Temporarily override the loader of the `ModuleMap` so we can load
-    // extension code.
-
-    // TODO(bartlomieju): maybe this should be a method on the `ModuleMap`,
-    // instead of explicitly changing the `.loader` field?
-    let loader = module_map.loader.borrow().clone();
-    let ext_loader = Rc::new(ExtModuleLoader::new(&extensions));
-    *module_map.loader.borrow_mut() = ext_loader;
-
-    futures::executor::block_on(self.init_extension_js_inner(
-      realm,
-      module_map,
-      extensions,
-      files_loaded,
-    ))?;
-
     #[cfg(debug_assertions)]
     {
       let mut scope = realm.handle_scope(self.v8_isolate());
@@ -1094,6 +1330,26 @@ impl JsRuntime {
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
+    Rc::try_unwrap(ext_loader)
+      .map_err(drop)
+      .unwrap()
+      .finalize()?;
+
+    Ok(())
+  }
+
+  /// Initializes JS of provided Extensions in the given realm.
+  fn init_extension_js(
+    &mut self,
+    realm: &JsRealm,
+    module_map: &Rc<ModuleMap>,
+    loaded_sources: LoadedSources,
+  ) -> Result<(), Error> {
+    futures::executor::block_on(self.init_extension_js_inner(
+      realm,
+      module_map,
+      loaded_sources,
+    ))?;
 
     Ok(())
   }
@@ -1114,55 +1370,56 @@ impl JsRuntime {
 
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
-  fn store_js_callbacks(&mut self, realm: &JsRealm) {
-    let (event_loop_tick_cb, build_custom_error_cb) = {
+  fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
+    let (event_loop_tick_cb, build_custom_error_cb, wasm_instantiate_fn) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
       // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
       // look up them again?
-      let deno_str =
-        v8::String::new_external_onebyte_static(scope, v8_static_strings::DENO)
-          .unwrap();
-      let core_str =
-        v8::String::new_external_onebyte_static(scope, v8_static_strings::CORE)
-          .unwrap();
-      let event_loop_tick_str = v8::String::new_external_onebyte_static(
-        scope,
-        v8_static_strings::EVENT_LOOP_TICK,
-      )
-      .unwrap();
-      let build_custom_error_str = v8::String::new_external_onebyte_static(
-        scope,
-        v8_static_strings::BUILD_CUSTOM_ERROR,
-      )
-      .unwrap();
+      let deno_obj: v8::Local<v8::Object> =
+        bindings::get(scope, global, DENO, "Deno");
+      let core_obj: v8::Local<v8::Object> =
+        bindings::get(scope, deno_obj, CORE, "Deno.core");
 
-      let deno_obj: v8::Local<v8::Object> = global
-        .get(scope, deno_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let core_obj: v8::Local<v8::Object> = deno_obj
-        .get(scope, core_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
+      let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        EVENT_LOOP_TICK,
+        "Deno.core.eventLoopTick",
+      );
+      let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        BUILD_CUSTOM_ERROR,
+        "Deno.core.buildCustomError",
+      );
 
-      let event_loop_tick_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, event_loop_tick_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
-      let build_custom_error_cb: v8::Local<v8::Function> = core_obj
-        .get(scope, build_custom_error_str.into())
-        .unwrap()
-        .try_into()
-        .unwrap();
+      let mut wasm_instantiate_fn = None;
+      if !will_snapshot {
+        let key = WEBASSEMBLY.v8_string(scope);
+        if let Some(web_assembly_obj_value) = global.get(scope, key.into()) {
+          // NOTE(bartlomieju): This is still fallible, because in some V8 modes
+          // WebAssembly namespace is not available (eg. `--jitless`).
+          let maybe_web_assembly_object =
+            TryInto::<v8::Local<v8::Object>>::try_into(web_assembly_obj_value);
+          if let Ok(web_assembly_object) = maybe_web_assembly_object {
+            wasm_instantiate_fn =
+              Some(bindings::get::<v8::Local<v8::Function>>(
+                scope,
+                web_assembly_object,
+                INSTANTIATE,
+                "WebAssembly.instantiate",
+              ));
+          }
+        }
+      }
+
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
+        wasm_instantiate_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1177,6 +1434,12 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
+    if let Some(wasm_instantiate_fn) = wasm_instantiate_fn {
+      state_rc
+        .wasm_instantiate_fn
+        .borrow_mut()
+        .replace(Rc::new(wasm_instantiate_fn));
+    }
   }
 
   /// Returns the runtime's op state, which can be used to maintain ops
@@ -1187,15 +1450,13 @@ impl JsRuntime {
 
   /// Returns the runtime's op names, ordered by OpId.
   pub fn op_names(&self) -> Vec<&'static str> {
-    let main_realm = self.inner.main_realm.clone();
-    let state_rc = main_realm.0.state();
-    state_rc.op_ctxs.iter().map(|o| o.decl.name).collect()
+    let state = &self.inner.main_realm.0.context_state;
+    state.op_ctxs.iter().map(|o| o.decl.name).collect()
   }
 
-  /// Executes traditional JavaScript code (traditional = not ES modules).
-  ///
-  /// The execution takes place on the current main realm, so it is possible
-  /// to maintain local JS state and invoke this method multiple times.
+  /// Executes traditional, non-ECMAScript-module JavaScript code, This code executes in
+  /// the global scope by default, and it is possible to maintain local JS state and invoke
+  /// this method multiple times.
   ///
   /// `name` can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
   ///
@@ -1204,44 +1465,23 @@ impl JsRuntime {
   ///   - "[native code]"
   ///
   /// The same `name` value can be used for multiple executions.
+  ///
+  /// The source may be any type that implements the internal [`IntoModuleCodeString`] trait, but
+  /// it is highly recommended that embedders use the [`ascii_str!`] to generate the fastest version
+  /// of strings for v8 to handle. If the strings are not static, you may also pass a [`String`]
+  /// generated by the [`format!`] macro.
   ///
   /// `Error` can usually be downcast to `JsError`.
   pub fn execute_script(
     &mut self,
     name: &'static str,
-    source_code: ModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
-    let isolate = &mut self.inner.v8_isolate;
-    self
-      .inner
-      .main_realm
-      .execute_script(isolate, name, source_code)
-  }
-
-  /// Executes traditional JavaScript code (traditional = not ES modules).
-  ///
-  /// The execution takes place on the current main realm, so it is possible
-  /// to maintain local JS state and invoke this method multiple times.
-  ///
-  /// `name` can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
-  ///
-  ///   - "/some/file/path.js"
-  ///   - "<anon>"
-  ///   - "[native code]"
-  ///
-  /// The same `name` value can be used for multiple executions.
-  ///
-  /// `Error` can usually be downcast to `JsError`.
-  pub fn execute_script_static(
-    &mut self,
-    name: &'static str,
-    source_code: &'static str,
+    source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.execute_script(
       isolate,
-      name,
-      ModuleCodeString::from_static(source_code),
+      FastString::from_static(name),
+      source_code.into_module_code(),
     )
   }
 
@@ -1603,12 +1843,13 @@ impl JsRuntime {
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), Error>> {
-    let isolate = self.v8_isolate_ptr();
-    Self::with_context_scope(
-      isolate,
-      self.inner.main_realm.context_ptr(),
-      move |scope| self.poll_event_loop_inner(cx, scope, poll_options),
-    )
+    // SAFETY: We know this isolate is valid and non-null at this time
+    let mut isolate_scope =
+      v8::HandleScope::new(unsafe { &mut *self.v8_isolate_ptr() });
+    let context =
+      v8::Local::new(&mut isolate_scope, self.inner.main_realm.context());
+    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
+    self.poll_event_loop_inner(cx, &mut scope, poll_options)
   }
 
   fn poll_event_loop_inner(
@@ -1700,10 +1941,11 @@ impl JsRuntime {
     }
 
     if pending_state.has_pending_module_evaluation {
-      if pending_state.has_pending_refed_ops
+      if pending_state.has_pending_ops
         || pending_state.has_pending_dyn_imports
         || pending_state.has_pending_dyn_module_evaluation
         || pending_state.has_pending_background_tasks
+        || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
@@ -1715,9 +1957,10 @@ impl JsRuntime {
     }
 
     if pending_state.has_pending_dyn_module_evaluation {
-      if pending_state.has_pending_refed_ops
+      if pending_state.has_pending_ops
         || pending_state.has_pending_dyn_imports
         || pending_state.has_pending_background_tasks
+        || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
       {
         // pass, will be polled again
@@ -1762,69 +2005,113 @@ fn create_context<'a>(
   scope: &mut v8::HandleScope<'a, ()>,
   global_template_middlewares: &[GlobalTemplateMiddlewareFn],
   global_object_middlewares: &[GlobalObjectMiddlewareFn],
+  has_snapshot: bool,
 ) -> v8::Local<'a, v8::Context> {
-  // Set up the global object template and create context from it.
-  let mut global_object_template = v8::ObjectTemplate::new(scope);
-  for middleware in global_template_middlewares {
-    global_object_template = middleware(scope, global_object_template);
-  }
-  let context = v8::Context::new_from_template(scope, global_object_template);
+  let context = if has_snapshot {
+    // Try to load the 1st index first, embedder may have used 0th for something else (like node:vm).
+    v8::Context::from_snapshot(scope, 1, Default::default()).unwrap_or_else(
+      || v8::Context::from_snapshot(scope, 0, Default::default()).unwrap(),
+    )
+  } else {
+    // Set up the global object template and create context from it.
+    let mut global_object_template = v8::ObjectTemplate::new(scope);
+    for middleware in global_template_middlewares {
+      global_object_template = middleware(scope, global_object_template);
+    }
+
+    global_object_template.set_internal_field_count(2);
+    v8::Context::new(
+      scope,
+      v8::ContextOptions {
+        global_template: Some(global_object_template),
+        ..Default::default()
+      },
+    )
+  };
+
   let scope = &mut v8::ContextScope::new(scope, context);
 
-  // Get the global wrapper object from the context, get the real inner
-  // global object from it, and and configure it using the middlewares.
-  let global_wrapper = context.global(scope);
-  let real_global = global_wrapper
-    .get_prototype(scope)
-    .unwrap()
-    .to_object(scope)
-    .unwrap();
+  let global = context.global(scope);
   for middleware in global_object_middlewares {
-    middleware(scope, real_global);
+    middleware(scope, global);
   }
   context
 }
 
 impl JsRuntimeForSnapshot {
-  pub fn new(mut options: RuntimeOptions) -> JsRuntimeForSnapshot {
+  /// Create a new runtime, panicking if the process fails.
+  pub fn new(options: RuntimeOptions) -> JsRuntimeForSnapshot {
+    match Self::try_new(options) {
+      Ok(runtime) => runtime,
+      Err(err) => {
+        panic!("Failed to initialize JsRuntime for snapshotting: {:?}", err);
+      }
+    }
+  }
+
+  /// Try to create a new runtime, returning an error if the process fails.
+  pub fn try_new(
+    mut options: RuntimeOptions,
+  ) -> Result<JsRuntimeForSnapshot, Error> {
     setup::init_v8(
       options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),
+      options.import_assertions_support.is_enabled(),
     );
 
-    let runtime = match JsRuntime::new_inner(options, true) {
-      Ok(r) => r,
-      Err(err) => {
-        panic!("Failed to initialize JsRuntime for snapshotting: {:?}", err);
-      }
-    };
-    JsRuntimeForSnapshot(runtime)
+    let runtime = JsRuntime::new_inner(options, true)?;
+    Ok(JsRuntimeForSnapshot(runtime))
   }
 
   /// Takes a snapshot and consumes the runtime.
   ///
   /// `Error` can usually be downcast to `JsError`.
-  pub fn snapshot(mut self) -> v8::StartupData {
+  pub fn snapshot(mut self) -> Box<[u8]> {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
-
+    let externals_count =
+      self.0.allocations.external_refs.as_ref().unwrap().len() as _;
+    let original_sources =
+      std::mem::take(&mut self.0.allocations.original_sources);
+    let external_strings = original_sources
+      .iter()
+      .map(|s| s.as_str().as_bytes())
+      .collect();
     let realm = JsRealm::clone(&self.inner.main_realm);
 
     // Set the context to be snapshot's default context
     {
       let mut scope = realm.handle_scope(self.v8_isolate());
+      let default_context = v8::Context::new(&mut scope, Default::default());
+      scope.set_default_context(default_context);
+
       let local_context = v8::Local::new(&mut scope, realm.context());
-      scope.set_default_context(local_context);
+      scope.add_context(local_context);
+    }
+
+    // Borrow the source maps during the snapshot to avoid copies
+    let source_maps = self
+      .inner
+      .state
+      .source_mapper
+      .borrow_mut()
+      .take_ext_source_maps();
+    let mut ext_source_maps = HashMap::with_capacity(source_maps.len());
+    for (k, v) in &source_maps {
+      ext_source_maps.insert(k.as_static_str().unwrap(), v.as_ref());
     }
 
     // Serialize the module map and store its data in the snapshot.
-    {
-      let module_map_snapshotted_data = {
+    // TODO(mmastrac): This should deconstruct the realm into sidecar data rather than
+    // extracting it from the realm and then tearing the realm down. IE, this should
+    // probably be a method on `JsRealm` with a self-consuming parameter signature:
+    // `fn into_sidecar_data(self) -> ...`.
+    let sidecar_data = {
+      let mut data_store = SnapshotStoreDataStore::default();
+      let module_map_data = {
         let module_map = realm.0.module_map();
-        module_map.serialize_for_snapshotting(
-          &mut realm.handle_scope(self.v8_isolate()),
-        )
+        module_map.serialize_for_snapshotting(&mut data_store)
       };
       let maybe_js_handled_promise_rejection_cb = {
         let context_state = &realm.0.context_state;
@@ -1833,34 +2120,45 @@ impl JsRuntimeForSnapshot {
           .js_handled_promise_rejection_cb
           .borrow()
           .clone()
-      };
+      }
+      .map(|cb| data_store.register(cb));
 
       let snapshotted_data = SnapshottedData {
-        module_map_data: module_map_snapshotted_data.module_map_data,
-        module_handles: module_map_snapshotted_data.module_handles,
+        module_map_data,
+        externals_count,
+        op_count: self.inner.op_count,
+        addl_refs_count: self.inner.addl_refs_count,
+        source_count: self.inner.source_count,
+        extension_count: self.inner.extension_count,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        ext_source_maps,
+        external_strings,
       };
 
       let mut scope = realm.handle_scope(self.v8_isolate());
-      snapshot_util::set_snapshotted_data(
+      snapshot::store_snapshotted_data_for_snapshot(
         &mut scope,
         realm.context().clone(),
         snapshotted_data,
-      );
-    }
+        data_store,
+      )
+    };
     drop(realm);
 
-    self
+    let v8_data = self
       .0
       .inner
       .prepare_for_snapshot()
       .create_blob(v8::FunctionCodeHandling::Keep)
-      .unwrap()
+      .unwrap();
+
+    snapshot::serialize(v8_data, sidecar_data)
   }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct EventLoopPendingState {
+  has_pending_ops: bool,
   has_pending_refed_ops: bool,
   has_pending_dyn_imports: bool,
   has_pending_dyn_module_evaluation: bool,
@@ -1868,6 +2166,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_background_tasks: bool,
   has_tick_scheduled: bool,
   has_pending_promise_events: bool,
+  has_pending_external_ops: bool,
 }
 
 impl EventLoopPendingState {
@@ -1880,7 +2179,8 @@ impl EventLoopPendingState {
     let num_unrefed_ops = state.unrefed_ops.borrow().len();
     let num_pending_ops = state.pending_ops.len();
     let has_pending_tasks = state.task_spawner_factory.has_pending_tasks();
-    let has_pending_timers = state.timers.has_pending_timers();
+    let has_pending_timers = !state.timers.is_empty();
+    let has_pending_refed_timers = state.timers.has_pending_timers();
     let has_pending_dyn_imports = modules.has_pending_dynamic_imports();
     let has_pending_dyn_module_evaluation =
       modules.has_pending_dyn_module_evaluation();
@@ -1895,16 +2195,21 @@ impl EventLoopPendingState {
         .pending_handled_promise_rejections
         .borrow()
         .is_empty();
+    let has_pending_refed_ops = has_pending_tasks
+      || has_pending_refed_timers
+      || num_pending_ops > num_unrefed_ops;
     EventLoopPendingState {
-      has_pending_refed_ops: has_pending_tasks
+      has_pending_ops: has_pending_refed_ops
         || has_pending_timers
-        || num_pending_ops > num_unrefed_ops,
+        || (num_pending_ops > 0),
+      has_pending_refed_ops,
       has_pending_dyn_imports,
       has_pending_dyn_module_evaluation,
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
       has_tick_scheduled: state.has_next_tick_scheduled.get(),
       has_pending_promise_events,
+      has_pending_external_ops: state.external_ops_tracker.has_pending_ops(),
     }
   }
 
@@ -1923,6 +2228,7 @@ impl EventLoopPendingState {
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
       || self.has_pending_promise_events
+      || self.has_pending_external_ops
   }
 }
 
@@ -2014,38 +2320,97 @@ impl JsRuntime {
   /// The module will be marked as "main", and because of that
   /// "import.meta.main" will return true when checked inside that module.
   ///
+  /// The source may be any type that implements the internal [`IntoModuleCodeString`] trait, but
+  /// it is highly recommended that embedders use the [`ascii_str!`] to generate the fastest version
+  /// of strings for v8 to handle. If the strings are not static, you may also pass a [`String`]
+  /// generated by the [`format!`] macro.
+  ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_main_module(
+  pub async fn load_main_es_module_from_code(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCodeString>,
+    code: impl IntoModuleCodeString,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
       .main_realm
-      .load_main_module(isolate, specifier, code)
+      .load_main_es_module_from_code(
+        isolate,
+        specifier,
+        Some(code.into_module_code()),
+      )
       .await
   }
 
-  /// Asynchronously load specified ES module and all of its dependencies.
+  /// Asynchronously load specified module and all of its dependencies, retrieving
+  /// the module from the supplied [`ModuleLoader`].
+  ///
+  /// The module will be marked as "main", and because of that
+  /// "import.meta.main" will return true when checked inside that module.
+  ///
+  /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
+  /// manually after load is finished.
+  pub async fn load_main_es_module(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
+    self
+      .inner
+      .main_realm
+      .load_main_es_module_from_code(isolate, specifier, None)
+      .await
+  }
+
+  /// Asynchronously load specified ES module and all of its dependencies from the
+  /// provided source.
+  ///
+  /// This method is meant to be used when loading some utility code that
+  /// might be later imported by the main module (ie. an entry point module).
+  ///
+  /// The source may be any type that implements the internal [`IntoModuleCodeString`] trait, but
+  /// it is highly recommended that embedders use the [`ascii_str!`] to generate the fastest version
+  /// of strings for v8 to handle. If the strings are not static, you may also pass a [`String`]
+  /// generated by the [`format!`] macro.
+  ///
+  /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
+  /// manually after load is finished.
+  pub async fn load_side_es_module_from_code(
+    &mut self,
+    specifier: &ModuleSpecifier,
+    code: impl IntoModuleCodeString,
+  ) -> Result<ModuleId, Error> {
+    let isolate = &mut self.inner.v8_isolate;
+    self
+      .inner
+      .main_realm
+      .load_side_es_module_from_code(
+        isolate,
+        specifier,
+        Some(code.into_module_code()),
+      )
+      .await
+  }
+
+  /// Asynchronously load specified ES module and all of its dependencies, retrieving
+  /// the module from the supplied [`ModuleLoader`].
   ///
   /// This method is meant to be used when loading some utility code that
   /// might be later imported by the main module (ie. an entry point module).
   ///
   /// User must call [`JsRuntime::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub async fn load_side_module(
+  pub async fn load_side_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
-    code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, Error> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
       .main_realm
-      .load_side_module(isolate, specifier, code)
+      .load_side_es_module_from_code(isolate, specifier, None)
       .await
   }
 
@@ -2056,16 +2421,17 @@ impl JsRuntime {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub fn lazy_load_es_module_from_code(
+  pub fn lazy_load_es_module_with_code(
     &mut self,
-    specifier: &str,
-    code: ModuleCodeString,
+    specifier: impl IntoModuleName,
+    code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let isolate = &mut self.inner.v8_isolate;
-    self
-      .inner
-      .main_realm
-      .lazy_load_es_module_from_code(isolate, specifier, code)
+    self.inner.main_realm.lazy_load_es_module_with_code(
+      isolate,
+      specifier.into_module_name(),
+      code.into_module_code(),
+    )
   }
 
   fn do_js_event_loop_tick_realm(
@@ -2078,12 +2444,24 @@ impl JsRuntime {
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
     // Rust will extend the lifetime of the borrow longer than we expect.
-    let tasks = context_state.task_spawner_factory.poll_inner(cx);
-    if let Poll::Ready(tasks) = tasks {
+    let mut retries = 3;
+    while let Poll::Ready(tasks) =
+      context_state.task_spawner_factory.poll_inner(cx)
+    {
       // TODO(mmastrac): we are using this flag
       dispatched_ops = true;
       for task in tasks {
         task(scope);
+      }
+      // We may need to perform a microtask checkpoint here
+      scope.perform_microtask_checkpoint();
+
+      // We don't want tasks that spawn other tasks to starve the event loop, so break
+      // after three times around and allow the remainder of the event loop to spin.
+      retries -= 1;
+      if retries == 0 {
+        cx.waker().wake_by_ref();
+        break;
       }
     }
 
@@ -2128,6 +2506,9 @@ impl JsRuntime {
       }
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+      context_state
+        .activity_traces
+        .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(res.unwrap_or_else(std::convert::identity));
@@ -2162,11 +2543,16 @@ impl JsRuntime {
       .borrow_mut()
       .is_empty()
     {
-      let mut rejections =
+      // Avoid holding the pending rejection lock longer than necessary
+      let mut pending_rejections =
         exception_state.pending_promise_rejections.borrow_mut();
+      let mut rejections = VecDeque::default();
+      std::mem::swap(&mut *pending_rejections, &mut rejections);
+      drop(pending_rejections);
+
       let arr = v8::Array::new(scope, (rejections.len() * 2) as i32);
       let mut index = 0;
-      for rejection in rejections.drain(..) {
+      for rejection in rejections.into_iter() {
         let value = v8::Local::new(scope, rejection.0);
         arr.set_index(scope, index, value.into());
         index += 1;
@@ -2174,7 +2560,6 @@ impl JsRuntime {
         arr.set_index(scope, index, value);
         index += 1;
       }
-      drop(rejections);
       arr.into()
     } else {
       undefined
@@ -2182,15 +2567,27 @@ impl JsRuntime {
 
     args.push(rejections);
 
+    // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
+    // storing the exception-reporting callback.
     let timers =
       if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
-        let arr = v8::Array::new(scope, (timers.len() * 2) as _);
+        let traces_enabled = context_state.activity_traces.is_enabled();
+        let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
         for i in 0..timers.len() {
+          if traces_enabled {
+            // Timer and interval traces both use RuntimeActivityType::Timer
+            context_state
+              .activity_traces
+              .complete(RuntimeActivityType::Timer, timers[i].0 as _);
+          }
+          // depth, id, function
           let value = v8::Integer::new(scope, timers[i].1 .1 as _);
-          arr.set_index(scope, (i * 2) as _, value.into());
+          arr.set_index(scope, (i * 3) as _, value.into());
+          let value = v8::Number::new(scope, timers[i].0 as _);
+          arr.set_index(scope, (i * 3 + 1) as _, value.into());
           let value = v8::Local::new(scope, timers[i].1 .0.clone());
-          arr.set_index(scope, (i * 2 + 1) as _, value.into());
+          arr.set_index(scope, (i * 3 + 2) as _, value.into());
         }
         arr.into()
       } else {
@@ -2224,6 +2621,7 @@ fn mark_as_loaded_from_fs_during_snapshot(
   files_loaded: &mut Vec<&'static str>,
   source: &ExtensionFileSourceCode,
 ) {
+  #[allow(deprecated)]
   if let ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) = source {
     files_loaded.push(path);
   }

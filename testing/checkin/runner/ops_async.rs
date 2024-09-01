@@ -1,11 +1,28 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use anyhow::Error;
-use deno_core::error::type_error;
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
+use deno_core::v8;
+use deno_core::GarbageCollected;
+use deno_core::OpState;
+use deno_core::V8TaskSpawner;
+use futures::future::poll_fn;
+use std::cell::RefCell;
 use std::future::Future;
 use std::rc::Rc;
 
-use super::testing::TestData;
+use super::Output;
+use super::TestData;
+
+#[op2]
+pub fn op_task_submit(
+  state: &mut OpState,
+  #[global] f: v8::Global<v8::Function>,
+) {
+  state.borrow_mut::<V8TaskSpawner>().spawn(move |scope| {
+    let f = v8::Local::new(scope, f);
+    let recv = v8::undefined(scope);
+    f.call(scope, recv.into(), &[]);
+  });
+}
 
 #[op2(async)]
 pub async fn op_async_yield() {
@@ -35,16 +52,37 @@ pub fn op_async_barrier_await(
 }
 
 #[op2(async)]
-pub async fn op_async_throw_error_eager() -> Result<(), Error> {
-  Err(type_error("Error"))
+pub async fn op_async_spin_on_state(state: Rc<RefCell<OpState>>) {
+  poll_fn(|cx| {
+    // Ensure that we never get polled when the state has been emptied
+    state.borrow().borrow::<Output>();
+    cx.waker().wake_by_ref();
+    std::task::Poll::Pending
+  })
+  .await
 }
 
-#[op2(async(deferred), fast)]
-pub async fn op_async_throw_error_deferred() -> Result<(), Error> {
-  Err(type_error("Error"))
+pub struct TestResource {
+  value: u32,
 }
 
-#[op2(async(lazy), fast)]
-pub async fn op_async_throw_error_lazy() -> Result<(), Error> {
-  Err(type_error("Error"))
+impl GarbageCollected for TestResource {}
+
+#[op2(async)]
+#[cppgc]
+pub async fn op_async_make_cppgc_resource() -> TestResource {
+  TestResource { value: 42 }
+}
+
+#[op2(async)]
+#[smi]
+pub async fn op_async_get_cppgc_resource(
+  #[cppgc] resource: &TestResource,
+) -> u32 {
+  resource.value
+}
+
+#[op2(async)]
+pub fn op_async_never_resolves() -> impl Future<Output = ()> {
+  futures::future::pending::<()>()
 }
