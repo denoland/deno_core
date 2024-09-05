@@ -142,8 +142,6 @@ pub use crate::ops_metrics::OpMetricsEvent;
 pub use crate::ops_metrics::OpMetricsFactoryFn;
 pub use crate::ops_metrics::OpMetricsFn;
 pub use crate::ops_metrics::OpMetricsSource;
-pub use crate::ops_metrics::OpMetricsSummary;
-pub use crate::ops_metrics::OpMetricsSummaryTracker;
 pub use crate::path::strip_unc_prefix;
 pub use crate::runtime::stats;
 pub use crate::runtime::CompiledWasmModuleStore;

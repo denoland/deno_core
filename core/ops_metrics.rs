@@ -4,9 +4,6 @@ use crate::ops::OpCtx;
 use crate::serde::Serialize;
 use crate::OpDecl;
 use crate::OpId;
-use std::cell::Ref;
-use std::cell::RefCell;
-use std::cell::RefMut;
 use std::rc::Rc;
 
 /// The type of op metrics event.
@@ -114,78 +111,5 @@ impl OpMetricsSummary {
   /// Does this op have outstanding async op dispatches?
   pub fn has_outstanding_ops(&self) -> bool {
     self.ops_dispatched_async > self.ops_completed_async
-  }
-}
-
-#[derive(Default, Debug)]
-pub struct OpMetricsSummaryTracker {
-  ops: RefCell<Vec<OpMetricsSummary>>,
-}
-
-impl OpMetricsSummaryTracker {
-  pub fn per_op(&self) -> Ref<'_, Vec<OpMetricsSummary>> {
-    self.ops.borrow()
-  }
-
-  pub fn aggregate(&self) -> OpMetricsSummary {
-    let mut sum = OpMetricsSummary::default();
-
-    for metrics in self.ops.borrow().iter() {
-      sum.ops_dispatched_sync += metrics.ops_dispatched_sync;
-      sum.ops_dispatched_fast += metrics.ops_dispatched_fast;
-      sum.ops_dispatched_async += metrics.ops_dispatched_async;
-      sum.ops_completed_async += metrics.ops_completed_async;
-    }
-
-    sum
-  }
-
-  #[inline]
-  fn metrics_mut(&self, id: OpId) -> RefMut<OpMetricsSummary> {
-    RefMut::map(self.ops.borrow_mut(), |ops| &mut ops[id as usize])
-  }
-
-  /// Returns a [`OpMetricsFn`] for this tracker.
-  fn op_metrics_fn(self: Rc<Self>) -> OpMetricsFn {
-    Rc::new(move |ctx, event, source| match event {
-      OpMetricsEvent::Dispatched => {
-        let mut m = self.metrics_mut(ctx.id);
-        if source == OpMetricsSource::Fast {
-          m.ops_dispatched_fast += 1;
-        }
-        if ctx.decl.is_async {
-          m.ops_dispatched_async += 1;
-        } else {
-          m.ops_dispatched_sync += 1;
-        }
-      }
-      OpMetricsEvent::Completed
-      | OpMetricsEvent::Error
-      | OpMetricsEvent::CompletedAsync
-      | OpMetricsEvent::ErrorAsync => {
-        if ctx.decl.is_async {
-          self.metrics_mut(ctx.id).ops_completed_async += 1;
-        }
-      }
-    })
-  }
-
-  /// Retrieves the metrics factory function for this tracker.
-  pub fn op_metrics_factory_fn(
-    self: Rc<Self>,
-    op_enabled: impl Fn(&OpDecl) -> bool + 'static,
-  ) -> OpMetricsFactoryFn {
-    Box::new(move |_, total, op| {
-      let mut ops = self.ops.borrow_mut();
-      if ops.capacity() == 0 {
-        ops.reserve_exact(total);
-      }
-      ops.push(OpMetricsSummary::default());
-      if op_enabled(op) {
-        Some(self.clone().op_metrics_fn())
-      } else {
-        None
-      }
-    })
   }
 }
