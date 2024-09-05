@@ -8,6 +8,11 @@ That blog post and the two that preceded it were no longer accurate. By
 including this example in the repository, it will continually be built, so it
 will hopefully stay up-to-date.
 
+## Running
+
+The example can be run by changing to the `core/examples/snapshot` directory and
+running `cargo run`.
+
 ## Differences
 
 Differences from those blog posts:
