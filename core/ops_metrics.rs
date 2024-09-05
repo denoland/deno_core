@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::ops::OpCtx;
-use crate::serde::Serialize;
 use crate::OpDecl;
 use crate::OpId;
 use std::rc::Rc;
@@ -90,26 +89,5 @@ pub fn dispatch_metrics_async(opctx: &OpCtx, metrics: OpMetricsEvent) {
       metrics,
       OpMetricsSource::Async,
     )
-  }
-}
-
-/// Used for both aggregate and per-op metrics.
-#[derive(Clone, Default, Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct OpMetricsSummary {
-  // The number of ops dispatched synchronously
-  pub ops_dispatched_sync: u64,
-  // The number of ops dispatched asynchronously
-  pub ops_dispatched_async: u64,
-  // The number of sync ops dispatched fast
-  pub ops_dispatched_fast: u64,
-  // The number of asynchronously-dispatch ops completed
-  pub ops_completed_async: u64,
-}
-
-impl OpMetricsSummary {
-  /// Does this op have outstanding async op dispatches?
-  pub fn has_outstanding_ops(&self) -> bool {
-    self.ops_dispatched_async > self.ops_completed_async
   }
 }
