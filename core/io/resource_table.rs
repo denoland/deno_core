@@ -151,8 +151,7 @@ impl ResourceTable {
 
   /// Returns an iterator that yields a `(id, name)` pair for every resource
   /// that's currently in the resource table. This can be used for debugging
-  /// purposes or to implement the `op_resources` op. Note that the order in
-  /// which items appear is not specified.
+  /// purposes. Note that the order in which items appear is not specified.
   ///
   /// # Example
   ///

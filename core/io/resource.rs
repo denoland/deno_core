@@ -66,10 +66,9 @@ use std::rc::Rc;
 /// Rust one can directly call `write()`. The latter is used to implement ops
 /// like `op_slice`.
 pub trait Resource: Any + 'static {
-  /// Returns a string representation of the resource which is made available
-  /// to JavaScript code through `op_resources`. The default implementation
-  /// returns the Rust type name, but specific resource types may override this
-  /// trait method.
+  /// Returns a string representation of the resource. The default
+  /// implementation returns the Rust type name, but specific resource types may
+  /// override this trait method.
   fn name(&self) -> Cow<str> {
     type_name::<Self>().into()
   }

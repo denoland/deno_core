@@ -34,7 +34,6 @@ builtin_ops! {
   op_close,
   op_try_close,
   op_print,
-  op_resources,
   op_wasm_streaming_feed,
   op_wasm_streaming_set_url,
   op_void_sync,
@@ -134,18 +133,6 @@ pub fn op_panic(#[string] message: String) {
     eprintln!("JS PANIC: {}", message);
   }
   panic!("JS PANIC: {}", message);
-}
-
-/// Return map of resources with id as key
-/// and string representation as value.
-#[op2]
-#[serde]
-pub fn op_resources(state: &mut OpState) -> Vec<(ResourceId, String)> {
-  state
-    .resource_table
-    .names()
-    .map(|(rid, name)| (rid, name.to_string()))
-    .collect()
 }
 
 #[op2(fast)]

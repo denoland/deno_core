@@ -61,12 +61,6 @@ export namespace core {
   const ops: Record<string, (...args: unknown[]) => any>;
 
   /**
-   * Retrieve a list of all open resources, in the form of a map that maps
-   * resource id to the resource name.
-   */
-  function resources(): Record<string, string>;
-
-  /**
    * Close the resource with the specified op id. Throws `BadResource` error
    * if resource doesn't exist in resource table.
    */

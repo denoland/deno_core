@@ -134,7 +134,6 @@ pub use crate::ops::OpState;
 pub use crate::ops::PromiseId;
 pub use crate::ops_builtin::op_close;
 pub use crate::ops_builtin::op_print;
-pub use crate::ops_builtin::op_resources;
 pub use crate::ops_builtin::op_void_async;
 pub use crate::ops_builtin::op_void_sync;
 pub use crate::ops_metrics::merge_op_metrics;

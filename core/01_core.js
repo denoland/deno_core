@@ -10,7 +10,6 @@
     FunctionPrototypeBind,
     ObjectAssign,
     ObjectFreeze,
-    ObjectFromEntries,
     ObjectKeys,
     ObjectHasOwn,
     setQueueMicrotask,
@@ -59,7 +58,6 @@
     op_print,
     op_queue_microtask,
     op_ref_op,
-    op_resources,
     op_run_microtasks,
     op_serialize,
     op_add_main_module_handler,
@@ -254,10 +252,6 @@
 
   function unrefOpPromise(promise) {
     unrefOp(promise[promiseIdSymbol]);
-  }
-
-  function resources() {
-    return ObjectFromEntries(op_resources());
   }
 
   function metrics() {
@@ -649,7 +643,6 @@
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
-    resources,
     metrics,
     eventLoopTick,
     BadResource,
