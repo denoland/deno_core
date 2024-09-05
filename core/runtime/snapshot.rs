@@ -29,7 +29,7 @@ pub(crate) struct V8Snapshot(pub(crate) &'static [u8]);
 
 pub(crate) fn deconstruct(
   slice: &'static [u8],
-) -> (V8Snapshot, SerializableSnapshotSidecarData) {
+) -> (V8Snapshot, SerializableSnapshotSidecarData<'static>) {
   let len =
     usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
   let data = SerializableSnapshotSidecarData::from_slice(
