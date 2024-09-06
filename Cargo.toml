@@ -4,6 +4,7 @@
 resolver = "2"
 members = [
   "core",
+  "core/examples/snapshot",
   "dcore",
   "ops",
   "ops/compile_test_runner",
