@@ -29,7 +29,7 @@ pub(crate) struct V8Snapshot(pub(crate) &'static [u8]);
 
 pub(crate) fn deconstruct(
   slice: &'static [u8],
-) -> (V8Snapshot, SerializableSnapshotSidecarData) {
+) -> (V8Snapshot, SerializableSnapshotSidecarData<'static>) {
   let len =
     usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
   let data = SerializableSnapshotSidecarData::from_slice(
@@ -305,7 +305,7 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub source_count: usize,
   pub addl_refs_count: usize,
   #[serde(borrow)]
-  pub ext_source_maps: HashMap<String, &'snapshot [u8]>,
+  pub ext_source_maps: HashMap<&'snapshot str, &'snapshot [u8]>,
   #[serde(borrow)]
   pub external_strings: Vec<&'snapshot [u8]>,
 }

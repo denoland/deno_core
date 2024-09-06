@@ -16,7 +16,7 @@ declare namespace Deno {
     function get(string);
   }
   namespace errors {
-    class PermissionDenied {}
+    class NotCapable {}
   }
   namespace build {
     const os: string;
@@ -93,7 +93,7 @@ async function pathMatches(
     const result = await environment.stat(path);
     return result.isFile;
   } catch (err) {
-    if (err instanceof Deno.errors.PermissionDenied) {
+    if (err instanceof Deno.errors.NotCapable) {
       throw err;
     }
     return false;
@@ -136,7 +136,7 @@ function pathMatchesSync(
     const result = environment.statSync(path);
     return result.isFile;
   } catch (err) {
-    if (err instanceof Deno.errors.PermissionDenied) {
+    if (err instanceof Deno.errors.NotCapable) {
       throw err;
     }
     return false;

@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
 use super::dispatch_shared::byte_slice_to_buffer;
-use super::dispatch_shared::fast_api_typed_array_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
@@ -17,7 +16,6 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::Special;
 use super::signature::Strings;
-use super::signature::WasmMemorySource;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use crate::op2::dispatch_async::map_async_return_type;
@@ -61,11 +59,11 @@ impl FastSignature {
       .args
       .iter()
       .filter_map(|arg| match arg {
-        FastArg::PromiseId => Some(V8FastCallType::I32.quote_type()),
+        FastArg::PromiseId => Some(V8FastCallType::I32.quote_ctype()),
         FastArg::CallbackOptions => {
-          Some(V8FastCallType::CallbackOptions.quote_type())
+          Some(V8FastCallType::CallbackOptions.quote_ctype())
         }
-        FastArg::Actual { arg_type, .. } => Some(arg_type.quote_type()),
+        FastArg::Actual { arg_type, .. } => Some(arg_type.quote_ctype()),
         _ => None,
       })
       .collect()
@@ -136,12 +134,14 @@ impl FastSignature {
     let output_type = self.ret_val.quote_ctype();
 
     quote!(
-      use deno_core::v8::fast_api::Type;
-      use deno_core::v8::fast_api::CType;
-      deno_core::v8::fast_api::FastFunction::new_with_bigint(
-        &[ Type::V8Value, #( #input_types ),* ],
-        #output_type,
-        Self::#fast_function as *const ::std::ffi::c_void
+      use deno_core::v8::fast_api::Type as CType;
+      deno_core::v8::fast_api::CFunction::new(
+        Self::#fast_function as _,
+        &deno_core::v8::fast_api::CFunctionInfo::new(
+          #output_type,
+          &[ CType::V8Value.scalar(), #( #input_types ),* ],
+          deno_core::v8::fast_api::Int64Representation::BigInt,
+        ),
       )
     )
   }
@@ -228,47 +228,27 @@ impl V8FastCallType {
   /// Quote fast value type's variant.
   fn quote_ctype(&self) -> TokenStream {
     match &self {
-      V8FastCallType::Void => quote!(CType::Void),
-      V8FastCallType::Bool => quote!(CType::Bool),
-      V8FastCallType::U32 => quote!(CType::Uint32),
-      V8FastCallType::I32 => quote!(CType::Int32),
-      V8FastCallType::U64 => quote!(CType::Uint64),
-      V8FastCallType::I64 => quote!(CType::Int64),
-      V8FastCallType::F32 => quote!(CType::Float32),
-      V8FastCallType::F64 => quote!(CType::Float64),
-      V8FastCallType::Pointer => quote!(CType::Pointer),
-      V8FastCallType::V8Value => quote!(CType::V8Value),
-      V8FastCallType::CallbackOptions => quote!(CType::CallbackOptions),
-      V8FastCallType::AnyArray => unreachable!(),
-      V8FastCallType::Uint8Array => unreachable!(),
-      V8FastCallType::Uint32Array => unreachable!(),
-      V8FastCallType::Float64Array => unreachable!(),
-      V8FastCallType::SeqOneByteString => quote!(CType::SeqOneByteString),
-      V8FastCallType::ArrayBuffer => unreachable!(),
-      V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
-    }
-  }
-
-  /// Quote fast value type's variant.
-  fn quote_type(&self) -> TokenStream {
-    match &self {
-      V8FastCallType::Void => quote!(Type::Void),
-      V8FastCallType::Bool => quote!(Type::Bool),
-      V8FastCallType::U32 => quote!(Type::Uint32),
-      V8FastCallType::I32 => quote!(Type::Int32),
-      V8FastCallType::U64 => quote!(Type::Uint64),
-      V8FastCallType::I64 => quote!(Type::Int64),
-      V8FastCallType::F32 => quote!(Type::Float32),
-      V8FastCallType::F64 => quote!(Type::Float64),
-      V8FastCallType::Pointer => quote!(Type::Pointer),
-      V8FastCallType::V8Value => quote!(Type::V8Value),
-      V8FastCallType::CallbackOptions => quote!(Type::CallbackOptions),
-      V8FastCallType::AnyArray => quote!(Type::V8Value),
-      V8FastCallType::Uint8Array => quote!(Type::TypedArray(CType::Uint8)),
-      V8FastCallType::Uint32Array => quote!(Type::TypedArray(CType::Uint32)),
-      V8FastCallType::Float64Array => quote!(Type::TypedArray(CType::Float64)),
-      V8FastCallType::SeqOneByteString => quote!(Type::SeqOneByteString),
-      V8FastCallType::ArrayBuffer => quote!(Type::V8Value),
+      V8FastCallType::Void => quote!(CType::Void.scalar()),
+      V8FastCallType::Bool => quote!(CType::Bool.scalar()),
+      V8FastCallType::U32 => quote!(CType::Uint32.scalar()),
+      V8FastCallType::I32 => quote!(CType::Int32.scalar()),
+      V8FastCallType::U64 => quote!(CType::Uint64.scalar()),
+      V8FastCallType::I64 => quote!(CType::Int64.scalar()),
+      V8FastCallType::F32 => quote!(CType::Float32.scalar()),
+      V8FastCallType::F64 => quote!(CType::Float64.scalar()),
+      V8FastCallType::Pointer => quote!(CType::Pointer.scalar()),
+      V8FastCallType::V8Value => quote!(CType::V8Value.scalar()),
+      V8FastCallType::CallbackOptions => {
+        quote!(CType::CallbackOptions.scalar())
+      }
+      V8FastCallType::AnyArray => quote!(CType::V8Value.scalar()),
+      V8FastCallType::Uint8Array => quote!(CType::Uint8.typed_array()),
+      V8FastCallType::Uint32Array => quote!(CType::Uint32.typed_array()),
+      V8FastCallType::Float64Array => quote!(CType::Float64.typed_array()),
+      V8FastCallType::SeqOneByteString => {
+        quote!(CType::SeqOneByteString.scalar())
+      }
+      V8FastCallType::ArrayBuffer => quote!(CType::V8Value.scalar()),
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
@@ -323,37 +303,51 @@ pub(crate) fn get_fast_signature(
   }))
 }
 
+fn create_scope(generator_state: &mut GeneratorState) -> TokenStream {
+  generator_state.needs_fast_api_callback_options = true;
+  gs_quote!(generator_state(fast_api_callback_options) => {
+    // SAFETY: This is using an &FastApiCallbackOptions inside a fast call.
+    unsafe {
+      deno_core::v8::CallbackScope::new(&*#fast_api_callback_options)
+    }
+  })
+}
+
+fn throw_type_error(
+  generator_state: &mut GeneratorState,
+  message: impl std::fmt::Display,
+) -> TokenStream {
+  let create_scope = create_scope(generator_state);
+  let message = format!("{message}");
+  quote!({
+    let mut scope = #create_scope;
+    let msg = deno_core::v8::String::new_from_one_byte(&mut scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
+    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
+    scope.throw_exception(exc);
+    // SAFETY: All fast return types have zero as a valid value
+    return unsafe { std::mem::zeroed() };
+  })
+}
+
 /// Sheds the error in a `Result<T, E>` as an early return, leaving just the `T` and requesting
 /// that v8 re-call the slow function to throw the error.
 pub(crate) fn generate_fast_result_early_exit(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-  generator_state.needs_fast_api_callback_options = true;
-  generator_state.needs_fast_opctx = true;
-  gs_quote!(generator_state(fast_api_callback_options, opctx, result) => {
+  generator_state.needs_opctx = true;
+  let create_scope = create_scope(generator_state);
+  gs_quote!(generator_state(opctx, result) => {
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
         let err = err.into();
-
-        // FASTCALL FALLBACK: This is where we set the errors for the slow-call error pickup path. There
-        // is no code running between this and the other FASTCALL FALLBACK comment, except some V8 code
-        // required to perform the fallback process. This is why the below call is safe.
-
-        // The reason we need to do this is because V8 does not allow exceptions to be thrown from the
-        // fast call. Instead, you are required to set the fallback flag, which indicates to V8 that it
-        // should re-call the slow version of the function. Technically the slow call should perform the
-        // same operation and then throw the same error (because it should be idempotent), but in our
-        // case we stash the error and pick it up on the slow path before doing any work.
-
-        // TODO(mmastrac): We should allow an #[op] flag to re-perform slow calls without the error path when
-        // the method is performance sensitive.
-
-        // SAFETY: We guarantee that OpCtx has no mutable references once ops are live and being called,
-        // allowing us to perform this one little bit of mutable magic.
-        unsafe { #opctx.unsafely_set_last_error_for_ops_only(err); }
-        #fast_api_callback_options.fallback = true;
-
+        let mut scope = #create_scope;
+        let exception = deno_core::error::to_v8_error(
+          &mut scope,
+          #opctx.get_error_class_fn,
+          &err,
+        );
+        scope.throw_exception(exception);
         // SAFETY: All fast return types have zero as a valid value
         return unsafe { std::mem::zeroed() };
       }
@@ -407,7 +401,7 @@ pub(crate) fn generate_dispatch_fast(
   let call_args = fastsig.call_args(generator_state)?;
 
   let handle_result = if signature.ret_val.is_async() {
-    generator_state.needs_fast_opctx = true;
+    generator_state.needs_opctx = true;
     let (return_value, mapper, _) =
       map_async_return_type(generator_state, &signature.ret_val).map_err(
         |s| {
@@ -430,8 +424,8 @@ pub(crate) fn generate_dispatch_fast(
     })
   };
 
-  let with_js_runtime_state = if generator_state.needs_fast_js_runtime_state {
-    generator_state.needs_fast_opctx = true;
+  let with_js_runtime_state = if generator_state.needs_js_runtime_state {
+    generator_state.needs_opctx = true;
     gs_quote!(generator_state(js_runtime_state, opctx) => {
       let #js_runtime_state = #opctx.runtime_state();
     })
@@ -439,11 +433,11 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
-  let with_opctx = if generator_state.needs_fast_opctx {
+  let with_opctx = if generator_state.needs_opctx {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
       let #opctx: &'s _ = unsafe {
-        &*(deno_core::v8::Local::<deno_core::v8::External>::cast(unsafe { #fast_api_callback_options.data.data }).value()
+        &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(unsafe { #fast_api_callback_options.data }).value()
             as *const deno_core::_ops::OpCtx)
       };
     })
@@ -452,15 +446,27 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_self = if generator_state.needs_self {
-    generator_state.needs_fast_scope = true;
     generator_state.needs_fast_api_callback_options = true;
-    gs_quote!(generator_state(self_ty, scope, fast_api_callback_options) => {
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into()) else {
-        #fast_api_callback_options.fallback = true;
-        // SAFETY: All fast return types have zero as a valid value
-        return unsafe { std::mem::zeroed() };
+    let throw_exception = throw_type_error(
+      generator_state,
+      format!("expected {}", &generator_state.self_ty),
+    );
+    gs_quote!(generator_state(self_ty, fast_api_callback_options) => {
+      // SAFETY: Isolate is valid if this function is being called.
+      let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(isolate, this.into()) else {
+        #throw_exception
       };
       let self_ = &*self_;
+    })
+  } else {
+    quote!()
+  };
+
+  let with_scope = if generator_state.needs_scope {
+    let create_scope = create_scope(generator_state);
+    gs_quote!(generator_state(scope) => {
+      let mut #scope = #create_scope;
     })
   } else {
     quote!()
@@ -471,22 +477,6 @@ pub(crate) fn generate_dispatch_fast(
     quote!(self_. #name)
   } else {
     quote!(Self:: #name)
-  };
-
-  let with_scope = if generator_state.needs_fast_scope {
-    generator_state.needs_fast_api_callback_options = true;
-    gs_quote!(generator_state(scope, fast_api_callback_options) => (
-      let mut #scope = unsafe {
-        if !this.is_object() {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
-        };
-        deno_core::v8::CallbackScope::new(this)
-      };
-    ))
-  } else {
-    quote!()
   };
 
   let mut fastsig_metrics = fastsig.clone();
@@ -531,8 +521,8 @@ pub(crate) fn generate_dispatch_fast(
       let #fast_api_callback_options: &'s mut _ =
         unsafe { &mut *#fast_api_callback_options };
       let opctx: &'s _ = unsafe {
-          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(
-            unsafe { #fast_api_callback_options.data.data }
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(
+            unsafe { #fast_api_callback_options.data }
           ).value() as *const deno_core::_ops::OpCtx)
       };
       deno_core::_ops::dispatch_metrics_fast(opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
@@ -566,6 +556,20 @@ pub(crate) fn generate_dispatch_fast(
   Ok(Some((fast_definition, fast_definition_metrics, fast_fn)))
 }
 
+fn fast_api_typed_array_to_buffer(
+  arg_ident: &Ident,
+  input: &Ident,
+  buffer: BufferType,
+) -> Result<TokenStream, V8MappingError> {
+  let convert = byte_slice_to_buffer(arg_ident, input, buffer)?;
+  Ok(quote! {
+    // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
+    // fastcall.
+    let #input = unsafe { &*#input }.get_storage_if_aligned().expect("Invalid buffer");
+    #convert
+  })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn map_v8_fastcall_arg_to_arg(
   generator_state: &mut GeneratorState,
@@ -574,13 +578,12 @@ fn map_v8_fastcall_arg_to_arg(
 ) -> Result<TokenStream, V8MappingError> {
   let GeneratorState {
     opctx,
-    scope,
     js_runtime_state,
-    fast_api_callback_options,
-    needs_fast_scope,
-    needs_fast_opctx: needs_opctx,
+    scope,
+    needs_scope,
+    needs_opctx,
     needs_fast_api_callback_options,
-    needs_fast_js_runtime_state: needs_js_runtime_state,
+    needs_js_runtime_state,
     ..
   } = generator_state;
 
@@ -592,13 +595,12 @@ fn map_v8_fastcall_arg_to_arg(
       _,
       BufferSource::ArrayBuffer,
     ) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception =
+        throw_type_error(generator_state, "expected ArrayBuffer");
       let buf = v8slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         let Ok(mut #arg_temp) = deno_core::_ops::to_v8_slice_buffer(#arg_ident.into()) else {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
+          #throw_exception
         };
         #buf
       )
@@ -608,39 +610,36 @@ fn map_v8_fastcall_arg_to_arg(
       _,
       BufferSource::TypedArray,
     ) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception =
+        throw_type_error(generator_state, "expected TypedArray");
       let buf = v8slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         let Ok(mut #arg_temp) = deno_core::_ops::to_v8_slice(#arg_ident.into()) else {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
+          #throw_exception
         };
         #buf
       )
     }
     Arg::Buffer(buffer, _, BufferSource::ArrayBuffer) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception =
+        throw_type_error(generator_state, "expected ArrayBuffer");
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         // SAFETY: This slice doesn't outlive the function
         let Ok(mut #arg_temp) = (unsafe { deno_core::_ops::to_slice_buffer(#arg_ident.into()) }) else {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
+          #throw_exception
         };
         #buf
       )
     }
     Arg::Buffer(buffer, _, BufferSource::Any) => {
-      *needs_fast_api_callback_options = true;
+      let throw_exception =
+        throw_type_error(generator_state, "expected any buffer");
       let buf = byte_slice_to_buffer(arg_ident, &arg_temp, *buffer)?;
       quote!(
         // SAFETY: This slice doesn't outlive the function
         let Ok(mut #arg_temp) = (unsafe { deno_core::_ops::to_slice_buffer_any(#arg_ident.into()) }) else {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
+          #throw_exception
         };
         #buf
       )
@@ -649,8 +648,10 @@ fn map_v8_fastcall_arg_to_arg(
       fast_api_typed_array_to_buffer(arg_ident, arg_ident, *buffer)?
     }
     Arg::Special(Special::Isolate) => {
-      *needs_opctx = true;
-      quote!(let #arg_ident = #opctx.isolate;)
+      *needs_fast_api_callback_options = true;
+      gs_quote!(generator_state(fast_api_callback_options) => {
+       let #arg_ident = #fast_api_callback_options.isolate;
+      })
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
@@ -659,6 +660,10 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Ref(RefType::Mut, Special::OpState) => {
       *needs_opctx = true;
       quote!(let #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);)
+    }
+    Arg::Ref(_, Special::HandleScope) => {
+      *needs_scope = true;
+      quote!(let #arg_ident = &mut #scope;)
     }
     Arg::RcRefCell(Special::OpState) => {
       *needs_opctx = true;
@@ -727,69 +732,50 @@ fn map_v8_fastcall_arg_to_arg(
     | Arg::V8Ref(_, v8)
     | Arg::OptionV8Ref(_, v8) => {
       let arg_ident = arg_ident.clone();
-      // Note that we only request callback options if we were required to provide a type error
       let throw_type_error = || {
-        *needs_fast_api_callback_options = true;
-        Ok(quote! {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
-        })
+        Ok(throw_type_error(
+          generator_state,
+          format!("expected {v8:?}"),
+        ))
       };
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
-    }
-    Arg::WasmMemory(ref_type, WasmMemorySource::Caller) => {
-      *needs_fast_api_callback_options = true;
-      let convert = fast_api_typed_array_to_buffer(
-        arg_ident,
-        arg_ident,
-        BufferType::Slice(*ref_type, NumericArg::u8),
-      )?;
-      quote!(let #arg_ident = #fast_api_callback_options.wasm_memory as _; #convert;)
-    }
-    Arg::OptionWasmMemory(ref_type, WasmMemorySource::Caller) => {
-      *needs_fast_api_callback_options = true;
-      let convert = fast_api_typed_array_to_buffer(
-        arg_ident,
-        arg_ident,
-        BufferType::Slice(*ref_type, NumericArg::u8),
-      )?;
-      quote!(let #arg_ident = #fast_api_callback_options.wasm_memory as _; #convert; let #arg_ident = Some(#arg_ident);)
     }
     Arg::CppGcResource(ty) => {
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_scope = true;
       *needs_fast_api_callback_options = true;
-      quote! {
-        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
+      let throw_exception =
+        throw_type_error(generator_state, format!("expected {ty:?}"));
+      gs_quote!(generator_state(fast_api_callback_options) => {
+        // SAFETY: Isolate is valid if this function is being called.
+        let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
+        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(isolate, #arg_ident) else {
+          #throw_exception
         };
         let #arg_ident = &*#arg_ident;
-      }
+      })
     }
     Arg::OptionCppGcResource(ty) => {
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_scope = true;
       *needs_fast_api_callback_options = true;
-      quote! {
+      let throw_exception =
+        throw_type_error(generator_state, format!("expected {ty:?}"));
+      gs_quote!(generator_state(fast_api_callback_options) => {
+        // SAFETY: Isolate is valid if this function is being called.
+        let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
-        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(isolate, #arg_ident) {
           Some(#arg_ident)
         } else {
-          #fast_api_callback_options.fallback = true;
-          // SAFETY: All fast return types have zero as a valid value
-          return unsafe { std::mem::zeroed() };
+          #throw_exception
         };
         let #arg_ident = #arg_ident.as_deref();
-      }
+      })
     }
     _ => quote!(let #arg_ident = #arg_ident as _;),
   };
@@ -846,13 +832,12 @@ fn map_arg_to_v8_fastcall_type(
     // Virtual OpState arguments
     Arg::RcRefCell(Special::OpState)
     | Arg::Ref(_, Special::OpState)
+    | Arg::Ref(RefType::Mut, Special::HandleScope)
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
-    | Arg::OptionState(..)
-    | Arg::WasmMemory(..)
-    | Arg::OptionWasmMemory(..) => V8FastCallType::Virtual,
+    | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
     | Arg::Option(_)

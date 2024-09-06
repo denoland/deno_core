@@ -10,7 +10,7 @@ pub mod ops_rust_to_v8;
 mod setup;
 mod snapshot;
 pub mod stats;
-mod v8_static_strings;
+pub(crate) mod v8_static_strings;
 
 #[cfg(all(test, not(miri)))]
 mod tests;
@@ -27,6 +27,8 @@ pub use jsruntime::CompiledWasmModuleStore;
 pub use jsruntime::CreateRealmOptions;
 pub use jsruntime::CrossIsolateStore;
 pub use jsruntime::ExtensionTranspiler;
+pub use jsruntime::ImportAssertionsSupport;
+pub use jsruntime::ImportAssertionsSupportCustomCallbackArgs;
 pub(crate) use jsruntime::InitMode;
 pub use jsruntime::JsRuntime;
 pub use jsruntime::JsRuntimeForSnapshot;
@@ -45,5 +47,3 @@ pub(crate) use snapshot::SnapshotDataId;
 pub(crate) use snapshot::SnapshotLoadDataStore;
 pub(crate) use snapshot::SnapshotStoreDataStore;
 pub(crate) use snapshot::SnapshottedData;
-
-pub use bindings::script_origin;

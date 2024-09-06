@@ -95,6 +95,39 @@ pub trait ModuleLoader {
   ) -> Pin<Box<dyn Future<Output = ()>>> {
     async {}.boxed_local()
   }
+
+  /// Called when V8 code cache should be ignored for this module. This can happen
+  /// if eg. module causes a V8 warning, like when using deprecated import assertions.
+  /// Implementors should make sure that the code cache for this module is purged and not saved anymore.
+  ///
+  /// It's not required to implement this method.
+  fn purge_and_prevent_code_cache(&self, _module_specifier: &str) {}
+
+  /// Returns a source map for given `file_name`.
+  ///
+  /// This function will soon be deprecated or renamed.
+  fn get_source_map(&self, _file_name: &str) -> Option<Vec<u8>> {
+    None
+  }
+
+  fn get_source_mapped_source_line(
+    &self,
+    _file_name: &str,
+    _line_number: usize,
+  ) -> Option<String> {
+    None
+  }
+
+  /// Implementors can attach arbitrary data to scripts and modules
+  /// by implementing this method. V8 currently requires that the
+  /// returned data be a `v8::PrimitiveArray`.
+  fn get_host_defined_options<'s>(
+    &self,
+    _scope: &mut v8::HandleScope<'s>,
+    _name: &str,
+  ) -> Option<v8::Local<'s, v8::Data>> {
+    None
+  }
 }
 
 /// Placeholder structure used when creating

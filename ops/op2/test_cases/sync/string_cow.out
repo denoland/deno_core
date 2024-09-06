@@ -11,24 +11,33 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::SeqOneByteString],
-                    CType::Uint32,
-                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                use deno_core::v8::fast_api::Type as CType;
+                deno_core::v8::fast_api::CFunction::new(
+                    Self::v8_fn_ptr_fast as _,
+                    &deno_core::v8::fast_api::CFunctionInfo::new(
+                        CType::Uint32.scalar(),
+                        &[CType::V8Value.scalar(), CType::SeqOneByteString.scalar()],
+                        deno_core::v8::fast_api::Int64Representation::BigInt,
+                    ),
                 )
             }),
             Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::SeqOneByteString, Type::CallbackOptions],
-                    CType::Uint32,
-                    Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
+                use deno_core::v8::fast_api::Type as CType;
+                deno_core::v8::fast_api::CFunction::new(
+                    Self::v8_fn_ptr_fast_metrics as _,
+                    &deno_core::v8::fast_api::CFunctionInfo::new(
+                        CType::Uint32.scalar(),
+                        &[
+                            CType::V8Value.scalar(),
+                            CType::SeqOneByteString.scalar(),
+                            CType::CallbackOptions.scalar(),
+                        ],
+                        deno_core::v8::fast_api::Int64Representation::BigInt,
+                    ),
                 )
             }),
             ::deno_core::OpMetadata {
@@ -38,7 +47,7 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
     }
     impl op_string_cow {
         pub const fn name() -> &'static str {
-            stringify!(op_string_cow)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
@@ -54,7 +63,7 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
             let opctx: &'s _ = unsafe {
                 &*(deno_core::v8::Local::<
                     deno_core::v8::External,
-                >::cast(unsafe { fast_api_callback_options.data.data })
+                >::cast_unchecked(unsafe { fast_api_callback_options.data })
                     .value() as *const deno_core::_ops::OpCtx)
             };
             deno_core::_ops::dispatch_metrics_fast(
@@ -102,7 +111,9 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
                 info,
             );
             let opctx: &'s _ = unsafe {
-                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
             let mut scope = unsafe { &mut *opctx.isolate };
@@ -129,7 +140,9 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
                 info,
             );
             let opctx: &'s _ = unsafe {
-                &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data())
+                &*(deno_core::v8::Local::<
+                    deno_core::v8::External,
+                >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
             deno_core::_ops::dispatch_metrics_slow(

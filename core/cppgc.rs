@@ -88,7 +88,7 @@ impl<T: GarbageCollected> std::ops::Deref for Ptr<T> {
 #[doc(hidden)]
 #[allow(clippy::needless_lifetimes)]
 pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
-  scope: &mut v8::HandleScope<'sc>,
+  isolate: &mut v8::Isolate,
   val: v8::Local<'sc, v8::Value>,
 ) -> Option<Ptr<T>> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
@@ -100,7 +100,7 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
   }
 
   let obj =
-    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(scope, obj) }?;
+    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) }?;
 
   if obj.tag != TypeId::of::<T>() {
     return None;

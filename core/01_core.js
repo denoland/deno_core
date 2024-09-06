@@ -15,6 +15,7 @@
     ObjectHasOwn,
     setQueueMicrotask,
     SafeMap,
+    SafeWeakMap,
     Set,
     StringPrototypeSlice,
     Symbol,
@@ -48,6 +49,7 @@
     op_encode_binary_string,
     op_eval_context,
     op_event_loop_has_more_work,
+    op_get_extras_binding_object,
     op_get_promise_details,
     op_get_proxy_details,
     op_has_tick_scheduled,
@@ -108,6 +110,11 @@
     op_is_weak_map,
     op_is_weak_set,
   } = ops;
+
+  const {
+    getContinuationPreservedEmbedderData,
+    setContinuationPreservedEmbedderData,
+  } = op_get_extras_binding_object();
 
   // core/infra collaborative code
   delete window.__infra;
@@ -306,9 +313,9 @@
     });
   }
 
-  // Some "extensions" rely on "BadResource" and "Interrupted" errors in the
-  // JS code (eg. "deno_net") so they are provided in "Deno.core" but later
-  // reexported on "Deno.errors"
+  // Some "extensions" rely on "BadResource", "Interrupted", "NotCapable"
+  // errors in the JS code (eg. "deno_net") so they are provided in "Deno.core"
+  // but later reexported on "Deno.errors"
   class BadResource extends Error {
     constructor(msg) {
       super(msg);
@@ -325,8 +332,17 @@
   }
   const InterruptedPrototype = Interrupted.prototype;
 
+  class NotCapable extends Error {
+    constructor(msg) {
+      super(msg);
+      this.name = "NotCapable";
+    }
+  }
+  const NotCapablePrototype = NotCapable.prototype;
+
   registerErrorClass("BadResource", BadResource);
   registerErrorClass("Interrupted", Interrupted);
+  registerErrorClass("NotCapable", NotCapable);
 
   const promiseHooks = [
     [], // init
@@ -599,6 +615,37 @@
     };
   }
 
+  const getAsyncContext = getContinuationPreservedEmbedderData;
+  const setAsyncContext = setContinuationPreservedEmbedderData;
+
+  let asyncVariableCounter = 0;
+  class AsyncVariable {
+    #id = asyncVariableCounter++;
+    #data = new SafeWeakMap();
+
+    enter(value) {
+      const previousContextMapping = getAsyncContext();
+      const entry = { id: this.#id };
+      const asyncContextMapping = {
+        __proto__: null,
+        ...previousContextMapping,
+        [this.#id]: entry,
+      };
+      this.#data.set(entry, value);
+      setAsyncContext(asyncContextMapping);
+      return previousContextMapping;
+    }
+
+    get() {
+      const current = getAsyncContext();
+      const entry = current?.[this.#id];
+      if (entry) {
+        return this.#data.get(entry);
+      }
+      return undefined;
+    }
+  }
+
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
@@ -609,6 +656,8 @@
     BadResourcePrototype,
     Interrupted,
     InterruptedPrototype,
+    NotCapable,
+    NotCapablePrototype,
     refOpPromise,
     unrefOpPromise,
     setReportExceptionCallback,
@@ -645,8 +694,13 @@
     evalContext: (
       source,
       specifier,
+      hostDefinedOptions,
     ) => {
-      const [result, error] = op_eval_context(source, specifier);
+      const [result, error] = op_eval_context(
+        source,
+        specifier,
+        hostDefinedOptions,
+      );
       if (error) {
         const { 0: thrown, 1: isNativeError, 2: isCompileError } = error;
         return [
@@ -763,6 +817,9 @@
     propNonEnumerableLazyLoaded,
     createLazyLoader,
     createCancelHandle: () => op_cancel_handle(),
+    getAsyncContext,
+    setAsyncContext,
+    AsyncVariable,
   });
 
   const internals = {};

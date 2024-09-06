@@ -111,15 +111,13 @@ builtin_ops! {
   ops_builtin_v8::op_get_proxy_details,
   ops_builtin_v8::op_get_non_index_property_names,
   ops_builtin_v8::op_get_constructor_name,
+  ops_builtin_v8::op_get_extras_binding_object,
   ops_builtin_v8::op_memory_usage,
   ops_builtin_v8::op_set_wasm_streaming_callback,
   ops_builtin_v8::op_abort_wasm_streaming,
   ops_builtin_v8::op_destructure_error,
   ops_builtin_v8::op_dispatch_exception,
   ops_builtin_v8::op_op_names,
-  ops_builtin_v8::op_apply_source_map,
-  ops_builtin_v8::op_apply_source_map_filename,
-  ops_builtin_v8::op_set_call_site_evals,
   ops_builtin_v8::op_current_user_call_site,
   ops_builtin_v8::op_set_format_exception_callback,
   ops_builtin_v8::op_event_loop_has_more_work,
@@ -380,7 +378,7 @@ fn op_format_file_name(#[string] file_name: &str) -> String {
   format_file_name(file_name)
 }
 
-#[op2]
+#[op2(fast)]
 fn op_str_byte_length(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,
