@@ -313,7 +313,7 @@
     });
   }
 
-  // Some "extensions" rely on "BadResource", "Interrupted", "PermissionDenied"
+  // Some "extensions" rely on "BadResource", "Interrupted", "NotCapable"
   // errors in the JS code (eg. "deno_net") so they are provided in "Deno.core"
   // but later reexported on "Deno.errors"
   class BadResource extends Error {
@@ -332,17 +332,17 @@
   }
   const InterruptedPrototype = Interrupted.prototype;
 
-  class PermissionDenied extends Error {
+  class NotCapable extends Error {
     constructor(msg) {
       super(msg);
-      this.name = "PermissionDenied";
+      this.name = "NotCapable";
     }
   }
-  const PermissionDeniedPrototype = PermissionDenied.prototype;
+  const NotCapablePrototype = NotCapable.prototype;
 
   registerErrorClass("BadResource", BadResource);
   registerErrorClass("Interrupted", Interrupted);
-  registerErrorClass("PermissionDenied", PermissionDenied);
+  registerErrorClass("NotCapable", NotCapable);
 
   const promiseHooks = [
     [], // init
@@ -656,8 +656,8 @@
     BadResourcePrototype,
     Interrupted,
     InterruptedPrototype,
-    PermissionDenied,
-    PermissionDeniedPrototype,
+    NotCapable,
+    NotCapablePrototype,
     refOpPromise,
     unrefOpPromise,
     setReportExceptionCallback,
