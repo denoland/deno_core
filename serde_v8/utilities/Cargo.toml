@@ -4,6 +4,7 @@
 name = "serde_v8_utilities"
 version = "0.3.0"
 publish = false
+edition = "2021"
 
 [lib]
 path = "lib.rs"

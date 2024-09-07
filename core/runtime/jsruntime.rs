@@ -2330,7 +2330,12 @@ impl JsRuntime {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
-    self.inner.main_realm.0.module_map.mod_evaluate(scope, id)
+    self
+      .inner
+      .main_realm
+      .0
+      .module_map
+      .mod_evaluate(scope, id, true)
   }
 
   /// Asynchronously load specified module and all of its dependencies.

@@ -992,6 +992,7 @@ impl ModuleMap {
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
     id: ModuleId,
+    in_promise: bool,
   ) -> impl Future<Output = Result<(), Error>> + Unpin {
     let tc_scope = &mut v8::TryCatch::new(scope);
 
@@ -1023,8 +1024,9 @@ impl ModuleMap {
     let Some(value) = module.evaluate(tc_scope) else {
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
         let undefined = v8::undefined(tc_scope).into();
-        _ = sender
-          .send(exception_to_err_result(tc_scope, undefined, true, false));
+        _ = sender.send(exception_to_err_result(
+          tc_scope, undefined, in_promise, false,
+        ));
       } else {
         debug_assert_eq!(module.get_status(), v8::ModuleStatus::Errored);
       }
@@ -1040,7 +1042,9 @@ impl ModuleMap {
       // This will be overridden in `exception_to_err_result()`.
       let exception = v8::undefined(tc_scope).into();
       sender
-        .send(exception_to_err_result(tc_scope, exception, false, false))
+        .send(exception_to_err_result(
+          tc_scope, exception, in_promise, false,
+        ))
         .expect("Failed to send module evaluation error.");
     } else {
       debug_assert!(
@@ -1127,7 +1131,7 @@ impl ModuleMap {
           PromiseState::Fulfilled => {
             if let Some(exception) = tc_scope.exception() {
               _ = sender.sender.take().unwrap().send(exception_to_err_result(
-                tc_scope, exception, true, false,
+                tc_scope, exception, in_promise, false,
               ));
             } else {
               // Module loaded OK
@@ -1167,11 +1171,22 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     id: ModuleId,
   ) -> Result<(), Error> {
-    let mut receiver = self.mod_evaluate(scope, id);
+    let is_graph_async = {
+      let module_handle = self.get_handle(id).expect("ModuleInfo not found");
+      module_handle.open(scope).is_graph_async()
+    };
+    // Don't allow TLA in graph
+    if is_graph_async {
+      return Err(generic_error(
+        "Top-level await is not allowed in synchronous evaluation",
+      ));
+    }
+
+    let mut receiver = self.mod_evaluate(scope, id, false);
 
     // After evaluate_pending_module, if the module isn't fully evaluated
     // and the resolver solved, it means the module or one of its imports
-    // uses TLA.
+    // uses TLA, which should be unreachable due to the above check.
     match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
       Poll::Ready(result) => {
         result.with_context(|| {
@@ -1179,15 +1194,7 @@ impl ModuleMap {
           format!("Couldn't execute '{specifier}'")
         })?;
       }
-      Poll::Pending => {
-        // Find the TLA location and return it as an error
-        let messages = self.find_stalled_top_level_await(scope);
-        assert!(!messages.is_empty());
-        let msg = v8::Local::new(scope, &messages[0]);
-        let js_error = JsError::from_v8_message(scope, msg);
-        return Err(Error::from(js_error))
-          .with_context(|| "Top-level await is not allowed in extensions");
-      }
+      Poll::Pending => unreachable!(),
     }
 
     Ok(())
@@ -1582,6 +1589,18 @@ impl ModuleMap {
         .set(!self.code_cache_ready_futs.borrow().is_empty());
       return Poll::Ready(Ok(()));
     }
+  }
+
+  pub(crate) fn get_module<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    module_id: ModuleId,
+  ) -> Option<v8::Local<'s, v8::Module>> {
+    self
+      .data
+      .borrow()
+      .get_handle(module_id)
+      .map(|g| v8::Local::new(scope, g))
   }
 
   /// Returns the namespace object of a module.
