@@ -115,6 +115,11 @@ struct DynImportModEvaluate {
   module: v8::Global<v8::Module>,
 }
 
+struct DynImportState {
+  resolver: v8::Global<v8::PromiseResolver>,
+  cped: v8::Global<v8::Value>,
+}
+
 /// A collection of JS modules.
 pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
@@ -123,8 +128,7 @@ pub(crate) struct ModuleMap {
   pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
   exception_state: Rc<ExceptionState>,
-  dynamic_import_map:
-    RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
+  dynamic_import_map: RefCell<HashMap<ModuleLoadId, DynImportState>>,
   preparing_dynamic_imports:
     RefCell<FuturesUnordered<Pin<Box<PrepareLoadFuture>>>>,
   preparing_dynamic_imports_pending: Cell<bool>,
@@ -941,6 +945,7 @@ impl ModuleMap {
     referrer: &str,
     requested_module_type: RequestedModuleType,
     resolver_handle: v8::Global<v8::PromiseResolver>,
+    cped_handle: v8::Global<v8::Value>,
   ) {
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,
@@ -949,10 +954,13 @@ impl ModuleMap {
       self.clone(),
     );
 
-    self
-      .dynamic_import_map
-      .borrow_mut()
-      .insert(load.id, resolver_handle);
+    self.dynamic_import_map.borrow_mut().insert(
+      load.id,
+      DynImportState {
+        resolver: resolver_handle,
+        cped: cped_handle,
+      },
+    );
 
     let resolve_result =
       self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
@@ -1230,6 +1238,19 @@ impl ModuleMap {
     // https://github.com/denoland/deno/issues/4908
     // https://v8.dev/features/top-level-await#module-execution-order
     let tc_scope = &mut v8::TryCatch::new(scope);
+
+    {
+      let cped = self
+        .dynamic_import_map
+        .borrow()
+        .get(&load_id)
+        .unwrap()
+        .cped
+        .clone();
+      let cped = v8::Local::new(tc_scope, cped);
+      tc_scope.set_continuation_preserved_embedder_data(cped);
+    }
+
     let module = v8::Local::new(tc_scope, &module_handle);
     let maybe_value = module.evaluate(tc_scope);
 
@@ -1351,7 +1372,8 @@ impl ModuleMap {
       .dynamic_import_map
       .borrow_mut()
       .remove(&id)
-      .expect("Invalid dynamic import id");
+      .expect("Invalid dynamic import id")
+      .resolver;
     let resolver = resolver_handle.open(scope);
 
     let exception = v8::Local::new(scope, exception);
@@ -1369,7 +1391,8 @@ impl ModuleMap {
       .dynamic_import_map
       .borrow_mut()
       .remove(&id)
-      .expect("Invalid dynamic import id");
+      .expect("Invalid dynamic import id")
+      .resolver;
     let resolver = resolver_handle.open(scope);
 
     let module = self
