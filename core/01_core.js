@@ -260,24 +260,6 @@
     return ObjectFromEntries(op_resources());
   }
 
-  function metrics() {
-    // TODO(mmastrac): we should replace this with a newer API
-    return {
-      opsDispatched: 0,
-      opsDispatchedSync: 0,
-      opsDispatchedAsync: 0,
-      opsDispatchedAsyncUnref: 0,
-      opsCompleted: 0,
-      opsCompletedSync: 0,
-      opsCompletedAsync: 0,
-      opsCompletedAsyncUnref: 0,
-      bytesSentControl: 0,
-      bytesSentData: 0,
-      bytesReceived: 0,
-      ops: {},
-    };
-  }
-
   let reportExceptionCallback = (error) => {
     op_dispatch_exception(error, false);
   };
@@ -650,7 +632,6 @@
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
     resources,
-    metrics,
     eventLoopTick,
     BadResource,
     BadResourcePrototype,
