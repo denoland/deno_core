@@ -1477,6 +1477,168 @@ fn main_and_side_module() {
 }
 
 #[test]
+#[should_panic]
+fn load_main_module_twice() {
+  let main_specifier = resolve_url("file:///main_module.js").unwrap();
+
+  let loader = StaticModuleLoader::with(
+    main_specifier.clone(),
+    ascii_str!("if (!import.meta.main) throw Error();"),
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
+  let main_id = futures::executor::block_on(main_id_fut).unwrap();
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(main_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
+  futures::executor::block_on(main_id_fut).unwrap_err();
+
+  #[allow(clippy::let_underscore_future)]
+  // Try loading the same module - should panic.
+  let _ = runtime.mod_evaluate(main_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+}
+
+#[test]
+fn load_main_module_twice_with_remove() {
+  let main_specifier = resolve_url("file:///main_module.js").unwrap();
+
+  let loader = StaticModuleLoader::with(
+    main_specifier.clone(),
+    ascii_str!("if (!import.meta.main) throw Error();"),
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+  let module_map_rc = runtime.module_map();
+
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
+  let main_id = futures::executor::block_on(main_id_fut).unwrap();
+  // Ensure that the loaded module is marked as the main module.
+  // Main module is `main_id`.
+  assert!(module_map_rc.is_main_module_id(main_id));
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(main_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+
+  // And now remove id from module_map and try to load module again.
+  let main_id_fut =
+    runtime.remove_main_es_module(&main_specifier).boxed_local();
+
+  let old_main_id = futures::executor::block_on(main_id_fut).unwrap();
+  // Ensure that the module is removed by checking that it
+  // no longer has a main module id.
+  assert!(!module_map_rc.is_main_module_id(main_id));
+
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
+  let updated_main_id = futures::executor::block_on(main_id_fut).unwrap();
+  // Since the old main_id was removed, a new module is loaded
+  // with an incremented module id.
+  assert_eq!(updated_main_id, main_id + 1);
+  assert_eq!(old_main_id, main_id);
+  assert!(module_map_rc.is_main_module_id(updated_main_id));
+
+  // Evaluate the newly loaded module.
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(updated_main_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+}
+
+#[test]
+#[should_panic]
+fn remove_main_module_before_load() {
+  let side_specifier = resolve_url("file:///side_module.js").unwrap();
+
+  let loader = StaticModuleLoader::with(
+    side_specifier.clone(),
+    ascii_str!("if (!import.meta.main) throw Error();"),
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+
+  // Try to remove module id before loading module - should panic.
+  let side_id_fut =
+    runtime.remove_main_es_module(&side_specifier).boxed_local();
+  futures::executor::block_on(side_id_fut).unwrap();
+}
+
+#[test]
+fn load_side_module_twice_with_remove() {
+  let main_specifier = resolve_url("file:///main_module.js").unwrap();
+  let side_specifier = resolve_url("file:///side_module.js").unwrap();
+
+  let loader = StaticModuleLoader::new([
+    (
+      main_specifier.clone(),
+      ascii_str!("if (!import.meta.main) throw Error();"),
+    ),
+    (
+      side_specifier.clone(),
+      ascii_str!("if (import.meta.main) throw Error();"),
+    ),
+  ]);
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(Rc::new(loader)),
+    ..Default::default()
+  });
+  let module_map_rc = runtime.module_map();
+
+  let main_id_fut = runtime.load_main_es_module(&main_specifier).boxed_local();
+  let main_id = futures::executor::block_on(main_id_fut).unwrap();
+
+  let side_id_fut = runtime.load_side_es_module(&side_specifier).boxed_local();
+  let side_id = futures::executor::block_on(side_id_fut).unwrap();
+
+  // Main module is main_id
+  assert!(module_map_rc.is_main_module_id(main_id));
+
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(main_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+
+  let side_id_fut =
+    runtime.remove_side_es_module(&side_specifier).boxed_local();
+  let old_side_id = futures::executor::block_on(side_id_fut).unwrap();
+
+  // Main module has not changed
+  assert!(module_map_rc.is_main_module_id(main_id));
+
+  // Ensure that the module is removed by checking that it
+  // no longer has a main module id.
+  let side_id_fut = runtime.load_side_es_module(&side_specifier).boxed_local();
+  let updated_side_id = futures::executor::block_on(side_id_fut).unwrap();
+
+  assert_eq!(old_side_id, side_id);
+  assert_eq!(updated_side_id, side_id + 1);
+
+  // Evaluate the newly loaded module.
+  #[allow(clippy::let_underscore_future)]
+  let _ = runtime.mod_evaluate(updated_side_id);
+  futures::executor::block_on(runtime.run_event_loop(Default::default()))
+    .unwrap();
+}
+
+#[test]
 fn dynamic_imports_snapshot() {
   //TODO: Once the issue with the ModuleNamespaceEntryGetter is fixed, we can maintain a reference to the module
   // and use it when loading the snapshot

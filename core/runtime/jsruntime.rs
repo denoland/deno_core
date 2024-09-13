@@ -2394,6 +2394,18 @@ impl JsRuntime {
       .await
   }
 
+  /// Remove the specified main module from the module map.
+  ///
+  /// This method is useful when you need to update a previously loaded main
+  /// module and potentially replace it with a different version.
+  /// It returns the `ModuleId` of the old module that was removed from the module map.
+  pub async fn remove_main_es_module(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    self.inner.main_realm.remove_main_es_module(specifier).await
+  }
+
   /// Asynchronously load specified ES module and all of its dependencies from the
   /// provided source.
   ///
@@ -2442,6 +2454,18 @@ impl JsRuntime {
       .main_realm
       .load_side_es_module_from_code(isolate, specifier, None)
       .await
+  }
+
+  /// Remove the specified side module from the module map.
+  ///
+  /// This method is useful when you need to update a previously loaded side
+  /// module and potentially replace it with a different version.
+  /// It returns the `ModuleId` of the old module that was removed from the module map.
+  pub async fn remove_side_es_module(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ModuleId, Error> {
+    self.inner.main_realm.remove_side_es_module(specifier).await
   }
 
   /// Load and evaluate an ES module provided the specifier and source code.
