@@ -127,6 +127,8 @@ pub(crate) struct ModuleMap {
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
   pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
+  wake_module_cb: RefCell<Option<v8::Global<v8::Function>>>,
+
   exception_state: Rc<ExceptionState>,
   dynamic_import_map: RefCell<HashMap<ModuleLoadId, DynImportState>>,
   preparing_dynamic_imports:
@@ -214,6 +216,7 @@ impl ModuleMap {
       loader: loader.into(),
       exception_state,
       import_meta_resolve_cb,
+      wake_module_cb: Default::default(),
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
       preparing_dynamic_imports: Default::default(),
@@ -1275,7 +1278,12 @@ impl ModuleMap {
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
 
-      let wake_module_cb = Function::builder(wake_module).build(tc_scope);
+      if self.wake_module_cb.borrow().is_none() {
+          let func = Function::builder(wake_module).build(tc_scope);
+          let global = func.map(|f| v8::Global::new(tc_scope, f));
+          *self.wake_module_cb.borrow_mut() = global;
+      }
+      let wake_module_cb = self.wake_module_cb.borrow().as_ref().map(|f| v8::Local::new(tc_scope, f));
 
       if let Some(wake_module_cb) = wake_module_cb {
         promise.then2(tc_scope, wake_module_cb, wake_module_cb);
