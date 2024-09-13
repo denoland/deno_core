@@ -277,7 +277,7 @@ pub fn op_create_inspector_session(
 
       state.has_inspector.set(true);
       **inspector = Some(JsRuntimeInspector::new(
-        state.op_state.borrow().borrow::<*mut v8::Isolate>().clone(),
+        *state.op_state.borrow().borrow::<*mut v8::Isolate>(),
         scope,
         context,
         false,

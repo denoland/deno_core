@@ -19,10 +19,6 @@ use crate::futures::task::Context;
 use crate::futures::task::Poll;
 use crate::serde_json::json;
 use crate::serde_json::Value;
-use crate::AsyncRefCell;
-use crate::CancelFuture;
-use crate::CancelHandle;
-use crate::RcRef;
 use anyhow::Error;
 use parking_lot::Mutex;
 use std::cell::BorrowMutError;
@@ -781,7 +777,8 @@ impl Stream for InspectorSession {
 pub struct LocalInspectorSessionRaw {
   v8_session_tx: UnboundedSender<String>,
   v8_session_rx: tokio::sync::Mutex<UnboundedReceiver<InspectorMsg>>,
-  cancel_handle: Rc<CancelHandle>,
+  // TODO:
+  // cancel_handle: Rc<CancelHandle>,
 }
 
 impl GarbageCollected for LocalInspectorSessionRaw {}
@@ -794,7 +791,8 @@ impl LocalInspectorSessionRaw {
     Self {
       v8_session_tx,
       v8_session_rx: tokio::sync::Mutex::new(v8_session_rx),
-      cancel_handle: CancelHandle::new_rc(),
+      // TODO:
+      // cancel_handle: CancelHandle::new_rc(),
     }
   }
 
@@ -828,13 +826,13 @@ impl LocalInspectorSessionRaw {
   pub fn disconnect(&self) {
     // TODO(bartlomieju): this should at least have a cancel handle and cancel pending
     // `self.receive_from_v8_session()` calls
-    eprintln!("LocalInspectorSessionRaw::disconnect not implemented");
+    // eprintln!("LocalInspectorSessionRaw::disconnect not implemented");
   }
 }
 
 impl Drop for LocalInspectorSessionRaw {
   fn drop(&mut self) {
-    eprintln!("Dropping LocalInspectorSessionRaw");
+    // eprintln!("Dropping LocalInspectorSessionRaw");
   }
 }
 /// A local inspector session that can be used to send and receive protocol messages directly on
