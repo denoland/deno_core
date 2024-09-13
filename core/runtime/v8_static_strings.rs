@@ -19,6 +19,7 @@ v8_static_strings!(
   CONSTRUCTOR = "constructor",
   CORE = "core",
   DENO = "Deno",
+  DEFAULT = "default",
   DIRNAME = "dirname",
   ERR_MODULE_NOT_FOUND = "ERR_MODULE_NOT_FOUND",
   ERRORS = "errors",
@@ -35,4 +36,5 @@ v8_static_strings!(
   URL = "url",
   WASM_INSTANTIATE = "wasmInstantiate",
   WEBASSEMBLY = "WebAssembly",
+  ESMODULE = "__esModule",
 );
