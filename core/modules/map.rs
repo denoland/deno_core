@@ -944,12 +944,39 @@ impl ModuleMap {
   // Initiate loading of a module graph imported using `import()`.
   pub(crate) fn load_dynamic_import(
     self: Rc<Self>,
+    scope: &mut v8::HandleScope,
     specifier: &str,
     referrer: &str,
     requested_module_type: RequestedModuleType,
     resolver_handle: v8::Global<v8::PromiseResolver>,
     cped_handle: v8::Global<v8::Value>,
-  ) {
+  ) -> bool {
+    let resolve_result =
+      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
+    match &resolve_result {
+      Ok(module_specifier) => {
+        if let Some(id) = self
+          .data
+          .borrow()
+          .get_id(module_specifier.as_str(), &requested_module_type)
+        {
+          let module = self
+            .data
+            .borrow()
+            .get_handle(id)
+            .map(|handle| v8::Local::new(scope, handle))
+            .expect("Dyn import module info not found");
+
+          let resolver = resolver_handle.open(scope);
+          let module_namespace = module.get_module_namespace();
+          resolver.resolve(scope, module_namespace).unwrap();
+
+          return false;
+        }
+      }
+      _ => {}
+    };
+
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,
       referrer,
@@ -965,25 +992,16 @@ impl ModuleMap {
       },
     );
 
-    let resolve_result =
-      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
-      Ok(module_specifier) => {
-        if self
-          .data
-          .borrow()
-          .is_registered(module_specifier.as_str(), requested_module_type)
-        {
-          async move { (load.id, Ok(load)) }.boxed_local()
-        } else {
-          async move { (load.id, load.prepare().await.map(|()| load)) }
-            .boxed_local()
-        }
-      }
+      Ok(_) => async move { (load.id, load.prepare().await.map(|()| load)) }
+        .boxed_local(),
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
+
     self.preparing_dynamic_imports.borrow_mut().push(fut);
     self.preparing_dynamic_imports_pending.set(true);
+
+    true
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {

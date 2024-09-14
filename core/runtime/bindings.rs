@@ -472,14 +472,18 @@ pub fn host_import_module_dynamically_callback<'s>(
     let state = JsRuntime::state_from(scope);
     let module_map_rc = JsRealm::module_map_from(scope);
 
-    ModuleMap::load_dynamic_import(
+    if !ModuleMap::load_dynamic_import(
       module_map_rc,
+      scope,
       &specifier_str,
       &referrer_name_str,
       requested_module_type,
       resolver_handle,
       cped_handle,
-    );
+    ) {
+      return Some(promise);
+    }
+
     state.notify_new_dynamic_import();
 
     struct MapErr(v8::Global<v8::Function>);
