@@ -468,7 +468,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 
   let resolver_handle = v8::Global::new(scope, resolver);
   let cped_handle = v8::Global::new(scope, cped);
-  {
+  let map_err = {
     let state = JsRuntime::state_from(scope);
     let module_map_rc = JsRealm::module_map_from(scope);
 
@@ -481,15 +481,27 @@ pub fn host_import_module_dynamically_callback<'s>(
       cped_handle,
     );
     state.notify_new_dynamic_import();
-  }
-  // Map errors from module resolution (not JS errors from module execution) to
-  // ones rethrown from this scope, so they include the call stack of the
-  // dynamic import site. Error objects without any stack frames are assumed to
-  // be module resolution errors, other exception values are left as they are.
-  let builder = v8::FunctionBuilder::new(catch_dynamic_import_promise_error);
 
-  let map_err =
-    v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
+    struct MapErr(v8::Global<v8::Function>);
+
+    let mut op_state = state.op_state.borrow_mut();
+    if op_state.try_borrow::<MapErr>().is_none() {
+      // Map errors from module resolution (not JS errors from module execution) to
+      // ones rethrown from this scope, so they include the call stack of the
+      // dynamic import site. Error objects without any stack frames are assumed to
+      // be module resolution errors, other exception values are left as they are.
+      let builder =
+        v8::FunctionBuilder::new(catch_dynamic_import_promise_error);
+
+      let map_err =
+        v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
+      let global = v8::Global::new(scope, map_err);
+      op_state.put(MapErr(global));
+    }
+
+    let map_err = op_state.borrow::<MapErr>();
+    v8::Local::new(scope, map_err.0.clone())
+  };
 
   let promise = promise.catch(scope, map_err).unwrap();
 

@@ -1279,11 +1279,15 @@ impl ModuleMap {
         .expect("Expected to get promise as module evaluation result");
 
       if self.wake_module_cb.borrow().is_none() {
-          let func = Function::builder(wake_module).build(tc_scope);
-          let global = func.map(|f| v8::Global::new(tc_scope, f));
-          *self.wake_module_cb.borrow_mut() = global;
+        let func = Function::builder(wake_module).build(tc_scope);
+        let global = func.map(|f| v8::Global::new(tc_scope, f));
+        *self.wake_module_cb.borrow_mut() = global;
       }
-      let wake_module_cb = self.wake_module_cb.borrow().as_ref().map(|f| v8::Local::new(tc_scope, f));
+      let wake_module_cb = self
+        .wake_module_cb
+        .borrow()
+        .as_ref()
+        .map(|f| v8::Local::new(tc_scope, f));
 
       if let Some(wake_module_cb) = wake_module_cb {
         promise.then2(tc_scope, wake_module_cb, wake_module_cb);
