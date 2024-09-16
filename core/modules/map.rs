@@ -964,11 +964,13 @@ impl ModuleMap {
           .map(|handle| v8::Local::new(scope, handle))
           .expect("Dyn import module info not found");
 
-        let resolver = resolver_handle.open(scope);
-        let module_namespace = module.get_module_namespace();
-        resolver.resolve(scope, module_namespace).unwrap();
+        if module.get_status() == v8::ModuleStatus::Evaluated {
+          let resolver = resolver_handle.open(scope);
+          let module_namespace = module.get_module_namespace();
+          resolver.resolve(scope, module_namespace).unwrap();
 
-        return false;
+          return false;
+        }
       }
     }
 
