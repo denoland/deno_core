@@ -217,16 +217,6 @@ impl ModuleMapData {
     }
   }
 
-  pub fn is_registered(
-    &self,
-    specifier: &str,
-    requested_module_type: impl AsRef<RequestedModuleType>,
-  ) -> bool {
-    self
-      .get_id(specifier, requested_module_type.as_ref())
-      .is_some()
-  }
-
   pub(crate) fn alias(
     &mut self,
     name: FastString,
