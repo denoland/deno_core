@@ -4,7 +4,6 @@ use std::collections::BTreeSet;
 use std::fmt::Debug;
 
 pub type ExitCb = Box<dyn Fn(&str, &str) + Send + Sync>;
-pub type WarnCb = Box<dyn Fn(&str, &str) + Send + Sync>;
 
 fn exit(feature: &str, api_name: &str) {
   #[allow(clippy::print_stderr)]
@@ -21,7 +20,6 @@ fn warn_legacy_flag(_feature: &str, _api_name: &str) {}
 pub struct FeatureChecker {
   features: BTreeSet<&'static str>,
   exit_cb: ExitCb,
-  warn_cb: WarnCb,
 }
 
 impl Default for FeatureChecker {
@@ -29,7 +27,6 @@ impl Default for FeatureChecker {
     Self {
       features: Default::default(),
       exit_cb: Box::new(exit),
-      warn_cb: Box::new(warn_legacy_flag),
     }
   }
 }
@@ -54,10 +51,6 @@ impl FeatureChecker {
 
   pub fn set_exit_cb(&mut self, cb: ExitCb) {
     self.exit_cb = cb;
-  }
-
-  pub fn set_warn_cb(&mut self, cb: WarnCb) {
-    self.warn_cb = cb;
   }
 
   /// Check if a feature is enabled.
