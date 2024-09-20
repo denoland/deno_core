@@ -153,8 +153,39 @@ impl ModuleLoader for TypescriptModuleLoader {
     ))
   }
 
-  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.source_maps.borrow().get(specifier).cloned()
+  fn get_source_map_for_file(&self, file_name: &str) -> Option<Vec<u8>> {
+    self.source_maps.borrow().get(file_name).cloned()
+  }
+
+  fn load_source_map_file(
+    &self,
+    source_map_file_name: &str,
+    _file_name: &str,
+  ) -> Option<Vec<u8>> {
+    std::fs::read(source_map_file_name).ok()
+  }
+
+  fn get_source_mapped_source_line(
+    &self,
+    file_name: &str,
+    line_number: usize,
+  ) -> Option<String> {
+    let url = Url::parse(file_name).ok()?;
+    eprintln!("get_source_mapped_source_line {}", url.as_str());
+    if url.scheme() != "file" {
+      return None;
+    }
+    let path = url.to_file_path().unwrap();
+    let code = std::fs::read_to_string(path).ok()?;
+    eprintln!("code {}", code);
+    // Do NOT use .lines(): it skips the terminating empty line.
+    // (due to internally using_terminator() instead of .split())
+    let lines: Vec<&str> = code.split('\n').collect();
+    if line_number >= lines.len() {
+      None
+    } else {
+      Some(lines[line_number].to_string())
+    }
   }
 }
 
