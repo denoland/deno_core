@@ -1251,12 +1251,10 @@ pub fn prepare_stack_trace_callback<'s>(
   // `globalThis.Error.prepareStackTrace`
   let global = scope.get_current_context().global(scope);
   let global_error = get_property(scope, global, ERROR).map(|g| g.cast());
-  let prepare_fn = global_error
-    .map(|g| {
-      get_property(scope, g, PREPARE_STACK_TRACE)
-        .and_then(|f| f.try_cast::<v8::Function>().ok())
-    })
-    .flatten();
+  let prepare_fn = global_error.and_then(|g| {
+    get_property(scope, g, PREPARE_STACK_TRACE)
+      .and_then(|f| f.try_cast::<v8::Function>().ok())
+  });
 
   if let Some(prepare_fn) = prepare_fn {
     // User defined `Error.prepareStackTrace`.
