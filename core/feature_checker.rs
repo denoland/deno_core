@@ -15,8 +15,6 @@ fn exit(feature: &str, api_name: &str) {
   std::process::exit(70);
 }
 
-fn warn_legacy_flag(_feature: &str, _api_name: &str) {}
-
 pub struct FeatureChecker {
   features: BTreeSet<&'static str>,
   exit_cb: ExitCb,
@@ -79,19 +77,13 @@ mod tests {
   #[test]
   fn test_feature_checker() {
     static EXIT_COUNT: AtomicUsize = AtomicUsize::new(0);
-    static WARN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
     fn exit_cb(_feature: &str, _api_name: &str) {
       EXIT_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn warn_cb(_feature: &str, _api_name: &str) {
-      WARN_COUNT.fetch_add(1, Ordering::Relaxed);
-    }
-
     let mut checker = FeatureChecker::default();
     checker.set_exit_cb(Box::new(exit_cb));
-    checker.set_warn_cb(Box::new(warn_cb));
     checker.enable_feature("foobar");
 
     assert!(checker.check("foobar"));
