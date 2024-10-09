@@ -5,9 +5,11 @@ import * as error from "checkin:error";
 import * as timers from "checkin:timers";
 import * as worker from "checkin:worker";
 import * as throw_ from "checkin:throw";
+import * as object from "checkin:object";
 async;
 error;
 throw_;
+object;
 
 globalThis.console = console.console;
 globalThis.setTimeout = timers.setTimeout;

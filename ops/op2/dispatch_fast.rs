@@ -433,6 +433,17 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
+  let with_isolate = if generator_state.needs_fast_isolate
+    && !generator_state.needs_fast_scope
+  {
+    generator_state.needs_opctx = true;
+    gs_quote!(generator_state(opctx, scope) =>
+      (let mut #scope = unsafe { &mut *#opctx.isolate };)
+    )
+  } else {
+    quote!()
+  };
+
   let with_opctx = if generator_state.needs_opctx {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
@@ -543,6 +554,7 @@ pub(crate) fn generate_dispatch_fast(
       #with_scope
       #with_opctx
       #with_js_runtime_state
+      #with_isolate
       #with_self
       let #result = {
         #(#call_args)*

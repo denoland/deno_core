@@ -24,6 +24,10 @@ pub(crate) struct MacroConfig {
   pub reentrant: bool,
   /// Marks an op as a method on a wrapped object.
   pub method: Option<String>,
+  /// Marks an op as a constructor
+  pub constructor: bool,
+  /// Marks an op as a static member
+  pub static_member: bool,
   /// Marks an op with no side effects.
   pub no_side_effects: bool,
 }
@@ -63,7 +67,15 @@ impl MacroConfig {
     }
 
     for flag in flags {
-      if flag == "fast" {
+      if flag == "method" {
+        // Doesn't need any special handling, its more of a marker.
+        continue;
+      }
+      if flag == "constructor" {
+        config.constructor = true;
+      } else if flag == "static_method" {
+        config.static_member = true;
+      } else if flag == "fast" {
         config.fast = true;
       } else if flag.starts_with("fast(") {
         let tokens =
@@ -157,6 +169,9 @@ impl MacroConfig {
         }
         ( $($flags:tt $( ( $( $args:ty ),* ) )? ),+ ) => {
           Self::from_token_trees(flags, args)
+        }
+        ( # [ $($flags:tt),+ ] ) => {
+            Self::from_flags(flags.into_iter().map(|flag| flag.to_string()))
         }
       })
     })

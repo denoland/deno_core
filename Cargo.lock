@@ -500,7 +500,6 @@ dependencies = [
  "deno_core",
  "deno_core_testing",
  "fastwebsockets",
- "futures",
  "http",
  "http-body-util",
  "hyper",
