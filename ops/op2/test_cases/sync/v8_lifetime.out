@@ -11,6 +11,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
             false,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             None,
@@ -22,7 +23,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
     }
     impl op_v8_lifetime {
         pub const fn name() -> &'static str {
-            stringify!(op_v8_lifetime)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

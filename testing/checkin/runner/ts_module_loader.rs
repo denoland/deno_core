@@ -67,7 +67,11 @@ impl ModuleLoader for TypescriptModuleLoader {
       } else {
         0
       };
-      let path = root.join(Path::new(&module_specifier.path()[start..]));
+      let path = if module_specifier.scheme() == "file" {
+        module_specifier.to_file_path().unwrap()
+      } else {
+        root.join(Path::new(&module_specifier.path()[start..]))
+      };
       if let RequestedModuleType::Other(type_) = requested_module_type {
         let bytes = fs::read(path)?;
         return Ok(ModuleSource::new(

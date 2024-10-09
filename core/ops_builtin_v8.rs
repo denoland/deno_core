@@ -44,25 +44,25 @@ pub fn op_set_handled_promise_rejection_handler(
   *exception_state.js_handled_promise_rejection_cb.borrow_mut() = f;
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().remove(&promise_id);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().insert(promise_id);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_leak_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.set_enabled(enabled);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_leak_tracing_submit(
   scope: &mut v8::HandleScope,
   #[smi] kind: u8,
@@ -168,7 +168,7 @@ pub fn op_timer_queue_immediate(
   context_state.timers.queue_timer(0, (task, 0)) as _
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
@@ -177,13 +177,13 @@ pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
     .complete(RuntimeActivityType::Timer, id as _);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_timer_ref(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.ref_timer(id as _);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.unref_timer(id as _);
@@ -225,14 +225,14 @@ pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   };
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
     .get()
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
@@ -428,7 +428,7 @@ struct SerializeDeserialize<'a> {
 impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
   #[allow(unused_variables)]
   fn throw_data_clone_error<'s>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'s>,
     message: v8::Local<'s, v8::String>,
   ) {
@@ -446,7 +446,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
   }
 
   fn get_shared_array_buffer_id<'s>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'s>,
     shared_array_buffer: v8::Local<'s, v8::SharedArrayBuffer>,
   ) -> Option<u32> {
@@ -464,7 +464,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
   }
 
   fn get_wasm_module_transfer_id(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'_>,
     module: v8::Local<v8::WasmModuleObject>,
   ) -> Option<u32> {
@@ -484,12 +484,12 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
     }
   }
 
-  fn has_custom_host_object(&mut self, _isolate: &mut v8::Isolate) -> bool {
+  fn has_custom_host_object(&self, _isolate: &mut v8::Isolate) -> bool {
     true
   }
 
   fn is_host_object<'s>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'s>,
     object: v8::Local<'s, v8::Object>,
   ) -> Option<bool> {
@@ -502,10 +502,10 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
   }
 
   fn write_host_object<'s>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'s>,
     object: v8::Local<'s, v8::Object>,
-    value_serializer: &mut dyn v8::ValueSerializerHelper,
+    value_serializer: &dyn v8::ValueSerializerHelper,
   ) -> Option<bool> {
     if let Some(host_objects) = self.host_objects {
       for i in 0..host_objects.length() {
@@ -524,7 +524,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
 
 impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
   fn get_shared_array_buffer_from_id<'s>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'s>,
     transfer_id: u32,
   ) -> Option<v8::Local<'s, v8::SharedArrayBuffer>> {
@@ -543,7 +543,7 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
   }
 
   fn get_wasm_module_from_id<'s>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'s>,
     clone_id: u32,
   ) -> Option<v8::Local<'s, v8::WasmModuleObject>> {
@@ -561,9 +561,9 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
   }
 
   fn read_host_object<'s>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'s>,
-    value_deserializer: &mut dyn v8::ValueDeserializerHelper,
+    value_deserializer: &dyn v8::ValueDeserializerHelper,
   ) -> Option<v8::Local<'s, v8::Object>> {
     if let Some(host_objects) = self.host_objects {
       let mut i = 0;
@@ -627,8 +627,7 @@ pub fn op_serialize(
     for_storage,
     host_object_brand,
   });
-  let mut value_serializer =
-    v8::ValueSerializer::new(scope, serialize_deserialize);
+  let value_serializer = v8::ValueSerializer::new(scope, serialize_deserialize);
   value_serializer.write_header();
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
@@ -707,7 +706,7 @@ pub fn op_deserialize<'a>(
     for_storage,
     host_object_brand: None,
   });
-  let mut value_deserializer =
+  let value_deserializer =
     v8::ValueDeserializer::new(scope, serialize_deserialize, &zero_copy);
   let parsed_header = value_deserializer
     .read_header(scope.get_current_context())
@@ -776,7 +775,7 @@ pub fn op_get_promise_details<'a>(
   out.into()
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_set_promise_hooks(
   scope: &mut v8::HandleScope,
   init_hook: v8::Local<v8::Value>,
@@ -1005,7 +1004,7 @@ pub fn op_destructure_error(
 /// Effectively throw an uncatchable error. This will terminate runtime
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
-#[op2(reentrant)]
+#[op2(fast, reentrant)]
 pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
@@ -1129,7 +1128,7 @@ pub fn op_set_format_exception_callback<'a>(
   old.map(|func| func.into())
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::has_more_work(scope)
 }

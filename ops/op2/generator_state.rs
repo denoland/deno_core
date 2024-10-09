@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::{Ident, TokenStream};
 
+#[derive(Clone)]
 pub struct GeneratorState {
   pub name: Ident,
   /// Identifiers for each of the arguments of the original function
@@ -48,9 +49,7 @@ pub struct GeneratorState {
   pub needs_opstate: bool,
   pub needs_opctx: bool,
   pub needs_js_runtime_state: bool,
-  pub needs_fast_opctx: bool,
   pub needs_fast_api_callback_options: bool,
-  pub needs_fast_js_runtime_state: bool,
   pub needs_self: bool,
   /// Wrap the `this` with cppgc object
   pub use_this_cppgc: bool,

@@ -11,6 +11,7 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
             true,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             None,
@@ -24,7 +25,7 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
     }
     impl op_blob_read_part {
         pub const fn name() -> &'static str {
-            stringify!(op_blob_read_part)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(
@@ -117,6 +118,7 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
             true,
             false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
             None,
@@ -130,7 +132,7 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
     }
     impl op_broadcast_recv {
         pub const fn name() -> &'static str {
-            stringify!(op_broadcast_recv)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[inline(always)]
         fn slow_function_impl<'s>(

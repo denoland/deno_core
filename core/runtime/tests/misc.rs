@@ -1004,11 +1004,7 @@ async fn test_dynamic_import_module_error_stack() {
 
 #[tokio::test]
 #[should_panic(
-  expected = r#"Failed to initialize a JsRuntime: Top-level await is not allowed in extensions
-
-Caused by:
-    Top-level await promise never resolved
-        at mod:tla:3:11"#
+  expected = "Failed to initialize a JsRuntime: Top-level await is not allowed in synchronous evaluation"
 )]
 async fn tla_in_esm_extensions_panics() {
   #[op2(async)]

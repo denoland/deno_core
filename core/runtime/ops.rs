@@ -1812,7 +1812,7 @@ mod tests {
   }
 
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
-  #[op2]
+  #[op2(fast)]
   pub fn op_buffer_slice_unsafe_callback(
     scope: &mut v8::HandleScope,
     buffer: v8::Local<v8::ArrayBuffer>,

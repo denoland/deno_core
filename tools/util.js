@@ -11,11 +11,19 @@ async function getFilesFromGit(baseDir, args) {
     throw new Error("gitLsFiles failed");
   }
 
-  const files = output.split("\0").filter((line) => line.length > 0).map(
-    (filePath) => {
-      return Deno.realPathSync(baseDir + "/" + filePath);
-    },
-  );
+  const files = output
+    .split("\0")
+    .filter((line) => line.length > 0)
+    .map(
+      (filePath) => {
+        try {
+          return Deno.realPathSync(baseDir + "/" + filePath);
+        } catch {
+          return null;
+        }
+      },
+    )
+    .filter((x) => !!x);
 
   return files;
 }

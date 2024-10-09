@@ -28,6 +28,8 @@ pub(crate) struct MacroConfig {
   pub constructor: bool,
   /// Marks an op as a static member
   pub static_member: bool,
+  /// Marks an op with no side effects.
+  pub no_side_effects: bool,
 }
 
 impl MacroConfig {
@@ -99,6 +101,8 @@ impl MacroConfig {
         config.async_deferred = true;
       } else if flag == "reentrant" {
         config.reentrant = true;
+      } else if flag == "no_side_effects" {
+        config.no_side_effects = true;
       } else if flag.starts_with("method(") {
         let tokens =
           syn::parse_str::<TokenTree>(&flag[6..])?.into_token_stream();
@@ -134,6 +138,20 @@ impl MacroConfig {
       && (config.r#async && !config.async_lazy && !config.async_deferred)
     {
       return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
+    }
+    if config.no_side_effects
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
+      return Err(Op2Error::InvalidAttributeCombination(
+        "no_side_effects",
+        "async",
+      ));
+    }
+    if config.no_side_effects && config.reentrant {
+      return Err(Op2Error::InvalidAttributeCombination(
+        "no_side_effects",
+        "reentrant",
+      ));
     }
 
     Ok(config)

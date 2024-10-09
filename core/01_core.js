@@ -15,6 +15,7 @@
     ObjectHasOwn,
     setQueueMicrotask,
     SafeMap,
+    SafeWeakMap,
     Set,
     StringPrototypeSlice,
     Symbol,
@@ -259,24 +260,6 @@
     return ObjectFromEntries(op_resources());
   }
 
-  function metrics() {
-    // TODO(mmastrac): we should replace this with a newer API
-    return {
-      opsDispatched: 0,
-      opsDispatchedSync: 0,
-      opsDispatchedAsync: 0,
-      opsDispatchedAsyncUnref: 0,
-      opsCompleted: 0,
-      opsCompletedSync: 0,
-      opsCompletedAsync: 0,
-      opsCompletedAsyncUnref: 0,
-      bytesSentControl: 0,
-      bytesSentData: 0,
-      bytesReceived: 0,
-      ops: {},
-    };
-  }
-
   let reportExceptionCallback = (error) => {
     op_dispatch_exception(error, false);
   };
@@ -312,7 +295,7 @@
     });
   }
 
-  // Some "extensions" rely on "BadResource", "Interrupted", "PermissionDenied"
+  // Some "extensions" rely on "BadResource", "Interrupted", "NotCapable"
   // errors in the JS code (eg. "deno_net") so they are provided in "Deno.core"
   // but later reexported on "Deno.errors"
   class BadResource extends Error {
@@ -331,17 +314,17 @@
   }
   const InterruptedPrototype = Interrupted.prototype;
 
-  class PermissionDenied extends Error {
+  class NotCapable extends Error {
     constructor(msg) {
       super(msg);
-      this.name = "PermissionDenied";
+      this.name = "NotCapable";
     }
   }
-  const PermissionDeniedPrototype = PermissionDenied.prototype;
+  const NotCapablePrototype = NotCapable.prototype;
 
   registerErrorClass("BadResource", BadResource);
   registerErrorClass("Interrupted", Interrupted);
-  registerErrorClass("PermissionDenied", PermissionDenied);
+  registerErrorClass("NotCapable", NotCapable);
 
   const promiseHooks = [
     [], // init
@@ -649,14 +632,13 @@
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
     resources,
-    metrics,
     eventLoopTick,
     BadResource,
     BadResourcePrototype,
     Interrupted,
     InterruptedPrototype,
-    PermissionDenied,
-    PermissionDeniedPrototype,
+    NotCapable,
+    NotCapablePrototype,
     refOpPromise,
     unrefOpPromise,
     setReportExceptionCallback,

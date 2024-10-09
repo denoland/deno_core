@@ -248,6 +248,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "build-your-own-js-snapshot"
+version = "0.1.0"
+dependencies = [
+ "deno_core",
+ "tokio",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -555,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.302.0"
+version = "0.311.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -609,6 +617,7 @@ dependencies = [
  "prettyplease",
  "testing_macros",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -624,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.178.0"
+version = "0.187.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -1841,7 +1850,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.211.0"
+version = "0.220.0"
 dependencies = [
  "bencher",
  "num-bigint",
@@ -2728,9 +2737,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.102.0"
+version = "0.106.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88a710d5b95bff79a90708203cf9f74384e080d21fc6664aa4df463f2c66ac83"
+checksum = "a381badc47c6f15acb5fe0b5b40234162349ed9d4e4fd7c83a7f5547c0fc69c5"
 dependencies = [
  "bindgen",
  "bitflags",

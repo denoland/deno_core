@@ -39,7 +39,6 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
-use crate::ops::FastFunctionInfo;
 use crate::ops_metrics::dispatch_metrics_async;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::runtime::ContextState;
@@ -152,7 +151,7 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
-  fast_fn_infos: Vec<FastFunctionInfo>,
+  v8_cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -189,18 +188,29 @@ impl InnerIsolateState {
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
   }
 
+  pub fn cleanup_cpp_heap(&mut self) {
+    self.v8_isolate.detach_cpp_heap();
+    self.v8_cpp_heap.terminate();
+    unsafe {
+      ManuallyDrop::drop(&mut self.v8_cpp_heap);
+    }
+  }
+
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
+
     // SAFETY: We're copying out of self and then immediately forgetting self
-    let (state, isolate) = unsafe {
-      (
-        ManuallyDrop::take(&mut self.state.0),
-        ManuallyDrop::take(&mut self.v8_isolate),
-      )
-    };
-    std::mem::forget(self);
-    drop(state);
-    isolate
+    unsafe {
+      ManuallyDrop::drop(&mut self.state.0);
+
+      self.cleanup_cpp_heap();
+
+      let isolate = ManuallyDrop::take(&mut self.v8_isolate);
+
+      std::mem::forget(self);
+
+      isolate
+    }
   }
 }
 
@@ -210,6 +220,9 @@ impl Drop for InnerIsolateState {
     // SAFETY: We gotta drop these
     unsafe {
       ManuallyDrop::drop(&mut self.state.0);
+
+      self.cleanup_cpp_heap();
+
       if self.will_snapshot {
         // Create the snapshot and just drop it.
         #[allow(clippy::print_stderr)]
@@ -218,20 +231,6 @@ impl Drop for InnerIsolateState {
         }
       } else {
         ManuallyDrop::drop(&mut self.v8_isolate);
-      }
-    }
-    // Free the fast function infos manually.
-    for FastFunctionInfo {
-      fn_info,
-      fn_sig: (args, ret),
-    } in std::mem::take(&mut self.fast_fn_infos)
-    {
-      // SAFETY: We logically own these, and there are no remaining references because we just destroyed the
-      // realm and isolate above.
-      unsafe {
-        std::ptr::drop_in_place(fn_info.as_ptr());
-        std::ptr::drop_in_place(args.as_ptr());
-        std::ptr::drop_in_place(ret.as_ptr());
       }
     }
   }
@@ -618,6 +617,14 @@ extern "C" fn isolate_message_listener(
   let start_column = message.get_start_column();
 
   let js_runtime_state = JsRuntime::state_from(scope);
+  if let Some(specifier) = maybe_script_resource_name.as_ref() {
+    let module_map = JsRealm::module_map_from(scope);
+    module_map
+      .loader
+      .borrow()
+      .purge_and_prevent_code_cache(specifier);
+  }
+
   match &js_runtime_state.import_assertions_support {
     ImportAssertionsSupport::Warning => {
       let mut msg = "⚠️  Import assertions are deprecated. Use `with` keyword, instead of 'assert' keyword.".to_string();
@@ -928,6 +935,8 @@ impl JsRuntime {
       maybe_startup_snapshot,
       external_refs_static,
     );
+    let mut cpp_heap = setup::create_cpp_heap();
+    isolate.attach_cpp_heap(&mut cpp_heap);
 
     if state_rc.import_assertions_support.has_warning() {
       isolate.add_message_listener_with_error_level(
@@ -936,34 +945,20 @@ impl JsRuntime {
       );
     }
 
+    let isolate_ptr = isolate.as_mut() as *mut Isolate;
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
     // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
-      op_ctx.isolate = isolate.as_mut() as *mut Isolate;
+      op_ctx.isolate = isolate_ptr;
     }
     for op_method_ctx in op_method_ctxs.iter_mut() {
-      op_method_ctx.constructor.isolate = isolate.as_mut() as *mut Isolate;
+      op_method_ctx.constructor.isolate = isolate_ptr;
       for op in &mut op_method_ctx.methods {
-        op.isolate = isolate.as_mut() as *mut Isolate;
+        op.isolate = isolate_ptr;
       }
     }
 
-    // TODO(Bartlomieju): this can be simplified
-    let isolate_ptr = setup::create_isolate_ptr();
-    // SAFETY: this is first use of `isolate_ptr` so we are sure we're
-    // not overwriting an existing pointer.
-    isolate = unsafe {
-      isolate_ptr.write(isolate);
-      isolate_ptr.read()
-    };
     op_state.borrow_mut().put(isolate_ptr);
-
-    let mut fast_fn_infos = Vec::with_capacity(op_ctxs.len());
-    for op_ctx in &*op_ctxs {
-      if let Some(fast_fn_info) = op_ctx.fast_fn_info {
-        fast_fn_infos.push(fast_fn_info);
-      }
-    }
 
     // ...once ops and isolate are set up, we can create a `ContextState`...
     let context_state = Rc::new(ContextState::new(
@@ -1054,7 +1049,12 @@ impl JsRuntime {
     }
 
     let inspector = if options.inspector {
-      Some(JsRuntimeInspector::new(scope, context, options.is_main))
+      Some(JsRuntimeInspector::new(
+        isolate_ptr,
+        scope,
+        context,
+        options.is_main,
+      ))
     } else {
       None
     };
@@ -1126,7 +1126,7 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
-        fast_fn_infos,
+        v8_cpp_heap: ManuallyDrop::new(cpp_heap),
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
@@ -1720,6 +1720,7 @@ impl JsRuntime {
     }
 
     let context = self.main_context();
+    let isolate_ptr = self.inner.v8_isolate.as_mut() as *mut _;
     let scope = &mut v8::HandleScope::with_context(
       self.inner.v8_isolate.as_mut(),
       context.clone(),
@@ -1728,6 +1729,7 @@ impl JsRuntime {
 
     self.inner.state.has_inspector.set(true);
     **inspector = Some(JsRuntimeInspector::new(
+      isolate_ptr,
       scope,
       context,
       self.is_main_runtime,
