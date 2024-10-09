@@ -600,6 +600,17 @@
   const getAsyncContext = getContinuationPreservedEmbedderData;
   const setAsyncContext = setContinuationPreservedEmbedderData;
 
+  function scopeAsyncContext(ctx) {
+    const old = getAsyncContext();
+    setAsyncContext(ctx);
+    return {
+      __proto__: null,
+      [Symbol.dispose]() {
+        setAsyncContext(old);
+      },
+    };
+  }
+
   let asyncVariableCounter = 0;
   class AsyncVariable {
     #id = asyncVariableCounter++;
@@ -800,6 +811,7 @@
     createCancelHandle: () => op_cancel_handle(),
     getAsyncContext,
     setAsyncContext,
+    scopeAsyncContext,
     AsyncVariable,
   });
 
