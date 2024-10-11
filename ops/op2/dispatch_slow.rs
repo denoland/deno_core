@@ -92,11 +92,12 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_opctx = if generator_state.needs_opctx {
-    with_opctx(generator_state)
-  } else {
-    quote!()
-  };
+  let with_opctx =
+    if generator_state.needs_opctx | generator_state.needs_stack_trace {
+      with_opctx(generator_state)
+    } else {
+      quote!()
+    };
 
   let with_retval = if generator_state.needs_retval {
     with_retval(generator_state)
@@ -194,13 +195,14 @@ pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
 pub(crate) fn with_stack_trace(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-  gs_quote!(generator_state(stack_trace, scope) =>
-    (let #stack_trace = {
+  generator_state.needs_opctx = true;
+  gs_quote!(generator_state(stack_trace, opctx, scope) =>
+    (let #stack_trace = if #opctx.enable_stack_trace_arg {
       let hs = &mut v8::HandleScope::new(&mut #scope);
       let stack_trace_msg = v8::String::new(hs, "unused").unwrap();
       let stack_trace_error = v8::Exception::error(hs, stack_trace_msg.into());
       Some(JsError::from_v8_exception(hs, stack_trace_error))
-    };)
+    } else { None };)
   )
 }
 

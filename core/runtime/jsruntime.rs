@@ -553,6 +553,8 @@ pub struct RuntimeOptions {
     Option<(EvalContextGetCodeCacheCb, EvalContextCodeCacheReadyCb)>,
 
   pub import_assertions_support: ImportAssertionsSupport,
+
+  pub enable_stack_trace_arg_in_ops: bool,
 }
 
 pub struct ImportAssertionsSupportCustomCallbackArgs {
@@ -873,6 +875,7 @@ impl JsRuntime {
       op_state.clone(),
       state_rc.clone(),
       get_error_class_fn,
+      options.enable_stack_trace_arg_in_ops,
     );
 
     // ...ops are now almost fully set up; let's create a V8 isolate...

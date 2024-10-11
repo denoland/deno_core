@@ -129,6 +129,9 @@ pub fn create_runtime_from_snapshot(
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector,
     import_assertions_support: ImportAssertionsSupport::Warning,
+    enable_stack_trace_arg_in_ops: std::env::var("ENABLE_STACK_TRACE_IN_OPS")
+      .ok()
+      .is_some(),
     ..Default::default()
   });
 
