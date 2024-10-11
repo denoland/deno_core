@@ -2476,7 +2476,10 @@ mod tests {
       "#,
     )
     .unwrap_err();
-    assert_eq!(err.to_string(), "TypeError: Expected boolean\n    at <anonymous>:4:7");
+    assert_eq!(
+      err.to_string(),
+      "TypeError: Expected boolean\n    at <anonymous>:4:7"
+    );
     Ok(())
   }
 }
