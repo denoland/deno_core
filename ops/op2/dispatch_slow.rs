@@ -199,6 +199,7 @@ pub(crate) fn with_stack_trace(
   gs_quote!(generator_state(stack_trace, opctx, scope) =>
     (let #stack_trace = if #opctx.enable_stack_trace_arg {
       let hs = &mut v8::HandleScope::new(&mut #scope);
+      // TODO(bartlomieju): use a cheaper string here, or maybe undefined?
       let stack_trace_msg = v8::String::new(hs, "unused").unwrap();
       let stack_trace_error = v8::Exception::error(hs, stack_trace_msg.into());
       let js_error = JsError::from_v8_exception(hs, stack_trace_error);
