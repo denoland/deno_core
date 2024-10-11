@@ -201,7 +201,8 @@ pub(crate) fn with_stack_trace(
       let hs = &mut v8::HandleScope::new(&mut #scope);
       let stack_trace_msg = v8::String::new(hs, "unused").unwrap();
       let stack_trace_error = v8::Exception::error(hs, stack_trace_msg.into());
-      Some(JsError::from_v8_exception(hs, stack_trace_error))
+      let js_error = JsError::from_v8_exception(hs, stack_trace_error);
+      Some(js_error.frames)
     } else { None };)
   )
 }

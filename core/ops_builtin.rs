@@ -3,6 +3,7 @@ use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
 use crate::error::type_error;
 use crate::error::JsError;
+use crate::error::JsStackFrame;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -545,9 +546,8 @@ fn op_import_sync<'s>(
   }
 }
 
-fn print_stack_frames(error: &JsError) {
-  let frame_locations: Vec<_> = error
-    .frames
+fn print_stack_frames(frames: &Vec<JsStackFrame>) {
+  let frame_locations: Vec<_> = frames
     .iter()
     .map(|f| {
       format!(
@@ -566,7 +566,7 @@ fn print_stack_frames(error: &JsError) {
 // TODO(bartlomieju): this config is useless, remove it
 #[op2(stack_trace)]
 fn op_print_stack_trace(
-  #[stack_trace] maybe_stack_trace: Option<JsError>,
+  #[stack_trace] maybe_stack_trace: Option<Vec<JsStackFrame>>,
 ) -> Result<(), Error> {
   if let Some(stack_trace) = maybe_stack_trace {
     print_stack_frames(&stack_trace);
@@ -579,7 +579,7 @@ fn op_print_stack_trace(
 // TODO(bartlomieju): this config is useless, remove it
 #[op2(async, stack_trace)]
 async fn op_print_stack_trace_async(
-  #[stack_trace] maybe_stack_trace: Option<JsError>,
+  #[stack_trace] maybe_stack_trace: Option<Vec<JsStackFrame>>,
 ) -> Result<(), Error> {
   if let Some(stack_trace) = maybe_stack_trace {
     print_stack_frames(&stack_trace);
