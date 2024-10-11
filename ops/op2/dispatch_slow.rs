@@ -117,8 +117,15 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_scope = if generator_state.needs_scope {
-    with_scope(generator_state)
+  let with_scope =
+    if generator_state.needs_scope | generator_state.needs_stack_trace {
+      with_scope(generator_state)
+    } else {
+      quote!()
+    };
+
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    with_stack_trace(generator_state)
   } else {
     quote!()
   };
@@ -136,6 +143,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_opctx
         #with_isolate
         #with_opstate
+        #with_stack_trace
         #with_js_runtime_state
         #with_self
 
@@ -180,6 +188,19 @@ pub(crate) fn with_isolate(
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(info, scope) =>
     (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(#info) };)
+  )
+}
+
+pub(crate) fn with_stack_trace(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
+  gs_quote!(generator_state(stack_trace, scope) =>
+    (let #stack_trace = {
+      let hs = &mut v8::HandleScope::new(&mut #scope);
+      let stack_trace_msg = v8::String::new(hs, "unused").unwrap();
+      let stack_trace_error = v8::Exception::error(hs, stack_trace_msg.into());
+      Some(JsError::from_v8_exception(hs, stack_trace_error))
+    };)
   )
 }
 
@@ -284,11 +305,13 @@ pub fn from_arg(
     scope,
     opstate,
     opctx,
+    stack_trace,
     js_runtime_state,
     needs_scope,
     needs_isolate,
     needs_opstate,
     needs_opctx,
+    needs_stack_trace,
     needs_js_runtime_state,
     ..
   } = &mut generator_state;
@@ -438,6 +461,10 @@ pub fn from_arg(
     Arg::Special(Special::Isolate) => {
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)
+    }
+    Arg::Special(Special::StackTrace) => {
+      *needs_stack_trace = true;
+      quote!(let #arg_ident = #stack_trace;)
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;

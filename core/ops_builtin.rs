@@ -2,6 +2,7 @@
 use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
 use crate::error::type_error;
+use crate::error::JsError;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -65,6 +66,7 @@ builtin_ops! {
   op_encode_binary_string,
   op_is_terminal,
   op_import_sync,
+  op_print_stack_trace,
   ops_builtin_types::op_is_any_array_buffer,
   ops_builtin_types::op_is_arguments_object,
   ops_builtin_types::op_is_array_buffer,
@@ -540,4 +542,16 @@ fn op_import_sync<'s>(
   } else {
     Ok(v8::Local::new(scope, namespace).into())
   }
+}
+
+#[op2(stack_trace)]
+fn op_print_stack_trace(
+  #[stack_trace] maybe_stack_trace: Option<JsError>,
+) -> Result<(), Error> {
+  if let Some(stack_trace) = maybe_stack_trace {
+    eprintln!("stack trace {:#?}", stack_trace);
+  } else {
+    eprintln!("no stack trace available");
+  }
+  Ok(())
 }
