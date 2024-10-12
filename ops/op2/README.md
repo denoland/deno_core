@@ -933,7 +933,7 @@ Only usable in `deno_core`.
 </td><td>
 
 </td><td>
-⚠️ This argument is very slow as it needs to create an error instance and collect a whole stack frame. It only returns `Some(frames)` i `RuntimeOptions::enable_stack_trace_arg_in_ops` is set to true.
+⚠️ This argument is very slow as it needs to create an error instance and collect a whole stack frame. It only returns `Some(frames)` if `RuntimeOptions::enable_stack_trace_arg_in_ops` is set to true.
 </td></tr>
 </table>
 
