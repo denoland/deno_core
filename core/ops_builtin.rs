@@ -2,8 +2,6 @@
 use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
 use crate::error::type_error;
-use crate::error::JsError;
-use crate::error::JsStackFrame;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -67,8 +65,6 @@ builtin_ops! {
   op_encode_binary_string,
   op_is_terminal,
   op_import_sync,
-  op_print_stack_trace,
-  op_print_stack_trace_async,
   ops_builtin_types::op_is_any_array_buffer,
   ops_builtin_types::op_is_arguments_object,
   ops_builtin_types::op_is_array_buffer,
@@ -544,47 +540,4 @@ fn op_import_sync<'s>(
   } else {
     Ok(v8::Local::new(scope, namespace).into())
   }
-}
-
-fn print_stack_frames(frames: &[JsStackFrame]) {
-  let frame_locations: Vec<_> = frames
-    .iter()
-    .map(|f| {
-      format!(
-        "- {} at {}:{}:{}",
-        f.function_name.as_deref().unwrap_or("<unknown>"),
-        f.file_name.as_ref().unwrap(),
-        f.line_number.unwrap(),
-        f.column_number.unwrap()
-      )
-    })
-    .collect();
-
-  eprintln!("{}", frame_locations.join("\n"))
-}
-
-// TODO(bartlomieju): this config is useless, remove it
-#[op2(stack_trace)]
-fn op_print_stack_trace(
-  #[stack_trace] maybe_stack_trace: Option<Vec<JsStackFrame>>,
-) -> Result<(), Error> {
-  if let Some(stack_trace) = maybe_stack_trace {
-    print_stack_frames(&stack_trace);
-  } else {
-    eprintln!("no stack trace available");
-  }
-  Ok(())
-}
-
-// TODO(bartlomieju): this config is useless, remove it
-#[op2(async, stack_trace)]
-async fn op_print_stack_trace_async(
-  #[stack_trace] maybe_stack_trace: Option<Vec<JsStackFrame>>,
-) -> Result<(), Error> {
-  if let Some(stack_trace) = maybe_stack_trace {
-    print_stack_frames(&stack_trace);
-  } else {
-    eprintln!("no stack trace available");
-  }
-  Ok(())
 }
