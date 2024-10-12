@@ -546,7 +546,7 @@ fn op_import_sync<'s>(
   }
 }
 
-fn print_stack_frames(frames: &Vec<JsStackFrame>) {
+fn print_stack_frames(frames: &[JsStackFrame]) {
   let frame_locations: Vec<_> = frames
     .iter()
     .map(|f| {
