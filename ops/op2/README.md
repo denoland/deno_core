@@ -921,6 +921,20 @@ Only usable in `deno_core`.
 </td><td>
 ⚠️ Extremely dangerous, may crash if you don't use `nofast` depending on what you do.
 </td></tr>
+<tr>
+<td>
+
+```text
+#[stack_trace] Option<Vec<JsStackFrame>>
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+⚠️ This argument is very slow as it needs to create an error instance and collect a whole stack frame. It only returns `Some(frames)` i `RuntimeOptions::enable_stack_trace_arg_in_ops` is set to true.
+</td></tr>
 </table>
 
 <!-- END ARGS -->
