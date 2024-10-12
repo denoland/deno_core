@@ -263,8 +263,8 @@ export namespace core {
   export const BadResourcePrototype: typeof BadResource.prototype;
   export class Interrupted extends Error {}
   export const InterruptedPrototype: typeof Interrupted.prototype;
-  export class PermissionDenied extends Error {}
-  export const PermissionDeniedPrototype: typeof PermissionDenied.prototype;
+  export class NotCapable extends Error {}
+  export const NotCapablePrototype: typeof NotCapable.prototype;
 
   function serialize(
     value: any,

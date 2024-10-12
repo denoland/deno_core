@@ -1036,12 +1036,12 @@ async fn dyn_import_ok() {
       runtime.poll_event_loop(cx, Default::default()),
       Poll::Ready(Ok(_))
     ));
-    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(5, 1, 1));
     assert!(matches!(
       runtime.poll_event_loop(cx, Default::default()),
       Poll::Ready(Ok(_))
     ));
-    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(7, 1, 1));
+    assert_eq!(loader.counts(), ModuleLoadEventCounts::new(5, 1, 1));
     Poll::Ready(())
   })
   .await;

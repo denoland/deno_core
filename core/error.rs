@@ -26,7 +26,7 @@ pub type AnyError = anyhow::Error;
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
   #[error("Top-level await is not allowed in extensions")]
-  TLA(#[source] JsError),
+  TLA,
   #[error(transparent)]
   Js(#[from] JsError),
   #[error(transparent)]
@@ -194,7 +194,7 @@ impl JsErrorClass for anyhow::Error {
 impl JsErrorClass for CoreError {
   fn get_class(&self) -> &'static str {
     match self {
-      CoreError::TLA(js_error) | CoreError::Js(js_error) => {
+      CoreError::Js(js_error) => {
         unreachable!("JsError's should not be reachable: {}", js_error)
       }
       CoreError::Io(err) => err.get_class(),
@@ -207,7 +207,8 @@ impl JsErrorClass for CoreError {
       CoreError::DataError(err) => err.get_class(),
       CoreError::Other(err) => err.get_class(),
       CoreError::FutureCanceled(_) => "Interrupted",
-      CoreError::Parse(_)
+      CoreError::TLA
+      | CoreError::Parse(_)
       | CoreError::Execute(_)
       | CoreError::UnusedModules(_)
       | CoreError::NonEvaluatedModules(_)
@@ -220,7 +221,7 @@ impl JsErrorClass for CoreError {
 
   fn get_message(&self) -> Cow<'static, str> {
     match self {
-      CoreError::TLA(js_error) | CoreError::Js(js_error) => {
+      CoreError::Js(js_error) => {
         unreachable!("JsError's should not be reachable: {}", js_error)
       }
       CoreError::Io(err) => err.get_message(),
@@ -232,7 +233,8 @@ impl JsErrorClass for CoreError {
       CoreError::Module(err) => err.get_message(),
       CoreError::DataError(err) => err.get_message(),
       CoreError::Other(err) => err.get_message(),
-      CoreError::Parse(_)
+      CoreError::TLA
+      | CoreError::Parse(_)
       | CoreError::Execute(_)
       | CoreError::UnusedModules(_)
       | CoreError::NonEvaluatedModules(_)

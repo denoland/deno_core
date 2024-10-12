@@ -20,10 +20,6 @@ fn warn_legacy_flag(_feature: &str, _api_name: &str) {}
 
 pub struct FeatureChecker {
   features: BTreeSet<&'static str>,
-  // TODO(bartlomieju): remove once we migrate away from `--unstable` flag
-  // in the CLI.
-  legacy_unstable: bool,
-  warn_on_legacy_unstable: bool,
   exit_cb: ExitCb,
   warn_cb: WarnCb,
 }
@@ -32,8 +28,6 @@ impl Default for FeatureChecker {
   fn default() -> Self {
     Self {
       features: Default::default(),
-      legacy_unstable: false,
-      warn_on_legacy_unstable: false,
       exit_cb: Box::new(exit),
       warn_cb: Box::new(warn_legacy_flag),
     }
@@ -44,8 +38,6 @@ impl Debug for FeatureChecker {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("FeatureChecker")
       .field("features", &self.features)
-      .field("legacy_unstable", &self.legacy_unstable)
-      .field("warn_on_legacy_unstable", &self.warn_on_legacy_unstable)
       .finish()
   }
 }
@@ -82,34 +74,6 @@ impl FeatureChecker {
       (self.exit_cb)(feature, api_name);
     }
   }
-
-  #[inline(always)]
-  pub fn check_or_exit_with_legacy_fallback(
-    &self,
-    feature: &str,
-    api_name: &str,
-  ) {
-    if !self.features.contains(feature) {
-      if self.legacy_unstable {
-        if self.warn_on_legacy_unstable {
-          (self.warn_cb)(feature, api_name);
-        }
-        return;
-      }
-
-      (self.exit_cb)(feature, api_name);
-    }
-  }
-
-  // TODO(bartlomieju): remove this.
-  pub fn enable_legacy_unstable(&mut self) {
-    self.legacy_unstable = true;
-  }
-
-  // TODO(bartlomieju): remove this.
-  pub fn warn_on_legacy_unstable(&mut self) {
-    self.warn_on_legacy_unstable = true;
-  }
 }
 
 #[cfg(test)]
@@ -144,15 +108,5 @@ mod tests {
     assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 0);
     checker.check_or_exit("fizzbuzz", "foo");
     assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 1);
-
-    checker.enable_legacy_unstable();
-    checker.check_or_exit_with_legacy_fallback("fizzbuzz", "foo");
-    assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 1);
-    assert_eq!(WARN_COUNT.load(Ordering::Relaxed), 0);
-
-    checker.warn_on_legacy_unstable();
-    checker.check_or_exit_with_legacy_fallback("fizzbuzz", "foo");
-    assert_eq!(EXIT_COUNT.load(Ordering::Relaxed), 1);
-    assert_eq!(WARN_COUNT.load(Ordering::Relaxed), 1);
   }
 }
