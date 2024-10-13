@@ -49,12 +49,16 @@ deno_core::extension!(
     ops_worker::op_worker_await_close,
     ops_worker::op_worker_terminate,
   ],
+  objects = [
+    ops::DOMPoint
+  ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [
     dir "checkin/runtime",
     "__init.js",
     "checkin:async" = "async.ts",
     "checkin:console" = "console.ts",
+    "checkin:object" = "object.ts",
     "checkin:error" = "error.ts",
     "checkin:timers" = "timers.ts",
     "checkin:worker" = "worker.ts",

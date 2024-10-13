@@ -36,12 +36,38 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   t: T,
 ) -> v8::Local<'a, v8::Object> {
   let state = JsRuntime::state_from(scope);
-  let templ =
-    v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
-  let func = templ.get_function(scope).unwrap();
-  let obj = func.new_instance(scope, &[]).unwrap();
+  let opstate = state.op_state.borrow();
 
-  let heap = scope.get_cpp_heap().unwrap();
+  // To initialize object wraps correctly, we store the function
+  // template in OpState with `T`'s TypeId as the key when binding
+  // because it'll be pretty annoying to propogate `T` generic everywhere.
+  //
+  // Here we try to retrive a function template for `T`, falling back to
+  // the default cppgc template.
+  let id = TypeId::of::<T>();
+  let obj = if let Some(templ) =
+    opstate.try_borrow_untyped::<v8::Global<v8::FunctionTemplate>>(id)
+  {
+    let templ = v8::Local::new(scope, templ);
+    let inst = templ.instance_template(scope);
+    inst.new_instance(scope).unwrap()
+  } else {
+    let templ =
+      v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
+    let func = templ.get_function(scope).unwrap();
+    func.new_instance(scope, &[]).unwrap()
+  };
+
+  wrap_object(scope, obj, t)
+}
+
+// Wrap an API object (eg: `args.This()`)
+pub fn wrap_object<'a, T: GarbageCollected + 'static>(
+  isolate: &mut v8::Isolate,
+  obj: v8::Local<'a, v8::Object>,
+  t: T,
+) -> v8::Local<'a, v8::Object> {
+  let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {
     v8::cppgc::make_garbage_collected(
@@ -54,9 +80,8 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   };
 
   unsafe {
-    v8::Object::wrap::<CPPGC_TAG, CppGcObject<T>>(scope, obj, &member);
+    v8::Object::wrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj, &member);
   }
-
   obj
 }
 
@@ -94,7 +119,6 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
     return None;
   };
-
   if !obj.is_api_wrapper() {
     return None;
   }
