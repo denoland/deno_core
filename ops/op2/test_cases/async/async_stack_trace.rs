@@ -6,5 +6,5 @@ use deno_core::error::JsStackFrame;
 
 #[op2(async)]
 pub async fn op_async_stack_trace(#[stack_trace] s: Option<Vec<JsStackFrame>>) {
-  s;
+  drop(s);
 }
