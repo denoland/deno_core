@@ -116,7 +116,7 @@ pub const fn op_async_stack_trace() -> ::deno_core::_ops::OpDecl {
     impl op_async_stack_trace {
         #[inline(always)]
         pub async fn call(s: Option<Vec<JsStackFrame>>) {
-            s
+            s;
         }
     }
     <op_async_stack_trace as ::deno_core::_ops::Op>::DECL
