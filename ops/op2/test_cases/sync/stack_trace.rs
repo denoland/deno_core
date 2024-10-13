@@ -2,7 +2,7 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::JsStackFrame;
+use deno_core::error::JsStackFrame;
 
 #[op2]
 fn op_stack_trace(#[stack_trace] s: Option<Vec<JsStackFrame>>) {
