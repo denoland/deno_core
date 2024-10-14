@@ -108,7 +108,7 @@ pub async fn op_file_open(
 
 #[op2]
 #[string]
-pub fn op_path_to_url(#[string] path: &str) -> Result<String, Error> {
+pub fn op_path_to_url(#[string] path: &str) -> Result<String, OpError> {
   let path = std::path::absolute(path)?;
   let url = url::Url::from_file_path(path).unwrap();
   Ok(url.to_string())

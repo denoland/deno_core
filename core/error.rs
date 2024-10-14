@@ -25,7 +25,7 @@ pub type AnyError = anyhow::Error;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
-  #[error("Top-level await is not allowed in extensions")]
+  #[error("Top-level await is not allowed in synchronous evaluation")]
   TLA,
   #[error(transparent)]
   Js(#[from] JsError),

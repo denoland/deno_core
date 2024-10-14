@@ -490,6 +490,8 @@ fn wrap_module<'s>(
 
   let global_module = v8::Global::new(scope, module);
   scope.set_slot(global_module);
+
+  #[allow(clippy::unnecessary_wraps)]
   fn resolve_callback<'s>(
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
@@ -502,6 +504,7 @@ fn wrap_module<'s>(
     let module = scope.remove_slot::<v8::Global<v8::Module>>().unwrap();
     Some(v8::Local::new(&mut scope, module))
   }
+
   wrapper_module.instantiate_module(scope, resolve_callback)?;
 
   wrapper_module.evaluate(scope)?;
