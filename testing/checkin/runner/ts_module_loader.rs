@@ -5,14 +5,13 @@ use std::fs;
 use std::path::Path;
 use std::rc::Rc;
 
-use anyhow::bail;
 use anyhow::Context;
-use anyhow::Error;
 
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::AnyError;
+use deno_core::error::JsNativeError;
+use deno_core::error::ModuleLoaderError;
 use deno_core::resolve_import;
 use deno_core::url::Url;
 use deno_core::ModuleCodeBytes;
@@ -44,7 +43,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     Ok(resolve_import(specifier, referrer)?)
   }
 
@@ -60,7 +59,7 @@ impl ModuleLoader for TypescriptModuleLoader {
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
       requested_module_type: RequestedModuleType,
-    ) -> Result<ModuleSource, AnyError> {
+    ) -> Result<ModuleSource, ModuleLoaderError> {
       let root = Path::new(env!("CARGO_MANIFEST_DIR"));
       let start = if module_specifier.scheme() == "test" {
         1
@@ -100,11 +99,14 @@ impl ModuleLoader for TypescriptModuleLoader {
           if path.extension().unwrap_or_default() == "nocompile" {
             (ModuleType::JavaScript, false)
           } else {
-            bail!("Unknown extension {:?}", path.extension());
+            return Err(
+              anyhow::anyhow!("Unknown extension {:?}", path.extension())
+                .into(),
+            );
           }
         }
       };
-      let code = std::fs::read_to_string(&path).with_context(|| {
+      let code = fs::read_to_string(&path).with_context(|| {
         format!("Trying to load {path:?} for {module_specifier}")
       })?;
       let code = if should_transpile {
@@ -115,20 +117,23 @@ impl ModuleLoader for TypescriptModuleLoader {
           capture_tokens: false,
           scope_analysis: false,
           maybe_syntax: None,
-        })?;
-        let res = parsed.transpile(
-          &deno_ast::TranspileOptions {
-            imports_not_used_as_values:
-              deno_ast::ImportsNotUsedAsValues::Remove,
-            use_decorators_proposal: true,
-            ..Default::default()
-          },
-          &deno_ast::EmitOptions {
-            source_map: SourceMapOption::Separate,
-            inline_sources: false,
-            ..Default::default()
-          },
-        )?;
+        })
+        .map_err(anyhow::Error::from)?;
+        let res = parsed
+          .transpile(
+            &deno_ast::TranspileOptions {
+              imports_not_used_as_values:
+                deno_ast::ImportsNotUsedAsValues::Remove,
+              use_decorators_proposal: true,
+              ..Default::default()
+            },
+            &deno_ast::EmitOptions {
+              source_map: SourceMapOption::Separate,
+              inline_sources: false,
+              ..Default::default()
+            },
+          )
+          .map_err(anyhow::Error::from)?;
         let res = res.into_source();
         let source_map = res.source_map.unwrap();
         source_maps
@@ -161,7 +166,7 @@ impl ModuleLoader for TypescriptModuleLoader {
 pub fn maybe_transpile_source(
   specifier: ModuleName,
   source: ModuleCodeString,
-) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), JsNativeError> {
   // Always transpile `checkin:` built-in modules, since they might be TypeScript.
   let media_type = if specifier.starts_with("checkin:") {
     MediaType::TypeScript
@@ -186,7 +191,8 @@ pub fn maybe_transpile_source(
     capture_tokens: false,
     scope_analysis: false,
     maybe_syntax: None,
-  })?;
+  })
+  .map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?;
   let transpiled_source = parsed
     .transpile(
       &deno_ast::TranspileOptions {
@@ -199,7 +205,8 @@ pub fn maybe_transpile_source(
         inline_sources: false,
         ..Default::default()
       },
-    )?
+    )
+    .map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?
     .into_source();
 
   Ok((

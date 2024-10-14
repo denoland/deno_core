@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use anyhow::Context;
 use clap::builder::Arg;
 use clap::builder::Command;
 use clap::ArgMatches;
@@ -10,6 +9,7 @@ use deno_core_testing::create_runtime_from_snapshot;
 
 use std::net::SocketAddr;
 
+use anyhow::Context;
 use std::sync::Arc;
 
 static SNAPSHOT: &[u8] =
@@ -65,7 +65,7 @@ fn main() -> Result<(), Error> {
     js_runtime.run_event_loop(Default::default()).await?;
     result.await
   };
-  runtime.block_on(future)
+  runtime.block_on(future).map_err(|e| e.into())
 }
 
 fn build_cli() -> Command {

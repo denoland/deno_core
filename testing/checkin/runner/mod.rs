@@ -3,9 +3,8 @@ use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
 use self::ts_module_loader::maybe_transpile_source;
-use anyhow::anyhow;
 use anyhow::Context;
-use anyhow::Error;
+use deno_core::error::JsNativeError;
 use deno_core::v8;
 use deno_core::CrossIsolateStore;
 use deno_core::CustomModuleEvaluationKind;
@@ -122,9 +121,6 @@ pub fn create_runtime_from_snapshot(
     extension_transpiler: Some(Rc::new(|specifier, source| {
       maybe_transpile_source(specifier, source)
     })),
-    get_error_class_fn: Some(&|error| {
-      deno_core::error::get_custom_error_class(error).unwrap_or("Error")
-    }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector,
@@ -138,7 +134,7 @@ pub fn create_runtime_from_snapshot(
   runtime
 }
 
-fn run_async(f: impl Future<Output = Result<(), Error>>) {
+fn run_async(f: impl Future<Output = Result<(), anyhow::Error>>) {
   let tokio = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
@@ -170,22 +166,21 @@ fn custom_module_evaluation_cb(
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
+) -> Result<CustomModuleEvaluationKind, JsNativeError> {
   match &*module_type {
     "bytes" => bytes_module(scope, code),
     "text" => text_module(scope, module_name, code),
-    _ => Err(anyhow!(
+    _ => Err(JsNativeError::generic(format!(
       "Can't import {:?} because of unknown module type {}",
-      module_name,
-      module_type
-    )),
+      module_name, module_type
+    ))),
   }
 }
 
 fn bytes_module(
   scope: &mut v8::HandleScope,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
+) -> Result<CustomModuleEvaluationKind, JsNativeError> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -206,15 +201,17 @@ fn text_module(
   scope: &mut v8::HandleScope,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, Error> {
+) -> Result<CustomModuleEvaluationKind, JsNativeError> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
   };
 
-  let code = std::str::from_utf8(buf.as_bytes()).with_context(|| {
-    format!("Can't convert {:?} source code to string", module_name)
-  })?;
+  let code = std::str::from_utf8(buf.as_bytes())
+    .with_context(|| {
+      format!("Can't convert {:?} source code to string", module_name)
+    })
+    .map_err(JsNativeError::from_err)?;
   let str_ = v8::String::new(scope, code).unwrap();
   let value: v8::Local<v8::Value> = str_.into();
   Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(

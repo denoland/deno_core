@@ -1,5 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use anyhow::Context;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
@@ -13,8 +12,9 @@ use crate::cppgc::cppgc_template_constructor;
 use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
-use crate::error::throw_type_error;
-use crate::error::AnyError;
+use crate::error::CoreError;
+use crate::error::JsErrorClass;
+use crate::error::JsNativeError;
 use crate::error::JsStackFrame;
 use crate::extension_set::LoadedSources;
 use crate::modules::get_requested_module_type_from_attributes;
@@ -307,7 +307,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 /// to function properly
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
-) -> Result<(), AnyError> {
+) -> Result<(), CoreError> {
   for source_file in &CONTEXT_SETUP_SOURCES {
     let name = source_file.specifier.v8_string(scope);
     let source = source_file.source.v8_string(scope);
@@ -315,10 +315,10 @@ pub(crate) fn initialize_primordials_and_infra(
     let origin = crate::modules::script_origin(scope, name, false, None);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source, Some(&origin))
-      .with_context(|| format!("Failed to parse {}", source_file.specifier))?;
-    script.run(scope).with_context(|| {
-      format!("Failed to execute {}", source_file.specifier)
-    })?;
+      .ok_or_else(|| CoreError::Parse(source_file.specifier))?;
+    script
+      .run(scope)
+      .ok_or_else(|| CoreError::Execute(source_file.specifier))?;
   }
 
   Ok(())
@@ -419,6 +419,7 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
   }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn host_import_module_dynamically_callback<'s>(
   scope: &mut v8::HandleScope<'s>,
   _host_defined_options: v8::Local<'s, v8::Data>,
@@ -606,12 +607,12 @@ fn import_meta_resolve(
   mut rv: v8::ReturnValue,
 ) {
   if args.length() > 1 {
-    return throw_type_error(scope, "Invalid arguments");
+    return JsNativeError::type_error("Invalid arguments").throw(scope);
   }
 
   let maybe_arg_str = args.get(0).to_string(scope);
   if maybe_arg_str.is_none() {
-    return throw_type_error(scope, "Invalid arguments");
+    return JsNativeError::type_error("Invalid arguments").throw(scope);
   }
   let specifier = maybe_arg_str.unwrap();
   let referrer = {
@@ -634,7 +635,7 @@ fn import_meta_resolve(
       rv.set(resolved_val);
     }
     Err(err) => {
-      throw_type_error(scope, err.to_string());
+      err.throw(scope);
     }
   };
 }
@@ -734,7 +735,7 @@ fn call_console(
     || !args.get(0).is_function()
     || !args.get(1).is_function()
   {
-    return throw_type_error(scope, "Invalid arguments");
+    return JsNativeError::type_error("Invalid arguments").throw(scope);
   }
 
   let mut call_args = vec![];

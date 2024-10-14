@@ -1,11 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::AnyError;
-use crate::error::JsError;
+use crate::error::CoreError;
+use crate::error::OpError;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
-use anyhow::Error;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
@@ -86,7 +85,7 @@ async fn test_wakers_for_async_ops() {
   static STATE: AtomicI8 = AtomicI8::new(0);
 
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), Error> {
+  async fn op_async_sleep() -> Result<(), OpError> {
     STATE.store(1, Ordering::SeqCst);
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     STATE.store(2, Ordering::SeqCst);
@@ -150,7 +149,10 @@ async fn test_wakers_for_async_ops() {
   "Promise.reject(new Error('fail'))",
   Err("Error: fail\n    at a.js:1:16")
 )]
-#[case("new Promise(resolve => {})", Err("Promise resolution is still pending but the event loop has already resolved."))]
+#[case("new Promise(resolve => {})",
+  Err("Promise resolution is still pending but the event loop has already resolved"
+  )
+)]
 #[tokio::test]
 async fn test_resolve_promise(
   #[case] script: &'static str,
@@ -225,7 +227,9 @@ async fn test_resolve_promise(
   "() => { Deno.core.reportUnhandledException(new Error('fail')); return 1; }",
   Ok(Some(1))
 )]
-#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }", Err("Uncaught Error: fail"))]
+#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
+  Err("Uncaught Error: fail")
+)]
 #[tokio::test]
 async fn test_resolve_value(
   #[case] runner: &'static str,
@@ -261,7 +265,7 @@ async fn test_resolve_value_generic(
     Ok(None) => {
       let error_string = result_global.unwrap_err().to_string();
       assert_eq!(
-        "Promise resolution is still pending but the event loop has already resolved.",
+        "Promise resolution is still pending but the event loop has already resolved",
         error_string,
       );
     }
@@ -279,7 +283,10 @@ async fn test_resolve_value_generic(
           value.to_rust_string_lossy(scope)
         );
       };
-      assert_eq!(e, err.downcast::<JsError>().unwrap().exception_message);
+      let CoreError::Js(js_err) = err else {
+        unreachable!()
+      };
+      assert_eq!(e, js_err.exception_message);
     }
   }
 }
@@ -291,7 +298,7 @@ fn terminate_execution_webassembly() {
 
   // Run an infinite loop in WebAssembly code, which should be terminated.
   let promise = runtime.execute_script("infinite_wasm_loop.js",
-                               r#"
+                                       r#"
                                (async () => {
                                 const wasmCode = new Uint8Array([
                                     0,    97,   115,  109,  1,    0,    0,    0,    1,   4,    1,
@@ -374,7 +381,7 @@ async fn wasm_streaming_op_invocation_in_import() {
 
   // Run an infinite loop in WebAssembly code, which should be terminated.
   runtime.execute_script("setup.js",
-                               r#"
+                         r#"
                                 Deno.core.setWasmStreamingCallback((source, rid) => {
                                   Deno.core.ops.op_wasm_streaming_set_url(rid, "file:///foo.wasm");
                                   Deno.core.ops.op_wasm_streaming_feed(rid, source);
@@ -383,7 +390,7 @@ async fn wasm_streaming_op_invocation_in_import() {
                                "#).unwrap();
 
   let promise = runtime.execute_script("main.js",
-                            r#"
+                                       r#"
                              // (module (import "env" "data" (global i64)))
                              const bytes = new Uint8Array([0,97,115,109,1,0,0,0,2,13,1,3,101,110,118,4,100,97,116,97,3,126,0,0,8,4,110,97,109,101,2,1,0]);
                              WebAssembly.instantiateStreaming(bytes, {
@@ -503,9 +510,12 @@ fn test_heap_limits() {
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
+  let CoreError::Js(js_err) = err else {
+    unreachable!()
+  };
   assert_eq!(
     "Uncaught Error: execution terminated",
-    err.downcast::<JsError>().unwrap().exception_message
+    js_err.exception_message
   );
   assert!(callback_invoke_count.load(Ordering::SeqCst) > 0)
 }
@@ -552,9 +562,12 @@ fn test_heap_limit_cb_multiple() {
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
+  let CoreError::Js(js_err) = err else {
+    unreachable!()
+  };
   assert_eq!(
     "Uncaught Error: execution terminated",
-    err.downcast::<JsError>().unwrap().exception_message
+    js_err.exception_message
   );
   assert_eq!(0, callback_invoke_count_first.load(Ordering::SeqCst));
   assert!(callback_invoke_count_second.load(Ordering::SeqCst) > 0);
@@ -644,7 +657,7 @@ fn test_is_proxy() {
 #[tokio::test]
 async fn test_set_macrotask_callback_set_next_tick_callback() {
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), Error> {
+  async fn op_async_sleep() -> Result<(), OpError> {
     // Future must be Poll::Pending on first call
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     Ok(())
@@ -693,14 +706,16 @@ fn test_has_tick_scheduled() {
   static MACROTASK: AtomicUsize = AtomicUsize::new(0);
   static NEXT_TICK: AtomicUsize = AtomicUsize::new(0);
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  fn op_macrotask() -> Result<(), AnyError> {
+  fn op_macrotask() -> Result<(), OpError> {
     MACROTASK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  fn op_next_tick() -> Result<(), AnyError> {
+  fn op_next_tick() -> Result<(), OpError> {
     NEXT_TICK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
@@ -851,7 +866,7 @@ async fn test_promise_rejection_handler_generic(
       }
     }
   "#
-  .replace("__CASE__", case);
+    .replace("__CASE__", case);
 
   let future = if module {
     let id = runtime
@@ -870,7 +885,7 @@ async fn test_promise_rejection_handler_generic(
   let res = runtime.run_event_loop(Default::default()).await;
   if let Some(error) = error {
     let err = res.expect_err("Expected a failure");
-    let Ok(js_error) = err.downcast::<JsError>() else {
+    let CoreError::Js(js_error) = err else {
       panic!("Expected a JsError");
     };
     assert_eq!(js_error.exception_message, error);
@@ -944,7 +959,9 @@ async fn test_stalled_tla() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let js_error = error.downcast::<JsError>().unwrap();
+  let CoreError::Js(js_error) = error else {
+    unreachable!()
+  };
   assert_eq!(
     &js_error.exception_message,
     "Top-level await promise never resolved"
@@ -962,9 +979,9 @@ async fn test_stalled_tla() {
 #[tokio::test]
 async fn test_dynamic_import_module_error_stack() {
   #[op2(async)]
-  async fn op_async_error() -> Result<(), Error> {
+  async fn op_async_error() -> Result<(), OpError> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    Err(crate::error::type_error("foo"))
+    Err(error::JsNativeError::type_error("foo").into())
   }
   deno_core::extension!(test_ext, ops = [op_async_error]);
   let loader = StaticModuleLoader::new([
@@ -994,10 +1011,12 @@ async fn test_dynamic_import_module_error_stack() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let js_error = error.downcast::<JsError>().unwrap();
+  let CoreError::Js(js_error) = error else {
+    unreachable!()
+  };
   assert_eq!(
     js_error.to_string(),
-    "Error: foo
+    "TypeError: foo
     at async file:///import.js:1:43"
   );
 }
@@ -1184,7 +1203,7 @@ async fn task_spawner_cross_thread_blocking() {
 #[tokio::test]
 async fn terminate_execution_run_event_loop_js() {
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), Error> {
+  async fn op_async_sleep() -> Result<(), OpError> {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     Ok(())
   }

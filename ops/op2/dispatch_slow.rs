@@ -1009,15 +1009,13 @@ pub(crate) fn throw_exception(
     with_fn_args(generator_state)
   };
 
-  gs_quote!(generator_state(scope, opctx) => {
+  gs_quote!(generator_state(scope) => {
     #maybe_scope
     #maybe_args
     #maybe_opctx
-    let err = err.into();
     let exception = deno_core::error::to_v8_error(
       &mut #scope,
-      #opctx.get_error_class_fn,
-      &err,
+      &deno_core::error::OpErrorWrapper(err.into()),
     );
     #scope.throw_exception(exception);
     return 1;

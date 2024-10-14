@@ -94,11 +94,9 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(info)
                         };
-                        let err = err.into();
                         let exception = deno_core::error::to_v8_error(
                             &mut scope,
-                            opctx.get_error_class_fn,
-                            &err,
+                            &deno_core::error::OpErrorWrapper(err.into()),
                         );
                         scope.throw_exception(exception);
                         return 1;
