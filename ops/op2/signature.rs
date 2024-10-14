@@ -146,6 +146,7 @@ pub enum Special {
   JsRuntimeState,
   FastApiCallbackOptions,
   Isolate,
+  StackTrace,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -335,7 +336,8 @@ impl Arg {
         | Special::OpState
         | Special::JsRuntimeState
         | Special::HandleScope
-        | Special::Isolate,
+        | Special::Isolate
+        | Special::StackTrace,
       ) => true,
       Self::Ref(
         _,
@@ -755,6 +757,8 @@ pub enum AttributeModifier {
   Number,
   /// #[cppgc], for a resource backed managed by cppgc.
   CppGcResource,
+  /// #[stack_trace], for a stack trace of the op call site
+  StackTrace,
 }
 
 impl AttributeModifier {
@@ -771,6 +775,7 @@ impl AttributeModifier {
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
+      AttributeModifier::StackTrace => "stack_trace",
     }
   }
 }
@@ -1239,6 +1244,7 @@ fn parse_attribute(
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
+      (#[stack_trace]) => Some(AttributeModifier::StackTrace),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
@@ -1512,6 +1518,16 @@ pub(crate) fn parse_type(
           primary.name(),
           "argument",
         ))
+      }
+      AttributeModifier::StackTrace => {
+        if position == Position::RetVal {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "argument",
+          ));
+        }
+
+        return Ok(Arg::Special(Special::StackTrace));
       }
       AttributeModifier::ToV8 if position == Position::Arg => {
         return Err(ArgError::InvalidAttributePosition(

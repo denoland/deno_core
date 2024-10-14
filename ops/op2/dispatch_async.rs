@@ -11,6 +11,7 @@ use super::dispatch_slow::with_opstate;
 use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
 use super::dispatch_slow::with_self;
+use super::dispatch_slow::with_stack_trace;
 use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
 use super::signature::ParsedSignature;
@@ -120,11 +121,12 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
-  let with_opctx = if generator_state.needs_opctx {
-    with_opctx(generator_state)
-  } else {
-    quote!()
-  };
+  let with_opctx =
+    if generator_state.needs_opctx | generator_state.needs_stack_trace {
+      with_opctx(generator_state)
+    } else {
+      quote!()
+    };
 
   let with_retval = if generator_state.needs_retval {
     with_retval(generator_state)
@@ -138,8 +140,15 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
-  let with_scope = if generator_state.needs_scope {
-    with_scope(generator_state)
+  let with_scope =
+    if generator_state.needs_scope | generator_state.needs_stack_trace {
+      with_scope(generator_state)
+    } else {
+      quote!()
+    };
+
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    with_stack_trace(generator_state)
   } else {
     quote!()
   };
@@ -157,6 +166,7 @@ pub(crate) fn generate_dispatch_async(
         #with_opctx
         #with_opstate
         #with_self
+        #with_stack_trace
 
         #output
       }
