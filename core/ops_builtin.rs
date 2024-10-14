@@ -432,11 +432,11 @@ async fn do_load_job<'s>(
   module_map_rc: Rc<ModuleMap>,
   specifier: &str,
   code: Option<String>,
-) -> Result<ModuleId, Error> {
+) -> Result<ModuleId, OpError> {
   if let Some(code) = code {
     module_map_rc
       .new_es_module(scope, false, specifier.to_owned(), code, false, None)
-      .map_err(|e| e.into_any_error(scope, false, false))?;
+      .map_err(|e| e.into_error(scope, false, false))?;
   }
 
   let mut load = ModuleMap::load_side(module_map_rc.clone(), specifier).await?;
@@ -445,7 +445,7 @@ async fn do_load_job<'s>(
     let (request, info) = load_result?;
     load
       .register_and_recurse(scope, &request, info)
-      .map_err(|e| e.into_any_error(scope, false, false))?;
+      .map_err(|e| e.into_error(scope, false, false))?;
   }
 
   let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -514,7 +514,7 @@ fn op_import_sync<'s>(
   scope: &mut v8::HandleScope<'s>,
   #[string] specifier: &str,
   #[string] code: Option<String>,
-) -> Result<v8::Local<'s, v8::Value>, Error> {
+) -> Result<v8::Local<'s, v8::Value>, OpError> {
   let module_map_rc = JsRealm::module_map_from(scope);
 
   // no js execution within block_on
@@ -542,7 +542,8 @@ fn op_import_sync<'s>(
   {
     let Some(module) = wrap_module(scope, module) else {
       let exception = scope.exception().unwrap();
-      return exception_to_err_result(scope, exception, false, false);
+      return exception_to_err_result(scope, exception, false, false)
+        .map_err(Into::into);
     };
     Ok(v8::Local::new(scope, module.get_module_namespace()))
   } else {
