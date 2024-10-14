@@ -1250,9 +1250,8 @@ pub fn prepare_stack_trace_callback<'s>(
 
   // `globalThis.Error.prepareStackTrace`
   let global = scope.get_current_context().global(scope);
-  let global_error = get_property(scope, global, ERROR)
-    .map(|g| g.try_cast().ok())
-    .flatten();
+  let global_error =
+    get_property(scope, global, ERROR).and_then(|g| g.try_cast().ok());
   let prepare_fn = global_error.and_then(|g| {
     get_property(scope, g, PREPARE_STACK_TRACE)
       .and_then(|f| f.try_cast::<v8::Function>().ok())
