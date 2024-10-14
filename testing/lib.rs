@@ -64,6 +64,7 @@ integration_test!(
   error_eval_stack,
   error_ext_stack,
   error_prepare_stack_trace,
+  error_prepare_stack_trace_crash,
   error_with_stack,
   error_without_stack,
   error_get_file_name,
