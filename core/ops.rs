@@ -83,6 +83,8 @@ pub struct OpCtx {
 
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
+  #[doc(hidden)]
+  pub enable_stack_trace_arg: bool,
 
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_info: Option<CFunction>,
@@ -102,6 +104,7 @@ impl OpCtx {
     state: Rc<RefCell<OpState>>,
     runtime_state: *const JsRuntimeState,
     metrics_fn: Option<OpMetricsFn>,
+    enable_stack_trace_arg: bool,
   ) -> Self {
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
     // `CFunction`. For some extremely fast ops, the parameter list may change for the metrics
@@ -122,6 +125,7 @@ impl OpCtx {
       fast_fn_info,
       isolate,
       metrics_fn,
+      enable_stack_trace_arg,
     }
   }
 

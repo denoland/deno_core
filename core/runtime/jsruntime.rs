@@ -544,6 +544,10 @@ pub struct RuntimeOptions {
     Option<(EvalContextGetCodeCacheCb, EvalContextCodeCacheReadyCb)>,
 
   pub import_assertions_support: ImportAssertionsSupport,
+
+  /// Whether `#[stack_trace]` argument in ops should return `Some(frames)`. Use wisely,
+  /// as it's very expensive to collect stack traces on each op invocation.
+  pub enable_stack_trace_arg_in_ops: bool,
 }
 
 pub struct ImportAssertionsSupportCustomCallbackArgs {
@@ -865,6 +869,7 @@ impl JsRuntime {
       op_driver.clone(),
       op_state.clone(),
       state_rc.clone(),
+      options.enable_stack_trace_arg_in_ops,
     );
 
     // ...ops are now almost fully set up; let's create a V8 isolate...

@@ -199,9 +199,7 @@ pub fn op_lazy_load_esm(
     .map_err(|e| e.into())
 }
 
-// We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
-// allowed to touch JS heap.
-#[op2(nofast)]
+#[op2(fast)]
 pub fn op_queue_microtask(
   isolate: *mut v8::Isolate,
   cb: v8::Local<v8::Function>,
@@ -212,9 +210,7 @@ pub fn op_queue_microtask(
   }
 }
 
-// We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
-// allowed to touch JS heap.
-#[op2(nofast, reentrant)]
+#[op2(fast, reentrant)]
 pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   // SAFETY: we know v8 provides us with a valid, non-null isolate
   unsafe {

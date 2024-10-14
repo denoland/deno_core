@@ -1576,9 +1576,12 @@ pub fn prepare_stack_trace_callback<'s>(
 
   // `globalThis.Error.prepareStackTrace`
   let global = scope.get_current_context().global(scope);
-  let global_error = get_property(scope, global, ERROR).unwrap().cast();
-  let prepare_fn = get_property(scope, global_error, PREPARE_STACK_TRACE)
-    .and_then(|f| f.try_cast::<v8::Function>().ok());
+  let global_error =
+    get_property(scope, global, ERROR).and_then(|g| g.try_cast().ok());
+  let prepare_fn = global_error.and_then(|g| {
+    get_property(scope, g, PREPARE_STACK_TRACE)
+      .and_then(|f| f.try_cast::<v8::Function>().ok())
+  });
 
   if let Some(prepare_fn) = prepare_fn {
     // User defined `Error.prepareStackTrace`.
@@ -1600,7 +1603,7 @@ pub fn prepare_stack_trace_callback<'s>(
     let patched_callsites = v8::Array::new_with_elements(scope, &patched);
 
     // call the user's `prepareStackTrace` with our patched "callsite" objects
-    let this = global_error.into();
+    let this = global_error.unwrap().into();
     let args = &[error, patched_callsites.into()];
     return prepare_fn
       .call(scope, this, args)

@@ -123,6 +123,7 @@ pub fn create_op_ctxs(
   op_driver: Rc<OpDriverImpl>,
   op_state: Rc<RefCell<OpState>>,
   runtime_state: Rc<JsRuntimeState>,
+  enable_stack_trace_arg_in_ops: bool,
 ) -> Box<[OpCtx]> {
   let op_count = op_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
@@ -141,6 +142,7 @@ pub fn create_op_ctxs(
       op_state.clone(),
       runtime_state_ptr,
       metrics_fn,
+      enable_stack_trace_arg_in_ops,
     );
 
     op_ctxs.push(op_ctx);
