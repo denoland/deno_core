@@ -520,6 +520,7 @@ mod tests {
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
+  use crate::error::StdAnyError;
   use crate::external;
   use crate::external::ExternalPointer;
   use crate::op2;
@@ -2434,7 +2435,7 @@ mod tests {
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = std::convert::Infallible;
+    type Error = StdAnyError;
 
     fn from_v8(
       scope: &mut v8::HandleScope<'a>,
@@ -2461,6 +2462,24 @@ mod tests {
           assert(op_bool_to_from_v8(v) == v);
         }",
     )?;
+    Ok(())
+  }
+
+  #[tokio::test]
+  pub async fn test_op_bool_to_from_v8_error(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let err = run_test2(
+      JIT_ITERATIONS,
+      "op_bool_to_from_v8",
+      r#"
+      op_bool_to_from_v8("true");
+      "#,
+    )
+    .unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "TypeError: Expected boolean\n    at <anonymous>:4:7"
+    );
     Ok(())
   }
 }
