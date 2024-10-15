@@ -33,6 +33,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
+use v8::cppgc::GarbageCollected;
 use v8::HandleScope;
 
 pub enum InspectorMsgKind {
@@ -271,12 +272,8 @@ impl JsRuntimeInspector {
     );
   }
 
-  pub fn has_active_sessions(&self) -> bool {
-    self.sessions.borrow().has_active_sessions()
-  }
-
-  pub fn has_blocking_sessions(&self) -> bool {
-    self.sessions.borrow().has_blocking_sessions()
+  pub fn sessions_state(&self) -> SessionsState {
+    self.sessions.borrow().sessions_state()
   }
 
   pub fn poll_sessions(
@@ -327,7 +324,7 @@ impl JsRuntimeInspector {
           let session = InspectorSession::new(
             sessions.v8_inspector.clone(),
             session_proxy,
-            false,
+            InspectorSessionKind::Remote,
           );
           let prev = sessions.handshake.replace(session);
           assert!(prev.is_none());
@@ -447,7 +444,10 @@ impl JsRuntimeInspector {
 
   /// Create a local inspector session that can be used on
   /// the same thread as the isolate.
-  pub fn create_local_session(&self) -> LocalInspectorSession {
+  pub fn create_local_session(
+    &self,
+    options: LocalInspectorSessionOptions,
+  ) -> LocalInspectorSession {
     // The 'outbound' channel carries messages sent to the session.
     let (outbound_tx, outbound_rx) = mpsc::unbounded();
 
@@ -462,7 +462,7 @@ impl JsRuntimeInspector {
     // InspectorSessions for a local session is added directly to the "established"
     // sessions, so it doesn't need to go through the session sender.
     let inspector_session =
-      InspectorSession::new(self.v8_inspector.clone(), proxy, true);
+      InspectorSession::new(self.v8_inspector.clone(), proxy, options.kind);
     self
       .sessions
       .borrow_mut()
@@ -472,6 +472,11 @@ impl JsRuntimeInspector {
 
     LocalInspectorSession::new(inbound_tx, outbound_rx)
   }
+}
+
+#[derive(Debug)]
+pub struct LocalInspectorSessionOptions {
+  pub kind: InspectorSessionKind,
 }
 
 #[derive(Default)]
@@ -487,6 +492,14 @@ struct SessionContainer {
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
   handshake: Option<Box<InspectorSession>>,
   established: SelectAll<Box<InspectorSession>>,
+}
+
+#[derive(Debug)]
+pub struct SessionsState {
+  pub has_active: bool,
+  pub has_remote: bool,
+  pub has_local_blocking: bool,
+  pub has_local_nonblocking: bool,
 }
 
 impl SessionContainer {
@@ -512,12 +525,22 @@ impl SessionContainer {
     self.established.clear();
   }
 
-  fn has_active_sessions(&self) -> bool {
-    !self.established.is_empty() || self.handshake.is_some()
-  }
-
-  fn has_blocking_sessions(&self) -> bool {
-    self.established.iter().any(|s| s.blocking)
+  fn sessions_state(&self) -> SessionsState {
+    SessionsState {
+      has_active: !self.established.is_empty() || self.handshake.is_some(),
+      has_remote: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::Remote)),
+      has_local_blocking: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::LocalBlocking)),
+      has_local_nonblocking: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::LocalBlocking)),
+    }
   }
 
   /// A temporary placeholder that should be used before actual
@@ -610,6 +633,14 @@ impl task::ArcWake for InspectorWaker {
   }
 }
 
+// TODO(bartlomieju): feels overly specific, should deno_core have notion of remote session at all?
+#[derive(Debug)]
+pub enum InspectorSessionKind {
+  Remote,
+  LocalBlocking,
+  LocalNonblocking,
+}
+
 /// An inspector session that proxies messages to concrete "transport layer",
 /// eg. Websocket or another set of channels.
 struct InspectorSession {
@@ -618,7 +649,7 @@ struct InspectorSession {
   proxy: InspectorSessionProxy,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
-  blocking: bool,
+  kind: InspectorSessionKind,
 }
 
 impl InspectorSession {
@@ -627,7 +658,7 @@ impl InspectorSession {
   pub fn new(
     v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
     session_proxy: InspectorSessionProxy,
-    blocking: bool,
+    kind: InspectorSessionKind,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
       let v8_channel = v8::inspector::ChannelBase::new::<Self>();
@@ -648,7 +679,7 @@ impl InspectorSession {
         v8_channel,
         v8_session,
         proxy: session_proxy,
-        blocking,
+        kind,
       }
     })
   }
@@ -742,11 +773,72 @@ impl Stream for InspectorSession {
   }
 }
 
+/// TODO:
+pub struct LocalInspectorSessionRaw {
+  v8_session_tx: UnboundedSender<String>,
+  v8_session_rx: tokio::sync::Mutex<UnboundedReceiver<InspectorMsg>>,
+  // TODO:
+  // cancel_handle: Rc<CancelHandle>,
+}
+
+impl GarbageCollected for LocalInspectorSessionRaw {}
+
+impl LocalInspectorSessionRaw {
+  pub fn new(
+    v8_session_tx: UnboundedSender<String>,
+    v8_session_rx: UnboundedReceiver<InspectorMsg>,
+  ) -> Self {
+    Self {
+      v8_session_tx,
+      v8_session_rx: tokio::sync::Mutex::new(v8_session_rx),
+      // TODO:
+      // cancel_handle: CancelHandle::new_rc(),
+    }
+  }
+
+  // TODO(bartlomieju): should this return a result or anything else?
+  pub fn post_message<T: serde::Serialize>(
+    &self,
+    id: i32,
+    method: &str,
+    params: Option<T>,
+  ) {
+    let msg = json!({
+      "id": id,
+      "method": method,
+      "params": params
+    });
+    let stringified_msg = serde_json::to_string(&msg).unwrap();
+    self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
+  }
+
+  pub async fn receive_from_v8_session(&self) -> Option<InspectorMsg> {
+    // let cancel_handle = &RcRef::map(self.cancel_handle, |this| &this);
+    // let mut v8_session_rx: Result<
+    //   tokio::sync::MutexGuard<UnboundedReceiver<InspectorMsg>>,
+    //   crate::Canceled,
+    // > = self.v8_session_rx.lock().or_cancel(cancel_handle).await;
+    // (*v8_session_rx).next().or_cancel(cancel_handle).await
+    let mut v8_session_rx = self.v8_session_rx.lock().await;
+    (*v8_session_rx).next().await
+  }
+
+  pub fn disconnect(&self) {
+    // TODO(bartlomieju): this should at least have a cancel handle and cancel pending
+    // `self.receive_from_v8_session()` calls
+    // eprintln!("LocalInspectorSessionRaw::disconnect not implemented");
+  }
+}
+
+impl Drop for LocalInspectorSessionRaw {
+  fn drop(&mut self) {
+    // eprintln!("Dropping LocalInspectorSessionRaw");
+  }
+}
 /// A local inspector session that can be used to send and receive protocol messages directly on
 /// the same thread as an isolate.
 pub struct LocalInspectorSession {
-  v8_session_tx: UnboundedSender<String>,
-  v8_session_rx: UnboundedReceiver<InspectorMsg>,
+  raw: LocalInspectorSessionRaw,
   response_tx_map: HashMap<i32, oneshot::Sender<serde_json::Value>>,
   next_message_id: i32,
   notification_tx: UnboundedSender<Value>,
@@ -758,19 +850,23 @@ impl LocalInspectorSession {
     v8_session_tx: UnboundedSender<String>,
     v8_session_rx: UnboundedReceiver<InspectorMsg>,
   ) -> Self {
+    let raw = LocalInspectorSessionRaw::new(v8_session_tx, v8_session_rx);
     let response_tx_map = HashMap::new();
     let next_message_id = 0;
 
     let (notification_tx, notification_rx) = mpsc::unbounded::<Value>();
 
     Self {
-      v8_session_tx,
-      v8_session_rx,
+      raw,
       response_tx_map,
       next_message_id,
       notification_tx,
       notification_rx: Some(notification_rx),
     }
+  }
+
+  pub fn into_raw(self) -> LocalInspectorSessionRaw {
+    self.raw
   }
 
   pub fn take_notification_rx(&mut self) -> UnboundedReceiver<Value> {
@@ -782,6 +878,7 @@ impl LocalInspectorSession {
     method: &str,
     params: Option<T>,
   ) -> Result<serde_json::Value, Error> {
+    // TODO(bartlomieju): this should belong to a higher level wrapper
     let id = self.next_message_id;
     self.next_message_id += 1;
 
@@ -789,14 +886,7 @@ impl LocalInspectorSession {
       oneshot::channel::<serde_json::Value>();
     self.response_tx_map.insert(id, response_tx);
 
-    let message = json!({
-        "id": id,
-        "method": method,
-        "params": params,
-    });
-
-    let stringified_msg = serde_json::to_string(&message).unwrap();
-    self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
+    self.raw.post_message(id, method, params);
 
     loop {
       let receive_fut = self.receive_from_v8_session().boxed_local();
@@ -815,8 +905,9 @@ impl LocalInspectorSession {
     }
   }
 
+  // TODO(bartlomieju): should this return a result or an option?
   pub async fn receive_from_v8_session(&mut self) {
-    let inspector_msg = self.v8_session_rx.next().await.unwrap();
+    let inspector_msg = self.raw.receive_from_v8_session().await.unwrap();
     if let InspectorMsgKind::Message(msg_id) = inspector_msg.kind {
       let message: serde_json::Value =
         match serde_json::from_str(&inspector_msg.content) {
