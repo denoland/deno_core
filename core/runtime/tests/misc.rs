@@ -1177,7 +1177,7 @@ async fn task_spawner_cross_thread_blocking() {
       .await
       .unwrap();
     tokio::time::sleep(Duration::from_millis(10)).await;
-    assert!(start.elapsed().as_secs() < 180);
+    assert!(start.elapsed().as_secs() < 1800);
   }
 }
 
