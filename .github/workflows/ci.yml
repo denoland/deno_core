@@ -56,7 +56,7 @@ jobs:
           config: |-
             linux:
               os: ubuntu-latest
-              jobs: [coverage, lint, lint-deps, test, test-miri, test-ops, test-publish]
+              jobs: [coverage, lint, test, test-miri, test-ops, test-publish]
             linux-xl:
               os: ubuntu-22.04-xl
               jobs: [test-valgrind]

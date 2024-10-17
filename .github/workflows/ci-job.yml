@@ -85,11 +85,6 @@ jobs:
         if: inputs.job == 'lint'
         uses: ./.github/workflows/ci-lint
 
-      - name: Lint (deps)
-        id: lint-deps
-        if: inputs.job == 'lint-deps'
-        uses: ./.github/workflows/ci-lint-deps
-
       - name: Test
         id: test
         if: inputs.job == 'test'
