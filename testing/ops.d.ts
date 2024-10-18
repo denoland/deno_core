@@ -12,6 +12,12 @@ export function op_async_throw_error_lazy(...any: any[]): any;
 export function op_error_context_async(...any: any[]): any;
 export function op_error_context_sync(...any: any[]): any;
 export function op_error_custom_sync(...any: any[]): any;
+export function op_fs_read_text_file(path: string): string;
+export function op_fs_write_text_file(path: string, content: string): void;
+export function op_transpile(
+  specifier: string,
+  source: string,
+): [string, string | undefined];
 
 export function op_worker_await_close(...any: any[]): any;
 export function op_worker_parent(...any: any[]): any;

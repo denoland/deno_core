@@ -2,8 +2,10 @@
 import * as async from "checkin:async";
 import * as console from "checkin:console";
 import * as error from "checkin:error";
+import * as fs from "checkin:fs";
 import * as timers from "checkin:timers";
 import * as worker from "checkin:worker";
+import * as transpiler from "checkin:transpiler";
 import * as throw_ from "checkin:throw";
 async;
 error;
@@ -15,6 +17,9 @@ globalThis.setInterval = timers.setInterval;
 globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
 globalThis.Worker = worker.Worker;
+globalThis.Transpiler = transpiler.Transpiler;
+globalThis.readTextFile = fs.readTextFile;
+globalThis.writeTextFile = fs.writeTextFile;
 Deno.core.addMainModuleHandler((module) => {
   if (onMainModuleCb) onMainModuleCb(module);
 });
