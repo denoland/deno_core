@@ -195,7 +195,7 @@ impl JsErrorClass for CoreError {
   fn get_class(&self) -> &'static str {
     match self {
       CoreError::Js(js_error) => {
-        unreachable!("JsError's should not be reachable: {}", js_error)
+        unreachable!("JsError should not be reachable: {}", js_error)
       }
       CoreError::Io(err) => err.get_class(),
       CoreError::ExtensionTranspiler(err) => err.get_class(),
@@ -222,7 +222,7 @@ impl JsErrorClass for CoreError {
   fn get_message(&self) -> Cow<'static, str> {
     match self {
       CoreError::Js(js_error) => {
-        unreachable!("JsError's should not be reachable: {}", js_error)
+        unreachable!("JsError should not be reachable: {}", js_error)
       }
       CoreError::Io(err) => err.get_message(),
       CoreError::ExtensionTranspiler(err) => err.get_message(),
