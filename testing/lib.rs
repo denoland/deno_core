@@ -71,6 +71,7 @@ integration_test!(
   error_get_file_name_to_string,
   error_get_script_name_or_source_url,
   import_sync,
+  import_sync_existing,
   main_module_handler,
   module_types,
   pending_unref_op_tla,
