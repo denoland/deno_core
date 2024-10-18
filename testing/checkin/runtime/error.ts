@@ -6,7 +6,10 @@ import {
   op_error_context_async,
   op_error_context_sync,
   op_error_custom_sync,
+  op_fast,
 } from "ext:core/ops";
+
+globalThis.op_fast = op_fast;
 
 export async function asyncThrow(kind: "lazy" | "eager" | "deferred") {
   const op = {

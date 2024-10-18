@@ -716,7 +716,10 @@ fn map_v8_fastcall_arg_to_arg(
       }
     }
     Arg::String(Strings::String) => {
-      quote!(let #arg_ident = deno_core::_ops::to_string_ptr(unsafe { &mut *#arg_ident });)
+      *needs_scope = true;
+      quote!(
+        let #arg_ident = deno_core::_ops::to_string(&mut #scope, &*#arg_ident);
+      )
     }
     Arg::String(Strings::CowStr) => {
       quote! {
@@ -877,12 +880,14 @@ fn map_arg_to_v8_fastcall_type(
     // Ref strings that are one byte internally may be passed as a SeqOneByteString,
     // which gives us a FastApiOneByteString.
     Arg::String(Strings::RefStr) => V8FastCallType::SeqOneByteString,
-    // Owned strings can be fast, but we'll have to copy them.
-    Arg::String(Strings::String) => V8FastCallType::SeqOneByteString,
     // Cow strings can be fast, but may require copying
     Arg::String(Strings::CowStr) => V8FastCallType::SeqOneByteString,
     // Cow byte strings can be fast and don't require copying
     Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
+    // Strings are passed to fast calls as V8String, and are then extracted
+    // using v8::ValueView. For one byte ASCII strings we can avoid copying. For
+    // other strings we always have to copy / rewrite.
+    Arg::String(Strings::String) => V8FastCallType::V8Value,
     Arg::External(..) => V8FastCallType::Pointer,
     Arg::CppGcResource(..) => V8FastCallType::V8Value,
     Arg::OptionCppGcResource(..) => V8FastCallType::V8Value,
