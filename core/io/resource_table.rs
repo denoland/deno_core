@@ -245,7 +245,7 @@ pub enum ResourceError {
 impl crate::error::JsErrorClass for ResourceError {
   fn get_class(&self) -> &'static str {
     match self {
-      ResourceError::Reference => "ReferenceError",
+      ResourceError::Reference => crate::error::REFERENCE_ERROR,
       ResourceError::BadResourceId => "BadResource",
       ResourceError::Unavailable => "Busy",
       ResourceError::Other(_) => "BadResource",

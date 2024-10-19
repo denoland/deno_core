@@ -56,12 +56,12 @@ pub enum ModuleLoaderError {
 impl JsErrorClass for ModuleLoaderError {
   fn get_class(&self) -> &'static str {
     match self {
-      ModuleLoaderError::SpecifierExcludedFromSnapshot(_) => "Error",
-      ModuleLoaderError::SpecifierMissingLazyLoadable(_) => "Error",
-      ModuleLoaderError::NpmUnsupportedMetaResolve => "Error",
-      ModuleLoaderError::JsonMissingAttribute => "Error",
-      ModuleLoaderError::NotFound => "Error",
-      ModuleLoaderError::Unsupported { .. } => "Error",
+      ModuleLoaderError::SpecifierExcludedFromSnapshot(_)
+      | ModuleLoaderError::SpecifierMissingLazyLoadable(_)
+      | ModuleLoaderError::NpmUnsupportedMetaResolve
+      | ModuleLoaderError::JsonMissingAttribute
+      | ModuleLoaderError::NotFound
+      | ModuleLoaderError::Unsupported { .. } => crate::error::GENERIC_ERROR,
       ModuleLoaderError::Resolution(err) => err.get_class(),
       ModuleLoaderError::Core(err) => err.get_class(),
     }

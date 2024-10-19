@@ -644,7 +644,7 @@ pub enum ModuleConcreteError {
 
 impl super::error::JsErrorClass for ModuleConcreteError {
   fn get_class(&self) -> &'static str {
-    "Error"
+    crate::error::GENERIC_ERROR
   }
 }
 

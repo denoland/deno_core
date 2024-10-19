@@ -27,7 +27,7 @@ pub enum ModuleResolutionError {
 
 impl super::error::JsErrorClass for ModuleResolutionError {
   fn get_class(&self) -> &'static str {
-    "URIError"
+    crate::error::URI_ERROR
   }
 }
 

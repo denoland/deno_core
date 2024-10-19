@@ -658,7 +658,9 @@ fn catch_dynamic_import_promise_error(
   let arg = args.get(0);
   if is_instance_of_error(scope, arg) {
     let e: crate::error::NativeJsError = serde_v8::from_v8(scope, arg).unwrap();
-    let name = e.name.unwrap_or_else(|| "Error".to_string());
+    let name = e
+      .name
+      .unwrap_or_else(|| crate::error::GENERIC_ERROR.to_string());
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
@@ -673,10 +675,12 @@ fn catch_dynamic_import_promise_error(
         }
       }
       let exception = match name.as_str() {
-        "RangeError" => v8::Exception::range_error(scope, message),
-        "TypeError" => v8::Exception::type_error(scope, message),
-        "SyntaxError" => v8::Exception::syntax_error(scope, message),
-        "ReferenceError" => v8::Exception::reference_error(scope, message),
+        crate::error::RANGE_ERROR => v8::Exception::range_error(scope, message),
+        crate::error::TYPE_ERROR => v8::Exception::type_error(scope, message),
+        crate::error::SYNTAX_ERROR => {
+          v8::Exception::syntax_error(scope, message)
+        }
+        crate::error::REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
         _ => v8::Exception::error(scope, message),
       };
       let code_key = CODE.v8_string(scope);

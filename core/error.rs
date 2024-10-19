@@ -23,6 +23,15 @@ use std::fmt::Write as _;
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
 
+pub const GENERIC_ERROR: &'static str = "Error";
+pub const RANGE_ERROR: &'static str = "RangeError";
+pub const TYPE_ERROR: &'static str = "TypeError";
+pub const SYNTAX_ERROR: &'static str = "SyntaxError";
+pub const URI_ERROR: &'static str = "URIError";
+pub const REFERENCE_ERROR: &'static str = "ReferenceError";
+
+pub const NOT_SUPPORTED_ERROR: &'static str = "NotSupported";
+
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
   #[error("Top-level await is not allowed in synchronous evaluation")]
@@ -173,17 +182,17 @@ fn js_class_and_message_to_exception<'s>(
 ) -> v8::Local<'s, v8::Value> {
   let message = v8::String::new(scope, message).unwrap();
   match class {
-    "TypeError" => v8::Exception::type_error(scope, message),
-    "RangeError" => v8::Exception::range_error(scope, message),
-    "ReferenceError" => v8::Exception::reference_error(scope, message),
-    "SyntaxError" => v8::Exception::syntax_error(scope, message),
+    TYPE_ERROR => v8::Exception::type_error(scope, message),
+    RANGE_ERROR => v8::Exception::range_error(scope, message),
+    REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
+    SYNTAX_ERROR => v8::Exception::syntax_error(scope, message),
     _ => v8::Exception::error(scope, message),
   }
 }
 
 impl JsErrorClass for anyhow::Error {
   fn get_class(&self) -> &'static str {
-    "Error"
+    GENERIC_ERROR
   }
 
   fn get_message(&self) -> Cow<'static, str> {
@@ -215,7 +224,7 @@ impl JsErrorClass for CoreError {
       | CoreError::MissingFromModuleMap(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule => "Error",
+      | CoreError::EvaluateDynamicImportedModule => GENERIC_ERROR,
     }
   }
 
@@ -249,7 +258,7 @@ impl JsErrorClass for CoreError {
 
 impl JsErrorClass for serde_v8::Error {
   fn get_class(&self) -> &'static str {
-    "TypeError"
+    TYPE_ERROR
   }
 }
 
@@ -268,13 +277,13 @@ impl JsErrorClass for std::io::Error {
       AddrNotAvailable => "AddrNotAvailable",
       BrokenPipe => "BrokenPipe",
       AlreadyExists => "AlreadyExists",
-      InvalidInput => "TypeError",
+      InvalidInput => TYPE_ERROR,
       InvalidData => "InvalidData",
       TimedOut => "TimedOut",
       Interrupted => "Interrupted",
       WriteZero => "WriteZero",
       UnexpectedEof => "UnexpectedEof",
-      Other => "Error",
+      Other => GENERIC_ERROR,
       WouldBlock => "WouldBlock",
       kind => {
         let kind_str = kind.to_string();
@@ -283,7 +292,7 @@ impl JsErrorClass for std::io::Error {
           "IsADirectory" => "IsADirectory",
           "NetworkUnreachable" => "NetworkUnreachable",
           "NotADirectory" => "NotADirectory",
-          _ => "Error",
+          _ => GENERIC_ERROR,
         }
       }
     }
@@ -308,13 +317,13 @@ impl JsErrorClass for std::env::VarError {
 
 impl JsErrorClass for std::sync::mpsc::RecvError {
   fn get_class(&self) -> &'static str {
-    "Error"
+    GENERIC_ERROR
   }
 }
 
 impl JsErrorClass for v8::DataError {
   fn get_class(&self) -> &'static str {
-    "TypeError"
+    TYPE_ERROR
   }
 }
 
@@ -322,12 +331,12 @@ impl<T: Send + Sync + 'static> JsErrorClass
   for tokio::sync::mpsc::error::SendError<T>
 {
   fn get_class(&self) -> &'static str {
-    "Error"
+    GENERIC_ERROR
   }
 }
 impl JsErrorClass for tokio::task::JoinError {
   fn get_class(&self) -> &'static str {
-    "Error"
+    GENERIC_ERROR
   }
 }
 
@@ -342,7 +351,7 @@ impl JsErrorClass for serde_json::Error {
         .and_then(|e| e.downcast_ref::<std::io::Error>())
         .unwrap()
         .get_class(),
-      Category::Syntax => "SyntaxError",
+      Category::Syntax => SYNTAX_ERROR,
       Category::Data => "InvalidData",
       Category::Eof => "UnexpectedEof",
     }
@@ -351,7 +360,7 @@ impl JsErrorClass for serde_json::Error {
 
 impl JsErrorClass for url::ParseError {
   fn get_class(&self) -> &'static str {
-    "URIError"
+    URI_ERROR
   }
 }
 
@@ -401,24 +410,24 @@ impl JsNativeError {
   }
 
   pub fn generic(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new("Error", message)
+    Self::new(GENERIC_ERROR, message)
   }
 
   pub fn type_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new("TypeError", message)
+    Self::new(TYPE_ERROR, message)
   }
 
   pub fn range_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new("RangeError", message)
+    Self::new(RANGE_ERROR, message)
   }
 
   pub fn uri_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new("URIError", message)
+    Self::new(URI_ERROR, message)
   }
 
   // Non-standard errors
   pub fn not_supported() -> JsNativeError {
-    Self::new("NotSupported", "The operation is not supported")
+    Self::new(NOT_SUPPORTED_ERROR, "The operation is not supported")
   }
 }
 
@@ -954,7 +963,7 @@ impl JsError {
       let e: NativeJsError =
         serde_v8::from_v8(scope, exception.into()).unwrap_or_default();
       // Get the message by formatting error.name and error.message.
-      let name = e.name.clone().unwrap_or_else(|| "Error".to_string());
+      let name = e.name.clone().unwrap_or_else(|| GENERIC_ERROR.to_string());
       let message_prop = e.message.clone().unwrap_or_default();
       let exception_message = exception_message.unwrap_or_else(|| {
         if !name.is_empty() && !message_prop.is_empty() {
@@ -1630,7 +1639,7 @@ fn format_stack_trace<'s>(
     let name = get_property(scope, obj, v8_static_strings::NAME)
       .filter(|v| !v.is_undefined())
       .map(|v| v.to_rust_string_lossy(scope))
-      .unwrap_or_else(|| "Error".to_string());
+      .unwrap_or_else(|| GENERIC_ERROR.to_string());
 
     match (!msg.is_empty(), !name.is_empty()) {
       (true, true) => write!(result, "{}: {}", name, msg).unwrap(),
