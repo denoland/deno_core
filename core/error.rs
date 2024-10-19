@@ -23,14 +23,14 @@ use std::fmt::Write as _;
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
 
-pub const GENERIC_ERROR: &'static str = "Error";
-pub const RANGE_ERROR: &'static str = "RangeError";
-pub const TYPE_ERROR: &'static str = "TypeError";
-pub const SYNTAX_ERROR: &'static str = "SyntaxError";
-pub const URI_ERROR: &'static str = "URIError";
-pub const REFERENCE_ERROR: &'static str = "ReferenceError";
+pub const GENERIC_ERROR: &str = "Error";
+pub const RANGE_ERROR: &str = "RangeError";
+pub const TYPE_ERROR: &str = "TypeError";
+pub const SYNTAX_ERROR: &str = "SyntaxError";
+pub const URI_ERROR: &str = "URIError";
+pub const REFERENCE_ERROR: &str = "ReferenceError";
 
-pub const NOT_SUPPORTED_ERROR: &'static str = "NotSupported";
+pub const NOT_SUPPORTED_ERROR: &str = "NotSupported";
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {

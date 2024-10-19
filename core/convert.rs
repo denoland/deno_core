@@ -274,6 +274,6 @@ impl<'a> FromV8<'a> for bool {
     value
       .try_cast::<v8::Boolean>()
       .map(|v| v.is_true())
-      .map_err(|_| JsNativeError::type_error("Expected boolean").into())
+      .map_err(|_| JsNativeError::type_error("Expected boolean"))
   }
 }
