@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
 use crate::error::OpError;
+use crate::error::{exception_to_err_result, JsNativeError};
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -449,12 +449,47 @@ async fn do_load_job<'s>(
   }
 
   let root_id = load.root_module_id.expect("Root module should be loaded");
-  module_map_rc
-    .instantiate_module(scope, root_id)
-    .map_err(|e| {
-      let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false, false).unwrap_err()
-    })?;
+
+  let module = module_map_rc
+    .get_module(scope, root_id)
+    .expect("Module must exist");
+
+  match module.get_status() {
+    v8::ModuleStatus::Uninstantiated => {
+      module_map_rc
+        .instantiate_module(scope, root_id)
+        .map_err(|e| {
+          let exception = v8::Local::new(scope, e);
+          exception_to_err_result::<()>(scope, exception, false, false)
+            .unwrap_err()
+        })?;
+    }
+    v8::ModuleStatus::Instantiated
+    | v8::ModuleStatus::Instantiating
+    | v8::ModuleStatus::Evaluating => {
+      return Err(
+        JsNativeError::generic(format!(
+          "Cannot require() ES Module {specifier} in a cycle."
+        ))
+        .into(),
+      );
+    }
+    v8::ModuleStatus::Evaluated => {
+      // OK
+    }
+    v8::ModuleStatus::Errored => {
+      return Err(
+        exception_to_err_result::<()>(
+          scope,
+          module.get_exception(),
+          false,
+          false,
+        )
+        .unwrap_err()
+        .into(),
+      );
+    }
+  }
 
   Ok(root_id)
 }
@@ -528,11 +563,41 @@ fn op_import_sync<'s>(
     code,
   ))?;
 
-  module_map_rc.mod_evaluate_sync(scope, module_id)?;
-
   let module = module_map_rc
     .get_module(scope, module_id)
     .expect("Module must exist");
+
+  match module.get_status() {
+    v8::ModuleStatus::Uninstantiated
+    | v8::ModuleStatus::Instantiating
+    | v8::ModuleStatus::Evaluating => {
+      return Err(
+        JsNativeError::generic(format!(
+          "Cannot require() ES Module {specifier} in a cycle."
+        ))
+        .into(),
+      );
+    }
+    v8::ModuleStatus::Instantiated => {
+      module_map_rc.mod_evaluate_sync(scope, module_id)?;
+    }
+    v8::ModuleStatus::Evaluated => {
+      // OK
+    }
+    v8::ModuleStatus::Errored => {
+      return Err(
+        exception_to_err_result::<()>(
+          scope,
+          module.get_exception(),
+          false,
+          false,
+        )
+        .unwrap_err()
+        .into(),
+      );
+    }
+  }
+
   let namespace = module.get_module_namespace().cast::<v8::Object>();
 
   let scope = &mut v8::TryCatch::new(scope);

@@ -680,7 +680,9 @@ fn catch_dynamic_import_promise_error(
         crate::error::SYNTAX_ERROR => {
           v8::Exception::syntax_error(scope, message)
         }
-        crate::error::REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
+        crate::error::REFERENCE_ERROR => {
+          v8::Exception::reference_error(scope, message)
+        }
         _ => v8::Exception::error(scope, message),
       };
       let code_key = CODE.v8_string(scope);

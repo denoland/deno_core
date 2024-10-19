@@ -265,12 +265,15 @@ impl<'a> ToV8<'a> for bool {
 }
 
 impl<'a> FromV8<'a> for bool {
-  type Error = Infallible;
+  type Error = JsNativeError;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    Ok(value.is_true())
+    value
+      .try_cast::<v8::Boolean>()
+      .map(|v| v.is_true())
+      .map_err(|_| JsNativeError::type_error("Expected boolean").into())
   }
 }
