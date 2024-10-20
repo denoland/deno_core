@@ -12,8 +12,12 @@ use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::source_map::SourceMapApplication;
 use crate::stats::RuntimeActivityType;
+use crate::InspectorSessionKind;
 use crate::JsBuffer;
 use crate::JsRuntime;
+use crate::JsRuntimeInspector;
+use crate::LocalInspectorSessionOptions;
+use crate::LocalInspectorSessionRaw;
 use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
@@ -251,6 +255,39 @@ impl<'s> EvalContextError<'s> {
     arr.set_index(scope, 2, v.into());
     arr.into()
   }
+}
+
+// TODO(bartlomieju): registration of this op should be conditional based on the
+// option passed to the built-in extension.
+#[op2]
+#[cppgc]
+pub fn op_create_inspector_session(
+  scope: &mut v8::HandleScope,
+) -> Option<LocalInspectorSessionRaw> {
+  let state = JsRuntime::state_from(scope);
+
+  {
+    let inspector = &mut state.inspector.borrow_mut();
+    if inspector.is_none() {
+      let context = scope.get_current_context();
+
+      state.has_inspector.set(true);
+      **inspector = Some(JsRuntimeInspector::new(
+        *state.op_state.borrow().borrow::<*mut v8::Isolate>(),
+        scope,
+        context,
+        false,
+      ));
+    }
+  }
+
+  state.with_inspector(|inspector| {
+    let session =
+      inspector.create_local_session(LocalInspectorSessionOptions {
+        kind: InspectorSessionKind::LocalNonblocking,
+      });
+    session.into_raw()
+  })
 }
 
 #[op2(reentrant)]
