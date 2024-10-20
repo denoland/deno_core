@@ -845,7 +845,7 @@ fn test_custom_module_type_callback_synthetic() {
 
   match err {
     ModuleError::Core(err) => {
-      assert_eq!(err.to_string(), "Error: Can't load 'foo' module");
+      assert_eq!(err.to_string(), "Can't load 'foo' module");
     }
     _ => unreachable!(),
   };

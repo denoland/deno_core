@@ -19,6 +19,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
 
+pub use super::modules::ModuleConcreteError;
+
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
@@ -373,7 +375,7 @@ pub struct JsNativeError {
 
 impl Display for JsNativeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}: {}", self.class, self.message)
+    write!(f, "{}", self.message)
   }
 }
 
@@ -842,7 +844,7 @@ where
   Some(result)
 }
 
-#[derive(Default, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize)]
 pub(crate) struct NativeJsError {
   pub name: Option<String>,
   pub message: Option<String>,
@@ -933,6 +935,7 @@ impl JsError {
     exception: v8::Local<'a, v8::Value>,
     mut seen: HashSet<v8::Local<'a, v8::Object>>,
   ) -> Self {
+    println!("{}", std::backtrace::Backtrace::force_capture().to_string());
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
     let scope = &mut v8::HandleScope::new(scope);

@@ -665,11 +665,7 @@ mod tests {
   }
 
   /// Run a test for a single op.
-  fn run_test2(
-    repeat: usize,
-    op: &str,
-    test: &str,
-  ) -> Result<(), anyhow::Error> {
+  fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), CoreError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
@@ -918,7 +914,7 @@ mod tests {
       "op_test_result_void_switch();",
     )
     .expect_err("Expected this to fail");
-    let CoreError::Js(js_err) = err.downcast::<CoreError>().unwrap() else {
+    let CoreError::Js(js_err) = err else {
       unreachable!();
     };
     assert_eq!(js_err.message, Some("failed!!!".into()));

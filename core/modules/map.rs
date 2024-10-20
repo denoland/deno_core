@@ -176,9 +176,10 @@ impl ModuleMap {
       let module = v8::Local::new(scope, handle);
       match module.get_status() {
         v8::ModuleStatus::Errored => {
-          return Err(
-            JsError::from_v8_exception(scope, module.get_exception()).into(),
-          );
+          return Err(CoreError::Js(JsError::from_v8_exception(
+            scope,
+            module.get_exception(),
+          )));
         }
         v8::ModuleStatus::Evaluated => {}
         _ => {
@@ -1209,11 +1210,15 @@ impl ModuleMap {
 
     let Some(value) = module.evaluate(tc_scope) else {
       let exception = tc_scope.exception().unwrap();
-      return Err(JsError::from_v8_exception(tc_scope, exception).into());
+      return Err(CoreError::Js(JsError::from_v8_exception(
+        tc_scope, exception,
+      )));
     };
 
     if let Some(exception) = tc_scope.exception() {
-      return Err(JsError::from_v8_exception(tc_scope, exception).into());
+      return Err(CoreError::Js(JsError::from_v8_exception(
+        tc_scope, exception,
+      )));
     }
 
     let status = module.get_status();
@@ -1228,7 +1233,7 @@ impl ModuleMap {
       PromiseState::Fulfilled => Ok(()),
       PromiseState::Rejected => {
         let err = promise.result(tc_scope);
-        Err(JsError::from_v8_exception(tc_scope, err).into())
+        Err(CoreError::Js(JsError::from_v8_exception(tc_scope, err)))
       }
       PromiseState::Pending => {
         unreachable!()
