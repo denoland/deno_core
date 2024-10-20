@@ -935,7 +935,6 @@ impl JsError {
     exception: v8::Local<'a, v8::Value>,
     mut seen: HashSet<v8::Local<'a, v8::Object>>,
   ) -> Self {
-    println!("{}", std::backtrace::Backtrace::force_capture().to_string());
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
     let scope = &mut v8::HandleScope::new(scope);
