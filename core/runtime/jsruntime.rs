@@ -2528,6 +2528,9 @@ impl JsRuntime {
     let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
       SmallVec::with_capacity(32);
 
+    let policy = scope.get_microtasks_policy();
+    scope.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+
     loop {
       if args.len() >= MAX_VEC_SIZE_FOR_OPS {
         // We have too many, bail for now but re-wake the waker
@@ -2558,10 +2561,13 @@ impl JsRuntime {
       context_state
         .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
+      let promise = context_state.promises.complete(promise_id);
+      let promise = v8::Local::new(scope, promise);
+      promise.resolve(scope, res.unwrap_or_else(std::convert::identity));
       dispatched_ops |= true;
-      args.push(v8::Integer::new(scope, promise_id).into());
-      args.push(res.unwrap_or_else(std::convert::identity));
     }
+
+    scope.set_microtasks_policy(policy);
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();

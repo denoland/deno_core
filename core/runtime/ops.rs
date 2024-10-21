@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::ops::*;
+use crate::FastString;
 use anyhow::Error;
 use futures::future::Future;
 use serde::Deserialize;
@@ -14,6 +15,7 @@ use v8::WriteOptions;
 use super::op_driver::OpDriver;
 use super::op_driver::OpScheduling;
 use super::op_driver::V8RetValMapper;
+use super::JsRealm;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -84,6 +86,54 @@ macro_rules! try_number_int_some {
       return Some(az::wrapping_cast::<_, _>(n.value().trunc() as $trunc));
     }
   };
+}
+
+#[inline(always)]
+pub fn map_async_op_fallible2<R: 'static, E: Into<Error> + 'static>(
+  ctx: &OpCtx,
+  lazy: bool,
+  deferred: bool,
+  promise_id: i32,
+  op: impl Future<Output = Result<R, E>> + 'static,
+  rv_map: V8RetValMapper<R>,
+) -> Option<Result<R, E>> {
+  ctx.op_driver().submit_op_fallible_scheduling(
+    op_scheduling(lazy, deferred),
+    ctx.id,
+    promise_id,
+    op,
+    rv_map,
+  )
+}
+
+pub fn make_promise(
+  scope: &mut v8::HandleScope,
+) -> (i32, v8::Global<v8::PromiseResolver>) {
+  let context = JsRealm::state_from_scope(scope);
+  let prom = v8::PromiseResolver::new(scope).unwrap();
+  let p = prom.get_promise(scope);
+  let s =
+    FastString::from_static("Deno.core.internalPromiseId").v8_string(scope);
+  let sym = v8::Symbol::for_key(scope, s);
+  let prom = v8::Global::new(scope, prom);
+  let id = context.promises.register_new(prom.clone());
+  let id_v = v8::Integer::new(scope, id);
+  p.set(scope, sym.into(), id_v.into());
+  (id, prom)
+}
+
+pub fn set_out_promises(
+  scope: &mut v8::HandleScope,
+  out_arr: v8::Local<v8::Value>,
+  id: i32,
+  prom: v8::Global<v8::PromiseResolver>,
+) {
+  let out_arr = out_arr.cast::<v8::Array>();
+  let id_v = v8::Integer::new(scope, id);
+  let prom = v8::Local::new(scope, prom);
+  let prom = prom.get_promise(scope);
+  out_arr.set_index(scope, 0, id_v.into());
+  out_arr.set_index(scope, 1, prom.into());
 }
 
 macro_rules! try_number_some {
@@ -533,7 +583,7 @@ pub fn to_v8_slice_any(
 }
 
 #[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
-#[cfg(all(test, not(miri)))]
+#[cfg(all(test))]
 mod tests {
   use crate::convert::Number;
   use crate::convert::Smi;
