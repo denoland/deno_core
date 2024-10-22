@@ -10,15 +10,15 @@ use std::io;
 use std::pin::Pin;
 use std::rc::Rc;
 
+use crate::error::JsErrorClass;
+use crate::RcLike;
+use crate::Resource;
 use futures::future::FusedFuture;
 use futures::future::Future;
 use futures::future::TryFuture;
 use futures::task::Context;
 use futures::task::Poll;
 use pin_project::pin_project;
-
-use crate::RcLike;
-use crate::Resource;
 
 use self::internal as i;
 
@@ -239,6 +239,25 @@ impl Error for Canceled {}
 impl From<Canceled> for io::Error {
   fn from(_: Canceled) -> Self {
     io::Error::new(io::ErrorKind::Interrupted, Canceled)
+  }
+}
+
+impl JsErrorClass for Canceled {
+  fn get_class(&self) -> &'static str {
+    let io_err: io::Error = self.to_owned().into();
+    io_err.get_class()
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    let io_err: io::Error = self.to_owned().into();
+    io_err.get_message()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    let io_err: io::Error = self.to_owned().into();
+    io_err.get_additional_properties()
   }
 }
 
@@ -666,7 +685,6 @@ mod internal {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use anyhow::Error;
   use futures::future::pending;
   use futures::future::poll_fn;
   use futures::future::ready;
@@ -782,7 +800,7 @@ mod tests {
       // Cancel a spawned task before it actually runs.
       let cancel_handle = Rc::new(CancelHandle::new());
       let future = spawn(async { panic!("the task should not be spawned") })
-        .map_err(Error::from)
+        .map_err(anyhow::Error::from)
         .try_or_cancel(&cancel_handle);
       cancel_handle.cancel();
       let error = future.await.unwrap_err();

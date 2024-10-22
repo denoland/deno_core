@@ -3,12 +3,11 @@
 #![allow(clippy::print_stderr)]
 
 use crate::ascii_str;
-use crate::error::exception_to_err_result;
-use crate::error::generic_error;
+use crate::error::JsNativeError;
+use crate::error::{exception_to_err_result, CoreError};
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
-use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleError;
@@ -17,6 +16,7 @@ use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
 use crate::modules::RequestedModuleType;
 use crate::modules::SourceCodeCacheInfo;
+use crate::modules::{CustomModuleEvaluationKind, ModuleConcreteError};
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
@@ -28,8 +28,7 @@ use crate::ModuleSpecifier;
 use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
-use anyhow::bail;
-use anyhow::Error;
+use anyhow::anyhow;
 use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
@@ -210,7 +209,7 @@ struct DelayedSourceCodeFuture {
 }
 
 impl Future for DelayedSourceCodeFuture {
-  type Output = Result<ModuleSource, Error>;
+  type Output = Result<ModuleSource, ModuleLoaderError>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
     let inner = self.get_mut();
@@ -246,7 +245,7 @@ impl Future for DelayedSourceCodeFuture {
           }),
         )))
       }
-      None => Poll::Ready(Err(MockError::LoadErr.into())),
+      None => Poll::Ready(Err(anyhow::Error::new(MockError::LoadErr).into())),
     }
   }
 }
@@ -257,7 +256,7 @@ impl ModuleLoader for MockLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     let referrer = if referrer == "." {
       "file:///"
     } else {
@@ -266,13 +265,13 @@ impl ModuleLoader for MockLoader {
 
     let output_specifier = match resolve_import(specifier, referrer) {
       Ok(specifier) => specifier,
-      Err(..) => return Err(MockError::ResolveErr.into()),
+      Err(..) => return Err(anyhow::Error::new(MockError::ResolveErr).into()),
     };
 
     if mock_source_code(output_specifier.as_ref()).is_some() {
       Ok(output_specifier)
     } else {
-      Err(MockError::ResolveErr.into())
+      Err(anyhow::Error::new(MockError::ResolveErr).into())
     }
   }
 
@@ -780,11 +779,8 @@ fn test_custom_module_type_default() {
   };
 
   match err {
-    ModuleError::Other(err) => {
-      assert_eq!(
-        err.to_string(),
-        "Importing 'bytes' modules is not supported"
-      );
+    ModuleError::Concrete(ModuleConcreteError::UnsupportedKind(kind)) => {
+      assert_eq!(kind, "bytes");
     }
     _ => unreachable!(),
   };
@@ -797,9 +793,9 @@ fn test_custom_module_type_callback_synthetic() {
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, Error> {
+  ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
     if module_type != "bytes" {
-      return Err(generic_error(format!(
+      return Err(JsNativeError::generic(format!(
         "Can't load '{}' module",
         module_type
       )));
@@ -848,7 +844,7 @@ fn test_custom_module_type_callback_synthetic() {
   };
 
   match err {
-    ModuleError::Other(err) => {
+    ModuleError::Core(err) => {
       assert_eq!(err.to_string(), "Can't load 'foo' module");
     }
     _ => unreachable!(),
@@ -881,9 +877,9 @@ fn test_custom_module_type_callback_computed() {
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, Error> {
+  ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
     if module_type != "foobar" {
-      return Err(generic_error(format!(
+      return Err(JsNativeError::generic(format!(
         "Can't load '{}' module",
         module_type
       )));
@@ -1342,7 +1338,13 @@ async fn loader_disappears_after_error() {
 
   let spec = resolve_url("file:///bad_import.js").unwrap();
   let result = runtime.load_main_es_module(&spec).await;
-  let err = result.unwrap_err();
+
+  let CoreError::ModuleLoader(err) = result.unwrap_err() else {
+    unreachable!();
+  };
+  let ModuleLoaderError::Core(CoreError::Other(err)) = *err else {
+    unreachable!();
+  };
   assert_eq!(
     err.downcast_ref::<MockError>().unwrap(),
     &MockError::ResolveErr
@@ -1604,7 +1606,7 @@ async fn no_duplicate_loads() {
       specifier: &str,
       referrer: &str,
       _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
       let referrer = if referrer == "." {
         "file:///"
       } else {
@@ -1675,7 +1677,7 @@ async fn import_meta_resolve_cb() {
     _loader: &dyn ModuleLoader,
     specifier: String,
     _referrer: String,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     if specifier == "foo" {
       return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
     }
@@ -1684,7 +1686,7 @@ async fn import_meta_resolve_cb() {
       return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
     }
 
-    bail!("unexpected")
+    Err(anyhow!("unexpected").into())
   }
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -1700,7 +1702,7 @@ async fn import_meta_resolve_cb() {
     try {
       import.meta.resolve("boom!");
     } catch (e) {
-      if (!(e instanceof TypeError)) throw new Error("c");
+      if (!(e instanceof Error)) throw new Error("c");
       caught = true;
     }
     if (!caught) throw new Error("d");
@@ -1897,7 +1899,7 @@ fn test_load_with_code_cache() {
 
 #[test]
 fn ext_module_loader_relative() {
-  let loader = ExtModuleLoader::new(vec![]).unwrap();
+  let loader = ExtModuleLoader::new(vec![]);
   let cases = [
     (
       ("../../foo.js", "ext:test/nested/mod/bar.js"),

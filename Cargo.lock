@@ -591,6 +591,7 @@ dependencies = [
  "smallvec",
  "sourcemap",
  "static_assertions",
+ "thiserror",
  "tokio",
  "twox-hash",
  "unicycle",
