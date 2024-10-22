@@ -32,12 +32,10 @@ use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
 use anyhow::bail;
-use anyhow::Context as _;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
-use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
@@ -941,16 +939,43 @@ impl ModuleMap {
   // Initiate loading of a module graph imported using `import()`.
   pub(crate) fn load_dynamic_import(
     self: Rc<Self>,
+    scope: &mut v8::HandleScope,
     specifier: &str,
     referrer: &str,
     requested_module_type: RequestedModuleType,
     resolver_handle: v8::Global<v8::PromiseResolver>,
     cped_handle: v8::Global<v8::Value>,
-  ) {
+  ) -> bool {
+    let resolve_result =
+      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
+
+    if let Ok(module_specifier) = &resolve_result {
+      if let Some(id) = self
+        .data
+        .borrow()
+        .get_id(module_specifier.as_str(), &requested_module_type)
+      {
+        let module = self
+          .data
+          .borrow()
+          .get_handle(id)
+          .map(|handle| v8::Local::new(scope, handle))
+          .expect("Dyn import module info not found");
+
+        if module.get_status() == v8::ModuleStatus::Evaluated {
+          let resolver = resolver_handle.open(scope);
+          let module_namespace = module.get_module_namespace();
+          resolver.resolve(scope, module_namespace).unwrap();
+
+          return false;
+        }
+      }
+    }
+
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,
       referrer,
-      requested_module_type.clone(),
+      requested_module_type,
       self.clone(),
     );
 
@@ -962,25 +987,16 @@ impl ModuleMap {
       },
     );
 
-    let resolve_result =
-      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
-      Ok(module_specifier) => {
-        if self
-          .data
-          .borrow()
-          .is_registered(module_specifier.as_str(), requested_module_type)
-        {
-          async move { (load.id, Ok(load)) }.boxed_local()
-        } else {
-          async move { (load.id, load.prepare().await.map(|()| load)) }
-            .boxed_local()
-        }
-      }
+      Ok(_) => async move { (load.id, load.prepare().await.map(|()| load)) }
+        .boxed_local(),
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
+
     self.preparing_dynamic_imports.borrow_mut().push(fut);
     self.preparing_dynamic_imports_pending.set(true);
+
+    true
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {
@@ -1000,7 +1016,6 @@ impl ModuleMap {
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
     id: ModuleId,
-    in_promise: bool,
   ) -> impl Future<Output = Result<(), Error>> + Unpin {
     let tc_scope = &mut v8::TryCatch::new(scope);
 
@@ -1032,9 +1047,8 @@ impl ModuleMap {
     let Some(value) = module.evaluate(tc_scope) else {
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
         let undefined = v8::undefined(tc_scope).into();
-        _ = sender.send(exception_to_err_result(
-          tc_scope, undefined, in_promise, false,
-        ));
+        _ = sender
+          .send(exception_to_err_result(tc_scope, undefined, true, false));
       } else {
         debug_assert_eq!(module.get_status(), v8::ModuleStatus::Errored);
       }
@@ -1050,9 +1064,7 @@ impl ModuleMap {
       // This will be overridden in `exception_to_err_result()`.
       let exception = v8::undefined(tc_scope).into();
       sender
-        .send(exception_to_err_result(
-          tc_scope, exception, in_promise, false,
-        ))
+        .send(exception_to_err_result(tc_scope, exception, true, false))
         .expect("Failed to send module evaluation error.");
     } else {
       debug_assert!(
@@ -1139,7 +1151,7 @@ impl ModuleMap {
           PromiseState::Fulfilled => {
             if let Some(exception) = tc_scope.exception() {
               _ = sender.sender.take().unwrap().send(exception_to_err_result(
-                tc_scope, exception, in_promise, false,
+                tc_scope, exception, true, false,
               ));
             } else {
               // Module loaded OK
@@ -1179,33 +1191,59 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     id: ModuleId,
   ) -> Result<(), Error> {
-    let is_graph_async = {
-      let module_handle = self.get_handle(id).expect("ModuleInfo not found");
-      module_handle.open(scope).is_graph_async()
-    };
-    // Don't allow TLA in graph
-    if is_graph_async {
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let module = self
+      .get_handle(id)
+      .map(|handle| v8::Local::new(tc_scope, handle))
+      .expect("ModuleInfo not found");
+    let status = module.get_status();
+    assert_eq!(
+      status,
+      v8::ModuleStatus::Instantiated,
+      "{} {} ({})",
+      if status == v8::ModuleStatus::Evaluated {
+        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
+      } else {
+        "Module not instantiated"
+      },
+      self.get_name_by_id(id).unwrap(),
+      id,
+    );
+
+    if module.is_graph_async() {
       return Err(generic_error(
         "Top-level await is not allowed in synchronous evaluation",
       ));
     }
 
-    let mut receiver = self.mod_evaluate(scope, id, false);
+    let Some(value) = module.evaluate(tc_scope) else {
+      let exception = tc_scope.exception().unwrap();
+      return Err(JsError::from_v8_exception(tc_scope, exception).into());
+    };
 
-    // After evaluate_pending_module, if the module isn't fully evaluated
-    // and the resolver solved, it means the module or one of its imports
-    // uses TLA, which should be unreachable due to the above check.
-    match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-      Poll::Ready(result) => {
-        result.with_context(|| {
-          let specifier = self.get_name_by_id(id).unwrap();
-          format!("Couldn't execute '{specifier}'")
-        })?;
-      }
-      Poll::Pending => unreachable!(),
+    if let Some(exception) = tc_scope.exception() {
+      return Err(JsError::from_v8_exception(tc_scope, exception).into());
     }
 
-    Ok(())
+    let status = module.get_status();
+    debug_assert!(
+      status == v8::ModuleStatus::Evaluated
+        || status == v8::ModuleStatus::Errored
+    );
+    let promise = v8::Local::<v8::Promise>::try_from(value)
+      .expect("Expected to get promise as module evaluation result");
+
+    match promise.state() {
+      PromiseState::Fulfilled => Ok(()),
+      PromiseState::Rejected => {
+        let err = promise.result(tc_scope);
+        Err(JsError::from_v8_exception(tc_scope, err).into())
+      }
+      PromiseState::Pending => {
+        unreachable!()
+      }
+    }
   }
 
   fn dynamic_import_module_evaluate(
