@@ -55,6 +55,7 @@ pub type SessionProxyReceiver = UnboundedReceiver<String>;
 pub struct InspectorSessionProxy {
   pub tx: SessionProxySender,
   pub rx: SessionProxyReceiver,
+  pub options: InspectorSessionOptions,
 }
 
 type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
@@ -331,7 +332,7 @@ impl JsRuntimeInspector {
               let _ = session_proxy.tx.unbounded_send(msg);
             }),
             session_proxy.rx,
-            InspectorSessionKind::NonBlocking,
+            session_proxy.options,
           );
           let prev = sessions.handshake.replace(session);
           assert!(prev.is_none());
@@ -447,7 +448,7 @@ impl JsRuntimeInspector {
 
   pub fn create_raw_session(
     &self,
-    options: LocalInspectorSessionOptions,
+    options: InspectorSessionOptions,
     send: InspectorSessionSend,
   ) -> UnboundedSender<String> {
     // The 'inbound' channel carries messages received from the session.
@@ -460,7 +461,7 @@ impl JsRuntimeInspector {
       self.is_dispatching_message.clone(),
       send,
       inbound_rx,
-      options.kind,
+      options,
     );
 
     self
@@ -477,7 +478,7 @@ impl JsRuntimeInspector {
   /// the same thread as the isolate.
   pub fn create_local_session(
     &self,
-    options: LocalInspectorSessionOptions,
+    options: InspectorSessionOptions,
   ) -> LocalInspectorSession {
     // The 'outbound' channel carries messages sent to the session.
     let (outbound_tx, outbound_rx) = mpsc::unbounded();
@@ -493,7 +494,7 @@ impl JsRuntimeInspector {
 }
 
 #[derive(Debug)]
-pub struct LocalInspectorSessionOptions {
+pub struct InspectorSessionOptions {
   pub kind: InspectorSessionKind,
 }
 
@@ -508,6 +509,7 @@ pub struct SessionsState {
   pub has_active: bool,
   pub has_blocking: bool,
   pub has_nonblocking: bool,
+  pub has_nonblocking_wait_for_disconnect: bool,
 }
 
 /// A helper structure that helps coordinate sessions during different
@@ -552,7 +554,15 @@ impl SessionContainer {
       has_nonblocking: self
         .established
         .iter()
-        .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking)),
+        .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking { .. })),
+      has_nonblocking_wait_for_disconnect: self.established.iter().any(|s| {
+        matches!(
+          s.kind,
+          InspectorSessionKind::NonBlocking {
+            wait_for_disconnect: true
+          }
+        )
+      }),
     }
   }
 
@@ -649,7 +659,7 @@ impl task::ArcWake for InspectorWaker {
 #[derive(Debug)]
 pub enum InspectorSessionKind {
   Blocking,
-  NonBlocking,
+  NonBlocking { wait_for_disconnect: bool },
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -673,7 +683,7 @@ impl InspectorSession {
     is_dispatching_message: Rc<AtomicBool>,
     send: InspectorSessionSend,
     rx: SessionProxyReceiver,
-    kind: InspectorSessionKind,
+    options: InspectorSessionOptions,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
       let v8_channel = v8::inspector::ChannelBase::new::<Self>();
@@ -696,7 +706,7 @@ impl InspectorSession {
         v8_session,
         send,
         rx,
-        kind,
+        kind: options.kind,
       }
     })
   }
