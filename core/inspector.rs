@@ -31,6 +31,8 @@ use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 use v8::HandleScope;
@@ -39,10 +41,12 @@ pub enum InspectorMsgKind {
   Notification,
   Message(i32),
 }
+
 pub struct InspectorMsg {
   pub kind: InspectorMsgKind,
   pub content: String,
 }
+
 pub type SessionProxySender = UnboundedSender<InspectorMsg>;
 pub type SessionProxyReceiver = UnboundedReceiver<String>;
 
@@ -52,6 +56,8 @@ pub struct InspectorSessionProxy {
   pub tx: SessionProxySender,
   pub rx: SessionProxyReceiver,
 }
+
+type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
 
 #[derive(Clone, Copy)]
 enum PollState {
@@ -80,7 +86,7 @@ pub struct JsRuntimeInspector {
   flags: RefCell<InspectorFlags>,
   waker: Arc<InspectorWaker>,
   deregister_tx: Option<oneshot::Sender<()>>,
-  is_dispatching_message: RefCell<bool>,
+  is_dispatching_message: Rc<AtomicBool>,
   isolate_ptr: *mut v8::Isolate,
   context: v8::Global<v8::Context>,
 }
@@ -225,7 +231,7 @@ impl JsRuntimeInspector {
   }
 
   pub fn is_dispatching_message(&self) -> bool {
-    *self.is_dispatching_message.borrow()
+    self.is_dispatching_message.load(Ordering::Relaxed)
   }
 
   pub fn context_destroyed(
@@ -271,12 +277,8 @@ impl JsRuntimeInspector {
     );
   }
 
-  pub fn has_active_sessions(&self) -> bool {
-    self.sessions.borrow().has_active_sessions()
-  }
-
-  pub fn has_blocking_sessions(&self) -> bool {
-    self.sessions.borrow().has_blocking_sessions()
+  pub fn sessions_state(&self) -> SessionsState {
+    self.sessions.borrow().sessions_state()
   }
 
   pub fn poll_sessions(
@@ -311,9 +313,7 @@ impl JsRuntimeInspector {
               sessions.established.push(session);
               continue;
             }
-            Poll::Ready(Some(session_stream_item)) => {
-              let (v8_session_ptr, msg) = session_stream_item;
-              InspectorSession::dispatch_message(v8_session_ptr, msg);
+            Poll::Ready(Some(())) => {
               sessions.established.push(session);
               continue;
             }
@@ -326,8 +326,12 @@ impl JsRuntimeInspector {
         if let Poll::Ready(Some(session_proxy)) = poll_result {
           let session = InspectorSession::new(
             sessions.v8_inspector.clone(),
-            session_proxy,
-            false,
+            self.is_dispatching_message.clone(),
+            Box::new(move |msg| {
+              let _ = session_proxy.tx.unbounded_send(msg);
+            }),
+            session_proxy.rx,
+            InspectorSessionKind::NonBlocking,
           );
           let prev = sessions.handshake.replace(session);
           assert!(prev.is_none());
@@ -335,11 +339,7 @@ impl JsRuntimeInspector {
 
         // Poll established sessions.
         match sessions.established.poll_next_unpin(cx) {
-          Poll::Ready(Some(session_stream_item)) => {
-            let (v8_session_ptr, msg) = session_stream_item;
-            *self.is_dispatching_message.borrow_mut() = true;
-            InspectorSession::dispatch_message(v8_session_ptr, msg);
-            *self.is_dispatching_message.borrow_mut() = false;
+          Poll::Ready(Some(())) => {
             continue;
           }
           Poll::Ready(None) => break,
@@ -445,24 +445,24 @@ impl JsRuntimeInspector {
     rx
   }
 
-  /// Create a local inspector session that can be used on
-  /// the same thread as the isolate.
-  pub fn create_local_session(&self) -> LocalInspectorSession {
-    // The 'outbound' channel carries messages sent to the session.
-    let (outbound_tx, outbound_rx) = mpsc::unbounded();
-
+  pub fn create_raw_session(
+    &self,
+    options: LocalInspectorSessionOptions,
+    send: InspectorSessionSend,
+  ) -> UnboundedSender<String> {
     // The 'inbound' channel carries messages received from the session.
     let (inbound_tx, inbound_rx) = mpsc::unbounded();
 
-    let proxy = InspectorSessionProxy {
-      tx: outbound_tx,
-      rx: inbound_rx,
-    };
-
     // InspectorSessions for a local session is added directly to the "established"
     // sessions, so it doesn't need to go through the session sender.
-    let inspector_session =
-      InspectorSession::new(self.v8_inspector.clone(), proxy, true);
+    let inspector_session = InspectorSession::new(
+      self.v8_inspector.clone(),
+      self.is_dispatching_message.clone(),
+      send,
+      inbound_rx,
+      options.kind,
+    );
+
     self
       .sessions
       .borrow_mut()
@@ -470,14 +470,44 @@ impl JsRuntimeInspector {
       .push(inspector_session);
     take(&mut self.flags.borrow_mut().waiting_for_session);
 
+    inbound_tx
+  }
+
+  /// Create a local inspector session that can be used on
+  /// the same thread as the isolate.
+  pub fn create_local_session(
+    &self,
+    options: LocalInspectorSessionOptions,
+  ) -> LocalInspectorSession {
+    // The 'outbound' channel carries messages sent to the session.
+    let (outbound_tx, outbound_rx) = mpsc::unbounded();
+
+    let receive = Box::new(move |msg| {
+      let _ = outbound_tx.unbounded_send(msg);
+    });
+
+    let inbound_tx = self.create_raw_session(options, receive);
+
     LocalInspectorSession::new(inbound_tx, outbound_rx)
   }
+}
+
+#[derive(Debug)]
+pub struct LocalInspectorSessionOptions {
+  pub kind: InspectorSessionKind,
 }
 
 #[derive(Default)]
 struct InspectorFlags {
   waiting_for_session: bool,
   on_pause: bool,
+}
+
+#[derive(Debug)]
+pub struct SessionsState {
+  pub has_active: bool,
+  pub has_blocking: bool,
+  pub has_nonblocking: bool,
 }
 
 /// A helper structure that helps coordinate sessions during different
@@ -512,12 +542,18 @@ impl SessionContainer {
     self.established.clear();
   }
 
-  fn has_active_sessions(&self) -> bool {
-    !self.established.is_empty() || self.handshake.is_some()
-  }
-
-  fn has_blocking_sessions(&self) -> bool {
-    self.established.iter().any(|s| s.blocking)
+  fn sessions_state(&self) -> SessionsState {
+    SessionsState {
+      has_active: !self.established.is_empty() || self.handshake.is_some(),
+      has_blocking: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::Blocking)),
+      has_nonblocking: self
+        .established
+        .iter()
+        .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking)),
+    }
   }
 
   /// A temporary placeholder that should be used before actual
@@ -610,15 +646,23 @@ impl task::ArcWake for InspectorWaker {
   }
 }
 
+#[derive(Debug)]
+pub enum InspectorSessionKind {
+  Blocking,
+  NonBlocking,
+}
+
 /// An inspector session that proxies messages to concrete "transport layer",
 /// eg. Websocket or another set of channels.
 struct InspectorSession {
+  is_dispatching_message: Rc<AtomicBool>,
   v8_channel: v8::inspector::ChannelBase,
   v8_session: v8::UniqueRef<v8::inspector::V8InspectorSession>,
-  proxy: InspectorSessionProxy,
+  send: InspectorSessionSend,
+  rx: SessionProxyReceiver,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
-  blocking: bool,
+  kind: InspectorSessionKind,
 }
 
 impl InspectorSession {
@@ -626,8 +670,10 @@ impl InspectorSession {
 
   pub fn new(
     v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
-    session_proxy: InspectorSessionProxy,
-    blocking: bool,
+    is_dispatching_message: Rc<AtomicBool>,
+    send: InspectorSessionSend,
+    rx: SessionProxyReceiver,
+    kind: InspectorSessionKind,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
       let v8_channel = v8::inspector::ChannelBase::new::<Self>();
@@ -645,25 +691,22 @@ impl InspectorSession {
       );
 
       Self {
+        is_dispatching_message,
         v8_channel,
         v8_session,
-        proxy: session_proxy,
-        blocking,
+        send,
+        rx,
+        kind,
       }
     })
   }
 
   // Dispatch message to V8 session
-  fn dispatch_message(
-    v8_session_ptr: *mut v8::inspector::V8InspectorSession,
-    msg: String,
-  ) {
+  fn dispatch_message(&mut self, msg: String) {
+    self.is_dispatching_message.store(true, Ordering::Relaxed);
     let msg = v8::inspector::StringView::from(msg.as_bytes());
-    // SAFETY: `InspectorSession` is the only owner of `v8_session_ptr`, so
-    // the pointer is valid for as long the struct.
-    unsafe {
-      (*v8_session_ptr).dispatch_protocol_message(msg);
-    };
+    self.v8_session.dispatch_protocol_message(msg);
+    self.is_dispatching_message.store(false, Ordering::Relaxed);
   }
 
   fn send_message(
@@ -672,7 +715,7 @@ impl InspectorSession {
     msg: v8::UniquePtr<v8::inspector::StringBuffer>,
   ) {
     let msg = msg.unwrap().string().to_string();
-    let _ = self.proxy.tx.unbounded_send(InspectorMsg {
+    (self.send)(InspectorMsg {
       kind: msg_kind,
       content: msg,
     });
@@ -681,9 +724,9 @@ impl InspectorSession {
   pub fn break_on_next_statement(&mut self) {
     let reason = v8::inspector::StringView::from(&b"debugCommand"[..]);
     let detail = v8::inspector::StringView::empty();
-    // TODO(bartlomieju): use raw `*mut V8InspectorSession` pointer, as this
-    // reference may become aliased.
-    (*self.v8_session).schedule_pause_on_next_statement(reason, detail);
+    self
+      .v8_session
+      .schedule_pause_on_next_statement(reason, detail);
   }
 }
 
@@ -723,16 +766,17 @@ impl v8::inspector::ChannelImpl for InspectorSession {
 }
 
 impl Stream for InspectorSession {
-  type Item = (*mut v8::inspector::V8InspectorSession, String);
+  type Item = ();
 
   fn poll_next(
     self: Pin<&mut Self>,
     cx: &mut Context,
   ) -> Poll<Option<Self::Item>> {
     let inner = self.get_mut();
-    if let Poll::Ready(maybe_msg) = inner.proxy.rx.poll_next_unpin(cx) {
+    if let Poll::Ready(maybe_msg) = inner.rx.poll_next_unpin(cx) {
       if let Some(msg) = maybe_msg {
-        return Poll::Ready(Some((&mut *inner.v8_session, msg)));
+        inner.dispatch_message(msg);
+        return Poll::Ready(Some(()));
       } else {
         return Poll::Ready(None);
       }
