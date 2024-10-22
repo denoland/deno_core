@@ -258,8 +258,7 @@ pub(crate) fn with_self(
     generator_state,
     format!("expected {}", &generator_state.self_ty),
   );
-  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
-  {
+  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
     let tokens = gs_quote!(generator_state(self_ty, fn_args, scope) => {
       let Some(mut self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
@@ -527,8 +526,12 @@ pub fn from_arg(
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(RefType::Ref, v8)
     | Arg::OptionV8Ref(RefType::Ref, v8) => {
-      let throw_type_error =
-        || Ok(throw_type_error(generator_state, format!("expected {v8:?}")));
+      let throw_type_error = || {
+        Ok(throw_type_error(
+          generator_state,
+          format!("expected {v8:?}"),
+        ))
+      };
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
@@ -536,8 +539,12 @@ pub fn from_arg(
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       let scope = scope.clone();
-      let throw_type_error =
-        || Ok(throw_type_error(generator_state, format!("expected {v8:?}")));
+      let throw_type_error = || {
+        Ok(throw_type_error(
+          generator_state,
+          format!("expected {v8:?}"),
+        ))
+      };
       let extract_intermediate =
         v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?

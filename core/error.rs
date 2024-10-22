@@ -85,7 +85,7 @@ pub enum CoreError {
   )]
   EvaluateDynamicImportedModule,
   #[error(transparent)]
-  Module(super::modules::ModuleConcreteError),
+  Module(ModuleConcreteError),
   #[error(transparent)]
   DataError(#[from] v8::DataError),
   #[error(transparent)]
@@ -192,16 +192,6 @@ fn js_class_and_message_to_exception<'s>(
   }
 }
 
-impl JsErrorClass for anyhow::Error {
-  fn get_class(&self) -> &'static str {
-    GENERIC_ERROR
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    format!("{:#}", self).into()
-  }
-}
-
 impl JsErrorClass for CoreError {
   fn get_class(&self) -> &'static str {
     match self {
@@ -216,7 +206,6 @@ impl JsErrorClass for CoreError {
       CoreError::Url(err) => err.get_class(),
       CoreError::Module(err) => err.get_class(),
       CoreError::DataError(err) => err.get_class(),
-      CoreError::Other(err) => err.get_class(),
       CoreError::FutureCanceled(_) => "Interrupted",
       CoreError::TLA
       | CoreError::Parse(_)
@@ -226,7 +215,8 @@ impl JsErrorClass for CoreError {
       | CoreError::MissingFromModuleMap(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule => GENERIC_ERROR,
+      | CoreError::EvaluateDynamicImportedModule
+      | CoreError::Other(_) => GENERIC_ERROR,
     }
   }
 
@@ -243,7 +233,6 @@ impl JsErrorClass for CoreError {
       CoreError::Url(err) => err.get_message(),
       CoreError::Module(err) => err.get_message(),
       CoreError::DataError(err) => err.get_message(),
-      CoreError::Other(err) => err.get_message(),
       CoreError::TLA
       | CoreError::Parse(_)
       | CoreError::Execute(_)
@@ -253,7 +242,8 @@ impl JsErrorClass for CoreError {
       | CoreError::FutureCanceled(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule => self.to_string().into(),
+      | CoreError::EvaluateDynamicImportedModule
+      | CoreError::Other(_) => self.to_string().into(),
     }
   }
 }

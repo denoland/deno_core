@@ -3,7 +3,6 @@ use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
 use self::ts_module_loader::maybe_transpile_source;
-use anyhow::Context;
 use deno_core::error::JsNativeError;
 use deno_core::v8;
 use deno_core::CrossIsolateStore;
@@ -168,7 +167,7 @@ fn custom_module_evaluation_cb(
   code: ModuleSourceCode,
 ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
   match &*module_type {
-    "bytes" => bytes_module(scope, code),
+    "bytes" => Ok(bytes_module(scope, code)),
     "text" => text_module(scope, module_name, code),
     _ => Err(JsNativeError::generic(format!(
       "Can't import {:?} because of unknown module type {}",
@@ -180,7 +179,7 @@ fn custom_module_evaluation_cb(
 fn bytes_module(
   scope: &mut v8::HandleScope,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, JsNativeError> {
+) -> CustomModuleEvaluationKind {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
@@ -192,9 +191,7 @@ fn bytes_module(
   let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
   let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
   let value: v8::Local<v8::Value> = uint8_array.into();
-  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
-    scope, value,
-  )))
+  CustomModuleEvaluationKind::Synthetic(v8::Global::new(scope, value))
 }
 
 fn text_module(
@@ -207,11 +204,11 @@ fn text_module(
     unreachable!()
   };
 
-  let code = std::str::from_utf8(buf.as_bytes())
-    .with_context(|| {
-      format!("Can't convert {:?} source code to string", module_name)
-    })
-    .map_err(JsNativeError::from_err)?;
+  let code = std::str::from_utf8(buf.as_bytes()).map_err(|e| {
+    JsNativeError::generic(format!(
+      "Can't convert {module_name:?} source code to string: {e}"
+    ))
+  })?;
   let str_ = v8::String::new(scope, code).unwrap();
   let value: v8::Local<v8::Value> = str_.into();
   Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(

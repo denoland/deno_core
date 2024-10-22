@@ -36,6 +36,18 @@ pub struct TypescriptModuleLoader {
   source_maps: SourceMapStore,
 }
 
+deno_core::js_error_wrapper!(
+  deno_ast::ParseDiagnostic,
+  JsParseDiagnostic,
+  "TypeError"
+);
+
+deno_core::js_error_wrapper!(
+  deno_ast::TranspileError,
+  JsTranspileError,
+  "TypeError"
+);
+
 // TODO(bartlomieju): this is duplicated in `core/examples/ts_modules_loader.rs`.
 impl ModuleLoader for TypescriptModuleLoader {
   fn resolve(
@@ -192,7 +204,7 @@ pub fn maybe_transpile_source(
     scope_analysis: false,
     maybe_syntax: None,
   })
-  .map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?;
+  .map_err(|err| JsNativeError::from_err(JsParseDiagnostic(err)))?;
   let transpiled_source = parsed
     .transpile(
       &deno_ast::TranspileOptions {
@@ -206,7 +218,7 @@ pub fn maybe_transpile_source(
         ..Default::default()
       },
     )
-    .map_err(|err| JsNativeError::from_err(anyhow::Error::from(err)))?
+    .map_err(|err| JsNativeError::from_err(JsTranspileError(err)))?
     .into_source();
 
   Ok((

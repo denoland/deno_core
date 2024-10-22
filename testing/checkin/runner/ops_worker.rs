@@ -3,6 +3,7 @@ use super::create_runtime;
 use super::run_async;
 use super::Output;
 use anyhow::anyhow;
+use deno_core::error::JsNativeError;
 use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::url::Url;
@@ -180,7 +181,7 @@ pub fn op_worker_parent(
     worker.parent_channel.lock().unwrap().take(),
     worker.parent_close_watcher.lock().unwrap().take(),
   ) else {
-    return Err(anyhow!("No parent worker is available").into());
+    return Err(JsNativeError::generic("No parent worker is available").into());
   };
   Ok(WorkerControl {
     worker_channel,

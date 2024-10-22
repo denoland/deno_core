@@ -175,13 +175,13 @@ pub async fn op_void_async() {}
 #[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_error_async() -> Result<(), OpError> {
-  Err(anyhow::Error::msg("error").into())
+  Err(JsNativeError::generic("error").into())
 }
 
 #[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
 pub async fn op_error_async_deferred() -> Result<(), OpError> {
-  Err(anyhow::Error::msg("error").into())
+  Err(JsNativeError::generic("error").into())
 }
 
 #[allow(clippy::unused_async)]
