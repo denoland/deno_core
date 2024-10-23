@@ -31,8 +31,6 @@ use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 use v8::HandleScope;
@@ -87,7 +85,7 @@ pub struct JsRuntimeInspector {
   flags: RefCell<InspectorFlags>,
   waker: Arc<InspectorWaker>,
   deregister_tx: Option<oneshot::Sender<()>>,
-  is_dispatching_message: Rc<AtomicBool>,
+  is_dispatching_message: Rc<RefCell<bool>>,
   isolate_ptr: *mut v8::Isolate,
   context: v8::Global<v8::Context>,
 }
@@ -232,7 +230,7 @@ impl JsRuntimeInspector {
   }
 
   pub fn is_dispatching_message(&self) -> bool {
-    self.is_dispatching_message.load(Ordering::Relaxed)
+    *self.is_dispatching_message.borrow()
   }
 
   pub fn context_destroyed(
@@ -665,7 +663,7 @@ pub enum InspectorSessionKind {
 /// An inspector session that proxies messages to concrete "transport layer",
 /// eg. Websocket or another set of channels.
 struct InspectorSession {
-  is_dispatching_message: Rc<AtomicBool>,
+  is_dispatching_message: Rc<RefCell<bool>>,
   v8_channel: v8::inspector::ChannelBase,
   v8_session: v8::UniqueRef<v8::inspector::V8InspectorSession>,
   send: InspectorSessionSend,
@@ -680,7 +678,7 @@ impl InspectorSession {
 
   pub fn new(
     v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
-    is_dispatching_message: Rc<AtomicBool>,
+    is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
     rx: SessionProxyReceiver,
     options: InspectorSessionOptions,
@@ -713,10 +711,10 @@ impl InspectorSession {
 
   // Dispatch message to V8 session
   fn dispatch_message(&mut self, msg: String) {
-    self.is_dispatching_message.store(true, Ordering::Relaxed);
+    *self.is_dispatching_message.borrow_mut() = true;
     let msg = v8::inspector::StringView::from(msg.as_bytes());
     self.v8_session.dispatch_protocol_message(msg);
-    self.is_dispatching_message.store(false, Ordering::Relaxed);
+    *self.is_dispatching_message.borrow_mut() = false;
   }
 
   fn send_message(
