@@ -157,8 +157,9 @@ enum FastStringInner {
 }
 
 impl FastString {
-  /// Create a [`FastString`] from a static string. The string may contain non-ASCII characters, and if
-  /// so, will take the slower path when used in v8.
+  /// Create a [`FastString`] from a static string. The string may contain
+  /// non-ASCII characters, and if so, will take the slower path when used
+  /// in v8.
   pub const fn from_static(s: &'static str) -> Self {
     if s.is_ascii() {
       Self {
@@ -168,6 +169,47 @@ impl FastString {
       Self {
         inner: FastStringInner::Static(s),
       }
+    }
+  }
+
+  /// Create a [`FastString`] from a static string that is known to contain
+  /// only ASCII characters.
+  ///
+  /// Note: This function is deliberately not `const fn`. Use `from_static`
+  /// in const contexts.
+  ///
+  /// # Safety
+  ///
+  /// It is unsafe to specify a non-ASCII string here because this will be
+  /// referenced in an external one byte static string in v8, which requires
+  /// the data be Latin-1 or ASCII.
+  ///
+  /// This should only be used in scenarios where you know a string is ASCII
+  /// and you want to avoid the performance overhead of checking if a string
+  /// is ASCII that `from_static` does.
+  pub unsafe fn from_ascii_static_unchecked(s: &'static str) -> Self {
+    debug_assert!(
+      s.is_ascii(),
+      "use `from_non_ascii_static_unsafe` for non-ASCII strings",
+    );
+    Self {
+      inner: FastStringInner::StaticAscii(s),
+    }
+  }
+
+  /// Create a [`FastString`] from a static string that may contain non-ASCII
+  /// characters.
+  ///
+  /// This should only be used in scenarios where you know a string is not ASCII
+  /// and you want to avoid the performance overhead of checking if the string
+  /// is ASCII that `from_static` does.
+  ///
+  /// Note: This function is deliberately not `const fn`. Use `from_static`
+  /// in const contexts. This function is not unsafe because using this with
+  /// an ascii string will just not be as optimal for performance.
+  pub fn from_non_ascii_static(s: &'static str) -> Self {
+    Self {
+      inner: FastStringInner::Static(s),
     }
   }
 
@@ -181,8 +223,9 @@ impl FastString {
     }
   }
 
-  /// Creates a cheap copy of this [`FastString`], potentially transmuting it to a faster form. Note that this
-  /// is not a clone operation as it consumes the old [`FastString`].
+  /// Creates a cheap copy of this [`FastString`], potentially transmuting it
+  /// to a faster form. Note that this is not a clone operation as it consumes
+  /// the old [`FastString`].
   pub fn into_cheap_copy(self) -> (Self, Self) {
     match self.inner {
       FastStringInner::Owned(s) => {
