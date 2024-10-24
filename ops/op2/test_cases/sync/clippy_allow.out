@@ -18,6 +18,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
             Self::v8_fn_ptr_metrics as _,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
@@ -29,6 +30,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
             }),
             Some({
                 use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
@@ -160,6 +162,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
             Self::v8_fn_ptr_metrics as _,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
@@ -171,6 +174,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
             }),
             Some({
                 use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(

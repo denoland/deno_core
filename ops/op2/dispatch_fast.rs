@@ -135,6 +135,8 @@ impl FastSignature {
 
     quote!(
       use deno_core::v8::fast_api::Type as CType;
+      use deno_core::v8;
+
       deno_core::v8::fast_api::CFunction::new(
         Self::#fast_function as _,
         &deno_core::v8::fast_api::CFunctionInfo::new(
@@ -230,8 +232,16 @@ impl V8FastCallType {
     match &self {
       V8FastCallType::Void => quote!(CType::Void.scalar()),
       V8FastCallType::Bool => quote!(CType::Bool.scalar()),
-      V8FastCallType::U32 => quote!(CType::Uint32.scalar()),
-      V8FastCallType::I32 => quote!(CType::Int32.scalar()),
+      V8FastCallType::U32 => quote!(v8::fast_api::CTypeInfo::new(
+        CType::Uint32,
+        v8::fast_api::SequenceType::Scalar,
+        v8::fast_api::Flags::Clamp
+      )),
+      V8FastCallType::I32 => quote!(v8::fast_api::CTypeInfo::new(
+        CType::Int32,
+        v8::fast_api::SequenceType::Scalar,
+        v8::fast_api::Flags::Clamp
+      )),
       V8FastCallType::U64 => quote!(CType::Uint64.scalar()),
       V8FastCallType::I64 => quote!(CType::Int64.scalar()),
       V8FastCallType::F32 => quote!(CType::Float32.scalar()),
