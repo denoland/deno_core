@@ -187,7 +187,7 @@ impl FastString {
   /// This should only be used in scenarios where you know a string is ASCII
   /// and you want to avoid the performance overhead of checking if a string
   /// is ASCII that `from_static` does.
-  pub unsafe fn from_ascii_static_unsafe(s: &'static str) -> Self {
+  pub unsafe fn from_ascii_static_unchecked(s: &'static str) -> Self {
     debug_assert!(
       s.is_ascii(),
       "use `from_non_ascii_static_unsafe` for non-ASCII strings",
