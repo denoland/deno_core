@@ -175,12 +175,18 @@ impl FastString {
   /// Create a [`FastString`] from a static string that is known to contain
   /// only ASCII characters.
   ///
+  /// Note: This function is deliberately not `const fn`. Use `from_static`
+  /// in const contexts.
+  ///
+  /// # Safety
+  ///
+  /// It is unsafe to specify a non-ASCII string here because this will be
+  /// referenced in an external one byte static string in v8, which requires
+  /// the data be Latin-1 or ASCII.
+  ///
   /// This should only be used in scenarios where you know a string is ASCII
   /// and you want to avoid the performance overhead of checking if a string
   /// is ASCII that `from_static` does.
-  ///
-  /// Note: This function is deliberately not `const fn`. Use `from_static`
-  /// in const contexts.
   pub unsafe fn from_ascii_static_unsafe(s: &'static str) -> Self {
     debug_assert!(
       s.is_ascii(),
