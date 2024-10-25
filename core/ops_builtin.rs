@@ -530,7 +530,7 @@ fn wrap_module<'s>(
 
   wrapper_module.evaluate(scope)?;
 
-  Some(module)
+  Some(wrapper_module)
 }
 
 #[op2(reentrant)]
