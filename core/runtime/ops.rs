@@ -150,6 +150,7 @@ pub fn to_external_option(external: &v8::Value) -> Option<*mut c_void> {
   }
 }
 
+
 /// Expands `inbuf` to `outbuf`, assuming that `outbuf` has at least 2x `input_length`.
 #[inline(always)]
 unsafe fn latin1_to_utf8(
@@ -235,10 +236,30 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
   }
 }
 
-pub fn to_cow_byte_ptr(
-  string: &v8::fast_api::FastApiOneByteString,
-) -> Cow<[u8]> {
-  string.as_bytes().into()
+
+#[inline(always)]
+pub fn to_string_view<'a>(
+  scope: &'a mut v8::Isolate,
+  value: v8::Local<'a, v8::Value>,
+) -> Option<v8::ValueView<'a>> {
+  if !value.is_string() {
+    return None;
+  }
+
+  // SAFETY: We checked is_string above.
+  let string: v8::Local<'a, v8::String> = unsafe { std::mem::transmute(value) };
+
+  let string_view = v8::ValueView::new(scope, string);
+
+  Some(string_view)
+}
+
+#[inline(always)]
+pub fn to_str_from_view<'a, const N: usize>(
+  string: &'a v8::ValueView<'_>,
+  buffer: &'a mut [MaybeUninit<u8>; N],
+) -> Cow<'a, str> {
+  string.to_rust_cow_lossy(buffer)
 }
 
 /// Converts a [`v8::Value`] to an owned string.
