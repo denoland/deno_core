@@ -1,8 +1,8 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use deno_core::op2;
 use deno_core::JsBuffer;
 
-use super::testing::TestData;
+use super::TestData;
 
 #[op2]
 pub fn op_v8slice_store(

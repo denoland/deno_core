@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::any::type_name;
 use std::borrow::Cow;
@@ -529,7 +529,7 @@ mod internal {
           ..
         } => {
           if !waker.will_wake(new_waker) {
-            *waker = new_waker.clone();
+            waker.clone_from(new_waker);
           }
           Ok(())
         }
@@ -795,7 +795,7 @@ mod tests {
       let cancel_handle = Rc::new(CancelHandle::new());
       let result = loop {
         select! {
-          r = TcpStream::connect("1.2.3.4:12345")
+          r = TcpStream::connect("127.0.0.1:12345")
             .try_or_cancel(&cancel_handle) => break r,
           default => cancel_handle.cancel(),
         };

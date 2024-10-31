@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::Resource;
 use super::ResourceHandle;
 use super::ResourceHandleFd;
@@ -8,7 +8,6 @@ use crate::error::custom_error;
 use anyhow::Error;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::iter::Iterator;
 use std::rc::Rc;
 
 /// A `ResourceId` is an integer value referencing a resource. It could be
@@ -86,16 +85,12 @@ impl ResourceTable {
       .index
       .get(&rid)
       .and_then(|rc| rc.downcast_rc::<T>())
-      .map(Clone::clone)
+      .cloned()
       .ok_or_else(bad_resource_id)
   }
 
   pub fn get_any(&self, rid: ResourceId) -> Result<Rc<dyn Resource>, Error> {
-    self
-      .index
-      .get(&rid)
-      .map(Clone::clone)
-      .ok_or_else(bad_resource_id)
+    self.index.get(&rid).cloned().ok_or_else(bad_resource_id)
   }
 
   /// Replaces a resource with a new resource.

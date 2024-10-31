@@ -1,13 +1,19 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
+use crate::ops::OpMetadata;
 use crate::runtime::bindings;
+use crate::FastStaticString;
 use crate::OpState;
 use anyhow::Context as _;
 use anyhow::Error;
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use v8::fast_api::FastFunction;
+use v8::fast_api::CFunction;
+use v8::fast_api::CFunctionInfo;
+use v8::fast_api::Int64Representation;
+use v8::fast_api::Type;
 use v8::MapFnTo;
 
 #[derive(Clone)]
@@ -17,7 +23,7 @@ pub enum ExtensionFileSourceCode {
   /// will result in two copies of the source code being included - one in the
   /// snapshot, the other the static string in the `Extension`.
   #[deprecated = "Use ExtensionFileSource::new"]
-  IncludedInBinary(&'static str),
+  IncludedInBinary(FastStaticString),
 
   // Source code is loaded from a file on disk. It's meant to be used if the
   // embedder is creating snapshots. Files will be loaded from the filesystem
@@ -27,7 +33,7 @@ pub enum ExtensionFileSourceCode {
   // Source code was loaded from memory. It's meant to be used if the
   // embedder is creating snapshots. Files will be loaded from memory
   // during the build time and they will only be present in the V8 snapshot.
-  LoadedFromMemoryDuringSnapshot(&'static str),
+  LoadedFromMemoryDuringSnapshot(FastStaticString),
 
   /// Source code may be computed at runtime.
   Computed(Arc<str>),
@@ -49,6 +55,13 @@ impl std::fmt::Debug for ExtensionFileSourceCode {
   }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtensionSourceType {
+  LazyEsm,
+  Js,
+  Esm,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExtensionFileSource {
   pub specifier: &'static str,
@@ -57,7 +70,7 @@ pub struct ExtensionFileSource {
 }
 
 impl ExtensionFileSource {
-  pub const fn new(specifier: &'static str, code: &'static str) -> Self {
+  pub const fn new(specifier: &'static str, code: FastStaticString) -> Self {
     #[allow(deprecated)]
     Self {
       specifier,
@@ -89,7 +102,7 @@ impl ExtensionFileSource {
 
   pub const fn loaded_from_memory_during_snapshot(
     specifier: &'static str,
-    code: &'static str,
+    code: FastStaticString,
   ) -> Self {
     #[allow(deprecated)]
     Self {
@@ -114,7 +127,7 @@ impl ExtensionFileSource {
           self.specifier,
           Self::find_non_ascii(code)
         );
-        Ok(ModuleCodeString::from_static(code))
+        Ok(IntoModuleCodeString::into_module_code(*code))
       }
       ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) => {
         let msg = || format!("Failed to read \"{}\"", path);
@@ -134,7 +147,7 @@ impl ExtensionFileSource {
           self.specifier,
           Self::find_non_ascii(code)
         );
-        Ok(ModuleCodeString::Arc(code.clone()))
+        Ok(ModuleCodeString::from(code.clone()))
       }
     }
   }
@@ -156,20 +169,31 @@ pub type GlobalTemplateMiddlewareFn =
 pub type GlobalObjectMiddlewareFn =
   for<'s> fn(&mut v8::HandleScope<'s>, v8::Local<'s, v8::Object>);
 
-#[derive(Copy, Clone)]
+extern "C" fn noop() {}
+
+const NOOP_FN: CFunction = CFunction::new(
+  noop as _,
+  &CFunctionInfo::new(Type::Void.scalar(), &[], Int64Representation::Number),
+);
+
+#[derive(Clone, Copy)]
 pub struct OpDecl {
   pub name: &'static str,
+  pub(crate) name_fast: FastStaticString,
   pub is_async: bool,
   pub is_reentrant: bool,
   pub arg_count: u8,
+  pub no_side_effects: bool,
   /// The slow dispatch call. If metrics are disabled, the `v8::Function` is created with this callback.
   pub(crate) slow_fn: OpFnRef,
   /// The slow dispatch call with metrics enabled. If metrics are enabled, the `v8::Function` is created with this callback.
   pub(crate) slow_fn_with_metrics: OpFnRef,
   /// The fast dispatch call. If metrics are disabled, the `v8::Function`'s fastcall is created with this callback.
-  pub(crate) fast_fn: Option<FastFunction>,
+  pub(crate) fast_fn: Option<CFunction>,
   /// The fast dispatch call with metrics enabled. If metrics are enabled, the `v8::Function`'s fastcall is created with this callback.
-  pub(crate) fast_fn_with_metrics: Option<FastFunction>,
+  pub(crate) fast_fn_with_metrics: Option<CFunction>,
+  /// Any metadata associated with this op.
+  pub metadata: OpMetadata,
 }
 
 impl OpDecl {
@@ -177,25 +201,30 @@ impl OpDecl {
   #[doc(hidden)]
   #[allow(clippy::too_many_arguments)]
   pub const fn new_internal_op2(
-    name: &'static str,
+    name: (&'static str, FastStaticString),
     is_async: bool,
     is_reentrant: bool,
     arg_count: u8,
+    no_side_effects: bool,
     slow_fn: OpFnRef,
     slow_fn_with_metrics: OpFnRef,
-    fast_fn: Option<FastFunction>,
-    fast_fn_with_metrics: Option<FastFunction>,
+    fast_fn: Option<CFunction>,
+    fast_fn_with_metrics: Option<CFunction>,
+    metadata: OpMetadata,
   ) -> Self {
     #[allow(deprecated)]
     Self {
-      name,
+      name: name.0,
+      name_fast: name.1,
       is_async,
       is_reentrant,
       arg_count,
+      no_side_effects,
       slow_fn,
       slow_fn_with_metrics,
       fast_fn,
       fast_fn_with_metrics,
+      metadata,
     }
   }
 
@@ -205,26 +234,28 @@ impl OpDecl {
     Self {
       slow_fn: bindings::op_disabled_fn.map_fn_to(),
       slow_fn_with_metrics: bindings::op_disabled_fn.map_fn_to(),
-      fast_fn: None,
-      fast_fn_with_metrics: None,
+      // TODO(bartlomieju): Currently this fast fn won't throw like `op_disabled_fn`;
+      // ideally we would add a fallback that would throw, but it's unclear
+      // if disabled op (that throws in JS) would ever get optimized to become
+      // a fast function.
+      fast_fn: self.fast_fn.map(|_| NOOP_FN),
+      fast_fn_with_metrics: self.fast_fn_with_metrics.map(|_| NOOP_FN),
       ..self
     }
   }
 
   /// Returns a copy of this `OpDecl` with the implementation function set to the function from another
   /// `OpDecl`.
-  pub const fn with_implementation_from(self, from: &Self) -> Self {
-    Self {
-      slow_fn: from.slow_fn,
-      slow_fn_with_metrics: from.slow_fn_with_metrics,
-      fast_fn: from.fast_fn,
-      fast_fn_with_metrics: from.fast_fn_with_metrics,
-      ..self
-    }
+  pub const fn with_implementation_from(mut self, from: &Self) -> Self {
+    self.slow_fn = from.slow_fn;
+    self.slow_fn_with_metrics = from.slow_fn_with_metrics;
+    self.fast_fn = from.fast_fn;
+    self.fast_fn_with_metrics = from.fast_fn_with_metrics;
+    self
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn(self) -> FastFunction {
+  pub const fn fast_fn(&self) -> CFunction {
     let Some(f) = self.fast_fn else {
       panic!("Not a fast function");
     };
@@ -232,7 +263,7 @@ impl OpDecl {
   }
 
   #[doc(hidden)]
-  pub const fn fast_fn_with_metrics(self) -> FastFunction {
+  pub const fn fast_fn_with_metrics(&self) -> CFunction {
     let Some(f) = self.fast_fn_with_metrics else {
       panic!("Not a fast function");
     };
@@ -284,7 +315,7 @@ macro_rules! ops {
       vec![
       $(
         $( #[ $m ] )*
-        $( $op )::+ :: decl $( :: <$op_param> )? () ,
+        $( $op )+ $( :: <$op_param> )? () ,
       )+
       ]
     }
@@ -293,7 +324,7 @@ macro_rules! ops {
     pub(crate) fn $name() -> ::std::Vec<$crate::OpDecl> {
       use $crate::Op;
       vec![
-        $( $( #[ $m ] )* $( $op )::+ :: DECL, )+
+        $( $( #[ $m ] )* $( $op )+() , )+
       ]
     }
   }
@@ -412,10 +443,10 @@ macro_rules! extension {
             const V: ::std::option::Option<&'static ::std::primitive::str> = $crate::or!($(::std::option::Option::Some($esm_entry_point))?, ::std::option::Option::None);
             V
           },
-          ops: ::std::borrow::Cow::Borrowed(&[$($(
+          ops: ::std::borrow::Cow::Owned(vec![$($({
             $( #[ $m ] )*
-            $( $op )::+ $( :: < $($op_param),* > )? :: DECL
-          ),+)?]),
+            $( $op )::+ $( :: < $($op_param),* > )? ()
+          }),+)?]),
           external_references: ::std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
           global_template_middleware: ::std::option::Option::None,
           global_object_middleware: ::std::option::Option::None,
@@ -555,6 +586,29 @@ pub struct Extension {
   pub op_state_fn: Option<Box<OpStateFn>>,
   pub middleware_fn: Option<Box<OpMiddlewareFn>>,
   pub enabled: bool,
+}
+
+impl Extension {
+  // Produces a new extension that is suitable for use during the warmup phase.
+  //
+  // JS sources are not included, and ops are include for external references only.
+  pub(crate) fn for_warmup(&self) -> Extension {
+    Self {
+      op_state_fn: None,
+      middleware_fn: None,
+      name: self.name,
+      deps: self.deps,
+      js_files: Cow::Borrowed(&[]),
+      esm_files: Cow::Borrowed(&[]),
+      lazy_loaded_esm_files: Cow::Borrowed(&[]),
+      esm_entry_point: None,
+      ops: self.ops.clone(),
+      external_references: self.external_references.clone(),
+      global_template_middleware: self.global_template_middleware,
+      global_object_middleware: self.global_object_middleware,
+      enabled: self.enabled,
+    }
+  }
 }
 
 impl Default for Extension {
@@ -849,7 +903,7 @@ macro_rules! __extension_include_js_files_inner {
 
   // loaded, source
   (@item mode=loaded, specifier=$specifier:expr, source=$source:expr) => {
-    $crate::ExtensionFileSource::loaded_from_memory_during_snapshot($specifier, $source)
+    $crate::ExtensionFileSource::loaded_from_memory_during_snapshot($specifier, $crate::ascii_str!($source))
   };
   // loaded, file
   (@item mode=loaded, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
@@ -857,11 +911,11 @@ macro_rules! __extension_include_js_files_inner {
   };
   // included, source
   (@item mode=included, specifier=$specifier:expr, source=$source:expr) => {
-    $crate::ExtensionFileSource::new($specifier, $source)
+    $crate::ExtensionFileSource::new($specifier, $crate::ascii_str!($source))
   };
   // included, file
   (@item mode=included, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
-    $crate::ExtensionFileSource::new($specifier, include_str!(concat!($dir, "/", $file)))
+    $crate::ExtensionFileSource::new($specifier, $crate::ascii_str_include!(concat!($dir, "/", $file)))
   };
 }
 

@@ -1,5 +1,5 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-import { assertEquals, test } from "checkin:testing";
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+import { assertStackTraceEquals, test } from "checkin:testing";
 import { asyncYield, barrierAwait, barrierCreate } from "checkin:async";
 import { asyncThrow } from "checkin:error";
 
@@ -8,28 +8,33 @@ test(async function testAsyncThrow() {
   try {
     await asyncThrow("eager");
   } catch (e) {
-    const stack = e.stack.replace(/\d+:\d+/g, "line:col");
-    assertEquals(
-      stack,
-      "TypeError: Error\n    at asyncThrow (checkin:error:line:col)\n    at testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
+    assertStackTraceEquals(
+      e.stack,
+      `TypeError: Error
+        at asyncThrow (checkin:error:line:col)
+        at testAsyncThrow (test:///unit/ops_async_test.ts:line:col)
+      `,
     );
   }
   try {
     await asyncThrow("lazy");
   } catch (e) {
-    const stack = e.stack.replace(/\d+:\d+/g, "line:col");
-    assertEquals(
-      stack,
-      "TypeError: Error\n    at async asyncThrow (checkin:error:line:col)\n    at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
+    assertStackTraceEquals(
+      e.stack,
+      `TypeError: Error
+        at async asyncThrow (checkin:error:line:col)
+        at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)
+      `,
     );
   }
   try {
     await asyncThrow("deferred");
   } catch (e) {
-    const stack = e.stack.replace(/\d+:\d+/g, "line:col");
-    assertEquals(
-      stack,
-      "TypeError: Error\n    at async asyncThrow (checkin:error:line:col)\n    at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)",
+    assertStackTraceEquals(
+      e.stack,
+      `TypeError: Error
+        at async asyncThrow (checkin:error:line:col)
+        at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)`,
     );
   }
 });

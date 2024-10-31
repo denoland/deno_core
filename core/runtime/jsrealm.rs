@@ -1,14 +1,19 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use super::bindings;
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
+use crate::modules::script_origin;
+use crate::modules::IntoModuleCodeString;
+use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
+use crate::modules::ModuleName;
+use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
+use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
 use crate::GetErrorClassFn;
@@ -19,10 +24,11 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
-use std::option::Option;
 use std::rc::Rc;
 use std::sync::Arc;
-use v8::Handle;
+
+pub const CONTEXT_STATE_SLOT_INDEX: i32 = 1;
+pub const MODULE_MAP_SLOT_INDEX: i32 = 2;
 
 // Hasher used for `unrefed_ops`. Since these are rolling i32, there's no
 // need to actually hash them.
@@ -46,7 +52,7 @@ impl Hasher for IdentityHasher {
 /// We may wish to experiment with alternative drivers in the future.
 pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
-pub(crate) struct ContextState {
+pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb:
@@ -56,22 +62,25 @@ pub(crate) struct ContextState {
   pub(crate) wasm_instantiate_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
+  pub(crate) activity_traces: RuntimeActivityTraces,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,
-  pub(crate) isolate: Option<*mut v8::OwnedIsolate>,
+  pub(crate) isolate: Option<*mut v8::Isolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) get_error_class_fn: GetErrorClassFn,
+  pub(crate) external_ops_tracker: ExternalOpsTracker,
 }
 
 impl ContextState {
   pub(crate) fn new(
     op_driver: Rc<OpDriverImpl>,
-    isolate_ptr: *mut v8::OwnedIsolate,
+    isolate_ptr: *mut v8::Isolate,
     get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
+    external_ops_tracker: ExternalOpsTracker,
   ) -> Self {
     Self {
       isolate: Some(isolate_ptr),
@@ -81,11 +90,13 @@ impl ContextState {
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       wasm_instantiate_fn: Default::default(),
+      activity_traces: Default::default(),
       op_ctxs,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
       unrefed_ops: Default::default(),
+      external_ops_tracker,
     }
   }
 }
@@ -176,12 +187,45 @@ impl JsRealmInner {
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
-    self.context().open(isolate).clear_all_slots(isolate);
+    {
+      let ctx = self.context().open(isolate);
+      // SAFETY: Clear all embedder data
+      unsafe {
+        let ctx_state =
+          ctx.get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
+        let _ = Rc::from_raw(ctx_state as *mut ContextState);
+
+        let module_map =
+          ctx.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
+        // Explcitly destroy data in the module map, as there might be some pending
+        // futures there and we want them dropped.
+        let map = Rc::from_raw(module_map as *mut ModuleMap);
+        map.destroy();
+
+        ctx.set_aligned_pointer_in_embedder_data(
+          CONTEXT_STATE_SLOT_INDEX,
+          std::ptr::null_mut(),
+        );
+        ctx.set_aligned_pointer_in_embedder_data(
+          MODULE_MAP_SLOT_INDEX,
+          std::ptr::null_mut(),
+        );
+      }
+      ctx.clear_all_slots();
+      // Expect that this context is dead (we only check this in debug mode)
+      // TODO(bartlomieju): This check fails for some tests, will need to fix this
+      // debug_assert_eq!(Rc::strong_count(&module_map), 1, "ModuleMap still in use.");
+    }
 
     // Expect that this context is dead (we only check this in debug mode)
     // TODO(mmastrac): This check fails for some tests, will need to fix this
     // debug_assert_eq!(Rc::strong_count(&self.context), 1, "Realm was still alive when we wanted to destroy it. Not dropped?");
   }
+}
+
+unsafe fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
+  Rc::increment_strong_count(raw);
+  Rc::from_raw(raw)
 }
 
 impl JsRealm {
@@ -194,25 +238,30 @@ impl JsRealm {
     scope: &mut v8::HandleScope,
   ) -> Rc<ContextState> {
     let context = scope.get_current_context();
-    context.get_slot::<Rc<ContextState>>(scope).unwrap().clone()
+    // SAFETY: slot is valid and set during realm creation
+    unsafe {
+      let rc = context
+        .get_aligned_pointer_from_embedder_data(CONTEXT_STATE_SLOT_INDEX);
+      clone_rc_raw(rc as *const ContextState)
+    }
   }
 
   #[inline(always)]
   pub(crate) fn module_map_from(scope: &mut v8::HandleScope) -> Rc<ModuleMap> {
     let context = scope.get_current_context();
-    context.get_slot::<Rc<ModuleMap>>(scope).unwrap().clone()
+    // SAFETY: slot is valid and set during realm creation
+    unsafe {
+      let rc =
+        context.get_aligned_pointer_from_embedder_data(MODULE_MAP_SLOT_INDEX);
+      clone_rc_raw(rc as *const ModuleMap)
+    }
   }
 
   #[inline(always)]
   pub(crate) fn exception_state_from_scope(
     scope: &mut v8::HandleScope,
   ) -> Rc<ExceptionState> {
-    let context = scope.get_current_context();
-    context
-      .get_slot::<Rc<ContextState>>(scope)
-      .unwrap()
-      .exception_state
-      .clone()
+    Self::state_from_scope(scope).exception_state.clone()
   }
 
   #[cfg(test)]
@@ -241,38 +290,6 @@ impl JsRealm {
     self.0.context()
   }
 
-  pub(crate) fn context_ptr(&self) -> *mut v8::Context {
-    unsafe { self.0.context.get_unchecked() as *const _ as _ }
-  }
-
-  /// Executes traditional JavaScript code (traditional = not ES modules) in the
-  /// realm's context.
-  ///
-  /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].
-  ///
-  /// The `name` parameter can be a filepath or any other string. E.g.:
-  ///
-  ///   - "/some/file/path.js"
-  ///   - "<anon>"
-  ///   - "[native code]"
-  ///
-  /// The same `name` value can be used for multiple executions.
-  ///
-  /// `Error` can usually be downcast to `JsError`.
-  #[cfg(test)]
-  pub fn execute_script_static(
-    &self,
-    isolate: &mut v8::Isolate,
-    name: &'static str,
-    source_code: &'static str,
-  ) -> Result<v8::Global<v8::Value>, Error> {
-    self.execute_script(
-      isolate,
-      name,
-      ModuleCodeString::from_static(source_code),
-    )
-  }
-
   /// Executes traditional JavaScript code (traditional = not ES modules) in the
   /// realm's context.
   ///
@@ -290,16 +307,14 @@ impl JsRealm {
   pub fn execute_script(
     &self,
     isolate: &mut v8::Isolate,
-    name: &'static str,
-    source_code: ModuleCodeString,
+    name: impl IntoModuleName,
+    source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let scope = &mut self.0.handle_scope(isolate);
 
-    let source = source_code.v8_string(scope).unwrap();
-    debug_assert!(name.is_ascii());
-    let name =
-      v8::String::new_external_onebyte_static(scope, name.as_bytes()).unwrap();
-    let origin = bindings::script_origin(scope, name);
+    let source = source_code.into_module_code().v8_string(scope);
+    let name = name.into_module_name().v8_string(scope);
+    let origin = script_origin(scope, name, false, None);
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 
@@ -363,7 +378,7 @@ impl JsRealm {
   ///
   /// User must call [`ModuleMap::mod_evaluate`] with returned `ModuleId`
   /// manually after load is finished.
-  pub(crate) async fn load_main_module(
+  pub(crate) async fn load_main_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -371,11 +386,10 @@ impl JsRealm {
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
-      let specifier = specifier.as_str().to_owned().into();
       let scope = &mut self.handle_scope(isolate);
       // true for main module
       module_map_rc
-        .new_es_module(scope, true, specifier, code, false)
+        .new_es_module(scope, true, specifier.to_owned(), code, false, None)
         .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
@@ -409,7 +423,7 @@ impl JsRealm {
   // TODO(bartlomieju): create a separate method to execute code synchronously
   // from a loader? Would simplify JsRuntime code and not require running in
   // a `block_on`.
-  pub(crate) async fn load_side_module(
+  pub(crate) async fn load_side_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
@@ -417,11 +431,11 @@ impl JsRealm {
   ) -> Result<ModuleId, Error> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
-      let specifier = specifier.as_str().to_owned().into();
+      let specifier = specifier.to_owned();
       let scope = &mut self.handle_scope(isolate);
       // false for side module (not main module)
       module_map_rc
-        .new_es_module(scope, false, specifier, code, false)
+        .new_es_module(scope, false, specifier, code, false, None)
         .map_err(|e| e.into_any_error(scope, false, false))?;
     }
 
@@ -452,14 +466,19 @@ impl JsRealm {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub(crate) fn lazy_load_es_module_from_code(
+  pub(crate) fn lazy_load_es_module_with_code(
     &self,
     isolate: &mut v8::Isolate,
-    module_specifier: &str,
+    module_specifier: ModuleName,
     code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);
-    module_map_rc.lazy_load_es_module_from_code(scope, module_specifier, code)
+    module_map_rc.lazy_load_es_module_with_code(
+      scope,
+      module_specifier.as_str(),
+      code,
+      None,
+    )
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::OpId;
 use crate::PromiseId;
 use anyhow::Error;
@@ -187,12 +187,6 @@ mod tests {
       let f: Self::MappingFn<R> = unsafe { std::mem::transmute(f) };
       f(r)
     }
-
-    fn unerase_mapping_fn_raw<R: 'static>(
-      f: *const fn(),
-    ) -> Self::MappingFn<R> {
-      unsafe { std::mem::transmute(f) }
-    }
   }
 
   fn submit_task(
@@ -347,7 +341,7 @@ mod tests {
     });
   }
 
-  #[cfg(not(miri))]
+  #[cfg(not(miri))] // needs I/O
   #[rstest]
   #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
   fn test_driver_io<D: OpDriver<TestMappingContext>>(

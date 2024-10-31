@@ -1,17 +1,18 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
-// Everything runs in test mode
-#![cfg(test)]
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 mod checkin;
 
+pub use checkin::runner::create_runtime_from_snapshot;
+pub use checkin::runner::snapshot::create_snapshot;
+
 macro_rules! unit_test {
   ($($id:ident,)*) => {
+    #[cfg(test)]
     mod unit {
       $(
         #[test]
         fn $id() {
-          $crate::checkin::runner::run_unit_test(stringify!($id));
+          $crate::checkin::runner::testing::run_unit_test(stringify!($id));
         }
       )*
     }
@@ -20,11 +21,12 @@ macro_rules! unit_test {
 
 macro_rules! integration_test {
   ($($id:ident,)*) => {
+    #[cfg(test)]
     mod integration {
       $(
         #[test]
         fn $id() {
-          $crate::checkin::runner::run_integration_test(stringify!($id));
+          $crate::checkin::runner::testing::run_integration_test(stringify!($id));
         }
       )*
     }
@@ -41,25 +43,45 @@ unit_test!(
   resource_test,
   serialize_deserialize_test,
   stats_test,
+  task_test,
   tc39_test,
   timer_test,
   type_test,
 );
 
 // Test the load and run of an entire file within the `checkin` infrastructure.
-// These files are loaded from the system/ dir.
+// These files are loaded from the integration/ dir.
 integration_test!(
+  builtin_console_test,
   dyn_import_circular,
   dyn_import_op,
+  dyn_import_no_hang,
   error_async_stack,
+  error_callsite,
+  error_non_existent_eval_source,
   error_rejection_catch,
   error_rejection_order,
+  error_eval_stack,
+  error_ext_stack,
+  error_prepare_stack_trace,
+  error_prepare_stack_trace_crash,
   error_with_stack,
   error_without_stack,
+  error_get_file_name,
+  error_get_file_name_to_string,
+  error_get_script_name_or_source_url,
+  import_sync,
+  import_sync_existing,
+  main_module_handler,
+  module_types,
+  pending_unref_op_tla,
   smoke_test,
   timer_ref,
   timer_ref_and_cancel,
   timer_many,
+  ts_types,
+  user_breaks_promise_constructor,
+  user_breaks_promise_species,
   wasm_imports,
   worker_spawn,
   worker_terminate,

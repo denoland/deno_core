@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::buffer::JsBuffer;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
@@ -23,7 +23,7 @@ impl_magic!(AnyValue);
 
 impl ToV8 for AnyValue {
   fn to_v8<'a>(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope<'a>,
   ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
     match self {

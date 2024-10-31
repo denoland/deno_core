@@ -1,4 +1,8 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use super::module_map_data::ModuleMapSnapshotData;
+use super::IntoModuleCodeString;
+use super::IntoModuleName;
+use crate::ascii_str;
 use crate::error::exception_to_err_result;
 use crate::error::generic_error;
 use crate::error::throw_type_error;
@@ -20,8 +24,9 @@ use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::runtime::exception_state::ExceptionState;
 use crate::runtime::JsRealm;
-use crate::ExtensionFileSource;
-use crate::FastString;
+use crate::runtime::SnapshotLoadDataStore;
+use crate::runtime::SnapshotStoreDataStore;
+use crate::FastStaticString;
 use crate::JsRuntime;
 use crate::ModuleCodeBytes;
 use crate::ModuleLoadResponse;
@@ -29,21 +34,19 @@ use crate::ModuleSource;
 use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
 use anyhow::bail;
-use anyhow::Context as _;
 use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
-use futures::task::noop_waker_ref;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
 use indexmap::IndexMap;
-use log::debug;
 use v8::Function;
 use v8::PromiseState;
 use wasm_dep_analyzer::WasmDeps;
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -55,7 +58,6 @@ use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::module_map_data::ModuleMapData;
-use super::module_map_data::ModuleMapSnapshottedData;
 use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
@@ -63,11 +65,38 @@ use super::RequestedModuleType;
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
 
+type CodeCacheReadyFuture = dyn Future<Output = ()>;
+
 use super::ImportMetaResolveCallback;
 
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
   sender: Option<oneshot::Sender<Result<(), Error>>>,
+  module: Option<v8::Global<v8::Module>>,
+  notify: Vec<v8::Global<v8::Function>>,
+}
+
+impl ModEvaluate {
+  fn notify(&mut self, scope: &mut v8::HandleScope) {
+    if !self.notify.is_empty() {
+      let module = v8::Local::new(scope, self.module.take().unwrap());
+      let ns = module.get_module_namespace();
+      let recv = v8::undefined(scope).into();
+      let args = &[ns];
+      for notify in std::mem::take(&mut self.notify).into_iter() {
+        let notify = v8::Local::new(scope, notify);
+        notify.call(scope, recv, args);
+      }
+    }
+    _ = self.sender.take().unwrap().send(Ok(()));
+  }
+}
+
+type CodeCacheReadyCallback =
+  Box<dyn FnOnce(&[u8]) -> Pin<Box<dyn Future<Output = ()>>>>;
+pub(crate) struct CodeCacheInfo {
+  data: Option<Cow<'static, [u8]>>,
+  ready_callback: CodeCacheReadyCallback,
 }
 
 pub const BOM_CHAR: &[u8] = &[0xef, 0xbb, 0xbf];
@@ -88,6 +117,11 @@ struct DynImportModEvaluate {
   module: v8::Global<v8::Module>,
 }
 
+struct DynImportState {
+  resolver: v8::Global<v8::PromiseResolver>,
+  cped: v8::Global<v8::Value>,
+}
+
 /// A collection of JS modules.
 pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
@@ -96,8 +130,7 @@ pub(crate) struct ModuleMap {
   pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
   exception_state: Rc<ExceptionState>,
-  dynamic_import_map:
-    RefCell<HashMap<ModuleLoadId, v8::Global<v8::PromiseResolver>>>,
+  dynamic_import_map: RefCell<HashMap<ModuleLoadId, DynImportState>>,
   preparing_dynamic_imports:
     RefCell<FuturesUnordered<Pin<Box<PrepareLoadFuture>>>>,
   preparing_dynamic_imports_pending: Cell<bool>,
@@ -107,8 +140,12 @@ pub(crate) struct ModuleMap {
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
   pending_dyn_mod_evaluations_pending: Cell<bool>,
   pending_mod_evaluation: Cell<bool>,
+  code_cache_ready_futs:
+    RefCell<FuturesUnordered<Pin<Box<CodeCacheReadyFuture>>>>,
+  pending_code_cache_ready: Cell<bool>,
   module_waker: AtomicWaker,
   data: RefCell<ModuleMapData>,
+  will_snapshot: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
   /// of the event loop.
@@ -116,6 +153,16 @@ pub(crate) struct ModuleMap {
 }
 
 impl ModuleMap {
+  /// There is a circular Rc reference between the module map and the futures,
+  /// so when destroying the module map we need to clear the pending futures.
+  pub(crate) fn destroy(&self) {
+    self.dynamic_import_map.borrow_mut().clear();
+    self.preparing_dynamic_imports.borrow_mut().clear();
+    self.pending_dynamic_imports.borrow_mut().clear();
+    self.code_cache_ready_futs.borrow_mut().clear();
+    std::mem::take(&mut *self.data.borrow_mut());
+  }
+
   pub(crate) fn next_load_id(&self) -> i32 {
     // TODO(mmastrac): move recursive module loading into here so we can avoid making this pub
     let mut data = self.data.borrow_mut();
@@ -162,8 +209,10 @@ impl ModuleMap {
     loader: Rc<dyn ModuleLoader>,
     exception_state: Rc<ExceptionState>,
     import_meta_resolve_cb: ImportMetaResolveCallback,
+    will_snapshot: bool,
   ) -> Self {
     Self {
+      will_snapshot,
       loader: loader.into(),
       exception_state,
       import_meta_resolve_cb,
@@ -176,6 +225,8 @@ impl ModuleMap {
       pending_dyn_mod_evaluations: Default::default(),
       pending_dyn_mod_evaluations_pending: Default::default(),
       pending_mod_evaluation: Default::default(),
+      code_cache_ready_futs: Default::default(),
+      pending_code_cache_ready: Default::default(),
       module_waker: Default::default(),
       data: Default::default(),
     }
@@ -184,19 +235,20 @@ impl ModuleMap {
   pub(crate) fn update_with_snapshotted_data(
     &self,
     scope: &mut v8::HandleScope,
-    data: ModuleMapSnapshottedData,
+    data_store: &mut SnapshotLoadDataStore,
+    data: ModuleMapSnapshotData,
   ) {
     self
       .data
       .borrow_mut()
-      .update_with_snapshotted_data(scope, data);
+      .update_with_snapshotted_data(scope, data_store, data);
   }
 
   /// Get module id, following all aliases in case of module specifier
   /// that had been redirected.
   pub(crate) fn get_id(
     &self,
-    name: impl AsRef<str>,
+    name: &str,
     requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId> {
     self.data.borrow().get_id(name, requested_module_type)
@@ -204,6 +256,10 @@ impl ModuleMap {
 
   pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
     self.data.borrow().is_main_module(global)
+  }
+
+  pub(crate) fn is_main_module_id(&self, id: ModuleId) -> bool {
+    self.data.borrow().main_module_id == Some(id)
   }
 
   pub(crate) fn get_name_by_module(
@@ -233,9 +289,10 @@ impl ModuleMap {
 
   pub(crate) fn serialize_for_snapshotting(
     &self,
-    scope: &mut v8::HandleScope,
-  ) -> ModuleMapSnapshottedData {
-    self.data.borrow().serialize_for_snapshotting(scope)
+    data_store: &mut SnapshotStoreDataStore,
+  ) -> ModuleMapSnapshotData {
+    let data = std::mem::take(&mut *self.data.borrow_mut());
+    data.serialize_for_snapshotting(data_store)
   }
 
   #[cfg(test)]
@@ -247,7 +304,6 @@ impl ModuleMap {
     self.data.borrow().is_alias(name, requested_module_type)
   }
 
-  #[cfg(test)]
   pub(crate) fn get_data(&self) -> &RefCell<ModuleMapData> {
     &self.data
   }
@@ -269,6 +325,7 @@ impl ModuleMap {
       module_type,
       module_url_found,
       module_url_specified,
+      code_cache,
     } = module_source;
 
     // Register the module in the module map unless it's already there. If the
@@ -296,17 +353,32 @@ impl ModuleMap {
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
-      debug!(
-        "Already-registered module fetched again: {:?}",
-        module_url_found
-      );
       return Ok(module_id);
     }
     let module_id = match module_type {
       ModuleType::JavaScript => {
-        let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+        let code = ModuleSource::get_string_source(code);
+
+        let (code_cache_info, module_url_found) =
+          if let Some(code_cache) = code_cache {
+            let (module_url_found1, module_url_found2) =
+              module_url_found.into_cheap_copy();
+            let loader = self.loader.borrow().clone();
+            (
+              Some(CodeCacheInfo {
+                data: code_cache.data,
+                ready_callback: Box::new(move |cache| {
+                  let specifier =
+                    ModuleSpecifier::parse(module_url_found1.as_str()).unwrap();
+                  loader.code_cache_ready(specifier, code_cache.hash, cache)
+                }),
+              }),
+              module_url_found2,
+            )
+          } else {
+            (None, module_url_found)
+          };
+
         self.new_module_from_js_source(
           scope,
           main,
@@ -314,6 +386,7 @@ impl ModuleMap {
           module_url_found,
           code,
           dynamic,
+          code_cache_info,
         )?
       }
       ModuleType::Wasm => {
@@ -325,9 +398,7 @@ impl ModuleMap {
         self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
       ModuleType::Json => {
-        let code =
-          ModuleSource::get_string_source(module_url_found.as_str(), code)
-            .map_err(ModuleError::Other)?;
+        let code = ModuleSource::get_string_source(code);
         self.new_json_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
@@ -359,7 +430,7 @@ impl ModuleMap {
           // synthetic module.
           CustomModuleEvaluationKind::Synthetic(value_global) => {
             let value = v8::Local::new(scope, value_global);
-            let exports = vec![(FastString::StaticAscii("default"), value)];
+            let exports = vec![(ascii_str!("default"), value)];
             self.new_synthetic_module(
               scope,
               module_url_found,
@@ -377,13 +448,32 @@ impl ModuleMap {
           ) => {
             let (url1, url2) = module_url_found.into_cheap_copy();
             let value = v8::Local::new(scope, synthetic_value);
-            let exports = vec![(FastString::StaticAscii("default"), value)];
+            let exports = vec![(ascii_str!("default"), value)];
             let _synthetic_mod_id = self.new_synthetic_module(
               scope,
               url1,
               synthetic_module_type,
               exports,
             )?;
+
+            let (code_cache_info, url2) = if let Some(code_cache) = code_cache {
+              let (url1, url2) = url2.into_cheap_copy();
+              let loader = self.loader.borrow().clone();
+              (
+                Some(CodeCacheInfo {
+                  data: code_cache.data,
+                  ready_callback: Box::new(move |cache| {
+                    let specifier =
+                      ModuleSpecifier::parse(url1.as_str()).unwrap();
+                    loader.code_cache_ready(specifier, code_cache.hash, cache)
+                  }),
+                }),
+                url2,
+              )
+            } else {
+              (None, url2)
+            };
+
             self.new_module_from_js_source(
               scope,
               main,
@@ -391,6 +481,7 @@ impl ModuleMap {
               url2,
               computed_src,
               dynamic,
+              code_cache_info,
             )?
           }
         }
@@ -405,21 +496,16 @@ impl ModuleMap {
   pub fn new_synthetic_module(
     &self,
     scope: &mut v8::HandleScope,
-    name: ModuleName,
+    name: impl IntoModuleName,
     module_type: ModuleType,
-    exports: Vec<(FastString, v8::Local<v8::Value>)>,
+    exports: Vec<(FastStaticString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
-    let name_str = name.v8(scope);
+    let name = name.into_module_name();
+    let name_str = name.v8_string(scope);
 
     let export_names = exports
       .iter()
-      .map(|(name, _)| {
-        if let Some(buffer) = name.try_static_ascii() {
-          v8::String::new_external_onebyte_static(scope, buffer).unwrap()
-        } else {
-          v8::String::new(scope, name.as_str()).unwrap()
-        }
-      })
+      .map(|(name, _)| name.v8_string(scope))
       .collect::<Vec<_>>();
     let module = v8::Module::create_synthetic_module(
       scope,
@@ -466,17 +552,20 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     main: bool,
-    name: ModuleName,
-    source: ModuleCodeString,
+    name: impl IntoModuleName,
+    source: impl IntoModuleCodeString,
     is_dynamic_import: bool,
+    code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
     self.new_module_from_js_source(
       scope,
       main,
       ModuleType::JavaScript,
-      name,
-      source,
+      name.into_module_name(),
+      source.into_module_code(),
       is_dynamic_import,
+      code_cache_info,
     )
   }
 
@@ -492,6 +581,7 @@ impl ModuleMap {
   /// and attached to associated [`ModuleInfo`].
   ///
   /// Returns an ID of newly created module.
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn new_module_from_js_source(
     &self,
     scope: &mut v8::HandleScope,
@@ -500,6 +590,7 @@ impl ModuleMap {
     name: ModuleName,
     source: ModuleCodeString,
     is_dynamic_import: bool,
+    mut code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<ModuleId, ModuleError> {
     if main {
       let data = self.data.borrow();
@@ -507,21 +598,53 @@ impl ModuleMap {
         let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
         return Err(ModuleError::Other(generic_error(
           format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name.as_ref(),
+          name,
           main_name,
         ))));
       }
     }
 
-    let name_str = name.v8(scope);
-    let source_str = source.v8(scope);
-
-    let origin = module_origin(scope, name_str);
-    let source = v8::script_compiler::Source::new(source_str, Some(&origin));
+    let name_str = name.v8_string(scope);
+    let source_str = source.v8_string(scope);
+    let host_defined_options = self
+      .loader
+      .borrow()
+      .get_host_defined_options(scope, name.as_str());
+    let origin = script_origin(scope, name_str, true, host_defined_options);
 
     let tc_scope = &mut v8::TryCatch::new(scope);
 
-    let maybe_module = v8::script_compiler::compile_module(tc_scope, source);
+    let (maybe_module, try_store_code_cache) = code_cache_info
+      .as_ref()
+      .and_then(|code_cache_info| {
+        code_cache_info.data.as_ref().map(|cache| {
+          let mut source = v8::script_compiler::Source::new_with_cached_data(
+            source_str,
+            Some(&origin),
+            v8::CachedData::new(cache),
+          );
+          let maybe_module = v8::script_compiler::compile_module2(
+            tc_scope,
+            &mut source,
+            v8::script_compiler::CompileOptions::ConsumeCodeCache,
+            v8::script_compiler::NoCacheReason::NoReason,
+          );
+          // Check if the provided code cache is rejected by V8.
+          let rejected = match source.get_cached_data() {
+            Some(cached_data) => cached_data.rejected(),
+            _ => true,
+          };
+          (maybe_module, rejected)
+        })
+      })
+      .unwrap_or_else(|| {
+        let mut source =
+          v8::script_compiler::Source::new(source_str, Some(&origin));
+        (
+          v8::script_compiler::compile_module(tc_scope, &mut source),
+          true,
+        )
+      });
 
     if tc_scope.has_caught() {
       assert!(maybe_module.is_none());
@@ -532,6 +655,25 @@ impl ModuleMap {
     }
 
     let module = maybe_module.unwrap();
+
+    // V8 does not support creating code caches while also snapshotting,
+    // and it's not needed anyway, as the snapshot already contains it.
+    if try_store_code_cache && !self.will_snapshot {
+      if let Some(code_cache_info) = code_cache_info.take() {
+        let unbound_module_script = module.get_unbound_module_script(tc_scope);
+        let code_cache =
+          unbound_module_script.create_code_cache().ok_or_else(|| {
+            ModuleError::Other(generic_error(
+              "Unable to get code cache from unbound module script",
+            ))
+          })?;
+        let fut =
+          async move { (code_cache_info.ready_callback)(&code_cache).await }
+            .boxed_local();
+        self.code_cache_ready_futs.borrow_mut().push(fut);
+        self.pending_code_cache_ready.set(true);
+      }
+    }
 
     // TODO(bartlomieju): maybe move to a helper function?
     let module_requests = module.get_module_requests();
@@ -546,7 +688,7 @@ impl ModuleMap {
         .get_specifier()
         .to_rust_string_lossy(tc_scope);
 
-      let import_attributes = module_request.get_import_assertions();
+      let import_attributes = module_request.get_import_attributes();
 
       let attributes = parse_import_attributes(
         tc_scope,
@@ -586,7 +728,7 @@ impl ModuleMap {
       let requested_module_type =
         get_requested_module_type_from_attributes(&attributes);
       let request = ModuleRequest {
-        specifier: module_specifier.to_string(),
+        specifier: module_specifier,
         requested_module_type,
       };
       requests.push(request);
@@ -654,9 +796,11 @@ impl ModuleMap {
   pub(crate) fn new_json_module(
     &self,
     scope: &mut v8::HandleScope,
-    name: ModuleName,
-    code: ModuleCodeString,
+    name: impl IntoModuleName,
+    code: impl IntoModuleCodeString,
   ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
+    let code = code.into_module_code();
     let source_str = v8::String::new_from_utf8(
       scope,
       strip_bom(code.as_bytes()),
@@ -674,7 +818,7 @@ impl ModuleMap {
         return Err(ModuleError::Exception(exception));
       }
     };
-    let exports = vec![(FastString::StaticAscii("default"), parsed_json)];
+    let exports = vec![(ascii_str!("default"), parsed_json)];
     self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
   }
 
@@ -692,6 +836,13 @@ impl ModuleMap {
 
     if module.get_status() == v8::ModuleStatus::Errored {
       return Err(v8::Global::new(tc_scope, module.get_exception()));
+    }
+
+    // FIXME: instantiate_module is called more than it should be,
+    // especially for dynamic imports. As a hack, bail out if the
+    // module status is already being instantiated.
+    if module.get_status() != v8::ModuleStatus::Uninstantiated {
+      return Ok(());
     }
 
     tc_scope.set_slot(self as *const _);
@@ -841,42 +992,64 @@ impl ModuleMap {
   // Initiate loading of a module graph imported using `import()`.
   pub(crate) fn load_dynamic_import(
     self: Rc<Self>,
+    scope: &mut v8::HandleScope,
     specifier: &str,
     referrer: &str,
     requested_module_type: RequestedModuleType,
     resolver_handle: v8::Global<v8::PromiseResolver>,
-  ) {
+    cped_handle: v8::Global<v8::Value>,
+  ) -> bool {
+    let resolve_result =
+      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
+
+    if let Ok(module_specifier) = &resolve_result {
+      if let Some(id) = self
+        .data
+        .borrow()
+        .get_id(module_specifier.as_str(), &requested_module_type)
+      {
+        let module = self
+          .data
+          .borrow()
+          .get_handle(id)
+          .map(|handle| v8::Local::new(scope, handle))
+          .expect("Dyn import module info not found");
+
+        if module.get_status() == v8::ModuleStatus::Evaluated {
+          let resolver = resolver_handle.open(scope);
+          let module_namespace = module.get_module_namespace();
+          resolver.resolve(scope, module_namespace).unwrap();
+
+          return false;
+        }
+      }
+    }
+
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,
       referrer,
-      requested_module_type.clone(),
+      requested_module_type,
       self.clone(),
     );
 
-    self
-      .dynamic_import_map
-      .borrow_mut()
-      .insert(load.id, resolver_handle);
+    self.dynamic_import_map.borrow_mut().insert(
+      load.id,
+      DynImportState {
+        resolver: resolver_handle,
+        cped: cped_handle,
+      },
+    );
 
-    let resolve_result =
-      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
     let fut = match resolve_result {
-      Ok(module_specifier) => {
-        if self
-          .data
-          .borrow()
-          .is_registered(module_specifier, requested_module_type)
-        {
-          async move { (load.id, Ok(load)) }.boxed_local()
-        } else {
-          async move { (load.id, load.prepare().await.map(|()| load)) }
-            .boxed_local()
-        }
-      }
+      Ok(_) => async move { (load.id, load.prepare().await.map(|()| load)) }
+        .boxed_local(),
       Err(error) => async move { (load.id, Err(error)) }.boxed_local(),
     };
+
     self.preparing_dynamic_imports.borrow_mut().push(fut);
     self.preparing_dynamic_imports_pending.set(true);
+
+    true
   }
 
   pub(crate) fn has_pending_dynamic_imports(&self) -> bool {
@@ -944,7 +1117,7 @@ impl ModuleMap {
       // This will be overridden in `exception_to_err_result()`.
       let exception = v8::undefined(tc_scope).into();
       sender
-        .send(exception_to_err_result(tc_scope, exception, false, false))
+        .send(exception_to_err_result(tc_scope, exception, true, false))
         .expect("Failed to send module evaluation error.");
     } else {
       debug_assert!(
@@ -954,12 +1127,25 @@ impl ModuleMap {
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
 
+      // If this is a main module, claim the main module notification functions
+      let (notify, module) = if self.is_main_module_id(id) {
+        let module = Some(v8::Global::new(tc_scope, module));
+        (
+          std::mem::take(&mut self.data.borrow_mut().main_module_callbacks),
+          module,
+        )
+      } else {
+        (vec![], None)
+      };
+
       // Create a ModEvaluate instance and stash it in an external
       let evaluation = v8::External::new(
         tc_scope,
         Box::into_raw(Box::new(ModEvaluate {
           module_map: self.clone(),
           sender: Some(sender),
+          notify,
+          module,
         })) as _,
       );
 
@@ -969,13 +1155,13 @@ impl ModuleMap {
       }
 
       let on_fulfilled = Function::builder(
-        |_scope: &mut v8::HandleScope<'_>,
+        |scope: &mut v8::HandleScope<'_>,
          args: v8::FunctionCallbackArguments<'_>,
          _rv: v8::ReturnValue| {
           let mut sender = get_sender(args.data());
           sender.module_map.pending_mod_evaluation.set(false);
           sender.module_map.module_waker.wake();
-          _ = sender.sender.take().unwrap().send(Ok(()));
+          sender.notify(scope);
         },
       )
       .data(evaluation.into())
@@ -1003,12 +1189,27 @@ impl ModuleMap {
           .then2(tc_scope, on_fulfilled.unwrap(), on_rejected.unwrap())
           .is_none()
       {
-        // The runtime might have been shut down, so we need to synthesize a promise result here
+        // There are two reasons we could be here:
+        // 1. The runtime is shutting down, and JS ops are disabled with termination exceptions.
+        // 2. User code has tampered with the runtime globals in some way that prevents us from
+        //    attaching `on_fulfilled`/`on_rejected` to `promise`.
+        // In these cases we still need to report something back, so synthesize the result from the
+        // promise.
+
+        // Unset pending mod evaluation as the handlers will never run. See debug_assert below.
+        self.pending_mod_evaluation.set(false);
+
         let mut sender = get_sender(evaluation.into());
         match promise.state() {
           PromiseState::Fulfilled => {
-            // Module loaded OK
-            _ = sender.sender.take().unwrap().send(Ok(()));
+            if let Some(exception) = tc_scope.exception() {
+              _ = sender.sender.take().unwrap().send(exception_to_err_result(
+                tc_scope, exception, true, false,
+              ));
+            } else {
+              // Module loaded OK
+              sender.notify(tc_scope);
+            }
           }
           PromiseState::Rejected => {
             // Module was rejected
@@ -1017,6 +1218,11 @@ impl ModuleMap {
             _ = sender.sender.take().unwrap().send(Err(err.into()));
           }
           PromiseState::Pending => {
+            // User code shouldn't be able to both cause the runtime to fail and leave the promise as
+            // pending because the only way to adopt a pending promise is to use `await` and
+            // `await` won't work if you've broken the runtime in such a way that `promise::then`
+            // didn't work.
+            debug_assert!(tc_scope.is_execution_terminating());
             // Module pending, just drop the sender at this point -- we can't do anything with a shut-down runtime.
             drop(sender);
           }
@@ -1038,30 +1244,59 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     id: ModuleId,
   ) -> Result<(), Error> {
-    let mut receiver = self.mod_evaluate(scope, id);
+    let tc_scope = &mut v8::TryCatch::new(scope);
 
-    // After evaluate_pending_module, if the module isn't fully evaluated
-    // and the resolver solved, it means the module or one of its imports
-    // uses TLA.
-    match receiver.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
-      Poll::Ready(result) => {
-        result.with_context(|| {
-          let specifier = self.get_name_by_id(id).unwrap();
-          format!("Couldn't execute '{specifier}'")
-        })?;
-      }
-      Poll::Pending => {
-        // Find the TLA location and return it as an error
-        let messages = self.find_stalled_top_level_await(scope);
-        assert!(!messages.is_empty());
-        let msg = v8::Local::new(scope, &messages[0]);
-        let js_error = JsError::from_v8_message(scope, msg);
-        return Err(Error::from(js_error))
-          .with_context(|| "Top-level await is not allowed in extensions");
-      }
+    let module = self
+      .get_handle(id)
+      .map(|handle| v8::Local::new(tc_scope, handle))
+      .expect("ModuleInfo not found");
+    let status = module.get_status();
+    assert_eq!(
+      status,
+      v8::ModuleStatus::Instantiated,
+      "{} {} ({})",
+      if status == v8::ModuleStatus::Evaluated {
+        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
+      } else {
+        "Module not instantiated"
+      },
+      self.get_name_by_id(id).unwrap(),
+      id,
+    );
+
+    if module.is_graph_async() {
+      return Err(generic_error(
+        "Top-level await is not allowed in synchronous evaluation",
+      ));
     }
 
-    Ok(())
+    let Some(value) = module.evaluate(tc_scope) else {
+      let exception = tc_scope.exception().unwrap();
+      return Err(JsError::from_v8_exception(tc_scope, exception).into());
+    };
+
+    if let Some(exception) = tc_scope.exception() {
+      return Err(JsError::from_v8_exception(tc_scope, exception).into());
+    }
+
+    let status = module.get_status();
+    debug_assert!(
+      status == v8::ModuleStatus::Evaluated
+        || status == v8::ModuleStatus::Errored
+    );
+    let promise = v8::Local::<v8::Promise>::try_from(value)
+      .expect("Expected to get promise as module evaluation result");
+
+    match promise.state() {
+      PromiseState::Fulfilled => Ok(()),
+      PromiseState::Rejected => {
+        let err = promise.result(tc_scope);
+        Err(JsError::from_v8_exception(tc_scope, err).into())
+      }
+      PromiseState::Pending => {
+        unreachable!()
+      }
+    }
   }
 
   fn dynamic_import_module_evaluate(
@@ -1086,14 +1321,27 @@ impl ModuleMap {
     // of module evaluation is a promise.
     //
     // This promise is internal, and not the same one that gets returned to
-    // the user. We add an empty `.catch()` handler so that it does not result
-    // in an exception if it rejects. That will instead happen for the other
-    // promise if not handled by the user.
+    // the user. We add handlers to wake the event loop when the promise resolves
+    // (or rejects). The catch handler also serves to prevent an exception if the internal promise
+    // rejects. That will instead happen for the other if not handled by the user.
     //
     // For more details see:
     // https://github.com/denoland/deno/issues/4908
     // https://v8.dev/features/top-level-await#module-execution-order
     let tc_scope = &mut v8::TryCatch::new(scope);
+
+    {
+      let cped = self
+        .dynamic_import_map
+        .borrow()
+        .get(&load_id)
+        .unwrap()
+        .cped
+        .clone();
+      let cped = v8::Local::new(tc_scope, cped);
+      tc_scope.set_continuation_preserved_embedder_data(cped);
+    }
+
     let module = v8::Local::new(tc_scope, &module_handle);
     let maybe_value = module.evaluate(tc_scope);
 
@@ -1105,11 +1353,28 @@ impl ModuleMap {
         status == v8::ModuleStatus::Evaluated
           || status == v8::ModuleStatus::Errored
       );
+
+      fn wake_module(
+        scope: &mut v8::HandleScope<'_>,
+        _args: v8::FunctionCallbackArguments<'_>,
+        _rv: v8::ReturnValue,
+      ) {
+        let module_map = JsRealm::module_map_from(scope);
+        module_map.module_waker.wake();
+      }
+
       let promise = v8::Local::<v8::Promise>::try_from(value)
         .expect("Expected to get promise as module evaluation result");
-      let empty_fn =
-        crate::runtime::bindings::create_empty_fn(tc_scope).unwrap();
-      promise.catch(tc_scope, empty_fn);
+
+      let wake_module_cb = Function::builder(wake_module).build(tc_scope);
+
+      if let Some(wake_module_cb) = wake_module_cb {
+        promise.then2(tc_scope, wake_module_cb, wake_module_cb);
+      } else {
+        // If the runtime is shutting down, we can't attach the handlers.
+        // It doesn't really matter though, because they're just for waking the
+        // event loop.
+      }
       let promise_global = v8::Global::new(tc_scope, promise);
       let module_global = v8::Global::new(tc_scope, module);
 
@@ -1198,7 +1463,8 @@ impl ModuleMap {
       .dynamic_import_map
       .borrow_mut()
       .remove(&id)
-      .expect("Invalid dynamic import id");
+      .expect("Invalid dynamic import id")
+      .resolver;
     let resolver = resolver_handle.open(scope);
 
     let exception = v8::Local::new(scope, exception);
@@ -1216,7 +1482,8 @@ impl ModuleMap {
       .dynamic_import_map
       .borrow_mut()
       .remove(&id)
-      .expect("Invalid dynamic import id");
+      .expect("Invalid dynamic import id")
+      .resolver;
     let resolver = resolver_handle.open(scope);
 
     let module = self
@@ -1276,6 +1543,9 @@ impl ModuleMap {
 
         let poll_imports = self.poll_dyn_imports(cx, scope)?;
         assert!(poll_imports.is_ready());
+
+        let poll_code_cache_ready = self.poll_code_cache_ready(cx)?;
+        assert!(poll_code_cache_ready.is_ready());
 
         if self.evaluate_dyn_imports(scope) {
           has_evaluated = true;
@@ -1415,6 +1685,38 @@ impl ModuleMap {
     }
   }
 
+  fn poll_code_cache_ready(&self, cx: &mut Context) -> Poll<Result<(), Error>> {
+    if !self.pending_code_cache_ready.get() {
+      return Poll::Ready(Ok(()));
+    }
+
+    loop {
+      let poll_result =
+        self.code_cache_ready_futs.borrow_mut().poll_next_unpin(cx);
+
+      if let Poll::Ready(Some(_)) = poll_result {
+        continue;
+      }
+
+      self
+        .pending_code_cache_ready
+        .set(!self.code_cache_ready_futs.borrow().is_empty());
+      return Poll::Ready(Ok(()));
+    }
+  }
+
+  pub(crate) fn get_module<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    module_id: ModuleId,
+  ) -> Option<v8::Local<'s, v8::Module>> {
+    self
+      .data
+      .borrow()
+      .get_handle(module_id)
+      .map(|g| v8::Local::new(scope, g))
+  }
+
   /// Returns the namespace object of a module.
   ///
   /// This is only available after module evaluation has completed.
@@ -1514,15 +1816,23 @@ impl ModuleMap {
   ///
   /// It is caller's responsibility to ensure that not duplicate specifiers are
   /// passed to this method.
-  pub(crate) fn lazy_load_es_module_from_code(
+  pub(crate) fn lazy_load_es_module_with_code(
     &self,
     scope: &mut v8::HandleScope,
     module_specifier: &str,
     source_code: ModuleCodeString,
+    code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<v8::Global<v8::Value>, Error> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
-      .new_es_module(scope, false, specifier.into(), source_code, false)
+      .new_es_module(
+        scope,
+        false,
+        specifier.clone(),
+        source_code,
+        false,
+        code_cache_info,
+      )
       .map_err(|e| e.into_any_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
@@ -1553,21 +1863,17 @@ impl ModuleMap {
     Ok(v8::Global::new(scope, mod_ns))
   }
 
-  pub(crate) fn add_lazy_loaded_esm_sources(
+  pub(crate) fn add_lazy_loaded_esm_source(
     &self,
-    sources: &[ExtensionFileSource],
+    specifier: ModuleName,
+    code: ModuleCodeString,
   ) {
-    if sources.is_empty() {
-      return;
-    }
-
     let data = self.data.borrow_mut();
-    data.lazy_esm_sources.borrow_mut().extend(
-      sources
-        .iter()
-        .cloned()
-        .map(|source| (source.specifier, source)),
-    );
+    assert!(data
+      .lazy_esm_sources
+      .borrow_mut()
+      .insert(specifier, code)
+      .is_none());
   }
 
   /// Lazy load and evaluate an ES module. Only modules that have been added
@@ -1605,10 +1911,21 @@ impl ModuleMap {
       ModuleLoadResponse::Async(fut) => futures::executor::block_on(fut),
     }?;
 
-    self.lazy_load_es_module_from_code(
+    self.lazy_load_es_module_with_code(
       scope,
       module_specifier,
-      ModuleSource::get_string_source(specifier.as_str(), source.code)?,
+      ModuleSource::get_string_source(source.code),
+      if let Some(code_cache) = source.code_cache {
+        let loader = self.loader.borrow().clone();
+        Some(CodeCacheInfo {
+          data: code_cache.data,
+          ready_callback: Box::new(move |cache| {
+            loader.code_cache_ready(specifier, code_cache.hash, cache)
+          }),
+        })
+      } else {
+        None
+      },
     )
   }
 }
@@ -1652,22 +1969,24 @@ pub(crate) fn synthetic_module_evaluation_steps<'a>(
   Some(resolver.get_promise(tc_scope).into())
 }
 
-pub fn module_origin<'a>(
+pub fn script_origin<'a>(
   s: &mut v8::HandleScope<'a>,
   resource_name: v8::Local<'a, v8::String>,
+  is_module: bool,
+  host_defined_options: Option<v8::Local<'a, v8::Data>>,
 ) -> v8::ScriptOrigin<'a> {
-  let source_map_url = v8::String::empty(s);
   v8::ScriptOrigin::new(
     s,
     resource_name.into(),
     0,
     0,
     false,
-    123,
-    source_map_url.into(),
-    true,
+    0,
+    None,
     false,
-    true,
+    false,
+    is_module,
+    host_defined_options,
   )
 }
 

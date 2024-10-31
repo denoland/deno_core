@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import {
   op_worker_await_close,
   op_worker_parent,
@@ -9,7 +9,7 @@ import {
 } from "ext:core/ops";
 
 const privateConstructor = Symbol();
-let parentWorker = null;
+let parentWorker: Worker | null = null;
 
 export class Worker {
   // deno-lint-ignore no-explicit-any

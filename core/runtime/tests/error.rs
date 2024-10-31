@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::custom_error;
 use crate::error::JsError;
 use crate::op2;
@@ -27,7 +27,7 @@ async fn test_error_builder() {
   });
   poll_fn(move |cx| {
     runtime
-      .execute_script_static(
+      .execute_script(
         "error_builder_test.js",
         include_str!("error_builder_test.js"),
       )
@@ -45,7 +45,7 @@ async fn test_error_builder() {
 fn syntax_error() {
   let mut runtime = JsRuntime::new(Default::default());
   let src = "hocuspocus(";
-  let r = runtime.execute_script_static("i.js", src);
+  let r = runtime.execute_script("i.js", src);
   let e = r.unwrap_err();
   let js_error = e.downcast::<JsError>().unwrap();
   let frame = js_error.frames.first().unwrap();

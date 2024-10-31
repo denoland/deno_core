@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 //!  This example shows you how to evaluate JavaScript expression and deserialize
 //!  return value into a Rust object.
 
@@ -28,7 +28,7 @@ fn eval(
   context: &mut JsRuntime,
   code: &'static str,
 ) -> Result<serde_json::Value, String> {
-  let res = context.execute_script_static("<anon>", code);
+  let res = context.execute_script("<anon>", code);
   match res {
     Ok(global) => {
       let scope = &mut context.handle_scope();

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::ops::*;
 use anyhow::Error;
 use futures::future::Future;
@@ -8,7 +8,6 @@ use serde_v8::V8Sliceable;
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
-use std::option::Option;
 use std::ptr::NonNull;
 use v8::WriteOptions;
 
@@ -95,7 +94,7 @@ pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
   state.borrow_mut()
 }
 
-pub fn to_u32_option(number: &v8::Value) -> Option<i32> {
+pub fn to_u32_option(number: &v8::Value) -> Option<u32> {
   try_number_some!(number Integer is_uint32);
   try_number_some!(number Int32 is_int32);
   try_number_some!(number Number is_number);
@@ -513,19 +512,25 @@ pub fn to_v8_slice_any(
   Err("expected ArrayBuffer or ArrayBufferView")
 }
 
+#[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 #[cfg(all(test, not(miri)))]
 mod tests {
+  use crate::convert::Number;
+  use crate::convert::Smi;
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
+  use crate::error::StdAnyError;
   use crate::external;
   use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
-  use crate::FastString;
+  use crate::FromV8;
+  use crate::GarbageCollected;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
+  use crate::ToV8;
   use anyhow::bail;
   use anyhow::Error;
   use bytes::BytesMut;
@@ -538,6 +543,11 @@ mod tests {
   use std::cell::RefCell;
   use std::rc::Rc;
   use std::time::Duration;
+
+  /// Enough to get functions to JIT.
+  pub const JIT_ITERATIONS: usize = 6000;
+  /// For slower tests. Doesn't guarantee a JIT.
+  pub const JIT_SLOW_ITERATIONS: usize = 500;
 
   deno_core::extension!(
     testing,
@@ -599,7 +609,9 @@ mod tests {
       op_buffer_any_length,
       op_arraybuffer_slice,
       op_test_get_cppgc_resource,
+      op_test_get_cppgc_resource_option,
       op_test_make_cppgc_resource,
+      op_test_make_cppgc_resource_option,
       op_external_make,
       op_external_process,
       op_external_make_ptr,
@@ -628,6 +640,10 @@ mod tests {
       op_async_buffer_impl,
       op_async_external,
       op_async_serde_option_v8,
+
+      op_smi_to_from_v8,
+      op_number_to_from_v8,
+      op_bool_to_from_v8,
     ],
     state = |state| {
       state.put(1234u32);
@@ -636,7 +652,7 @@ mod tests {
   );
 
   thread_local! {
-    static FAIL: Cell<bool> = Cell::new(false)
+    static FAIL: Cell<bool> = const { Cell::new(false) }
   }
 
   #[op2(fast)]
@@ -660,39 +676,33 @@ mod tests {
     runtime
       .execute_script(
         "",
-        FastString::Owned(
-          format!(
-            r"
-            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
-            function assert(b) {{
-              if (!b) {{
-                op_test_fail();
-              }}
+        format!(
+          r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ops;
+          function assert(b) {{
+            if (!b) {{
+              op_test_fail();
             }}
-            function assertErrorContains(e, s) {{
-              assert(String(e).indexOf(s) != -1)
-            }}
-            function log(s) {{
-              op_test_print_debug(String(s))
-            }}
-          "
-          )
-          .into(),
+          }}
+          function assertErrorContains(e, s) {{
+            assert(String(e).indexOf(s) != -1)
+          }}
+          function log(s) {{
+            op_test_print_debug(String(s))
+          }}
+        "
         ),
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
-      FastString::Owned(
-        format!(
-          r"
-      for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
-        {test}
-      }}
-    "
-        )
-        .into(),
+      format!(
+        r"
+        for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
+          {test}
+        }}
+      "
       ),
     )?;
     if FAIL.with(|b| b.get()) {
@@ -717,41 +727,35 @@ mod tests {
     runtime
       .execute_script(
         "",
-        FastString::Owned(
-          format!(
-            r"
-            const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ensureFastOps();
-            function assert(b) {{
-              if (!b) {{
-                op_test_fail();
-              }}
+        format!(
+          r"
+          const {{ op_test_fail, op_test_print_debug, {op} }} = Deno.core.ops;
+          function assert(b) {{
+            if (!b) {{
+              op_test_fail();
             }}
-            function assertErrorContains(e, s) {{
-              assert(String(e).indexOf(s) != -1)
-            }}
-            function log(s) {{
-              op_test_print_debug(String(s))
-            }}
-          "
-          )
-          .into(),
+          }}
+          function assertErrorContains(e, s) {{
+            assert(String(e).indexOf(s) != -1)
+          }}
+          function log(s) {{
+            op_test_print_debug(String(s))
+          }}
+        "
         ),
       )
       .map_err(err_mapper)?;
     FAIL.with(|b| b.set(false));
     runtime.execute_script(
       "",
-      FastString::Owned(
-        format!(
-          r"
-            (async () => {{
-              for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
-                {test}
-              }}
-            }})()
-          "
-        )
-        .into(),
+      format!(
+        r"
+        (async () => {{
+          for (let __index__ = 0; __index__ < {repeat}; __index__++) {{
+            {test}
+          }}
+        }})()
+      "
       ),
     )?;
 
@@ -776,17 +780,33 @@ mod tests {
   /// Test various numeric coercions in fast and slow mode.
   #[tokio::test(flavor = "current_thread")]
   pub async fn test_op_add() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(10000, "op_test_add", "assert(op_test_add(1, 11) == 12)")?;
-    run_test2(10000, "op_test_add", "assert(op_test_add(11, -1) == 10)")?;
-    run_test2(10000, "op_test_add", "assert(op_test_add(1.5, 11.5) == 12)")?;
-    run_test2(10000, "op_test_add", "assert(op_test_add(11.5, -1) == 10)")?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(1, 11) == 12)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(11, -1) == 10)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(1.5, 11.5) == 12)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_add",
+      "assert(op_test_add(11.5, -1) == 10)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
       "op_test_add",
       "assert(op_test_add(4096n, 4096n) == 4096 + 4096)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_add",
       "assert(op_test_add(8192n, -4096n) == 4096)",
     )?;
@@ -805,12 +825,12 @@ mod tests {
   #[tokio::test(flavor = "current_thread")]
   pub async fn test_op_add_smi() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_add_smi_unsigned",
       "assert(op_test_add_smi_unsigned(1000, 2000) == 3000)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_add_smi_unsigned",
       "assert(op_test_add_smi_unsigned(-1000, 10) == -990)",
     )?;
@@ -839,7 +859,7 @@ mod tests {
   }
 
   thread_local! {
-    static RETURN_COUNT: Cell<usize> = Cell::new(0);
+    static RETURN_COUNT: Cell<usize> = const { Cell::new(0) };
   }
 
   #[op2(fast)]
@@ -870,11 +890,15 @@ mod tests {
   pub async fn test_op_result_void() -> Result<(), Box<dyn std::error::Error>> {
     // Test the non-switching kinds
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_void_err",
       "try { op_test_result_void_err(); assert(false) } catch (e) {}",
     )?;
-    run_test2(10000, "op_test_result_void_ok", "op_test_result_void_ok()")?;
+    run_test2(
+      JIT_ITERATIONS,
+      "op_test_result_void_ok",
+      "op_test_result_void_ok()",
+    )?;
     Ok(())
   }
 
@@ -883,7 +907,7 @@ mod tests {
   ) -> Result<(), Box<dyn std::error::Error>> {
     RETURN_COUNT.with(|count| count.set(0));
     let err = run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_void_switch",
       "op_test_result_void_switch();",
     )
@@ -908,12 +932,12 @@ mod tests {
   pub async fn test_op_result_primitive(
   ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_primitive_err",
       "try { op_test_result_primitive_err(); assert(false) } catch (e) {}",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_result_primitive_ok",
       "op_test_result_primitive_ok()",
     )?;
@@ -937,12 +961,12 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_bool() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_bool",
       "assert(op_test_bool(true) === true && op_test_bool(false) === false)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_test_bool_result",
       "assert(op_test_bool_result(true) === true)",
     )?;
@@ -971,9 +995,13 @@ mod tests {
 
   #[tokio::test]
   pub async fn test_op_float() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(10000, "op_test_float", "assert(op_test_float(1, 10) == 11)")?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
+      "op_test_float",
+      "assert(op_test_float(1, 10) == 11)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
       "op_test_float_result",
       "assert(op_test_float_result(1, 10) == 11)",
     )?;
@@ -1011,12 +1039,12 @@ mod tests {
       &format!("assert(op_test_bigint_i64({}n) == {}n)", i64::MAX, i64::MAX),
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MAX_SAFE_INTEGER) == Number.MAX_SAFE_INTEGER)",
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MIN_SAFE_INTEGER) == Number.MIN_SAFE_INTEGER)",
     )?;
@@ -1086,39 +1114,39 @@ mod tests {
         (40000, "'\\u{1F995}'.repeat(10000)"),
       ] {
         let test = format!("assert({op}({str}) == {len})");
-        run_test2(10000, op, &test)?;
+        run_test2(JIT_SLOW_ITERATIONS, op, &test)?;
       }
     }
 
     // Ensure that we're correctly encoding UTF-8
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u00a0') == 0xa0)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u00ff') == 0xff)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u0080') == 0x80)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char",
       "assert(op_test_string_roundtrip_char('\\u0100') == 0x100)",
     )?;
 
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char_onebyte",
       "assert(op_test_string_roundtrip_char_onebyte('\\u00ff') == 0xff)",
     )?;
     run_test2(
-      10000,
+      JIT_SLOW_ITERATIONS,
       "op_test_string_roundtrip_char_onebyte",
       "assert(op_test_string_roundtrip_char_onebyte('\\u007f') == 0x7f)",
     )?;
@@ -1280,7 +1308,7 @@ mod tests {
   pub async fn test_op_v8_types() -> Result<(), Box<dyn std::error::Error>> {
     for (a, b) in [("a", 1), ("b", 2), ("c", 3)] {
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         "op_test_v8_types",
         &format!("assert(op_test_v8_types('{a}', 'a', 'b') == {b})"),
       )?;
@@ -1290,7 +1318,7 @@ mod tests {
       ("op_test_v8_option_string", "'xyz'", "3"),
       ("op_test_v8_option_string", "null", "-1"),
     ] {
-      run_test2(10000, a, &format!("assert({a}({b}) == {c})"))?;
+      run_test2(JIT_SLOW_ITERATIONS, a, &format!("assert({a}({b}) == {c})"))?;
     }
     // Non-fast ops
     for (a, b, c) in [
@@ -1374,7 +1402,7 @@ mod tests {
 
   #[tokio::test]
   pub async fn test_jsruntimestate() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(10000, "op_jsruntimestate", "op_jsruntimestate()")?;
+    run_test2(JIT_ITERATIONS, "op_jsruntimestate", "op_jsruntimestate()")?;
     Ok(())
   }
 
@@ -1416,19 +1444,23 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_state_rc",
       "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_state_mut_attr",
       "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
     )?;
-    run_test2(10000, "op_state_mut", "op_state_mut(__index__)")?;
-    run_test2(10000, "op_state_ref", "assert(op_state_ref() == 1234)")?;
+    run_test2(JIT_ITERATIONS, "op_state_mut", "op_state_mut(__index__)")?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
+      "op_state_ref",
+      "assert(op_state_ref() == 1234)",
+    )?;
+    run_test2(
+      JIT_ITERATIONS,
       "op_state_multi_attr",
       "assert(op_state_multi_attr() == 11234)",
     )?;
@@ -1531,19 +1563,19 @@ mod tests {
     ] {
       // Zero-length buffers
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!("{op}(new {arr}(0), 0, new {arr}(0), 0);"),
       )?;
       // Zero-length ptrs
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op_ptr,
         &format!("{op_ptr}(new {arr}(0), 0, new {arr}(0), 0);"),
       )?;
       // UintXArray -> UintXArray
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1554,7 +1586,7 @@ mod tests {
       )?;
       // UintXArray -> UintXArray
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op_ptr,
         &format!(
           r"
@@ -1565,7 +1597,7 @@ mod tests {
       )?;
       // UintXArray(ArrayBuffer) -> UintXArray(ArrayBuffer)
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1579,7 +1611,7 @@ mod tests {
       )?;
       // UintXArray(ArrayBuffer, 5, 5) -> UintXArray(ArrayBuffer)
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1593,7 +1625,7 @@ mod tests {
       )?;
       // Resizable
       run_test2(
-        10000,
+        JIT_SLOW_ITERATIONS,
         op,
         &format!(
           r"
@@ -1627,7 +1659,7 @@ mod tests {
   pub async fn test_op_buffer_jsbuffer(
   ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_jsbuffer",
       r"
         let inbuf = new ArrayBuffer(10);
@@ -1652,7 +1684,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_buffer_any() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2);
@@ -1662,7 +1694,7 @@ mod tests {
       assert(op_buffer_any(view) == 15);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2, 4);
@@ -1672,22 +1704,22 @@ mod tests {
       assert(op_buffer_any(view) == 6);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new Uint8Array([1,2,3,4])) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new Uint8Array([1,2,3,4]).buffer) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new Uint32Array([1,2,3,4,0x01010101])) == 14);",
     )?;
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new DataView(new Uint8Array([1,2,3,4]).buffer)) == 10);",
     )?;
@@ -1703,7 +1735,7 @@ mod tests {
   pub async fn test_op_buffer_any_length(
   ) -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2);
@@ -1713,7 +1745,7 @@ mod tests {
       assert(op_buffer_any_length(view) == 6);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "const data = new ArrayBuffer(8);
       const view = new Uint8Array(data, 2, 4);
@@ -1723,22 +1755,22 @@ mod tests {
       assert(op_buffer_any_length(view) == 4);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new Uint8Array(10)) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new ArrayBuffer(10)) == 10);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new Uint32Array(10)) == 40);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
     )?;
@@ -1764,12 +1796,12 @@ mod tests {
   ) -> Result<(), Box<dyn std::error::Error>> {
     // Zero-length buffers
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_arraybuffer_slice",
       "op_arraybuffer_slice(new ArrayBuffer(0), 0, new ArrayBuffer(0), 0);",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_arraybuffer_slice",
       r"let inbuf = new ArrayBuffer(10);
       (new Uint8Array(inbuf))[0] = 1;
@@ -1781,7 +1813,7 @@ mod tests {
   }
 
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
-  #[op2]
+  #[op2(fast)]
   pub fn op_buffer_slice_unsafe_callback(
     scope: &mut v8::HandleScope,
     buffer: v8::Local<v8::ArrayBuffer>,
@@ -1831,7 +1863,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_buffer_copy() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_buffer_copy",
       r"
       let input = new Uint8Array(10);
@@ -1867,28 +1899,63 @@ mod tests {
     pub value: u32,
   }
 
+  impl GarbageCollected for TestResource {}
+
   #[op2]
-  pub fn op_test_make_cppgc_resource<'s>(
-    scope: &'s mut v8::HandleScope,
-  ) -> v8::Local<'s, v8::Object> {
-    crate::cppgc::make_cppgc_object(scope, TestResource { value: 42 })
+  #[cppgc]
+  pub fn op_test_make_cppgc_resource() -> TestResource {
+    TestResource { value: 42 }
+  }
+
+  #[op2]
+  #[cppgc]
+  pub fn op_test_make_cppgc_resource_option(
+    create: bool,
+  ) -> Option<TestResource> {
+    if create {
+      Some(TestResource { value: 42 })
+    } else {
+      None
+    }
+  }
+
+  #[op2(async)]
+  #[smi]
+  pub async fn op_test_get_cppgc_resource(
+    #[cppgc] resource: &TestResource,
+  ) -> u32 {
+    tokio::task::yield_now().await;
+    resource.value
   }
 
   #[op2(fast)]
   #[smi]
-  pub fn op_test_get_cppgc_resource(#[cppgc] resource: &TestResource) -> u32 {
-    resource.value
+  pub fn op_test_get_cppgc_resource_option(
+    #[cppgc] resource: Option<&TestResource>,
+  ) -> u32 {
+    if let Some(resource) = resource {
+      resource.value
+    } else {
+      0
+    }
   }
 
-  #[test]
-  pub fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(
+  #[tokio::test]
+  pub async fn test_op_cppgc_object() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_async_test(
       10,
-      "op_test_make_cppgc_resource, op_test_get_cppgc_resource",
+      "op_test_make_cppgc_resource, op_test_get_cppgc_resource, op_test_get_cppgc_resource_option, op_test_make_cppgc_resource_option",
       r"
       const resource = op_test_make_cppgc_resource();
-      assert(op_test_get_cppgc_resource(resource) == 42);",
-    )?;
+      assert((await op_test_get_cppgc_resource(resource)) === 42);
+      assert(op_test_get_cppgc_resource_option(resource) === 42);
+      assert(op_test_get_cppgc_resource_option(null) === 0);
+      const resource2 = op_test_make_cppgc_resource_option(false);
+      assert(resource2 === null);
+      const resource3 = op_test_make_cppgc_resource_option(true);
+      assert((await op_test_get_cppgc_resource(resource3)) === 42);",
+    ).await?;
     Ok(())
   }
 
@@ -1910,7 +1977,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_external() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_external_make, op_external_process",
       "op_external_process(op_external_make())",
     )?;
@@ -1934,12 +2001,12 @@ mod tests {
   #[tokio::test]
   pub async fn test_external_null() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_external_make_ptr, op_external_process_ptr",
       "assert(op_external_process_ptr(op_external_make_ptr(0), 0) === null)",
     )?;
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_external_make_ptr, op_external_process_ptr",
       "assert(op_external_process_ptr(op_external_make_ptr(6), -6) === null)",
     )?;
@@ -1971,7 +2038,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_typed_external() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+       JIT_ITERATIONS,
       "op_typed_external, op_typed_external_process, op_typed_external_take",
       "let external = op_typed_external(); op_typed_external_process(external); assert(op_typed_external_take(external) == 43);",
     )?;
@@ -1996,7 +2063,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_isolate() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-      10000,
+      JIT_ITERATIONS,
       "op_isolate_queue_microtask,op_isolate_run_microtasks",
       "op_isolate_queue_microtask(() => {}); op_isolate_run_microtasks();",
     )?;
@@ -2008,7 +2075,8 @@ mod tests {
 
   #[tokio::test]
   pub async fn test_op_async_void() -> Result<(), Box<dyn std::error::Error>> {
-    run_async_test(10000, "op_async_void", "await op_async_void()").await?;
+    run_async_test(JIT_ITERATIONS, "op_async_void", "await op_async_void()")
+      .await?;
     Ok(())
   }
 
@@ -2035,13 +2103,13 @@ mod tests {
   pub async fn test_op_async_number() -> Result<(), Box<dyn std::error::Error>>
   {
     run_async_test(
-      10000,
+      JIT_ITERATIONS,
       "op_async_number",
       "assert(await op_async_number(__index__) == __index__)",
     )
     .await?;
     run_async_test(
-      10000,
+      JIT_ITERATIONS,
       "op_async_add",
       "assert(await op_async_add(__index__, 100) == __index__ + 100)",
     )
@@ -2111,13 +2179,13 @@ mod tests {
   pub async fn test_op_async_deferred() -> Result<(), Box<dyn std::error::Error>>
   {
     run_async_test(
-      1000,
+      JIT_SLOW_ITERATIONS,
       "op_async_deferred_success",
       "assert(await op_async_deferred_success() == 42)",
     )
     .await?;
     run_async_test(
-      1000,
+       JIT_SLOW_ITERATIONS,
       "op_async_deferred_error",
       "try { await op_async_deferred_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
@@ -2138,13 +2206,13 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_async_lazy() -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
-      1000,
+      JIT_SLOW_ITERATIONS,
       "op_async_lazy_success",
       "assert(await op_async_lazy_success() == 42)",
     )
     .await?;
     run_async_test(
-      1000,
+       JIT_SLOW_ITERATIONS,
       "op_async_lazy_error",
       "try { await op_async_lazy_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
@@ -2295,6 +2363,123 @@ mod tests {
       "assert((await op_async_serde_option_v8({s: 'abc'})).s == 'abc!')",
     )
     .await?;
+    Ok(())
+  }
+
+  #[op2]
+  #[to_v8]
+  pub fn op_smi_to_from_v8(#[from_v8] value: Smi<i32>) -> Smi<i32> {
+    value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_smi_to_from_v8() -> Result<(), Box<dyn std::error::Error>>
+  {
+    run_test2(
+      JIT_ITERATIONS,
+      "op_smi_to_from_v8",
+      r"
+        for (const n of [-Math.pow(2, 31), -1, 0, 1, Math.pow(2, 31) - 1]) {
+          assert(op_smi_to_from_v8(n) == n);
+        }",
+    )?;
+    Ok(())
+  }
+
+  #[op2]
+  #[to_v8]
+  pub fn op_number_to_from_v8(#[from_v8] value: Number<f64>) -> Number<f64> {
+    value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_number_to_from_v8(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      JIT_ITERATIONS,
+      "op_number_to_from_v8",
+      r"
+      for (
+        const n of [
+          Number.MIN_VALUE,
+          Number.MIN_SAFE_INTEGER,
+          -1,
+          0,
+          1,
+          Number.MAX_SAFE_INTEGER,
+          Number.MAX_VALUE,
+          Number.POSITIVE_INFINITY,
+          Number.NEGATIVE_INFINITY,
+        ]
+      ) {
+        assert(op_number_to_from_v8(n) === n);
+      }
+
+      assert(isNaN(op_number_to_from_v8(Number.NaN)));
+    ",
+    )?;
+    Ok(())
+  }
+
+  struct Bool(bool);
+
+  impl<'a> ToV8<'a> for Bool {
+    type Error = std::convert::Infallible;
+
+    fn to_v8(
+      self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+      self.0.to_v8(scope)
+    }
+  }
+
+  impl<'a> FromV8<'a> for Bool {
+    type Error = StdAnyError;
+
+    fn from_v8(
+      scope: &mut v8::HandleScope<'a>,
+      value: v8::Local<'a, v8::Value>,
+    ) -> Result<Self, Self::Error> {
+      bool::from_v8(scope, value).map(Bool)
+    }
+  }
+
+  #[op2]
+  #[to_v8]
+  fn op_bool_to_from_v8(#[from_v8] value: Bool) -> Bool {
+    value
+  }
+
+  #[tokio::test]
+  pub async fn test_op_bool_to_from_v8(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    run_test2(
+      JIT_ITERATIONS,
+      "op_bool_to_from_v8",
+      r"
+        for (const v of [true, false]) {
+          assert(op_bool_to_from_v8(v) == v);
+        }",
+    )?;
+    Ok(())
+  }
+
+  #[tokio::test]
+  pub async fn test_op_bool_to_from_v8_error(
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let err = run_test2(
+      JIT_ITERATIONS,
+      "op_bool_to_from_v8",
+      r#"
+      op_bool_to_from_v8("true");
+      "#,
+    )
+    .unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "TypeError: Expected boolean\n    at <anonymous>:4:7"
+    );
     Ok(())
   }
 }

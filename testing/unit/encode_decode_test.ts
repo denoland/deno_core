@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
 
 test(function testEmptyEncode() {
@@ -56,4 +56,40 @@ test(function testStringTooLarge() {
     assertEquals(e.message, "string too long");
   }
   assert(thrown);
+});
+
+test(function binaryEncode() {
+  function asBinaryString(bytes: Uint8Array): string {
+    return Array.from(bytes).map(
+      (v: number) => String.fromCodePoint(v),
+    ).join("");
+  }
+
+  function decodeBinary(binaryString: string) {
+    const chars: string[] = Array.from(binaryString);
+    return chars.map((v: string): number | undefined => v.codePointAt(0));
+  }
+
+  // invalid utf-8 code points
+  const invalid = new Uint8Array([0xC0]);
+  assertEquals(
+    Deno.core.encodeBinaryString(invalid),
+    asBinaryString(invalid),
+  );
+
+  const invalid2 = new Uint8Array([0xC1]);
+  assertEquals(
+    Deno.core.encodeBinaryString(invalid2),
+    asBinaryString(invalid2),
+  );
+
+  for (let i = 0, j = 255; i <= 255; i++, j--) {
+    const bytes = new Uint8Array([i, j]);
+    const binaryString = Deno.core.encodeBinaryString(bytes);
+    assertEquals(
+      binaryString,
+      asBinaryString(bytes),
+    );
+    assertArrayEquals(Array.from(bytes), decodeBinary(binaryString));
+  }
 });

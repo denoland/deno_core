@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 //! This example shows how to use swc to transpile TypeScript and JSX/TSX
 //! modules.
 //!
@@ -14,7 +14,7 @@ use anyhow::Context;
 use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
-use deno_ast::SourceTextInfo;
+use deno_ast::SourceMapOption;
 use deno_core::error::AnyError;
 use deno_core::resolve_import;
 use deno_core::resolve_path;
@@ -28,29 +28,16 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
-use deno_core::SourceMapGetter;
 
-#[derive(Clone)]
-struct SourceMapStore(Rc<RefCell<HashMap<String, Vec<u8>>>>);
+// TODO(bartlomieju): this is duplicated in `testing/checkin`
+type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
 
-impl SourceMapGetter for SourceMapStore {
-  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.0.borrow().get(specifier).cloned()
-  }
-
-  fn get_source_line(
-    &self,
-    _file_name: &str,
-    _line_number: usize,
-  ) -> Option<String> {
-    None
-  }
-}
-
+// TODO(bartlomieju): this is duplicated in `testing/checkin`
 struct TypescriptModuleLoader {
   source_maps: SourceMapStore,
 }
 
+// TODO(bartlomieju): this is duplicated in `testing/checkin`
 impl ModuleLoader for TypescriptModuleLoader {
   fn resolve(
     &self,
@@ -97,25 +84,32 @@ impl ModuleLoader for TypescriptModuleLoader {
       let code = std::fs::read_to_string(&path)?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
-          specifier: module_specifier.to_string(),
-          text_info: SourceTextInfo::from_string(code),
+          specifier: module_specifier.clone(),
+          text: code.into(),
           media_type,
           capture_tokens: false,
           scope_analysis: false,
           maybe_syntax: None,
         })?;
-        let res = parsed.transpile(&deno_ast::EmitOptions {
-          inline_source_map: false,
-          source_map: true,
-          inline_sources: true,
-          ..Default::default()
-        })?;
+        let res = parsed.transpile(
+          &deno_ast::TranspileOptions {
+            imports_not_used_as_values:
+              deno_ast::ImportsNotUsedAsValues::Remove,
+            use_decorators_proposal: true,
+            ..Default::default()
+          },
+          &deno_ast::EmitOptions {
+            source_map: SourceMapOption::Separate,
+            inline_sources: true,
+            ..Default::default()
+          },
+        )?;
+        let res = res.into_source();
         let source_map = res.source_map.unwrap();
         source_maps
-          .0
           .borrow_mut()
-          .insert(module_specifier.to_string(), source_map.into_bytes());
-        res.text
+          .insert(module_specifier.to_string(), source_map);
+        String::from_utf8(res.source).unwrap()
       } else {
         code
       };
@@ -123,10 +117,15 @@ impl ModuleLoader for TypescriptModuleLoader {
         module_type,
         ModuleSourceCode::String(code.into()),
         module_specifier,
+        None,
       ))
     }
 
     ModuleLoadResponse::Sync(load(source_maps, module_specifier))
+  }
+
+  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
+    self.source_maps.borrow().get(specifier).cloned()
   }
 }
 
@@ -139,13 +138,12 @@ fn main() -> Result<(), Error> {
   let main_url = &args[1];
   println!("Run {main_url}");
 
-  let source_map_store = SourceMapStore(Rc::new(RefCell::new(HashMap::new())));
+  let source_map_store = Rc::new(RefCell::new(HashMap::new()));
 
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(TypescriptModuleLoader {
-      source_maps: source_map_store.clone(),
+      source_maps: source_map_store,
     })),
-    source_map_getter: Some(Box::new(source_map_store)),
     ..Default::default()
   });
 
@@ -155,7 +153,7 @@ fn main() -> Result<(), Error> {
   )?;
 
   let future = async move {
-    let mod_id = js_runtime.load_main_module(&main_module, None).await?;
+    let mod_id = js_runtime.load_main_es_module(&main_module).await?;
     let result = js_runtime.mod_evaluate(mod_id);
     js_runtime.run_event_loop(Default::default()).await?;
     result.await

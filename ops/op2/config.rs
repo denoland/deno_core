@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::TokenStream;
 use proc_macro2::TokenTree;
 use proc_macro_rules::rules;
@@ -22,6 +22,10 @@ pub(crate) struct MacroConfig {
   pub async_deferred: bool,
   /// Marks an op as re-entrant (can safely call other ops).
   pub reentrant: bool,
+  /// Marks an op as a method on a wrapped object.
+  pub method: Option<String>,
+  /// Marks an op with no side effects.
+  pub no_side_effects: bool,
 }
 
 impl MacroConfig {
@@ -85,6 +89,19 @@ impl MacroConfig {
         config.async_deferred = true;
       } else if flag == "reentrant" {
         config.reentrant = true;
+      } else if flag == "no_side_effects" {
+        config.no_side_effects = true;
+      } else if flag.starts_with("method(") {
+        let tokens =
+          syn::parse_str::<TokenTree>(&flag[6..])?.into_token_stream();
+        config.method = std::panic::catch_unwind(|| {
+          rules!(tokens => {
+            ( ( $s:ty ) ) => {
+              Some(s.into_token_stream().to_string())
+            }
+          })
+        })
+        .map_err(|_| Op2Error::PatternMatchFailed("attribute", flag))?;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }
@@ -109,6 +126,20 @@ impl MacroConfig {
       && (config.r#async && !config.async_lazy && !config.async_deferred)
     {
       return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
+    }
+    if config.no_side_effects
+      && (config.r#async && !config.async_lazy && !config.async_deferred)
+    {
+      return Err(Op2Error::InvalidAttributeCombination(
+        "no_side_effects",
+        "async",
+      ));
+    }
+    if config.no_side_effects && config.reentrant {
+      return Err(Op2Error::InvalidAttributeCombination(
+        "no_side_effects",
+        "reentrant",
+      ));
     }
 
     Ok(config)
@@ -176,7 +207,7 @@ mod tests {
   fn test_parse(s: &str, expected: MacroConfig) {
     let item_fn = syn::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))
       .expect("Failed to parse function");
-    let attr = item_fn.attrs.get(0).unwrap();
+    let attr = item_fn.attrs.first().unwrap();
     let config =
       MacroConfig::from_maybe_attribute_tokens(attr.into_token_stream())
         .expect("Failed to parse attribute")
@@ -223,6 +254,22 @@ mod tests {
       "(fast(op_generic::<T>))",
       MacroConfig {
         fast_alternatives: vec!["op_generic::<T>".to_owned()],
+        ..Default::default()
+      },
+    );
+
+    test_parse(
+      "(method(A))",
+      MacroConfig {
+        method: Some("A".to_owned()),
+        ..Default::default()
+      },
+    );
+    test_parse(
+      "(fast, method(T))",
+      MacroConfig {
+        method: Some("T".to_owned()),
+        fast: true,
         ..Default::default()
       },
     );

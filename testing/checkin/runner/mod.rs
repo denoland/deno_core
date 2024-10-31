@@ -1,120 +1,141 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use anyhow::bail;
-use anyhow::Error;
-use deno_core::url::Url;
-use deno_core::CrossIsolateStore;
-use deno_core::JsRuntime;
-use deno_core::PollEventLoopOptions;
-use deno_core::RuntimeOptions;
-use futures::Future;
-use pretty_assertions::assert_eq;
-use std::path::Path;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::RecvTimeoutError;
-use std::time::Duration;
-use testing::Output;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
-
-use crate::checkin::runner::testing::TestData;
-
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
-use self::testing::TestFunctions;
+use self::ts_module_loader::maybe_transpile_source;
+use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Error;
+use deno_core::v8;
+use deno_core::CrossIsolateStore;
+use deno_core::CustomModuleEvaluationKind;
+use deno_core::Extension;
+use deno_core::FastString;
+use deno_core::ImportAssertionsSupport;
+use deno_core::JsRuntime;
+use deno_core::ModuleSourceCode;
+use deno_core::RuntimeOptions;
+use futures::Future;
+use std::any::Any;
+use std::any::TypeId;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
 
+mod extensions;
 mod ops;
 mod ops_async;
 mod ops_buffer;
 mod ops_error;
 mod ops_io;
 mod ops_worker;
-mod testing;
+pub mod snapshot;
+#[cfg(test)]
+pub mod testing;
 mod ts_module_loader;
 
-deno_core::extension!(
-  checkin_runtime,
-  ops = [
-    ops::op_log_debug,
-    ops::op_log_info,
-    ops::op_test_register,
-    ops::op_stats_capture,
-    ops::op_stats_diff,
-    ops::op_stats_dump,
-    ops::op_stats_delete,
-    ops_io::op_pipe_create,
-    ops_async::op_async_yield,
-    ops_async::op_async_barrier_create,
-    ops_async::op_async_barrier_await,
-    ops_async::op_async_spin_on_state,
-    ops_error::op_async_throw_error_eager,
-    ops_error::op_async_throw_error_lazy,
-    ops_error::op_async_throw_error_deferred,
-    ops_error::op_error_custom_sync,
-    ops_error::op_error_context_sync,
-    ops_error::op_error_context_async,
-    ops_buffer::op_v8slice_store,
-    ops_buffer::op_v8slice_clone,
-    ops_worker::op_worker_spawn,
-    ops_worker::op_worker_send,
-    ops_worker::op_worker_recv,
-    ops_worker::op_worker_parent,
-    ops_worker::op_worker_await_close,
-    ops_worker::op_worker_terminate,
-  ],
-  esm_entry_point = "ext:checkin_runtime/__init.js",
-  esm = [
-    dir "checkin/runtime",
-    "__bootstrap.js",
-    "__init.js",
-    "checkin:async" = "async.ts",
-    "checkin:console" = "console.ts",
-    "checkin:error" = "error.ts",
-    "checkin:testing" = "testing.ts",
-    "checkin:timers" = "timers.ts",
-    "checkin:worker" = "worker.ts",
-  ],
-  state = |state| {
-    state.put(TestFunctions::default());
-    state.put(TestData::default());
+#[derive(Clone, Default)]
+pub struct Output {
+  pub lines: Arc<Mutex<Vec<String>>>,
+}
+impl Output {
+  pub fn line(&self, line: String) {
+    self.lines.lock().unwrap().push(line)
   }
-);
 
-fn create_runtime(
-  output: Output,
+  #[cfg(test)]
+  pub fn take(&self) -> Vec<String> {
+    std::mem::take(&mut self.lines.lock().unwrap())
+  }
+}
+
+#[derive(Default)]
+pub struct TestData {
+  pub data: HashMap<(String, TypeId), Box<dyn Any>>,
+}
+
+impl TestData {
+  pub fn insert<T: 'static + Any>(&mut self, name: String, data: T) {
+    self.data.insert((name, TypeId::of::<T>()), Box::new(data));
+  }
+
+  pub fn get<T: 'static + Any>(&self, name: String) -> &T {
+    let key = (name, TypeId::of::<T>());
+    self
+      .data
+      .get(&key)
+      .unwrap_or_else(|| {
+        panic!(
+          "Unable to locate '{}' of type {}",
+          key.0,
+          std::any::type_name::<T>()
+        )
+      })
+      .downcast_ref()
+      .unwrap()
+  }
+
+  pub fn take<T: 'static + Any>(&mut self, name: String) -> T {
+    let key = (name, TypeId::of::<T>());
+    let Some(res) = self.data.remove(&key) else {
+      panic!(
+        "Failed to remove '{}' of type {}",
+        key.0,
+        std::any::type_name::<T>()
+      );
+    };
+    *res.downcast().unwrap()
+  }
+}
+
+pub fn create_runtime(
   parent: Option<WorkerCloseWatcher>,
+  additional_extensions: Vec<Extension>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let mut extensions = vec![checkin_runtime::init_ops_and_esm()];
+  let snapshot = snapshot::create_snapshot();
+  let snapshot = Box::leak(snapshot);
+  let mut runtime =
+    create_runtime_from_snapshot(snapshot, false, additional_extensions);
+  runtime.op_state().borrow_mut().put(worker);
+  (runtime, worker_host_side)
+}
 
-  for extension in &mut extensions {
-    use ts_module_loader::maybe_transpile_source;
-    for source in extension.esm_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-    for source in extension.js_files.to_mut() {
-      maybe_transpile_source(source).unwrap();
-    }
-  }
-
+pub fn create_runtime_from_snapshot(
+  snapshot: &'static [u8],
+  inspector: bool,
+  additional_extensions: Vec<Extension>,
+) -> JsRuntime {
+  let mut extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
+  extensions.extend(additional_extensions);
+  let module_loader =
+    Rc::new(ts_module_loader::TypescriptModuleLoader::default());
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions,
-    module_loader: Some(Rc::new(
-      ts_module_loader::TypescriptModuleLoader::default(),
-    )),
+    startup_snapshot: Some(snapshot),
+    module_loader: Some(module_loader.clone()),
+    extension_transpiler: Some(Rc::new(|specifier, source| {
+      maybe_transpile_source(specifier, source)
+    })),
     get_error_class_fn: Some(&|error| {
       deno_core::error::get_custom_error_class(error).unwrap_or("Error")
     }),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
+    custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
+    inspector,
+    import_assertions_support: ImportAssertionsSupport::Warning,
     ..Default::default()
   });
+
   let stats = runtime.runtime_activity_stats_factory();
   runtime.op_state().borrow_mut().put(stats);
-  runtime.op_state().borrow_mut().put(worker);
-  runtime.op_state().borrow_mut().put(output);
-  (runtime, worker_host_side)
+  runtime.op_state().borrow_mut().put(Output::default());
+  runtime
 }
 
 fn run_async(f: impl Future<Output = Result<(), Error>>) {
@@ -144,110 +165,59 @@ fn run_async(f: impl Future<Output = Result<(), Error>>) {
   _ = timeout.join();
 }
 
-/// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
-/// and compares its output with the `.out` file in the same directory.
-pub fn run_integration_test(test: &str) {
-  let (runtime, _) = create_runtime(Output::default(), None);
-  run_async(run_integration_test_task(runtime, test.to_owned()));
-}
-
-async fn run_integration_test_task(
-  mut runtime: JsRuntime,
-  test: String,
-) -> Result<(), Error> {
-  let test_dir = get_test_dir(&["integration", &test]);
-  let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_module(&url, None).await?;
-  let f = runtime.mod_evaluate(module);
-  let mut actual_output = String::new();
-  if let Err(e) = runtime
-    .run_event_loop(PollEventLoopOptions::default())
-    .await
-  {
-    let state = runtime.op_state().clone();
-    let state = state.borrow();
-    let output: &Output = state.borrow();
-    for line in e.to_string().split('\n') {
-      output.line(format!("[ERR] {line}"));
-    }
+fn custom_module_evaluation_cb(
+  scope: &mut v8::HandleScope,
+  module_type: Cow<'_, str>,
+  module_name: &FastString,
+  code: ModuleSourceCode,
+) -> Result<CustomModuleEvaluationKind, Error> {
+  match &*module_type {
+    "bytes" => bytes_module(scope, code),
+    "text" => text_module(scope, module_name, code),
+    _ => Err(anyhow!(
+      "Can't import {:?} because of unknown module type {}",
+      module_name,
+      module_type
+    )),
   }
-  f.await?;
-  let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
-  lines.push(String::new());
-  let mut expected_output = String::new();
-  File::open(test_dir.join(format!("{test}.out")))
-    .await?
-    .read_to_string(&mut expected_output)
-    .await?;
-  actual_output += &lines.join("\n");
-  assert_eq!(actual_output, expected_output);
-  Ok(())
 }
 
-/// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
-/// then each test is run individually and failures are printed.
-pub fn run_unit_test(test: &str) {
-  let (runtime, _) = create_runtime(Output::default(), None);
-  run_async(run_unit_test_task(runtime, test.to_owned()));
-}
-
-async fn run_unit_test_task(
-  mut runtime: JsRuntime,
-  test: String,
-) -> Result<(), Error> {
-  let test_dir = get_test_dir(&["unit"]);
-  let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_module(&url, None).await?;
-  let f = runtime.mod_evaluate(module);
-  runtime
-    .run_event_loop(PollEventLoopOptions::default())
-    .await?;
-  f.await?;
-
-  let tests: TestFunctions = runtime.op_state().borrow_mut().take();
-  for (name, function) in tests.functions {
-    println!("Testing {name}...");
-    let call = runtime.call(&function);
-    runtime
-      .with_event_loop_promise(call, PollEventLoopOptions::default())
-      .await?;
-
-    // Clear any remaining test data so we have a fresh state
-    let state = runtime.op_state();
-    let mut state = state.borrow_mut();
-    let data = state.borrow_mut::<TestData>();
-    data.data.clear();
-  }
-
-  Ok(())
-}
-
-fn get_test_dir(dirs: &[&str]) -> PathBuf {
-  let mut test_dir = Path::new(env!("CARGO_MANIFEST_DIR")).to_owned();
-  for dir in dirs {
-    test_dir = test_dir.join(dir).to_owned();
-  }
-
-  test_dir.to_owned()
-}
-
-fn get_test_url(test_dir: &Path, test: &str) -> Result<Url, Error> {
-  let mut path = None;
-  for extension in ["ts", "js", "nocompile"] {
-    let test_path = test_dir.join(format!("{test}.{extension}"));
-    if test_path.exists() {
-      path = Some(test_path);
-      break;
-    }
-  }
-  let Some(path) = path else {
-    bail!("Test file not found: {}.[ts.js.nocompile]", test);
+fn bytes_module(
+  scope: &mut v8::HandleScope,
+  code: ModuleSourceCode,
+) -> Result<CustomModuleEvaluationKind, Error> {
+  // FsModuleLoader always returns bytes.
+  let ModuleSourceCode::Bytes(buf) = code else {
+    unreachable!()
   };
-  let path = path.canonicalize()?.to_owned();
-  let url = Url::from_file_path(path).unwrap().to_string();
-  let base_url = Url::from_file_path(Path::new(env!("CARGO_MANIFEST_DIR")))
-    .unwrap()
-    .to_string();
-  let url = Url::parse(&format!("test://{}", &url[base_url.len()..]))?;
-  Ok(url)
+  let owned_buf = buf.to_vec();
+  let buf_len: usize = owned_buf.len();
+  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(owned_buf);
+  let backing_store_shared = backing_store.make_shared();
+  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+  let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+  let value: v8::Local<v8::Value> = uint8_array.into();
+  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
+    scope, value,
+  )))
+}
+
+fn text_module(
+  scope: &mut v8::HandleScope,
+  module_name: &FastString,
+  code: ModuleSourceCode,
+) -> Result<CustomModuleEvaluationKind, Error> {
+  // FsModuleLoader always returns bytes.
+  let ModuleSourceCode::Bytes(buf) = code else {
+    unreachable!()
+  };
+
+  let code = std::str::from_utf8(buf.as_bytes()).with_context(|| {
+    format!("Can't convert {:?} source code to string", module_name)
+  })?;
+  let str_ = v8::String::new(scope, code).unwrap();
+  let value: v8::Local<v8::Value> = str_.into();
+  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
+    scope, value,
+  )))
 }

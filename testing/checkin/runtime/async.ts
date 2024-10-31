@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 const {
   op_async_barrier_create,
   op_async_barrier_await,
@@ -8,16 +8,17 @@ const {
   op_stats_diff,
   op_stats_dump,
   op_stats_delete,
+  op_async_never_resolves,
 } = Deno
   .core
-  .ensureFastOps();
+  .ops;
 
 export function barrierCreate(name: string, count: number) {
   op_async_barrier_create(name, count);
 }
 
-export async function barrierAwait(name: string) {
-  await op_async_barrier_await(name);
+export function barrierAwait(name: string) {
+  return op_async_barrier_await(name);
 }
 
 export async function asyncYield() {
@@ -27,6 +28,12 @@ export async function asyncYield() {
 // This function never returns.
 export async function asyncSpin() {
   await op_async_spin_on_state();
+}
+
+export function asyncNeverResolves() {
+  const prom = op_async_never_resolves();
+  Deno.core.refOpPromise(prom);
+  return prom;
 }
 
 let nextStats = 0;
@@ -68,33 +75,52 @@ export class StatsDiff {
   }
 }
 
+export enum LeakType {
+  AsyncOp = "AsyncOp",
+  Resource = "Resource",
+  Timer = "Timer",
+  Interval = "Interval",
+}
+
 // This contains an array of serialized RuntimeActivity structs.
 export class StatsCollection {
   // deno-lint-ignore no-explicit-any
   constructor(private data: any[]) {
+    console.log(data);
   }
 
-  private countResourceActivity(type: string): number {
+  count(...types: LeakType[]): number {
     let count = 0;
     for (const item of this.data) {
-      if (type in item) {
-        count++;
+      for (const type of types) {
+        if (type in item) {
+          count++;
+        }
       }
     }
     return count;
   }
 
-  countOps(): number {
-    return this.countResourceActivity("AsyncOp");
+  countWithTraces(...types: LeakType[]): number {
+    let count = 0;
+    for (const item of this.data) {
+      for (const type of types) {
+        if (type in item) {
+          // Make sure it's a non-empty stack trace
+          if (
+            typeof item[type][1] === "string" &&
+            item[type][1].trim().length > 0
+          ) {
+            count++;
+          }
+        }
+      }
+    }
+    return count;
   }
 
-  countResources(): number {
-    return this.countResourceActivity("Resource");
-  }
-
-  countTimers(): number {
-    return this.countResourceActivity("Timer") +
-      this.countResourceActivity("Interval");
+  get rawData() {
+    return this.data;
   }
 
   get empty(): boolean {

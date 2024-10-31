@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
@@ -21,7 +21,6 @@ use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
-use super::signature::WasmMemorySource;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use proc_macro2::Ident;
@@ -41,7 +40,7 @@ pub(crate) fn generate_dispatch_slow_call(
   let mut deferred = TokenStream::new();
 
   for (index, arg) in signature.args.iter().enumerate() {
-    let arg_mapped = from_arg(generator_state, index, arg)
+    let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
       .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
@@ -53,34 +52,16 @@ pub(crate) fn generate_dispatch_slow_call(
   }
 
   args.extend(deferred);
-  args.extend(call(generator_state));
+  args.extend(call(generator_state, &signature.ret_val));
   Ok(args)
 }
 
 pub(crate) fn generate_dispatch_slow(
-  config: &MacroConfig,
+  _config: &MacroConfig,
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
 ) -> Result<TokenStream, V8SignatureMappingError> {
   let mut output = TokenStream::new();
-
-  // Fast ops require the slow op to check op_ctx for the last error
-  if config.fast && matches!(signature.ret_val, RetVal::Result(_)) {
-    generator_state.needs_opctx = true;
-    let throw_exception = throw_exception(generator_state);
-    // If the fast op returned an error, we must throw it rather than doing work.
-    output.extend(quote!{
-      // FASTCALL FALLBACK: This is where we pick up the errors for the slow-call error pickup
-      // path. There is no code running between this and the other FASTCALL FALLBACK comment,
-      // except some V8 code required to perform the fallback process. This is why the below call is safe.
-
-      // SAFETY: We guarantee that OpCtx has no mutable references once ops are live and being called,
-      // allowing us to perform this one little bit of mutable magic.
-      if let Some(err) = unsafe { opctx.unsafely_take_last_error_for_ops_only() } {
-        #throw_exception
-      }
-    });
-  }
 
   let args = generate_dispatch_slow_call(generator_state, signature, 0)?;
 
@@ -99,12 +80,6 @@ pub(crate) fn generate_dispatch_slow(
       quote!()
     };
 
-  let with_scope = if generator_state.needs_scope {
-    with_scope(generator_state)
-  } else {
-    quote!()
-  };
-
   let with_opstate = if generator_state.needs_opstate {
     with_opstate(generator_state)
   } else {
@@ -117,11 +92,12 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_opctx = if generator_state.needs_opctx {
-    with_opctx(generator_state)
-  } else {
-    quote!()
-  };
+  let with_opctx =
+    if generator_state.needs_opctx | generator_state.needs_stack_trace {
+      with_opctx(generator_state)
+    } else {
+      quote!()
+    };
 
   let with_retval = if generator_state.needs_retval {
     with_retval(generator_state)
@@ -135,10 +111,30 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
+  let with_self = if generator_state.needs_self {
+    with_self(generator_state, &signature.ret_val)
+      .map_err(V8SignatureMappingError::NoSelfMapping)?
+  } else {
+    quote!()
+  };
+
+  let with_scope =
+    if generator_state.needs_scope | generator_state.needs_stack_trace {
+      with_scope(generator_state)
+    } else {
+      quote!()
+    };
+
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    with_stack_trace(generator_state)
+  } else {
+    quote!()
+  };
+
   Ok(
     gs_quote!(generator_state(opctx, info, slow_function, slow_function_metrics) => {
       #[inline(always)]
-      fn slow_function_impl(#info: *const deno_core::v8::FunctionCallbackInfo) -> usize {
+      fn slow_function_impl<'s>(#info: &'s deno_core::v8::FunctionCallbackInfo) -> usize {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);
 
@@ -148,31 +144,33 @@ pub(crate) fn generate_dispatch_slow(
         #with_opctx
         #with_isolate
         #with_opstate
+        #with_stack_trace
         #with_js_runtime_state
+        #with_self
 
         #output;
         return 0;
       }
 
-      extern "C" fn #slow_function(#info: *const deno_core::v8::FunctionCallbackInfo) {
-        Self::slow_function_impl(#info);
+      extern "C" fn #slow_function<'s>(#info: *const deno_core::v8::FunctionCallbackInfo) {
+        let info: &'s _ = unsafe { &*#info };
+        Self::slow_function_impl(info);
       }
 
-      extern "C" fn #slow_function_metrics(#info: *const deno_core::v8::FunctionCallbackInfo) {
-        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe {
-          &*info
-        });
-        let #opctx = unsafe {
-          &*(deno_core::v8::Local::<deno_core::v8::External>::cast(args.data()).value()
+      extern "C" fn #slow_function_metrics<'s>(#info: *const deno_core::v8::FunctionCallbackInfo) {
+        let info: &'s _ = unsafe { &*#info };
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info);
+        let #opctx: &'s _ = unsafe {
+          &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()
               as *const deno_core::_ops::OpCtx)
         };
 
-        deno_core::_ops::dispatch_metrics_slow(&#opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
-        let res = Self::slow_function_impl(#info);
+        deno_core::_ops::dispatch_metrics_slow(#opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
+        let res = Self::slow_function_impl(info);
         if res == 0 {
-          deno_core::_ops::dispatch_metrics_slow(&#opctx, deno_core::_ops::OpMetricsEvent::Completed);
+          deno_core::_ops::dispatch_metrics_slow(#opctx, deno_core::_ops::OpMetricsEvent::Completed);
         } else {
-          deno_core::_ops::dispatch_metrics_slow(&#opctx, deno_core::_ops::OpMetricsEvent::Error);
+          deno_core::_ops::dispatch_metrics_slow(#opctx, deno_core::_ops::OpMetricsEvent::Error);
         }
       }
     }),
@@ -190,13 +188,28 @@ pub(crate) fn with_isolate(
 
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(info, scope) =>
-    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(&*#info) };)
+    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(#info) };)
+  )
+}
+
+pub(crate) fn with_stack_trace(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
+  generator_state.needs_opctx = true;
+  gs_quote!(generator_state(stack_trace, opctx, scope) =>
+    (let #stack_trace = if #opctx.enable_stack_trace_arg {
+      let hs = &mut deno_core::v8::HandleScope::new(&mut #scope);
+      let stack_trace_msg = deno_core::v8::String::empty(hs);
+      let stack_trace_error = deno_core::v8::Exception::error(hs, stack_trace_msg.into());
+      let js_error = deno_core::error::JsError::from_v8_exception(hs, stack_trace_error);
+      Some(js_error.frames)
+    } else { None };)
   )
 }
 
 pub(crate) fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(retval, info) =>
-    (let mut #retval = deno_core::v8::ReturnValue::from_function_callback_info(unsafe { &*#info });)
+    (let mut #retval = deno_core::v8::ReturnValue::from_function_callback_info(#info);)
   )
 }
 
@@ -204,15 +217,15 @@ pub(crate) fn with_fn_args(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
   gs_quote!(generator_state(info, fn_args) =>
-    (let #fn_args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(unsafe { &*#info });)
+    (let #fn_args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(#info);)
   )
 }
 
 pub(crate) fn with_opctx(generator_state: &mut GeneratorState) -> TokenStream {
   generator_state.needs_args = true;
   gs_quote!(generator_state(opctx, fn_args) =>
-    (let #opctx = unsafe {
-    &*(deno_core::v8::Local::<deno_core::v8::External>::cast(#fn_args.data()).value()
+    (let #opctx: &'s _ = unsafe {
+    &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(#fn_args.data()).value()
         as *const deno_core::_ops::OpCtx)
     };)
   )
@@ -236,6 +249,41 @@ pub(crate) fn with_js_runtime_state(
   )
 }
 
+pub(crate) fn with_self(
+  generator_state: &mut GeneratorState,
+  ret_val: &RetVal,
+) -> Result<TokenStream, V8MappingError> {
+  generator_state.needs_opctx = true;
+  generator_state.needs_scope = true;
+  let throw_exception = throw_type_error(
+    generator_state,
+    format!("expected {}", &generator_state.self_ty),
+  )?;
+  let tokens = if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
+  {
+    let tokens = gs_quote!(generator_state(self_ty, fn_args, scope) => {
+      let Some(mut self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
+        #throw_exception;
+      };
+      self_.root();
+    });
+
+    generator_state.moves.push(quote! {
+      let self_ = &*self_;
+    });
+
+    tokens
+  } else {
+    gs_quote!(generator_state(self_ty, fn_args, scope) => {
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
+        #throw_exception;
+      };
+      let self_ = &*self_;
+    })
+  };
+  Ok(tokens)
+}
+
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
   index: usize,
@@ -253,17 +301,20 @@ pub fn from_arg(
   mut generator_state: &mut GeneratorState,
   index: usize,
   arg: &Arg,
+  ret_val: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   let GeneratorState {
     args,
     scope,
     opstate,
     opctx,
+    stack_trace,
     js_runtime_state,
     needs_scope,
     needs_isolate,
     needs_opstate,
     needs_opctx,
+    needs_stack_trace,
     needs_js_runtime_state,
     ..
   } = &mut generator_state;
@@ -304,8 +355,12 @@ pub fn from_arg(
       from_arg_option(generator_state, &arg_ident, "f64")?
     }
     Arg::OptionNumeric(numeric, flag) => {
-      let some =
-        from_arg(generator_state, index, &Arg::Numeric(*numeric, *flag))?;
+      let some = from_arg(
+        generator_state,
+        index,
+        &Arg::Numeric(*numeric, *flag),
+        ret_val,
+      )?;
       quote! {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
@@ -410,6 +465,10 @@ pub fn from_arg(
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)
     }
+    Arg::Special(Special::StackTrace) => {
+      *needs_stack_trace = true;
+      quote!(let #arg_ident = #stack_trace;)
+    }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
       quote!(let #arg_ident = &mut #scope;)
@@ -485,13 +544,6 @@ pub fn from_arg(
         v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
-    Arg::WasmMemory(_, WasmMemorySource::Caller) => throw_type_error(
-      generator_state,
-      "WASM caller memory unavailable in slowcalls".into(),
-    )?,
-    Arg::OptionWasmMemory(_, WasmMemorySource::Caller) => {
-      quote!(let #arg_ident = None;)
-    }
     Arg::SerdeV8(_class) => {
       *needs_scope = true;
       let scope = scope.clone();
@@ -506,15 +558,84 @@ pub fn from_arg(
         };
       }
     }
+    Arg::FromV8(ty) => {
+      *needs_scope = true;
+      let ty =
+        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+      let scope = scope.clone();
+      let err = format_ident!("{}_err", arg_ident);
+      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      quote! {
+        let #arg_ident = match <#ty as deno_core::FromV8>::from_v8(&mut #scope, #arg_ident) {
+          Ok(t) => t,
+          Err(#err) => {
+            #throw_exception;
+          }
+        };
+      }
+    }
     Arg::CppGcResource(ty) => {
+      *needs_scope = true;
+      let scope = scope.clone();
       let throw_exception =
         throw_type_error(generator_state, format!("expected {}", &ty))?;
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-      quote! {
-        let Some(#arg_ident) = deno_core::cppgc::try_unwrap_cppgc_object::<#ty>(#arg_ident) else {
-          #throw_exception;
+      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+        let tokens = quote! {
+          let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+            #throw_exception;
+          };
+          #arg_ident.root();
         };
+        generator_state.moves.push(quote! {
+          let #arg_ident = &*#arg_ident;
+        });
+        tokens
+      } else {
+        quote! {
+          let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+            #throw_exception;
+          };
+          let #arg_ident = &*#arg_ident;
+        }
+      }
+    }
+    Arg::OptionCppGcResource(ty) => {
+      *needs_scope = true;
+      let throw_exception =
+        throw_type_error(generator_state, format!("expected {}", &ty))?;
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+      let scope = &generator_state.scope;
+      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+        let tokens = quote! {
+          let #arg_ident = if #arg_ident.is_null_or_undefined() {
+            None
+          } else if let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+            #arg_ident.root();
+            Some(#arg_ident)
+          } else {
+            #throw_exception;
+          };
+        };
+
+        generator_state.moves.push(quote! {
+          let #arg_ident = #arg_ident.as_deref();
+        });
+
+        tokens
+      } else {
+        quote! {
+          let #arg_ident = if #arg_ident.is_null_or_undefined() {
+            None
+          } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+            Some(#arg_ident)
+          } else {
+            #throw_exception;
+          };
+          let #arg_ident = #arg_ident.as_deref();
+        }
       }
     }
     _ => return Err("a slow argument"),
@@ -674,12 +795,42 @@ pub fn from_arg_any_buffer(
   })
 }
 
-pub fn call(generator_state: &mut GeneratorState) -> TokenStream {
+pub fn call(
+  generator_state: &mut GeneratorState,
+  ret_val: &RetVal,
+) -> TokenStream {
   let mut tokens = TokenStream::new();
+  if generator_state.needs_self {
+    tokens.extend(quote!(self_,));
+  }
   for arg in &generator_state.args {
     tokens.extend(quote!( #arg , ));
   }
-  quote!(Self::call( #tokens ))
+
+  let name = &generator_state.name;
+  let call_ = if generator_state.needs_self {
+    let self_ty = &generator_state.self_ty;
+    quote!(#self_ty:: #name)
+  } else {
+    quote!(Self:: #name)
+  };
+
+  let call = quote!(#call_ ( #tokens ));
+
+  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
+    && !generator_state.moves.is_empty()
+  {
+    let mut moves = TokenStream::new();
+    for m in &generator_state.moves {
+      moves.extend(quote!(#m));
+    }
+    quote!(async move {
+      #moves
+      #call.await
+    })
+  } else {
+    call
+  }
 }
 
 pub fn return_value(
@@ -714,6 +865,17 @@ pub fn return_value_infallible(
     }
     ArgMarker::Number => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
+    }
+    ArgMarker::Cppgc => {
+      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
+      if ret_type.is_option() {
+        gs_quote!(generator_state(result) => (#result.map(#marker)))
+      } else {
+        gs_quote!(generator_state(result) => (#marker(#result)))
+      }
+    }
+    ArgMarker::ToV8 => {
+      gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
     }
     ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
   };
@@ -776,6 +938,17 @@ pub fn return_value_v8_value(
     }
     ArgMarker::Number => {
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result))
+    }
+    ArgMarker::Cppgc => {
+      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
+      if ret_type.is_option() {
+        quote!(#result.map(#marker))
+      } else {
+        quote!(#marker(#result))
+      }
+    }
+    ArgMarker::ToV8 => {
+      quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result))
     }
     ArgMarker::None => quote!(#result),
   };

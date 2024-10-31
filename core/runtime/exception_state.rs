@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use anyhow::Error;
 use std::cell::Cell;
@@ -110,13 +110,13 @@ impl ExceptionState {
   /// Notes from ECMAScript's `HostPromiseRejectionTracker` operation:
   ///
   /// - HostPromiseRejectionTracker is called with the operation argument set to "reject" when a promise is rejected
-  /// without any handlers, or "handle" when a handler is added to a previously rejected promise for the first time.
+  ///   without any handlers, or "handle" when a handler is added to a previously rejected promise for the first time.
   /// - Host environments can use this operation to track promise rejections without causing abrupt completion.
   /// - Implementations may notify developers of unhandled rejections and invalidate notifications if new handlers are attached.
   /// - If operation is "handle", an implementation should not hold a reference to promise in a way that would
-  /// interfere with garbage collection.
+  ///   interfere with garbage collection.
   /// - An implementation may hold a reference to promise if operation is "reject", since it is expected that rejections
-  /// will be rare and not on hot code paths.
+  ///   will be rare and not on hot code paths.
   pub fn track_promise_rejection(
     &self,
     scope: &mut v8::HandleScope,
@@ -144,6 +144,8 @@ impl ExceptionState {
         let previous_len = rejections.len();
         rejections.retain(|(key, _)| key != &promise_global);
         if rejections.len() == previous_len {
+          // Don't hold the lock while we go back into v8
+          drop(rejections);
           // The unhandled rejection was already delivered, so this means we need to deliver a
           // "rejectionhandled" event if anyone cares.
           if self.js_handled_promise_rejection_cb.borrow().is_some() {

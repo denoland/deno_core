@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
 use deno_core::anyhow::Error;
 use deno_core::*;
@@ -44,10 +44,7 @@ fn main() -> Result<(), Error> {
 
   let future = async move {
     let mod_id = js_runtime
-      .load_main_module(
-        &main_module,
-        Some(deno_core::FastString::from(module_code)),
-      )
+      .load_main_es_module_from_code(&main_module, module_code)
       .await?;
 
     let result = js_runtime.mod_evaluate(mod_id);

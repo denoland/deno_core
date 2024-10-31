@@ -1,9 +1,13 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
 #[op2(fast)]
-fn op_buffers(#[buffer(copy)] _a: Vec<u8>, #[buffer(copy)] _b: Box<[u8]>, #[buffer(copy)] _c: bytes::Bytes) {
+fn op_buffers(
+  #[buffer(copy)] _a: Vec<u8>,
+  #[buffer(copy)] _b: Box<[u8]>,
+  #[buffer(copy)] _c: bytes::Bytes,
+) {
 }
 
 #[op2(fast)]

@@ -1,10 +1,11 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use anyhow::Error;
 
 pub fn get_error_code(err: &Error) -> Option<&'static str> {
   err
     .downcast_ref::<std::io::Error>()
+    .or_else(|| err.chain().find_map(|e| e.downcast_ref::<std::io::Error>()))
     .map(|e| match e.raw_os_error() {
       Some(code) => get_os_error_code(code),
       None => get_io_error_code(e),

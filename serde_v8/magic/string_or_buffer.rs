@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::buffer::JsBuffer;
 use super::transl8::FromV8;
 use crate::magic::transl8::impl_magic;
@@ -44,14 +44,5 @@ impl FromV8 for StringOrBuffer {
       return Ok(Self::String(s));
     }
     Err(Error::ExpectedBuffer(value.type_repr()))
-  }
-}
-
-impl From<StringOrBuffer> for bytes::Bytes {
-  fn from(sob: StringOrBuffer) -> Self {
-    match sob {
-      StringOrBuffer::Buffer(b) => b.into(),
-      StringOrBuffer::String(s) => s.into_bytes().into(),
-    }
   }
 }

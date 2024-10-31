@@ -1,12 +1,12 @@
 #!/usr/bin/env -S deno run -A --lock=tools/deno.lock.json
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-import { DenoWorkspace } from "./deno_core_workspace.ts";
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+import { Crate, DenoWorkspace } from "./deno_core_workspace.ts";
 
 const workspace = await DenoWorkspace.load();
 const repo = workspace.repo;
 const denoCoreCrate = workspace.getDenoCoreCrate();
 
-const allCrates = {};
+const allCrates: { [key: string]: Crate } = {};
 allCrates[denoCoreCrate.name] = denoCoreCrate;
 
 for (const crate of workspace.getDenoCoreDependencyCrates()) {

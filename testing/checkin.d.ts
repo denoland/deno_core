@@ -1,26 +1,30 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-/// <reference path="../core/lib.deno_core.d.ts" />
+// deno-lint-ignore-file no-explicit-any
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 /// <reference lib="dom" />
 
-// Types and method unavailable in TypeScript by default.
-interface PromiseConstructor {
-  withResolvers<T>(): {
-    promise: Promise<T>;
-    resolve: (value: T | PromiseLike<T>) => void;
-    // deno-lint-ignore no-explicit-any
-    reject: (reason?: any) => void;
-  };
-}
+export type * from "../core/core.d.ts";
 
-interface ArrayBuffer {
-  transfer(size: number);
-}
+declare global {
+  // Types and method unavailable in TypeScript by default.
+  interface PromiseConstructor {
+    withResolvers<T>(): {
+      promise: Promise<T>;
+      resolve: (value: T | PromiseLike<T>) => void;
+      reject: (reason?: any) => void;
+    };
+  }
 
-interface SharedArrayBuffer {
-  transfer(size: number);
-}
+  interface ArrayBuffer {
+    transfer(size: number): ArrayBuffer;
+  }
 
-declare namespace Deno {
-  export function refTimer(id);
-  export function unrefTimer(id);
+  interface SharedArrayBuffer {
+    transfer(size: number): SharedArrayBuffer;
+  }
+
+  namespace Deno {
+    export function refTimer(id: number): void;
+    export function unrefTimer(id: number): void;
+  }
 }

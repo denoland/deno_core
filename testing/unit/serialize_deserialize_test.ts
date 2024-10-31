@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { assertArrayEquals, assertEquals, test } from "checkin:testing";
 
 test(function testIssue20727() {
@@ -74,7 +74,7 @@ test(function testPrimitiveArray() {
 });
 
 test(function testCircularObject() {
-  const circularObject = { test: null, test2: "dd", test3: "aa" };
+  const circularObject = { test: null as unknown, test2: "dd", test3: "aa" };
   circularObject.test = circularObject;
   // deno-fmt-ignore
   const circularObjectSerialized = [

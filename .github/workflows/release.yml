@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       releaseKind:
-        description: 'Kind of release'
-        default: 'minor'
+        description: "Kind of release"
+        default: "minor"
         type: choice
         options:
           - patch
@@ -15,12 +15,12 @@ on:
 jobs:
   rust:
     name: release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
       - name: Clone repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.DENOBOT_PAT }}
 

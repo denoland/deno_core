@@ -1,11 +1,12 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use proc_macro2::Ident;
+use proc_macro2::TokenStream;
 
+#[derive(Clone)]
 pub struct GeneratorState {
+  pub name: Ident,
   /// Identifiers for each of the arguments of the original function
   pub args: Vec<Ident>,
-  /// The new identifier for the original function's contents.
-  pub call: Ident,
   /// The result of the `call` function
   pub result: Ident,
 
@@ -19,6 +20,8 @@ pub struct GeneratorState {
   pub opctx: Ident,
   /// The `OpState` used for storing op state.
   pub opstate: Ident,
+  // The stack trace used for storing a stack trace.
+  pub stack_trace: Ident,
   /// The `JsRuntimeState` used for storing the `Rc<JsRuntimeState>``.
   pub js_runtime_state: Ident,
   /// The `FastApiCallbackOptions` used in fast calls for fallback returns.
@@ -35,6 +38,10 @@ pub struct GeneratorState {
   pub fast_function_metrics: Ident,
   /// The async function promise ID argument
   pub promise_id: Ident,
+  /// Type of the self argument
+  pub self_ty: Ident,
+
+  pub moves: Vec<TokenStream>,
 
   pub needs_args: bool,
   pub needs_retval: bool,
@@ -42,10 +49,10 @@ pub struct GeneratorState {
   pub needs_isolate: bool,
   pub needs_opstate: bool,
   pub needs_opctx: bool,
+  pub needs_stack_trace: bool,
   pub needs_js_runtime_state: bool,
-  pub needs_fast_opctx: bool,
   pub needs_fast_api_callback_options: bool,
-  pub needs_fast_js_runtime_state: bool,
+  pub needs_self: bool,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from

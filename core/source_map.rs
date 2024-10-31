@@ -1,39 +1,17 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
 use crate::resolve_url;
+use crate::ModuleLoader;
+use crate::ModuleName;
 pub use sourcemap::SourceMap;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::str;
 
-pub trait SourceMapGetter {
-  /// Returns the raw source map file.
-  fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>>;
-  fn get_source_line(
-    &self,
-    file_name: &str,
-    line_number: usize,
-  ) -> Option<String>;
-}
-
-impl<T> SourceMapGetter for Box<T>
-where
-  T: SourceMapGetter + ?Sized,
-{
-  fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
-    (**self).get_source_map(file_name)
-  }
-
-  fn get_source_line(
-    &self,
-    file_name: &str,
-    line_number: usize,
-  ) -> Option<String> {
-    (**self).get_source_line(file_name, line_number)
-  }
-}
-
+#[derive(Debug, PartialEq)]
 pub enum SourceMapApplication {
   /// No mapping was applied, the location is unchanged.
   Unchanged,
@@ -50,27 +28,42 @@ pub enum SourceMapApplication {
   },
 }
 
-pub struct SourceMapper<G: SourceMapGetter> {
+pub type SourceMapData = Cow<'static, [u8]>;
+
+pub struct SourceMapper {
+  // TODO(bartlomieju): I feel like these two should be cleared when Isolate
+  // reaches "near heap limit" to free up some space. This needs to be confirmed though.
   maps: HashMap<String, Option<SourceMap>>,
   source_lines: HashMap<(String, i64), Option<String>>,
-  getter: Option<G>,
-  // This is not the right place for this, but it's the easiest way to make
-  // op_apply_source_map a fast op. This stashing should happen in #[op2].
-  pub(crate) stashed_file_name: Option<String>,
+
+  loader: Rc<dyn ModuleLoader>,
+
+  ext_source_maps: HashMap<ModuleName, SourceMapData>,
 }
 
-impl<G: SourceMapGetter> SourceMapper<G> {
-  pub fn new(getter: Option<G>) -> Self {
+impl SourceMapper {
+  pub fn new(loader: Rc<dyn ModuleLoader>) -> Self {
     Self {
       maps: Default::default(),
       source_lines: Default::default(),
-      getter,
-      stashed_file_name: Default::default(),
+      ext_source_maps: Default::default(),
+      loader,
     }
   }
 
-  pub fn has_user_sources(&self) -> bool {
-    self.getter.is_some()
+  /// Add a source map for particular `ext:` module.
+  pub(crate) fn add_ext_source_map(
+    &mut self,
+    module_name: ModuleName,
+    source_map_data: SourceMapData,
+  ) {
+    self.ext_source_maps.insert(module_name, source_map_data);
+  }
+
+  pub(crate) fn take_ext_source_maps(
+    &mut self,
+  ) -> HashMap<ModuleName, SourceMapData> {
+    std::mem::take(&mut self.ext_source_maps)
   }
 
   /// Apply a source map to the passed location. If there is no source map for
@@ -88,11 +81,15 @@ impl<G: SourceMapGetter> SourceMapper<G> {
     let line_number = line_number - 1;
     let column_number = column_number - 1;
 
-    let getter = self.getter.as_ref();
     let maybe_source_map =
       self.maps.entry(file_name.to_owned()).or_insert_with(|| {
-        let raw_source_map = getter.and_then(|it| it.get_source_map(file_name));
-        SourceMap::from_slice(&raw_source_map?).ok()
+        None
+          .or_else(|| {
+            SourceMap::from_slice(self.ext_source_maps.get(file_name)?).ok()
+          })
+          .or_else(|| {
+            SourceMap::from_slice(&self.loader.get_source_map(file_name)?).ok()
+          })
       });
 
     let Some(source_map) = maybe_source_map.as_ref() else {
@@ -146,15 +143,125 @@ impl<G: SourceMapGetter> SourceMapper<G> {
     file_name: &str,
     line_number: i64,
   ) -> Option<String> {
-    let getter = self.getter.as_ref()?;
-    self
-      .source_lines
-      .entry((file_name.to_string(), line_number))
-      .or_insert_with(|| {
-        // Source lookup expects a 0-based line number, ours are 1-based.
-        let s = getter.get_source_line(file_name, (line_number - 1) as usize);
-        s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH)
-      })
-      .clone()
+    if let Some(maybe_source_line) =
+      self.source_lines.get(&(file_name.to_string(), line_number))
+    {
+      return maybe_source_line.clone();
+    }
+
+    let s = self
+      .loader
+      .get_source_mapped_source_line(file_name, (line_number - 1) as usize);
+    let maybe_source_line =
+      s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH);
+    // Cache and return
+    self.source_lines.insert(
+      (file_name.to_string(), line_number),
+      maybe_source_line.clone(),
+    );
+    maybe_source_line
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use anyhow::Error;
+  use url::Url;
+
+  use super::*;
+  use crate::ascii_str;
+  use crate::ModuleCodeString;
+  use crate::ModuleLoadResponse;
+  use crate::ModuleSpecifier;
+  use crate::RequestedModuleType;
+  use crate::ResolutionKind;
+
+  struct SourceMapLoaderContent {
+    source_map: Option<ModuleCodeString>,
+  }
+
+  #[derive(Default)]
+  pub struct SourceMapLoader {
+    map: HashMap<ModuleSpecifier, SourceMapLoaderContent>,
+  }
+
+  impl ModuleLoader for SourceMapLoader {
+    fn resolve(
+      &self,
+      _specifier: &str,
+      _referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, Error> {
+      unreachable!()
+    }
+
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+      _requested_module_type: RequestedModuleType,
+    ) -> ModuleLoadResponse {
+      unreachable!()
+    }
+
+    fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
+      let url = Url::parse(file_name).unwrap();
+      let content = self.map.get(&url)?;
+      content
+        .source_map
+        .as_ref()
+        .map(|s| s.to_string().into_bytes())
+    }
+
+    fn get_source_mapped_source_line(
+      &self,
+      _file_name: &str,
+      _line_number: usize,
+    ) -> Option<String> {
+      Some("fake source line".to_string())
+    }
+  }
+
+  #[test]
+  fn test_source_mapper() {
+    let mut loader = SourceMapLoader::default();
+    loader.map.insert(
+      Url::parse("file:///b.js").unwrap(),
+      SourceMapLoaderContent { source_map: None },
+    );
+    loader.map.insert(
+      Url::parse("file:///a.ts").unwrap(),
+      SourceMapLoaderContent {
+        source_map: Some(ascii_str!(r#"{"version":3,"sources":["file:///a.ts"],"sourcesContent":["export function a(): string {\n  return \"a\";\n}\n"],"names":[],"mappings":"AAAA,OAAO,SAAS;EACd,OAAO;AACT"}"#).into()),
+      },
+    );
+
+    let mut source_mapper = SourceMapper::new(Rc::new(loader));
+
+    // Non-existent file
+    let application =
+      source_mapper.apply_source_map("file:///doesnt_exist.js", 1, 1);
+    assert_eq!(application, SourceMapApplication::Unchanged);
+
+    // File with no source map
+    let application = source_mapper.apply_source_map("file:///b.js", 1, 1);
+    assert_eq!(application, SourceMapApplication::Unchanged);
+
+    // File with a source map
+    let application = source_mapper.apply_source_map("file:///a.ts", 1, 21);
+    assert_eq!(
+      application,
+      SourceMapApplication::LineAndColumn {
+        line_number: 1,
+        column_number: 17
+      }
+    );
+
+    let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
+    assert_eq!(line, "fake source line");
+    // Get again to hit a cache
+    let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
+    assert_eq!(line, "fake source line");
   }
 }

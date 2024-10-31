@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::future::Future;
 use std::marker::PhantomData;
 use std::marker::PhantomPinned;
@@ -94,7 +94,10 @@ impl<const MAX_SIZE: usize, Output> ErasedFuture<MAX_SIZE, Output> {
   where
     F: Future<Output = Output>,
   {
-    F::poll(std::mem::transmute(pin), cx)
+    F::poll(
+      std::mem::transmute::<Pin<&mut TypeErased<MAX_SIZE>>, Pin<&mut F>>(pin),
+      cx,
+    )
   }
 
   #[allow(dead_code)]

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { setTimeout } from "checkin:timers";
 import { Worker } from "checkin:worker";
 console.log("main started");
@@ -9,4 +9,4 @@ console.log(`main got from worker "${message}"`);
 worker.terminate();
 await worker.closed;
 console.log("main exiting");
-await new Promise((r) => setTimeout(r, 100));
+await new Promise<void>((r) => setTimeout(r, 100));

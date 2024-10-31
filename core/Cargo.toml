@@ -1,18 +1,14 @@
-# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 [package]
 name = "deno_core"
-version = "0.258.0"
+version = "0.317.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
 readme = "README.md"
 repository.workspace = true
 description = "A modern JavaScript/TypeScript runtime built with V8, Rust, and Tokio"
-
-[[bin]]
-name = "dcore"
-path = "main.rs"
 
 [lib]
 path = "lib.rs"
@@ -24,9 +20,11 @@ v8_use_custom_libcxx = ["v8/use_custom_libcxx"]
 include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 unsafe_use_unprotected_platform = []
+snapshot_flags_eager_parse = []
 
 [dependencies]
 anyhow.workspace = true
+bincode.workspace = true
 bit-set.workspace = true
 bit-vec.workspace = true
 bytes.workspace = true
@@ -37,9 +35,9 @@ deno_unsync.workspace = true
 futures.workspace = true
 indexmap = "2.1.0"
 libc.workspace = true
-log.workspace = true
 memoffset.workspace = true
 parking_lot.workspace = true
+percent-encoding.workspace = true
 pin-project.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -54,10 +52,12 @@ wasm_dep_analyzer = "0.0.1"
 
 [dev-dependencies]
 bencher.workspace = true
+criterion.workspace = true
 deno_ast.workspace = true
 fastrand.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
+twox-hash.workspace = true
 unicycle = "0"
 
 [[bench]]
@@ -80,4 +80,9 @@ harness = false
 [[bench]]
 name = "arena"
 path = "benches/infra/arena.rs"
+harness = false
+
+[[bench]]
+name = "snapshot"
+path = "benches/snapshot/snapshot.rs"
 harness = false

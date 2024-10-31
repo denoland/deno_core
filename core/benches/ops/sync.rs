@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #![allow(deprecated)]
 use bencher::*;
 use deno_core::error::generic_error;
@@ -11,6 +11,8 @@ deno_core::extension!(
   ops = [
     op_void,
     op_void_nofast,
+    op_void_no_side_effects,
+    op_void_nofast_no_side_effects,
     op_void_metrics,
     op_void_nofast_metrics,
     op_u32,
@@ -18,6 +20,7 @@ deno_core::extension!(
     op_string,
     op_string_onebyte,
     op_string_bytestring,
+    op_string_bytestring_no_side_effects,
     op_string_option_u32,
     op_local,
     op_local_scope,
@@ -45,8 +48,14 @@ deno_core::extension!(
 #[op2(fast)]
 pub fn op_void() {}
 
+#[op2(fast, no_side_effects)]
+pub fn op_void_no_side_effects() {}
+
 #[op2(nofast)]
 pub fn op_void_nofast() {}
+
+#[op2(no_side_effects, nofast)]
+pub fn op_void_nofast_no_side_effects() {}
 
 #[op2(fast)]
 pub fn op_void_metrics() {}
@@ -79,6 +88,11 @@ pub fn op_string_bytestring(#[serde] s: ByteString) -> u32 {
   s.len() as _
 }
 
+#[op2(no_side_effects)]
+pub fn op_string_bytestring_no_side_effects(#[serde] s: ByteString) -> u32 {
+  s.len() as _
+}
+
 #[op2]
 pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
   Some(s.len() as _)
@@ -87,7 +101,7 @@ pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
 #[op2(fast)]
 pub fn op_local(_s: v8::Local<v8::String>) {}
 
-#[op2]
+#[op2(fast)]
 pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
 }
 
@@ -104,7 +118,7 @@ pub fn op_global_scope(
 ) {
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_scope(_scope: &mut v8::HandleScope) {}
 
 #[op2(nofast)]
@@ -191,15 +205,18 @@ fn bench_op(
 
   // Prime the optimizer
   runtime
-    .execute_script("", FastString::Owned(harness.into()))
+    .execute_script("", harness)
     .map_err(err_mapper)
     .unwrap();
   let bench = runtime.execute_script("", ascii_str!("bench")).unwrap();
   let mut scope = runtime.handle_scope();
+  #[allow(clippy::unnecessary_fallible_conversions)]
   let bench: v8::Local<v8::Function> =
-    v8::Local::new(&mut scope, bench).try_into().unwrap();
+    v8::Local::<v8::Value>::new(&mut scope, bench)
+      .try_into()
+      .unwrap();
   b.iter(|| {
-    let recv = v8::undefined(&mut scope).try_into().unwrap();
+    let recv = v8::undefined(&mut scope).into();
     bench.call(&mut scope, recv, &[]);
   });
 }
@@ -225,6 +242,26 @@ fn bench_op_void_2x(b: &mut Bencher) {
 /// A void function with no return value.
 fn bench_op_void_nofast(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_void_nofast", 0, "op_void_nofast();");
+}
+
+fn bench_op_void_no_side_effects(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_void_no_side_effects",
+    0,
+    "op_void_no_side_effects();",
+  );
+}
+
+fn bench_op_void_nofast_no_side_effects(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_void_nofast_no_side_effects",
+    0,
+    "op_void_nofast_no_side_effects();",
+  );
 }
 
 /// A void function with no return value.
@@ -316,6 +353,16 @@ fn bench_op_string_onebyte_large_1000000(b: &mut Bencher) {
 /// A string function with a numeric return value.
 fn bench_op_string_bytestring(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_string_bytestring", 1, "accum += op_string_bytestring('this is a reasonably long string that we would like to get the length of!');");
+}
+
+fn bench_op_string_bytestring_no_side_effects(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_bytestring_no_side_effects",
+    1,
+    "accum += op_string_bytestring_no_side_effects('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A string function with a numeric return value.
@@ -454,11 +501,14 @@ benchmark_group!(
   bench_op_void,
   bench_op_void_2x,
   bench_op_void_nofast,
+  bench_op_void_no_side_effects,
+  bench_op_void_nofast_no_side_effects,
   bench_op_void_metrics,
   bench_op_void_nofast_metrics,
   bench_op_u32,
   bench_op_option_u32,
   bench_op_string_bytestring,
+  bench_op_string_bytestring_no_side_effects,
   bench_op_string,
   bench_op_string_large_1000,
   bench_op_string_large_1000000,

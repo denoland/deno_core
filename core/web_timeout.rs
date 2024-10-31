@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use cooked_waker::IntoWaker;
 use cooked_waker::ViaRawPointer;
 use cooked_waker::Wake;
@@ -31,7 +31,16 @@ enum TimerType {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct TimerKey(Instant, u64, TimerType);
+struct TimerKey(Instant, u64, TimerType, bool);
+
+struct TimerData<T> {
+  data: T,
+  unrefd: bool,
+  #[cfg(any(windows, test))]
+  high_res: bool,
+  #[cfg(not(any(windows, test)))]
+  high_res: (),
+}
 
 /// Implements much of the specification described by https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html.
 ///
@@ -67,15 +76,14 @@ pub(crate) struct WebTimers<T> {
   next_id: Cell<WebTimerId>,
   timers: RefCell<BTreeSet<TimerKey>>,
   /// We choose a `BTreeMap` over `HashMap` because of memory performance.
-  data_map: RefCell<BTreeMap<WebTimerId, (T, bool)>>,
-  /// How may deleted entries are in the timers BTreeMap? We use this to determine
-  /// when there's too much garbage and need to rebuild the map.
-  tombstone_count: Cell<usize>,
+  data_map: RefCell<BTreeMap<WebTimerId, TimerData<T>>>,
   /// How many unref'd timers exist?
   unrefd_count: Cell<usize>,
   /// A boxed MutableSleep that will allow us to change the Tokio sleep timeout as needed.
   /// Because this is boxed, we can "safely" unsafely poll it.
   sleep: Box<MutableSleep>,
+  /// The high-res timer lock. No-op on platforms other than Windows.
+  high_res_timer_lock: HighResTimerLock,
 }
 
 impl<T> Default for WebTimers<T> {
@@ -84,21 +92,21 @@ impl<T> Default for WebTimers<T> {
       next_id: Default::default(),
       timers: Default::default(),
       data_map: Default::default(),
-      tombstone_count: Default::default(),
       unrefd_count: Default::default(),
       sleep: MutableSleep::new(),
+      high_res_timer_lock: Default::default(),
     }
   }
 }
 
 pub(crate) struct WebTimersIterator<'a, T> {
-  data: Ref<'a, BTreeMap<WebTimerId, (T, bool)>>,
+  data: Ref<'a, BTreeMap<WebTimerId, TimerData<T>>>,
   timers: Ref<'a, BTreeSet<TimerKey>>,
 }
 
 impl<'a, T> IntoIterator for &'a WebTimersIterator<'a, T> {
   type IntoIter = WebTimersIteratorImpl<'a, T>;
-  type Item = (u64, bool);
+  type Item = (u64, bool, bool);
 
   fn into_iter(self) -> Self::IntoIter {
     WebTimersIteratorImpl {
@@ -109,19 +117,17 @@ impl<'a, T> IntoIterator for &'a WebTimersIterator<'a, T> {
 }
 
 pub(crate) struct WebTimersIteratorImpl<'a, T> {
-  data: &'a BTreeMap<WebTimerId, (T, bool)>,
+  data: &'a BTreeMap<WebTimerId, TimerData<T>>,
   timers: btree_set::Iter<'a, TimerKey>,
 }
 
 impl<'a, T> Iterator for WebTimersIteratorImpl<'a, T> {
-  type Item = (u64, bool);
+  type Item = (u64, bool, bool);
   fn next(&mut self) -> Option<Self::Item> {
     loop {
-      let Some(item) = self.timers.next() else {
-        return None;
-      };
+      let item = self.timers.next()?;
       if self.data.contains_key(&item.1) {
-        return Some((item.1, !matches!(item.2, TimerType::Once)));
+        return Some((item.1, !matches!(item.2, TimerType::Once), item.3));
       }
     }
   }
@@ -161,7 +167,7 @@ impl MutableSleep {
         // Already have this waker
         let waker = cx.waker();
         if !external.will_wake(waker) {
-          *external = waker.clone();
+          external.clone_from(waker);
         }
         Poll::Pending
       } else {
@@ -259,7 +265,9 @@ impl<T: Clone> WebTimers<T> {
 
   /// Refs a timer by ID. Invalid IDs are ignored.
   pub fn ref_timer(&self, id: WebTimerId) {
-    if let Some((_, unrefd)) = self.data_map.borrow_mut().get_mut(&id) {
+    if let Some(TimerData { unrefd, .. }) =
+      self.data_map.borrow_mut().get_mut(&id)
+    {
       if std::mem::replace(unrefd, false) {
         self.unrefd_count.set(self.unrefd_count.get() - 1);
       }
@@ -268,7 +276,9 @@ impl<T: Clone> WebTimers<T> {
 
   /// Unrefs a timer by ID. Invalid IDs are ignored.
   pub fn unref_timer(&self, id: WebTimerId) {
-    if let Some((_, unrefd)) = self.data_map.borrow_mut().get_mut(&id) {
+    if let Some(TimerData { unrefd, .. }) =
+      self.data_map.borrow_mut().get_mut(&id)
+    {
       if !std::mem::replace(unrefd, true) {
         self.unrefd_count.set(self.unrefd_count.get() + 1);
       }
@@ -277,12 +287,21 @@ impl<T: Clone> WebTimers<T> {
 
   /// Queues a timer to be fired in order with the other timers in this set of timers.
   pub fn queue_timer(&self, timeout_ms: u64, data: T) -> WebTimerId {
-    self.queue_timer_internal(false, timeout_ms, data)
+    self.queue_timer_internal(false, timeout_ms, data, false)
   }
 
   /// Queues a timer to be fired in order with the other timers in this set of timers.
   pub fn queue_timer_repeat(&self, timeout_ms: u64, data: T) -> WebTimerId {
-    self.queue_timer_internal(true, timeout_ms, data)
+    self.queue_timer_internal(true, timeout_ms, data, false)
+  }
+
+  pub fn queue_system_timer(
+    &self,
+    repeat: bool,
+    timeout_ms: u64,
+    data: T,
+  ) -> WebTimerId {
+    self.queue_timer_internal(repeat, timeout_ms, data, true)
   }
 
   fn queue_timer_internal(
@@ -290,7 +309,11 @@ impl<T: Clone> WebTimers<T> {
     repeat: bool,
     timeout_ms: u64,
     data: T,
+    is_system_timer: bool,
   ) -> WebTimerId {
+    #[allow(clippy::let_unit_value)]
+    let high_res = self.high_res_timer_lock.maybe_lock(timeout_ms);
+
     let id = self.next_id.get() + 1;
     self.next_id.set(id);
 
@@ -313,10 +336,17 @@ impl<T: Clone> WebTimers<T> {
     } else {
       TimerType::Once
     };
-    timers.insert(TimerKey(deadline, id, timer_type));
+    timers.insert(TimerKey(deadline, id, timer_type, is_system_timer));
 
     let mut data_map = self.data_map.borrow_mut();
-    data_map.insert(id, (data, false));
+    data_map.insert(
+      id,
+      TimerData {
+        data,
+        unrefd: false,
+        high_res,
+      },
+    );
     id
   }
 
@@ -324,20 +354,27 @@ impl<T: Clone> WebTimers<T> {
   /// with the given ID was found.
   pub fn cancel_timer(&self, timer: u64) -> Option<T> {
     let mut data_map = self.data_map.borrow_mut();
-    if let Some((data, unrefd)) = data_map.remove(&timer) {
+    if let Some(TimerData {
+      data,
+      unrefd,
+      high_res,
+    }) = data_map.remove(&timer)
+    {
       if data_map.is_empty() {
-        // When the # of running timers hits zero, clear the timer tree and
-        // tombstone count.
+        // When the # of running timers hits zero, clear the timer tree.
+        // When debug assertions are enabled, we do a consistency check.
+        debug_assert_eq!(self.unrefd_count.get(), if unrefd { 1 } else { 0 });
+        #[cfg(any(windows, test))]
+        debug_assert_eq!(self.high_res_timer_lock.is_locked(), high_res);
+        self.high_res_timer_lock.clear();
         self.unrefd_count.set(0);
         self.timers.borrow_mut().clear();
-        self.tombstone_count.set(0);
         self.sleep.clear();
       } else {
+        self.high_res_timer_lock.maybe_unlock(high_res);
         if unrefd {
           self.unrefd_count.set(self.unrefd_count.get() - 1);
         }
-
-        self.tombstone_count.set(self.tombstone_count.get() + 1);
       }
       Some(data)
     } else {
@@ -353,11 +390,11 @@ impl<T: Clone> WebTimers<T> {
     let mut data = self.data_map.borrow_mut();
     let mut output = vec![];
 
-    let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once));
+    let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once, false));
     std::mem::swap(&mut split, &mut timers);
-    for TimerKey(_, id, timer_type) in split {
+    for TimerKey(_, id, timer_type, is_system_timer) in split {
       if let TimerType::Repeat(interval) = timer_type {
-        if let Some((data, _)) = data.get(&id) {
+        if let Some(TimerData { data, .. }) = data.get(&id) {
           output.push((id, data.clone()));
           timers.insert(TimerKey(
             now
@@ -365,17 +402,20 @@ impl<T: Clone> WebTimers<T> {
               .unwrap(),
             id,
             timer_type,
+            is_system_timer,
           ));
-        } else {
-          self.tombstone_count.set(self.tombstone_count.get() - 1);
         }
-      } else if let Some((data, unrefd)) = data.remove(&id) {
+      } else if let Some(TimerData {
+        data,
+        unrefd,
+        high_res,
+      }) = data.remove(&id)
+      {
+        self.high_res_timer_lock.maybe_unlock(high_res);
         if unrefd {
           self.unrefd_count.set(self.unrefd_count.get() - 1);
         }
         output.push((id, data));
-      } else {
-        self.tombstone_count.set(self.tombstone_count.get() - 1);
       }
     }
 
@@ -384,7 +424,7 @@ impl<T: Clone> WebTimers<T> {
       // We should never have an ineffective poll when the data map is empty, as we check
       // for this in cancel_timer.
       debug_assert!(!data.is_empty());
-      while let Some(TimerKey(_, id, _)) = timers.first() {
+      while let Some(TimerKey(_, id, ..)) = timers.first() {
         if data.contains_key(id) {
           break;
         } else {
@@ -398,19 +438,17 @@ impl<T: Clone> WebTimers<T> {
     }
 
     if data.is_empty() {
-      // When the # of running timers hits zero, clear the timer tree and
-      // tombstone count.
-      if self.tombstone_count.take() > 0 {
+      // When the # of running timers hits zero, clear the timer tree.
+      if !timers.is_empty() {
         timers.clear();
         self.sleep.clear();
       }
     } else {
+      // If we have more tombstones than data, and tombstones are >
+      // COMPACTION_MINIMUM, run a compaction.
       const COMPACTION_MINIMUM: usize = 16;
-      // If we have more tombstones than data, and tombstones are > COMPACTION_MINIMUM, run a compaction
-      if self.tombstone_count.get() > data.len()
-        && self.tombstone_count.get() > COMPACTION_MINIMUM
-      {
-        self.tombstone_count.set(0);
+      let tombstone_count = timers.len() - data.len();
+      if tombstone_count > data.len() && tombstone_count > COMPACTION_MINIMUM {
         timers.retain(|k| data.contains_key(&k.1));
       }
       if let Some(TimerKey(k, ..)) = timers.first() {
@@ -422,7 +460,6 @@ impl<T: Clone> WebTimers<T> {
   }
 
   /// Is this set of timers empty?
-  #[cfg(test)]
   pub fn is_empty(&self) -> bool {
     self.data_map.borrow().is_empty()
   }
@@ -440,21 +477,112 @@ impl<T: Clone> WebTimers<T> {
   #[cfg(test)]
   pub fn assert_consistent(&self) {
     if self.data_map.borrow().is_empty() {
-      // If the data map is empty, we should have no timers, no tombstones and no unref'd count
+      // If the data map is empty, we should have no timers, no unref'd count, no high-res lock
       assert_eq!(self.timers.borrow().len(), 0);
-      assert_eq!(self.tombstone_count.get(), 0);
       assert_eq!(self.unrefd_count.get(), 0);
+      assert!(!self.high_res_timer_lock.is_locked());
     } else {
-      assert_eq!(
-        self.timers.borrow().len(),
-        self.data_map.borrow().len() + self.tombstone_count.get()
-      );
       assert!(self.unrefd_count.get() <= self.data_map.borrow().len());
+      // The high-res lock count must be <= the number of remaining timers
+      assert!(self.high_res_timer_lock.lock_count.get() <= self.len());
     }
   }
 
   pub fn has_pending_timers(&self) -> bool {
     self.len() > self.unref_len()
+  }
+}
+
+#[cfg(windows)]
+#[link(name = "winmm")]
+extern "C" {
+  fn timeBeginPeriod(n: u32);
+  fn timeEndPeriod(n: u32);
+}
+
+#[derive(Default)]
+struct HighResTimerLock {
+  #[cfg(any(windows, test))]
+  lock_count: Cell<usize>,
+}
+
+impl HighResTimerLock {
+  /// If a timer is requested with <=100ms resolution, request the high-res timer. Since the default
+  /// Windows timer period is 15ms, this means a 100ms timer could fire at 115ms (15% late). We assume that
+  /// timers longer than 100ms are a reasonable cutoff here.
+  ///
+  /// The high-res timers on Windows are still limited. Unfortunately this means that our shortest duration 4ms timers
+  /// can still be 25% late, but without a more complex timer system or spinning on the clock itself, we're somewhat
+  /// bounded by the OS' scheduler itself.
+  #[cfg(any(windows, test))]
+  const LOW_RES_TIMER_RESOLUTION: u64 = 100;
+
+  #[cfg(any(windows, test))]
+  #[inline(always)]
+  fn maybe_unlock(&self, high_res: bool) {
+    if high_res {
+      let old = self.lock_count.get();
+      debug_assert!(old > 0);
+      let new = old - 1;
+      self.lock_count.set(new);
+      #[cfg(windows)]
+      if new == 0 {
+        // SAFETY: Windows API
+        unsafe {
+          timeEndPeriod(1);
+        }
+      }
+    }
+  }
+
+  #[cfg(not(any(windows, test)))]
+  #[inline(always)]
+  fn maybe_unlock(&self, _high_res: ()) {}
+
+  #[cfg(any(windows, test))]
+  #[inline(always)]
+  fn maybe_lock(&self, timeout_ms: u64) -> bool {
+    if timeout_ms <= Self::LOW_RES_TIMER_RESOLUTION {
+      let old = self.lock_count.get();
+      #[cfg(windows)]
+      if old == 0 {
+        // SAFETY: Windows API
+        unsafe {
+          timeBeginPeriod(1);
+        }
+      }
+      self.lock_count.set(old + 1);
+      true
+    } else {
+      false
+    }
+  }
+
+  #[cfg(not(any(windows, test)))]
+  #[inline(always)]
+  fn maybe_lock(&self, _timeout_ms: u64) {}
+
+  #[cfg(any(windows, test))]
+  #[inline(always)]
+  fn clear(&self) {
+    #[cfg(windows)]
+    if self.lock_count.get() > 0 {
+      // SAFETY: Windows API
+      unsafe {
+        timeEndPeriod(1);
+      }
+    }
+
+    self.lock_count.set(0);
+  }
+
+  #[cfg(not(any(windows, test)))]
+  #[inline(always)]
+  fn clear(&self) {}
+
+  #[cfg(any(windows, test))]
+  fn is_locked(&self) -> bool {
+    self.lock_count.get() > 0
   }
 }
 
@@ -481,9 +609,21 @@ mod tests {
     let len = timers.len();
     let mut v = vec![];
     while !timers.is_empty() {
-      let mut batch = poll_fn(|cx| timers.poll_timers(cx)).await;
+      let mut batch = poll_fn(|cx| {
+        timers.assert_consistent();
+        timers.poll_timers(cx)
+      })
+      .await;
       v.append(&mut batch);
-      eprintln!("{}", v.len());
+      #[allow(clippy::print_stderr)]
+      {
+        eprintln!(
+          "{} ({} {})",
+          v.len(),
+          timers.len(),
+          timers.data_map.borrow().len(),
+        );
+      }
       timers.assert_consistent();
     }
     assert_eq!(v.len(), len);
@@ -501,21 +641,53 @@ mod tests {
     });
   }
 
-  #[rstest]
   #[test]
-  fn test_timer_cancel_1(#[values(0, 1)] which: u64) {
+  fn test_high_res_lock() {
     async_test(async {
       let timers = WebTimers::<()>::default();
-      for i in 0..2 {
-        let id = timers.queue_timer(i * 100, ());
+      assert!(!timers.high_res_timer_lock.is_locked());
+      let _a = timers.queue_timer(1, ());
+      assert!(timers.high_res_timer_lock.is_locked());
+
+      let v = poll_all(&timers).await;
+      assert_eq!(v.len(), 1);
+      assert!(!timers.high_res_timer_lock.is_locked());
+    });
+  }
+
+  #[rstest]
+  #[test]
+  fn test_timer_cancel_1(#[values(0, 1, 2, 3)] which: u64) {
+    async_test(async {
+      let timers = WebTimers::<()>::default();
+      for i in 0..4 {
+        let id = timers.queue_timer(i * 25, ());
         if i == which {
           assert!(timers.cancel_timer(id).is_some());
         }
       }
-      assert_eq!(timers.len(), 1);
+      assert_eq!(timers.len(), 3);
 
       let v = poll_all(&timers).await;
-      assert_eq!(v.len(), 1);
+      assert_eq!(v.len(), 3);
+    })
+  }
+
+  #[rstest]
+  #[test]
+  fn test_timer_cancel_2(#[values(0, 1, 2)] which: u64) {
+    async_test(async {
+      let timers = WebTimers::<()>::default();
+      for i in 0..4 {
+        let id = timers.queue_timer(i * 25, ());
+        if i == which || i == which + 1 {
+          assert!(timers.cancel_timer(id).is_some());
+        }
+      }
+      assert_eq!(timers.len(), 2);
+
+      let v = poll_all(&timers).await;
+      assert_eq!(v.len(), 2);
     })
   }
 
@@ -604,8 +776,8 @@ mod tests {
       for _ in 0..TEN_THOUSAND {
         ids.push(timers.queue_timer(1, ()));
       }
-      for _ in 0..10 {
-        timers.queue_timer(1000, ());
+      for i in 0..10 {
+        timers.queue_timer(i * 25, ());
       }
       for id in ids {
         timers.cancel_timer(id);
@@ -675,7 +847,10 @@ mod tests {
         timers.assert_consistent();
       }
 
-      eprintln!("count={count} ref_count={ref_count}");
+      #[allow(clippy::print_stderr)]
+      {
+        eprintln!("count={count} ref_count={ref_count}");
+      }
 
       let v = poll_all(&timers).await;
       assert_eq!(v.len(), count);

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #[macro_export]
 macro_rules! prelude {
   () => {
@@ -26,6 +26,7 @@ mod tests {
     // run in parallel: https://github.com/dtolnay/trybuild/pull/168)
     let t = trybuild::TestCases::new();
     t.pass("../op2/test_cases/**/*.rs");
+    t.compile_fail("../op2/test_cases_fail/**/*.rs");
   }
 
   #[rustversion::not(nightly)]
@@ -34,6 +35,7 @@ mod tests {
     // Run all the tests if we're in the CI
     if let Ok(true) = std::env::var("CI").map(|s| s == "true") {
       let t = trybuild::TestCases::new();
+      t.compile_fail("../op2/test_cases_fail/**/*.rs");
       t.pass("../op2/test_cases/**/*.rs");
     }
   }

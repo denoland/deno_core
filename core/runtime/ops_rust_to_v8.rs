@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 //! This module provides traits and macros that facilitate the conversion of Rust objects into v8 objects.
 //!
@@ -160,6 +160,13 @@ impl Marker for NumberMarker {}
 /// This buffer should be serialized as an ArrayBuffer.
 pub struct ArrayBufferMarker;
 impl Marker for ArrayBufferMarker {}
+
+/// This struct should be wrapped with cppgc.
+pub struct CppGcMarker;
+impl Marker for CppGcMarker {}
+
+pub struct ToV8Marker;
+impl Marker for ToV8Marker {}
 
 trait Marker {}
 
@@ -353,7 +360,7 @@ to_v8!(RustToV8Marker<ArrayBufferMarker, Box<[u8]>>: |buf, scope| {
 });
 to_v8_fallible!(Box<[u8]>: |buf, scope| {
   let len = buf.len();
-  let ab = unsafe { v8::Local::cast(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
+  let ab = unsafe { v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
   v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
 to_v8!(RustToV8Marker<ArrayBufferMarker, Vec<u8>>: |value, scope| {
@@ -382,7 +389,7 @@ to_v8!(RustToV8Marker<ArrayBufferMarker, BytesMut>: |value, scope| {
 });
 to_v8_fallible!(BytesMut: |buf, scope| {
   let len = buf.len();
-  let ab = unsafe { v8::Local::cast(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
+  let ab = unsafe { v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
   v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
 
@@ -399,6 +406,36 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
     scope: &mut v8::HandleScope<'a>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
     serde_v8::to_v8(scope, self.0)
+  }
+}
+
+//
+// CppGc
+//
+
+impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
+  for RustToV8Marker<CppGcMarker, T>
+{
+  #[inline(always)]
+  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+    v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_object(
+      scope, self.0,
+    ))
+  }
+}
+
+impl<'a, T: crate::ToV8<'a>> RustToV8Fallible<'a>
+  for RustToV8Marker<ToV8Marker, T>
+{
+  #[inline(always)]
+  fn to_v8_fallible(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
+    self
+      .0
+      .to_v8(scope)
+      .map_err(|e| serde_v8::Error::Custom(Box::new(e)))
   }
 }
 

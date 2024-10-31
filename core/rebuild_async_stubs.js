@@ -1,5 +1,5 @@
 #!/usr/bin/env deno run --allow-read --allow-write
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 const doNotModify =
   "/* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */\n";
@@ -17,14 +17,11 @@ function __TEMPLATE__(__ARGS_PARAM__) {
     ErrorCaptureStackTrace(err, __TEMPLATE__);
     return PromiseReject(err);
   }
+  if (isLeakTracingEnabled) {
+    submitLeakTrace(id);
+  }
   nextPromiseId = (id + 1) & 0xffffffff;
-  let promise = PromisePrototypeThen(
-    setPromise(id),
-    unwrapOpError(core_.eventLoopTick),
-  );
-  promise = handleOpCallTracing(opName, id, promise);
-  promise[promiseIdSymbol] = id;
-  return promise;
+  return setPromise(id);
 }
 
 const infraJsPath = new URL("00_infra.js", import.meta.url);

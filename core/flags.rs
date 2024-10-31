@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 /// Pass the command line arguments to v8.
 /// The first element of args (which usually corresponds to the binary name) is

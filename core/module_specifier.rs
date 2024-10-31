@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::normalize_path;
 use std::error::Error;
@@ -124,7 +124,7 @@ pub fn resolve_url_or_path(
 /// ModuleSpecifier. A relative path is considered relative to the passed
 /// `current_dir`.
 pub fn resolve_path(
-  path_str: &str,
+  path_str: impl AsRef<Path>,
   current_dir: &Path,
 ) -> Result<ModuleSpecifier, ModuleResolutionError> {
   let path = current_dir.join(path_str);
@@ -143,10 +143,10 @@ pub fn resolve_path(
 /// We additionally require the scheme to be at least 2 characters long,
 /// because otherwise a windows path like c:/foo would be treated as a URL,
 /// while no schemes with a one-letter name actually exist.
-fn specifier_has_uri_scheme(specifier: &str) -> bool {
+pub fn specifier_has_uri_scheme(specifier: &str) -> bool {
   let mut chars = specifier.chars();
   let mut len = 0usize;
-  // THe first character must be a letter.
+  // The first character must be a letter.
   match chars.next() {
     Some(c) if c.is_ascii_alphabetic() => len += 1,
     _ => return false,
@@ -162,7 +162,7 @@ fn specifier_has_uri_scheme(specifier: &str) -> bool {
   }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod tests {
   use super::*;
   use crate::serde_json::from_value;
@@ -334,8 +334,13 @@ mod tests {
       ),
     ];
 
-    // The local path tests assume that the cwd is the deno repo root.
-    let cwd = current_dir().unwrap();
+    // The local path tests assume that the cwd is the deno repo root. Note
+    // that we can't use `cwd` in miri tests, so we just use `/miri` instead.
+    let cwd = if cfg!(miri) {
+      PathBuf::from("/miri")
+    } else {
+      current_dir().unwrap()
+    };
     let cwd_str = cwd.to_str().unwrap();
 
     if cfg!(target_os = "windows") {
