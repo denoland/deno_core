@@ -775,7 +775,7 @@ impl ModuleMap {
 
     let (name1, name2) = name.into_cheap_copy();
     let value = v8::Local::new(scope, wasm_module_value);
-    let exports = vec![(FastString::StaticAscii("default"), value)];
+    let exports = vec![(ascii_str!("default"), value)];
     let _synthetic_mod_id = self.new_synthetic_module(
       scope,
       name1,
@@ -790,6 +790,7 @@ impl ModuleMap {
       name2,
       js_wasm_module_source.into(),
       is_dynamic_import,
+      None,
     )
   }
 
