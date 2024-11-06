@@ -18,6 +18,7 @@ use crate::OpState;
 use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 use v8::ValueDeserializerHelper;
@@ -67,13 +68,13 @@ pub fn op_leak_tracing_submit(
   scope: &mut v8::HandleScope,
   #[smi] kind: u8,
   #[smi] id: i32,
-  #[string] trace: &str,
+  #[string] trace: Cow<'_, str>,
 ) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.submit(
     RuntimeActivityType::from_u8(kind),
     id as _,
-    trace,
+    &trace,
   );
 }
 

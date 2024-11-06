@@ -97,11 +97,19 @@ impl FastSignature {
     &self,
     generator_state: &mut GeneratorState,
   ) -> Result<Vec<TokenStream>, V8SignatureMappingError> {
+    // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
+    // the scope/opstate in the intermediate stages.
     let mut call_args = vec![];
+    let mut deferred = vec![];
+
     for arg in &self.args {
       match arg {
-        FastArg::Actual { arg, name_out, .. }
-        | FastArg::Virtual { name_out, arg } => call_args.push(
+        FastArg::Actual { arg, name_out, .. } => call_args.push(
+          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
+            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
+          )?,
+        ),
+        FastArg::Virtual { name_out, arg } => deferred.push(
           map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
             |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
           )?,
@@ -109,6 +117,9 @@ impl FastSignature {
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
     }
+
+    call_args.extend(deferred);
+
     Ok(call_args)
   }
 
@@ -313,6 +324,14 @@ pub(crate) fn get_fast_signature(
   }))
 }
 
+fn create_isolate(generator_state: &mut GeneratorState) -> TokenStream {
+  generator_state.needs_fast_api_callback_options = true;
+  gs_quote!(generator_state(fast_api_callback_options) => {
+    // SAFETY: This is using an &FastApiCallbackOptions inside a fast call.
+    unsafe { &mut *#fast_api_callback_options.isolate };
+  })
+}
+
 fn create_scope(generator_state: &mut GeneratorState) -> TokenStream {
   generator_state.needs_fast_api_callback_options = true;
   gs_quote!(generator_state(fast_api_callback_options) => {
@@ -478,6 +497,11 @@ pub(crate) fn generate_dispatch_fast(
     gs_quote!(generator_state(scope) => {
       let mut #scope = #create_scope;
     })
+  } else if generator_state.needs_isolate {
+    let create_isolate = create_isolate(generator_state);
+    gs_quote!(generator_state(scope) => {
+      let mut #scope = #create_isolate;
+    })
   } else {
     quote!()
   };
@@ -590,6 +614,7 @@ fn map_v8_fastcall_arg_to_arg(
     opctx,
     js_runtime_state,
     scope,
+    needs_isolate,
     needs_scope,
     needs_opctx,
     needs_fast_api_callback_options,
@@ -658,9 +683,9 @@ fn map_v8_fastcall_arg_to_arg(
       fast_api_typed_array_to_buffer(arg_ident, arg_ident, *buffer)?
     }
     Arg::Special(Special::Isolate) => {
-      *needs_fast_api_callback_options = true;
-      gs_quote!(generator_state(fast_api_callback_options) => {
-       let #arg_ident = #fast_api_callback_options.isolate;
+      *needs_isolate = true;
+      gs_quote!(generator_state(scope) => {
+       let #arg_ident = &mut *#scope;
       })
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
@@ -720,22 +745,46 @@ fn map_v8_fastcall_arg_to_arg(
       }
     }
     Arg::String(Strings::RefStr) => {
-      quote! {
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = &deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
-      }
+      // quote! {
+      //   let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+      //   let #arg_ident = &deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
+      // }
+      *needs_isolate = true;
+      gs_quote!(generator_state(scope) => {
+        let mut #arg_temp: ([::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE], Option<v8::ValueView>) = {
+          let buf = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+          let value_view = deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+          (buf, value_view)
+        };
+        let #arg_ident = if let Some(value_view) = &#arg_temp.1 {
+          &deno_core::_ops::to_str_from_view(value_view, &mut #arg_temp.0)
+        } else {
+          ""
+        };
+        // let value_view = deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+        // let #arg_ident = "";
+      })
     }
     Arg::String(Strings::String) => {
-      quote!(let #arg_ident = deno_core::_ops::to_string_ptr(unsafe { &mut *#arg_ident });)
+      *needs_isolate = true;
+      quote!(let #arg_ident = deno_core::_ops::to_string(&mut *#scope, &*#arg_ident);)
     }
     Arg::String(Strings::CowStr) => {
-      quote! {
+      *needs_isolate = true;
+      gs_quote!(generator_state(scope) => {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
-      }
+        let #arg_ident = deno_core::_ops::to_str(&mut *#scope, &*#arg_ident, &mut #arg_temp);
+      })
     }
     Arg::String(Strings::CowByte) => {
-      quote!(let #arg_ident = deno_core::_ops::to_cow_byte_ptr(unsafe { &mut *#arg_ident });)
+      *needs_isolate = true;
+      let throw_exception =
+        throw_type_error(generator_state, "expected one byte string");
+      gs_quote!(generator_state(scope) => {
+        let Ok(#arg_ident) = deno_core::_ops::to_cow_one_byte(&mut *#scope, &*#arg_ident) else {
+          #throw_exception
+        };
+      })
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
@@ -755,13 +804,11 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_api_callback_options = true;
+      *needs_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(fast_api_callback_options) => {
-        // SAFETY: Isolate is valid if this function is being called.
-        let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
-        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(isolate, #arg_ident) else {
+      gs_quote!(generator_state(scope) => {
+        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut *#scope, #arg_ident) else {
           #throw_exception
         };
         let #arg_ident = &*#arg_ident;
@@ -851,7 +898,6 @@ fn map_arg_to_v8_fastcall_type(
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
     | Arg::Option(_)
-    | Arg::OptionString(_)
     | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
     | Arg::FromV8(_)
@@ -885,15 +931,16 @@ fn map_arg_to_v8_fastcall_type(
     ) => V8FastCallType::F64,
     Arg::Numeric(NumericArg::f32, _) => V8FastCallType::F32,
     Arg::Numeric(NumericArg::f64, _) => V8FastCallType::F64,
-    // Ref strings that are one byte internally may be passed as a SeqOneByteString,
-    // which gives us a FastApiOneByteString.
-    Arg::String(Strings::RefStr) => V8FastCallType::SeqOneByteString,
-    // Owned strings can be fast, but we'll have to copy them.
-    Arg::String(Strings::String) => V8FastCallType::SeqOneByteString,
-    // Cow strings can be fast, but may require copying
-    Arg::String(Strings::CowStr) => V8FastCallType::SeqOneByteString,
-    // Cow byte strings can be fast and don't require copying
-    Arg::String(Strings::CowByte) => V8FastCallType::SeqOneByteString,
+    // Strings are passed as v8::Value, because SeqOneByteString is too
+    // restrictive in what values are eligible for fastcalls.
+    Arg::OptionString(Strings::RefStr) => return Ok(None),
+    Arg::OptionString(Strings::String) => return Ok(None),
+    Arg::OptionString(Strings::CowStr) => return Ok(None),
+    Arg::OptionString(Strings::CowByte) => return Ok(None),
+    Arg::String(Strings::RefStr) => V8FastCallType::V8Value,
+    Arg::String(Strings::String) => V8FastCallType::V8Value,
+    Arg::String(Strings::CowStr) => V8FastCallType::V8Value,
+    Arg::String(Strings::CowByte) => V8FastCallType::V8Value,
     Arg::External(..) => V8FastCallType::Pointer,
     Arg::CppGcResource(..) => V8FastCallType::V8Value,
     Arg::OptionCppGcResource(..) => V8FastCallType::V8Value,
