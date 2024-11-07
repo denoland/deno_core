@@ -434,6 +434,21 @@ pub(crate) fn generate_dispatch_fast(
     })
   };
 
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    generator_state.needs_opctx = true;
+    generator_state.needs_scope = true;
+    gs_quote!(generator_state(stack_trace, opctx, scope) =>
+    (let #stack_trace = if #opctx.enable_stack_trace_arg {
+      let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
+      let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
+      let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
+      Some(js_error.frames)
+    } else { None };)
+    )
+  } else {
+    quote!()
+  };
+
   let with_js_runtime_state = if generator_state.needs_js_runtime_state {
     generator_state.needs_opctx = true;
     gs_quote!(generator_state(js_runtime_state, opctx) => {
@@ -552,6 +567,7 @@ pub(crate) fn generate_dispatch_fast(
       #with_fast_api_callback_options
       #with_scope
       #with_opctx
+      #with_stack_trace
       #with_js_runtime_state
       #with_self
       let #result = {
@@ -590,9 +606,11 @@ fn map_v8_fastcall_arg_to_arg(
     opctx,
     js_runtime_state,
     scope,
+    stack_trace,
     needs_scope,
     needs_opctx,
     needs_fast_api_callback_options,
+    needs_stack_trace,
     needs_js_runtime_state,
     ..
   } = generator_state;
@@ -662,6 +680,10 @@ fn map_v8_fastcall_arg_to_arg(
       gs_quote!(generator_state(fast_api_callback_options) => {
        let #arg_ident = #fast_api_callback_options.isolate;
       })
+    }
+    Arg::Special(Special::StackTrace) => {
+      *needs_stack_trace = true;
+      quote!(let #arg_ident = #stack_trace;)
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
@@ -847,6 +869,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
+    | Arg::Special(Special::StackTrace)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
@@ -855,8 +878,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
     | Arg::FromV8(_)
-    | Arg::Ref(..)
-    | Arg::Special(Special::StackTrace) => return Ok(None),
+    | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
     Arg::V8Global(_) | Arg::OptionV8Global(_) => return Ok(None),
     // We do support v8 type arguments (including Option<...>)

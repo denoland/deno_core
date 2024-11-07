@@ -98,12 +98,11 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_opctx =
-    if generator_state.needs_opctx | generator_state.needs_stack_trace {
-      with_opctx(generator_state)
-    } else {
-      quote!()
-    };
+  let with_opctx = if generator_state.needs_opctx {
+    with_opctx(generator_state)
+  } else {
+    quote!()
+  };
 
   let with_retval = if generator_state.needs_retval {
     with_retval(generator_state)
@@ -124,12 +123,11 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_scope =
-    if generator_state.needs_scope | generator_state.needs_stack_trace {
-      with_scope(generator_state)
-    } else {
-      quote!()
-    };
+  let with_scope = if generator_state.needs_scope {
+    with_scope(generator_state)
+  } else {
+    quote!()
+  };
 
   Ok(
     gs_quote!(generator_state(opctx, info, slow_function, slow_function_metrics) => {

@@ -60,8 +60,11 @@ fn op_smi_signed_return(
   a as Int32 + b as Int32 + c as Int32 + d as Int32
 }
 
-#[op2]
+#[op2(fast)]
 fn op_stack_trace(
   #[string] _: String,
   #[stack_trace] _: Option<Vec<JsStackFrame>>,
 ) {}
+
+#[op2(fast)]
+fn op_stack_trace_fast(#[stack_trace] _: Option<Vec<JsStackFrame>>) {}
