@@ -10,7 +10,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_stack_trace),
             false,
             false,
-            1usize as u8,
+            2usize as u8,
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
@@ -59,8 +59,10 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
                 None
             };
             let result = {
-                let arg0 = stack_trace;
-                Self::call(arg0)
+                let arg0 = args.get(0usize as i32);
+                let arg0 = deno_core::_ops::to_string(&mut scope, &arg0);
+                let arg1 = stack_trace;
+                Self::call(arg0, arg1)
             };
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
             return 0;
@@ -102,9 +104,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
     }
     impl op_stack_trace {
         #[inline(always)]
-        fn call(s: Option<Vec<JsStackFrame>>) {
-            drop(s);
-        }
+        fn call(_: String, _: Option<Vec<JsStackFrame>>) {}
     }
     <op_stack_trace as ::deno_core::_ops::Op>::DECL
 }
