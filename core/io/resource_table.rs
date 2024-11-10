@@ -230,25 +230,18 @@ impl ResourceTable {
   }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, crate::JsError)]
 pub enum ResourceError {
+  #[class(REFERENCE)]
   #[error("null or invalid handle")]
   Reference,
+  #[class("BadResource")]
   #[error("Bad resource ID")]
   BadResourceId,
+  #[class("Busy")]
   #[error("Resource is unavailable because it is in use by a promise")]
   Unavailable,
+  #[class("BadResource")]
   #[error("{0}")]
   Other(String),
-}
-
-impl crate::error::JsErrorClass for ResourceError {
-  fn get_class(&self) -> &'static str {
-    match self {
-      ResourceError::Reference => crate::error::REFERENCE_ERROR,
-      ResourceError::BadResourceId => "BadResource",
-      ResourceError::Unavailable => "Busy",
-      ResourceError::Other(_) => "BadResource",
-    }
-  }
 }

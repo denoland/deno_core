@@ -574,6 +574,7 @@ dependencies = [
  "criterion",
  "deno_ast",
  "deno_core_icudata",
+ "deno_js_error",
  "deno_ops",
  "deno_unsync",
  "fastrand",
@@ -618,6 +619,21 @@ dependencies = [
  "testing_macros",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "deno_js_error"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "prettyplease",
+ "proc-macro-rules",
+ "proc-macro2",
+ "quote",
+ "strum",
+ "strum_macros",
+ "syn",
+ "testing_macros",
 ]
 
 [[package]]

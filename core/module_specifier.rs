@@ -7,7 +7,8 @@ use url::ParseError;
 use url::Url;
 
 /// Error indicating the reason resolving a module specifier failed.
-#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error, crate::JsError)]
+#[class(URI)]
 pub enum ModuleResolutionError {
   #[error("invalid URL: {0}")]
   InvalidUrl(#[source] ParseError),
@@ -23,12 +24,6 @@ pub enum ModuleResolutionError {
     specifier: String,
     maybe_referrer: Option<String>,
   },
-}
-
-impl super::error::JsErrorClass for ModuleResolutionError {
-  fn get_class(&self) -> &'static str {
-    crate::error::URI_ERROR
-  }
 }
 
 use ModuleResolutionError::*;

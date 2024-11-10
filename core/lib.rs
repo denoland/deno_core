@@ -53,6 +53,7 @@ pub use thiserror;
 pub use url;
 pub use v8;
 
+pub use deno_js_error::JsError;
 pub use deno_ops::op2;
 
 pub use crate::async_cancel::CancelFuture;

@@ -25,14 +25,18 @@ pub use super::modules::ModuleConcreteError;
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
 
-pub const GENERIC_ERROR: &str = "Error";
-pub const RANGE_ERROR: &str = "RangeError";
-pub const TYPE_ERROR: &str = "TypeError";
-pub const SYNTAX_ERROR: &str = "SyntaxError";
-pub const URI_ERROR: &str = "URIError";
-pub const REFERENCE_ERROR: &str = "ReferenceError";
+pub mod builtin_classes {
+  pub const GENERIC_ERROR: &str = "Error";
+  pub const RANGE_ERROR: &str = "RangeError";
+  pub const TYPE_ERROR: &str = "TypeError";
+  pub const SYNTAX_ERROR: &str = "SyntaxError";
+  pub const URI_ERROR: &str = "URIError";
+  pub const REFERENCE_ERROR: &str = "ReferenceError";
 
-pub const NOT_SUPPORTED_ERROR: &str = "NotSupported";
+  pub const NOT_SUPPORTED_ERROR: &str = "NotSupported";
+}
+
+pub use builtin_classes::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
@@ -150,16 +154,15 @@ impl From<ModuleLoaderError> for CoreError {
   }
 }
 
+/// Trait to implement how an error should be represented in JavaScript.
+/// Note: it is not recommended to manually implement this type, but instead
+/// rather use the [deno_core::JsError] macro.
 pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
   fn get_class(&self) -> &'static str;
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
+  fn get_message(&self) -> Cow<'static, str>;
   fn get_additional_properties(
     &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
-  }
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>>;
   fn to_native(self) -> JsNativeError
   where
     Self: Sized,
@@ -246,11 +249,27 @@ impl JsErrorClass for CoreError {
       | CoreError::Other(_) => self.to_string().into(),
     }
   }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None // TODO
+  }
 }
 
 impl JsErrorClass for serde_v8::Error {
   fn get_class(&self) -> &'static str {
     TYPE_ERROR
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None
   }
 }
 
@@ -290,6 +309,10 @@ impl JsErrorClass for std::io::Error {
     }
   }
 
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
   fn get_additional_properties(
     &self,
   ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
@@ -305,17 +328,47 @@ impl JsErrorClass for std::env::VarError {
       std::env::VarError::NotUnicode(..) => "InvalidData",
     }
   }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None
+  }
 }
 
 impl JsErrorClass for std::sync::mpsc::RecvError {
   fn get_class(&self) -> &'static str {
     GENERIC_ERROR
   }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None
+  }
 }
 
 impl JsErrorClass for v8::DataError {
   fn get_class(&self) -> &'static str {
     TYPE_ERROR
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None
   }
 }
 
@@ -325,10 +378,30 @@ impl<T: Send + Sync + 'static> JsErrorClass
   fn get_class(&self) -> &'static str {
     GENERIC_ERROR
   }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None
+  }
 }
 impl JsErrorClass for tokio::task::JoinError {
   fn get_class(&self) -> &'static str {
     GENERIC_ERROR
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None
   }
 }
 
@@ -348,11 +421,31 @@ impl JsErrorClass for serde_json::Error {
       Category::Eof => "UnexpectedEof",
     }
   }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None // TODO: could be io error code
+  }
 }
 
 impl JsErrorClass for url::ParseError {
   fn get_class(&self) -> &'static str {
     URI_ERROR
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    self.to_string().into()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    None
   }
 }
 
@@ -378,6 +471,15 @@ impl JsErrorClass for JsNativeError {
 
   fn get_message(&self) -> Cow<'static, str> {
     self.message.clone()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    self
+      .source
+      .as_ref()
+      .and_then(|source| source.get_additional_properties())
   }
 }
 

@@ -626,7 +626,8 @@ pub(crate) struct ModuleInfo {
   pub module_type: ModuleType,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, crate::JsError)]
+#[class(GENERIC)]
 pub enum ModuleConcreteError {
   #[error("Trying to create \"main\" module ({new_module:?}), when one already exists ({main_module:?})"
   )]
@@ -640,12 +641,6 @@ pub enum ModuleConcreteError {
   WasmUnsupported,
   #[error("Importing '{0}' modules is not supported")]
   UnsupportedKind(String),
-}
-
-impl super::error::JsErrorClass for ModuleConcreteError {
-  fn get_class(&self) -> &'static str {
-    crate::error::GENERIC_ERROR
-  }
 }
 
 #[derive(Debug)]

@@ -1,0 +1,28 @@
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+[package]
+name = "deno_js_error"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+description = "derive macro for writing Deno Errors"
+
+[lib]
+path = "./lib.rs"
+proc-macro = true
+
+[dependencies]
+proc-macro-rules.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
+syn.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+prettyplease.workspace = true
+testing_macros.workspace = true

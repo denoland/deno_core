@@ -1,5 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::JsErrorClass;
 use crate::error::JsNativeError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
@@ -22,7 +21,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, crate::JsError)]
+#[class(GENERIC)]
 pub enum ModuleLoaderError {
   #[error("Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot."
   )]
@@ -47,25 +47,20 @@ pub enum ModuleLoaderError {
     specifier: Box<ModuleSpecifier>,
     maybe_referrer: Option<Box<ModuleSpecifier>>,
   },
+  #[class(inherit)]
   #[error(transparent)]
-  Resolution(#[from] crate::ModuleResolutionError),
+  Resolution(
+    #[from]
+    #[inherit]
+    crate::ModuleResolutionError,
+  ),
+  #[class(inherit)]
   #[error(transparent)]
-  Core(#[from] CoreError),
-}
-
-impl JsErrorClass for ModuleLoaderError {
-  fn get_class(&self) -> &'static str {
-    match self {
-      ModuleLoaderError::SpecifierExcludedFromSnapshot(_)
-      | ModuleLoaderError::SpecifierMissingLazyLoadable(_)
-      | ModuleLoaderError::NpmUnsupportedMetaResolve
-      | ModuleLoaderError::JsonMissingAttribute
-      | ModuleLoaderError::NotFound
-      | ModuleLoaderError::Unsupported { .. } => crate::error::GENERIC_ERROR,
-      ModuleLoaderError::Resolution(err) => err.get_class(),
-      ModuleLoaderError::Core(err) => err.get_class(),
-    }
-  }
+  Core(
+    #[from]
+    #[inherit]
+    CoreError,
+  ),
 }
 
 impl From<anyhow::Error> for ModuleLoaderError {

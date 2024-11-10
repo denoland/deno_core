@@ -6,6 +6,7 @@ use crate::OpId;
 use crate::PromiseId;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use std::borrow::Cow;
 
 const MAX_RESULT_SIZE: usize = 32;
 
@@ -310,7 +311,13 @@ impl JsErrorClass for OpErrorWrapper {
     self.0 .0.get_class()
   }
 
-  fn get_message(&self) -> std::borrow::Cow<'static, str> {
+  fn get_message(&self) -> Cow<'static, str> {
     self.0 .0.get_message()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+    self.0 .0.get_additional_properties()
   }
 }
