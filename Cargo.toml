@@ -21,16 +21,16 @@ repository = "https://github.com/denoland/deno_core"
 
 [workspace.dependencies]
 # Local dependencies
-deno_core = { version = "0.314.2", path = "./core" }
-deno_ops = { version = "0.190.1", path = "./ops" }
+deno_core = { version = "0.319.0", path = "./core" }
+deno_ops = { version = "0.195.0", path = "./ops" }
 deno_js_error = { version = "0.1.0", path = "./js_error" }
-serde_v8 = { version = "0.223.1", path = "./serde_v8" }
+serde_v8 = { version = "0.228.0", path = "./serde_v8" }
 deno_core_testing = { path = "./testing" }
 
-v8 = { version = "0.106.0", default-features = false }
+v8 = { version = "130.0.1", default-features = false }
 deno_ast = { version = "=0.40.0", features = ["transpiling"] }
-deno_unsync = "0.4.0"
-deno_core_icudata = "0.0.73"
+deno_unsync = "0.4.1"
+deno_core_icudata = "0.74.0"
 
 anyhow = "1"
 bencher = "0.1"
@@ -63,7 +63,7 @@ strum_macros = "0.25.0"
 testing_macros = "0.2.11"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
-twox-hash = "1.6.3"
+twox-hash = { version = "2.0.0", default-features = false, features = ["xxhash64"] }
 url = { version = "2", features = ["serde", "expose_internals"] }
 
 # macros

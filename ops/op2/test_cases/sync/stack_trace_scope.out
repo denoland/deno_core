@@ -10,7 +10,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_stack_trace),
             false,
             false,
-            1usize as u8,
+            2usize as u8,
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
@@ -21,7 +21,11 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         CType::Void.scalar(),
-                        &[CType::V8Value.scalar(), CType::CallbackOptions.scalar()],
+                        &[
+                            CType::V8Value.scalar(),
+                            CType::SeqOneByteString.scalar(),
+                            CType::CallbackOptions.scalar(),
+                        ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -33,7 +37,11 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         CType::Void.scalar(),
-                        &[CType::V8Value.scalar(), CType::CallbackOptions.scalar()],
+                        &[
+                            CType::V8Value.scalar(),
+                            CType::SeqOneByteString.scalar(),
+                            CType::CallbackOptions.scalar(),
+                        ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -50,6 +58,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
+            arg0: *mut deno_core::v8::fast_api::FastApiOneByteString,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
                 's,
             >,
@@ -67,7 +76,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
-            let res = Self::v8_fn_ptr_fast(this, fast_api_callback_options);
+            let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
             deno_core::_ops::dispatch_metrics_fast(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
@@ -77,6 +86,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
+            arg0: *mut deno_core::v8::fast_api::FastApiOneByteString,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
                 's,
             >,
@@ -112,8 +122,9 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
                 None
             };
             let result = {
-                let arg0 = stack_trace;
-                Self::call(arg0)
+                let arg0 = deno_core::_ops::to_string_ptr(unsafe { &mut *arg0 });
+                let arg1 = stack_trace;
+                Self::call(arg0, arg1)
             };
             result as _
         }
@@ -151,8 +162,10 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
                 None
             };
             let result = {
-                let arg0 = stack_trace;
-                Self::call(arg0)
+                let arg0 = args.get(0usize as i32);
+                let arg0 = deno_core::_ops::to_string(&mut scope, &arg0);
+                let arg1 = stack_trace;
+                Self::call(arg0, arg1)
             };
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
             return 0;
@@ -194,9 +207,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
     }
     impl op_stack_trace {
         #[inline(always)]
-        fn call(s: Option<Vec<JsStackFrame>>) {
-            drop(s);
-        }
+        fn call(_: String, _: Option<Vec<JsStackFrame>>) {}
     }
     <op_stack_trace as ::deno_core::_ops::Op>::DECL
 }

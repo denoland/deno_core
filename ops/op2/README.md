@@ -929,7 +929,7 @@ Only usable in `deno_core`.
 ```
 
 </td><td>
-
+✅
 </td><td>
 
 </td><td>

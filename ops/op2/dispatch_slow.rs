@@ -72,6 +72,12 @@ pub(crate) fn generate_dispatch_slow(
     |s| V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone()),
   )?);
 
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    with_stack_trace(generator_state)
+  } else {
+    quote!()
+  };
+
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
   let with_isolate =
     if generator_state.needs_isolate && !generator_state.needs_scope {
@@ -92,12 +98,11 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_opctx =
-    if generator_state.needs_opctx | generator_state.needs_stack_trace {
-      with_opctx(generator_state)
-    } else {
-      quote!()
-    };
+  let with_opctx = if generator_state.needs_opctx {
+    with_opctx(generator_state)
+  } else {
+    quote!()
+  };
 
   let with_retval = if generator_state.needs_retval {
     with_retval(generator_state)
@@ -117,15 +122,8 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_scope =
-    if generator_state.needs_scope | generator_state.needs_stack_trace {
-      with_scope(generator_state)
-    } else {
-      quote!()
-    };
-
-  let with_stack_trace = if generator_state.needs_stack_trace {
-    with_stack_trace(generator_state)
+  let with_scope = if generator_state.needs_scope {
+    with_scope(generator_state)
   } else {
     quote!()
   };
@@ -195,12 +193,12 @@ pub(crate) fn with_stack_trace(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
   generator_state.needs_opctx = true;
+  generator_state.needs_scope = true;
   gs_quote!(generator_state(stack_trace, opctx, scope) =>
     (let #stack_trace = if #opctx.enable_stack_trace_arg {
-      let hs = &mut deno_core::v8::HandleScope::new(&mut #scope);
-      let stack_trace_msg = deno_core::v8::String::empty(hs);
-      let stack_trace_error = deno_core::v8::Exception::error(hs, stack_trace_msg.into());
-      let js_error = deno_core::error::JsError::from_v8_exception(hs, stack_trace_error);
+      let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
+      let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
+      let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
       Some(js_error.frames)
     } else { None };)
   )
