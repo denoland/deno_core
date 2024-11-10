@@ -553,6 +553,19 @@ macro_rules! js_error_wrapper {
         let $inner = &self.0;
         $js_err_type
       }
+      fn get_message(&self) -> std::borrow::Cow<'static, str> {
+        self.to_string().into()
+      }
+      fn get_additional_properties(
+        &self,
+      ) -> Option<
+        Vec<(
+          std::borrow::Cow<'static, str>,
+          std::borrow::Cow<'static, str>,
+        )>,
+      > {
+        None
+      }
     }
   };
 }
