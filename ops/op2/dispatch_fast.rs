@@ -745,10 +745,6 @@ fn map_v8_fastcall_arg_to_arg(
       }
     }
     Arg::String(Strings::RefStr) => {
-      // quote! {
-      //   let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-      //   let #arg_ident = &deno_core::_ops::to_str_ptr(unsafe { &mut *#arg_ident }, &mut #arg_temp);
-      // }
       *needs_isolate = true;
       gs_quote!(generator_state(scope) => {
         let mut #arg_temp: ([::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE], Option<v8::ValueView>) = {
@@ -761,8 +757,6 @@ fn map_v8_fastcall_arg_to_arg(
         } else {
           ""
         };
-        // let value_view = deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
-        // let #arg_ident = "";
       })
     }
     Arg::String(Strings::String) => {
