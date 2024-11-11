@@ -597,9 +597,9 @@ dependencies = [
 
 [[package]]
 name = "deno_core_icudata"
-version = "0.0.73"
+version = "0.74.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13951ea98c0a4c372f162d669193b4c9d991512de9f2381dd161027f34b26b1"
+checksum = "fe4dccb6147bb3f3ba0c7a48e993bfeb999d2c2e47a81badee80e2b370c8d695"
 
 [[package]]
 name = "deno_core_testing"
@@ -2732,7 +2732,7 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "129.0.0"
+version = "130.0.1"
 dependencies = [
  "bindgen",
  "bitflags",

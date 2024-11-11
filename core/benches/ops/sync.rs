@@ -297,7 +297,7 @@ fn bench_op_option_u32(b: &mut Bencher) {
 }
 
 /// A string function with a numeric return value.
-fn bench_op_string(b: &mut Bencher) {
+fn bench_op_string_xxx(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_string", 1, "accum += op_string('this is a reasonably long string that we would like to get the length of!');");
 }
 
@@ -509,7 +509,7 @@ benchmark_group!(
   bench_op_option_u32,
   bench_op_string_bytestring,
   bench_op_string_bytestring_no_side_effects,
-  bench_op_string,
+  bench_op_string_xxx,
   bench_op_string_large_1000,
   bench_op_string_large_1000000,
   bench_op_string_onebyte,
