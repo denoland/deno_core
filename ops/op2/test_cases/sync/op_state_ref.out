@@ -557,7 +557,6 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                     .value() as *const deno_core::_ops::OpCtx)
             };
             let result = {
-                let arg0 = &mut ::std::cell::RefCell::borrow_mut(&opctx.state);
                 let Ok(mut arg1) = deno_core::_ops::v8_try_convert::<
                     deno_core::v8::Function,
                 >(arg1) else {
@@ -579,6 +578,7 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                     }
                 };
                 let arg1 = arg1;
+                let arg0 = &mut ::std::cell::RefCell::borrow_mut(&opctx.state);
                 Self::call(arg0, arg1)
             };
             result as _

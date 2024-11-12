@@ -42,6 +42,22 @@ pub(crate) enum FastArg {
   PromiseId,
 }
 
+impl FastArg {
+  pub(crate) fn enables_gc_in_fn(&self) -> bool {
+    matches!(
+      self,
+      FastArg::Virtual {
+        arg: Arg::Special(
+          Special::HandleScope
+            | Special::Isolate
+            | Special::FastApiCallbackOptions
+        ),
+        ..
+      }
+    )
+  }
+}
+
 #[derive(Clone)]
 pub(crate) struct FastSignature {
   // The parsed arguments
@@ -100,24 +116,43 @@ impl FastSignature {
     // Collect virtual arguments in a deferred list that we compute at the very end. This allows us to borrow
     // the scope/opstate in the intermediate stages.
     let mut call_args = vec![];
+    let mut late_work = vec![];
     let mut deferred = vec![];
 
-    for arg in &self.args {
+    let fn_can_allocate = self.args.iter().any(|arg| arg.enables_gc_in_fn());
+
+    let mut args = self.args.iter();
+    while let Some(arg) = args.next() {
+      let remaining_args = args.clone();
       match arg {
         FastArg::Actual { arg, name_out, .. } => call_args.push(
-          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
-            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
-          )?,
+          map_v8_fastcall_arg_to_arg(
+            generator_state,
+            name_out,
+            arg,
+            fn_can_allocate,
+            remaining_args,
+            &mut late_work,
+          )
+          .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?,
         ),
-        FastArg::Virtual { name_out, arg } => deferred.push(
-          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
-            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
-          )?,
-        ),
+        FastArg::Virtual { name_out, arg } => {
+          let tokens = map_v8_fastcall_arg_to_arg(
+            generator_state,
+            name_out,
+            arg,
+            fn_can_allocate,
+            remaining_args,
+            &mut late_work,
+          )
+          .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
+          deferred.push(tokens);
+        }
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
     }
 
+    call_args.extend(late_work);
     call_args.extend(deferred);
 
     Ok(call_args)
@@ -605,10 +640,13 @@ fn fast_api_typed_array_to_buffer(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn map_v8_fastcall_arg_to_arg(
+fn map_v8_fastcall_arg_to_arg<'a>(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
   arg: &Arg,
+  fn_can_allocate: bool,
+  mut remaining_args: impl Iterator<Item = &'a FastArg>,
+  late_work: &mut Vec<TokenStream>,
 ) -> Result<TokenStream, V8MappingError> {
   let GeneratorState {
     opctx,
@@ -746,39 +784,110 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::String(Strings::RefStr) => {
       *needs_isolate = true;
-      gs_quote!(generator_state(scope) => {
-        let mut #arg_temp: ([::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE], Option<v8::ValueView>) = {
-          let buf = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-          let value_view = deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
-          (buf, value_view)
-        };
-        let #arg_ident = if let Some(value_view) = &#arg_temp.1 {
-          &deno_core::_ops::to_str_from_view(value_view, &mut #arg_temp.0)
+      if fn_can_allocate {
+        gs_quote!(generator_state(scope) => {
+          let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+          let #arg_ident = &deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
+        })
+      } else {
+        let assign_string = gs_quote!(generator_state(scope) => {
+          let mut #arg_temp: ([::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE], Option<deno_core::v8::ValueView>) = {
+            let buf = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+            let value_view = deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+            (buf, value_view)
+          };
+          let #arg_ident = if let Some(value_view) = &#arg_temp.1 {
+            &deno_core::_ops::to_str_from_view(value_view, &mut #arg_temp.0)
+          } else {
+            ""
+          };
+        });
+        if remaining_args.next().is_some() {
+          // If this is not the last value, we have to open a ValueView now to
+          // trigger string flattening, but then close it and only read the
+          // string value at the end to ensure we do not keep a "no-GC" scope
+          // open while we are processing other arguments.
+          late_work.push(assign_string);
+          gs_quote!(generator_state(scope) => {
+            deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+          })
         } else {
-          ""
-        };
-      })
+          assign_string
+        }
+      }
     }
     Arg::String(Strings::String) => {
       *needs_isolate = true;
       quote!(let #arg_ident = deno_core::_ops::to_string(&mut *#scope, &*#arg_ident);)
     }
     Arg::String(Strings::CowStr) => {
-      *needs_isolate = true;
-      gs_quote!(generator_state(scope) => {
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = deno_core::_ops::to_str(&mut *#scope, &*#arg_ident, &mut #arg_temp);
-      })
+      if fn_can_allocate {
+        gs_quote!(generator_state(scope) => {
+          let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+          let #arg_ident = &deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
+        })
+      } else {
+        let assign_string = gs_quote!(generator_state(scope) => {
+          let mut #arg_temp: ([::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE], Option<deno_core::v8::ValueView>) = {
+            let buf = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+            let value_view = deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+            (buf, value_view)
+          };
+          let #arg_ident = if let Some(value_view) = &#arg_temp.1 {
+            deno_core::_ops::to_str_from_view(value_view, &mut #arg_temp.0)
+          } else {
+            std::borrow::Cow::Borrowed("")
+          };
+        });
+        if remaining_args.next().is_some() {
+          // If this is not the last value, we have to open a ValueView now to
+          // trigger string flattening, but then close it and only read the
+          // string value at the end to ensure we do not keep a "no-GC" scope
+          // open while we are processing other arguments.
+          late_work.push(assign_string);
+          gs_quote!(generator_state(scope) => {
+            deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+          })
+        } else {
+          assign_string
+        }
+      }
     }
     Arg::String(Strings::CowByte) => {
       *needs_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, "expected one byte string");
-      gs_quote!(generator_state(scope) => {
-        let Ok(#arg_ident) = deno_core::_ops::to_cow_one_byte(&mut *#scope, &*#arg_ident) else {
-          #throw_exception
-        };
-      })
+      if fn_can_allocate {
+        gs_quote!(generator_state(scope) => {
+          let Ok(#arg_ident) = deno_core::_ops::to_cow_one_byte(&mut *#scope, &*#arg_ident) else {
+            #throw_exception
+          };
+        })
+      } else {
+        let assign_string = gs_quote!(generator_state(scope) => {
+          let mut #arg_temp = deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+          let #arg_ident = if let Some(value_view) = &#arg_temp {
+            let Ok(#arg_ident) = deno_core::_ops::to_cow_one_byte_from_view(value_view) else {
+              #throw_exception
+            };
+            #arg_ident
+          } else {
+            #throw_exception
+          };
+        });
+        if remaining_args.next().is_some() {
+          // If this is not the last value, we have to open a ValueView now to
+          // trigger string flattening, but then close it and only read the
+          // string value at the end to ensure we do not keep a "no-GC" scope
+          // open while we are processing other arguments.
+          late_work.push(assign_string);
+          gs_quote!(generator_state(scope) => {
+            deno_core::_ops::to_string_view(&mut *#scope, #arg_ident);
+          })
+        } else {
+          assign_string
+        }
+      }
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)

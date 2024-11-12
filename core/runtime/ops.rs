@@ -150,7 +150,6 @@ pub fn to_external_option(external: &v8::Value) -> Option<*mut c_void> {
   }
 }
 
-
 /// Expands `inbuf` to `outbuf`, assuming that `outbuf` has at least 2x `input_length`.
 #[inline(always)]
 unsafe fn latin1_to_utf8(
@@ -236,10 +235,9 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
   }
 }
 
-
 #[inline(always)]
 pub fn to_string_view<'a>(
-  scope: &'a mut v8::Isolate,
+  scope: &mut v8::Isolate,
   value: v8::Local<'a, v8::Value>,
 ) -> Option<v8::ValueView<'a>> {
   if !value.is_string() {
@@ -260,6 +258,16 @@ pub fn to_str_from_view<'a, const N: usize>(
   buffer: &'a mut [MaybeUninit<u8>; N],
 ) -> Cow<'a, str> {
   string.to_rust_cow_lossy(buffer)
+}
+
+#[inline(always)]
+pub fn to_cow_one_byte_from_view<'a>(
+  string: &'a v8::ValueView<'_>,
+) -> Result<Cow<'a, [u8]>, &'static str> {
+  match string.data() {
+    v8::ValueViewData::OneByte(data) => Ok(Cow::Borrowed(data)),
+    v8::ValueViewData::TwoByte(_) => Err("expected one-byte String"),
+  }
 }
 
 /// Converts a [`v8::Value`] to an owned string.
@@ -297,7 +305,7 @@ pub fn to_cow_one_byte(
   string: &v8::Value,
 ) -> Result<Cow<'static, [u8]>, &'static str> {
   if !string.is_string() {
-    return Err("expected String");
+    return Err("expected string");
   }
 
   // SAFETY: We checked is_string above
@@ -309,7 +317,7 @@ pub fn to_cow_one_byte(
   }
 
   if !string.is_onebyte() && !string.contains_only_onebyte() {
-    return Err("expected one-byte String");
+    return Err("expected one-byte string");
   }
 
   // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid

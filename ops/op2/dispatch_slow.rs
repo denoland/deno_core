@@ -412,7 +412,6 @@ pub fn from_arg(
       let throw_exception =
         throw_type_error_static_string(generator_state, &arg_ident)?;
       gs_quote!(generator_state(scope) => {
-        // Trade stack space for potentially non-allocating strings
         let #arg_ident = match deno_core::_ops::to_cow_one_byte(&mut #scope, &#arg_ident) {
           Ok(#arg_ident) => #arg_ident,
           Err(#arg_ident) => {

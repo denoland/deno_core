@@ -1,16 +1,16 @@
 #[allow(non_camel_case_types)]
-const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
+const fn op_string_ref_and_isolate() -> ::deno_core::_ops::OpDecl {
     #[allow(non_camel_case_types)]
-    struct op_string_owned {
+    struct op_string_ref_and_isolate {
         _unconstructable: ::std::marker::PhantomData<()>,
     }
-    impl ::deno_core::_ops::Op for op_string_owned {
-        const NAME: &'static str = stringify!(op_string_owned);
+    impl ::deno_core::_ops::Op for op_string_ref_and_isolate {
+        const NAME: &'static str = stringify!(op_string_ref_and_isolate);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-            ::deno_core::__op_name_fast!(op_string_owned),
+            ::deno_core::__op_name_fast!(op_string_ref_and_isolate),
             false,
             false,
-            1usize as u8,
+            3usize as u8,
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
@@ -26,6 +26,7 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
+                            CType::V8Value.scalar(),
                             CType::V8Value.scalar(),
                             CType::V8Value.scalar(),
                             CType::CallbackOptions.scalar(),
@@ -48,6 +49,7 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
                         &[
                             CType::V8Value.scalar(),
                             CType::V8Value.scalar(),
+                            CType::V8Value.scalar(),
                             CType::CallbackOptions.scalar(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
@@ -59,14 +61,15 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
             },
         );
     }
-    impl op_string_owned {
+    impl op_string_ref_and_isolate {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
-            arg0: deno_core::v8::Local<deno_core::v8::Value>,
+            arg1: deno_core::v8::Local<deno_core::v8::Value>,
+            arg2: deno_core::v8::Local<deno_core::v8::Value>,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
                 's,
             >,
@@ -84,7 +87,7 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
-            let res = Self::v8_fn_ptr_fast(this, arg0, fast_api_callback_options);
+            let res = Self::v8_fn_ptr_fast(this, arg1, arg2, fast_api_callback_options);
             deno_core::_ops::dispatch_metrics_fast(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
@@ -94,7 +97,8 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
-            arg0: deno_core::v8::Local<deno_core::v8::Value>,
+            arg1: deno_core::v8::Local<deno_core::v8::Value>,
+            arg2: deno_core::v8::Local<deno_core::v8::Value>,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
                 's,
             >,
@@ -108,8 +112,16 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
             };
             let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let arg0 = deno_core::_ops::to_string(&mut *scope, &*arg0);
-                Self::call(arg0)
+                let mut arg1_temp: [::std::mem::MaybeUninit<
+                    u8,
+                >; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+                let arg1 = &deno_core::_ops::to_str(&mut scope, &arg1, &mut arg1_temp);
+                let mut arg2_temp: [::std::mem::MaybeUninit<
+                    u8,
+                >; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+                let arg2 = &deno_core::_ops::to_str(&mut scope, &arg2, &mut arg2_temp);
+                let arg0 = &mut *scope;
+                Self::call(arg0, arg1, arg2)
             };
             result as _
         }
@@ -133,9 +145,18 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
             };
             let mut scope = unsafe { &mut *opctx.isolate };
             let result = {
-                let arg0 = args.get(0usize as i32);
-                let arg0 = deno_core::_ops::to_string(&mut scope, &arg0);
-                Self::call(arg0)
+                let arg1 = args.get(0usize as i32);
+                let mut arg1_temp: [::std::mem::MaybeUninit<
+                    u8,
+                >; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+                let arg1 = &deno_core::_ops::to_str(&mut scope, &arg1, &mut arg1_temp);
+                let arg2 = args.get(1usize as i32);
+                let mut arg2_temp: [::std::mem::MaybeUninit<
+                    u8,
+                >; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+                let arg2 = &deno_core::_ops::to_str(&mut scope, &arg2, &mut arg2_temp);
+                let arg0 = opctx.isolate;
+                Self::call(arg0, arg1, arg2)
             };
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
             return 0;
@@ -175,11 +196,11 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
             }
         }
     }
-    impl op_string_owned {
+    impl op_string_ref_and_isolate {
         #[inline(always)]
-        fn call(s: String) -> u32 {
+        fn call(isolate: *mut v8::Isolate, s: &str, s2: &str) -> u32 {
             s.len() as _
         }
     }
-    <op_string_owned as ::deno_core::_ops::Op>::DECL
+    <op_string_ref_and_isolate as ::deno_core::_ops::Op>::DECL
 }
