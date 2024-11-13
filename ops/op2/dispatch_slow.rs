@@ -72,6 +72,12 @@ pub(crate) fn generate_dispatch_slow(
     |s| V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone()),
   )?);
 
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    with_stack_trace(generator_state)
+  } else {
+    quote!()
+  };
+
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
   let with_isolate =
     if generator_state.needs_isolate && !generator_state.needs_scope {
@@ -136,6 +142,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_opctx
         #with_isolate
         #with_opstate
+        #with_stack_trace
         #with_js_runtime_state
         #with_self
 
@@ -180,6 +187,21 @@ pub(crate) fn with_isolate(
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(info, scope) =>
     (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(#info) };)
+  )
+}
+
+pub(crate) fn with_stack_trace(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
+  generator_state.needs_opctx = true;
+  generator_state.needs_scope = true;
+  gs_quote!(generator_state(stack_trace, opctx, scope) =>
+    (let #stack_trace = if #opctx.enable_stack_trace_arg {
+      let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
+      let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
+      let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
+      Some(js_error.frames)
+    } else { None };)
   )
 }
 
@@ -284,11 +306,13 @@ pub fn from_arg(
     scope,
     opstate,
     opctx,
+    stack_trace,
     js_runtime_state,
     needs_scope,
     needs_isolate,
     needs_opstate,
     needs_opctx,
+    needs_stack_trace,
     needs_js_runtime_state,
     ..
   } = &mut generator_state;
@@ -438,6 +462,10 @@ pub fn from_arg(
     Arg::Special(Special::Isolate) => {
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)
+    }
+    Arg::Special(Special::StackTrace) => {
+      *needs_stack_trace = true;
+      quote!(let #arg_ident = #stack_trace;)
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;

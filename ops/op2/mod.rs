@@ -147,6 +147,7 @@ pub(crate) fn generate_op2(
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
   let opstate = Ident::new("opstate", Span::call_site());
+  let stack_trace = Ident::new("stack_trace", Span::call_site());
   let js_runtime_state = Ident::new("js_runtime_state", Span::call_site());
   let promise_id = Ident::new("promise_id", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
@@ -172,6 +173,7 @@ pub(crate) fn generate_op2(
     opctx,
     opstate,
     js_runtime_state,
+    stack_trace,
     fast_api_callback_options,
     result,
     retval,
@@ -190,6 +192,7 @@ pub(crate) fn generate_op2(
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,
+    needs_stack_trace: false,
     needs_js_runtime_state: false,
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),

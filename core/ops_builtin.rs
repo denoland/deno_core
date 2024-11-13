@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
+use crate::error::generic_error;
 use crate::error::type_error;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
@@ -441,12 +442,43 @@ async fn do_load_job<'s>(
   }
 
   let root_id = load.root_module_id.expect("Root module should be loaded");
-  module_map_rc
-    .instantiate_module(scope, root_id)
-    .map_err(|e| {
-      let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false, false).unwrap_err()
-    })?;
+
+  let module = module_map_rc
+    .get_module(scope, root_id)
+    .expect("Module must exist");
+
+  match module.get_status() {
+    v8::ModuleStatus::Uninstantiated => {
+      module_map_rc
+        .instantiate_module(scope, root_id)
+        .map_err(|e| {
+          let exception = v8::Local::new(scope, e);
+          exception_to_err_result::<()>(scope, exception, false, false)
+            .unwrap_err()
+        })?;
+    }
+    v8::ModuleStatus::Instantiated
+    | v8::ModuleStatus::Instantiating
+    | v8::ModuleStatus::Evaluating => {
+      return Err(generic_error(format!(
+        "Cannot require() ES Module {specifier} in a cycle."
+      )));
+    }
+    v8::ModuleStatus::Evaluated => {
+      // OK
+    }
+    v8::ModuleStatus::Errored => {
+      return Err(
+        exception_to_err_result::<()>(
+          scope,
+          module.get_exception(),
+          false,
+          false,
+        )
+        .unwrap_err(),
+      );
+    }
+  }
 
   Ok(root_id)
 }
@@ -498,7 +530,7 @@ fn wrap_module<'s>(
 
   wrapper_module.evaluate(scope)?;
 
-  Some(module)
+  Some(wrapper_module)
 }
 
 #[op2(reentrant)]
@@ -517,11 +549,37 @@ fn op_import_sync<'s>(
     code,
   ))?;
 
-  module_map_rc.mod_evaluate_sync(scope, module_id)?;
-
   let module = module_map_rc
     .get_module(scope, module_id)
     .expect("Module must exist");
+
+  match module.get_status() {
+    v8::ModuleStatus::Uninstantiated
+    | v8::ModuleStatus::Instantiating
+    | v8::ModuleStatus::Evaluating => {
+      return Err(generic_error(format!(
+        "Cannot require() ES Module {specifier} in a cycle."
+      )));
+    }
+    v8::ModuleStatus::Instantiated => {
+      module_map_rc.mod_evaluate_sync(scope, module_id)?;
+    }
+    v8::ModuleStatus::Evaluated => {
+      // OK
+    }
+    v8::ModuleStatus::Errored => {
+      return Err(
+        exception_to_err_result::<()>(
+          scope,
+          module.get_exception(),
+          false,
+          false,
+        )
+        .unwrap_err(),
+      );
+    }
+  }
+
   let namespace = module.get_module_namespace().cast::<v8::Object>();
 
   let scope = &mut v8::TryCatch::new(scope);

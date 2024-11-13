@@ -16,13 +16,18 @@ pub const fn op_async_deferred() -> ::deno_core::_ops::OpDecl {
             Self::v8_fn_ptr_metrics as _,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         CType::Void.scalar(),
                         &[
                             CType::V8Value.scalar(),
-                            CType::Int32.scalar(),
+                            v8::fast_api::CTypeInfo::new(
+                                CType::Int32,
+                                v8::fast_api::SequenceType::Scalar,
+                                v8::fast_api::Flags::Clamp,
+                            ),
                             CType::CallbackOptions.scalar(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
@@ -31,13 +36,18 @@ pub const fn op_async_deferred() -> ::deno_core::_ops::OpDecl {
             }),
             Some({
                 use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         CType::Void.scalar(),
                         &[
                             CType::V8Value.scalar(),
-                            CType::Int32.scalar(),
+                            v8::fast_api::CTypeInfo::new(
+                                CType::Int32,
+                                v8::fast_api::SequenceType::Scalar,
+                                v8::fast_api::Flags::Clamp,
+                            ),
                             CType::CallbackOptions.scalar(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,

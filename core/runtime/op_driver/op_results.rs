@@ -275,7 +275,7 @@ impl OpError {
   pub fn new(get_class: GetErrorClassFn, err: Error) -> Self {
     Self {
       class_name: (get_class)(&err),
-      message: format!("{err:#}"),
+      message: err.to_string(),
       code: crate::error_codes::get_error_code(&err),
     }
   }

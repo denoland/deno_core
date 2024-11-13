@@ -553,6 +553,10 @@ pub struct RuntimeOptions {
     Option<(EvalContextGetCodeCacheCb, EvalContextCodeCacheReadyCb)>,
 
   pub import_assertions_support: ImportAssertionsSupport,
+
+  /// Whether `#[stack_trace]` argument in ops should return `Some(frames)`. Use wisely,
+  /// as it's very expensive to collect stack traces on each op invocation.
+  pub enable_stack_trace_arg_in_ops: bool,
 }
 
 pub struct ImportAssertionsSupportCustomCallbackArgs {
@@ -874,6 +878,7 @@ impl JsRuntime {
       op_state.clone(),
       state_rc.clone(),
       get_error_class_fn,
+      options.enable_stack_trace_arg_in_ops,
     );
 
     // ...ops are now almost fully set up; let's create a V8 isolate...
@@ -1934,20 +1939,19 @@ impl JsRuntime {
     if !pending_state.is_pending() {
       if has_inspector {
         let inspector = self.inspector();
-        let has_active_sessions = inspector.borrow().has_active_sessions();
-        let has_blocking_sessions = inspector.borrow().has_blocking_sessions();
+        let sessions_state = inspector.borrow().sessions_state();
 
-        if poll_options.wait_for_inspector && has_active_sessions {
-          // If there are no blocking sessions (eg. REPL) we can now notify
-          // debugger that the program has finished running and we're ready
-          // to exit the process once debugger disconnects.
-          if !has_blocking_sessions {
+        if poll_options.wait_for_inspector && sessions_state.has_active {
+          if sessions_state.has_blocking {
+            return Poll::Pending;
+          }
+
+          if sessions_state.has_nonblocking_wait_for_disconnect {
             let context = self.main_context();
             inspector.borrow_mut().context_destroyed(scope, context);
             self.wait_for_inspector_disconnect();
+            return Poll::Pending;
           }
-
-          return Poll::Pending;
         }
       }
 

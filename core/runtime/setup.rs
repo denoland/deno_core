@@ -19,7 +19,7 @@ fn v8_init(
 ) {
   #[cfg(feature = "include_icu_data")]
   {
-    v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
+    v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
   }
 
   let base_flags = concat!(
