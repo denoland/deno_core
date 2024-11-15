@@ -4,7 +4,5 @@ deno_ops_compile_test_runner::prelude!();
 
 use deno_core::error::JsStackFrame;
 
-#[op2(fast)]
-fn op_stack_trace(#[stack_trace] s: Option<Vec<JsStackFrame>>) {
-  drop(s);
-}
+#[op2(fast, stack_trace)]
+fn op_stack_trace() {}

@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::error::GetErrorClassFn;
+use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
@@ -253,6 +254,7 @@ pub struct OpState {
   pub waker: Arc<AtomicWaker>,
   pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
+  pub current_op_stack_trace: Option<Vec<JsStackFrame>>,
 }
 
 impl OpState {
@@ -265,6 +267,7 @@ impl OpState {
       external_ops_tracker: ExternalOpsTracker {
         counter: Arc::new(AtomicUsize::new(0)),
       },
+      current_op_stack_trace: None,
     }
   }
 

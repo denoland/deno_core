@@ -4,7 +4,5 @@ deno_ops_compile_test_runner::prelude!();
 
 use deno_core::error::JsStackFrame;
 
-#[op2(async)]
-pub async fn op_async_stack_trace(#[stack_trace] s: Option<Vec<JsStackFrame>>) {
-  drop(s);
-}
+#[op2(async, stack_trace)]
+pub async fn op_async_stack_trace() {}

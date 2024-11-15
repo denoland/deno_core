@@ -30,6 +30,8 @@ pub(crate) struct MacroConfig {
   pub static_member: bool,
   /// Marks an op with no side effects.
   pub no_side_effects: bool,
+  /// Marks an op to have it collect stack trace of the call site in the OpState.
+  pub stack_trace: bool,
 }
 
 impl MacroConfig {
@@ -103,6 +105,8 @@ impl MacroConfig {
         config.reentrant = true;
       } else if flag == "no_side_effects" {
         config.no_side_effects = true;
+      } else if flag == "stack_trace" {
+        config.stack_trace = true;
       } else if flag.starts_with("method(") {
         let tokens =
           syn::parse_str::<TokenTree>(&flag[6..])?.into_token_stream();
