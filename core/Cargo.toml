@@ -48,7 +48,7 @@ static_assertions.workspace = true
 tokio.workspace = true
 url.workspace = true
 v8.workspace = true
-wasm_dep_analyzer = "0.0.1"
+wasm_dep_analyzer = "0.1.0"
 
 [dev-dependencies]
 bencher.workspace = true

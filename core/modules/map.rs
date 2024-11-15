@@ -754,7 +754,11 @@ impl ModuleMap {
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
     let bytes = source.as_bytes();
-    let wasm_module_analysis = WasmDeps::parse(bytes).map_err(|e| {
+    let wasm_module_analysis = WasmDeps::parse(
+      bytes,
+      wasm_dep_analyzer::ParseOptions { skip_types: true },
+    )
+    .map_err(|e| {
       let err = Error::from(e);
       ModuleError::Other(err)
     })?;
@@ -2056,7 +2060,7 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
 
   if !wasm_deps.exports.is_empty() {
     for export_desc in wasm_deps.exports.iter().filter(|e| {
-      matches!(e.export_type, wasm_dep_analyzer::ExportType::Function)
+      matches!(e.export_type, wasm_dep_analyzer::ExportType::Function(_))
     }) {
       if export_desc.name == "default" {
         src.push(format!(
