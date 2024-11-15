@@ -2022,25 +2022,34 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
     specifier,
   ));
 
-  // TODO(bartlomieju): handle imports collisions?
   if !wasm_deps.imports.is_empty() {
     let aggregated_imports = aggregate_wasm_module_imports(&wasm_deps.imports);
 
-    for (key, value) in aggregated_imports.iter() {
+    for (i, (key, names)) in aggregated_imports.iter().enumerate() {
       src.push(format!(
         r#"import {{ {} }} from "{}";"#,
-        value.join(", "),
+        names
+          .iter()
+          .enumerate()
+          // use a named import so that the error messages are good when
+          // an export can't be found on the module
+          .map(|(name_index, name)| format!(
+            "\"{}\" as import_{}_{}",
+            name, i, name_index
+          ))
+          .collect::<Vec<_>>()
+          .join(", "),
         key
       ));
     }
 
     src.push("const importsObject = {".to_string());
 
-    for (key, value) in aggregated_imports.iter() {
+    for (i, (key, names)) in aggregated_imports.iter().enumerate() {
       src.push(format!("  \"{}\": {{", key).to_string());
 
-      for el in value {
-        src.push(format!("    {},", el));
+      for (name_index, name) in names.iter().enumerate() {
+        src.push(format!("    \"{0}\": import_{1}_{2},", name, i, name_index));
       }
 
       src.push("  },".to_string());
