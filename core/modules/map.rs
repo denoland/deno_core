@@ -2133,7 +2133,12 @@ const modInstance = await import.meta.wasmInstantiate(wasmMod);"#,
       wasm_dep_analyzer::Export {
         name: "export1",
         index: 0,
-        export_type: wasm_dep_analyzer::ExportType::Function,
+        export_type: wasm_dep_analyzer::ExportType::Function(Ok(
+          wasm_dep_analyzer::FunctionSignature {
+            params: vec![],
+            returns: vec![],
+          },
+        )),
       },
       wasm_dep_analyzer::Export {
         name: "export2",
@@ -2148,7 +2153,12 @@ const modInstance = await import.meta.wasmInstantiate(wasmMod);"#,
       wasm_dep_analyzer::Export {
         name: "export4",
         index: 3,
-        export_type: wasm_dep_analyzer::ExportType::Global,
+        export_type: wasm_dep_analyzer::ExportType::Global(Ok(
+          wasm_dep_analyzer::GlobalType {
+            value_type: wasm_dep_analyzer::ValueType::F32,
+            mutability: false,
+          },
+        )),
       },
       wasm_dep_analyzer::Export {
         name: "export5",
@@ -2163,7 +2173,12 @@ const modInstance = await import.meta.wasmInstantiate(wasmMod);"#,
       wasm_dep_analyzer::Export {
         name: "default",
         index: 6,
-        export_type: wasm_dep_analyzer::ExportType::Function,
+        export_type: wasm_dep_analyzer::ExportType::Function(Ok(
+          wasm_dep_analyzer::FunctionSignature {
+            params: vec![],
+            returns: vec![],
+          },
+        )),
       },
     ],
   };
@@ -2171,15 +2186,15 @@ const modInstance = await import.meta.wasmInstantiate(wasmMod);"#,
   pretty_assertions::assert_eq!(
     rendered,
     r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
-import { bar, fizz } from "./import.js";
-import { buzz } from "./buzz.js";
+import { "bar" as import_0_0, "fizz" as import_0_1 } from "./import.js";
+import { "buzz" as import_1_0 } from "./buzz.js";
 const importsObject = {
   "./import.js": {
-    bar,
-    fizz,
+    "bar": import_0_0,
+    "fizz": import_0_1,
   },
   "./buzz.js": {
-    buzz,
+    "buzz": import_1_0,
   },
 };
 const modInstance = await import.meta.wasmInstantiate(wasmMod, importsObject);
