@@ -32,6 +32,7 @@ pub mod dispatch_fast;
 pub mod dispatch_shared;
 pub mod dispatch_slow;
 pub mod generator_state;
+pub mod object_wrap;
 pub mod signature;
 pub mod signature_retval;
 
@@ -61,6 +62,8 @@ pub enum Op2Error {
   TooManyFastAlternatives,
   #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
   ImproperlySortedAttribute(String),
+  #[error("Only one constructor is allowed per object")]
+  MultipleConstructors,
 }
 
 #[derive(Debug, Error)]
@@ -81,12 +84,16 @@ pub(crate) fn op2(
   attr: TokenStream,
   item: TokenStream,
 ) -> Result<TokenStream, Op2Error> {
-  let func = parse2::<ItemFn>(item)?;
+  let Ok(func) = parse2::<ItemFn>(item.clone()) else {
+    let impl_block = parse2::<syn::ItemImpl>(item)?;
+    return object_wrap::generate_impl_ops(impl_block);
+  };
+
   let config = MacroConfig::from_tokens(attr)?;
   generate_op2(config, func)
 }
 
-fn generate_op2(
+pub(crate) fn generate_op2(
   config: MacroConfig,
   func: ItemFn,
 ) -> Result<TokenStream, Op2Error> {
@@ -180,6 +187,8 @@ fn generate_op2(
     moves: vec![],
     needs_retval: false,
     needs_scope: false,
+    needs_fast_isolate: false,
+    needs_fast_scope: false,
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,
@@ -187,6 +196,7 @@ fn generate_op2(
     needs_js_runtime_state: false,
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),
+    use_this_cppgc: config.constructor,
   };
 
   let mut slow_generator_state = base_generator_state.clone();
