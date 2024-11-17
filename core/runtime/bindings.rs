@@ -396,7 +396,9 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     }
 
     for method in op_method_ctx.static_methods.iter() {
-      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
+      let op_fn = op_ctx_template(scope, method);
+      let method_key = method.decl.name_fast.v8_string(scope);
+      tmpl.set(method_key.into(), op_fn.into());
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();
@@ -1012,7 +1014,9 @@ pub fn create_exports_for_ops_virtual_module<'s>(
     }
 
     for method in ctx.static_methods.iter() {
-      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
+      let op_fn = op_ctx_template(scope, method);
+      let method_key = method.decl.name_fast.v8_string(scope);
+      tmpl.set(method_key.into(), op_fn.into());
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();
