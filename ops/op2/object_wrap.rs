@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use proc_macro2::TokenStream;
+use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
 use syn::ImplItem;
@@ -34,9 +35,15 @@ use crate::op2::Op2Error;
 //
 //    #[method]
 //    #[smi]
-//    fn x(&self) -> i32 {
+//    fn method(&self) -> i32 {
 //      // ...
 //    }
+//
+//    #[getter]
+//    fn x(&self) -> i32 {}
+//
+//    #[setter]
+//    fn x(&self, x: i32) {}
 // }
 //
 // The generated OpMethodDecl that can be passed to
@@ -98,7 +105,12 @@ pub(crate) fn generate_impl_ops(
       } else if config.static_member {
         static_methods.push(ident);
       } else {
-        methods.push(ident.clone());
+        if config.setter {
+          methods.push(format_ident!("__set_{}", ident));
+        } else {
+          methods.push(ident);
+        }
+
         config.method = Some(self_ty_ident.clone());
       }
 

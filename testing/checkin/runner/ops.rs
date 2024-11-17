@@ -128,7 +128,7 @@ impl DOMPoint {
   }
 
   #[setter]
-  fn set_x(&self, x: f64) {}
+  fn x(&self, _: f64) {}
 
   #[getter]
   fn y(&self) -> f64 {

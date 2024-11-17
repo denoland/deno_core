@@ -1,5 +1,3 @@
-use crate::op2::generator_state;
-
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
@@ -163,7 +161,7 @@ pub(crate) fn generate_dispatch_slow(
 
       extern "C" fn #slow_function_metrics<'s>(#info: *const deno_core::v8::FunctionCallbackInfo) {
         let info: &'s _ = unsafe { &*#info };
-        let args = unsafe { deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info) };
+        let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info);
 
         let #opctx: &'s _ = unsafe {
           &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()

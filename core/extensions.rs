@@ -154,7 +154,6 @@ impl ExtensionFileSource {
 }
 
 pub type OpFnRef = v8::FunctionCallback;
-
 pub type OpMiddlewareFn = dyn Fn(OpDecl) -> OpDecl;
 pub type OpStateFn = dyn FnOnce(&mut OpState);
 /// Trait implemented by all generated ops.
@@ -162,7 +161,6 @@ pub trait Op {
   const NAME: &'static str;
   const DECL: OpDecl;
 }
-
 pub type GlobalTemplateMiddlewareFn =
   for<'s> fn(
     &mut v8::HandleScope<'s, ()>,

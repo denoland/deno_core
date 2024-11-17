@@ -523,8 +523,8 @@ fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
     if method.decl.accessor_type == AccessorType::Setter {
       let key = method.decl.name_fast.to_string();
 
-      // All setters must start with "set_".
-      let key = key.strip_prefix("set_").expect("Invalid setter name");
+      // All setters must start with "__set_".
+      let key = key.strip_prefix("__set_").expect("Invalid setter name");
 
       // There must be a getter for each setter.
       let getter = ctx
@@ -544,9 +544,7 @@ fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
     if method.decl.accessor_type == AccessorType::Getter {
       let key = method.decl.name_fast.to_string();
 
-      if !store.contains_key(&key) {
-        store.insert(key, (method, None));
-      }
+      store.entry(key).or_insert((method, None));
     }
   }
 

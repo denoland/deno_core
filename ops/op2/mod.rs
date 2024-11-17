@@ -95,7 +95,7 @@ pub(crate) fn op2(
 
 pub(crate) fn generate_op2(
   config: MacroConfig,
-  func: ItemFn,
+  mut func: ItemFn,
 ) -> Result<TokenStream, Op2Error> {
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
@@ -117,7 +117,10 @@ pub(crate) fn generate_op2(
       FnArg::Typed(ty) => ty.attrs.clear(),
     }
   }
-
+  if config.setter {
+    // Prepend "__set_" to the setter function name.
+    func.sig.ident = format_ident!("__set_{}", func.sig.ident);
+  }
   let signature = parse_signature(func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
   {
@@ -197,7 +200,6 @@ pub(crate) fn generate_op2(
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),
     use_this_cppgc: config.constructor,
-    accessor: config.getter || config.setter,
   };
 
   let mut slow_generator_state = base_generator_state.clone();
@@ -274,7 +276,7 @@ pub(crate) fn generate_op2(
   let meta_key = signature.metadata.keys().collect::<Vec<_>>();
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
   let op_fn_sig = &op_fn.sig;
-  let callable = if let Some(mut ty) = config.method {
+  let callable = if let Some(ty) = config.method {
     let ident = format_ident!("{ty}");
     quote! {
       trait Callable {
