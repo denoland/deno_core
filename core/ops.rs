@@ -169,9 +169,7 @@ impl OpCtx {
     };
 
     if self.metrics_enabled() {
-      let slow_fn = v8::ExternalReference {
-        function: self.decl.slow_fn_with_metrics,
-      };
+      let slow_fn = self.decl.slow_fn_with_metrics.external_ref();
       if let (Some(fast_fn), Some(fast_fn_info)) =
         (self.decl.fast_fn_with_metrics, self.fast_fn_info)
       {
@@ -186,9 +184,7 @@ impl OpCtx {
         [ctx_ptr, slow_fn, null, null]
       }
     } else {
-      let slow_fn = v8::ExternalReference {
-        function: self.decl.slow_fn,
-      };
+      let slow_fn = self.decl.slow_fn.external_ref();
       if let (Some(fast_fn), Some(fast_fn_info)) =
         (self.decl.fast_fn, self.fast_fn_info)
       {

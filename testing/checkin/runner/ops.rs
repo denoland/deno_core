@@ -122,19 +122,25 @@ impl DOMPoint {
     })
   }
 
-  #[fast]
+  #[getter]
   fn x(&self) -> f64 {
     self.x
   }
-  #[fast]
+  #[setter]
+  fn set_x(&self) {
+    panic!("Setter called asd");
+    //
+  }
+
+  #[getter]
   fn y(&self) -> f64 {
     self.y
   }
-  #[fast]
+  #[getter]
   fn w(&self) -> f64 {
     self.w
   }
-  #[fast]
+  #[getter]
   fn z(&self) -> f64 {
     self.z
   }

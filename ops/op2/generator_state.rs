@@ -57,6 +57,7 @@ pub struct GeneratorState {
   pub needs_self: bool,
   /// Wrap the `this` with cppgc object
   pub use_this_cppgc: bool,
+  pub accessor: bool,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from

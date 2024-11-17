@@ -197,6 +197,7 @@ pub(crate) fn generate_op2(
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),
     use_this_cppgc: config.constructor,
+    accessor: config.getter || config.setter,
   };
 
   let mut slow_generator_state = base_generator_state.clone();
@@ -227,12 +228,16 @@ pub(crate) fn generate_op2(
       &signature,
     )? {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
-        if !config.fast && !config.nofast && config.fast_alternatives.is_empty()
+        if !config.fast
+          && !config.nofast
+          && config.fast_alternatives.is_empty()
+          && !config.getter
+          && !config.setter
         {
           return Err(Op2Error::ShouldBeFast);
         }
         // nofast requires the function to be valid for fast
-        if config.nofast {
+        if config.nofast || config.getter || config.setter {
           (quote!(None), quote!(None), quote!())
         } else {
           (
@@ -243,7 +248,7 @@ pub(crate) fn generate_op2(
         }
       }
       None => {
-        if config.fast {
+        if config.fast || config.getter || config.setter {
           return Err(Op2Error::ShouldNotBeFast("fast"));
         }
         if config.nofast {
@@ -269,7 +274,7 @@ pub(crate) fn generate_op2(
   let meta_key = signature.metadata.keys().collect::<Vec<_>>();
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
   let op_fn_sig = &op_fn.sig;
-  let callable = if let Some(ty) = config.method {
+  let callable = if let Some(mut ty) = config.method {
     let ident = format_ident!("{ty}");
     quote! {
       trait Callable {
@@ -291,6 +296,14 @@ pub(crate) fn generate_op2(
     }
   };
 
+  let op_fn_ref = if config.getter {
+    quote!(::deno_core::OpFnRef::Getter)
+  } else if config.setter {
+    quote!(::deno_core::OpFnRef::Setter)
+  } else {
+    quote!(::deno_core::OpFnRef::Function)
+  };
+
   Ok(quote! {
     #[allow(non_camel_case_types)]
     #vis const fn #name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
@@ -309,8 +322,8 @@ pub(crate) fn generate_op2(
           /*is_reentrant*/ #is_reentrant,
           /*arg_count*/ #arg_count as u8,
           /*no_side_effect*/ #no_side_effect,
-          /*slow_fn*/ Self::#slow_function as _,
-          /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
+          /*slow_fn*/ #op_fn_ref(Self::#slow_function as _),
+          /*slow_fn_metrics*/ #op_fn_ref(Self::#slow_function_metrics as _),
           /*fast_fn*/ #fast_definition,
           /*fast_fn_metrics*/ #fast_definition_metrics,
           /*metadata*/ ::deno_core::OpMetadata {

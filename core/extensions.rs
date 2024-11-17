@@ -153,7 +153,27 @@ impl ExtensionFileSource {
   }
 }
 
-pub type OpFnRef = v8::FunctionCallback;
+#[derive(Copy, Clone)]
+pub enum OpFnRef {
+  Function(v8::FunctionCallback),
+  Getter(AccessorNameGetterCallback),
+  Setter(AccessorNameSetterCallback),
+}
+
+impl OpFnRef {
+  pub const fn external_ref(&self) -> v8::ExternalReference {
+    match *self {
+      Self::Function(function) => v8::ExternalReference { function },
+      Self::Getter(named_getter) => v8::ExternalReference {
+        pointer: named_getter as *const () as *mut _,
+      },
+      Self::Setter(named_setter) => v8::ExternalReference {
+        pointer: named_setter as *const () as *mut _,
+      },
+    }
+  }
+}
+
 pub type OpMiddlewareFn = dyn Fn(OpDecl) -> OpDecl;
 pub type OpStateFn = dyn FnOnce(&mut OpState);
 /// Trait implemented by all generated ops.
@@ -161,6 +181,17 @@ pub trait Op {
   const NAME: &'static str;
   const DECL: OpDecl;
 }
+type AccessorNameGetterCallback = for<'s> extern "C" fn(
+  _: v8::Local<'s, v8::Name>,
+  _: *const v8::PropertyCallbackInfo<v8::Value>,
+);
+
+type AccessorNameSetterCallback = for<'s> extern "C" fn(
+  _: v8::Local<'s, v8::Name>,
+  _: v8::Local<'s, v8::Value>,
+  _: *const v8::PropertyCallbackInfo<()>,
+);
+
 pub type GlobalTemplateMiddlewareFn =
   for<'s> fn(
     &mut v8::HandleScope<'s, ()>,
@@ -244,8 +275,10 @@ impl OpDecl {
   /// with noops.
   pub fn disable(self) -> Self {
     Self {
-      slow_fn: bindings::op_disabled_fn.map_fn_to(),
-      slow_fn_with_metrics: bindings::op_disabled_fn.map_fn_to(),
+      slow_fn: OpFnRef::Function(bindings::op_disabled_fn.map_fn_to()),
+      slow_fn_with_metrics: OpFnRef::Function(
+        bindings::op_disabled_fn.map_fn_to(),
+      ),
       // TODO(bartlomieju): Currently this fast fn won't throw like `op_disabled_fn`;
       // ideally we would add a fallback that would throw, but it's unclear
       // if disabled op (that throws in JS) would ever get optimized to become

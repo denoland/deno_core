@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
@@ -32,6 +33,7 @@ use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
+use crate::OpFnRef;
 use crate::OpState;
 
 pub(crate) fn create_external_references(
@@ -387,16 +389,14 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let prototype = tmpl.prototype_template(scope);
     let key = op_method_ctx.constructor.decl.name_fast.v8_string(scope);
 
+    let accessor_store = create_accessor_store(op_method_ctx);
+
     for method in op_method_ctx.methods.iter() {
-      let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope);
-      prototype.set(method_key.into(), op_fn.into());
+      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
     }
 
     for method in op_method_ctx.static_methods.iter() {
-      let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope);
-      tmpl.set(method_key.into(), op_fn.into());
+      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();
@@ -407,6 +407,69 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     op_state
       .borrow_mut()
       .put_untyped(id, v8::Global::new(scope, tmpl));
+  }
+}
+
+fn op_ctx_template_or_accessor<'s>(
+  accessor_store: &AccessorStore,
+  scope: &mut v8::HandleScope<'s>,
+  tmpl: v8::Local<'s, v8::ObjectTemplate>,
+  op_ctx: &OpCtx,
+) {
+  let slow_fn = if op_ctx.metrics_enabled() {
+    op_ctx.decl.slow_fn_with_metrics
+  } else {
+    op_ctx.decl.slow_fn
+  };
+
+  match slow_fn {
+    OpFnRef::Function(_) => {
+      let op_fn = op_ctx_template(scope, op_ctx);
+      let method_key = op_ctx.decl.name_fast.v8_string(scope);
+
+      tmpl.set(method_key.into(), op_fn.into());
+
+      return;
+    }
+    _ => {}
+  }
+
+  let op_ctx_ptr = op_ctx as *const OpCtx as *const c_void;
+  let external = v8::External::new(scope, op_ctx_ptr as *mut c_void);
+  let key = op_ctx.decl.name_fast.v8_string(scope).into();
+
+  if let Some((named_getter, named_setter)) =
+    accessor_store.get(op_ctx.decl.name)
+  {
+    let getter_raw = if named_getter.metrics_enabled() {
+      named_getter.decl.slow_fn_with_metrics
+    } else {
+      named_getter.decl.slow_fn
+    };
+
+    let OpFnRef::Getter(getter_raw) = getter_raw else {
+      unreachable!()
+    };
+
+    let mut accessor =
+      v8::AccessorConfiguration::new_raw(getter_raw)
+       .property_attribute(v8::PropertyAttribute::READ_ONLY);
+    if let Some(setter) = named_setter {
+      let setter_raw = if setter.metrics_enabled() {
+        setter.decl.slow_fn_with_metrics
+      } else {
+        setter.decl.slow_fn
+      };
+      let OpFnRef::Setter(setter_raw) = setter_raw else {
+        unreachable!()
+      };
+      accessor = accessor
+            .setter_raw(setter_raw)
+            .property_attribute(v8::PropertyAttribute::NONE);
+    }
+
+    accessor = accessor.data(external.into());
+    tmpl.set_accessor_with_configuration(key, accessor);
   }
 }
 
@@ -424,6 +487,10 @@ pub(crate) fn op_ctx_template<'s>(
     )
   } else {
     (op_ctx.decl.slow_fn, op_ctx.decl.fast_fn)
+  };
+
+  let OpFnRef::Function(slow_fn) = slow_fn else {
+    unreachable!("Use op_ctx_template_or_accessor");
   };
 
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
@@ -454,6 +521,47 @@ fn op_ctx_function<'s>(
   let v8fn = template.get_function(scope).unwrap();
   v8fn.set_name(v8name);
   v8fn
+}
+
+type AccessorStore<'a> = HashMap<String, (&'a OpCtx, Option<&'a OpCtx>)>;
+
+fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
+  let mut store = AccessorStore::new();
+
+  for method in ctx.methods.iter() {
+    // Populate all setters first.
+    if let OpFnRef::Setter(_) = &method.decl.slow_fn {
+      let key = method.decl.name_fast.to_string();
+
+      // All setters must start with "set_".
+      let key = key.strip_prefix("set_").expect("Invalid setter name");
+
+      // There must be a getter for each setter.
+      let getter = ctx
+        .methods
+        .iter()
+        .find(|m| {
+          m.decl.name == key
+            && matches!(m.decl.slow_fn, OpFnRef::Getter(_))
+        })
+        .expect("Getter not found for setter");
+
+      store.insert(key.to_string(), (getter, Some(method)));
+    }
+  }
+
+  // Populate getters without setters.
+  for method in ctx.methods.iter() {
+    if let OpFnRef::Getter(_) = &method.decl.slow_fn {
+      let key = method.decl.name_fast.to_string();
+
+      if !store.contains_key(&key) {
+        store.insert(key, (method, None));
+      }
+    }
+  }
+
+  store
 }
 
 pub extern "C" fn wasm_async_resolve_promise_callback(
@@ -910,16 +1018,14 @@ pub fn create_exports_for_ops_virtual_module<'s>(
     let tmpl = op_ctx_template(scope, &ctx.constructor);
     let prototype = tmpl.prototype_template(scope);
 
+    let accessor_store = create_accessor_store(ctx);
+
     for method in ctx.methods.iter() {
-      let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope);
-      prototype.set(method_key.into(), op_fn.into());
+      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
     }
 
     for method in ctx.static_methods.iter() {
-      let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope);
-      tmpl.set(method_key.into(), op_fn.into());
+      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();

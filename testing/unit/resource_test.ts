@@ -69,10 +69,10 @@ test(function testDomPoint() {
   const p2 = new DOMPoint();
   const p3 = DOMPoint.from_point({ x: 200 });
   const p4 = DOMPoint.from_point({ x: 0, y: 100, z: 99.9, w: 100 });
-  assertEquals(p1.x(), 100);
-  assertEquals(p2.x(), 0);
-  assertEquals(p3.x(), 200);
-  assertEquals(p4.x(), 0);
+  assertEquals(p1.x, 100);
+  assertEquals(p2.x, 0);
+  assertEquals(p3.x, 200);
+  assertEquals(p4.x, 0);
 
   let caught;
   try {

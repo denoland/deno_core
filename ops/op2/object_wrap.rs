@@ -100,11 +100,11 @@ pub(crate) fn generate_impl_ops(
       } else if config.static_member {
         static_methods.push(ident);
       } else {
-        methods.push(ident);
+        methods.push(ident.clone());
         config.method = Some(self_ty_ident.clone());
       }
 
-      let op = generate_op2(config, func);
+      let op = generate_op2(config, func)?;
       tokens.extend(op);
     }
   }
