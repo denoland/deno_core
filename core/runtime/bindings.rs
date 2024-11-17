@@ -29,11 +29,11 @@ use crate::ops::OpCtx;
 use crate::ops::OpMethodCtx;
 use crate::runtime::InitMode;
 use crate::runtime::JsRealm;
+use crate::AccessorType;
 use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
-use crate::OpFnRef;
 use crate::OpState;
 
 pub(crate) fn create_external_references(
@@ -416,22 +416,13 @@ fn op_ctx_template_or_accessor<'s>(
   tmpl: v8::Local<'s, v8::ObjectTemplate>,
   op_ctx: &OpCtx,
 ) {
-  let slow_fn = if op_ctx.metrics_enabled() {
-    op_ctx.decl.slow_fn_with_metrics
-  } else {
-    op_ctx.decl.slow_fn
-  };
+  if !op_ctx.decl.is_accessor() {
+    let op_fn = op_ctx_template(scope, op_ctx);
+    let method_key = op_ctx.decl.name_fast.v8_string(scope);
 
-  match slow_fn {
-    OpFnRef::Function(_) => {
-      let op_fn = op_ctx_template(scope, op_ctx);
-      let method_key = op_ctx.decl.name_fast.v8_string(scope);
+    tmpl.set(method_key.into(), op_fn.into());
 
-      tmpl.set(method_key.into(), op_fn.into());
-
-      return;
-    }
-    _ => {}
+    return;
   }
 
   let op_ctx_ptr = op_ctx as *const OpCtx as *const c_void;
@@ -447,29 +438,32 @@ fn op_ctx_template_or_accessor<'s>(
       named_getter.decl.slow_fn
     };
 
-    let OpFnRef::Getter(getter_raw) = getter_raw else {
-      unreachable!()
-    };
+    let getter_fn = v8::FunctionTemplate::builder_raw(getter_raw)
+      .data(external.into())
+      .build(scope);
 
-    let mut accessor =
-      v8::AccessorConfiguration::new_raw(getter_raw)
-       .property_attribute(v8::PropertyAttribute::READ_ONLY);
-    if let Some(setter) = named_setter {
+    let setter_fn = if let Some(setter) = named_setter {
       let setter_raw = if setter.metrics_enabled() {
         setter.decl.slow_fn_with_metrics
       } else {
         setter.decl.slow_fn
       };
-      let OpFnRef::Setter(setter_raw) = setter_raw else {
-        unreachable!()
-      };
-      accessor = accessor
-            .setter_raw(setter_raw)
-            .property_attribute(v8::PropertyAttribute::NONE);
-    }
 
-    accessor = accessor.data(external.into());
-    tmpl.set_accessor_with_configuration(key, accessor);
+      Some(
+        v8::FunctionTemplate::builder_raw(setter_raw)
+          .data(external.into())
+          .build(scope),
+      )
+    } else {
+      None
+    };
+
+    tmpl.set_accessor_property(
+      key,
+      Some(getter_fn),
+      setter_fn,
+      v8::PropertyAttribute::default(),
+    );
   }
 }
 
@@ -487,10 +481,6 @@ pub(crate) fn op_ctx_template<'s>(
     )
   } else {
     (op_ctx.decl.slow_fn, op_ctx.decl.fast_fn)
-  };
-
-  let OpFnRef::Function(slow_fn) = slow_fn else {
-    unreachable!("Use op_ctx_template_or_accessor");
   };
 
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
@@ -530,7 +520,7 @@ fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
 
   for method in ctx.methods.iter() {
     // Populate all setters first.
-    if let OpFnRef::Setter(_) = &method.decl.slow_fn {
+    if method.decl.accessor_type == AccessorType::Setter {
       let key = method.decl.name_fast.to_string();
 
       // All setters must start with "set_".
@@ -541,8 +531,7 @@ fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
         .methods
         .iter()
         .find(|m| {
-          m.decl.name == key
-            && matches!(m.decl.slow_fn, OpFnRef::Getter(_))
+          m.decl.name == key && m.decl.accessor_type == AccessorType::Getter
         })
         .expect("Getter not found for setter");
 
@@ -552,7 +541,7 @@ fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
 
   // Populate getters without setters.
   for method in ctx.methods.iter() {
-    if let OpFnRef::Getter(_) = &method.decl.slow_fn {
+    if method.decl.accessor_type == AccessorType::Getter {
       let key = method.decl.name_fast.to_string();
 
       if !store.contains_key(&key) {

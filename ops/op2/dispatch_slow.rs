@@ -135,42 +135,10 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let (cb_info_type, cb_args_from, extra_args) = if generator_state.accessor {
-    (
-      if config.getter {
-        quote!(deno_core::v8::PropertyCallbackInfo<deno_core::v8::Value>)
-      } else {
-        quote!(deno_core::v8::PropertyCallbackInfo<()>)
-      },
-      quote!(
-        deno_core::v8::PropertyCallbackArguments::from_property_callback_info
-      ),
-      if config.getter {
-        quote!(_: deno_core::v8::Local<deno_core::v8::Name>, )
-      } else {
-        quote!(_: deno_core::v8::Local<deno_core::v8::Name>, arg0: deno_core::v8::Local<deno_core::v8::Value>, )
-      },
-    )
-  } else {
-    (
-      quote!(deno_core::v8::FunctionCallbackInfo),
-      quote!(
-        deno_core::v8::FunctionCallbackArguments::from_function_callback_info
-      ),
-      quote!(),
-    )
-  };
-
-  let x = if config.setter {
-    quote!(println!("arg0: {:?}", arg0);)
-  } else {
-    quote!()
-  };
-
   Ok(
     gs_quote!(generator_state(opctx, info, slow_function, slow_function_metrics) => {
       #[inline(always)]
-      fn slow_function_impl<'s>(#info: &'s #cb_info_type) -> usize {
+      fn slow_function_impl<'s>(#info: &'s deno_core::v8::FunctionCallbackInfo) -> usize {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);
 
@@ -188,15 +156,14 @@ pub(crate) fn generate_dispatch_slow(
         return 0;
       }
 
-      extern "C" fn #slow_function<'s>(#extra_args #info: *const #cb_info_type) {
-          #x
+      extern "C" fn #slow_function<'s>(#info: *const deno_core::v8::FunctionCallbackInfo) {
         let info: &'s _ = unsafe { &*#info };
         Self::slow_function_impl(info);
       }
 
-      extern "C" fn #slow_function_metrics<'s>(#extra_args #info: *const #cb_info_type) {
+      extern "C" fn #slow_function_metrics<'s>(#info: *const deno_core::v8::FunctionCallbackInfo) {
         let info: &'s _ = unsafe { &*#info };
-        let args = unsafe { #cb_args_from(info) };
+        let args = unsafe { deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info) };
 
         let #opctx: &'s _ = unsafe {
           &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()
@@ -246,10 +213,6 @@ pub(crate) fn with_stack_trace(
 }
 
 pub(crate) fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
-  if generator_state.accessor {
-    return gs_quote!(generator_state(retval, info) =>
-      (let mut #retval = deno_core::v8::ReturnValue::from_property_callback_info(#info);));
-  }
   gs_quote!(generator_state(retval, info) =>
     (let mut #retval = deno_core::v8::ReturnValue::from_function_callback_info(#info);)
   )
@@ -258,13 +221,6 @@ pub(crate) fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
 pub(crate) fn with_fn_args(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-  if generator_state.accessor {
-    return gs_quote!(generator_state(info, fn_args) =>
-      (let #fn_args = {
-          deno_core::v8::PropertyCallbackArguments::from_property_callback_info(#info)
-      };)
-    );
-  }
   gs_quote!(generator_state(info, fn_args) =>
     (let #fn_args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(#info);)
   )

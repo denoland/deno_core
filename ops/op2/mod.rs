@@ -296,12 +296,12 @@ pub(crate) fn generate_op2(
     }
   };
 
-  let op_fn_ref = if config.getter {
-    quote!(::deno_core::OpFnRef::Getter)
+  let accessor_type = if config.getter {
+    quote!(::deno_core::AccessorType::Getter)
   } else if config.setter {
-    quote!(::deno_core::OpFnRef::Setter)
+    quote!(::deno_core::AccessorType::Setter)
   } else {
-    quote!(::deno_core::OpFnRef::Function)
+    quote!(::deno_core::AccessorType::None)
   };
 
   Ok(quote! {
@@ -322,8 +322,9 @@ pub(crate) fn generate_op2(
           /*is_reentrant*/ #is_reentrant,
           /*arg_count*/ #arg_count as u8,
           /*no_side_effect*/ #no_side_effect,
-          /*slow_fn*/ #op_fn_ref(Self::#slow_function as _),
-          /*slow_fn_metrics*/ #op_fn_ref(Self::#slow_function_metrics as _),
+          /*slow_fn*/ Self::#slow_function as _,
+          /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
+          /*accessor_type*/ #accessor_type,
           /*fast_fn*/ #fast_definition,
           /*fast_fn_metrics*/ #fast_definition_metrics,
           /*metadata*/ ::deno_core::OpMetadata {

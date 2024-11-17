@@ -53,12 +53,10 @@ use crate::op2::Op2Error;
 // import { MyObject } from "ext:core/ops";
 // ```
 //
-// Currently supported bindings:
+// Supported bindings:
 // - constructor
 // - methods
 // - static methods
-//
-// Planned support:
 // - getters
 // - setters
 //
