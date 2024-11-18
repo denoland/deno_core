@@ -22,7 +22,7 @@ export function op_worker_terminate(...any: any[]): any;
 
 export class DOMPoint {
   constructor(x?: number, y?: number, z?: number, w?: number);
-  static from_point(
+  static fromPoint(
     other: { x?: number; y?: number; z?: number; w?: number },
   ): DOMPoint;
   x(): number;
