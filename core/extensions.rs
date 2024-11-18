@@ -188,12 +188,20 @@ pub struct OpMethodDecl {
   pub static_methods: &'static [OpDecl],
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum AccessorType {
+  Getter,
+  Setter,
+  None,
+}
+
 #[derive(Clone, Copy)]
 pub struct OpDecl {
   pub name: &'static str,
   pub name_fast: FastStaticString,
   pub is_async: bool,
   pub is_reentrant: bool,
+  pub accessor_type: AccessorType,
   pub arg_count: u8,
   pub no_side_effects: bool,
   /// The slow dispatch call. If metrics are disabled, the `v8::Function` is created with this callback.
@@ -220,6 +228,7 @@ impl OpDecl {
     no_side_effects: bool,
     slow_fn: OpFnRef,
     slow_fn_with_metrics: OpFnRef,
+    accessor_type: AccessorType,
     fast_fn: Option<CFunction>,
     fast_fn_with_metrics: Option<CFunction>,
     metadata: OpMetadata,
@@ -234,10 +243,15 @@ impl OpDecl {
       no_side_effects,
       slow_fn,
       slow_fn_with_metrics,
+      accessor_type,
       fast_fn,
       fast_fn_with_metrics,
       metadata,
     }
+  }
+
+  pub fn is_accessor(&self) -> bool {
+    self.accessor_type != AccessorType::None
   }
 
   /// Returns a copy of this `OpDecl` that replaces underlying functions

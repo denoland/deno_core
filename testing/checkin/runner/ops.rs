@@ -122,19 +122,23 @@ impl DOMPoint {
     })
   }
 
-  #[fast]
+  #[getter]
   fn x(&self) -> f64 {
     self.x
   }
-  #[fast]
+
+  #[setter]
+  fn x(&self, _: f64) {}
+
+  #[getter]
   fn y(&self) -> f64 {
     self.y
   }
-  #[fast]
+  #[getter]
   fn w(&self) -> f64 {
     self.w
   }
-  #[fast]
+  #[getter]
   fn z(&self) -> f64 {
     self.z
   }
