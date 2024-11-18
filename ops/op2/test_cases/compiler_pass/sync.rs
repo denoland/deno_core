@@ -2,7 +2,6 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::error::JsStackFrame;
 use deno_core::v8;
 
 // Collect a few examples that we'll smoke test when not running on the CI.

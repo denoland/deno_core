@@ -76,6 +76,12 @@ pub(crate) fn generate_dispatch_slow(
     )?);
   }
 
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    with_stack_trace(generator_state)
+  } else {
+    quote!()
+  };
+
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
   let with_isolate =
     if generator_state.needs_isolate && !generator_state.needs_scope {
@@ -84,15 +90,8 @@ pub(crate) fn generate_dispatch_slow(
       quote!()
     };
 
-  let with_opstate =
-    if generator_state.needs_opstate | generator_state.needs_stack_trace {
-      with_opstate(generator_state)
-    } else {
-      quote!()
-    };
-
-  let with_stack_trace = if generator_state.needs_stack_trace {
-    with_stack_trace(generator_state)
+  let with_opstate = if generator_state.needs_opstate {
+    with_opstate(generator_state)
   } else {
     quote!()
   };
@@ -200,14 +199,16 @@ pub(crate) fn with_stack_trace(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
   generator_state.needs_opctx = true;
+  generator_state.needs_opstate = true;
   generator_state.needs_scope = true;
+
   gs_quote!(generator_state(opctx, scope, opstate) =>
     (if #opctx.enable_stack_trace_arg {
       let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
       let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
       let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
-      let mut op_state = &::std::cell::RefCell::borrow_mut(&#opstate);
-      *op_state.current_op_stack_trace = Some(js_error.frames)
+      let mut op_state = ::std::cell::RefCell::borrow_mut(&#opstate);
+      op_state.current_op_stack_trace = Some(js_error.frames)
     })
   )
 }

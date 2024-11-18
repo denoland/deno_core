@@ -56,8 +56,8 @@ pub const fn op_async_stack_trace() -> ::deno_core::_ops::OpDecl {
                     &mut scope,
                     stack_trace_error,
                 );
-                let mut op_state = &::std::cell::RefCell::borrow_mut(&opstate);
-                *op_state.current_op_stack_trace = Some(js_error.frames);
+                let mut op_state = ::std::cell::RefCell::borrow_mut(&opstate);
+                op_state.current_op_stack_trace = Some(js_error.frames);
             }
             let result = { Self::call() };
             let promise_id = deno_core::_ops::to_i32_option(&args.get(0))

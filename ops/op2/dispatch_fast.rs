@@ -434,8 +434,26 @@ pub(crate) fn generate_dispatch_fast(
     })
   };
 
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    generator_state.needs_opctx = true;
+    generator_state.needs_scope = true;
+    generator_state.needs_fast_scope = false;
+
+    gs_quote!(generator_state(opctx, scope, opstate) =>
+    (if #opctx.enable_stack_trace_arg {
+      let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
+      let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
+      let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
+      let mut op_state = ::std::cell::RefCell::borrow_mut(&#opstate);
+      op_state.current_op_stack_trace = Some(js_error.frames)
+    })
+    )
+  } else {
+    quote!()
+  };
+
   let with_opstate =
-    if generator_state.needs_opstate | generator_state.needs_stack_trace {
+    if generator_state.needs_opstate || generator_state.needs_stack_trace {
       generator_state.needs_opctx = true;
       gs_quote!(generator_state(opctx, opstate) =>
         (let #opstate = &#opctx.state;)
@@ -443,23 +461,6 @@ pub(crate) fn generate_dispatch_fast(
     } else {
       quote!()
     };
-
-  let with_stack_trace = if generator_state.needs_stack_trace {
-    generator_state.needs_opctx = true;
-    generator_state.needs_scope = true;
-    gs_quote!(generator_state(opctx, scope, opstate) =>
-    (if #opctx.enable_stack_trace_arg {
-      let mut scope = v8::HandleScope::new(#scope);
-      let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
-      let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
-      let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
-      let mut op_state = &::std::cell::RefCell::borrow_mut(&#opstate);
-      *op_state.current_op_stack_trace = Some(js_error.frames)
-    })
-    )
-  } else {
-    quote!()
-  };
 
   let with_js_runtime_state = if generator_state.needs_js_runtime_state {
     generator_state.needs_opctx = true;
