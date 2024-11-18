@@ -57,7 +57,7 @@ pub(crate) fn generate_dispatch_slow_call(
 }
 
 pub(crate) fn generate_dispatch_slow(
-  _config: &MacroConfig,
+  config: &MacroConfig,
   generator_state: &mut GeneratorState,
   signature: &ParsedSignature,
 ) -> Result<TokenStream, V8SignatureMappingError> {
@@ -68,9 +68,13 @@ pub(crate) fn generate_dispatch_slow(
   output.extend(gs_quote!(generator_state(result) => (let #result = {
     #args
   };)));
-  output.extend(return_value(generator_state, &signature.ret_val).map_err(
-    |s| V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone()),
-  )?);
+  if !config.setter {
+    output.extend(return_value(generator_state, &signature.ret_val).map_err(
+      |s| {
+        V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+      },
+    )?);
+  }
 
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
   let with_isolate =
@@ -159,6 +163,7 @@ pub(crate) fn generate_dispatch_slow(
       extern "C" fn #slow_function_metrics<'s>(#info: *const deno_core::v8::FunctionCallbackInfo) {
         let info: &'s _ = unsafe { &*#info };
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info);
+
         let #opctx: &'s _ = unsafe {
           &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()
               as *const deno_core::_ops::OpCtx)

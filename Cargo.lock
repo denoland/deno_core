@@ -636,6 +636,7 @@ dependencies = [
  "proc-macro-rules",
  "proc-macro2",
  "quote",
+ "stringcase",
  "strum",
  "strum_macros",
  "syn",
@@ -1998,6 +1999,12 @@ dependencies = [
  "swc_macros_common",
  "syn",
 ]
+
+[[package]]
+name = "stringcase"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04028eeb851ed08af6aba5caa29f2d59a13ed168cee4d6bd753aeefcf1d636b0"
 
 [[package]]
 name = "strsim"

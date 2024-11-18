@@ -95,7 +95,7 @@ pub(crate) fn op2(
 
 pub(crate) fn generate_op2(
   config: MacroConfig,
-  func: ItemFn,
+  mut func: ItemFn,
 ) -> Result<TokenStream, Op2Error> {
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
@@ -117,7 +117,10 @@ pub(crate) fn generate_op2(
       FnArg::Typed(ty) => ty.attrs.clear(),
     }
   }
-
+  if config.setter {
+    // Prepend "__set_" to the setter function name.
+    func.sig.ident = format_ident!("__set_{}", func.sig.ident);
+  }
   let signature = parse_signature(func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
   {
@@ -225,12 +228,16 @@ pub(crate) fn generate_op2(
       &signature,
     )? {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
-        if !config.fast && !config.nofast && config.fast_alternatives.is_empty()
+        if !config.fast
+          && !config.nofast
+          && config.fast_alternatives.is_empty()
+          && !config.getter
+          && !config.setter
         {
           return Err(Op2Error::ShouldBeFast);
         }
         // nofast requires the function to be valid for fast
-        if config.nofast {
+        if config.nofast || config.getter || config.setter {
           (quote!(None), quote!(None), quote!())
         } else {
           (
@@ -241,7 +248,7 @@ pub(crate) fn generate_op2(
         }
       }
       None => {
-        if config.fast {
+        if config.fast || config.getter || config.setter {
           return Err(Op2Error::ShouldNotBeFast("fast"));
         }
         if config.nofast {
@@ -289,6 +296,14 @@ pub(crate) fn generate_op2(
     }
   };
 
+  let accessor_type = if config.getter {
+    quote!(::deno_core::AccessorType::Getter)
+  } else if config.setter {
+    quote!(::deno_core::AccessorType::Setter)
+  } else {
+    quote!(::deno_core::AccessorType::None)
+  };
+
   Ok(quote! {
     #[allow(non_camel_case_types)]
     #vis const fn #name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
@@ -309,6 +324,7 @@ pub(crate) fn generate_op2(
           /*no_side_effect*/ #no_side_effect,
           /*slow_fn*/ Self::#slow_function as _,
           /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
+          /*accessor_type*/ #accessor_type,
           /*fast_fn*/ #fast_definition,
           /*fast_fn_metrics*/ #fast_definition_metrics,
           /*metadata*/ ::deno_core::OpMetadata {
