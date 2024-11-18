@@ -429,7 +429,6 @@ fn op_ctx_template_or_accessor<'s>(
 
   let op_ctx_ptr = op_ctx as *const OpCtx as *const c_void;
   let external = v8::External::new(scope, op_ctx_ptr as *mut c_void);
-  let key = op_ctx.decl.name_fast.v8_string(scope).into();
 
   if let Some((named_getter, named_setter)) =
     accessor_store.get(op_ctx.decl.name)
@@ -460,6 +459,7 @@ fn op_ctx_template_or_accessor<'s>(
       None
     };
 
+    let key = op_ctx.decl.name_fast.v8_string(scope).into();
     tmpl.set_accessor_property(
       key,
       Some(getter_fn),

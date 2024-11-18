@@ -85,6 +85,12 @@ pub(crate) fn generate_impl_ops(
       /* First attribute idents, for all functions in block */
       let attrs = method.attrs.swap_remove(0);
 
+      /* Convert snake_case to camelCase */
+      method.sig.ident = format_ident!(
+        "{}",
+        stringcase::camel_case(&method.sig.ident.to_string())
+      );
+
       let ident = method.sig.ident.clone();
       let func = ItemFn {
         attrs: method.attrs,
