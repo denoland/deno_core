@@ -358,7 +358,7 @@ mod tests {
   use syn::File;
   use syn::Item;
 
-  #[testing_macros::fixture("opt_cases/sync/*.rs")]
+  #[testing_macros::fixture("op/test_cases/sync/*.rs")]
   fn test_proc_macro_sync(input: PathBuf) {
     test_proc_macro_output(input)
   }
