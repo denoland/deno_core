@@ -13,7 +13,6 @@ use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::CoreError;
-use crate::error::JsErrorClass;
 use crate::error::JsNativeError;
 use crate::error::JsStackFrame;
 use crate::extension_set::LoadedSources;
@@ -607,12 +606,18 @@ fn import_meta_resolve(
   mut rv: v8::ReturnValue,
 ) {
   if args.length() > 1 {
-    return JsNativeError::type_error("Invalid arguments").throw(scope);
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsNativeError::type_error("Invalid arguments"),
+    );
   }
 
   let maybe_arg_str = args.get(0).to_string(scope);
   if maybe_arg_str.is_none() {
-    return JsNativeError::type_error("Invalid arguments").throw(scope);
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsNativeError::type_error("Invalid arguments"),
+    );
   }
   let specifier = maybe_arg_str.unwrap();
   let referrer = {
@@ -635,7 +640,7 @@ fn import_meta_resolve(
       rv.set(resolved_val);
     }
     Err(err) => {
-      err.throw(scope);
+      crate::error::throw_js_error_class(scope, &err);
     }
   };
 }
@@ -658,9 +663,9 @@ fn catch_dynamic_import_promise_error(
   let arg = args.get(0);
   if is_instance_of_error(scope, arg) {
     let e: crate::error::NativeJsError = serde_v8::from_v8(scope, arg).unwrap();
-    let name = e
-      .name
-      .unwrap_or_else(|| crate::error::GENERIC_ERROR.to_string());
+    let name = e.name.unwrap_or_else(|| {
+      deno_error::builtin_classes::GENERIC_ERROR.to_string()
+    });
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
@@ -675,12 +680,16 @@ fn catch_dynamic_import_promise_error(
         }
       }
       let exception = match name.as_str() {
-        crate::error::RANGE_ERROR => v8::Exception::range_error(scope, message),
-        crate::error::TYPE_ERROR => v8::Exception::type_error(scope, message),
-        crate::error::SYNTAX_ERROR => {
+        deno_error::builtin_classes::RANGE_ERROR => {
+          v8::Exception::range_error(scope, message)
+        }
+        deno_error::builtin_classes::TYPE_ERROR => {
+          v8::Exception::type_error(scope, message)
+        }
+        deno_error::builtin_classes::SYNTAX_ERROR => {
           v8::Exception::syntax_error(scope, message)
         }
-        crate::error::REFERENCE_ERROR => {
+        deno_error::builtin_classes::REFERENCE_ERROR => {
           v8::Exception::reference_error(scope, message)
         }
         _ => v8::Exception::error(scope, message),
@@ -741,7 +750,10 @@ fn call_console(
     || !args.get(0).is_function()
     || !args.get(1).is_function()
   {
-    return JsNativeError::type_error("Invalid arguments").throw(scope);
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsNativeError::type_error("Invalid arguments"),
+    );
   }
 
   let mut call_args = vec![];

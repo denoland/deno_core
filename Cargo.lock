@@ -552,7 +552,7 @@ dependencies = [
  "swc_visit",
  "swc_visit_macros",
  "text_lines",
- "thiserror",
+ "thiserror 1.0.60",
  "unicode-width",
  "url",
 ]
@@ -571,7 +571,7 @@ dependencies = [
  "criterion",
  "deno_ast",
  "deno_core_icudata",
- "deno_js_error",
+ "deno_error",
  "deno_ops",
  "deno_unsync",
  "fastrand",
@@ -589,7 +589,7 @@ dependencies = [
  "smallvec",
  "sourcemap",
  "static_assertions",
- "thiserror",
+ "thiserror 1.0.60",
  "tokio",
  "twox-hash",
  "unicycle",
@@ -610,6 +610,7 @@ dependencies = [
  "anyhow",
  "deno_ast",
  "deno_core",
+ "deno_error",
  "futures",
  "pretty_assertions",
  "prettyplease",
@@ -619,18 +620,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "deno_js_error"
-version = "0.1.0"
+name = "deno_error"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7212b2c7eab654fa8856f7d0c5ad6c805f9e32982079735ca3a0fee1381e101"
 dependencies = [
- "pretty_assertions",
- "prettyplease",
- "proc-macro-rules",
+ "deno_error_macro",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "deno_error_macro"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23a3cd1a50eed6696671493663fa1d2542a487350527b133ef8db0765bc83334"
+dependencies = [
  "proc-macro2",
  "quote",
- "strum",
- "strum_macros",
  "syn",
- "testing_macros",
 ]
 
 [[package]]
@@ -657,7 +668,7 @@ dependencies = [
  "strum_macros",
  "syn",
  "testing_macros",
- "thiserror",
+ "thiserror 2.0.3",
 ]
 
 [[package]]
@@ -769,7 +780,7 @@ dependencies = [
  "rand",
  "sha1",
  "simdutf8",
- "thiserror",
+ "thiserror 1.0.60",
  "tokio",
  "utf-8",
 ]
@@ -1194,9 +1205,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.154"
+version = "0.2.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae743338b92ff9146ce83992f766a31066a91a8c84a45e0e9f21e7cf6de6d346"
+checksum = "18d287de67fe55fd7e1581fe933d965a5a9477b38e949cfa9f8574ef01506398"
 
 [[package]]
 name = "libloading"
@@ -1548,9 +1559,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.82"
+version = "1.0.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ad3d49ab951a01fbaafe34f2ec74122942fe18a3f9814c3268f1bb72042131b"
+checksum = "f139b0662de085916d1fb67d2b4169d1addddda1919e696f3252b740b629986e"
 dependencies = [
  "unicode-ident",
 ]
@@ -1860,13 +1871,14 @@ name = "serde_v8"
 version = "0.228.0"
 dependencies = [
  "bencher",
+ "deno_error",
  "num-bigint",
  "serde",
  "serde_bytes",
  "serde_json",
  "serde_v8_utilities",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.3",
  "v8",
 ]
 
@@ -2397,9 +2409,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.61"
+version = "2.0.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c993ed8ccba56ae856363b1845da7266a7cb78e1d146c8a32d54b45a8b831fc9"
+checksum = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2452,7 +2464,16 @@ version = "1.0.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "579e9083ca58dd9dcf91a9923bb9054071b9ebbd800b342194c9feb0ee89fc18"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.60",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c006c85c7651b3cf2ada4584faa36773bd07bac24acfb39f3c431b36d7e667aa"
+dependencies = [
+ "thiserror-impl 2.0.3",
 ]
 
 [[package]]
@@ -2460,6 +2481,17 @@ name = "thiserror-impl"
 version = "1.0.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2470041c06ec3ac1ab38d0356a6119054dedaea53e12fbefc0de730a1c08524"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f077553d607adc1caf65430528a576c757a71ed73944b66ebb58ef2bbd243568"
 dependencies = [
  "proc-macro2",
  "quote",

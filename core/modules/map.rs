@@ -6,7 +6,6 @@ use super::ModuleConcreteError;
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
 use crate::error::JsError;
-use crate::error::JsErrorClass;
 use crate::error::JsNativeError;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
@@ -836,10 +835,12 @@ impl ModuleMap {
       return Some(module);
     }
 
-    JsNativeError::type_error(format!(
-      r#"Cannot resolve module "{specifier_str}" from "{referrer_name}""#
-    ))
-    .throw(scope);
+    crate::error::throw_js_error_class(
+      scope,
+      &JsNativeError::type_error(format!(
+        r#"Cannot resolve module "{specifier_str}" from "{referrer_name}""#
+      )),
+    );
     None
   }
 
@@ -887,7 +888,7 @@ impl ModuleMap {
       match self.resolve(specifier, referrer, ResolutionKind::Import) {
         Ok(s) => s,
         Err(e) => {
-          e.throw(scope);
+          crate::error::throw_js_error_class(scope, &e);
           return None;
         }
       };

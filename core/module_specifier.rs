@@ -7,8 +7,10 @@ use url::ParseError;
 use url::Url;
 
 /// Error indicating the reason resolving a module specifier failed.
-#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error, crate::JsError)]
-#[class(URI)]
+#[derive(
+  Clone, Debug, Eq, PartialEq, thiserror::Error, deno_error::JsError,
+)]
+#[class(uri)]
 pub enum ModuleResolutionError {
   #[error("invalid URL: {0}")]
   InvalidUrl(#[source] ParseError),

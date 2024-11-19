@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+pub use super::modules::ModuleConcreteError;
 pub use super::runtime::op_driver::OpError;
 pub use super::runtime::op_driver::OpErrorWrapper;
 pub use crate::io::ResourceError;
@@ -10,6 +11,7 @@ use crate::runtime::JsRuntime;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
 use crate::FastStaticString;
+use deno_error::builtin_classes::*;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
@@ -19,24 +21,15 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
 
-pub use super::modules::ModuleConcreteError;
+pub use deno_error;
+pub use deno_error::JsError;
+pub use deno_error::JsErrorClass;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
 
-pub mod builtin_classes {
-  pub const GENERIC_ERROR: &str = "Error";
-  pub const RANGE_ERROR: &str = "RangeError";
-  pub const TYPE_ERROR: &str = "TypeError";
-  pub const SYNTAX_ERROR: &str = "SyntaxError";
-  pub const URI_ERROR: &str = "URIError";
-  pub const REFERENCE_ERROR: &str = "ReferenceError";
-
-  pub const NOT_SUPPORTED_ERROR: &str = "NotSupported";
-}
-
-pub use builtin_classes::*;
+deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
@@ -91,7 +84,7 @@ pub enum CoreError {
   #[error(transparent)]
   Module(ModuleConcreteError),
   #[error(transparent)]
-  DataError(#[from] v8::DataError),
+  DataError(DataError),
   #[error(transparent)]
   Other(#[from] anyhow::Error),
 }
@@ -148,50 +141,15 @@ impl CoreError {
   }
 }
 
+impl From<v8::DataError> for CoreError {
+  fn from(err: v8::DataError) -> Self {
+    CoreError::DataError(DataError(err))
+  }
+}
+
 impl From<ModuleLoaderError> for CoreError {
   fn from(err: ModuleLoaderError) -> Self {
     CoreError::ModuleLoader(Box::new(err))
-  }
-}
-
-/// Trait to implement how an error should be represented in JavaScript.
-/// Note: it is not recommended to manually implement this type, but instead
-/// rather use the [deno_core::JsError] macro.
-pub trait JsErrorClass: Display + Debug + Send + Sync + 'static {
-  fn get_class(&self) -> &'static str;
-  fn get_message(&self) -> Cow<'static, str>;
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>>;
-  fn to_native(self) -> JsNativeError
-  where
-    Self: Sized,
-  {
-    JsNativeError::from_err(self)
-  }
-
-  fn throw(&self, scope: &mut v8::HandleScope) {
-    let exception = js_class_and_message_to_exception(
-      scope,
-      self.get_class(),
-      &self.get_message(),
-    );
-    scope.throw_exception(exception);
-  }
-}
-
-fn js_class_and_message_to_exception<'s>(
-  scope: &mut v8::HandleScope<'s>,
-  class: &str,
-  message: &str,
-) -> v8::Local<'s, v8::Value> {
-  let message = v8::String::new(scope, message).unwrap();
-  match class {
-    TYPE_ERROR => v8::Exception::type_error(scope, message),
-    RANGE_ERROR => v8::Exception::range_error(scope, message),
-    REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
-    SYNTAX_ERROR => v8::Exception::syntax_error(scope, message),
-    _ => v8::Exception::error(scope, message),
   }
 }
 
@@ -257,195 +215,30 @@ impl JsErrorClass for CoreError {
   }
 }
 
-impl JsErrorClass for serde_v8::Error {
-  fn get_class(&self) -> &'static str {
-    TYPE_ERROR
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
-  }
+pub fn throw_js_error_class<E: JsErrorClass>(
+  scope: &mut v8::HandleScope,
+  error: &E,
+) {
+  let exception = js_class_and_message_to_exception(
+    scope,
+    error.get_class(),
+    &error.get_message(),
+  );
+  scope.throw_exception(exception);
 }
 
-impl JsErrorClass for std::io::Error {
-  fn get_class(&self) -> &'static str {
-    use std::io::ErrorKind::*;
-
-    match self.kind() {
-      NotFound => "NotFound",
-      PermissionDenied => "PermissionDenied",
-      ConnectionRefused => "ConnectionRefused",
-      ConnectionReset => "ConnectionReset",
-      ConnectionAborted => "ConnectionAborted",
-      NotConnected => "NotConnected",
-      AddrInUse => "AddrInUse",
-      AddrNotAvailable => "AddrNotAvailable",
-      BrokenPipe => "BrokenPipe",
-      AlreadyExists => "AlreadyExists",
-      InvalidInput => TYPE_ERROR,
-      InvalidData => "InvalidData",
-      TimedOut => "TimedOut",
-      Interrupted => "Interrupted",
-      WriteZero => "WriteZero",
-      UnexpectedEof => "UnexpectedEof",
-      Other => GENERIC_ERROR,
-      WouldBlock => "WouldBlock",
-      kind => {
-        let kind_str = kind.to_string();
-        match kind_str.as_str() {
-          "FilesystemLoop" => "FilesystemLoop",
-          "IsADirectory" => "IsADirectory",
-          "NetworkUnreachable" => "NetworkUnreachable",
-          "NotADirectory" => "NotADirectory",
-          _ => GENERIC_ERROR,
-        }
-      }
-    }
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    crate::error_codes::get_error_code(self)
-      .map(|code| vec![("code".into(), code.into())])
-  }
-}
-
-impl JsErrorClass for std::env::VarError {
-  fn get_class(&self) -> &'static str {
-    match self {
-      std::env::VarError::NotPresent => "NotFound",
-      std::env::VarError::NotUnicode(..) => "InvalidData",
-    }
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
-  }
-}
-
-impl JsErrorClass for std::sync::mpsc::RecvError {
-  fn get_class(&self) -> &'static str {
-    GENERIC_ERROR
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
-  }
-}
-
-impl JsErrorClass for v8::DataError {
-  fn get_class(&self) -> &'static str {
-    TYPE_ERROR
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
-  }
-}
-
-impl<T: Send + Sync + 'static> JsErrorClass
-  for tokio::sync::mpsc::error::SendError<T>
-{
-  fn get_class(&self) -> &'static str {
-    GENERIC_ERROR
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
-  }
-}
-impl JsErrorClass for tokio::task::JoinError {
-  fn get_class(&self) -> &'static str {
-    GENERIC_ERROR
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
-  }
-}
-
-impl JsErrorClass for serde_json::Error {
-  fn get_class(&self) -> &'static str {
-    use serde::de::StdError;
-    use serde_json::error::*;
-
-    match self.classify() {
-      Category::Io => self
-        .source()
-        .and_then(|e| e.downcast_ref::<std::io::Error>())
-        .unwrap()
-        .get_class(),
-      Category::Syntax => SYNTAX_ERROR,
-      Category::Data => "InvalidData",
-      Category::Eof => "UnexpectedEof",
-    }
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None // TODO: could be io error code
-  }
-}
-
-impl JsErrorClass for url::ParseError {
-  fn get_class(&self) -> &'static str {
-    URI_ERROR
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.to_string().into()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None
+fn js_class_and_message_to_exception<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  class: &str,
+  message: &str,
+) -> v8::Local<'s, v8::Value> {
+  let message = v8::String::new(scope, message).unwrap();
+  match class {
+    TYPE_ERROR => v8::Exception::type_error(scope, message),
+    RANGE_ERROR => v8::Exception::range_error(scope, message),
+    REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
+    SYNTAX_ERROR => v8::Exception::syntax_error(scope, message),
+    _ => v8::Exception::error(scope, message),
   }
 }
 
@@ -525,49 +318,10 @@ impl JsNativeError {
   }
 }
 
-#[macro_export]
-macro_rules! js_error_wrapper {
-  ($err_path:path, $err_name:ident, $js_err_type:tt) => {
-    deno_core::js_error_wrapper!($err_path, $err_name, |_error| $js_err_type);
-  };
-  ($err_path:path, $err_name:ident, |$inner:ident| $js_err_type:tt) => {
-    #[derive(Debug)]
-    pub struct $err_name(pub $err_path);
-    impl From<$err_path> for $err_name {
-      fn from(err: $err_path) -> Self {
-        Self(err)
-      }
-    }
-    impl std::error::Error for $err_name {
-      fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.source()
-      }
-    }
-    impl std::fmt::Display for $err_name {
-      fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-      }
-    }
-    impl deno_core::error::JsErrorClass for $err_name {
-      fn get_class(&self) -> &'static str {
-        let $inner = &self.0;
-        $js_err_type
-      }
-      fn get_message(&self) -> std::borrow::Cow<'static, str> {
-        self.to_string().into()
-      }
-      fn get_additional_properties(
-        &self,
-      ) -> Option<
-        Vec<(
-          std::borrow::Cow<'static, str>,
-          std::borrow::Cow<'static, str>,
-        )>,
-      > {
-        None
-      }
-    }
-  };
+impl From<crate::Canceled> for JsNativeError {
+  fn from(value: crate::Canceled) -> Self {
+    Self::from_err(value)
+  }
 }
 
 /// A wrapper around `anyhow::Error` that implements `std::error::Error`
@@ -615,7 +369,7 @@ pub fn to_v8_error<'a>(
 
   if let Some(code) = (error as &dyn std::any::Any)
     .downcast_ref::<std::io::Error>()
-    .and_then(crate::error_codes::get_error_code)
+    .and_then(deno_error::get_error_code)
   {
     args.push(v8::String::new(tc_scope, code).unwrap().into());
   }

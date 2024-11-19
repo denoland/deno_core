@@ -2,13 +2,13 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 
-use crate::error::OpError;
+use crate::error::{JsNativeError};
+use crate::error::{OpError};
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
-use anyhow::anyhow;
 use futures::Future;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -542,7 +542,7 @@ pub async fn op_async() {
 #[allow(unreachable_code)]
 pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, OpError>
 {
-  return Err(anyhow!("dead").into());
+  return Err(JsNativeError::generic("dead").into());
   Ok(async {})
 }
 
@@ -556,13 +556,13 @@ pub async fn op_async_yield() {
 pub async fn op_async_yield_error() -> Result<(), OpError> {
   tokio::task::yield_now().await;
   println!("op_async_yield_error!");
-  Err(anyhow!("dead").into())
+  Err(JsNativeError::generic("dead").into())
 }
 
 #[op2(async)]
 pub async fn op_async_error() -> Result<(), OpError> {
   println!("op_async_error!");
-  Err(anyhow!("dead").into())
+  Err(JsNativeError::generic("dead").into())
 }
 
 #[op2(async(deferred), fast)]
@@ -582,7 +582,7 @@ pub fn op_sync() {
 
 #[op2(fast)]
 pub fn op_sync_error() -> Result<(), OpError> {
-  Err(anyhow::anyhow!("Always fails").into())
+  Err(JsNativeError::generic("Always fails").into())
 }
 
 #[op2(fast)]

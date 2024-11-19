@@ -21,8 +21,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
-#[derive(Debug, thiserror::Error, crate::JsError)]
-#[class(GENERIC)]
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(generic)]
 pub enum ModuleLoaderError {
   #[error("Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot."
   )]

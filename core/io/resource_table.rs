@@ -230,9 +230,9 @@ impl ResourceTable {
   }
 }
 
-#[derive(Debug, thiserror::Error, crate::JsError)]
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
 pub enum ResourceError {
-  #[class(REFERENCE)]
+  #[class(reference)]
   #[error("null or invalid handle")]
   Reference,
   #[class("BadResource")]

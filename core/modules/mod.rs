@@ -626,8 +626,8 @@ pub(crate) struct ModuleInfo {
   pub module_type: ModuleType,
 }
 
-#[derive(Debug, thiserror::Error, crate::JsError)]
-#[class(GENERIC)]
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(generic)]
 pub enum ModuleConcreteError {
   #[error("Trying to create \"main\" module ({new_module:?}), when one already exists ({main_module:?})"
   )]

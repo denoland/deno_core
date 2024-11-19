@@ -276,7 +276,9 @@ pub fn op_eval_context<'a>(
       let output = v8::PrimitiveArray::new(tc_scope, array.length() as _);
       for i in 0..array.length() {
         let value = array.get_index(tc_scope, i).unwrap();
-        let value = value.try_cast::<v8::Primitive>()?;
+        let value = value
+          .try_cast::<v8::Primitive>()
+          .map_err(crate::error::DataError)?;
         output.set(tc_scope, i as _, value);
       }
       Some(output.into())
@@ -807,7 +809,8 @@ pub fn op_set_promise_hooks(
     .enumerate()
     .filter(|(_, hook)| !hook.is_undefined())
     .try_fold([None; 4], |mut v8_fns, (i, hook)| {
-      let v8_fn = v8::Local::<v8::Function>::try_from(hook)?;
+      let v8_fn = v8::Local::<v8::Function>::try_from(hook)
+        .map_err(crate::error::DataError)?;
       v8_fns[i] = Some(v8_fn);
       Ok::<_, OpError>(v8_fns)
     })?;

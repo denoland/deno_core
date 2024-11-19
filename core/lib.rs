@@ -11,7 +11,6 @@ mod async_cell;
 pub mod convert;
 pub mod cppgc;
 pub mod error;
-mod error_codes;
 mod extension_set;
 mod extensions;
 mod external;
@@ -53,7 +52,7 @@ pub use thiserror;
 pub use url;
 pub use v8;
 
-pub use deno_js_error::JsError;
+pub use deno_error::JsError;
 pub use deno_ops::op2;
 
 pub use crate::async_cancel::CancelFuture;

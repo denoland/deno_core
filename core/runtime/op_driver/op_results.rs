@@ -7,6 +7,7 @@ use crate::PromiseId;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::borrow::Cow;
+use std::error::Error;
 
 const MAX_RESULT_SIZE: usize = 32;
 
@@ -263,6 +264,12 @@ impl<C: OpMappingContext> OpResult<C> {
 #[derive(Debug)]
 pub struct OpError(Box<dyn JsErrorClass>);
 
+impl std::error::Error for OpError {
+  fn source(&self) -> Option<&(dyn Error + 'static)> {
+    todo!()
+  }
+}
+
 impl std::fmt::Display for OpError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}: {}", self.0.get_class(), self.0.get_message())
@@ -272,11 +279,6 @@ impl std::fmt::Display for OpError {
 impl<T: JsErrorClass> From<T> for OpError {
   fn from(err: T) -> Self {
     Self(Box::new(err))
-  }
-}
-impl From<Box<dyn JsErrorClass>> for OpError {
-  fn from(err: Box<dyn JsErrorClass>) -> Self {
-    Self(err)
   }
 }
 
@@ -297,14 +299,9 @@ impl Serialize for OpError {
 }
 
 /// Wrapper type to avoid circular trait implementation error due to From implementation
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
 pub struct OpErrorWrapper(pub OpError);
-
-impl std::fmt::Display for OpErrorWrapper {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.fmt(f)
-  }
-}
 
 impl JsErrorClass for OpErrorWrapper {
   fn get_class(&self) -> &'static str {

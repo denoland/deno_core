@@ -531,7 +531,6 @@ mod tests {
   use crate::OpState;
   use crate::RuntimeOptions;
   use crate::ToV8;
-  use anyhow::anyhow;
   use bytes::BytesMut;
   use futures::Future;
   use serde::Deserialize;
@@ -2155,7 +2154,7 @@ mod tests {
   #[op2(async)]
   pub async fn op_async_sleep_error() -> Result<(), OpError> {
     tokio::time::sleep(Duration::from_millis(500)).await;
-    Err(anyhow!("whoops").into())
+    Err(JsNativeError::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2177,7 +2176,7 @@ mod tests {
 
   #[op2(async(deferred), fast)]
   pub async fn op_async_deferred_error() -> Result<(), OpError> {
-    Err(anyhow!("whoops").into())
+    Err(JsNativeError::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2205,7 +2204,7 @@ mod tests {
 
   #[op2(async(lazy), fast)]
   pub async fn op_async_lazy_error() -> Result<(), OpError> {
-    Err(anyhow!("whoops").into())
+    Err(JsNativeError::generic("whoops").into())
   }
 
   #[tokio::test]

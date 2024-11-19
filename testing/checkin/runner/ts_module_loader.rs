@@ -36,13 +36,13 @@ pub struct TypescriptModuleLoader {
   source_maps: SourceMapStore,
 }
 
-deno_core::js_error_wrapper!(
+deno_error::js_error_wrapper!(
   deno_ast::ParseDiagnostic,
   JsParseDiagnostic,
   "TypeError"
 );
 
-deno_core::js_error_wrapper!(
+deno_error::js_error_wrapper!(
   deno_ast::TranspileError,
   JsTranspileError,
   "TypeError"

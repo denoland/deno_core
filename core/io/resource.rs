@@ -231,7 +231,7 @@ macro_rules! impl_readable_byob {
     ) -> AsyncResult<$crate::BufView> {
       ::std::boxed::Box::pin(async move {
         let mut vec = ::std::vec![0; limit];
-        let nread = self.read(&mut vec).await?;
+        let nread = self.read(&mut vec).await.map_err(::deno_core::error::JsNativeError::from_err)?;
         if nread != vec.len() {
           vec.truncate(nread);
         }
@@ -245,7 +245,7 @@ macro_rules! impl_readable_byob {
       mut buf: $crate::BufMutView,
     ) -> AsyncResult<(::core::primitive::usize, $crate::BufMutView)> {
       ::std::boxed::Box::pin(async move {
-        let nread = self.read(buf.as_mut()).await?;
+        let nread = self.read(buf.as_mut()).await.map_err(::deno_core::error::JsNativeError::from_err)?;
         ::std::result::Result::Ok((nread, buf))
       })
     }
@@ -260,7 +260,7 @@ macro_rules! impl_writable {
       view: $crate::BufView,
     ) -> $crate::AsyncResult<$crate::WriteOutcome> {
       ::std::boxed::Box::pin(async move {
-        let nwritten = self.write(&view).await?;
+        let nwritten = self.write(&view).await.map_err(::deno_core::error::JsNativeError::from_err)?;
         ::std::result::Result::Ok($crate::WriteOutcome::Partial {
           nwritten,
           view,
@@ -274,7 +274,7 @@ macro_rules! impl_writable {
       view: $crate::BufView,
     ) -> $crate::AsyncResult<()> {
       ::std::boxed::Box::pin(async move {
-        self.write_all(&view).await?;
+        self.write_all(&view).await.map_err(::deno_core::error::JsNativeError::from_err)?;
         ::std::result::Result::Ok(())
       })
     }
