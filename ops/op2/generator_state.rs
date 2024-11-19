@@ -20,8 +20,6 @@ pub struct GeneratorState {
   pub opctx: Ident,
   /// The `OpState` used for storing op state.
   pub opstate: Ident,
-  // The stack trace used for storing a stack trace.
-  pub stack_trace: Ident,
   /// The `JsRuntimeState` used for storing the `Rc<JsRuntimeState>``.
   pub js_runtime_state: Ident,
   /// The `FastApiCallbackOptions` used in fast calls for fallback returns.
