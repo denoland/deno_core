@@ -30,7 +30,7 @@ use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use anyhow::bail;
 use anyhow::Error;
-use deno_ops::op;
+use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
@@ -388,7 +388,7 @@ fn test_mods() {
   let loader = Rc::new(TestingModuleLoader::new(NoopModuleLoader));
   static DISPATCH_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-  #[op(fast)]
+  #[op2(fast)]
   fn op_test(control: u8) -> u8 {
     DISPATCH_COUNT.fetch_add(1, Ordering::Relaxed);
     assert_eq!(control, 42);

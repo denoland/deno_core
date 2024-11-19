@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use deno_core::error::AnyError;
-use deno_core::op;
+use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
 use deno_core::stats::RuntimeActivityStats;
@@ -17,18 +17,18 @@ use super::extensions::SomeType;
 use super::Output;
 use super::TestData;
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
   println!("{s}");
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_log_info(#[state] output: &mut Output, #[string] s: String) {
   println!("{s}");
   output.line(s);
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
   let stats = state
     .borrow()
@@ -40,7 +40,7 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
   test_data.insert(name, data);
 }
 
-#[op]
+#[op2]
 #[serde]
 pub fn op_stats_dump(
   #[string] name: String,
@@ -50,7 +50,7 @@ pub fn op_stats_dump(
   stats.dump()
 }
 
-#[op]
+#[op2]
 #[serde]
 pub fn op_stats_diff(
   #[string] before: String,
@@ -62,7 +62,7 @@ pub fn op_stats_diff(
   RuntimeActivityStats::diff(before, after)
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_stats_delete(
   #[string] name: String,
   #[state] test_data: &mut TestData,
@@ -79,7 +79,7 @@ pub struct DOMPoint {
 
 impl GarbageCollected for DOMPoint {}
 
-#[op]
+#[op2]
 impl DOMPoint {
   #[constructor]
   #[cppgc]
@@ -144,7 +144,7 @@ impl DOMPoint {
   }
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }

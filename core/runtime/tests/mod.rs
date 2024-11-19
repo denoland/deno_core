@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::AnyError;
-use crate::op;
+use crate::op2;
 use crate::CrossIsolateStore;
 use crate::JsRuntime;
 use crate::OpState;
@@ -31,7 +31,7 @@ struct TestState {
 }
 
 #[allow(clippy::await_holding_refcell_ref)] // False positive.
-#[op(async)]
+#[op2(async)]
 async fn op_test(
   rc_op_state: Rc<RefCell<OpState>>,
   control: u8,

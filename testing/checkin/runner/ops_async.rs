@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use deno_core::op;
+use deno_core::op2;
 use deno_core::v8;
 use deno_core::GarbageCollected;
 use deno_core::OpState;
@@ -12,7 +12,7 @@ use std::rc::Rc;
 use super::Output;
 use super::TestData;
 
-#[op]
+#[op2]
 pub fn op_task_submit(
   state: &mut OpState,
   #[global] f: v8::Global<v8::Function>,
@@ -24,12 +24,12 @@ pub fn op_task_submit(
   });
 }
 
-#[op(async)]
+#[op2(async)]
 pub async fn op_async_yield() {
   tokio::task::yield_now().await
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_async_barrier_create(
   #[state] test_data: &mut TestData,
   #[string] name: String,
@@ -39,7 +39,7 @@ pub fn op_async_barrier_create(
   test_data.insert(name, barrier);
 }
 
-#[op(async)]
+#[op2(async)]
 pub fn op_async_barrier_await(
   #[state] test_data: &TestData,
   #[string] name: String,
@@ -51,7 +51,7 @@ pub fn op_async_barrier_await(
   }
 }
 
-#[op(async)]
+#[op2(async)]
 pub async fn op_async_spin_on_state(state: Rc<RefCell<OpState>>) {
   poll_fn(|cx| {
     // Ensure that we never get polled when the state has been emptied
@@ -68,13 +68,13 @@ pub struct TestResource {
 
 impl GarbageCollected for TestResource {}
 
-#[op(async)]
+#[op2(async)]
 #[cppgc]
 pub async fn op_async_make_cppgc_resource() -> TestResource {
   TestResource { value: 42 }
 }
 
-#[op(async)]
+#[op2(async)]
 #[smi]
 pub async fn op_async_get_cppgc_resource(
   #[cppgc] resource: &TestResource,
@@ -82,7 +82,7 @@ pub async fn op_async_get_cppgc_resource(
   resource.value
 }
 
-#[op(async)]
+#[op2(async)]
 pub fn op_async_never_resolves() -> impl Future<Output = ()> {
   futures::future::pending::<()>()
 }

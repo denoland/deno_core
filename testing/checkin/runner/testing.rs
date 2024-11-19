@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::bail;
 use anyhow::Error;
-use deno_core::op;
+use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8;
 use deno_core::JsRuntime;
@@ -37,7 +37,7 @@ pub struct TestFunctions {
   pub functions: Vec<(String, v8::Global<v8::Function>)>,
 }
 
-#[op]
+#[op2]
 pub fn op_test_register(
   #[state] tests: &mut TestFunctions,
   #[string] name: String,
