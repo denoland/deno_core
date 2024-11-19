@@ -1412,7 +1412,7 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick_cb, build_custom_error_cb, wasm_instantiate_fn) = {
+    let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1437,7 +1437,7 @@ impl JsRuntime {
         "Deno.core.buildCustomError",
       );
 
-      let mut wasm_instantiate_fn = None;
+      let mut wasm_instance_fn = None;
       if !will_snapshot {
         let key = WEBASSEMBLY.v8_string(scope);
         if let Some(web_assembly_obj_value) = global.get(scope, key.into()) {
@@ -1446,13 +1446,12 @@ impl JsRuntime {
           let maybe_web_assembly_object =
             TryInto::<v8::Local<v8::Object>>::try_into(web_assembly_obj_value);
           if let Ok(web_assembly_object) = maybe_web_assembly_object {
-            wasm_instantiate_fn =
-              Some(bindings::get::<v8::Local<v8::Function>>(
-                scope,
-                web_assembly_object,
-                INSTANTIATE,
-                "WebAssembly.instantiate",
-              ));
+            wasm_instance_fn = Some(bindings::get::<v8::Local<v8::Function>>(
+              scope,
+              web_assembly_object,
+              INSTANTIATE,
+              "WebAssembly.Instance",
+            ));
           }
         }
       }
@@ -1460,7 +1459,7 @@ impl JsRuntime {
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
-        wasm_instantiate_fn.map(|f| v8::Global::new(scope, f)),
+        wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1475,11 +1474,11 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
-    if let Some(wasm_instantiate_fn) = wasm_instantiate_fn {
+    if let Some(wasm_instance_fn) = wasm_instance_fn {
       state_rc
-        .wasm_instantiate_fn
+        .wasm_instance_fn
         .borrow_mut()
-        .replace(Rc::new(wasm_instantiate_fn));
+        .replace(Rc::new(wasm_instance_fn));
     }
   }
 

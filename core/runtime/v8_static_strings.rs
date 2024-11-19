@@ -34,7 +34,7 @@ v8_static_strings!(
   SET_UP_ASYNC_STUB = "setUpAsyncStub",
   STACK = "stack",
   URL = "url",
-  WASM_INSTANTIATE = "wasmInstantiate",
+  WASM_INSTANCE = "WasmInstance",
   WEBASSEMBLY = "WebAssembly",
   ESMODULE = "__esModule",
 );

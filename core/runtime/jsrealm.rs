@@ -60,7 +60,7 @@ pub struct ContextState {
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) js_wasm_streaming_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
-  pub(crate) wasm_instantiate_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) wasm_instance_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
   pub(crate) activity_traces: RuntimeActivityTraces,
@@ -92,7 +92,7 @@ impl ContextState {
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
-      wasm_instantiate_fn: Default::default(),
+      wasm_instance_fn: Default::default(),
       activity_traces: Default::default(),
       op_ctxs,
       op_method_ctxs,

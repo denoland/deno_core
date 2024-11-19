@@ -2058,11 +2058,11 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
     src.push("};".to_string());
 
     src.push(
-      "const modInstance = import.meta.wasmInstantiate(wasmMod, importsObject);".to_string(),
+      "const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);".to_string(),
     )
   } else {
     src.push(
-      "const modInstance = import.meta.wasmInstantiate(wasmMod);".to_string(),
+      "const modInstance = new import.meta.WasmInstance(wasmMod);".to_string(),
     )
   }
 
@@ -2097,7 +2097,7 @@ fn test_render_js_wasm_module() {
   pretty_assertions::assert_eq!(
     rendered,
     r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
-const modInstance = import.meta.wasmInstantiate(wasmMod);"#,
+const modInstance = new import.meta.WasmInstance(wasmMod);"#,
   );
 
   let deps = WasmDeps {
@@ -2196,7 +2196,7 @@ const importsObject = {
     "buzz": import_1_0,
   },
 };
-const modInstance = import.meta.wasmInstantiate(wasmMod, importsObject);
+const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);
 export const export1 = modInstance.exports.export1;
 export default modInstance.exports.default;"#,
   );
