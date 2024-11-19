@@ -575,7 +575,7 @@ impl ModuleMap {
   /// Passed type doesn't have to be [`ModuleType::JavaScript`]! This method
   /// can be used to create "shim" modules, that execute some JS and act as a
   /// proxy to the actual underlying module (eg. you might create a "shim" for
-  /// WASM module).
+  /// Wasm module).
   ///
   /// Imports in the executed code are parsed (along their import attributes)
   /// and attached to associated [`ModuleInfo`].
@@ -765,7 +765,7 @@ impl ModuleMap {
 
     let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
       return Err(ModuleError::Other(generic_error(format!(
-        "Failed to compile WASM module '{}'",
+        "Failed to compile Wasm module '{}'",
         name.as_str()
       ))));
     };

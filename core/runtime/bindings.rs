@@ -678,7 +678,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
-  // Add special method that allows WASM module to instantiate themselves.
+  // Add special method that allows Wasm module to instantiate themselves.
   if module_type == ModuleType::Wasm {
     let wasm_instance_key = WASM_INSTANCE.v8_string(scope);
     if let Some(f) = state.wasm_instance_fn.borrow().as_ref() {
