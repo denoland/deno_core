@@ -144,11 +144,11 @@ pub(crate) fn generate_dispatch_slow(
         #with_retval
         #with_args
         #with_opctx
+        #with_self
         #with_isolate
         #with_opstate
         #with_stack_trace
         #with_js_runtime_state
-        #with_self
 
         #output;
         return 0;
