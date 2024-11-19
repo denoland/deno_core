@@ -141,7 +141,7 @@ pub fn create_op_ctxs(
   op_state: Rc<RefCell<OpState>>,
   runtime_state: Rc<JsRuntimeState>,
   get_error_class_fn: GetErrorClassFn,
-  enable_stack_trace_arg_in_ops: bool,
+  enable_stack_trace_in_ops: bool,
 ) -> (Box<[OpCtx]>, Box<[OpMethodCtx]>) {
   let op_count = op_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
@@ -162,7 +162,7 @@ pub fn create_op_ctxs(
       runtime_state_ptr,
       get_error_class_fn,
       metrics_fn,
-      enable_stack_trace_arg_in_ops,
+      enable_stack_trace_in_ops,
     )
   };
 

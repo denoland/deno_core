@@ -203,7 +203,7 @@ pub(crate) fn with_stack_trace(
   generator_state.needs_scope = true;
 
   gs_quote!(generator_state(opctx, scope, opstate) =>
-    (if #opctx.enable_stack_trace_arg {
+    (if #opctx.enable_stack_trace {
       let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
       let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
       let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);

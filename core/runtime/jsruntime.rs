@@ -57,6 +57,7 @@ use crate::ModuleCodeString;
 use crate::NoopModuleLoader;
 use crate::OpMetadata;
 use crate::OpMetricsEvent;
+use crate::OpStackTraceCallback;
 use crate::OpState;
 use anyhow::anyhow;
 use anyhow::bail;
@@ -70,7 +71,6 @@ use smallvec::SmallVec;
 use std::any::Any;
 use v8::MessageErrorLevel;
 
-use deno_core::ops::OpStackTraceCallback;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;

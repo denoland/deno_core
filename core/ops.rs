@@ -100,7 +100,7 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub get_error_class_fn: GetErrorClassFn,
   #[doc(hidden)]
-  pub enable_stack_trace_arg: bool,
+  pub enable_stack_trace: bool,
 
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_info: Option<CFunction>,
@@ -121,7 +121,7 @@ impl OpCtx {
     runtime_state: *const JsRuntimeState,
     get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
-    enable_stack_trace_arg: bool,
+    enable_stack_trace: bool,
   ) -> Self {
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
     // `CFunction`. For some extremely fast ops, the parameter list may change for the metrics
@@ -143,7 +143,7 @@ impl OpCtx {
       fast_fn_info,
       isolate,
       metrics_fn,
-      enable_stack_trace_arg,
+      enable_stack_trace,
     }
   }
 
