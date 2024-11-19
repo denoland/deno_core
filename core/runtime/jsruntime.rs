@@ -70,6 +70,7 @@ use smallvec::SmallVec;
 use std::any::Any;
 use v8::MessageErrorLevel;
 
+use deno_core::ops::OpStackTraceCallback;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -554,9 +555,10 @@ pub struct RuntimeOptions {
 
   pub import_assertions_support: ImportAssertionsSupport,
 
-  /// Whether `#[stack_trace]` argument in ops should return `Some(frames)`. Use wisely,
-  /// as it's very expensive to collect stack traces on each op invocation.
-  pub enable_stack_trace_arg_in_ops: bool,
+  /// A callback to specify how stack traces should be used when an op is
+  /// annotated with `stack_trace` attribute. Use wisely, as it's very expensive
+  /// to collect stack traces on each op invocation.
+  pub maybe_op_stack_trace_callback: Option<OpStackTraceCallback>,
 }
 
 pub struct ImportAssertionsSupportCustomCallbackArgs {
@@ -799,8 +801,14 @@ impl JsRuntime {
     let mut extensions = std::mem::take(&mut options.extensions);
     let mut isolate_allocations = IsolateAllocations::default();
 
+    let enable_stack_trace_in_ops =
+      options.maybe_op_stack_trace_callback.is_some();
+
     // First let's create an `OpState` and contribute to it from extensions...
-    let mut op_state = OpState::new(options.feature_checker.take());
+    let mut op_state = OpState::new(
+      options.feature_checker.take(),
+      options.maybe_op_stack_trace_callback,
+    );
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
     // Load the sources and source maps
@@ -878,7 +886,7 @@ impl JsRuntime {
       op_state.clone(),
       state_rc.clone(),
       get_error_class_fn,
-      options.enable_stack_trace_arg_in_ops,
+      enable_stack_trace_in_ops,
     );
 
     // ...ops are now almost fully set up; let's create a V8 isolate...

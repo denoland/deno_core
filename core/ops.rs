@@ -247,6 +247,8 @@ impl ExternalOpsTracker {
   }
 }
 
+pub type OpStackTraceCallback = Box<dyn Fn(Vec<JsStackFrame>)>;
+
 /// Maintains the resources and ops inside a JS runtime.
 pub struct OpState {
   pub resource_table: ResourceTable,
@@ -254,11 +256,14 @@ pub struct OpState {
   pub waker: Arc<AtomicWaker>,
   pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
-  pub current_op_stack_trace: Option<Vec<JsStackFrame>>,
+  pub op_stack_trace_callback: Option<OpStackTraceCallback>,
 }
 
 impl OpState {
-  pub fn new(maybe_feature_checker: Option<Arc<FeatureChecker>>) -> OpState {
+  pub fn new(
+    maybe_feature_checker: Option<Arc<FeatureChecker>>,
+    op_stack_trace_callback: Option<OpStackTraceCallback>,
+  ) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
@@ -267,7 +272,7 @@ impl OpState {
       external_ops_tracker: ExternalOpsTracker {
         counter: Arc::new(AtomicUsize::new(0)),
       },
-      current_op_stack_trace: None,
+      op_stack_trace_callback,
     }
   }
 
