@@ -594,8 +594,8 @@ pub(crate) fn generate_dispatch_fast(
       #with_opstate;
       #with_stack_trace
       #with_js_runtime_state
-      #with_isolate
       #with_self
+      #with_isolate
       let #result = {
         #(#call_args)*
         #call (#(#call_names),*)
