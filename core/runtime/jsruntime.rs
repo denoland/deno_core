@@ -1449,7 +1449,7 @@ impl JsRuntime {
             wasm_instance_fn = Some(bindings::get::<v8::Local<v8::Function>>(
               scope,
               web_assembly_object,
-              INSTANTIATE,
+              INSTANCE,
               "WebAssembly.Instance",
             ));
           }

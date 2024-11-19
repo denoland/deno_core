@@ -25,7 +25,7 @@ v8_static_strings!(
   ERRORS = "errors",
   EVENT_LOOP_TICK = "eventLoopTick",
   FILENAME = "filename",
-  INSTANTIATE = "instantiate",
+  INSTANCE = "Instance",
   MAIN = "main",
   MESSAGE = "message",
   NAME = "name",
