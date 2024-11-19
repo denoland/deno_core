@@ -16,13 +16,13 @@ use crate::op::OpError;
 //
 // This module generates the glue code declarations
 // for `impl` blocks to create JS objects in Rust
-// using the op2 infra.
+// using the op infra.
 //
 // ```rust
 // #[op]
 // impl MyObject {
 //    #[constructor] // <-- first attribute defines binding type
-//    #[cppgc]       // <-- attributes for op2
+//    #[cppgc]       // <-- attributes for op
 //    fn new() -> MyObject {
 //      MyObject::new()
 //    }

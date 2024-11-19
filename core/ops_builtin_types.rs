@@ -80,7 +80,7 @@ pub fn op_is_module_namespace_object(value: &v8::Value) -> bool {
   value.is_module_namespace_object()
 }
 
-#[op2(fast, reentrant)] // may be invoked by `format_exception_cb`
+#[op(fast, reentrant)] // may be invoked by `format_exception_cb`
 pub fn op_is_native_error(value: &v8::Value) -> bool {
   value.is_native_error()
 }
