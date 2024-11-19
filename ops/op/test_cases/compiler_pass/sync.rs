@@ -2,7 +2,6 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::error::JsStackFrame;
 use deno_core::v8;
 
 // Collect a few examples that we'll smoke test when not running on the CI.
@@ -60,12 +59,5 @@ fn op_smi_signed_return(
   a as Int32 + b as Int32 + c as Int32 + d as Int32
 }
 
-#[op(fast)]
-fn op_stack_trace(
-  #[string] _: String,
-  #[stack_trace] _: Option<Vec<JsStackFrame>>,
-) {
-}
-
-#[op(fast)]
-fn op_stack_trace_fast(#[stack_trace] _: Option<Vec<JsStackFrame>>) {}
+#[op(fast, stack_trace)]
+fn op_stack_trace(#[string] _: String) {}

@@ -2,11 +2,6 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::error::JsStackFrame;
-
-#[op(fast)]
-fn op_stack_trace(
-  #[string] _: String,
-  #[stack_trace] _: Option<Vec<JsStackFrame>>,
-) {
+#[op(fast, stack_trace)]
+fn op_stack_trace(#[string] _: String) {
 }

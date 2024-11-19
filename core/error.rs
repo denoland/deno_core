@@ -1233,10 +1233,8 @@ pub(crate) fn make_callsite_prototype<'s>(
   template.new_instance(scope).unwrap()
 }
 
-// called by V8 whenever a stack trace is created.
-// note that this is called _instead_ of `Error.prepareStackTrace`
-// so we have to explicitly call it to keep user code wrking
-pub fn prepare_stack_trace_callback<'s>(
+#[inline(always)]
+fn prepare_stack_trace_inner<'s, const PATCH_CALLSITES: bool>(
   scope: &mut v8::HandleScope<'s>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
@@ -1257,28 +1255,34 @@ pub fn prepare_stack_trace_callback<'s>(
       .and_then(|f| f.try_cast::<v8::Function>().ok())
   });
 
+  // Note that the callback is called _instead_ of `Error.prepareStackTrace`
+  // so we have to explicitly call the global function
   if let Some(prepare_fn) = prepare_fn {
-    // User defined `Error.prepareStackTrace`.
-    // Patch the callsites to have file paths, then call
-    // the user's function
-    let len = callsites.length();
-    let mut patched = Vec::with_capacity(len as usize);
-    let template = JsRuntime::state_from(scope)
-      .callsite_prototype
-      .borrow()
-      .clone()
-      .unwrap();
-    let prototype = v8::Local::new(scope, template);
-    for i in 0..len {
-      let callsite =
-        callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
-      patched.push(make_patched_callsite(scope, callsite, prototype).into());
-    }
-    let patched_callsites = v8::Array::new_with_elements(scope, &patched);
+    let callsites = if PATCH_CALLSITES {
+      // User defined `Error.prepareStackTrace`.
+      // Patch the callsites to have file paths, then call
+      // the user's function
+      let len = callsites.length();
+      let mut patched = Vec::with_capacity(len as usize);
+      let template = JsRuntime::state_from(scope)
+        .callsite_prototype
+        .borrow()
+        .clone()
+        .unwrap();
+      let prototype = v8::Local::new(scope, template);
+      for i in 0..len {
+        let callsite =
+          callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
+        patched.push(make_patched_callsite(scope, callsite, prototype).into());
+      }
+      v8::Array::new_with_elements(scope, &patched)
+    } else {
+      callsites
+    };
 
-    // call the user's `prepareStackTrace` with our patched "callsite" objects
+    // call the user's `prepareStackTrace` with our "callsite" objects
     let this = global_error.unwrap().into();
-    let args = &[error, patched_callsites.into()];
+    let args = &[error, callsites.into()];
     return prepare_fn
       .call(scope, this, args)
       .unwrap_or_else(|| v8::undefined(scope).into());
@@ -1288,7 +1292,35 @@ pub fn prepare_stack_trace_callback<'s>(
   format_stack_trace(scope, error, callsites)
 }
 
-fn format_stack_trace<'s>(
+/// Callback to prepare an error stack trace. This callback is invoked by V8 whenever a stack trace is created.
+/// This will patch callsite objects to translate file URLs to file paths before they're
+/// exposed to user-defined `prepareStackTrace` implementations.
+///
+/// This function is not used by default, but it can
+/// be set directly on the [v8 isolate][v8::Isolate::set_prepare_stack_trace_callback]
+pub fn prepare_stack_trace_callback_with_original_callsites<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  error: v8::Local<'s, v8::Value>,
+  callsites: v8::Local<'s, v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+  prepare_stack_trace_inner::<false>(scope, error, callsites)
+}
+
+/// Callback to prepare an error stack trace. This callback is invoked by V8 whenever a stack trace is created.
+/// This will patch callsite objects to translate file URLs to file paths before they're
+/// exposed to user-defined `prepareStackTrace` implementations.
+///
+/// This function is the default callback, set on creating a `JsRuntime`, but the callback can also
+/// be set directly on the [v8 isolate][v8::Isolate::set_prepare_stack_trace_callback]
+pub fn prepare_stack_trace_callback<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  error: v8::Local<'s, v8::Value>,
+  callsites: v8::Local<'s, v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+  prepare_stack_trace_inner::<true>(scope, error, callsites)
+}
+
+pub fn format_stack_trace<'s>(
   scope: &mut v8::HandleScope<'s>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,

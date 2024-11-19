@@ -14,6 +14,7 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {

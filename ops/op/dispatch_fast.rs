@@ -437,23 +437,47 @@ pub(crate) fn generate_dispatch_fast(
   let with_stack_trace = if generator_state.needs_stack_trace {
     generator_state.needs_opctx = true;
     generator_state.needs_scope = true;
-    gs_quote!(generator_state(stack_trace, opctx, scope) =>
-    (let #stack_trace = if #opctx.enable_stack_trace_arg {
+    generator_state.needs_fast_scope = false;
+
+    gs_quote!(generator_state(opctx, scope, opstate) =>
+    (if #opctx.enable_stack_trace_arg {
       let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
       let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
       let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
-      Some(js_error.frames)
-    } else { None };)
+      let mut op_state = ::std::cell::RefCell::borrow_mut(&#opstate);
+      op_state.current_op_stack_trace = Some(js_error.frames)
+    })
     )
   } else {
     quote!()
   };
+
+  let with_opstate =
+    if generator_state.needs_opstate || generator_state.needs_stack_trace {
+      generator_state.needs_opctx = true;
+      gs_quote!(generator_state(opctx, opstate) =>
+        (let #opstate = &#opctx.state;)
+      )
+    } else {
+      quote!()
+    };
 
   let with_js_runtime_state = if generator_state.needs_js_runtime_state {
     generator_state.needs_opctx = true;
     gs_quote!(generator_state(js_runtime_state, opctx) => {
       let #js_runtime_state = #opctx.runtime_state();
     })
+  } else {
+    quote!()
+  };
+
+  let with_isolate = if generator_state.needs_fast_isolate
+    && !generator_state.needs_fast_scope
+  {
+    generator_state.needs_opctx = true;
+    gs_quote!(generator_state(opctx, scope) =>
+      (let mut #scope = unsafe { &mut *#opctx.isolate };)
+    )
   } else {
     quote!()
   };
@@ -567,8 +591,10 @@ pub(crate) fn generate_dispatch_fast(
       #with_fast_api_callback_options
       #with_scope
       #with_opctx
+      #with_opstate;
       #with_stack_trace
       #with_js_runtime_state
+      #with_isolate
       #with_self
       let #result = {
         #(#call_args)*
@@ -606,11 +632,9 @@ fn map_v8_fastcall_arg_to_arg(
     opctx,
     js_runtime_state,
     scope,
-    stack_trace,
     needs_scope,
     needs_opctx,
     needs_fast_api_callback_options,
-    needs_stack_trace,
     needs_js_runtime_state,
     ..
   } = generator_state;
@@ -680,10 +704,6 @@ fn map_v8_fastcall_arg_to_arg(
       gs_quote!(generator_state(fast_api_callback_options) => {
        let #arg_ident = #fast_api_callback_options.isolate;
       })
-    }
-    Arg::Special(Special::StackTrace) => {
-      *needs_stack_trace = true;
-      quote!(let #arg_ident = #stack_trace;)
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
@@ -869,7 +889,6 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::Special(Special::Isolate)
-    | Arg::Special(Special::StackTrace)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)

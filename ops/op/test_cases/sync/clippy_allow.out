@@ -16,6 +16,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
                 use deno_core::v8;
@@ -160,6 +161,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
                 use deno_core::v8;
