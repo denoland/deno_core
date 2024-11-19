@@ -5,7 +5,7 @@ use crate::error::range_error;
 use crate::error::type_error;
 use crate::error::JsError;
 use crate::modules::script_origin;
-use crate::op2;
+use crate::op;
 use crate::ops_builtin::WasmStreamingResource;
 use crate::resolve_url;
 use crate::runtime::JsRealm;
@@ -23,7 +23,7 @@ use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
-#[op2]
+#[op]
 pub fn op_add_main_module_handler(
   scope: &mut v8::HandleScope,
   #[global] f: v8::Global<v8::Function>,
@@ -35,7 +35,7 @@ pub fn op_add_main_module_handler(
     .push(f);
 }
 
-#[op2]
+#[op]
 pub fn op_set_handled_promise_rejection_handler(
   scope: &mut v8::HandleScope,
   #[global] f: Option<v8::Global<v8::Function>>,
@@ -44,25 +44,25 @@ pub fn op_set_handled_promise_rejection_handler(
   *exception_state.js_handled_promise_rejection_cb.borrow_mut() = f;
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().remove(&promise_id);
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().insert(promise_id);
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_leak_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.set_enabled(enabled);
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_leak_tracing_submit(
   scope: &mut v8::HandleScope,
   #[smi] kind: u8,
@@ -77,7 +77,7 @@ pub fn op_leak_tracing_submit(
   );
 }
 
-#[op2]
+#[op]
 pub fn op_leak_tracing_get_all<'s>(
   scope: &mut v8::HandleScope<'s>,
 ) -> v8::Local<'s, v8::Value> {
@@ -96,7 +96,7 @@ pub fn op_leak_tracing_get_all<'s>(
   out.into()
 }
 
-#[op2]
+#[op]
 pub fn op_leak_tracing_get<'s>(
   scope: &mut v8::HandleScope<'s>,
   #[smi] kind: u8,
@@ -120,7 +120,7 @@ pub fn op_leak_tracing_get<'s>(
 /// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
 /// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
 /// `u32`.
-#[op2]
+#[op]
 pub fn op_timer_queue(
   scope: &mut v8::HandleScope,
   depth: u32,
@@ -143,7 +143,7 @@ pub fn op_timer_queue(
 /// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
 /// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
 /// `u32`.
-#[op2]
+#[op]
 pub fn op_timer_queue_system(
   scope: &mut v8::HandleScope,
   repeat: bool,
@@ -159,7 +159,7 @@ pub fn op_timer_queue_system(
 /// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
 /// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
 /// `u32`.
-#[op2]
+#[op]
 pub fn op_timer_queue_immediate(
   scope: &mut v8::HandleScope,
   #[global] task: v8::Global<v8::Function>,
@@ -168,7 +168,7 @@ pub fn op_timer_queue_immediate(
   context_state.timers.queue_timer(0, (task, 0)) as _
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
@@ -177,19 +177,19 @@ pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
     .complete(RuntimeActivityType::Timer, id as _);
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_timer_ref(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.ref_timer(id as _);
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.unref_timer(id as _);
 }
 
-#[op2(reentrant)]
+#[op(reentrant)]
 #[global]
 pub fn op_lazy_load_esm(
   scope: &mut v8::HandleScope,
@@ -201,7 +201,7 @@ pub fn op_lazy_load_esm(
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
 // allowed to touch JS heap.
-#[op2(nofast)]
+#[op(nofast)]
 pub fn op_queue_microtask(
   isolate: *mut v8::Isolate,
   cb: v8::Local<v8::Function>,
@@ -214,7 +214,7 @@ pub fn op_queue_microtask(
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
 // allowed to touch JS heap.
-#[op2(nofast, reentrant)]
+#[op(nofast, reentrant)]
 pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   // SAFETY: we know v8 provides us with a valid, non-null isolate
   unsafe {
@@ -225,14 +225,14 @@ pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
   };
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
     .get()
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
@@ -257,7 +257,7 @@ impl<'s> EvalContextError<'s> {
   }
 }
 
-#[op2(reentrant)]
+#[op(reentrant)]
 pub fn op_eval_context<'a>(
   scope: &mut v8::HandleScope<'a>,
   source: v8::Local<'a, v8::Value>,
@@ -372,7 +372,7 @@ pub fn op_eval_context<'a>(
   }
 }
 
-#[op2]
+#[op]
 pub fn op_encode<'a>(
   scope: &mut v8::HandleScope<'a>,
   text: v8::Local<'a, v8::Value>,
@@ -389,7 +389,7 @@ pub fn op_encode<'a>(
   Ok(u8array)
 }
 
-#[op2]
+#[op]
 pub fn op_decode<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: &[u8],
@@ -585,7 +585,7 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
 }
 
 // May be reentrant in the case of errors.
-#[op2(reentrant)]
+#[op(reentrant)]
 #[buffer]
 pub fn op_serialize(
   scope: &mut v8::HandleScope,
@@ -677,7 +677,7 @@ pub fn op_serialize(
   }
 }
 
-#[op2]
+#[op]
 pub fn op_deserialize<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: JsBuffer,
@@ -750,7 +750,7 @@ pub fn op_deserialize<'a>(
   }
 }
 
-#[op2]
+#[op]
 pub fn op_get_promise_details<'a>(
   scope: &mut v8::HandleScope<'a>,
   promise: v8::Local<'a, v8::Promise>,
@@ -775,7 +775,7 @@ pub fn op_get_promise_details<'a>(
   out.into()
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_set_promise_hooks(
   scope: &mut v8::HandleScope,
   init_hook: v8::Local<v8::Value>,
@@ -826,7 +826,7 @@ pub fn op_set_promise_hooks(
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#[op2]
+#[op]
 pub fn op_get_proxy_details<'a>(
   scope: &mut v8::HandleScope<'a>,
   proxy: v8::Local<'a, v8::Value>,
@@ -842,7 +842,7 @@ pub fn op_get_proxy_details<'a>(
   out_array.into()
 }
 
-#[op2]
+#[op]
 pub fn op_get_non_index_property_names<'a>(
   scope: &mut v8::HandleScope<'a>,
   obj: v8::Local<'a, v8::Value>,
@@ -883,7 +883,7 @@ pub fn op_get_non_index_property_names<'a>(
   maybe_names.map(|names| names.into())
 }
 
-#[op2]
+#[op]
 #[string]
 pub fn op_get_constructor_name(
   scope: &mut v8::HandleScope,
@@ -911,7 +911,7 @@ pub struct MemoryUsage {
   // array_buffers: usize,
 }
 
-#[op2]
+#[op]
 #[serde]
 pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
   let mut s = v8::HeapStatistics::default();
@@ -924,7 +924,7 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
   }
 }
 
-#[op2]
+#[op]
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
   #[global] cb: v8::Global<v8::Function>,
@@ -968,7 +968,7 @@ pub fn op_set_wasm_streaming_callback(
 // This op is re-entrant as it makes a v8 call. It also cannot be fast because
 // we require a JS execution scope.
 #[allow(clippy::let_and_return)]
-#[op2(nofast, reentrant)]
+#[op(nofast, reentrant)]
 pub fn op_abort_wasm_streaming(
   state: Rc<RefCell<OpState>>,
   rid: u32,
@@ -992,7 +992,7 @@ pub fn op_abort_wasm_streaming(
 }
 
 // This op calls `op_apply_source_map` re-entrantly.
-#[op2(reentrant)]
+#[op(reentrant)]
 #[serde]
 pub fn op_destructure_error(
   scope: &mut v8::HandleScope,
@@ -1004,7 +1004,7 @@ pub fn op_destructure_error(
 /// Effectively throw an uncatchable error. This will terminate runtime
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
-#[op2(fast, reentrant)]
+#[op(fast, reentrant)]
 pub fn op_dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
@@ -1024,7 +1024,7 @@ pub fn op_dispatch_exception(
   scope.terminate_execution();
 }
 
-#[op2]
+#[op]
 #[serde]
 pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
   let state = JsRealm::state_from_scope(scope);
@@ -1052,7 +1052,7 @@ fn write_line_and_col_to_ret_buf(
   ret_buf[4..8].copy_from_slice(&column_number.to_le_bytes());
 }
 
-#[op2]
+#[op]
 #[string]
 pub fn op_current_user_call_site(
   scope: &mut v8::HandleScope,
@@ -1113,7 +1113,7 @@ pub fn op_current_user_call_site(
 /// `JsError::exception_message`. The callback is passed the error value and
 /// should return a string or `null`. If no callback is set or the callback
 /// returns `null`, the built-in default formatting will be used.
-#[op2]
+#[op]
 pub fn op_set_format_exception_callback<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[global] cb: v8::Global<v8::Function>,
@@ -1128,12 +1128,12 @@ pub fn op_set_format_exception_callback<'a>(
   old.map(|func| func.into())
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
   JsRuntime::has_more_work(scope)
 }
 
-#[op2]
+#[op]
 pub fn op_get_extras_binding_object<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Value> {

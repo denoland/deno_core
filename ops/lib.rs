@@ -4,21 +4,21 @@
 use proc_macro::TokenStream;
 use std::error::Error;
 
-mod op2;
+mod op;
 
 /// A macro designed to provide an extremely fast V8->Rust interface layer.
-#[doc = include_str!("op2/README.md")]
+#[doc = include_str!("op/README.md")]
 #[proc_macro_attribute]
-pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
-  op2_macro(attr, item)
+pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
+  op_macro(attr, item)
 }
 
-fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
-  match crate::op2::op2(attr.into(), item.into()) {
+fn op_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
+  match crate::op::op(attr.into(), item.into()) {
     Ok(output) => output.into(),
     Err(err) => {
       let mut err: &dyn Error = &err;
-      let mut output = "Failed to parse #[op2]:\n".to_owned();
+      let mut output = "Failed to parse #[op]:\n".to_owned();
       loop {
         output += &format!(" - {err}\n");
         if let Some(source) = err.source() {

@@ -9,11 +9,11 @@ use std::convert::Infallible;
 /// When passing data from Rust into JS, either
 /// via an op or by calling a JS function directly,
 /// you need to serialize the data into a native
-/// V8 value. When using the [`op2`][deno_core::op2] macro, the return
+/// V8 value. When using the [`op`][deno_core::op] macro, the return
 /// value is converted to a `v8::Local<Value>` automatically,
 /// and the strategy for conversion is controlled by attributes
 /// like `#[smi]`, `#[number]`, `#[string]`. For types with support
-/// built-in to the op2 macro, like primitives, strings, and buffers,
+/// built-in to the op macro, like primitives, strings, and buffers,
 /// these attributes are sufficient and you don't need to worry about this trait.
 ///
 /// If, however, you want to return a custom type from an op, or
@@ -21,14 +21,14 @@ use std::convert::Infallible;
 /// you can implement the `ToV8` trait. This allows you the
 /// choose the best serialization strategy for your specific use case.
 /// You can then use the `#[to_v8]` attribute to indicate
-/// that the `#[op2]` macro should call your implementation for the conversion.
+/// that the `#[op]` macro should call your implementation for the conversion.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use deno_core::ToV8;
 /// use deno_core::convert::Smi;
-/// use deno_core::op2;
+/// use deno_core::op;
 ///
 /// struct Foo(i32);
 ///
@@ -44,8 +44,8 @@ use std::convert::Infallible;
 ///   }
 /// }
 ///
-/// // using the `#[to_v8]` attribute tells the `op2` macro to call this implementation.
-/// #[op2]
+/// // using the `#[to_v8]` attribute tells the `op` macro to call this implementation.
+/// #[op]
 /// #[to_v8]
 /// fn op_foo() -> Foo {
 ///   Foo(42)
@@ -80,7 +80,7 @@ pub trait ToV8<'a> {
 /// To convert these values into custom Rust types, you can implement the [`FromV8`] trait.
 ///
 /// Once you've implemented this trait, you can use the `#[from_v8]` attribute
-/// to tell the [`op2`][deno_core::op2] macro to use your implementation to convert the argument
+/// to tell the [`op`][deno_core::op] macro to use your implementation to convert the argument
 /// to the desired type.
 ///
 /// # Example
@@ -88,7 +88,7 @@ pub trait ToV8<'a> {
 /// ```ignore
 /// use deno_core::FromV8;
 /// use deno_core::convert::Smi;
-/// use deno_core::op2;
+/// use deno_core::op;
 ///
 /// struct Foo(i32);
 ///
@@ -103,8 +103,8 @@ pub trait ToV8<'a> {
 ///   }
 /// }
 ///
-/// // using the `#[from_v8]` attribute tells the `op2` macro to call this implementation.
-/// #[op2]
+/// // using the `#[from_v8]` attribute tells the `op` macro to call this implementation.
+/// #[op]
 /// fn op_foo(#[from_v8] foo: Foo) {
 ///   let Foo(_) = foo;
 /// }
@@ -122,7 +122,7 @@ pub trait FromV8<'a>: Sized {
 // impls
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.  
+/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.
 #[repr(transparent)]
 pub struct Smi<T: SmallInt>(pub T);
 
@@ -185,7 +185,7 @@ impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.  
+/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.
 #[repr(transparent)]
 pub struct Number<T: Numeric>(pub T);
 

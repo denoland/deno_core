@@ -2,7 +2,7 @@
 use std::{env::current_dir, rc::Rc};
 
 use deno_core::{
-  error::AnyError, extension, op2, FsModuleLoader, JsRuntime,
+  error::AnyError, extension, op, FsModuleLoader, JsRuntime,
   PollEventLoopOptions, RuntimeOptions,
 };
 
@@ -16,7 +16,7 @@ fn main() {
   }
 }
 
-#[op2(fast)]
+#[op(fast)]
 fn op_call_rust(#[string] value: String) {
   println!("Received this value from JS: {value}");
 }

@@ -200,7 +200,7 @@ impl OpDecl {
   /// For use by internal op implementation only.
   #[doc(hidden)]
   #[allow(clippy::too_many_arguments)]
-  pub const fn new_internal_op2(
+  pub const fn new_internal_op(
     name: (&'static str, FastStaticString),
     is_async: bool,
     is_reentrant: bool,

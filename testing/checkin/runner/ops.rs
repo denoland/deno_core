@@ -2,7 +2,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::op2;
+use deno_core::op;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
 use deno_core::stats::RuntimeActivityStats;
@@ -16,18 +16,18 @@ use super::extensions::SomeType;
 use super::Output;
 use super::TestData;
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_log_debug(#[string] s: &str) {
   println!("{s}");
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_log_info(#[state] output: &mut Output, #[string] s: String) {
   println!("{s}");
   output.line(s);
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
   let stats = state
     .borrow()
@@ -39,7 +39,7 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
   test_data.insert(name, data);
 }
 
-#[op2]
+#[op]
 #[serde]
 pub fn op_stats_dump(
   #[string] name: String,
@@ -49,7 +49,7 @@ pub fn op_stats_dump(
   stats.dump()
 }
 
-#[op2]
+#[op]
 #[serde]
 pub fn op_stats_diff(
   #[string] before: String,
@@ -61,7 +61,7 @@ pub fn op_stats_diff(
   RuntimeActivityStats::diff(before, after)
 }
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_stats_delete(
   #[string] name: String,
   #[state] test_data: &mut TestData,
@@ -76,19 +76,19 @@ pub struct Stateful {
 impl GarbageCollected for Stateful {}
 
 impl Stateful {
-  #[op2(method(Stateful))]
+  #[op(method(Stateful))]
   #[string]
   fn get_name(&self) -> String {
     self.name.clone()
   }
 
-  #[op2(fast, method(Stateful))]
+  #[op(fast, method(Stateful))]
   #[smi]
   fn len(&self) -> u32 {
     self.name.len() as u32
   }
 
-  #[op2(async, method(Stateful))]
+  #[op(async, method(Stateful))]
   async fn delay(&self, #[smi] millis: u32) {
     tokio::time::sleep(std::time::Duration::from_millis(millis as u64)).await;
     println!("name: {}", self.name);
@@ -100,7 +100,7 @@ impl Stateful {
 const STATEFUL_DECL: [OpDecl; 3] =
   [Stateful::get_name(), Stateful::len(), Stateful::delay()];
 
-#[op2(fast)]
+#[op(fast)]
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }
