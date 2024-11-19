@@ -6,7 +6,7 @@ use deno_core::*;
 
 /// An op for summing an array of numbers. The op-layer automatically
 /// deserializes inputs and serializes the returned Result & value.
-#[op]
+#[op2]
 fn op_sum(#[serde] nums: Vec<f64>) -> Result<f64, deno_core::error::AnyError> {
   // Sum inputs
   let sum = nums.iter().fold(0.0, |a, v| a + v);

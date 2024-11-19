@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::custom_error;
 use crate::error::JsError;
-use crate::op;
+use crate::op2;
 use crate::JsRuntime;
 use crate::RuntimeOptions;
 use anyhow::Error;
@@ -10,7 +10,7 @@ use std::task::Poll;
 
 #[tokio::test]
 async fn test_error_builder() {
-  #[op(fast)]
+  #[op2(fast)]
   fn op_err() -> Result<(), Error> {
     Err(custom_error("DOMExceptionOperationError", "abc"))
   }

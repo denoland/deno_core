@@ -17,10 +17,10 @@
 //! the `set(v8::Local<v8::Value>)` function) is not possible. Moreover, converting a Rust string to a `v8::String`
 //! might fail, particularly if its size surpasses v8's limitations.
 //!
-//! The `#[op]` proc macro maps the distinct calling patterns to the appropriate trait interfaces.
+//! The `#[op2]` proc macro maps the distinct calling patterns to the appropriate trait interfaces.
 //! This mapping accounts for conversion nature and potential error occurrences. When a conversion is inherently
-//! expected to succeed, `#[op]` negates the necessity for explicit error checks, potentially boosting execution
-//! efficiency. Furthermore, `#[op]` strives to leverage `v8::ReturnValue` setters when possible, eliminating
+//! expected to succeed, `#[op2]` negates the necessity for explicit error checks, potentially boosting execution
+//! efficiency. Furthermore, `#[op2]` strives to leverage `v8::ReturnValue` setters when possible, eliminating
 //! the need for explicit object handle allocation. This optimization can favorably impact performance and
 //! memory management.
 

@@ -13,5 +13,5 @@ runs:
       # Only regression tests here for now.
       # Regression test for https://github.com/denoland/deno/pull/19615.
       run: |-
-        cargo run -p deno_core --example op
-        cargo run -p deno_core --example op --features include_js_files_for_snapshotting
+        cargo run -p deno_core --example op2
+        cargo run -p deno_core --example op2 --features include_js_files_for_snapshotting

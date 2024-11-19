@@ -48,7 +48,7 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
 
   let current = CURRENT_OP.with(|f| f.get());
   if let Some(current) = current {
-    panic!("op {} was not marked as #[op(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
+    panic!("op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
   }
   CURRENT_OP.with(|f| f.set(Some(decl)));
   Some(ReentrancyGuard {})

@@ -2,7 +2,7 @@
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
-use deno_core::op;
+use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8::IsolateHandle;
 use deno_core::GarbageCollected;
@@ -88,7 +88,7 @@ pub fn worker_create(
   (worker, worker_host_side)
 }
 
-#[op]
+#[op2]
 #[cppgc]
 pub fn op_worker_spawn(
   #[state] this_worker: &Worker,
@@ -154,7 +154,7 @@ async fn run_worker_task(
   Ok(())
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_worker_send(
   #[cppgc] worker: &WorkerControl,
   #[string] message: String,
@@ -163,13 +163,13 @@ pub fn op_worker_send(
   Ok(())
 }
 
-#[op(async)]
+#[op2(async)]
 #[string]
 pub async fn op_worker_recv(#[cppgc] worker: &WorkerControl) -> Option<String> {
   worker.worker_channel.rx.lock().await.recv().await
 }
 
-#[op]
+#[op2]
 #[cppgc]
 pub fn op_worker_parent(
   state: Rc<RefCell<OpState>>,
@@ -190,7 +190,7 @@ pub fn op_worker_parent(
   })
 }
 
-#[op(async)]
+#[op2(async)]
 pub async fn op_worker_await_close(#[cppgc] worker: &WorkerControl) {
   loop {
     if worker
@@ -207,7 +207,7 @@ pub async fn op_worker_await_close(#[cppgc] worker: &WorkerControl) {
   }
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_worker_terminate(
   #[cppgc] worker: &WorkerControl,
   state: Rc<RefCell<OpState>>,

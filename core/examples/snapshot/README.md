@@ -19,7 +19,7 @@ Differences from those blog posts:
 
 - The `create_snapshot()` API has changed in various ways.
 - New API features for extensions:
-  - `#[op]` ([read more][op])
+  - `#[op2]` ([read more][op2])
   - `extension!(...)` macro replaces `Extension::builder()`
   - ESM-based extensions.
 
@@ -28,5 +28,5 @@ Missing features vs. those blog posts:
 - Does not implement [TsModuleLoader], to keep this example more concise.
 
 [blog]: https://deno.com/blog/roll-your-own-javascript-runtime-pt3#creating-a-snapshot-in-buildrs
-[op]: https://github.com/denoland/deno_core/tree/main/ops/op#readme
+[op2]: https://github.com/denoland/deno_core/tree/main/ops/op2#readme
 [TsModuleLoader]: https://deno.com/blog/roll-your-own-javascript-runtime-pt2#supporting-typescript

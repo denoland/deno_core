@@ -45,115 +45,115 @@ deno_core::extension!(
   }
 );
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_void() {}
 
-#[op(fast, no_side_effects)]
+#[op2(fast, no_side_effects)]
 pub fn op_void_no_side_effects() {}
 
-#[op(nofast)]
+#[op2(nofast)]
 pub fn op_void_nofast() {}
 
-#[op(no_side_effects, nofast)]
+#[op2(no_side_effects, nofast)]
 pub fn op_void_nofast_no_side_effects() {}
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_void_metrics() {}
 
-#[op(nofast)]
+#[op2(nofast)]
 pub fn op_void_nofast_metrics() {}
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_u32() -> u32 {
   1
 }
 
-#[op]
+#[op2]
 pub fn op_option_u32() -> Option<u32> {
   Some(1)
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_string(#[string] s: &str) -> u32 {
   s.len() as _
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_string_onebyte(#[string(onebyte)] s: Cow<[u8]>) -> u32 {
   s.len() as _
 }
 
-#[op]
+#[op2]
 pub fn op_string_bytestring(#[serde] s: ByteString) -> u32 {
   s.len() as _
 }
 
-#[op(no_side_effects)]
+#[op2(no_side_effects)]
 pub fn op_string_bytestring_no_side_effects(#[serde] s: ByteString) -> u32 {
   s.len() as _
 }
 
-#[op]
+#[op2]
 pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
   Some(s.len() as _)
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_local(_s: v8::Local<v8::String>) {}
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
 }
 
-#[op(nofast)]
+#[op2(nofast)]
 pub fn op_local_nofast(_s: v8::Local<v8::String>) {}
 
-#[op]
+#[op2]
 pub fn op_global(#[global] _s: v8::Global<v8::String>) {}
 
-#[op]
+#[op2]
 pub fn op_global_scope(
   _scope: &mut v8::HandleScope,
   #[global] _s: v8::Global<v8::String>,
 ) {
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_scope(_scope: &mut v8::HandleScope) {}
 
-#[op(nofast)]
+#[op2(nofast)]
 pub fn op_isolate_nofast(_isolate: *mut v8::Isolate) {}
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_make_external() -> *const c_void {
   std::ptr::null()
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_bigint(#[bigint] _input: u64) {}
 
-#[op(fast)]
+#[op2(fast)]
 #[bigint]
 pub fn op_bigint_return() -> u64 {
   0
 }
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_external(_input: *const c_void) {}
 
-#[op(nofast)]
+#[op2(nofast)]
 pub fn op_external_nofast(_input: *const c_void) {}
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_buffer(#[buffer] _buffer: &[u8]) {}
 
-#[op]
+#[op2]
 pub fn op_buffer_jsbuffer(#[buffer] _buffer: JsBuffer) {}
 
-#[op(nofast)]
+#[op2(nofast)]
 pub fn op_buffer_nofast(#[buffer] _buffer: &[u8]) {}
 
-#[op(fast)]
+#[op2(fast)]
 pub fn op_arraybuffer(#[arraybuffer] _buffer: &[u8]) {}
 
 fn bench_op(
