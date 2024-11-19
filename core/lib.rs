@@ -71,6 +71,7 @@ pub use crate::convert::ToV8;
 pub use crate::cppgc::GarbageCollected;
 pub use crate::error::GetErrorClassFn;
 pub use crate::error::JsErrorCreateFn;
+pub use crate::extensions::AccessorType;
 pub use crate::extensions::Extension;
 pub use crate::extensions::ExtensionFileSource;
 pub use crate::extensions::ExtensionFileSourceCode;

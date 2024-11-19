@@ -1,6 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use proc_macro2::TokenStream;
+use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
 use syn::ImplItem;
@@ -34,9 +35,15 @@ use crate::op2::Op2Error;
 //
 //    #[method]
 //    #[smi]
-//    fn x(&self) -> i32 {
+//    fn method(&self) -> i32 {
 //      // ...
 //    }
+//
+//    #[getter]
+//    fn x(&self) -> i32 {}
+//
+//    #[setter]
+//    fn x(&self, x: i32) {}
 // }
 //
 // The generated OpMethodDecl that can be passed to
@@ -53,12 +60,10 @@ use crate::op2::Op2Error;
 // import { MyObject } from "ext:core/ops";
 // ```
 //
-// Currently supported bindings:
+// Supported bindings:
 // - constructor
 // - methods
 // - static methods
-//
-// Planned support:
 // - getters
 // - setters
 //
@@ -80,6 +85,12 @@ pub(crate) fn generate_impl_ops(
       /* First attribute idents, for all functions in block */
       let attrs = method.attrs.swap_remove(0);
 
+      /* Convert snake_case to camelCase */
+      method.sig.ident = format_ident!(
+        "{}",
+        stringcase::camel_case(&method.sig.ident.to_string())
+      );
+
       let ident = method.sig.ident.clone();
       let func = ItemFn {
         attrs: method.attrs,
@@ -100,11 +111,16 @@ pub(crate) fn generate_impl_ops(
       } else if config.static_member {
         static_methods.push(ident);
       } else {
-        methods.push(ident);
+        if config.setter {
+          methods.push(format_ident!("__set_{}", ident));
+        } else {
+          methods.push(ident);
+        }
+
         config.method = Some(self_ty_ident.clone());
       }
 
-      let op = generate_op2(config, func);
+      let op = generate_op2(config, func)?;
       tokens.extend(op);
     }
   }

@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.319.0"
+version = "0.320.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -631,13 +631,14 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.195.0"
+version = "0.196.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
  "proc-macro-rules",
  "proc-macro2",
  "quote",
+ "stringcase",
  "strum",
  "strum_macros",
  "syn",
@@ -1842,7 +1843,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.228.0"
+version = "0.229.0"
 dependencies = [
  "bencher",
  "num-bigint",
@@ -2000,6 +2001,12 @@ dependencies = [
  "swc_macros_common",
  "syn",
 ]
+
+[[package]]
+name = "stringcase"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04028eeb851ed08af6aba5caa29f2d59a13ed168cee4d6bd753aeefcf1d636b0"
 
 [[package]]
 name = "strsim"
