@@ -440,12 +440,12 @@ pub(crate) fn generate_dispatch_fast(
     generator_state.needs_fast_scope = false;
 
     gs_quote!(generator_state(opctx, scope, opstate) =>
-    (if #opctx.enable_stack_trace_arg {
+    (if #opctx.enable_stack_trace {
       let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
       let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
       let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
       let mut op_state = ::std::cell::RefCell::borrow_mut(&#opstate);
-      op_state.current_op_stack_trace = Some(js_error.frames)
+      op_state.op_stack_trace_callback.as_ref().unwrap()(js_error.frames)
     })
     )
   } else {
