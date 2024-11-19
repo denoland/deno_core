@@ -85,7 +85,7 @@ impl WakeRef for LoggingWaker {
 async fn test_wakers_for_async_ops() {
   static STATE: AtomicI8 = AtomicI8::new(0);
 
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_sleep() -> Result<(), Error> {
     STATE.store(1, Ordering::SeqCst);
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -643,7 +643,7 @@ fn test_is_proxy() {
 
 #[tokio::test]
 async fn test_set_macrotask_callback_set_next_tick_callback() {
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_sleep() -> Result<(), Error> {
     // Future must be Poll::Pending on first call
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -693,13 +693,13 @@ fn test_has_tick_scheduled() {
   static MACROTASK: AtomicUsize = AtomicUsize::new(0);
   static NEXT_TICK: AtomicUsize = AtomicUsize::new(0);
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_macrotask() -> Result<(), AnyError> {
     MACROTASK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
 
-  #[op2(fast)]
+  #[op(fast)]
   fn op_next_tick() -> Result<(), AnyError> {
     NEXT_TICK.fetch_add(1, Ordering::Relaxed);
     Ok(())
@@ -804,7 +804,7 @@ async fn test_promise_rejection_handler_generic(
   case: &'static str,
   error: Option<&'static str>,
 ) {
-  #[op2(fast)]
+  #[op(fast)]
   fn op_breakpoint() {}
 
   deno_core::extension!(test_ext, ops = [op_breakpoint]);
@@ -961,7 +961,7 @@ async fn test_stalled_tla() {
 // Regression test for https://github.com/denoland/deno/issues/20034.
 #[tokio::test]
 async fn test_dynamic_import_module_error_stack() {
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_error() -> Result<(), Error> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     Err(crate::error::type_error("foo"))
@@ -1007,7 +1007,7 @@ async fn test_dynamic_import_module_error_stack() {
   expected = "Failed to initialize a JsRuntime: Top-level await is not allowed in synchronous evaluation"
 )]
 async fn tla_in_esm_extensions_panics() {
-  #[op2(async)]
+  #[op(async)]
   async fn op_wait(#[number] ms: usize) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
@@ -1045,7 +1045,7 @@ async fn tla_in_esm_extensions_panics() {
     at mod:error:3:9"#
 )]
 async fn esm_extensions_throws() {
-  #[op2(async)]
+  #[op(async)]
   async fn op_wait(#[number] ms: usize) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
@@ -1183,7 +1183,7 @@ async fn task_spawner_cross_thread_blocking() {
 
 #[tokio::test]
 async fn terminate_execution_run_event_loop_js() {
-  #[op2(async)]
+  #[op(async)]
   async fn op_async_sleep() -> Result<(), Error> {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     Ok(())

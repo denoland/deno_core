@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! prelude {
   () => {
-    use deno_ops::op2;
+    use deno_ops::op;
 
     pub fn main() {}
   };
@@ -13,7 +13,7 @@ mod tests {
   use std::path::PathBuf;
 
   // TODO(mmastrac): It's faster to do things with testing_macros::fixture?
-  #[testing_macros::fixture("../op2/test_cases/compiler_pass/*.rs")]
+  #[testing_macros::fixture("../op/test_cases/compiler_pass/*.rs")]
   fn compile_test(input: PathBuf) {
     let t = trybuild::TestCases::new();
     t.pass(input);
@@ -25,8 +25,8 @@ mod tests {
     // Run all the tests on a nightly build (which should take advantage of cargo's --keep-going to
     // run in parallel: https://github.com/dtolnay/trybuild/pull/168)
     let t = trybuild::TestCases::new();
-    t.pass("../op2/test_cases/**/*.rs");
-    t.compile_fail("../op2/test_cases_fail/**/*.rs");
+    t.pass("../op/test_cases/**/*.rs");
+    t.compile_fail("../op/test_cases_fail/**/*.rs");
   }
 
   #[rustversion::not(nightly)]
@@ -35,8 +35,8 @@ mod tests {
     // Run all the tests if we're in the CI
     if let Ok(true) = std::env::var("CI").map(|s| s == "true") {
       let t = trybuild::TestCases::new();
-      t.compile_fail("../op2/test_cases_fail/**/*.rs");
-      t.pass("../op2/test_cases/**/*.rs");
+      t.compile_fail("../op/test_cases_fail/**/*.rs");
+      t.pass("../op/test_cases/**/*.rs");
     }
   }
 }

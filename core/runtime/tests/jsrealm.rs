@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error;
 use crate::modules::StaticModuleLoader;
-use crate::op2;
+use crate::op;
 use crate::JsRuntime;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
@@ -76,7 +76,7 @@ fn test_set_format_exception_callback_realms() {
 #[tokio::test]
 async fn js_realm_ref_unref_ops() {
   // Never resolves.
-  #[op2(async)]
+  #[op(async)]
   async fn op_pending() {
     futures::future::pending().await
   }
