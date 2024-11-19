@@ -21,9 +21,9 @@ error[E0597]: `arg0` does not live long enough
   --> ../op/test_cases_fail/lifetimes.rs:12:1
    |
 12 | #[op(fast)]
-   | ^^^^^^^^^^^-
-   | |          |
-   | |          `arg0` dropped here while still borrowed
+   | ^^^^^^^^^^-
+   | |         |
+   | |         `arg0` dropped here while still borrowed
    | borrowed value does not live long enough
    | argument requires that `arg0` is borrowed for `'static`
    |
@@ -33,9 +33,9 @@ error[E0597]: `arg0_temp` does not live long enough
   --> ../op/test_cases_fail/lifetimes.rs:15:1
    |
 15 | #[op(fast)]
-   | ^^^^^^^^^^^-
-   | |          |
-   | |          `arg0_temp` dropped here while still borrowed
+   | ^^^^^^^^^^-
+   | |         |
+   | |         `arg0_temp` dropped here while still borrowed
    | borrowed value does not live long enough
    | argument requires that `arg0_temp` is borrowed for `'static`
    |
