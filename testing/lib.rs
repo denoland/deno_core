@@ -82,6 +82,7 @@ integration_test!(
   ts_types,
   user_breaks_promise_constructor,
   user_breaks_promise_species,
+  wasm_imports,
   worker_spawn,
   worker_terminate,
   worker_terminate_op,

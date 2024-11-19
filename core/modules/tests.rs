@@ -80,6 +80,7 @@ if (b() != 'b') throw Error();
 if (c() != 'c') throw Error();
 if (!import.meta.main) throw Error();
 if (import.meta.url != 'file:///a.js') throw Error();
+if (import.meta.WasmInstance !== undefined) throw Error();
 "#;
 
   const B_SRC: &str = r#"

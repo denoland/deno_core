@@ -678,15 +678,15 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
-  // Add special method that allows WASM module to instantiate themselves.
+  // Add special method that allows Wasm module to instantiate themselves.
   if module_type == ModuleType::Wasm {
-    let wasm_instantiate_key = WASM_INSTANTIATE.v8_string(scope);
-    if let Some(f) = state.wasm_instantiate_fn.borrow().as_ref() {
-      let wasm_instantiate_val = v8::Local::new(scope, &**f);
+    let wasm_instance_key = WASM_INSTANCE.v8_string(scope);
+    if let Some(f) = state.wasm_instance_fn.borrow().as_ref() {
+      let wasm_instance_val = v8::Local::new(scope, &**f);
       meta.create_data_property(
         scope,
-        wasm_instantiate_key.into(),
-        wasm_instantiate_val.into(),
+        wasm_instance_key.into(),
+        wasm_instance_val.into(),
       );
     } else {
       let message = v8::String::new(
