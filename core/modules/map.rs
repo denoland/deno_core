@@ -2035,21 +2035,30 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
           // an export can't be found on the module
           .map(|(name_index, name)| format!(
             "\"{}\" as import_{}_{}",
-            name, i, name_index
+            name.escape_default().to_string(),
+            i,
+            name_index
           ))
           .collect::<Vec<_>>()
           .join(", "),
-        key
+        key.escape_default().to_string(),
       ));
     }
 
     src.push("const importsObject = {".to_string());
 
     for (i, (key, names)) in aggregated_imports.iter().enumerate() {
-      src.push(format!("  \"{}\": {{", key).to_string());
+      src.push(
+        format!("  \"{}\": {{", key.escape_default().to_string()).to_string(),
+      );
 
       for (name_index, name) in names.iter().enumerate() {
-        src.push(format!("    \"{0}\": import_{1}_{2},", name, i, name_index));
+        src.push(format!(
+          "    \"{0}\": import_{1}_{2},",
+          name.escape_default().to_string(),
+          i,
+          name_index
+        ));
       }
 
       src.push("  },".to_string());
@@ -2067,7 +2076,7 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
   }
 
   if !wasm_deps.exports.is_empty() {
-    for export_desc in wasm_deps.exports.iter() {
+    for (idx, export_desc) in wasm_deps.exports.iter().enumerate() {
       if export_desc.name == "default" {
         src.push(format!(
           "export default modInstance.exports.{};",
@@ -2075,12 +2084,17 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
         ));
       } else {
         src.push(format!(
-          "export const {} = modInstance.exports.{};",
-          export_desc.name, export_desc.name
+          "const export{} = modInstance.exports[\"{}\"];\nexport {{ export{} as \"{}\" }};",
+          idx,
+          export_desc.name.escape_default().to_string(),
+          idx,
+          export_desc.name.escape_default().to_string()
         ));
       }
     }
   }
+
+  eprintln!("src {}", src.join("\n"));
 
   src.join("\n")
 }
@@ -2195,12 +2209,50 @@ const importsObject = {
   },
 };
 const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);
-export const export1 = modInstance.exports.export1;
-export const export2 = modInstance.exports.export2;
-export const export3 = modInstance.exports.export3;
-export const export4 = modInstance.exports.export4;
-export const export5 = modInstance.exports.export5;
-export const export6 = modInstance.exports.export6;
+const export0 = modInstance.exports["export1"];
+export { export0 as "export1" };
+const export1 = modInstance.exports["export2"];
+export { export1 as "export2" };
+const export2 = modInstance.exports["export3"];
+export { export2 as "export3" };
+const export3 = modInstance.exports["export4"];
+export { export3 as "export4" };
+const export4 = modInstance.exports["export5"];
+export { export4 as "export5" };
+const export5 = modInstance.exports["export6"];
+export { export5 as "export6" };
 export default modInstance.exports.default;"#,
+  );
+
+  let deps = WasmDeps {
+    imports: vec![wasm_dep_analyzer::Import {
+      name: "\n",
+      module: "\n",
+      import_type: wasm_dep_analyzer::ImportType::Function(1),
+    }],
+    exports: vec![wasm_dep_analyzer::Export {
+      name: "\n",
+      index: 0,
+      export_type: wasm_dep_analyzer::ExportType::Function(Ok(
+        wasm_dep_analyzer::FunctionSignature {
+          params: vec![],
+          returns: vec![],
+        },
+      )),
+    }],
+  };
+  let rendered = render_js_wasm_module("./bar.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./bar.wasm" with { type: "$$deno-core-internal-wasm-module" };
+import { "\n" as import_0_0 } from "\n";
+const importsObject = {
+  "\n": {
+    "\n": import_0_0,
+  },
+};
+const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);
+const export0 = modInstance.exports["\n"];
+export { export0 as "\n" };"#,
   );
 }
