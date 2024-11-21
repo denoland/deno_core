@@ -2081,12 +2081,9 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
           export_desc.name
         ));
       } else {
+        let escaped_name = export_desc.name.escape_default();
         src.push(format!(
-          "const export{} = modInstance.exports[\"{}\"];\nexport {{ export{} as \"{}\" }};",
-          idx,
-          export_desc.name.escape_default(),
-          idx,
-          export_desc.name.escape_default()
+          "const export{idx} = modInstance.exports[\"{escaped_name}\"];\nexport {{ export{idx} as \"{escaped_name}\" }};",
         ));
       }
     }
