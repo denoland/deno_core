@@ -2035,27 +2035,25 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
           // an export can't be found on the module
           .map(|(name_index, name)| format!(
             "\"{}\" as import_{}_{}",
-            name.escape_default().to_string(),
+            name.escape_default(),
             i,
             name_index
           ))
           .collect::<Vec<_>>()
           .join(", "),
-        key.escape_default().to_string(),
+        key.escape_default(),
       ));
     }
 
     src.push("const importsObject = {".to_string());
 
     for (i, (key, names)) in aggregated_imports.iter().enumerate() {
-      src.push(
-        format!("  \"{}\": {{", key.escape_default().to_string()).to_string(),
-      );
+      src.push(format!("  \"{}\": {{", key.escape_default()).to_string());
 
       for (name_index, name) in names.iter().enumerate() {
         src.push(format!(
           "    \"{0}\": import_{1}_{2},",
-          name.escape_default().to_string(),
+          name.escape_default(),
           i,
           name_index
         ));
@@ -2086,15 +2084,13 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
         src.push(format!(
           "const export{} = modInstance.exports[\"{}\"];\nexport {{ export{} as \"{}\" }};",
           idx,
-          export_desc.name.escape_default().to_string(),
+          export_desc.name.escape_default(),
           idx,
-          export_desc.name.escape_default().to_string()
+          export_desc.name.escape_default()
         ));
       }
     }
   }
-
-  eprintln!("src {}", src.join("\n"));
 
   src.join("\n")
 }
