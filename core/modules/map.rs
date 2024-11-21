@@ -2067,9 +2067,7 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
   }
 
   if !wasm_deps.exports.is_empty() {
-    for export_desc in wasm_deps.exports.iter().filter(|e| {
-      matches!(e.export_type, wasm_dep_analyzer::ExportType::Function(_))
-    }) {
+    for export_desc in wasm_deps.exports.iter() {
       if export_desc.name == "default" {
         src.push(format!(
           "export default modInstance.exports.{};",
@@ -2198,6 +2196,11 @@ const importsObject = {
 };
 const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);
 export const export1 = modInstance.exports.export1;
+export const export2 = modInstance.exports.export2;
+export const export3 = modInstance.exports.export3;
+export const export4 = modInstance.exports.export4;
+export const export5 = modInstance.exports.export5;
+export const export6 = modInstance.exports.export6;
 export default modInstance.exports.default;"#,
   );
 }
