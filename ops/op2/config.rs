@@ -24,6 +24,8 @@ pub(crate) struct MacroConfig {
   pub reentrant: bool,
   /// Marks an op as a method on a wrapped object.
   pub method: Option<String>,
+  /// Same as method name but also used by static and constructor ops.
+  pub self_name: Option<String>,
   /// Marks an op as a constructor
   pub constructor: bool,
   /// Marks an op as a static member
@@ -36,6 +38,8 @@ pub(crate) struct MacroConfig {
   pub setter: bool,
   /// Marks an op to have it collect stack trace of the call site in the OpState.
   pub stack_trace: bool,
+  /// Total required number of arguments for the op.
+  pub required: u8,
 }
 
 impl MacroConfig {
@@ -126,6 +130,13 @@ impl MacroConfig {
           })
         })
         .map_err(|_| Op2Error::PatternMatchFailed("attribute", flag))?;
+      } else if flag.starts_with("required(") {
+        let tokens = syn::parse_str::<TokenTree>(&flag[9..flag.len() - 1])?
+          .into_token_stream();
+        config.required = tokens
+          .to_string()
+          .parse()
+          .map_err(|_| Op2Error::InvalidAttribute(flag))?;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }
@@ -182,8 +193,12 @@ impl MacroConfig {
         ( $($flags:tt $( ( $( $args:ty ),* ) )? ),+ ) => {
           Self::from_token_trees(flags, args)
         }
-        ( # [ $($flags:tt),+ ] ) => {
-            Self::from_flags(flags.into_iter().map(|flag| flag.to_string()))
+        ( $( #[$attr:meta] )* ) => {
+          Self::from_flags(
+            attr.
+             into_iter().
+             map(|attr| attr.to_token_stream().to_string())
+          )
         }
       })
     })

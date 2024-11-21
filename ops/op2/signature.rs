@@ -755,6 +755,8 @@ pub enum AttributeModifier {
   Number,
   /// #[cppgc], for a resource backed managed by cppgc.
   CppGcResource,
+  /// Any attribute that we may want to omit if not syntactically valid.
+  Ignore,
 }
 
 impl AttributeModifier {
@@ -771,6 +773,7 @@ impl AttributeModifier {
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
+      AttributeModifier::Ignore => "ignore",
     }
   }
 }
@@ -809,8 +812,6 @@ pub enum AttributeError {
   InvalidAttribute(String),
   #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead.")]
   InvalidInnerAttribute,
-  #[error("Too many attributes")]
-  TooManyAttributes,
 }
 
 #[derive(Error, Debug)]
@@ -1181,15 +1182,15 @@ fn parse_attributes(
   let mut attrs = vec![];
   for attr in attributes {
     if let Some(attr) = parse_attribute(attr)? {
+      if attr == AttributeModifier::Ignore {
+        continue;
+      }
       attrs.push(attr)
     }
   }
 
   if attrs.is_empty() {
     return Ok(Attributes::default());
-  }
-  if attrs.len() > 1 {
-    return Err(AttributeError::TooManyAttributes);
   }
   Ok(Attributes {
     primary: Some(*attrs.first().unwrap()),
@@ -1198,7 +1199,13 @@ fn parse_attributes(
 
 /// Is this a special attribute that we understand?
 pub fn is_attribute_special(attr: &Attribute) -> bool {
-  parse_attribute(attr).unwrap_or_default().is_some()
+  parse_attribute(attr)
+      .unwrap_or_default()
+      .and_then(|attr| match attr {
+        AttributeModifier::Ignore => None,
+        _ => Some(()),
+      })
+      .is_some()
     // this is kind of ugly, but #[meta(..)] is the only
     // attribute that we want to omit from the generated code
     // that doesn't have a semantic meaning
@@ -1239,10 +1246,18 @@ fn parse_attribute(
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
+      (#[required ($_attr:literal)]) => Some(AttributeModifier::Ignore),
+      (#[method ($_attr:literal)]) => Some(AttributeModifier::Ignore),
+      (#[method]) => Some(AttributeModifier::Ignore),
+      (#[getter]) => Some(AttributeModifier::Ignore),
+      (#[setter]) => Some(AttributeModifier::Ignore),
+      (#[fast]) => Some(AttributeModifier::Ignore),
+      (#[static_method]) => Some(AttributeModifier::Ignore),
+      (#[constructor]) => Some(AttributeModifier::Ignore),
       (#[allow ($_rule:path)]) => None,
       (#[doc = $_attr:literal]) => None,
       (#[cfg $_cfg:tt]) => None,
-      (#[meta ($($_key: ident = $_value: literal),*)]) => None,
+      (#[meta ($($_key: ident = $_value: literal),*)]) => Some(AttributeModifier::Ignore),
     })
   }).map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
   Ok(res)
@@ -1506,6 +1521,9 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.primary {
     match primary {
+      AttributeModifier::Ignore => {
+        unreachable!();
+      }
       AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
       AttributeModifier::FromV8 if position == Position::RetVal => {
         return Err(ArgError::InvalidAttributePosition(
