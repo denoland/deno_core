@@ -81,12 +81,6 @@ impl GarbageCollected for DOMPoint {}
 
 #[op2]
 impl DOMPoint {
-  #[fast]
-  #[required(1)]
-  fn stuff(&self) {
-    println!("stuff");
-  }
-
   #[constructor]
   #[cppgc]
   fn new(

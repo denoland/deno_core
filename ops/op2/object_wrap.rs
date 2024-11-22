@@ -84,10 +84,8 @@ pub(crate) fn generate_impl_ops(
 
   for item in item.items {
     if let ImplItem::Fn(mut method) = item {
-      let (item_fn_attrs, attrs) = method
-        .attrs
-        .into_iter()
-        .partition(|attr| is_attribute_special(attr));
+      let (item_fn_attrs, attrs) =
+        method.attrs.into_iter().partition(is_attribute_special);
 
       /* Convert snake_case to camelCase */
       method.sig.ident = format_ident!(
