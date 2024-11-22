@@ -442,23 +442,33 @@ pub fn from_arg(
         let #arg_ident = deno_core::_ops::to_string(&mut #scope, &#arg_ident);
       }
     }
-    Arg::String(Strings::RefStr) => {
+    Arg::String(Strings::RefStr) | Arg::String(Strings::CowStr) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
-      quote! {
+      let maybe_scope = if *needs_scope {
+        quote!()
+      } else {
+        with_scope(generator_state)
+      };
+
+      let maybe_ref = if matches!(arg, Arg::String(Strings::RefStr)) {
+        quote!(&)
+      } else {
+        quote!()
+      };
+
+      gs_quote!(generator_state(scope) => {
         // Trade stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = &deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
-      }
-    }
-    Arg::String(Strings::CowStr) => {
-      // Only requires isolate, not a full scope
-      *needs_isolate = true;
-      quote! {
-        // Trade stack space for potentially non-allocating strings
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
-      }
+        let #arg_ident = if !#arg_ident.is_string() {
+            #maybe_scope
+            #arg_ident.to_string(&mut #scope).unwrap().into()
+        } else {
+            #arg_ident
+        };
+
+        let #arg_ident = #maybe_ref deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
+      })
     }
     Arg::String(Strings::CowByte) => {
       // Only requires isolate, not a full scope
