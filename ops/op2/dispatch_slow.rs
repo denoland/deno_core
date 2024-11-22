@@ -245,12 +245,26 @@ pub(crate) fn with_required_check(
   } else {
     "argument"
   };
-  gs_quote!(generator_state(fn_args, scope, self_ty) =>
+
+  let prefix = if generator_state.needs_self {
+    format!(
+      "Failed to execute '{}' on '{}': ",
+      generator_state.name, generator_state.self_ty
+    )
+  } else if generator_state.use_this_cppgc {
+    format!("Failed to construct '{}': ", generator_state.self_ty)
+  } else {
+    format!(
+      "Failed to execute '{}.{}': ",
+      generator_state.self_ty, generator_state.name
+    )
+  };
+
+  gs_quote!(generator_state(fn_args, scope) =>
     (if #fn_args.length() < #required as i32 {
       let msg = format!(
-        "Failed to execute '{}' on '{}': {} {} required, but only {} present",
-        Self::name(),
-        stringify!(#self_ty),
+        "{}{} {} required, but only {} present",
+        #prefix,
         #required,
         #arguments_lit,
         #fn_args.length()
