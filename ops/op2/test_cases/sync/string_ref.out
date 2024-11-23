@@ -135,7 +135,14 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
                 >; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
                 let arg0 = if !arg0.is_string() {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    arg0.to_string(&mut scope).unwrap().into()
+                    let mut tc = deno_core::v8::TryCatch::new(&mut scope);
+                    match arg0.to_string(&mut tc) {
+                        Some(v) => v.into(),
+                        None => {
+                            tc.rethrow();
+                            return 1;
+                        }
+                    }
                 } else {
                     arg0
                 };
