@@ -2,13 +2,11 @@
 use super::module_map_data::ModuleMapSnapshotData;
 use super::IntoModuleCodeString;
 use super::IntoModuleName;
+use super::ModuleConcreteError;
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
-use crate::error::generic_error;
-use crate::error::throw_type_error;
-use crate::error::to_v8_type_error;
-use crate::error::AnyError;
 use crate::error::JsError;
+use crate::error::JsNativeError;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
@@ -33,8 +31,6 @@ use crate::ModuleLoadResponse;
 use crate::ModuleSource;
 use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
-use anyhow::bail;
-use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
@@ -46,6 +42,11 @@ use v8::Function;
 use v8::PromiseState;
 use wasm_dep_analyzer::WasmDeps;
 
+use super::module_map_data::ModuleMapData;
+use super::CustomModuleEvaluationKind;
+use super::LazyEsmModuleLoader;
+use super::RequestedModuleType;
+use deno_core::error::CoreError;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -57,13 +58,8 @@ use std::task::Context;
 use std::task::Poll;
 use tokio::sync::oneshot;
 
-use super::module_map_data::ModuleMapData;
-use super::CustomModuleEvaluationKind;
-use super::LazyEsmModuleLoader;
-use super::RequestedModuleType;
-
 type PrepareLoadFuture =
-  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, Error>)>;
+  dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, CoreError>)>;
 
 type CodeCacheReadyFuture = dyn Future<Output = ()>;
 
@@ -71,7 +67,7 @@ use super::ImportMetaResolveCallback;
 
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
-  sender: Option<oneshot::Sender<Result<(), Error>>>,
+  sender: Option<oneshot::Sender<Result<(), CoreError>>>,
   module: Option<v8::Global<v8::Module>>,
   notify: Vec<v8::Global<v8::Function>>,
 }
@@ -175,7 +171,7 @@ impl ModuleMap {
   pub(crate) fn check_all_modules_evaluated(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), Error> {
+  ) -> Result<(), CoreError> {
     let mut not_evaluated = vec![];
     let data = self.data.borrow();
 
@@ -183,9 +179,10 @@ impl ModuleMap {
       let module = v8::Local::new(scope, handle);
       match module.get_status() {
         v8::ModuleStatus::Errored => {
-          return Err(
-            JsError::from_v8_exception(scope, module.get_exception()).into(),
-          );
+          return Err(CoreError::Js(JsError::from_v8_exception(
+            scope,
+            module.get_exception(),
+          )));
         }
         v8::ModuleStatus::Evaluated => {}
         _ => {
@@ -195,11 +192,7 @@ impl ModuleMap {
     }
 
     if !not_evaluated.is_empty() {
-      let mut msg = String::new();
-      for m in not_evaluated {
-        msg.push_str(&format!("  - {}\n", m));
-      }
-      bail!("Following modules were not evaluated; make sure they are imported from other code:\n {}", msg);
+      return Err(CoreError::NonEvaluatedModules(not_evaluated));
     }
 
     Ok(())
@@ -391,9 +384,7 @@ impl ModuleMap {
       }
       ModuleType::Wasm => {
         let ModuleSourceCode::Bytes(code) = code else {
-          return Err(ModuleError::Other(generic_error(
-            "Source code for Wasm module must be provided as bytes",
-          )));
+          return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
         };
         self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
@@ -407,10 +398,9 @@ impl ModuleMap {
           state.custom_module_evaluation_cb.as_ref();
 
         let Some(custom_evaluation_cb) = custom_module_evaluation_cb else {
-          return Err(ModuleError::Other(generic_error(format!(
-            "Importing '{}' modules is not supported",
-            module_type
-          ))));
+          return Err(ModuleError::Concrete(
+            ModuleConcreteError::UnsupportedKind(module_type.to_string()),
+          ));
         };
 
         // TODO(bartlomieju): creating a global just to create a local from it
@@ -423,7 +413,7 @@ impl ModuleMap {
           &module_url_found,
           code,
         )
-        .map_err(ModuleError::Other)?;
+        .map_err(|e| ModuleError::Core(CoreError::JsNative(e)))?;
 
         match module_evaluation_kind {
           // Simple case, we just got a single value so we create a regular
@@ -436,7 +426,7 @@ impl ModuleMap {
               module_url_found,
               ModuleType::Other(module_type.clone()),
               exports,
-            )?
+            )
           }
 
           // Complex case - besides a synthetic module, we will create a new
@@ -454,7 +444,7 @@ impl ModuleMap {
               url1,
               synthetic_module_type,
               exports,
-            )?;
+            );
 
             let (code_cache_info, url2) = if let Some(code_cache) = code_cache {
               let (url1, url2) = url2.into_cheap_copy();
@@ -499,7 +489,7 @@ impl ModuleMap {
     name: impl IntoModuleName,
     module_type: ModuleType,
     exports: Vec<(FastStaticString, v8::Local<v8::Value>)>,
-  ) -> Result<ModuleId, ModuleError> {
+  ) -> ModuleId {
     let name = name.into_module_name();
     let name_str = name.v8_string(scope);
 
@@ -543,7 +533,7 @@ impl ModuleMap {
     // Synthetic modules have no imports so their instantation must never fail.
     self.instantiate_module(scope, id).unwrap();
 
-    Ok(id)
+    id
   }
 
   // TODO(bartlomieju): remove this method or rename it to `new_js_module`.
@@ -596,11 +586,12 @@ impl ModuleMap {
       let data = self.data.borrow();
       if let Some(main_module) = data.main_module_id {
         let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
-        return Err(ModuleError::Other(generic_error(
-          format!("Trying to create \"main\" module ({:?}), when one already exists ({:?})",
-          name,
-          main_name,
-        ))));
+        return Err(ModuleError::Concrete(
+          ModuleConcreteError::MainModuleAlreadyExists {
+            main_module: main_name.to_string(),
+            new_module: name.to_string(),
+          },
+        ));
       }
     }
 
@@ -663,9 +654,9 @@ impl ModuleMap {
         let unbound_module_script = module.get_unbound_module_script(tc_scope);
         let code_cache =
           unbound_module_script.create_code_cache().ok_or_else(|| {
-            ModuleError::Other(generic_error(
-              "Unable to get code cache from unbound module script",
-            ))
+            ModuleError::Concrete(
+              ModuleConcreteError::UnboundModuleScriptCodeCache,
+            )
           })?;
         let fut =
           async move { (code_cache_info.ready_callback)(&code_cache).await }
@@ -723,7 +714,7 @@ impl ModuleMap {
         },
       ) {
         Ok(s) => s,
-        Err(e) => return Err(ModuleError::Other(e)),
+        Err(e) => return Err(ModuleError::Core(e)),
       };
       let requested_module_type =
         get_requested_module_type_from_attributes(&attributes);
@@ -758,16 +749,10 @@ impl ModuleMap {
       bytes,
       wasm_dep_analyzer::ParseOptions { skip_types: true },
     )
-    .map_err(|e| {
-      let err = Error::from(e);
-      ModuleError::Other(err)
-    })?;
+    .map_err(ModuleConcreteError::WasmParse)?;
 
     let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
-      return Err(ModuleError::Other(generic_error(format!(
-        "Failed to compile Wasm module '{}'",
-        name.as_str()
-      ))));
+      return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
     };
     let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
 
@@ -780,12 +765,8 @@ impl ModuleMap {
     let (name1, name2) = name.into_cheap_copy();
     let value = v8::Local::new(scope, wasm_module_value);
     let exports = vec![(ascii_str!("default"), value)];
-    let _synthetic_mod_id = self.new_synthetic_module(
-      scope,
-      name1,
-      synthetic_module_type,
-      exports,
-    )?;
+    let _synthetic_mod_id =
+      self.new_synthetic_module(scope, name1, synthetic_module_type, exports);
 
     self.new_module_from_js_source(
       scope,
@@ -824,7 +805,7 @@ impl ModuleMap {
       }
     };
     let exports = vec![(ascii_str!("default"), parsed_json)];
-    self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
+    Ok(self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports))
   }
 
   pub(crate) fn instantiate_module(
@@ -902,10 +883,12 @@ impl ModuleMap {
       return Some(module);
     }
 
-    let msg = format!(
-      r#"Cannot resolve module "{specifier_str}" from "{referrer_name}""#
+    crate::error::throw_js_error_class(
+      scope,
+      &JsNativeError::type_error(format!(
+        r#"Cannot resolve module "{specifier_str}" from "{referrer_name}""#
+      )),
     );
-    throw_type_error(scope, msg);
     None
   }
 
@@ -917,7 +900,7 @@ impl ModuleMap {
     specifier: &str,
     referrer: &str,
     kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, AnyError> {
+  ) -> Result<ModuleSpecifier, CoreError> {
     if specifier.starts_with("ext:")
       && !referrer.starts_with("ext:")
       && !referrer.starts_with("node:")
@@ -931,10 +914,14 @@ impl ModuleMap {
         referrer
       };
       let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
-      return Err(generic_error(msg));
+      return Err(JsNativeError::type_error(msg).into());
     }
 
-    self.loader.borrow().resolve(specifier, referrer, kind)
+    self
+      .loader
+      .borrow()
+      .resolve(specifier, referrer, kind)
+      .map_err(|e| e.into())
   }
 
   /// Called by `module_resolve_callback` during module instantiation.
@@ -949,7 +936,7 @@ impl ModuleMap {
       match self.resolve(specifier, referrer, ResolutionKind::Import) {
         Ok(s) => s,
         Err(e) => {
-          throw_type_error(scope, e.to_string());
+          crate::error::throw_js_error_class(scope, &e);
           return None;
         }
       };
@@ -977,7 +964,7 @@ impl ModuleMap {
   pub(crate) async fn load_main(
     module_map_rc: Rc<ModuleMap>,
     specifier: impl AsRef<str>,
-  ) -> Result<RecursiveModuleLoad, Error> {
+  ) -> Result<RecursiveModuleLoad, CoreError> {
     let load =
       RecursiveModuleLoad::main(specifier.as_ref(), module_map_rc.clone());
     load.prepare().await?;
@@ -987,7 +974,7 @@ impl ModuleMap {
   pub(crate) async fn load_side(
     module_map_rc: Rc<ModuleMap>,
     specifier: impl AsRef<str>,
-  ) -> Result<RecursiveModuleLoad, Error> {
+  ) -> Result<RecursiveModuleLoad, CoreError> {
     let load =
       RecursiveModuleLoad::side(specifier.as_ref(), module_map_rc.clone());
     load.prepare().await?;
@@ -1074,7 +1061,7 @@ impl ModuleMap {
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), Error>> + Unpin {
+  ) -> impl Future<Output = Result<(), CoreError>> + Unpin {
     let tc_scope = &mut v8::TryCatch::new(scope);
 
     let module = self
@@ -1096,11 +1083,8 @@ impl ModuleMap {
     );
 
     let (sender, receiver) = oneshot::channel();
-    let receiver = receiver.map(|res| {
-      res.unwrap_or_else(|_| {
-        bail!("Cannot evaluate module, because JavaScript execution has been terminated")
-      }
-    )});
+    let receiver = receiver
+      .map(|res| res.unwrap_or_else(|_| Err(CoreError::ExecutionTerminated)));
 
     let Some(value) = module.evaluate(tc_scope) else {
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
@@ -1248,7 +1232,7 @@ impl ModuleMap {
     self: &Rc<Self>,
     scope: &mut v8::HandleScope,
     id: ModuleId,
-  ) -> Result<(), Error> {
+  ) -> Result<(), CoreError> {
     let tc_scope = &mut v8::TryCatch::new(scope);
 
     let module = self
@@ -1270,18 +1254,20 @@ impl ModuleMap {
     );
 
     if module.is_graph_async() {
-      return Err(generic_error(
-        "Top-level await is not allowed in synchronous evaluation",
-      ));
+      return Err(CoreError::TLA);
     }
 
     let Some(value) = module.evaluate(tc_scope) else {
       let exception = tc_scope.exception().unwrap();
-      return Err(JsError::from_v8_exception(tc_scope, exception).into());
+      return Err(CoreError::Js(JsError::from_v8_exception(
+        tc_scope, exception,
+      )));
     };
 
     if let Some(exception) = tc_scope.exception() {
-      return Err(JsError::from_v8_exception(tc_scope, exception).into());
+      return Err(CoreError::Js(JsError::from_v8_exception(
+        tc_scope, exception,
+      )));
     }
 
     let status = module.get_status();
@@ -1296,7 +1282,7 @@ impl ModuleMap {
       PromiseState::Fulfilled => Ok(()),
       PromiseState::Rejected => {
         let err = promise.result(tc_scope);
-        Err(JsError::from_v8_exception(tc_scope, err).into())
+        Err(CoreError::Js(JsError::from_v8_exception(tc_scope, err)))
       }
       PromiseState::Pending => {
         unreachable!()
@@ -1309,7 +1295,7 @@ impl ModuleMap {
     scope: &mut v8::HandleScope,
     load_id: ModuleLoadId,
     id: ModuleId,
-  ) -> Result<(), Error> {
+  ) -> Result<(), CoreError> {
     let module_handle = self.get_handle(id).expect("ModuleInfo not found");
 
     let status = {
@@ -1396,9 +1382,7 @@ impl ModuleMap {
         .push(dyn_import_mod_evaluate);
       self.pending_dyn_mod_evaluations_pending.set(true);
     } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Err(
-        generic_error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated.")
-      );
+      return Err(CoreError::EvaluateDynamicImportedModule);
     } else {
       assert_eq!(status, v8::ModuleStatus::Errored);
     }
@@ -1516,7 +1500,7 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), Error> {
+  ) -> Result<(), CoreError> {
     let mut has_evaluated = true;
 
     // TODO(mmastrac): We register this waker unconditionally because we occasionally need to re-run
@@ -1567,7 +1551,7 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Poll<Result<(), Error>> {
+  ) -> Poll<Result<(), CoreError>> {
     if !self.preparing_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
@@ -1591,7 +1575,7 @@ impl ModuleMap {
             self.pending_dynamic_imports_pending.set(true);
           }
           Err(err) => {
-            let exception = to_v8_type_error(scope, err);
+            let exception = err.to_v8_error(scope);
             self.dynamic_import_reject(scope, dyn_import_id, exception);
           }
         }
@@ -1611,7 +1595,7 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Poll<Result<(), Error>> {
+  ) -> Poll<Result<(), CoreError>> {
     if !self.pending_dynamic_imports_pending.get() {
       return Poll::Ready(Ok(()));
     }
@@ -1648,17 +1632,20 @@ impl ModuleMap {
                 Err(err) => {
                   let exception = match err {
                     ModuleError::Exception(e) => e,
-                    ModuleError::Other(e) => to_v8_type_error(scope, e),
+                    ModuleError::Core(e) => e.to_v8_error(scope),
+                    ModuleError::Concrete(e) => {
+                      CoreError::Module(e).to_v8_error(scope)
+                    }
                   };
                   self.dynamic_import_reject(scope, dyn_import_id, exception)
                 }
               }
             }
             Err(err) => {
-              // A non-javascript error occurred; this could be due to a an invalid
+              // A non-javascript error occurred; this could be due to an invalid
               // module specifier, or a problem with the source map, or a failure
               // to fetch the module source code.
-              let exception = to_v8_type_error(scope, err);
+              let exception = err.to_v8_error(scope);
               self.dynamic_import_reject(scope, dyn_import_id, exception);
             }
           }
@@ -1690,7 +1677,10 @@ impl ModuleMap {
     }
   }
 
-  fn poll_code_cache_ready(&self, cx: &mut Context) -> Poll<Result<(), Error>> {
+  fn poll_code_cache_ready(
+    &self,
+    cx: &mut Context,
+  ) -> Poll<Result<(), CoreError>> {
     if !self.pending_code_cache_ready.get() {
       return Poll::Ready(Ok(()));
     }
@@ -1730,7 +1720,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, Error> {
+  ) -> Result<v8::Global<v8::Object>, CoreError> {
     let module_handle = self
       .data
       .borrow()
@@ -1750,8 +1740,7 @@ impl ModuleMap {
     ));
 
     let module_namespace: v8::Local<v8::Object> =
-      v8::Local::try_from(module.get_module_namespace())
-        .map_err(|err: v8::DataError| generic_error(err.to_string()))?;
+      v8::Local::try_from(module.get_module_namespace())?;
 
     Ok(v8::Global::new(scope, module_namespace))
   }
@@ -1827,7 +1816,7 @@ impl ModuleMap {
     module_specifier: &str,
     source_code: ModuleCodeString,
     code_cache_info: Option<CodeCacheInfo>,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let specifier = ModuleSpecifier::parse(module_specifier)?;
     let mod_id = self
       .new_es_module(
@@ -1838,7 +1827,7 @@ impl ModuleMap {
         false,
         code_cache_info,
       )
-      .map_err(|e| e.into_any_error(scope, false, true))?;
+      .map_err(|e| e.into_error(scope, false, true))?;
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
@@ -1888,7 +1877,7 @@ impl ModuleMap {
     &self,
     scope: &mut v8::HandleScope,
     module_specifier: &str,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let lazy_esm_sources = self.data.borrow().lazy_esm_sources.clone();
     let loader = LazyEsmModuleLoader::new(lazy_esm_sources);
 

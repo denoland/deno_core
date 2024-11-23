@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::bail;
-use anyhow::Error;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8;
@@ -57,7 +56,7 @@ pub fn run_integration_test(test: &str) {
 async fn run_integration_test_task(
   mut runtime: JsRuntime,
   test: String,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["integration", &test]);
   let url = get_test_url(&test_dir, &test)?;
   let module = runtime.load_main_es_module(&url).await?;
@@ -107,7 +106,7 @@ pub fn run_unit_test(test: &str) {
 async fn run_unit_test_task(
   mut runtime: JsRuntime,
   test: String,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["unit"]);
   let url = get_test_url(&test_dir, &test)?;
   let module = runtime.load_main_es_module(&url).await?;
@@ -144,7 +143,7 @@ fn get_test_dir(dirs: &[&str]) -> PathBuf {
   test_dir.to_owned()
 }
 
-fn get_test_url(test_dir: &Path, test: &str) -> Result<Url, Error> {
+fn get_test_url(test_dir: &Path, test: &str) -> Result<Url, anyhow::Error> {
   let mut path = None;
   for extension in ["ts", "js", "nocompile"] {
     let test_path = test_dir.join(format!("{test}.{extension}"));

@@ -19,6 +19,7 @@ serde.workspace = true
 smallvec = { workspace = true, features = ["union"] }
 thiserror.workspace = true
 v8.workspace = true
+deno_error.workspace = true
 
 [dev-dependencies]
 bencher.workspace = true

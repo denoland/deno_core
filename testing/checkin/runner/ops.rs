@@ -2,7 +2,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::error::AnyError;
+use deno_core::error::JsNativeError;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -103,7 +103,7 @@ impl DOMPoint {
   fn from_point(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, AnyError> {
+  ) -> Result<DOMPoint, JsNativeError> {
     fn get(
       scope: &mut v8::HandleScope,
       other: v8::Local<v8::Object>,
