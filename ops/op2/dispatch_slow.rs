@@ -438,6 +438,7 @@ pub fn from_arg(
     Arg::String(Strings::String) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
+
       quote! {
         let #arg_ident = deno_core::_ops::to_string(&mut #scope, &#arg_ident);
       }
@@ -462,7 +463,14 @@ pub fn from_arg(
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = if !#arg_ident.is_string() {
             #maybe_scope
-            #arg_ident.to_string(&mut #scope).unwrap().into()
+            let mut tc = deno_core::v8::TryCatch::new(&mut #scope);
+            match #arg_ident.to_string(&mut tc) {
+                Some(v) => v.into(),
+                None => {
+                    tc.rethrow();
+                    return 1;
+                }
+            }
         } else {
             #arg_ident
         };
