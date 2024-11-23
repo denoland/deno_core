@@ -2,8 +2,8 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 
-use crate::error::{JsNativeError};
-use crate::error::{OpError};
+use crate::error::JsNativeError;
+use crate::error::OpError;
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;

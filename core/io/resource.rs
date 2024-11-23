@@ -260,7 +260,10 @@ macro_rules! impl_writable {
       view: $crate::BufView,
     ) -> $crate::AsyncResult<$crate::WriteOutcome> {
       ::std::boxed::Box::pin(async move {
-        let nwritten = self.write(&view).await.map_err(::deno_core::error::JsNativeError::from_err)?;
+        let nwritten = self
+          .write(&view)
+          .await
+          .map_err(::deno_core::error::JsNativeError::from_err)?;
         ::std::result::Result::Ok($crate::WriteOutcome::Partial {
           nwritten,
           view,
@@ -274,7 +277,10 @@ macro_rules! impl_writable {
       view: $crate::BufView,
     ) -> $crate::AsyncResult<()> {
       ::std::boxed::Box::pin(async move {
-        self.write_all(&view).await.map_err(::deno_core::error::JsNativeError::from_err)?;
+        self
+          .write_all(&view)
+          .await
+          .map_err(::deno_core::error::JsNativeError::from_err)?;
         ::std::result::Result::Ok(())
       })
     }

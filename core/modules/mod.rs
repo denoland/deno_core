@@ -637,8 +637,13 @@ pub enum ModuleConcreteError {
   },
   #[error("Unable to get code cache from unbound module script")]
   UnboundModuleScriptCodeCache,
-  #[error("Importing Wasm modules is currently not supported")]
-  WasmUnsupported,
+  #[class(inherit)]
+  #[error("{0}")]
+  WasmParse(wasm_dep_analyzer::ParseError),
+  #[error("Source code for Wasm module must be provided as bytes")]
+  WasmNotBytes,
+  #[error("Failed to compile Wasm module '{0}'")]
+  WasmCompile(String),
   #[error("Importing '{0}' modules is not supported")]
   UnsupportedKind(String),
 }
@@ -666,5 +671,11 @@ impl ModuleError {
       ModuleError::Core(error) => error,
       ModuleError::Concrete(error) => CoreError::Module(error),
     }
+  }
+}
+
+impl From<ModuleConcreteError> for ModuleError {
+  fn from(value: ModuleConcreteError) -> Self {
+    ModuleError::Concrete(value)
   }
 }

@@ -384,9 +384,7 @@ impl ModuleMap {
       }
       ModuleType::Wasm => {
         let ModuleSourceCode::Bytes(code) = code else {
-          return Err(ModuleError::Other(generic_error(
-            "Source code for Wasm module must be provided as bytes",
-          )));
+          return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
         };
         self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
@@ -751,16 +749,10 @@ impl ModuleMap {
       bytes,
       wasm_dep_analyzer::ParseOptions { skip_types: true },
     )
-    .map_err(|e| {
-      let err = Error::from(e);
-      ModuleError::Other(err)
-    })?;
+    .map_err(ModuleConcreteError::WasmParse)?;
 
     let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
-      return Err(ModuleError::Other(generic_error(format!(
-        "Failed to compile Wasm module '{}'",
-        name.as_str()
-      ))));
+      return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
     };
     let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
 
@@ -773,12 +765,8 @@ impl ModuleMap {
     let (name1, name2) = name.into_cheap_copy();
     let value = v8::Local::new(scope, wasm_module_value);
     let exports = vec![(ascii_str!("default"), value)];
-    let _synthetic_mod_id = self.new_synthetic_module(
-      scope,
-      name1,
-      synthetic_module_type,
-      exports,
-    )?;
+    let _synthetic_mod_id =
+      self.new_synthetic_module(scope, name1, synthetic_module_type, exports);
 
     self.new_module_from_js_source(
       scope,
