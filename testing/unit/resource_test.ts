@@ -86,4 +86,9 @@ test(function testDomPoint() {
   assertEquals(p1.wrappingSmi(4294967295), 4294967295);
   assertEquals(p1.wrappingSmi(4294967296), 0);
   assertEquals(p1.wrappingSmi(4294967297), 1);
+
+  assertEquals(
+    p1.wrappingSmi.toString(),
+    DOMPoint.prototype.wrappingSmi.toString(),
+  );
 });
