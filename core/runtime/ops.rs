@@ -66,6 +66,26 @@ pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
   )
 }
 
+macro_rules! try_integer_some {
+  ($n:ident $type:ident $is:ident) => {
+    if $n.$is() {
+      // SAFETY: v8 handles can be transmuted
+      let n: &v8::$type = unsafe { std::mem::transmute($n) };
+      return Some(az::wrapping_cast::<_, _>(n.value()));
+    }
+  };
+}
+
+macro_rules! try_number_int_some {
+  ($n:ident $type:ident $is:ident $trunc:ident) => {
+    if $n.$is() {
+      // SAFETY: v8 handles can be transmuted
+      let n: &v8::$type = unsafe { std::mem::transmute($n) };
+      return Some(az::wrapping_cast::<_, _>(n.value().trunc() as $trunc));
+    }
+  };
+}
+
 macro_rules! try_number_some {
   ($n:ident $type:ident $is:ident) => {
     if $n.$is() {
@@ -95,32 +115,32 @@ pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
 }
 
 pub fn to_u32_option(number: &v8::Value) -> Option<u32> {
-  try_number_some!(number Integer is_uint32);
-  try_number_some!(number Int32 is_int32);
-  try_number_some!(number Number is_number);
+  try_integer_some!(number Integer is_uint32);
+  try_integer_some!(number Int32 is_int32);
+  try_number_int_some!(number Number is_number u64);
   try_bignum!(number u64_value);
   None
 }
 
 pub fn to_i32_option(number: &v8::Value) -> Option<i32> {
-  try_number_some!(number Uint32 is_uint32);
-  try_number_some!(number Int32 is_int32);
-  try_number_some!(number Number is_number);
+  try_integer_some!(number Uint32 is_uint32);
+  try_integer_some!(number Int32 is_int32);
+  try_number_int_some!(number Number is_number i64);
   try_bignum!(number i64_value);
   None
 }
 
 pub fn to_u64_option(number: &v8::Value) -> Option<u64> {
-  try_number_some!(number Integer is_uint32);
-  try_number_some!(number Int32 is_int32);
+  try_integer_some!(number Integer is_uint32);
+  try_integer_some!(number Int32 is_int32);
   try_number_some!(number Number is_number);
   try_bignum!(number u64_value);
   None
 }
 
 pub fn to_i64_option(number: &v8::Value) -> Option<i64> {
-  try_number_some!(number Integer is_uint32);
-  try_number_some!(number Int32 is_int32);
+  try_integer_some!(number Integer is_uint32);
+  try_integer_some!(number Int32 is_int32);
   try_number_some!(number Number is_number);
   try_bignum!(number u64_value);
   None

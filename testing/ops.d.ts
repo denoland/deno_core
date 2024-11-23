@@ -25,5 +25,9 @@ export class DOMPoint {
   static fromPoint(
     other: { x?: number; y?: number; z?: number; w?: number },
   ): DOMPoint;
-  x(): number;
+  get x(): number;
+  get y(): number;
+  get z(): number;
+  get w(): number;
+  wrappingSmi(value: number): number;
 }
