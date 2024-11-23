@@ -97,6 +97,7 @@ impl DOMPoint {
     }
   }
 
+  #[required(1)]
   #[static_method]
   #[cppgc]
   fn from_point(

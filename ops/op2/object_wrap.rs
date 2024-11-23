@@ -12,6 +12,8 @@ use crate::op2::generate_op2;
 use crate::op2::MacroConfig;
 use crate::op2::Op2Error;
 
+use super::signature::is_attribute_special;
+
 // Object wrap for Cppgc-backed objects
 //
 // This module generates the glue code declarations
@@ -82,8 +84,8 @@ pub(crate) fn generate_impl_ops(
 
   for item in item.items {
     if let ImplItem::Fn(mut method) = item {
-      /* First attribute idents, for all functions in block */
-      let attrs = method.attrs.swap_remove(0);
+      let (item_fn_attrs, attrs) =
+        method.attrs.into_iter().partition(is_attribute_special);
 
       /* Convert snake_case to camelCase */
       method.sig.ident = format_ident!(
@@ -93,15 +95,16 @@ pub(crate) fn generate_impl_ops(
 
       let ident = method.sig.ident.clone();
       let func = ItemFn {
-        attrs: method.attrs,
+        attrs: item_fn_attrs,
         vis: method.vis,
         sig: method.sig,
         block: Box::new(method.block),
       };
 
       let mut config = MacroConfig::from_tokens(quote! {
-        #attrs
+        #(#attrs)*
       })?;
+
       if config.constructor {
         if constructor.is_some() {
           return Err(Op2Error::MultipleConstructors);
@@ -119,6 +122,8 @@ pub(crate) fn generate_impl_ops(
 
         config.method = Some(self_ty_ident.clone());
       }
+
+      config.self_name = Some(self_ty_ident.clone());
 
       let op = generate_op2(config, func)?;
       tokens.extend(op);

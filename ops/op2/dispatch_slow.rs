@@ -120,6 +120,13 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
+  let with_required_check = if generator_state.needs_args && config.required > 0
+  {
+    with_required_check(generator_state, config.required)
+  } else {
+    quote!()
+  };
+
   let with_self = if generator_state.needs_self {
     with_self(generator_state, &signature.ret_val)
       .map_err(V8SignatureMappingError::NoSelfMapping)?
@@ -143,6 +150,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_scope
         #with_retval
         #with_args
+        #with_required_check
         #with_opctx
         #with_self
         #with_isolate
@@ -224,6 +232,48 @@ pub(crate) fn with_fn_args(
 ) -> TokenStream {
   gs_quote!(generator_state(info, fn_args) =>
     (let #fn_args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(#info);)
+  )
+}
+
+pub(crate) fn with_required_check(
+  generator_state: &mut GeneratorState,
+  required: u8,
+) -> TokenStream {
+  generator_state.needs_scope = true;
+  let arguments_lit = if required > 1 {
+    "arguments"
+  } else {
+    "argument"
+  };
+
+  let prefix = if generator_state.needs_self {
+    format!(
+      "Failed to execute '{}' on '{}': ",
+      generator_state.name, generator_state.self_ty
+    )
+  } else if generator_state.use_this_cppgc {
+    format!("Failed to construct '{}': ", generator_state.self_ty)
+  } else {
+    format!(
+      "Failed to execute '{}.{}': ",
+      generator_state.self_ty, generator_state.name
+    )
+  };
+
+  gs_quote!(generator_state(fn_args, scope) =>
+    (if #fn_args.length() < #required as i32 {
+      let msg = format!(
+        "{}{} {} required, but only {} present",
+        #prefix,
+        #required,
+        #arguments_lit,
+        #fn_args.length()
+      );
+      let msg = deno_core::v8::String::new(&mut #scope, &msg).unwrap();
+      let exception = deno_core::v8::Exception::type_error(&mut #scope, msg.into());
+      #scope.throw_exception(exception);
+      return 1;
+    })
   )
 }
 

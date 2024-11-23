@@ -160,7 +160,7 @@ pub(crate) fn generate_op2(
     Ident::new("v8_fn_ptr_fast_metrics", Span::call_site());
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
-  let self_ty = if let Some(ref ty) = config.method {
+  let self_ty = if let Some(ref ty) = config.self_name {
     format_ident!("{ty}")
   } else {
     Ident::new("UNINIT", Span::call_site())
