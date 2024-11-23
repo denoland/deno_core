@@ -26,8 +26,10 @@ use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
 use crate::FastStaticString;
 use crate::JsRuntime;
+use crate::ModuleCodeBytes;
 use crate::ModuleLoadResponse;
 use crate::ModuleSource;
+use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
@@ -35,8 +37,10 @@ use futures::stream::StreamFuture;
 use futures::task::AtomicWaker;
 use futures::Future;
 use futures::StreamExt;
+use indexmap::IndexMap;
 use v8::Function;
 use v8::PromiseState;
+use wasm_dep_analyzer::WasmDeps;
 
 use super::module_map_data::ModuleMapData;
 use super::CustomModuleEvaluationKind;
@@ -344,7 +348,6 @@ impl ModuleMap {
     if let Some(module_id) = maybe_module_id {
       return Ok(module_id);
     }
-
     let module_id = match module_type {
       ModuleType::JavaScript => {
         let code = ModuleSource::get_string_source(code);
@@ -380,7 +383,12 @@ impl ModuleMap {
         )?
       }
       ModuleType::Wasm => {
-        return Err(ModuleError::Concrete(ModuleConcreteError::WasmUnsupported))
+        let ModuleSourceCode::Bytes(code) = code else {
+          return Err(ModuleError::Other(generic_error(
+            "Source code for Wasm module must be provided as bytes",
+          )));
+        };
+        self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
       ModuleType::Json => {
         let code = ModuleSource::get_string_source(code);
@@ -559,7 +567,7 @@ impl ModuleMap {
   /// Passed type doesn't have to be [`ModuleType::JavaScript`]! This method
   /// can be used to create "shim" modules, that execute some JS and act as a
   /// proxy to the actual underlying module (eg. you might create a "shim" for
-  /// WASM module).
+  /// Wasm module).
   ///
   /// Imports in the executed code are parsed (along their import attributes)
   /// and attached to associated [`ModuleInfo`].
@@ -729,6 +737,58 @@ impl ModuleMap {
     );
 
     Ok(id)
+  }
+
+  pub(crate) fn new_wasm_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: ModuleName,
+    source: ModuleCodeBytes,
+    is_dynamic_import: bool,
+  ) -> Result<ModuleId, ModuleError> {
+    let bytes = source.as_bytes();
+    let wasm_module_analysis = WasmDeps::parse(
+      bytes,
+      wasm_dep_analyzer::ParseOptions { skip_types: true },
+    )
+    .map_err(|e| {
+      let err = Error::from(e);
+      ModuleError::Other(err)
+    })?;
+
+    let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
+      return Err(ModuleError::Other(generic_error(format!(
+        "Failed to compile Wasm module '{}'",
+        name.as_str()
+      ))));
+    };
+    let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
+
+    let js_wasm_module_source =
+      render_js_wasm_module(name.as_str(), wasm_module_analysis);
+
+    let synthetic_module_type =
+      ModuleType::Other("$$deno-core-internal-wasm-module".into());
+
+    let (name1, name2) = name.into_cheap_copy();
+    let value = v8::Local::new(scope, wasm_module_value);
+    let exports = vec![(ascii_str!("default"), value)];
+    let _synthetic_mod_id = self.new_synthetic_module(
+      scope,
+      name1,
+      synthetic_module_type,
+      exports,
+    )?;
+
+    self.new_module_from_js_source(
+      scope,
+      false,
+      ModuleType::Wasm,
+      name2,
+      js_wasm_module_source.into(),
+      is_dynamic_import,
+      None,
+    )
   }
 
   pub(crate) fn new_json_module(
@@ -1934,4 +1994,259 @@ pub fn script_origin<'a>(
     is_module,
     host_defined_options,
   )
+}
+
+fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
+  // NOTE(bartlomieju): it's unlikely the generated file will have more lines,
+  // but it's better to overallocate than to have to mem copy.
+  let mut src = Vec::with_capacity(512);
+
+  fn aggregate_wasm_module_imports(
+    imports: &[wasm_dep_analyzer::Import],
+  ) -> IndexMap<String, Vec<String>> {
+    let mut imports_map = IndexMap::default();
+
+    for import in imports.iter().filter(|i| {
+      matches!(i.import_type, wasm_dep_analyzer::ImportType::Function(..))
+    }) {
+      let entry = imports_map
+        .entry(import.module.to_string())
+        .or_insert(vec![]);
+      entry.push(import.name.to_string());
+    }
+
+    imports_map
+  }
+
+  src.push(format!(
+    r#"import wasmMod from "{}" with {{ type: "$$deno-core-internal-wasm-module" }};"#,
+    specifier,
+  ));
+
+  if !wasm_deps.imports.is_empty() {
+    let aggregated_imports = aggregate_wasm_module_imports(&wasm_deps.imports);
+
+    for (i, (key, names)) in aggregated_imports.iter().enumerate() {
+      src.push(format!(
+        r#"import {{ {} }} from "{}";"#,
+        names
+          .iter()
+          .enumerate()
+          // use a named import so that the error messages are good when
+          // an export can't be found on the module
+          .map(|(name_index, name)| format!(
+            "\"{}\" as import_{}_{}",
+            name.escape_default(),
+            i,
+            name_index
+          ))
+          .collect::<Vec<_>>()
+          .join(", "),
+        key.escape_default(),
+      ));
+    }
+
+    src.push("const importsObject = {".to_string());
+
+    for (i, (key, names)) in aggregated_imports.iter().enumerate() {
+      src.push(format!("  \"{}\": {{", key.escape_default()).to_string());
+
+      for (name_index, name) in names.iter().enumerate() {
+        src.push(format!(
+          "    \"{0}\": import_{1}_{2},",
+          name.escape_default(),
+          i,
+          name_index
+        ));
+      }
+
+      src.push("  },".to_string());
+    }
+
+    src.push("};".to_string());
+
+    src.push(
+      "const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);".to_string(),
+    )
+  } else {
+    src.push(
+      "const modInstance = new import.meta.WasmInstance(wasmMod);".to_string(),
+    )
+  }
+
+  if !wasm_deps.exports.is_empty() {
+    for (idx, export_desc) in wasm_deps.exports.iter().enumerate() {
+      if export_desc.name == "default" {
+        src.push(format!(
+          "export default modInstance.exports.{};",
+          export_desc.name
+        ));
+      } else {
+        let escaped_name = export_desc.name.escape_default();
+        src.push(format!(
+          "const export{idx} = modInstance.exports[\"{escaped_name}\"];\nexport {{ export{idx} as \"{escaped_name}\" }};",
+        ));
+      }
+    }
+  }
+
+  src.join("\n")
+}
+
+#[test]
+fn test_render_js_wasm_module() {
+  let deps = WasmDeps {
+    imports: vec![],
+    exports: vec![],
+  };
+  let rendered = render_js_wasm_module("./foo.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+const modInstance = new import.meta.WasmInstance(wasmMod);"#,
+  );
+
+  let deps = WasmDeps {
+    imports: vec![
+      wasm_dep_analyzer::Import {
+        name: "foo",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Tag(
+          wasm_dep_analyzer::TagType {
+            kind: 1,
+            type_index: 1,
+          },
+        ),
+      },
+      wasm_dep_analyzer::Import {
+        name: "bar",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(1),
+      },
+      wasm_dep_analyzer::Import {
+        name: "fizz",
+        module: "./import.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(2),
+      },
+      wasm_dep_analyzer::Import {
+        name: "buzz",
+        module: "./buzz.js",
+        import_type: wasm_dep_analyzer::ImportType::Function(3),
+      },
+    ],
+    exports: vec![
+      wasm_dep_analyzer::Export {
+        name: "export1",
+        index: 0,
+        export_type: wasm_dep_analyzer::ExportType::Function(Ok(
+          wasm_dep_analyzer::FunctionSignature {
+            params: vec![],
+            returns: vec![],
+          },
+        )),
+      },
+      wasm_dep_analyzer::Export {
+        name: "export2",
+        index: 1,
+        export_type: wasm_dep_analyzer::ExportType::Table,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export3",
+        index: 2,
+        export_type: wasm_dep_analyzer::ExportType::Memory,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export4",
+        index: 3,
+        export_type: wasm_dep_analyzer::ExportType::Global(Ok(
+          wasm_dep_analyzer::GlobalType {
+            value_type: wasm_dep_analyzer::ValueType::F32,
+            mutability: false,
+          },
+        )),
+      },
+      wasm_dep_analyzer::Export {
+        name: "export5",
+        index: 4,
+        export_type: wasm_dep_analyzer::ExportType::Tag,
+      },
+      wasm_dep_analyzer::Export {
+        name: "export6",
+        index: 5,
+        export_type: wasm_dep_analyzer::ExportType::Unknown,
+      },
+      wasm_dep_analyzer::Export {
+        name: "default",
+        index: 6,
+        export_type: wasm_dep_analyzer::ExportType::Function(Ok(
+          wasm_dep_analyzer::FunctionSignature {
+            params: vec![],
+            returns: vec![],
+          },
+        )),
+      },
+    ],
+  };
+  let rendered = render_js_wasm_module("./foo.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+import { "bar" as import_0_0, "fizz" as import_0_1 } from "./import.js";
+import { "buzz" as import_1_0 } from "./buzz.js";
+const importsObject = {
+  "./import.js": {
+    "bar": import_0_0,
+    "fizz": import_0_1,
+  },
+  "./buzz.js": {
+    "buzz": import_1_0,
+  },
+};
+const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);
+const export0 = modInstance.exports["export1"];
+export { export0 as "export1" };
+const export1 = modInstance.exports["export2"];
+export { export1 as "export2" };
+const export2 = modInstance.exports["export3"];
+export { export2 as "export3" };
+const export3 = modInstance.exports["export4"];
+export { export3 as "export4" };
+const export4 = modInstance.exports["export5"];
+export { export4 as "export5" };
+const export5 = modInstance.exports["export6"];
+export { export5 as "export6" };
+export default modInstance.exports.default;"#,
+  );
+
+  let deps = WasmDeps {
+    imports: vec![wasm_dep_analyzer::Import {
+      name: "\n",
+      module: "\n",
+      import_type: wasm_dep_analyzer::ImportType::Function(1),
+    }],
+    exports: vec![wasm_dep_analyzer::Export {
+      name: "\n",
+      index: 0,
+      export_type: wasm_dep_analyzer::ExportType::Function(Ok(
+        wasm_dep_analyzer::FunctionSignature {
+          params: vec![],
+          returns: vec![],
+        },
+      )),
+    }],
+  };
+  let rendered = render_js_wasm_module("./bar.wasm", deps);
+  pretty_assertions::assert_eq!(
+    rendered,
+    r#"import wasmMod from "./bar.wasm" with { type: "$$deno-core-internal-wasm-module" };
+import { "\n" as import_0_0 } from "\n";
+const importsObject = {
+  "\n": {
+    "\n": import_0_0,
+  },
+};
+const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);
+const export0 = modInstance.exports["\n"];
+export { export0 as "\n" };"#,
+  );
 }

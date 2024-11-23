@@ -71,6 +71,7 @@ pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
 pub use crate::convert::ToV8;
 pub use crate::cppgc::GarbageCollected;
+pub use crate::extensions::AccessorType;
 pub use crate::extensions::Extension;
 pub use crate::extensions::ExtensionFileSource;
 pub use crate::extensions::ExtensionFileSourceCode;
@@ -130,6 +131,7 @@ pub use crate::normalize_path::normalize_path;
 pub use crate::ops::ExternalOpsTracker;
 pub use crate::ops::OpId;
 pub use crate::ops::OpMetadata;
+pub use crate::ops::OpStackTraceCallback;
 pub use crate::ops::OpState;
 pub use crate::ops::PromiseId;
 pub use crate::ops_builtin::op_close;
@@ -174,6 +176,7 @@ pub mod _ops {
   pub use super::cppgc::try_unwrap_cppgc_object;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
+  pub use super::extensions::OpMethodDecl;
   #[cfg(debug_assertions)]
   pub use super::ops::reentrancy_check;
   pub use super::ops::OpCtx;

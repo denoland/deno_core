@@ -14,6 +14,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
                 use deno_core::v8;
@@ -218,6 +219,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
                 use deno_core::v8;
@@ -430,6 +432,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -523,6 +526,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
                 use deno_core::v8;
@@ -727,6 +731,7 @@ const fn op_make_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -823,6 +828,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             Some({
                 use deno_core::v8::fast_api::Type as CType;
                 use deno_core::v8;

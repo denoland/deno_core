@@ -20,8 +20,6 @@ pub struct GeneratorState {
   pub opctx: Ident,
   /// The `OpState` used for storing op state.
   pub opstate: Ident,
-  // The stack trace used for storing a stack trace.
-  pub stack_trace: Ident,
   /// The `JsRuntimeState` used for storing the `Rc<JsRuntimeState>``.
   pub js_runtime_state: Ident,
   /// The `FastApiCallbackOptions` used in fast calls for fallback returns.
@@ -46,6 +44,8 @@ pub struct GeneratorState {
   pub needs_args: bool,
   pub needs_retval: bool,
   pub needs_scope: bool,
+  pub needs_fast_scope: bool,
+  pub needs_fast_isolate: bool,
   pub needs_isolate: bool,
   pub needs_opstate: bool,
   pub needs_opctx: bool,
@@ -53,6 +53,8 @@ pub struct GeneratorState {
   pub needs_js_runtime_state: bool,
   pub needs_fast_api_callback_options: bool,
   pub needs_self: bool,
+  /// Wrap the `this` with cppgc object
+  pub use_this_cppgc: bool,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from

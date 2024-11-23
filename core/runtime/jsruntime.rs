@@ -56,6 +56,7 @@ use crate::ModuleCodeString;
 use crate::NoopModuleLoader;
 use crate::OpMetadata;
 use crate::OpMetricsEvent;
+use crate::OpStackTraceCallback;
 use crate::OpState;
 use futures::future::poll_fn;
 use futures::task::AtomicWaker;
@@ -545,9 +546,10 @@ pub struct RuntimeOptions {
 
   pub import_assertions_support: ImportAssertionsSupport,
 
-  /// Whether `#[stack_trace]` argument in ops should return `Some(frames)`. Use wisely,
-  /// as it's very expensive to collect stack traces on each op invocation.
-  pub enable_stack_trace_arg_in_ops: bool,
+  /// A callback to specify how stack traces should be used when an op is
+  /// annotated with `stack_trace` attribute. Use wisely, as it's very expensive
+  /// to collect stack traces on each op invocation.
+  pub maybe_op_stack_trace_callback: Option<OpStackTraceCallback>,
 }
 
 pub struct ImportAssertionsSupportCustomCallbackArgs {
@@ -793,8 +795,14 @@ impl JsRuntime {
     let mut extensions = std::mem::take(&mut options.extensions);
     let mut isolate_allocations = IsolateAllocations::default();
 
+    let enable_stack_trace_in_ops =
+      options.maybe_op_stack_trace_callback.is_some();
+
     // First let's create an `OpState` and contribute to it from extensions...
-    let mut op_state = OpState::new(options.feature_checker.take());
+    let mut op_state = OpState::new(
+      options.feature_checker.take(),
+      options.maybe_op_stack_trace_callback,
+    );
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
     // Load the sources and source maps
@@ -857,19 +865,20 @@ impl JsRuntime {
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
     // and get ready to actually create V8 isolate...
-    let op_decls =
+    let (op_decls, op_method_decls) =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
 
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
 
-    let mut op_ctxs = extension_set::create_op_ctxs(
+    let (mut op_ctxs, mut op_method_ctxs) = extension_set::create_op_ctxs(
       op_decls,
+      op_method_decls,
       op_metrics_factory_fn,
       op_driver.clone(),
       op_state.clone(),
       state_rc.clone(),
-      options.enable_stack_trace_arg_in_ops,
+      enable_stack_trace_in_ops,
     );
 
     // ...ops are now almost fully set up; let's create a V8 isolate...
@@ -912,6 +921,7 @@ impl JsRuntime {
     isolate_allocations.external_refs =
       Some(Box::new(bindings::create_external_references(
         &op_ctxs,
+        &op_method_ctxs,
         &additional_references,
         &isolate_allocations.externalized_sources,
         ops_in_snapshot,
@@ -946,6 +956,13 @@ impl JsRuntime {
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate_ptr;
     }
+    for op_method_ctx in op_method_ctxs.iter_mut() {
+      op_method_ctx.constructor.isolate = isolate_ptr;
+      for op in &mut op_method_ctx.methods {
+        op.isolate = isolate_ptr;
+      }
+    }
+
     op_state.borrow_mut().put(isolate_ptr);
 
     // ...once ops and isolate are set up, we can create a `ContextState`...
@@ -953,6 +970,7 @@ impl JsRuntime {
       op_driver.clone(),
       isolate_ptr,
       op_ctxs,
+      op_method_ctxs,
       op_state.borrow().external_ops_tracker.clone(),
     ));
 
@@ -1019,8 +1037,10 @@ impl JsRuntime {
     if init_mode.needs_ops_bindings() {
       bindings::initialize_deno_core_ops_bindings(
         scope,
+        op_state,
         context,
         &context_state.op_ctxs,
+        &context_state.op_method_ctxs,
       );
     }
 
@@ -1234,6 +1254,7 @@ impl JsRuntime {
     let global = context_local.global(scope);
     let synthetic_module_exports = create_exports_for_ops_virtual_module(
       &context_state.op_ctxs,
+      &context_state.op_method_ctxs,
       scope,
       global,
     );
@@ -1386,7 +1407,7 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick_cb, build_custom_error_cb, wasm_instantiate_fn) = {
+    let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1411,7 +1432,7 @@ impl JsRuntime {
         "Deno.core.buildCustomError",
       );
 
-      let mut wasm_instantiate_fn = None;
+      let mut wasm_instance_fn = None;
       if !will_snapshot {
         let key = WEBASSEMBLY.v8_string(scope);
         if let Some(web_assembly_obj_value) = global.get(scope, key.into()) {
@@ -1420,13 +1441,12 @@ impl JsRuntime {
           let maybe_web_assembly_object =
             TryInto::<v8::Local<v8::Object>>::try_into(web_assembly_obj_value);
           if let Ok(web_assembly_object) = maybe_web_assembly_object {
-            wasm_instantiate_fn =
-              Some(bindings::get::<v8::Local<v8::Function>>(
-                scope,
-                web_assembly_object,
-                INSTANTIATE,
-                "WebAssembly.instantiate",
-              ));
+            wasm_instance_fn = Some(bindings::get::<v8::Local<v8::Function>>(
+              scope,
+              web_assembly_object,
+              INSTANCE,
+              "WebAssembly.Instance",
+            ));
           }
         }
       }
@@ -1434,7 +1454,7 @@ impl JsRuntime {
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
-        wasm_instantiate_fn.map(|f| v8::Global::new(scope, f)),
+        wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
 
@@ -1449,11 +1469,11 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(Rc::new(build_custom_error_cb));
-    if let Some(wasm_instantiate_fn) = wasm_instantiate_fn {
+    if let Some(wasm_instance_fn) = wasm_instance_fn {
       state_rc
-        .wasm_instantiate_fn
+        .wasm_instance_fn
         .borrow_mut()
-        .replace(Rc::new(wasm_instantiate_fn));
+        .replace(Rc::new(wasm_instance_fn));
     }
   }
 

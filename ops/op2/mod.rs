@@ -32,6 +32,7 @@ pub mod dispatch_fast;
 pub mod dispatch_shared;
 pub mod dispatch_slow;
 pub mod generator_state;
+pub mod object_wrap;
 pub mod signature;
 pub mod signature_retval;
 
@@ -61,6 +62,8 @@ pub enum Op2Error {
   TooManyFastAlternatives,
   #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
   ImproperlySortedAttribute(String),
+  #[error("Only one constructor is allowed per object")]
+  MultipleConstructors,
 }
 
 #[derive(Debug, Error)]
@@ -79,14 +82,18 @@ pub(crate) fn op2(
   attr: TokenStream,
   item: TokenStream,
 ) -> Result<TokenStream, Op2Error> {
-  let func = parse2::<ItemFn>(item)?;
+  let Ok(func) = parse2::<ItemFn>(item.clone()) else {
+    let impl_block = parse2::<syn::ItemImpl>(item)?;
+    return object_wrap::generate_impl_ops(impl_block);
+  };
+
   let config = MacroConfig::from_tokens(attr)?;
   generate_op2(config, func)
 }
 
-fn generate_op2(
+pub(crate) fn generate_op2(
   config: MacroConfig,
-  func: ItemFn,
+  mut func: ItemFn,
 ) -> Result<TokenStream, Op2Error> {
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
@@ -108,7 +115,10 @@ fn generate_op2(
       FnArg::Typed(ty) => ty.attrs.clear(),
     }
   }
-
+  if config.setter {
+    // Prepend "__set_" to the setter function name.
+    func.sig.ident = format_ident!("__set_{}", func.sig.ident);
+  }
   let signature = parse_signature(func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
   {
@@ -138,7 +148,6 @@ fn generate_op2(
   let info = Ident::new("info", Span::call_site());
   let opctx = Ident::new("opctx", Span::call_site());
   let opstate = Ident::new("opstate", Span::call_site());
-  let stack_trace = Ident::new("stack_trace", Span::call_site());
   let js_runtime_state = Ident::new("js_runtime_state", Span::call_site());
   let promise_id = Ident::new("promise_id", Span::call_site());
   let slow_function = Ident::new("v8_fn_ptr", Span::call_site());
@@ -149,7 +158,7 @@ fn generate_op2(
     Ident::new("v8_fn_ptr_fast_metrics", Span::call_site());
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
-  let self_ty = if let Some(ref ty) = config.method {
+  let self_ty = if let Some(ref ty) = config.self_name {
     format_ident!("{ty}")
   } else {
     Ident::new("UNINIT", Span::call_site())
@@ -164,7 +173,6 @@ fn generate_op2(
     opctx,
     opstate,
     js_runtime_state,
-    stack_trace,
     fast_api_callback_options,
     result,
     retval,
@@ -178,13 +186,16 @@ fn generate_op2(
     moves: vec![],
     needs_retval: false,
     needs_scope: false,
+    needs_fast_isolate: false,
+    needs_fast_scope: false,
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,
-    needs_stack_trace: false,
+    needs_stack_trace: config.stack_trace,
     needs_js_runtime_state: false,
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),
+    use_this_cppgc: config.constructor,
   };
 
   let mut slow_generator_state = base_generator_state.clone();
@@ -215,12 +226,16 @@ fn generate_op2(
       &signature,
     )? {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
-        if !config.fast && !config.nofast && config.fast_alternatives.is_empty()
+        if !config.fast
+          && !config.nofast
+          && config.fast_alternatives.is_empty()
+          && !config.getter
+          && !config.setter
         {
           return Err(Op2Error::ShouldBeFast);
         }
         // nofast requires the function to be valid for fast
-        if config.nofast {
+        if config.nofast || config.getter || config.setter {
           (quote!(None), quote!(None), quote!())
         } else {
           (
@@ -231,7 +246,7 @@ fn generate_op2(
         }
       }
       None => {
-        if config.fast {
+        if config.fast || config.getter || config.setter {
           return Err(Op2Error::ShouldNotBeFast("fast"));
         }
         if config.nofast {
@@ -279,6 +294,14 @@ fn generate_op2(
     }
   };
 
+  let accessor_type = if config.getter {
+    quote!(::deno_core::AccessorType::Getter)
+  } else if config.setter {
+    quote!(::deno_core::AccessorType::Setter)
+  } else {
+    quote!(::deno_core::AccessorType::None)
+  };
+
   Ok(quote! {
     #[allow(non_camel_case_types)]
     #vis const fn #name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
@@ -299,6 +322,7 @@ fn generate_op2(
           /*no_side_effect*/ #no_side_effect,
           /*slow_fn*/ Self::#slow_function as _,
           /*slow_fn_metrics*/ Self::#slow_function_metrics as _,
+          /*accessor_type*/ #accessor_type,
           /*fast_fn*/ #fast_definition,
           /*fast_fn_metrics*/ #fast_definition_metrics,
           /*metadata*/ ::deno_core::OpMetadata {

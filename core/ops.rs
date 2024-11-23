@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
@@ -69,6 +70,18 @@ impl OpMetadata {
   }
 }
 
+/// Per-object contexts for members.
+pub struct OpMethodCtx {
+  /// TypeId of the wrapped type
+  pub id: std::any::TypeId,
+  /// Op context for the constructor
+  pub constructor: OpCtx,
+  /// Per-op context for the methods
+  pub methods: Vec<OpCtx>,
+  /// Per-op context for the static methods
+  pub static_methods: Vec<OpCtx>,
+}
+
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
@@ -84,7 +97,7 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
   #[doc(hidden)]
-  pub enable_stack_trace_arg: bool,
+  pub enable_stack_trace: bool,
 
   pub(crate) decl: OpDecl,
   pub(crate) fast_fn_info: Option<CFunction>,
@@ -104,7 +117,7 @@ impl OpCtx {
     state: Rc<RefCell<OpState>>,
     runtime_state: *const JsRuntimeState,
     metrics_fn: Option<OpMetricsFn>,
-    enable_stack_trace_arg: bool,
+    enable_stack_trace: bool,
   ) -> Self {
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
     // `CFunction`. For some extremely fast ops, the parameter list may change for the metrics
@@ -125,7 +138,7 @@ impl OpCtx {
       fast_fn_info,
       isolate,
       metrics_fn,
-      enable_stack_trace_arg,
+      enable_stack_trace,
     }
   }
 
@@ -229,6 +242,8 @@ impl ExternalOpsTracker {
   }
 }
 
+pub type OpStackTraceCallback = Box<dyn Fn(Vec<JsStackFrame>)>;
+
 /// Maintains the resources and ops inside a JS runtime.
 pub struct OpState {
   pub resource_table: ResourceTable,
@@ -236,10 +251,14 @@ pub struct OpState {
   pub waker: Arc<AtomicWaker>,
   pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
+  pub op_stack_trace_callback: Option<OpStackTraceCallback>,
 }
 
 impl OpState {
-  pub fn new(maybe_feature_checker: Option<Arc<FeatureChecker>>) -> OpState {
+  pub fn new(
+    maybe_feature_checker: Option<Arc<FeatureChecker>>,
+    op_stack_trace_callback: Option<OpStackTraceCallback>,
+  ) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
@@ -248,6 +267,7 @@ impl OpState {
       external_ops_tracker: ExternalOpsTracker {
         counter: Arc::new(AtomicUsize::new(0)),
       },
+      op_stack_trace_callback,
     }
   }
 

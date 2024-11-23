@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.319.0"
+version = "0.322.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -576,6 +576,7 @@ dependencies = [
  "deno_unsync",
  "fastrand",
  "futures",
+ "indexmap",
  "libc",
  "memoffset",
  "parking_lot",
@@ -595,6 +596,7 @@ dependencies = [
  "unicycle",
  "url",
  "v8",
+ "wasm_dep_analyzer",
 ]
 
 [[package]]
@@ -657,13 +659,14 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.195.0"
+version = "0.198.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
  "proc-macro-rules",
  "proc-macro2",
  "quote",
+ "stringcase",
  "strum",
  "strum_macros",
  "syn",
@@ -1868,7 +1871,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.228.0"
+version = "0.231.0"
 dependencies = [
  "bencher",
  "deno_error",
@@ -2027,6 +2030,12 @@ dependencies = [
  "swc_macros_common",
  "syn",
 ]
+
+[[package]]
+name = "stringcase"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04028eeb851ed08af6aba5caa29f2d59a13ed168cee4d6bd753aeefcf1d636b0"
 
 [[package]]
 name = "strsim"
@@ -2870,6 +2879,15 @@ name = "wasm-bindgen-shared"
 version = "0.2.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af190c94f2773fdb3729c55b007a722abb5384da03bc0986df4c289bf5567e96"
+
+[[package]]
+name = "wasm_dep_analyzer"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f270206a91783fd90625c8bb0d8fbd459d0b1d1bf209b656f713f01ae7c04b8"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "web-sys"

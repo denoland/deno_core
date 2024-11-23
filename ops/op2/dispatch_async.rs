@@ -114,11 +114,12 @@ pub(crate) fn generate_dispatch_async(
   }
   output.extend(quote!(return 2;));
 
-  let with_opstate = if generator_state.needs_opstate {
-    with_opstate(generator_state)
-  } else {
-    quote!()
-  };
+  let with_opstate =
+    if generator_state.needs_opstate | generator_state.needs_stack_trace {
+      with_opstate(generator_state)
+    } else {
+      quote!()
+    };
 
   let with_opctx =
     if generator_state.needs_opctx | generator_state.needs_stack_trace {

@@ -24,8 +24,22 @@ pub(crate) struct MacroConfig {
   pub reentrant: bool,
   /// Marks an op as a method on a wrapped object.
   pub method: Option<String>,
+  /// Same as method name but also used by static and constructor ops.
+  pub self_name: Option<String>,
+  /// Marks an op as a constructor
+  pub constructor: bool,
+  /// Marks an op as a static member
+  pub static_member: bool,
   /// Marks an op with no side effects.
   pub no_side_effects: bool,
+  /// Marks an op as a getter.
+  pub getter: bool,
+  /// Marks an op as a setter.
+  pub setter: bool,
+  /// Marks an op to have it collect stack trace of the call site in the OpState.
+  pub stack_trace: bool,
+  /// Total required number of arguments for the op.
+  pub required: u8,
 }
 
 impl MacroConfig {
@@ -63,7 +77,19 @@ impl MacroConfig {
     }
 
     for flag in flags {
-      if flag == "fast" {
+      if flag == "method" {
+        // Doesn't need any special handling, its more of a marker.
+        continue;
+      }
+      if flag == "constructor" {
+        config.constructor = true;
+      } else if flag == "static_method" {
+        config.static_member = true;
+      } else if flag == "getter" {
+        config.getter = true;
+      } else if flag == "setter" {
+        config.setter = true;
+      } else if flag == "fast" {
         config.fast = true;
       } else if flag.starts_with("fast(") {
         let tokens =
@@ -91,6 +117,8 @@ impl MacroConfig {
         config.reentrant = true;
       } else if flag == "no_side_effects" {
         config.no_side_effects = true;
+      } else if flag == "stack_trace" {
+        config.stack_trace = true;
       } else if flag.starts_with("method(") {
         let tokens =
           syn::parse_str::<TokenTree>(&flag[6..])?.into_token_stream();
@@ -102,6 +130,13 @@ impl MacroConfig {
           })
         })
         .map_err(|_| Op2Error::PatternMatchFailed("attribute", flag))?;
+      } else if flag.starts_with("required(") {
+        let tokens = syn::parse_str::<TokenTree>(&flag[9..flag.len() - 1])?
+          .into_token_stream();
+        config.required = tokens
+          .to_string()
+          .parse()
+          .map_err(|_| Op2Error::InvalidAttribute(flag))?;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }
@@ -157,6 +192,13 @@ impl MacroConfig {
         }
         ( $($flags:tt $( ( $( $args:ty ),* ) )? ),+ ) => {
           Self::from_token_trees(flags, args)
+        }
+        ( $( #[$attr:meta] )* ) => {
+          Self::from_flags(
+            attr.
+             into_iter().
+             map(|attr| attr.to_token_stream().to_string())
+          )
         }
       })
     })

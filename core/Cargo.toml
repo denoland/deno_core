@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.319.0"
+version = "0.322.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -33,6 +33,7 @@ deno_core_icudata = { workspace = true, optional = true }
 deno_ops.workspace = true
 deno_unsync.workspace = true
 futures.workspace = true
+indexmap = "2.1.0"
 libc.workspace = true
 memoffset.workspace = true
 parking_lot.workspace = true
@@ -47,8 +48,7 @@ static_assertions.workspace = true
 tokio.workspace = true
 url.workspace = true
 v8.workspace = true
-thiserror = "1.0.60"
-deno_error.workspace = true
+wasm_dep_analyzer = "0.1.0"
 
 [dev-dependencies]
 bencher.workspace = true

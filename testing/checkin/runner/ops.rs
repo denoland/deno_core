@@ -2,14 +2,15 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
 use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
+use deno_core::v8;
 use deno_core::GarbageCollected;
-use deno_core::OpDecl;
 use deno_core::OpState;
 
 use super::extensions::SomeType;
@@ -69,36 +70,80 @@ pub fn op_stats_delete(
   test_data.take::<RuntimeActivityStats>(name);
 }
 
-pub struct Stateful {
-  name: String,
+pub struct DOMPoint {
+  pub x: f64,
+  pub y: f64,
+  pub z: f64,
+  pub w: f64,
 }
 
-impl GarbageCollected for Stateful {}
+impl GarbageCollected for DOMPoint {}
 
-impl Stateful {
-  #[op2(method(Stateful))]
-  #[string]
-  fn get_name(&self) -> String {
-    self.name.clone()
+#[op2]
+impl DOMPoint {
+  #[constructor]
+  #[cppgc]
+  fn new(
+    x: Option<f64>,
+    y: Option<f64>,
+    z: Option<f64>,
+    w: Option<f64>,
+  ) -> DOMPoint {
+    DOMPoint {
+      x: x.unwrap_or(0.0),
+      y: y.unwrap_or(0.0),
+      z: z.unwrap_or(0.0),
+      w: w.unwrap_or(0.0),
+    }
   }
 
-  #[op2(fast, method(Stateful))]
-  #[smi]
-  fn len(&self) -> u32 {
-    self.name.len() as u32
+  #[required(1)]
+  #[static_method]
+  #[cppgc]
+  fn from_point(
+    scope: &mut v8::HandleScope,
+    other: v8::Local<v8::Object>,
+  ) -> Result<DOMPoint, AnyError> {
+    fn get(
+      scope: &mut v8::HandleScope,
+      other: v8::Local<v8::Object>,
+      key: &str,
+    ) -> Option<f64> {
+      let key = v8::String::new(scope, key).unwrap();
+      other
+        .get(scope, key.into())
+        .map(|x| x.to_number(scope).unwrap().value())
+    }
+
+    Ok(DOMPoint {
+      x: get(scope, other, "x").unwrap_or(0.0),
+      y: get(scope, other, "y").unwrap_or(0.0),
+      z: get(scope, other, "z").unwrap_or(0.0),
+      w: get(scope, other, "w").unwrap_or(0.0),
+    })
   }
 
-  #[op2(async, method(Stateful))]
-  async fn delay(&self, #[smi] millis: u32) {
-    tokio::time::sleep(std::time::Duration::from_millis(millis as u64)).await;
-    println!("name: {}", self.name);
+  #[getter]
+  fn x(&self) -> f64 {
+    self.x
+  }
+
+  #[setter]
+  fn x(&self, _: f64) {}
+
+  #[getter]
+  fn y(&self) -> f64 {
+    self.y
+  }
+  #[getter]
+  fn w(&self) -> f64 {
+    self.w
+  }
+  #[getter]
+  fn z(&self) -> f64 {
+    self.z
   }
 }
-
-// Make sure this compiles, we'll use it when we add registration.
-#[allow(dead_code)]
-const STATEFUL_DECL: [OpDecl; 3] =
-  [Stateful::get_name(), Stateful::len(), Stateful::delay()];
 
 #[op2(fast)]
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
