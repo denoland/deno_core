@@ -143,6 +143,11 @@ impl DOMPoint {
   fn z(&self) -> f64 {
     self.z
   }
+
+  #[fast]
+  fn wrapping_smi(&self, #[smi] t: u32) -> u32 {
+    t
+  }
 }
 
 #[op2(fast)]

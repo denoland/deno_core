@@ -500,6 +500,7 @@ pub(crate) fn op_ctx_template<'s>(
   } else {
     builder.build(scope)
   };
+  template.set_class_name(op_ctx.decl.name_fast.v8_string(scope));
 
   template
 }
