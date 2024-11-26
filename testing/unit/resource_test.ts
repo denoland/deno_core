@@ -83,9 +83,10 @@ test(function testDomPoint() {
   }
   assert(caught);
 
-  assertEquals(p1.wrappingSmi(4294967295), 4294967295);
-  assertEquals(p1.wrappingSmi(4294967296), 0);
-  assertEquals(p1.wrappingSmi(4294967297), 1);
+  const u32Max = 4294967295; // test wrapping for smi
+  assertEquals(p1.wrappingSmi(u32Max), u32Max);
+  assertEquals(p1.wrappingSmi(u32Max + 1), 0);
+  assertEquals(p1.wrappingSmi(u32Max + 2), 1);
 
   assertEquals(
     p1.wrappingSmi.toString(),
