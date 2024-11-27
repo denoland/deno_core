@@ -3,6 +3,7 @@
 use serde::Deserializer;
 use serde::Serializer;
 use std::borrow::Borrow;
+use std::convert::Infallible;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -12,6 +13,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use url::Url;
 use v8::NewStringType;
+
+use crate::ToV8;
 
 static EMPTY_STRING: v8::OneByteConst =
   v8::String::create_external_onebyte_const("".as_bytes());
@@ -436,6 +439,18 @@ impl From<FastString> for Arc<str> {
       Owned(text) => text.into(),
       Arc(text) => text,
     }
+  }
+}
+
+impl<'s> ToV8<'s> for FastString {
+  type Error = Infallible;
+
+  #[inline]
+  fn to_v8(
+    self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
+    Ok(self.v8_string(scope).into())
   }
 }
 
