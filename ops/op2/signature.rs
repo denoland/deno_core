@@ -825,7 +825,7 @@ pub enum ArgError {
   #[error("Invalid numeric #[smi] argument type: {0}")]
   InvalidSmiType(String),
   #[error(
-    "Invalid argument type path (should this be #[smi] or #[serde]?): {0}"
+    "Invalid argument type path (should this be #[smi], #[serde], or #[to_v8]?): {0}"
   )]
   InvalidTypePath(String),
   #[error("The type {0} cannot be a reference")]
