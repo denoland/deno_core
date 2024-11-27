@@ -501,11 +501,11 @@ impl ModuleMap {
     exports: Vec<(FastStaticString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
     let name = name.into_module_name();
-    let name_str = name.v8_string(scope);
+    let name_str = name.v8_string(scope).unwrap();
 
     let export_names = exports
       .iter()
-      .map(|(name, _)| name.v8_string(scope))
+      .map(|(name, _)| name.v8_string(scope).unwrap())
       .collect::<Vec<_>>();
     let module = v8::Module::create_synthetic_module(
       scope,
@@ -604,8 +604,8 @@ impl ModuleMap {
       }
     }
 
-    let name_str = name.v8_string(scope);
-    let source_str = source.v8_string(scope);
+    let name_str = name.v8_string(scope).unwrap();
+    let source_str = source.v8_string(scope).unwrap();
     let host_defined_options = self
       .loader
       .borrow()

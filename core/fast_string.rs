@@ -3,7 +3,6 @@
 use serde::Deserializer;
 use serde::Serializer;
 use std::borrow::Borrow;
-use std::convert::Infallible;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -50,7 +49,7 @@ impl FastStaticString {
   pub fn v8_string<'s>(
     &self,
     scope: &mut v8::HandleScope<'s>,
-  ) -> v8::Local<'s, v8::String> {
+  ) -> Result<v8::Local<'s, v8::String>, FastStringV8AllocationError> {
     FastString::from(*self).v8_string(scope)
   }
 
@@ -119,6 +118,20 @@ impl Eq for FastStaticString {}
 impl Display for FastStaticString {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     f.write_str(self.as_str())
+  }
+}
+
+#[derive(Debug)]
+pub struct FastStringV8AllocationError;
+
+impl std::error::Error for FastStringV8AllocationError {}
+
+impl std::fmt::Display for FastStringV8AllocationError {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(
+      f,
+      "failed to allocate string; buffer exceeds maximum length"
+    )
   }
 }
 
@@ -287,17 +300,19 @@ impl FastString {
   pub fn v8_string<'a>(
     &self,
     scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::String> {
+  ) -> Result<v8::Local<'a, v8::String>, FastStringV8AllocationError> {
     match self.inner {
       FastStringInner::StaticAscii(s) => {
-        v8::String::new_external_onebyte_static(scope, s.as_bytes()).unwrap()
+        v8::String::new_external_onebyte_static(scope, s.as_bytes())
+          .ok_or(FastStringV8AllocationError)
       }
       FastStringInner::StaticConst(s) => {
-        v8::String::new_from_onebyte_const(scope, s.s).unwrap()
+        v8::String::new_from_onebyte_const(scope, s.s)
+          .ok_or(FastStringV8AllocationError)
       }
       _ => {
         v8::String::new_from_utf8(scope, self.as_bytes(), NewStringType::Normal)
-          .unwrap()
+          .ok_or(FastStringV8AllocationError)
       }
     }
   }
@@ -443,14 +458,14 @@ impl From<FastString> for Arc<str> {
 }
 
 impl<'s> ToV8<'s> for FastString {
-  type Error = Infallible;
+  type Error = FastStringV8AllocationError;
 
   #[inline]
   fn to_v8(
     self,
     scope: &mut v8::HandleScope<'s>,
   ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
-    Ok(self.v8_string(scope).into())
+    Ok(self.v8_string(scope)?.into())
   }
 }
 
