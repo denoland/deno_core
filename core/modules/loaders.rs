@@ -83,6 +83,18 @@ pub trait ModuleLoader {
     async { Ok(()) }.boxed_local()
   }
 
+  /// This hook can be used by implementors to do some cleanup
+  /// work after loading of modules.
+  ///
+  /// For example implementor might drop transpilation and
+  /// static analysis caches before
+  /// yielding control back to the runtime.
+  ///
+  /// It's not required to implement this method.
+  fn finish_load(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    async { Ok(()) }.boxed_local()
+  }
+
   /// Called when new v8 code cache is available for this module. Implementors
   /// can store the provided code cache for future executions of the same module.
   ///
