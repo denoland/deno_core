@@ -112,6 +112,7 @@ impl RecursiveModuleLoad {
       module_map_rc: module_map_rc.clone(),
       loader,
       pending: FuturesUnordered::new(),
+      finish_future: None,
       visited: HashSet::new(),
       visited_as_alias: Default::default(),
     };
