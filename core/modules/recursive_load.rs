@@ -57,6 +57,7 @@ pub(crate) struct RecursiveModuleLoad {
   state: LoadState,
   module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
+  #[allow(clippy::type_complexity)]
   finish_future: Option<Pin<Box<dyn Future<Output = Result<(), Error>>>>>,
   visited: HashSet<ModuleRequest>,
   visited_as_alias: Rc<RefCell<HashSet<String>>>,
