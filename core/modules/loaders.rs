@@ -472,6 +472,7 @@ pub struct TestingModuleLoader<L: ModuleLoader> {
   log: RefCell<Vec<ModuleSpecifier>>,
   load_count: std::cell::Cell<usize>,
   prepare_count: std::cell::Cell<usize>,
+  finish_count: std::cell::Cell<usize>,
   resolve_count: std::cell::Cell<usize>,
 }
 
@@ -483,6 +484,7 @@ impl<L: ModuleLoader> TestingModuleLoader<L> {
       log: RefCell::new(vec![]),
       load_count: Default::default(),
       prepare_count: Default::default(),
+      finish_count: Default::default(),
       resolve_count: Default::default(),
     }
   }
@@ -492,6 +494,7 @@ impl<L: ModuleLoader> TestingModuleLoader<L> {
     ModuleLoadEventCounts {
       load: self.load_count.get(),
       prepare: self.prepare_count.get(),
+      finish: self.finish_count.get(),
       resolve: self.resolve_count.get(),
     }
   }
@@ -521,6 +524,11 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
       .prepare_load(module_specifier, maybe_referrer, is_dyn_import)
   }
 
+  fn finish_load(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    self.finish_count.set(self.finish_count.get() + 1);
+    self.loader.finish_load()
+  }
+
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
@@ -544,15 +552,22 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
 pub struct ModuleLoadEventCounts {
   pub resolve: usize,
   pub prepare: usize,
+  pub finish: usize,
   pub load: usize,
 }
 
 #[cfg(test)]
 impl ModuleLoadEventCounts {
-  pub fn new(resolve: usize, prepare: usize, load: usize) -> Self {
+  pub fn new(
+    resolve: usize,
+    prepare: usize,
+    finish: usize,
+    load: usize,
+  ) -> Self {
     Self {
       resolve,
       prepare,
+      finish,
       load,
     }
   }
