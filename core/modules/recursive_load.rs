@@ -45,7 +45,6 @@ enum LoadState {
   Init,
   LoadingRoot,
   LoadingImports,
-  Finish,
   Done,
 }
 
@@ -57,13 +56,17 @@ pub(crate) struct RecursiveModuleLoad {
   state: LoadState,
   module_map_rc: Rc<ModuleMap>,
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
-  #[allow(clippy::type_complexity)]
-  finish_future: Option<Pin<Box<dyn Future<Output = Result<(), Error>>>>>,
   visited: HashSet<ModuleRequest>,
   visited_as_alias: Rc<RefCell<HashSet<String>>>,
   // The loader is copied from `module_map_rc`, but its reference is cloned
   // ahead of time to avoid already-borrowed errors.
   loader: Rc<dyn ModuleLoader>,
+}
+
+impl Drop for RecursiveModuleLoad {
+  fn drop(&mut self) {
+    self.loader.finish_load();
+  }
 }
 
 impl RecursiveModuleLoad {
@@ -113,7 +116,6 @@ impl RecursiveModuleLoad {
       module_map_rc: module_map_rc.clone(),
       loader,
       pending: FuturesUnordered::new(),
-      finish_future: None,
       visited: HashSet::new(),
       visited_as_alias: Default::default(),
     };
@@ -211,7 +213,7 @@ impl RecursiveModuleLoad {
       self.state = LoadState::LoadingImports;
     }
     if self.pending.is_empty() {
-      self.state = LoadState::Finish;
+      self.state = LoadState::Done;
     }
 
     Ok(())
@@ -229,7 +231,7 @@ impl RecursiveModuleLoad {
     // 2. If the module is already in the module map, queue it up to be
     //    recursed synchronously here.
     // This robustly ensures that the whole graph is in the module map before
-    // `LoadState::Finish` is set.
+    // `LoadState::Done` is set.
     let mut already_registered = VecDeque::new();
     already_registered.push_back((module_id, module_request.clone()));
     self.visited.insert(module_request.clone());
@@ -314,7 +316,9 @@ impl Stream for RecursiveModuleLoad {
       LoadState::Init => {
         let module_specifier = match inner.resolve_root() {
           Ok(url) => url,
-          Err(error) => return Poll::Ready(Some(Err(error))),
+          Err(error) => {
+            return Poll::Ready(Some(Err(error)));
+          }
         };
         let requested_module_type = match &inner.init {
           LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
@@ -329,7 +333,7 @@ impl Stream for RecursiveModuleLoad {
           // loads).
           inner.register_and_recurse_inner(module_id, &module_request);
           if inner.pending.is_empty() {
-            inner.state = LoadState::Finish;
+            inner.state = LoadState::Done;
           } else {
             inner.state = LoadState::LoadingImports;
           }
@@ -371,7 +375,7 @@ impl Stream for RecursiveModuleLoad {
           Poll::Ready(Some(None)) => {
             // The future resolves to None when loading an already visited redirect
             if inner.pending.is_empty() {
-              inner.state = LoadState::Finish;
+              inner.state = LoadState::Done;
               Poll::Ready(None)
             } else {
               // Force re-poll to make sure new ModuleLoadFuture's wakers are registered
@@ -380,27 +384,6 @@ impl Stream for RecursiveModuleLoad {
           }
           Poll::Ready(Some(Some(info))) => Poll::Ready(Some(Ok(info))),
           Poll::Pending => Poll::Pending,
-        }
-      }
-      LoadState::Finish => {
-        let maybe_fut = inner.finish_future.take();
-        let mut fut = if let Some(fut) = maybe_fut {
-          fut
-        } else {
-          inner.loader.finish_load()
-        };
-        match fut.poll_unpin(cx) {
-          Poll::Ready(res) => {
-            inner.state = LoadState::Done;
-            match res {
-              Ok(()) => Poll::Ready(None),
-              Err(err) => Poll::Ready(Some(Err(err))),
-            }
-          }
-          Poll::Pending => {
-            inner.finish_future = Some(fut);
-            Poll::Pending
-          }
         }
       }
       LoadState::Done => Poll::Ready(None),

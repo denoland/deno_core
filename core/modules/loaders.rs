@@ -84,16 +84,15 @@ pub trait ModuleLoader {
   }
 
   /// This hook can be used by implementors to do some cleanup
-  /// work after loading of modules.
+  /// work after loading of modules. The hook is called for
+  /// all loads, whether they succeeded or not.
   ///
   /// For example implementor might drop transpilation and
   /// static analysis caches before
   /// yielding control back to the runtime.
   ///
   /// It's not required to implement this method.
-  fn finish_load(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
-    async { Ok(()) }.boxed_local()
-  }
+  fn finish_load(&self) {}
 
   /// Called when new v8 code cache is available for this module. Implementors
   /// can store the provided code cache for future executions of the same module.
@@ -524,9 +523,9 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
       .prepare_load(module_specifier, maybe_referrer, is_dyn_import)
   }
 
-  fn finish_load(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+  fn finish_load(&self) {
     self.finish_count.set(self.finish_count.get() + 1);
-    self.loader.finish_load()
+    self.loader.finish_load();
   }
 
   fn load(
