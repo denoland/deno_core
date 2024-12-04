@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.323.0"
+version = "0.324.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
