@@ -584,8 +584,8 @@ fn op_import_sync<'s>(
 
   let scope = &mut v8::TryCatch::new(scope);
 
-  let default = v8_static_strings::DEFAULT.v8_string(scope);
-  let es_module = v8_static_strings::ESMODULE.v8_string(scope);
+  let default = v8_static_strings::DEFAULT.v8_string(scope).unwrap();
+  let es_module = v8_static_strings::ESMODULE.v8_string(scope).unwrap();
   // If the module has a default export and no __esModule export, wrap it.
   if namespace.has_own_property(scope, default.into()) == Some(true)
     && namespace.has_own_property(scope, es_module.into()) == Some(false)
