@@ -410,7 +410,7 @@ macro_rules! extension {
     $(, bounds = [ $( $bound:path : $bound_type:ident ),+ ] )?
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
-    $(, objects = [  $( $object:ident )::+ ] )?
+    $(, objects = [ $( $(#[$masd:meta])* $( $object:ident )::+ ),+ $(,)? ] )?
     $(, esm_entry_point = $esm_entry_point:expr )?
     $(, esm = [ $($esm:tt)* ] )?
     $(, lazy_loaded_esm = [ $($lazy_loaded_esm:tt)* ] )?
@@ -474,9 +474,9 @@ macro_rules! extension {
             $( #[ $m ] )*
             $( $op )::+ $( :: < $($op_param),* > )? ()
           }),+)?]),
-          objects: ::std::borrow::Cow::Borrowed(&[
-            $( $( $object )::+::DECL, )*
-          ]),
+          objects: ::std::borrow::Cow::Borrowed(&[$($({
+            $( $object )::+::DECL
+          }),+)?]),
           external_references: ::std::borrow::Cow::Borrowed(&[ $( $external_reference ),* ]),
           global_template_middleware: ::std::option::Option::None,
           global_object_middleware: ::std::option::Option::None,
