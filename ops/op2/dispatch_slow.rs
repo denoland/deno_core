@@ -493,6 +493,11 @@ pub fn from_arg(
         };
       })
     }
+    Arg::VarArgs => {
+      gs_quote!(generator_state(fn_args) => {
+        let #arg_ident = Some(#fn_args);
+      })
+    }
     Arg::Buffer(buffer_type, mode, source) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
