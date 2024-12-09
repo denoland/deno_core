@@ -86,7 +86,7 @@ impl TestObjectWrap {
   #[smi]
   fn with_varargs(
     &self,
-    #[varargs] args: Option<v8::FunctionCallbackArguments>,
+    #[varargs] args: Option<&v8::FunctionCallbackArguments>,
   ) -> u32 {
     args.map(|args| args.length() as u32).unwrap_or(0)
   }

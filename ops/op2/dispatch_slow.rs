@@ -495,7 +495,7 @@ pub fn from_arg(
     }
     Arg::VarArgs => {
       gs_quote!(generator_state(fn_args) => {
-        let #arg_ident = Some(#fn_args);
+        let #arg_ident = Some(&#fn_args);
       })
     }
     Arg::Buffer(buffer_type, mode, source) => {
