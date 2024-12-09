@@ -1420,7 +1420,12 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
+    let (
+      event_loop_tick_cb,
+      build_custom_error_cb,
+      wasm_instance_fn,
+      internal_promise_sym,
+    ) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1464,15 +1469,23 @@ impl JsRuntime {
         }
       }
 
+      let s =
+        FastString::from_static("Deno.core.internalPromiseId").v8_string(scope);
+      let sym = v8::Symbol::for_key(scope, s);
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
         wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
+        v8::Global::new(scope, sym),
       )
     };
 
     // Put global handles in the realm's ContextState
     let state_rc = realm.0.state();
+    state_rc
+      .internal_promise_sym
+      .borrow_mut()
+      .replace(Rc::new(internal_promise_sym));
     state_rc
       .js_event_loop_tick_cb
       .borrow_mut()

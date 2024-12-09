@@ -76,6 +76,7 @@ pub struct ContextState {
   pub(crate) get_error_class_fn: GetErrorClassFn,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
   pub(crate) promises: Promises,
+  pub(crate) internal_promise_sym: RefCell<Option<Rc<v8::Global<v8::Symbol>>>>,
 }
 
 type PromiseId = i32;
@@ -130,6 +131,7 @@ impl ContextState {
       unrefed_ops: Default::default(),
       external_ops_tracker,
       promises: Default::default(),
+      internal_promise_sym: Default::default(),
     }
   }
 }
@@ -219,6 +221,7 @@ impl JsRealmInner {
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
+    std::mem::take(&mut *state.internal_promise_sym.borrow_mut());
 
     {
       let ctx = self.context().open(isolate);

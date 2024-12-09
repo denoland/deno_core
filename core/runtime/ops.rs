@@ -112,9 +112,10 @@ pub fn make_promise(
   let context = JsRealm::state_from_scope(scope);
   let prom = v8::PromiseResolver::new(scope).unwrap();
   let p = prom.get_promise(scope);
-  let s =
-    FastString::from_static("Deno.core.internalPromiseId").v8_string(scope);
-  let sym = v8::Symbol::for_key(scope, s);
+  let sym = v8::Local::new(
+    scope,
+    &*context.internal_promise_sym.borrow().clone().unwrap(),
+  );
   let prom = v8::Global::new(scope, prom);
   let id = context.promises.register_new(prom.clone());
   let id_v = v8::Integer::new(scope, id);
