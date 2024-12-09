@@ -1,7 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use core::str;
-use std::process::{Command, Output};
+use std::process::Command;
+use std::process::Output;
 
 #[test]
 fn check_output() -> Result<(), Box<dyn std::error::Error>> {

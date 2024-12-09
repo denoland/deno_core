@@ -70,6 +70,18 @@ pub fn op_stats_delete(
   test_data.take::<RuntimeActivityStats>(name);
 }
 
+pub struct TestObjectWrap {}
+impl GarbageCollected for TestObjectWrap {}
+
+#[op2]
+impl TestObjectWrap {
+  #[constructor]
+  #[cppgc]
+  fn new(_: bool) -> TestObjectWrap {
+    TestObjectWrap {}
+  }
+}
+
 pub struct DOMPoint {
   pub x: f64,
   pub y: f64,
