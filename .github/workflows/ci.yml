@@ -56,7 +56,7 @@ jobs:
             {
               matrix: [. | to_entries[] | . as $entry |
               .value.jobs[] |
-              select(. != "test-valgrind" or github.ref == "refs/heads/main") |
+              select(. != "test-valgrind" or $GITHUB_REF == "refs/heads/main") |
               { label: $entry.key, os: $entry.value.os, job: . }]
             }
           config: |-
