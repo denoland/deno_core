@@ -35,6 +35,7 @@ use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
 use anyhow::bail;
 use anyhow::Error;
+use capacity_builder::StringBuilder;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
@@ -501,11 +502,11 @@ impl ModuleMap {
     exports: Vec<(FastStaticString, v8::Local<v8::Value>)>,
   ) -> Result<ModuleId, ModuleError> {
     let name = name.into_module_name();
-    let name_str = name.v8_string(scope);
+    let name_str = name.v8_string(scope).unwrap();
 
     let export_names = exports
       .iter()
-      .map(|(name, _)| name.v8_string(scope))
+      .map(|(name, _)| name.v8_string(scope).unwrap())
       .collect::<Vec<_>>();
     let module = v8::Module::create_synthetic_module(
       scope,
@@ -604,8 +605,8 @@ impl ModuleMap {
       }
     }
 
-    let name_str = name.v8_string(scope);
-    let source_str = source.v8_string(scope);
+    let name_str = name.v8_string(scope).unwrap();
+    let source_str = source.v8_string(scope).unwrap();
     let host_defined_options = self
       .loader
       .borrow()
@@ -1996,100 +1997,116 @@ pub fn script_origin<'a>(
 }
 
 fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
-  // NOTE(bartlomieju): it's unlikely the generated file will have more lines,
-  // but it's better to overallocate than to have to mem copy.
-  let mut src = Vec::with_capacity(512);
+  struct ImportInfo {
+    key_escaped: String,
+    escaped_named_imports: Vec<String>,
+  }
 
-  fn aggregate_wasm_module_imports(
-    imports: &[wasm_dep_analyzer::Import],
-  ) -> IndexMap<String, Vec<String>> {
-    let mut imports_map = IndexMap::default();
+  fn aggregate_wasm_module_imports<'a>(
+    imports: &'a [wasm_dep_analyzer::Import],
+  ) -> IndexMap<&'a str, ImportInfo> {
+    let mut imports_map = IndexMap::with_capacity(imports.len());
 
-    for import in imports.iter().filter(|i| {
-      matches!(i.import_type, wasm_dep_analyzer::ImportType::Function(..))
-    }) {
-      let entry = imports_map
-        .entry(import.module.to_string())
-        .or_insert(vec![]);
-      entry.push(import.name.to_string());
+    for import in imports {
+      let entry =
+        imports_map
+          .entry(import.module)
+          .or_insert_with(|| ImportInfo {
+            key_escaped: import.module.escape_default().to_string(),
+            escaped_named_imports: Vec::new(),
+          });
+      entry
+        .escaped_named_imports
+        .push(import.name.escape_default().to_string());
     }
 
     imports_map
   }
 
-  src.push(format!(
-    r#"import wasmMod from "{}" with {{ type: "$$deno-core-internal-wasm-module" }};"#,
-    specifier,
-  ));
-
-  if !wasm_deps.imports.is_empty() {
-    let aggregated_imports = aggregate_wasm_module_imports(&wasm_deps.imports);
-
-    for (i, (key, names)) in aggregated_imports.iter().enumerate() {
-      src.push(format!(
-        r#"import {{ {} }} from "{}";"#,
-        names
-          .iter()
-          .enumerate()
-          // use a named import so that the error messages are good when
-          // an export can't be found on the module
-          .map(|(name_index, name)| format!(
-            "\"{}\" as import_{}_{}",
-            name.escape_default(),
-            i,
-            name_index
-          ))
-          .collect::<Vec<_>>()
-          .join(", "),
-        key.escape_default(),
-      ));
-    }
-
-    src.push("const importsObject = {".to_string());
-
-    for (i, (key, names)) in aggregated_imports.iter().enumerate() {
-      src.push(format!("  \"{}\": {{", key.escape_default()).to_string());
-
-      for (name_index, name) in names.iter().enumerate() {
-        src.push(format!(
-          "    \"{0}\": import_{1}_{2},",
-          name.escape_default(),
-          i,
-          name_index
-        ));
-      }
-
-      src.push("  },".to_string());
-    }
-
-    src.push("};".to_string());
-
-    src.push(
-      "const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);".to_string(),
-    )
-  } else {
-    src.push(
-      "const modInstance = new import.meta.WasmInstance(wasmMod);".to_string(),
-    )
-  }
-
-  if !wasm_deps.exports.is_empty() {
-    for (idx, export_desc) in wasm_deps.exports.iter().enumerate() {
-      if export_desc.name == "default" {
-        src.push(format!(
-          "export default modInstance.exports.{};",
-          export_desc.name
-        ));
+  let aggregated_imports = aggregate_wasm_module_imports(&wasm_deps.imports);
+  let escaped_export_names = wasm_deps
+    .exports
+    .iter()
+    .map(|e| {
+      if e.name == "default" {
+        Cow::Borrowed(e.name)
       } else {
-        let escaped_name = export_desc.name.escape_default();
-        src.push(format!(
-          "const export{idx} = modInstance.exports[\"{escaped_name}\"];\nexport {{ export{idx} as \"{escaped_name}\" }};",
-        ));
+        Cow::Owned(e.name.escape_default().to_string())
+      }
+    })
+    .collect::<Vec<_>>();
+
+  StringBuilder::build(|builder| {
+    builder.append("import wasmMod from \"");
+    builder.append(specifier);
+    builder.append("\" with { type: \"$$deno-core-internal-wasm-module\" };\n");
+
+    if !aggregated_imports.is_empty() {
+      for (i, (_, import_info)) in aggregated_imports.iter().enumerate() {
+        builder.append("import { ");
+        for (name_index, named_import) in import_info.escaped_named_imports.iter().enumerate() {
+          if name_index > 0 {
+            builder.append(", ");
+          }
+          builder.append('"');
+          builder.append(named_import);
+          builder.append("\" as import_");
+          builder.append(i);
+          builder.append('_');
+          builder.append(name_index);
+        }
+        builder.append(" } from \"");
+        builder.append(&import_info.key_escaped);
+        builder.append("\";\n");
+      }
+
+      builder.append("const importsObject = {\n");
+
+      for (i, (_, import_info)) in aggregated_imports.iter().enumerate() {
+        builder.append("  \"");
+        builder.append(&import_info.key_escaped);
+        builder.append("\": {\n");
+
+        for (name_index, named_import) in import_info.escaped_named_imports.iter().enumerate() {
+          builder.append("    \"");
+          builder.append(named_import);
+          builder.append("\": import_");
+          builder.append(i);
+          builder.append('_');
+          builder.append(name_index);
+          builder.append(",\n");
+        }
+
+        builder.append("  },\n");
+      }
+
+      builder.append("};\n");
+
+      builder.append("const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);\n");
+    } else {
+      builder.append(
+        "const modInstance = new import.meta.WasmInstance(wasmMod);\n"
+      );
+    }
+
+    for (idx, escaped_name) in escaped_export_names.iter().enumerate() {
+      if escaped_name == "default" {
+        builder.append("export default modInstance.exports.");
+        builder.append(escaped_name);
+        builder.append(";\n");
+      } else {
+        builder.append("const export");
+        builder.append(idx);
+        builder.append(" = modInstance.exports[\"");
+        builder.append(escaped_name);
+        builder.append("\"];\nexport { export");
+        builder.append(idx);
+        builder.append(" as \"");
+        builder.append(escaped_name);
+        builder.append("\" };\n");
       }
     }
-  }
-
-  src.join("\n")
+  }).unwrap()
 }
 
 #[test]
@@ -2102,7 +2119,8 @@ fn test_render_js_wasm_module() {
   pretty_assertions::assert_eq!(
     rendered,
     r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
-const modInstance = new import.meta.WasmInstance(wasmMod);"#,
+const modInstance = new import.meta.WasmInstance(wasmMod);
+"#,
   );
 
   let deps = WasmDeps {
@@ -2190,12 +2208,13 @@ const modInstance = new import.meta.WasmInstance(wasmMod);"#,
   pretty_assertions::assert_eq!(
     rendered,
     r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
-import { "bar" as import_0_0, "fizz" as import_0_1 } from "./import.js";
+import { "foo" as import_0_0, "bar" as import_0_1, "fizz" as import_0_2 } from "./import.js";
 import { "buzz" as import_1_0 } from "./buzz.js";
 const importsObject = {
   "./import.js": {
-    "bar": import_0_0,
-    "fizz": import_0_1,
+    "foo": import_0_0,
+    "bar": import_0_1,
+    "fizz": import_0_2,
   },
   "./buzz.js": {
     "buzz": import_1_0,
@@ -2214,7 +2233,8 @@ const export4 = modInstance.exports["export5"];
 export { export4 as "export5" };
 const export5 = modInstance.exports["export6"];
 export { export5 as "export6" };
-export default modInstance.exports.default;"#,
+export default modInstance.exports.default;
+"#,
   );
 
   let deps = WasmDeps {
@@ -2246,6 +2266,7 @@ const importsObject = {
 };
 const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);
 const export0 = modInstance.exports["\n"];
-export { export0 as "\n" };"#,
+export { export0 as "\n" };
+"#,
   );
 }

@@ -316,8 +316,8 @@ impl JsRealm {
   ) -> Result<v8::Global<v8::Value>, Error> {
     let scope = &mut self.0.handle_scope(isolate);
 
-    let source = source_code.into_module_code().v8_string(scope);
-    let name = name.into_module_name().v8_string(scope);
+    let source = source_code.into_module_code().v8_string(scope).unwrap();
+    let name = name.into_module_name().v8_string(scope).unwrap();
     let origin = script_origin(scope, name, false, None);
 
     let tc_scope = &mut v8::TryCatch::new(scope);
