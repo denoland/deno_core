@@ -22,6 +22,7 @@ use anyhow::Error;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
@@ -74,6 +75,34 @@ pub struct ContextState {
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) get_error_class_fn: GetErrorClassFn,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
+  pub(crate) promises: Promises,
+  pub(crate) internal_promise_sym: RefCell<Option<Rc<v8::Global<v8::Symbol>>>>,
+}
+
+type PromiseId = i32;
+#[derive(Default)]
+pub(crate) struct Promises {
+  next_id: Cell<PromiseId>,
+  promises: RefCell<BTreeMap<PromiseId, v8::Global<v8::PromiseResolver>>>,
+}
+impl Promises {
+  pub(crate) fn register_new(
+    &self,
+    promise: v8::Global<v8::PromiseResolver>,
+  ) -> PromiseId {
+    let id = self.next_id.get();
+    self.next_id.set(id + 1);
+    self.promises.borrow_mut().insert(id, promise);
+    id
+  }
+
+  pub(crate) fn complete(
+    &self,
+    promise_id: PromiseId,
+  ) -> v8::Global<v8::PromiseResolver> {
+    let promise = self.promises.borrow_mut().remove(&promise_id).unwrap();
+    promise
+  }
 }
 
 impl ContextState {
@@ -101,6 +130,8 @@ impl ContextState {
       timers: Default::default(),
       unrefed_ops: Default::default(),
       external_ops_tracker,
+      promises: Default::default(),
+      internal_promise_sym: Default::default(),
     }
   }
 }
@@ -190,6 +221,7 @@ impl JsRealmInner {
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
+    std::mem::take(&mut *state.internal_promise_sym.borrow_mut());
 
     {
       let ctx = self.context().open(isolate);

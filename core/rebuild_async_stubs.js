@@ -6,7 +6,6 @@ const doNotModify =
 
 // The template function we build op_async_N functions from
 function __TEMPLATE__(__ARGS_PARAM__) {
-  const id = nextPromiseId;
   try {
     const maybeResult = __OP__(__ARGS__);
     if (maybeResult !== undefined) {
@@ -17,11 +16,11 @@ function __TEMPLATE__(__ARGS_PARAM__) {
     ErrorCaptureStackTrace(err, __TEMPLATE__);
     return PromiseReject(err);
   }
+  const id = outArray[0];
   if (isLeakTracingEnabled) {
     submitLeakTrace(id);
   }
-  nextPromiseId = (id + 1) & 0xffffffff;
-  return setPromise(id);
+  return outArray[1];
 }
 
 const infraJsPath = new URL("00_infra.js", import.meta.url);
@@ -36,7 +35,7 @@ let asyncStubCases = "/* BEGIN TEMPLATE setUpAsyncStub */\n";
 asyncStubCases += doNotModify;
 const vars = "abcdefghijklm";
 for (let i = 0; i < 10; i++) {
-  let args = "id";
+  let args = "outArray";
   for (let j = 0; j < i; j++) {
     args += `, ${vars[j]}`;
   }
@@ -45,7 +44,7 @@ for (let i = 0; i < 10; i++) {
   const func = `fn = ${templateString}`
     .replaceAll(/__TEMPLATE__/g, name)
     .replaceAll(/__ARGS__/g, args)
-    .replaceAll(/__ARGS_PARAM__/g, args.replace(/id(, )?/, ""))
+    .replaceAll(/__ARGS_PARAM__/g, args.replace(/outArray(, )?/, ""))
     .replaceAll(/__OP__/g, "originalOp")
     .replaceAll(/[\s]*__ERR__;/g, "")
     .replaceAll(/^/gm, "  ");
