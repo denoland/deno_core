@@ -1,10 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use deno_core::{
-  extension,
-  snapshot::{create_snapshot, CreateSnapshotOptions},
-};
+use deno_core::extension;
+use deno_core::snapshot::create_snapshot;
+use deno_core::snapshot::CreateSnapshotOptions;
+use std::env;
+use std::fs;
 use std::path::PathBuf;
-use std::{env, fs};
 
 fn main() {
   extension!(

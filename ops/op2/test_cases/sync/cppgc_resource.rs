@@ -25,8 +25,8 @@ fn op_use_cppgc_object(#[cppgc] _wrap: &Wrap) {}
 #[op2]
 #[cppgc]
 fn op_make_cppgc_object_option() -> Option<Wrap> {
-    Some(Wrap)
+  Some(Wrap)
 }
 
 #[op2(fast)]
-fn op_use_cppgc_object_option(#[cppgc] _wrap: &Wrap)  {}
+fn op_use_cppgc_object_option(#[cppgc] _wrap: &Wrap) {}

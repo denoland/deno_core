@@ -171,14 +171,11 @@ export async function main(command: string, flag: string) {
     const check = flag == "--check";
     if (check) {
       await runCommands("Formatting (--check)", {
-        "cargo fmt": $`cargo fmt -- --check`,
-        "deno fmt":
-          $`deno fmt --check ./core/ ./ops/ ./serde_v8/ ./testing/ ./tools/`,
+        "dprint fmt": $`dprint check`,
       });
     } else {
       await runCommands("Formatting", {
-        "cargo fmt": $`cargo fmt`,
-        "deno fmt": $`deno fmt ./core/ ./ops/ ./serde_v8/ ./testing/ ./tools/`,
+        "dprint fmt": $`dprint fmt`,
       });
     }
   } else if (command == "lint") {
