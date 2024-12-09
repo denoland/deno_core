@@ -171,11 +171,11 @@ export async function main(command: string, flag: string) {
     const check = flag == "--check";
     if (check) {
       await runCommands("Formatting (--check)", {
-        "dprint fmt": $`dprint check`,
+        "dprint fmt": $`deno run npm:dprint@0.47.6 check`,
       });
     } else {
       await runCommands("Formatting", {
-        "dprint fmt": $`dprint fmt`,
+        "dprint fmt": $`deno run npm:dprint@0.47.6 fmt`,
       });
     }
   } else if (command == "lint") {
