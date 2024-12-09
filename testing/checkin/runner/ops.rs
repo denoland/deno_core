@@ -71,6 +71,7 @@ pub fn op_stats_delete(
 }
 
 pub struct TestObjectWrap {}
+
 impl GarbageCollected for TestObjectWrap {}
 
 #[op2]
@@ -79,6 +80,15 @@ impl TestObjectWrap {
   #[cppgc]
   fn new(_: bool) -> TestObjectWrap {
     TestObjectWrap {}
+  }
+
+  #[fast]
+  #[smi]
+  fn with_varargs(
+    &self,
+    #[varargs] args: Option<&v8::FunctionCallbackArguments>,
+  ) -> u32 {
+    args.map(|args| args.length() as u32).unwrap_or(0)
   }
 }
 

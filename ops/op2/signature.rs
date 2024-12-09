@@ -278,6 +278,7 @@ pub enum Arg {
   OptionCppGcResource(String),
   FromV8(String),
   ToV8(String),
+  VarArgs,
 }
 
 impl Arg {
@@ -351,6 +352,7 @@ impl Arg {
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
+      Self::VarArgs => true,
       _ => false,
     }
   }
@@ -757,6 +759,8 @@ pub enum AttributeModifier {
   CppGcResource,
   /// Any attribute that we may want to omit if not syntactically valid.
   Ignore,
+  /// Varaible-length arguments.
+  VarArgs,
 }
 
 impl AttributeModifier {
@@ -774,6 +778,7 @@ impl AttributeModifier {
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
       AttributeModifier::Ignore => "ignore",
+      AttributeModifier::VarArgs => "varargs",
     }
   }
 }
@@ -1230,6 +1235,7 @@ fn parse_attribute(
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
       (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
       (#[state]) => Some(AttributeModifier::State),
+      (#[varargs]) => Some(AttributeModifier::VarArgs),
       (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::TypedArray)),
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::TypedArray)),
       (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::TypedArray)),
@@ -1523,6 +1529,16 @@ pub(crate) fn parse_type(
     match primary {
       AttributeModifier::Ignore => {
         unreachable!();
+      }
+      AttributeModifier::VarArgs => {
+        if position == Position::RetVal {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "argument",
+          ));
+        }
+
+        return Ok(Arg::VarArgs);
       }
       AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
       AttributeModifier::FromV8 if position == Position::RetVal => {
