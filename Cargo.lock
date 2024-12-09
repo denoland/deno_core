@@ -271,6 +271,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
 
 [[package]]
+name = "capacity_builder"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2c0f637033edd76ceb881faaee372868a383f0ed7a4a59e8fdf90db2502f3d3"
+dependencies = [
+ "itoa",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -574,6 +583,7 @@ dependencies = [
  "bit-set",
  "bit-vec",
  "bytes",
+ "capacity_builder",
  "cooked-waker",
  "criterion",
  "deno_ast",
@@ -596,7 +606,6 @@ dependencies = [
  "smallvec",
  "sourcemap",
  "static_assertions",
- "string_capacity",
  "tokio",
  "twox-hash",
  "unicycle",
@@ -1997,15 +2006,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "string_capacity"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d66c912ea6a5e9d1b1cc1be9c72325a5502f0b868578a7dd0fa97bb710626c2"
-dependencies = [
- "itoa",
-]
 
 [[package]]
 name = "string_enum"
