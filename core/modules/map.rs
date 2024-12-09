@@ -2010,24 +2010,33 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
     for import in imports.iter().filter(|i| {
       matches!(i.import_type, wasm_dep_analyzer::ImportType::Function(..))
     }) {
-      let entry = imports_map
-        .entry(import.module)
-        .or_insert_with(|| ImportInfo {
-          key_escaped: import.module.escape_default().to_string(),
-          escaped_named_imports: Vec::new(),
-        });
-      entry.escaped_named_imports.push(import.name.escape_default().to_string());
+      let entry =
+        imports_map
+          .entry(import.module)
+          .or_insert_with(|| ImportInfo {
+            key_escaped: import.module.escape_default().to_string(),
+            escaped_named_imports: Vec::new(),
+          });
+      entry
+        .escaped_named_imports
+        .push(import.name.escape_default().to_string());
     }
 
     imports_map
   }
 
   let aggregated_imports = aggregate_wasm_module_imports(&wasm_deps.imports);
-  let escaped_export_names =  wasm_deps.exports.iter().map(|e| if e.name == "default" {
-    Cow::Borrowed(e.name)
-  } else {
-    Cow::Owned(e.name.escape_default().to_string())
-  }).collect::<Vec<_>>();
+  let escaped_export_names = wasm_deps
+    .exports
+    .iter()
+    .map(|e| {
+      if e.name == "default" {
+        Cow::Borrowed(e.name)
+      } else {
+        Cow::Owned(e.name.escape_default().to_string())
+      }
+    })
+    .collect::<Vec<_>>();
 
   StringBuilder::build(|builder| {
     builder.append("import wasmMod from \"");
@@ -2052,14 +2061,14 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
         builder.append(&import_info.key_escaped);
         builder.append("\";\n");
       }
-  
+
       builder.append("const importsObject = {\n");
-  
+
       for (i, (_, import_info)) in aggregated_imports.iter().enumerate() {
         builder.append("  \"");
         builder.append(&import_info.key_escaped);
         builder.append("\": {\n");
-  
+
         for (name_index, named_import) in import_info.escaped_named_imports.iter().enumerate() {
           builder.append("    \"");
           builder.append(named_import);
@@ -2069,19 +2078,18 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
           builder.append(name_index);
           builder.append(",\n");
         }
-  
+
         builder.append("  },\n");
       }
-  
+
       builder.append("};\n");
-  
+
       builder.append("const modInstance = new import.meta.WasmInstance(wasmMod, importsObject);\n");
     } else {
       builder.append(
         "const modInstance = new import.meta.WasmInstance(wasmMod);\n"
       );
     }
-  
 
     for (idx, escaped_name) in escaped_export_names.iter().enumerate() {
       if escaped_name == "default" {
