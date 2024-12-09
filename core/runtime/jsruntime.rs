@@ -1293,8 +1293,8 @@ impl JsRuntime {
     let scope = &mut realm.handle_scope(self.v8_isolate());
 
     for source_file in &BUILTIN_SOURCES {
-      let name = source_file.specifier.v8_string(scope);
-      let source = source_file.source.v8_string(scope);
+      let name = source_file.specifier.v8_string(scope).unwrap();
+      let source = source_file.source.v8_string(scope).unwrap();
 
       let origin = script_origin(scope, name, false, None);
       let script = v8::Script::compile(scope, source, Some(&origin))
@@ -1447,7 +1447,7 @@ impl JsRuntime {
 
       let mut wasm_instance_fn = None;
       if !will_snapshot {
-        let key = WEBASSEMBLY.v8_string(scope);
+        let key = WEBASSEMBLY.v8_string(scope).unwrap();
         if let Some(web_assembly_obj_value) = global.get(scope, key.into()) {
           // NOTE(bartlomieju): This is still fallible, because in some V8 modes
           // WebAssembly namespace is not available (eg. `--jitless`).

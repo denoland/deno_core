@@ -250,7 +250,7 @@ pub(crate) fn get<'s, T>(
 where
   v8::Local<'s, v8::Value>: TryInto<T>,
 {
-  let key = key.v8_string(scope);
+  let key = key.v8_string(scope).unwrap();
   from
     .get(scope, key.into())
     .unwrap_or_else(|| panic!("{path} exists"))
@@ -276,7 +276,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   init_mode: InitMode,
 ) {
   let global = context.global(scope);
-  let deno_str = DENO.v8_string(scope);
+  let deno_str = DENO.v8_string(scope).unwrap();
 
   let maybe_deno_obj_val = global.get(scope, deno_str.into());
 
@@ -288,10 +288,10 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   }
 
   let deno_obj = v8::Object::new(scope);
-  let deno_core_key = CORE.v8_string(scope);
+  let deno_core_key = CORE.v8_string(scope).unwrap();
   // Set up `Deno.core.ops` object
   let deno_core_ops_obj = v8::Object::new(scope);
-  let deno_core_ops_key = OPS.v8_string(scope);
+  let deno_core_ops_key = OPS.v8_string(scope).unwrap();
 
   let deno_core_obj = v8::Object::new(scope);
   deno_core_obj
@@ -302,7 +302,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   if init_mode == InitMode::New {
     // Bind `call_console` to Deno.core.callConsole
     let call_console_fn = v8::Function::new(scope, call_console).unwrap();
-    let call_console_key = CALL_CONSOLE.v8_string(scope);
+    let call_console_key = CALL_CONSOLE.v8_string(scope).unwrap();
     deno_core_obj.set(scope, call_console_key.into(), call_console_fn.into());
 
     // Bind v8 console object to Deno.core.console
@@ -313,7 +313,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
       CONSOLE,
       "ExtrasBindingObject.console",
     );
-    let console_key = CONSOLE.v8_string(scope);
+    let console_key = CONSOLE.v8_string(scope).unwrap();
     deno_core_obj.set(scope, console_key.into(), console_obj.into());
   }
 
@@ -327,8 +327,8 @@ pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
 ) -> Result<(), AnyError> {
   for source_file in &CONTEXT_SETUP_SOURCES {
-    let name = source_file.specifier.v8_string(scope);
-    let source = source_file.source.v8_string(scope);
+    let name = source_file.specifier.v8_string(scope).unwrap();
+    let source = source_file.source.v8_string(scope).unwrap();
 
     let origin = crate::modules::script_origin(scope, name, false, None);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
@@ -369,7 +369,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   let undefined = v8::undefined(scope);
   for op_ctx in op_ctxs {
     let mut op_fn = op_ctx_function(scope, op_ctx);
-    let key = op_ctx.decl.name_fast.v8_string(scope);
+    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
     // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
     // this call will generate an optimized function that binds to the provided
@@ -387,7 +387,12 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   for op_method_ctx in op_method_ctxs {
     let tmpl = op_ctx_template(scope, &op_method_ctx.constructor);
     let prototype = tmpl.prototype_template(scope);
-    let key = op_method_ctx.constructor.decl.name_fast.v8_string(scope);
+    let key = op_method_ctx
+      .constructor
+      .decl
+      .name_fast
+      .v8_string(scope)
+      .unwrap();
 
     let accessor_store = create_accessor_store(op_method_ctx);
 
@@ -397,7 +402,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
     for method in op_method_ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope);
+      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
       tmpl.set(method_key.into(), op_fn.into());
     }
 
@@ -420,7 +425,7 @@ fn op_ctx_template_or_accessor<'s>(
 ) {
   if !op_ctx.decl.is_accessor() {
     let op_fn = op_ctx_template(scope, op_ctx);
-    let method_key = op_ctx.decl.name_fast.v8_string(scope);
+    let method_key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
     tmpl.set(method_key.into(), op_fn.into());
 
@@ -459,7 +464,7 @@ fn op_ctx_template_or_accessor<'s>(
       None
     };
 
-    let key = op_ctx.decl.name_fast.v8_string(scope).into();
+    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap().into();
     tmpl.set_accessor_property(
       key,
       Some(getter_fn),
@@ -500,7 +505,7 @@ pub(crate) fn op_ctx_template<'s>(
   } else {
     builder.build(scope)
   };
-  template.set_class_name(op_ctx.decl.name_fast.v8_string(scope));
+  template.set_class_name(op_ctx.decl.name_fast.v8_string(scope).unwrap());
 
   template
 }
@@ -509,7 +514,7 @@ fn op_ctx_function<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,
 ) -> v8::Local<'s, v8::Function> {
-  let v8name = op_ctx.decl.name_fast.v8_string(scope);
+  let v8name = op_ctx.decl.name_fast.v8_string(scope).unwrap();
   let template = op_ctx_template(scope, op_ctx);
   let v8fn = template.get_function(scope).unwrap();
   v8fn.set_name(v8name);
@@ -670,18 +675,18 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     .get_type_by_module(&module_global)
     .expect("Module not found");
 
-  let url_key = URL.v8_string(scope);
+  let url_key = URL.v8_string(scope).unwrap();
   let url_val = v8::String::new(scope, &name).unwrap();
   meta.create_data_property(scope, url_key.into(), url_val.into());
 
-  let main_key = MAIN.v8_string(scope);
+  let main_key = MAIN.v8_string(scope).unwrap();
   let main = module_map.is_main_module(&module_global);
   let main_val = v8::Boolean::new(scope, main);
   meta.create_data_property(scope, main_key.into(), main_val.into());
 
   // Add special method that allows Wasm module to instantiate themselves.
   if module_type == ModuleType::Wasm {
-    let wasm_instance_key = WASM_INSTANCE.v8_string(scope);
+    let wasm_instance_key = WASM_INSTANCE.v8_string(scope).unwrap();
     if let Some(f) = state.wasm_instance_fn.borrow().as_ref() {
       let wasm_instance_val = v8::Local::new(scope, &**f);
       meta.create_data_property(
@@ -704,7 +709,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   let builder =
     v8::FunctionBuilder::new(import_meta_resolve).data(url_val.into());
   let val = v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
-  let resolve_key = RESOLVE.v8_string(scope);
+  let resolve_key = RESOLVE.v8_string(scope).unwrap();
   meta.set(scope, resolve_key.into(), val.into());
 
   maybe_add_import_meta_filename_dirname(scope, meta, &name);
@@ -736,7 +741,7 @@ fn maybe_add_import_meta_filename_dirname(
   let Some(filename_val) = v8::String::new(scope, &escaped_filename) else {
     return;
   };
-  let filename_key = FILENAME.v8_string(scope);
+  let filename_key = FILENAME.v8_string(scope).unwrap();
   meta.create_data_property(scope, filename_key.into(), filename_val.into());
 
   let dir_path = file_path
@@ -747,7 +752,7 @@ fn maybe_add_import_meta_filename_dirname(
   let Some(dirname_val) = v8::String::new(scope, &escaped_dirname) else {
     return;
   };
-  let dirname_key = DIRNAME.v8_string(scope);
+  let dirname_key = DIRNAME.v8_string(scope).unwrap();
   meta.create_data_property(scope, dirname_key.into(), dirname_val.into());
 }
 
@@ -812,7 +817,7 @@ fn catch_dynamic_import_promise_error(
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
-      let message_key = MESSAGE.v8_string(scope);
+      let message_key = MESSAGE.v8_string(scope).unwrap();
       let message = arg.get(scope, message_key.into()).unwrap();
       let mut message: v8::Local<v8::String> = message.try_into().unwrap();
       if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
@@ -829,8 +834,8 @@ fn catch_dynamic_import_promise_error(
         "ReferenceError" => v8::Exception::reference_error(scope, message),
         _ => v8::Exception::error(scope, message),
       };
-      let code_key = CODE.v8_string(scope);
-      let code_value = ERR_MODULE_NOT_FOUND.v8_string(scope);
+      let code_key = CODE.v8_string(scope).unwrap();
+      let code_value = ERR_MODULE_NOT_FOUND.v8_string(scope).unwrap();
       let exception_obj = exception.to_object(scope).unwrap();
       exception_obj.set(scope, code_key.into(), code_value.into());
       scope.throw_exception(exception);
@@ -989,7 +994,7 @@ pub fn create_exports_for_ops_virtual_module<'s>(
   let undefined = v8::undefined(scope);
 
   for op_ctx in op_ctxs {
-    let name = op_ctx.decl.name_fast.v8_string(scope);
+    let name = op_ctx.decl.name_fast.v8_string(scope).unwrap();
     let mut op_fn = op_ctx_function(scope, op_ctx);
 
     // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
@@ -1016,7 +1021,7 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 
     for method in ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope);
+      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
       tmpl.set(method_key.into(), op_fn.into());
     }
 
