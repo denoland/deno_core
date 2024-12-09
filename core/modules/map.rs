@@ -2007,9 +2007,7 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
   ) -> IndexMap<&'a str, ImportInfo> {
     let mut imports_map = IndexMap::with_capacity(imports.len());
 
-    for import in imports.iter().filter(|i| {
-      matches!(i.import_type, wasm_dep_analyzer::ImportType::Function(..))
-    }) {
+    for import in imports {
       let entry =
         imports_map
           .entry(import.module)
@@ -2210,12 +2208,13 @@ const modInstance = new import.meta.WasmInstance(wasmMod);
   pretty_assertions::assert_eq!(
     rendered,
     r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
-import { "bar" as import_0_0, "fizz" as import_0_1 } from "./import.js";
+import { "foo" as import_0_0, "bar" as import_0_1, "fizz" as import_0_2 } from "./import.js";
 import { "buzz" as import_1_0 } from "./buzz.js";
 const importsObject = {
   "./import.js": {
-    "bar": import_0_0,
-    "fizz": import_0_1,
+    "foo": import_0_0,
+    "bar": import_0_1,
+    "fizz": import_0_2,
   },
   "./buzz.js": {
     "buzz": import_1_0,
