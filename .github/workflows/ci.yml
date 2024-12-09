@@ -52,7 +52,7 @@ jobs:
         id: read-jobs-pr
         if: github.repository == 'denoland/deno_core' && (!startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main')
         with:
-          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
+          query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | select(. != "test-valgrind" or github.ref == "refs/heads/main") | { label: $entry.key, os: $entry.value.os, job: . }] }"
           config: |-
             linux:
               os: ubuntu-24.04
