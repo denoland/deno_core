@@ -1,10 +1,14 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use std::{env::current_dir, rc::Rc};
+use std::env::current_dir;
+use std::rc::Rc;
 
-use deno_core::{
-  error::AnyError, extension, op2, FsModuleLoader, JsRuntime,
-  PollEventLoopOptions, RuntimeOptions,
-};
+use deno_core::error::AnyError;
+use deno_core::extension;
+use deno_core::op2;
+use deno_core::FsModuleLoader;
+use deno_core::JsRuntime;
+use deno_core::PollEventLoopOptions;
+use deno_core::RuntimeOptions;
 
 fn main() {
   let runtime = tokio::runtime::Builder::new_current_thread()

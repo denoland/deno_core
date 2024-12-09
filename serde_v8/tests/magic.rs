@@ -166,7 +166,8 @@ fn magic_byte_string() {
 
 #[test]
 fn magic_value() {
-  use serde_v8_utilities::{js_exec, v8_do};
+  use serde_v8_utilities::js_exec;
+  use serde_v8_utilities::v8_do;
 
   struct TestLocal<'a>(v8::Local<'a, v8::Value>);
   impl<'de> serde::Deserialize<'de> for TestLocal<'_> {
