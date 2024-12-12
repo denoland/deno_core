@@ -349,6 +349,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   op_method_ctxs: &[OpMethodCtx],
+  init_mode: InitMode,
 ) {
   let global = context.global(scope);
 
@@ -359,29 +360,32 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");
   let deno_core_ops_obj: v8::Local<v8::Object> =
     get(scope, deno_core_obj, OPS, "Deno.core.ops");
-  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
-    scope,
-    deno_core_obj,
-    SET_UP_ASYNC_STUB,
-    "Deno.core.setUpAsyncStub",
-  );
 
-  let undefined = v8::undefined(scope);
-  for op_ctx in op_ctxs {
-    let mut op_fn = op_ctx_function(scope, op_ctx);
-    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
+  if init_mode.needs_ops_bindings() {
+    let set_up_async_stub_fn: v8::Local<v8::Function> = get(
+      scope,
+      deno_core_obj,
+      SET_UP_ASYNC_STUB,
+      "Deno.core.setUpAsyncStub",
+    );
 
-    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
-    // this call will generate an optimized function that binds to the provided
-    // op, while keeping track of promises and error remapping.
-    if op_ctx.decl.is_async {
-      let result = set_up_async_stub_fn
-        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
-        .unwrap();
-      op_fn = result.try_into().unwrap()
+    let undefined = v8::undefined(scope);
+    for op_ctx in op_ctxs {
+      let mut op_fn = op_ctx_function(scope, op_ctx);
+      let key = op_ctx.decl.name_fast.v8_string(scope);
+
+      // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+      // this call will generate an optimized function that binds to the provided
+      // op, while keeping track of promises and error remapping.
+      if op_ctx.decl.is_async {
+        let result = set_up_async_stub_fn
+          .call(scope, undefined.into(), &[key.into(), op_fn.into()])
+          .unwrap();
+        op_fn = result.try_into().unwrap()
+      }
+
+      deno_core_ops_obj.set(scope, key.into(), op_fn.into());
     }
-
-    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
   }
 
   for op_method_ctx in op_method_ctxs {
@@ -975,6 +979,7 @@ where
 /// This function generates a list of tuples, that are a mapping of `<op_name>`
 /// to a JavaScript function that executes and op.
 pub fn create_exports_for_ops_virtual_module<'s>(
+  op_state: Rc<RefCell<OpState>>,
   op_ctxs: &[OpCtx],
   op_method_ctxs: &[OpMethodCtx],
   scope: &mut v8::HandleScope<'s>,
@@ -1027,6 +1032,11 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 
     let op_fn = tmpl.get_function(scope).unwrap();
     exports.push((ctx.constructor.decl.name_fast, op_fn.into()));
+
+    let id = ctx.id;
+    op_state
+      .borrow_mut()
+      .put_untyped(id, v8::Global::new(scope, tmpl));
   }
 
   exports
