@@ -372,7 +372,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let undefined = v8::undefined(scope);
     for op_ctx in op_ctxs {
       let mut op_fn = op_ctx_function(scope, op_ctx);
-      let key = op_ctx.decl.name_fast.v8_string(scope);
+      let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
       // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
       // this call will generate an optimized function that binds to the provided
