@@ -31,3 +31,8 @@ export class DOMPoint {
   get w(): number;
   wrappingSmi(value: number): number;
 }
+
+export class TestObjectWrap {
+  constructor();
+  withVarargs(...args: any[]): number;
+}

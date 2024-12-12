@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
-import { DOMPoint } from "checkin:object";
+import { DOMPoint, TestObjectWrap } from "checkin:object";
 
 const {
   op_pipe_create,
@@ -92,4 +92,10 @@ test(function testDomPoint() {
     p1.wrappingSmi.toString(),
     DOMPoint.prototype.wrappingSmi.toString(),
   );
+
+  const wrap = new TestObjectWrap();
+  assertEquals(wrap.withVarargs(1, 2, 3), 3);
+  assertEquals(wrap.withVarargs(1, 2, 3, 4, 5), 5);
+  assertEquals(wrap.withVarargs(), 0);
+  assertEquals(wrap.withVarargs(undefined), 1);
 });
