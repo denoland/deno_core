@@ -1043,15 +1043,14 @@ impl JsRuntime {
     }
     // If we're creating a new runtime or there are new ops to register
     // set up JavaScript bindings for them.
-    if init_mode.needs_ops_bindings() {
-      bindings::initialize_deno_core_ops_bindings(
-        scope,
-        op_state,
-        context,
-        &context_state.op_ctxs,
-        &context_state.op_method_ctxs,
-      );
-    }
+    bindings::initialize_deno_core_ops_bindings(
+      scope,
+      op_state,
+      context,
+      &context_state.op_ctxs,
+      &context_state.op_method_ctxs,
+      init_mode,
+    );
 
     // SAFETY: Initialize the context state slot.
     unsafe {
@@ -1257,11 +1256,13 @@ impl JsRuntime {
     context_global: &v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
   ) {
+    let op_state = self.inner.state.op_state.clone();
     let scope = &mut self.handle_scope();
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
     let synthetic_module_exports = create_exports_for_ops_virtual_module(
+      op_state,
       &context_state.op_ctxs,
       &context_state.op_method_ctxs,
       scope,
