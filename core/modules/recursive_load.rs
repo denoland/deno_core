@@ -65,6 +65,12 @@ pub(crate) struct RecursiveModuleLoad {
   loader: Rc<dyn ModuleLoader>,
 }
 
+impl Drop for RecursiveModuleLoad {
+  fn drop(&mut self) {
+    self.loader.finish_load();
+  }
+}
+
 impl RecursiveModuleLoad {
   /// Starts a new asynchronous load of the module graph for given specifier.
   ///
@@ -313,7 +319,9 @@ impl Stream for RecursiveModuleLoad {
       LoadState::Init => {
         let module_specifier = match inner.resolve_root() {
           Ok(url) => url,
-          Err(error) => return Poll::Ready(Some(Err(error))),
+          Err(error) => {
+            return Poll::Ready(Some(Err(error)));
+          }
         };
         let requested_module_type = match &inner.init {
           LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),

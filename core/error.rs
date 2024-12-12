@@ -391,7 +391,7 @@ pub fn to_v8_error<'a>(
 pub(crate) fn call_site_evals_key<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Private> {
-  let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope);
+  let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
 
@@ -656,7 +656,7 @@ fn get_property<'a>(
   object: v8::Local<v8::Object>,
   key: FastStaticString,
 ) -> Option<v8::Local<'a, v8::Value>> {
-  let key = key.v8_string(scope);
+  let key = key.v8_string(scope).unwrap();
   object.get(scope, key.into())
 }
 
@@ -1204,7 +1204,7 @@ v8_static_strings::v8_static_strings! {
 pub(crate) fn original_call_site_key<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Private> {
-  let name = ORIGINAL.v8_string(scope);
+  let name = ORIGINAL.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
 
@@ -1233,7 +1233,9 @@ fn original_call_site<'a>(
     .get_private(scope, orig_key)
     .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
   else {
-    let message = ERROR_RECEIVER_IS_NOT_VALID_CALLSITE_OBJECT.v8_string(scope);
+    let message = ERROR_RECEIVER_IS_NOT_VALID_CALLSITE_OBJECT
+      .v8_string(scope)
+      .unwrap();
     let exception = v8::Exception::type_error(scope, message);
     scope.throw_exception(exception);
     return None;
@@ -1251,7 +1253,7 @@ macro_rules! make_callsite_fn {
       let Some(orig) = original_call_site(scope, args.this()) else {
         return;
       };
-      let key = $field.v8_string(scope).into();
+      let key = $field.v8_string(scope).unwrap().into();
       let orig_ret = orig
         .cast::<v8::Object>()
         .get(scope, key)
@@ -1304,7 +1306,10 @@ pub mod callsite_fns {
       // strip off `file://`
       let string = ret_val.to_rust_string_lossy(scope);
       if let Some(file_name) = maybe_to_path_str(&string) {
-        let v8_str = crate::FastString::from(file_name).v8_string(scope).into();
+        let v8_str = crate::FastString::from(file_name)
+          .v8_string(scope)
+          .unwrap()
+          .into();
         rv.set(v8_str);
       } else {
         rv.set(ret_val.into());
@@ -1354,7 +1359,10 @@ pub mod callsite_fns {
     let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
     if let Some(file_name) = maybe_to_path_str(&orig_file_name) {
       let to_string = orig_to_string.replace(&orig_file_name, &file_name);
-      let v8_str = crate::FastString::from(to_string).v8_string(scope).into();
+      let v8_str = crate::FastString::from(to_string)
+        .v8_string(scope)
+        .unwrap()
+        .into();
       rv.set(v8_str);
     } else {
       rv.set(orig_to_string_v8.into());
@@ -1386,7 +1394,7 @@ pub(crate) fn make_callsite_prototype<'s>(
 
   macro_rules! set_attr {
     ($scope:ident, $template:ident, $fn:ident, $field:ident) => {
-      let key = $field.v8_string($scope).into();
+      let key = $field.v8_string($scope).unwrap().into();
       $template.set_with_attr(
         key,
         v8::FunctionBuilder::<v8::FunctionTemplate>::new(callsite_fns::$fn)

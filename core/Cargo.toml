@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.322.0"
+version = "0.325.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -24,10 +24,12 @@ snapshot_flags_eager_parse = []
 
 [dependencies]
 anyhow.workspace = true
+az = "1.2.1"
 bincode.workspace = true
 bit-set.workspace = true
 bit-vec.workspace = true
 bytes.workspace = true
+capacity_builder = "0.1.0"
 cooked-waker.workspace = true
 deno_core_icudata = { workspace = true, optional = true }
 deno_error.workspace = true
