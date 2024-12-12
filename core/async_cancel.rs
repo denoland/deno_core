@@ -10,9 +10,9 @@ use std::io;
 use std::pin::Pin;
 use std::rc::Rc;
 
-use crate::error::JsErrorClass;
 use crate::RcLike;
 use crate::Resource;
+use deno_error::JsErrorClass;
 use futures::future::FusedFuture;
 use futures::future::Future;
 use futures::future::TryFuture;

@@ -1,9 +1,9 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use super::erased_future::TypeErased;
 use super::future_arena::FutureContextMapper;
-use crate::error::JsErrorClass;
 use crate::OpId;
 use crate::PromiseId;
+use deno_error::JsErrorClass;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::borrow::Cow;

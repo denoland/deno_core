@@ -6,7 +6,6 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use crate::error::JsErrorClass;
 use crate::error::JsNativeError;
 use crate::io::AsyncResult;
 use crate::io::BufMutView;
@@ -14,6 +13,7 @@ use crate::io::BufView;
 use crate::io::WriteOutcome;
 use crate::ResourceHandle;
 use crate::ResourceHandleFd;
+use deno_error::JsErrorClass;
 use std::any::type_name;
 use std::any::Any;
 use std::any::TypeId;

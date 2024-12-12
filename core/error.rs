@@ -12,6 +12,7 @@ use crate::source_map::SourceMapApplication;
 use crate::url::Url;
 use crate::FastStaticString;
 use deno_error::builtin_classes::*;
+use deno_error::JsErrorClass;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
@@ -20,10 +21,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-
-pub use deno_error;
-pub use deno_error::JsError;
-pub use deno_error::JsErrorClass;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
@@ -246,7 +243,7 @@ fn js_class_and_message_to_exception<'s>(
 pub struct JsNativeError {
   class: &'static str,
   message: Cow<'static, str>,
-  pub source: Option<Box<dyn JsErrorClass>>,
+  pub inner: Option<Box<dyn JsErrorClass>>,
 }
 
 impl Display for JsNativeError {
@@ -270,7 +267,7 @@ impl JsErrorClass for JsNativeError {
     &self,
   ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
     self
-      .source
+      .inner
       .as_ref()
       .and_then(|source| source.get_additional_properties())
   }
@@ -284,7 +281,7 @@ impl JsNativeError {
     JsNativeError {
       class,
       message: message.into(),
-      source: None,
+      inner: None,
     }
   }
 
@@ -292,7 +289,7 @@ impl JsNativeError {
     Self {
       class: err.get_class(),
       message: err.get_message(),
-      source: Some(Box::new(err)),
+      inner: Some(Box::new(err)),
     }
   }
 

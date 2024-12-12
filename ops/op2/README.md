@@ -18,7 +18,7 @@ buffer.
 ## Fallible `op`s
 
 An `op` function may be declared to return `Result` to indicate that the `op` is
-fallible. The error type must implement `deno_core::error::JsErrorClass`. When
+fallible. The error type must implement `deno_error::JsErrorClass`. When
 the function returns `Err`, an exception is thrown.
 
 ## `async` calls

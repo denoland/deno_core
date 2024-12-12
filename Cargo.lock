@@ -644,9 +644,9 @@ dependencies = [
 
 [[package]]
 name = "deno_error"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17093059f04120895ee7bad790f074b1e4a0aa7c68511dbe8355ad0b092a4910"
+checksum = "199c66ffd17ee1a948904d33f3d3f364573951c1f9fb3f859bfe7770bf33862a"
 dependencies = [
  "deno_error_macro",
  "libc",
@@ -658,9 +658,9 @@ dependencies = [
 
 [[package]]
 name = "deno_error_macro"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c3a5d888391b76dc9b53e35651d2d11086fa05110beba167f08294920dd9059"
+checksum = "3cd99df6ae75443907e1f959fc42ec6dcea67a7bd083e76cf23a117102c9a2ce"
 dependencies = [
  "proc-macro2",
  "quote",
