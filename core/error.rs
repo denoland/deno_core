@@ -321,33 +321,6 @@ impl From<crate::Canceled> for JsNativeError {
   }
 }
 
-/// A wrapper around `anyhow::Error` that implements `std::error::Error`
-#[repr(transparent)]
-pub struct StdAnyError(pub anyhow::Error);
-impl std::fmt::Debug for StdAnyError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{:?}", self.0)
-  }
-}
-
-impl std::fmt::Display for StdAnyError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.0)
-  }
-}
-
-impl std::error::Error for StdAnyError {
-  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-    self.0.source()
-  }
-}
-
-impl From<anyhow::Error> for StdAnyError {
-  fn from(err: anyhow::Error) -> Self {
-    Self(err)
-  }
-}
-
 pub fn to_v8_error<'a>(
   scope: &mut v8::HandleScope<'a>,
   error: &impl JsErrorClass,

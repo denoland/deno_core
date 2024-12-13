@@ -83,6 +83,7 @@ pub use crate::external::ExternalPointer;
 pub use crate::external::Externalizable;
 pub use crate::fast_string::FastStaticString;
 pub use crate::fast_string::FastString;
+pub use crate::fast_string::FastStringV8AllocationError;
 pub use crate::feature_checker::FeatureChecker;
 pub use crate::flags::v8_set_flags;
 pub use crate::inspector::InspectorMsg;
