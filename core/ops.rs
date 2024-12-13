@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::GetErrorClassFn;
 use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
@@ -98,8 +97,6 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
   #[doc(hidden)]
-  pub get_error_class_fn: GetErrorClassFn,
-  #[doc(hidden)]
   pub enable_stack_trace: bool,
 
   pub(crate) decl: OpDecl,
@@ -119,7 +116,6 @@ impl OpCtx {
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: *const JsRuntimeState,
-    get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
     enable_stack_trace: bool,
   ) -> Self {
@@ -136,7 +132,6 @@ impl OpCtx {
     Self {
       id,
       state,
-      get_error_class_fn,
       runtime_state,
       decl,
       op_driver,

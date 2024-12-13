@@ -3,7 +3,6 @@
 // Alias for the future `!` type.
 use core::convert::Infallible as Never;
 use deno_core::anyhow::Context;
-use deno_core::error::AnyError;
 use deno_core::futures::channel::mpsc;
 use deno_core::futures::channel::mpsc::UnboundedReceiver;
 use deno_core::futures::channel::mpsc::UnboundedSender;
@@ -47,7 +46,10 @@ pub struct InspectorServer {
 }
 
 impl InspectorServer {
-  pub fn new(host: SocketAddr, name: &'static str) -> Result<Self, AnyError> {
+  pub fn new(
+    host: SocketAddr,
+    name: &'static str,
+  ) -> Result<Self, anyhow::Error> {
     let (register_inspector_tx, register_inspector_rx) =
       mpsc::unbounded::<InspectorInfo>();
 
@@ -484,9 +486,9 @@ impl InspectorInfo {
 
   fn get_frontend_url(&self, host: &str) -> String {
     format!(
-        "devtools://devtools/bundled/js_app.html?ws={}/ws/{}&experiments=true&v8only=true",
-        host, &self.uuid
-      )
+      "devtools://devtools/bundled/js_app.html?ws={}/ws/{}&experiments=true&v8only=true",
+      host, &self.uuid
+    )
   }
 
   fn get_title(&self) -> String {

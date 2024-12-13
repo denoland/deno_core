@@ -1,9 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use std::cell::RefCell;
-use std::iter::Chain;
-use std::rc::Rc;
-
-use crate::error::AnyError;
+use crate::error::CoreError;
 use crate::extensions::Extension;
 use crate::extensions::ExtensionSourceType;
 use crate::extensions::GlobalObjectMiddlewareFn;
@@ -17,13 +13,15 @@ use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::ExtensionFileSource;
 use crate::FastString;
-use crate::GetErrorClassFn;
 use crate::ModuleCodeString;
 use crate::OpDecl;
 use crate::OpMetricsFactoryFn;
 use crate::OpState;
 use crate::SourceMapData;
 use crate::_ops::OpMethodDecl;
+use std::cell::RefCell;
+use std::iter::Chain;
+use std::rc::Rc;
 
 /// Contribute to the `OpState` from each extension.
 pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
@@ -140,7 +138,6 @@ pub fn create_op_ctxs(
   op_driver: Rc<OpDriverImpl>,
   op_state: Rc<RefCell<OpState>>,
   runtime_state: Rc<JsRuntimeState>,
-  get_error_class_fn: GetErrorClassFn,
   enable_stack_trace_in_ops: bool,
 ) -> (Box<[OpCtx]>, Box<[OpMethodCtx]>) {
   let op_count = op_decls.len();
@@ -160,7 +157,6 @@ pub fn create_op_ctxs(
       decl,
       op_state.clone(),
       runtime_state_ptr,
-      get_error_class_fn,
       metrics_fn,
       enable_stack_trace_in_ops,
     )
@@ -286,13 +282,14 @@ fn load(
   transpiler: Option<&ExtensionTranspiler>,
   source: &ExtensionFileSource,
   load_callback: &mut impl FnMut(&ExtensionFileSource),
-) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), CoreError> {
   load_callback(source);
   let mut source_code = source.load()?;
   let mut source_map = None;
   if let Some(transpiler) = transpiler {
     (source_code, source_map) =
-      transpiler(ModuleName::from_static(source.specifier), source_code)?;
+      transpiler(ModuleName::from_static(source.specifier), source_code)
+        .map_err(CoreError::ExtensionTranspiler)?;
   }
   let mut maybe_source_map = None;
   if let Some(source_map) = source_map {
@@ -305,7 +302,7 @@ pub fn into_sources_and_source_maps(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
   mut load_callback: impl FnMut(&ExtensionFileSource),
-) -> Result<LoadedSources, AnyError> {
+) -> Result<LoadedSources, CoreError> {
   let mut sources = LoadedSources::default();
 
   for extension in extensions {

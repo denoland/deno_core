@@ -1,7 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use super::create_runtime;
+use super::run_async;
+use super::Output;
 use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Error;
+use deno_core::error::JsNativeError;
+use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8::IsolateHandle;
@@ -20,10 +23,6 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
-
-use super::create_runtime;
-use super::run_async;
-use super::Output;
 
 /// Our cppgc object.
 pub struct WorkerControl {
@@ -95,7 +94,7 @@ pub fn op_worker_spawn(
   #[state] output: &Output,
   #[string] base_url: String,
   #[string] main_script: String,
-) -> Result<WorkerControl, Error> {
+) -> Result<WorkerControl, OpError> {
   let output = output.clone();
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();
@@ -126,7 +125,7 @@ async fn run_worker_task(
   base_url: String,
   main_script: String,
   mut shutdown_rx: UnboundedReceiver<()>,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
   let url = Url::try_from(base_url.as_str())?.join(&main_script)?;
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
@@ -138,7 +137,9 @@ async fn run_worker_task(
       // This matches the v8 error. We'll hit both, depending on timing.
       return Poll::Ready(Err(anyhow!("Uncaught Error: execution terminated")));
     }
-    runtime.poll_event_loop(cx, PollEventLoopOptions::default())
+    runtime
+      .poll_event_loop(cx, PollEventLoopOptions::default())
+      .map_err(|e| e.into())
   })
   .await
   {
@@ -158,7 +159,7 @@ async fn run_worker_task(
 pub fn op_worker_send(
   #[cppgc] worker: &WorkerControl,
   #[string] message: String,
-) -> Result<(), Error> {
+) -> Result<(), OpError> {
   worker.worker_channel.tx.send(message)?;
   Ok(())
 }
@@ -173,14 +174,14 @@ pub async fn op_worker_recv(#[cppgc] worker: &WorkerControl) -> Option<String> {
 #[cppgc]
 pub fn op_worker_parent(
   state: Rc<RefCell<OpState>>,
-) -> Result<WorkerControl, Error> {
+) -> Result<WorkerControl, OpError> {
   let state = state.borrow_mut();
   let worker: &Worker = state.borrow();
   let (Some(worker_channel), Some(close_watcher)) = (
     worker.parent_channel.lock().unwrap().take(),
     worker.parent_close_watcher.lock().unwrap().take(),
   ) else {
-    bail!("No parent worker is available")
+    return Err(JsNativeError::generic("No parent worker is available").into());
   };
   Ok(WorkerControl {
     worker_channel,
