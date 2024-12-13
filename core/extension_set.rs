@@ -175,7 +175,7 @@ pub fn create_op_ctxs(
     decl.constructor.name_fast = decl.name.1;
 
     op_method_ctxs.push(OpMethodCtx {
-      id: (decl.id)(),
+      id: decl.id,
       constructor: create_ctx(index, decl.constructor),
       methods: decl
         .methods

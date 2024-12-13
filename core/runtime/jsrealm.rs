@@ -2,6 +2,7 @@
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
+use crate::cppgc::FunctionTemplateData;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::script_origin;
@@ -142,6 +143,7 @@ pub(crate) struct JsRealmInner {
   pub(crate) context_state: Rc<ContextState>,
   context: Rc<v8::Global<v8::Context>>,
   pub(crate) module_map: Rc<ModuleMap>,
+  pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
 }
 
 impl JsRealmInner {
@@ -149,11 +151,13 @@ impl JsRealmInner {
     context_state: Rc<ContextState>,
     context: v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
+    function_templates: Rc<RefCell<FunctionTemplateData>>,
   ) -> Self {
     Self {
       context_state,
       context: context.into(),
       module_map,
+      function_templates,
     }
   }
 
@@ -170,6 +174,11 @@ impl JsRealmInner {
   #[inline(always)]
   pub(crate) fn module_map(&self) -> Rc<ModuleMap> {
     self.module_map.clone()
+  }
+
+  #[inline(always)]
+  pub(crate) fn function_templates(&self) -> Rc<RefCell<FunctionTemplateData>> {
+    self.function_templates.clone()
   }
 
   /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].

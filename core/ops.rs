@@ -74,7 +74,7 @@ impl OpMetadata {
 /// Per-object contexts for members.
 pub struct OpMethodCtx {
   /// TypeId of the wrapped type
-  pub id: std::any::TypeId,
+  pub id: u32,
   /// Op context for the constructor
   pub constructor: OpCtx,
   /// Per-op context for the methods
