@@ -117,9 +117,6 @@ pub(crate) fn generate_op2(
       FnArg::Typed(ty) => ty.attrs.clear(),
     }
   }
-  if let Some(ref rename) = config.rename {
-    func.sig.ident = format_ident!("{}", rename);
-  }
 
   if config.setter {
     // Prepend "__set_" to the setter function name.
