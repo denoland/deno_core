@@ -179,7 +179,7 @@ const NOOP_FN: CFunction = CFunction::new(
 // Declaration for object wrappers.
 #[derive(Clone, Copy)]
 pub struct OpMethodDecl {
-  pub id: u32,
+  pub type_name: fn() -> &'static str,
   pub name: (&'static str, FastStaticString),
   pub constructor: OpDecl,
   pub methods: &'static [OpDecl],

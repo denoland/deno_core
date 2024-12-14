@@ -413,10 +413,8 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
 // CppGc
 //
 
-impl<
-    'a,
-    T: crate::cppgc::GarbageCollected + crate::cppgc::Identifier + 'static,
-  > RustToV8<'a> for RustToV8Marker<CppGcMarker, T>
+impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
+  for RustToV8Marker<CppGcMarker, T>
 {
   #[inline(always)]
   fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {

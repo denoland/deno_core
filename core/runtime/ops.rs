@@ -537,7 +537,6 @@ pub fn to_v8_slice_any(
 mod tests {
   use crate::convert::Number;
   use crate::convert::Smi;
-  use crate::cppgc::Identifier;
   use crate::error::generic_error;
   use crate::error::AnyError;
   use crate::error::JsError;
@@ -1921,8 +1920,6 @@ mod tests {
   }
 
   impl GarbageCollected for TestResource {}
-
-  impl Identifier for TestResource {}
 
   #[op2]
   #[cppgc]

@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use deno_core::cppgc::Identifier;
 use deno_core::op2;
 use deno_core::v8;
 use deno_core::GarbageCollected;
@@ -69,8 +68,6 @@ pub struct TestResource {
 }
 
 impl GarbageCollected for TestResource {}
-
-impl Identifier for TestResource {}
 
 #[op2(async)]
 #[cppgc]

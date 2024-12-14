@@ -8,8 +8,6 @@ struct Wrap;
 
 impl GarbageCollected for Wrap {}
 
-impl Identifier for Wrap {}
-
 #[op2(async)]
 #[cppgc]
 async fn op_make_cppgc_object() -> Wrap {

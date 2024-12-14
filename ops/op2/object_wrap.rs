@@ -130,8 +130,6 @@ pub(crate) fn generate_impl_ops(
     }
   }
 
-  let hash = twox_hash::XxHash32::oneshot(0, self_ty_ident.as_bytes());
-
   let res = quote! {
       impl #self_ty {
         pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
@@ -147,14 +145,10 @@ pub(crate) fn generate_impl_ops(
           ],
           constructor: #self_ty::#constructor(),
           name: ::deno_core::__op_name_fast!(#self_ty),
-          id: #hash
+          type_name: || std::any::type_name::<#self_ty>(),
         };
 
         #tokens
-      }
-
-      impl deno_core::cppgc::Identifier for #self_ty {
-        const ID: Option<u32> = Some(#hash);
       }
   };
 

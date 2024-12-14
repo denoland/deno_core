@@ -409,7 +409,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     op_fn.set_name(key);
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
 
-    let id = op_method_ctx.id;
+    let id = op_method_ctx.type_name.to_string();
     fn_template_store.insert(id, v8::Global::new(scope, tmpl));
   }
 }

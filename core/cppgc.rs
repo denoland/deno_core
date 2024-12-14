@@ -5,13 +5,10 @@ use crate::runtime::SnapshotStoreDataStore;
 use crate::JsRuntime;
 use serde::Deserialize;
 use serde::Serialize;
+use std::any::type_name;
 use std::any::TypeId;
 use std::collections::BTreeMap;
 pub use v8::cppgc::GarbageCollected;
-
-pub trait Identifier {
-  const ID: Option<u32> = None;
-}
 
 const CPPGC_TAG: u16 = 1;
 
@@ -40,27 +37,23 @@ pub(crate) fn make_cppgc_template<'s>(
   v8::FunctionTemplate::new(scope, cppgc_template_constructor)
 }
 
-pub fn make_cppgc_object<'a, T: GarbageCollected + Identifier + 'static>(
+pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   scope: &mut v8::HandleScope<'a>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
   let state = JsRuntime::state_from(scope);
   let templates = state.function_templates.borrow();
 
-  if let Some(id) = T::ID {
-    if let Some(templ) = templates.get(id) {
-      let templ = v8::Local::new(scope, templ);
-      let inst = templ.instance_template(scope);
-      let obj = inst.new_instance(scope).unwrap();
-
-      return wrap_object(scope, obj, t);
-    }
-  }
-
-  let templ =
-    v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
-  let func = templ.get_function(scope).unwrap();
-  let obj = func.new_instance(scope, &[]).unwrap();
+  let obj = if let Some(templ) = templates.get::<T>() {
+    let templ = v8::Local::new(scope, templ);
+    let inst = templ.instance_template(scope);
+    inst.new_instance(scope).unwrap()
+  } else {
+    let templ =
+      v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
+    let func = templ.get_function(scope).unwrap();
+    func.new_instance(scope, &[]).unwrap()
+  };
 
   wrap_object(scope, obj, t)
 }
@@ -142,21 +135,25 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
 
 #[derive(Default)]
 pub struct FunctionTemplateData {
-  store: BTreeMap<u32, v8::Global<v8::FunctionTemplate>>,
+  store: BTreeMap<String, v8::Global<v8::FunctionTemplate>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct FunctionTemplateSnapshotData {
-  store_handles: Vec<(u32, u32)>,
+  store_handles: Vec<(String, u32)>,
 }
 
 impl FunctionTemplateData {
-  pub fn insert(&mut self, key: u32, value: v8::Global<v8::FunctionTemplate>) {
+  pub fn insert(
+    &mut self,
+    key: String,
+    value: v8::Global<v8::FunctionTemplate>,
+  ) {
     self.store.insert(key, value);
   }
 
-  fn get(&self, key: u32) -> Option<&v8::Global<v8::FunctionTemplate>> {
-    self.store.get(&key)
+  fn get<T>(&self) -> Option<&v8::Global<v8::FunctionTemplate>> {
+    self.store.get(type_name::<T>())
   }
 
   pub fn serialize_for_snapshotting(
