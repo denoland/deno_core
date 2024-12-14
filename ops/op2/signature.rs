@@ -1253,6 +1253,7 @@ fn parse_attribute(
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
       (#[required ($_attr:literal)]) => Some(AttributeModifier::Ignore),
+      (#[rename ($_attr:literal)]) => Some(AttributeModifier::Ignore),
       (#[method ($_attr:literal)]) => Some(AttributeModifier::Ignore),
       (#[method]) => Some(AttributeModifier::Ignore),
       (#[getter]) => Some(AttributeModifier::Ignore),

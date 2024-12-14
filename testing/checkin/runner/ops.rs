@@ -90,6 +90,10 @@ impl TestObjectWrap {
   ) -> u32 {
     args.map(|args| args.length() as u32).unwrap_or(0)
   }
+
+  #[fast]
+  #[rename("with_RENAME")]
+  fn with_rename(&self) {}
 }
 
 pub struct DOMPoint {
