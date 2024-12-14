@@ -661,7 +661,6 @@ dependencies = [
  "syn",
  "testing_macros",
  "thiserror",
- "twox-hash",
 ]
 
 [[package]]
