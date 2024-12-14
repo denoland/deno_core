@@ -93,8 +93,7 @@ pub(crate) fn generate_impl_ops(
         stringcase::camel_case(&method.sig.ident.to_string())
       );
 
-      let ident = method.sig.ident.clone();
-      let func = ItemFn {
+      let mut func = ItemFn {
         attrs: item_fn_attrs,
         vis: method.vis,
         sig: method.sig,
@@ -105,6 +104,11 @@ pub(crate) fn generate_impl_ops(
         #(#attrs)*
       })?;
 
+      if let Some(ref rename) = config.rename {
+        func.sig.ident = format_ident!("{}", rename);
+      }
+
+      let ident = func.sig.ident.clone();
       if config.constructor {
         if constructor.is_some() {
           return Err(Op2Error::MultipleConstructors);
