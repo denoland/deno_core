@@ -1,11 +1,9 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use anyhow::Context;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
-use std::rc::Rc;
 use url::Url;
 use v8::MapFnTo;
 
@@ -13,6 +11,7 @@ use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
 use crate::cppgc::cppgc_template_constructor;
+use crate::cppgc::FunctionTemplateData;
 use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
@@ -34,7 +33,6 @@ use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
-use crate::OpState;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
@@ -345,10 +343,10 @@ pub(crate) fn initialize_primordials_and_infra(
 /// Set up JavaScript bindings for ops.
 pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
-  op_state: Rc<RefCell<OpState>>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   op_method_ctxs: &[OpMethodCtx],
+  fn_template_store: &mut FunctionTemplateData,
 ) {
   let global = context.global(scope);
 
@@ -359,6 +357,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");
   let deno_core_ops_obj: v8::Local<v8::Object> =
     get(scope, deno_core_obj, OPS, "Deno.core.ops");
+
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
@@ -410,10 +409,8 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     op_fn.set_name(key);
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
 
-    let id = op_method_ctx.id;
-    op_state
-      .borrow_mut()
-      .put_untyped(id, v8::Global::new(scope, tmpl));
+    let id = op_method_ctx.type_name.to_string();
+    fn_template_store.insert(id, v8::Global::new(scope, tmpl));
   }
 }
 

@@ -149,7 +149,7 @@ pub(crate) fn generate_impl_ops(
           ],
           constructor: #self_ty::#constructor(),
           name: ::deno_core::__op_name_fast!(#self_ty),
-          id: || ::std::any::TypeId::of::<#self_ty>()
+          type_name: || std::any::type_name::<#self_ty>(),
         };
 
         #tokens

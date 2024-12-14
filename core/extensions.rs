@@ -179,9 +179,7 @@ const NOOP_FN: CFunction = CFunction::new(
 // Declaration for object wrappers.
 #[derive(Clone, Copy)]
 pub struct OpMethodDecl {
-  // TypeId::of::<T>() is unstable-nightly in const context so
-  // we store the fn pointer instead.
-  pub id: fn() -> std::any::TypeId,
+  pub type_name: fn() -> &'static str,
   pub name: (&'static str, FastStaticString),
   pub constructor: OpDecl,
   pub methods: &'static [OpDecl],
