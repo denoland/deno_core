@@ -35,4 +35,5 @@ export class DOMPoint {
 export class TestObjectWrap {
   constructor();
   withVarargs(...args: any[]): number;
+  with_RENAME(): void;
 }
