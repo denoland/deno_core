@@ -98,4 +98,6 @@ test(function testDomPoint() {
   assertEquals(wrap.withVarargs(1, 2, 3, 4, 5), 5);
   assertEquals(wrap.withVarargs(), 0);
   assertEquals(wrap.withVarargs(undefined), 1);
+
+  wrap.with_RENAME();
 });
