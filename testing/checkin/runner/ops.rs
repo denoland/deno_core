@@ -105,6 +105,31 @@ pub struct DOMPoint {
 
 impl GarbageCollected for DOMPoint {}
 
+impl DOMPoint {
+  fn from_point_inner(
+    scope: &mut v8::HandleScope,
+    other: v8::Local<v8::Object>,
+  ) -> Result<DOMPoint, AnyError> {
+    fn get(
+      scope: &mut v8::HandleScope,
+      other: v8::Local<v8::Object>,
+      key: &str,
+    ) -> Option<f64> {
+      let key = v8::String::new(scope, key).unwrap();
+      other
+        .get(scope, key.into())
+        .map(|x| x.to_number(scope).unwrap().value())
+    }
+
+    Ok(DOMPoint {
+      x: get(scope, other, "x").unwrap_or(0.0),
+      y: get(scope, other, "y").unwrap_or(0.0),
+      z: get(scope, other, "z").unwrap_or(0.0),
+      w: get(scope, other, "w").unwrap_or(0.0),
+    })
+  }
+}
+
 #[op2]
 impl DOMPoint {
   #[constructor]
@@ -130,23 +155,17 @@ impl DOMPoint {
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPoint, AnyError> {
-    fn get(
-      scope: &mut v8::HandleScope,
-      other: v8::Local<v8::Object>,
-      key: &str,
-    ) -> Option<f64> {
-      let key = v8::String::new(scope, key).unwrap();
-      other
-        .get(scope, key.into())
-        .map(|x| x.to_number(scope).unwrap().value())
-    }
+    DOMPoint::from_point_inner(scope, other)
+  }
 
-    Ok(DOMPoint {
-      x: get(scope, other, "x").unwrap_or(0.0),
-      y: get(scope, other, "y").unwrap_or(0.0),
-      z: get(scope, other, "z").unwrap_or(0.0),
-      w: get(scope, other, "w").unwrap_or(0.0),
-    })
+  #[required(1)]
+  #[cppgc]
+  fn from_point(
+    &self,
+    scope: &mut v8::HandleScope,
+    other: v8::Local<v8::Object>,
+  ) -> Result<DOMPoint, AnyError> {
+    DOMPoint::from_point_inner(scope, other)
   }
 
   #[getter]
@@ -165,6 +184,7 @@ impl DOMPoint {
   fn w(&self) -> f64 {
     self.w
   }
+
   #[getter]
   fn z(&self) -> f64 {
     self.z
