@@ -1,5 +1,8 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
 use syn::parse::Parse;
@@ -56,10 +59,19 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           .iter()
           .map(|field| field.name.clone())
           .collect::<Vec<_>>();
+        let v8_static_strings = names
+          .iter()
+          .map(|name| {
+            let value = name.to_string();
+            let new_ident = format_ident!("__v8_static_{name}");
+            quote!(#new_ident = #value)
+          })
+          .collect::<Vec<_>>();
 
         let fields = fields.into_iter().map(|field| {
           let string_name = field.name.to_string();
           let name = field.name;
+          let v8_static_name = format_ident!("__v8_static_{name}");
 
           let required_or_default = if field.required && field.default_value.is_none() {
             quote! {
@@ -77,7 +89,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           } else {
             quote! { None }
           };
-          
+
           let val = if field.required {
             quote!(val)
           } else {
@@ -86,10 +98,11 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
 
           quote! {
             let #name = {
-              if let Some(__value) = __obj.as_ref().and_then(|__obj| {
-                let __key = v8::String::new(__scope, #string_name).unwrap();
-                __obj.get(__scope, __key.into())
-              }) {
+              let __key = #v8_static_name
+                .v8_string(__scope)
+                .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), __context.clone(), e))?
+                .into();
+              if let Some(__value) = __obj.as_ref().and_then(|__obj| __obj.get(__scope, __key)) {
                 let val = ::deno_core::webidl::WebIdlConverter::convert(
                   __scope,
                   __value,
@@ -105,10 +118,14 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
         }).collect::<Vec<_>>();
 
         quote! {
+          ::deno_core::v8_static_strings! {
+            #(#v8_static_strings)*,
+          }
+
           impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
             fn convert(
-              __scope: &mut v8::HandleScope<'a>,
-              __value: v8::Local<'a, v8::Value>,
+              __scope: &mut::deno_core:: v8::HandleScope<'a>,
+              __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
               __prefix: std::borrow::Cow<'static, str>,
               __context: std::borrow::Cow<'static, str>
             ) -> Result<Self, ::deno_core::webidl::WebIdlError> {
