@@ -185,6 +185,7 @@ impl DOMPoint {
     self.w
   }
 
+  #[fast]
   #[getter]
   fn z(&self) -> f64 {
     self.z
