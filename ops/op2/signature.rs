@@ -278,6 +278,7 @@ pub enum Arg {
   OptionCppGcResource(String),
   FromV8(String),
   ToV8(String),
+  WebIDL(String),
   VarArgs,
 }
 
@@ -740,6 +741,8 @@ pub enum AttributeModifier {
   ToV8,
   /// #[from_v8] for types that impl `FromV8`
   FromV8,
+  /// #[webidl], for types that impl `WebIdlConverter`
+  WebIDL,
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
@@ -773,6 +776,7 @@ impl AttributeModifier {
       AttributeModifier::Buffer(..) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
+      AttributeModifier::WebIDL => "webidl",
       AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
@@ -1231,6 +1235,7 @@ fn parse_attribute(
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[number]) => Some(AttributeModifier::Number),
       (#[serde]) => Some(AttributeModifier::Serde),
+      (#[webidl]) => Some(AttributeModifier::WebIDL),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
       (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
@@ -1556,11 +1561,13 @@ pub(crate) fn parse_type(
       }
       AttributeModifier::Serde
       | AttributeModifier::FromV8
-      | AttributeModifier::ToV8 => {
+      | AttributeModifier::ToV8
+      | AttributeModifier::WebIDL => {
         let make_arg = match primary {
           AttributeModifier::Serde => Arg::SerdeV8,
           AttributeModifier::FromV8 => Arg::FromV8,
           AttributeModifier::ToV8 => Arg::ToV8,
+          AttributeModifier::WebIDL => Arg::WebIDL,
           _ => unreachable!(),
         };
         match ty {

@@ -32,9 +32,11 @@ mod runtime;
 mod source_map;
 mod tasks;
 mod web_timeout;
+pub mod webidl;
 
 // Re-exports
 pub use anyhow;
+pub use deno_ops::op2;
 pub use deno_unsync as unsync;
 pub use futures;
 pub use parking_lot;
@@ -50,8 +52,6 @@ pub use serde_v8::U16String;
 pub use sourcemap;
 pub use url;
 pub use v8;
-
-pub use deno_ops::op2;
 
 pub use crate::async_cancel::CancelFuture;
 pub use crate::async_cancel::CancelHandle;
