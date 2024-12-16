@@ -121,6 +121,8 @@ pub(crate) fn generate_op2(
   if config.setter {
     // Prepend "__set_" to the setter function name.
     func.sig.ident = format_ident!("__set_{}", func.sig.ident);
+  } else if config.static_member {
+    func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
   let signature = parse_signature(func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))

@@ -401,7 +401,14 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
     for method in op_method_ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
+      let method_key = method.decl.name;
+      let method_key = method_key.strip_prefix("__static_").unwrap();
+      let method_key = v8::String::new_from_one_byte(
+        scope,
+        method_key.as_bytes(),
+        v8::NewStringType::Normal,
+      )
+      .unwrap();
       tmpl.set(method_key.into(), op_fn.into());
     }
 
@@ -1018,7 +1025,14 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 
     for method in ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
+      let method_key = method.decl.name;
+      let method_key = method_key.strip_prefix("__static_").unwrap();
+      let method_key = v8::String::new_from_one_byte(
+        scope,
+        method_key.as_bytes(),
+        v8::NewStringType::Normal,
+      )
+      .unwrap();
       tmpl.set(method_key.into(), op_fn.into());
     }
 
