@@ -204,7 +204,7 @@ impl TryFrom<Field> for DictionaryField {
   fn try_from(value: Field) -> Result<Self, Self::Error> {
     let is_optional = if let Type::Path(path) = value.ty {
       if let Some(last) = path.path.segments.last() {
-        last.ident.to_string() == "Option"
+        last.ident == "Option"
       } else {
         false
       }
