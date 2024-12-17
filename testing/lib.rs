@@ -3,6 +3,7 @@
 mod checkin;
 
 pub use checkin::runner::create_runtime_from_snapshot;
+pub use checkin::runner::create_runtime_from_snapshot_with_options;
 pub use checkin::runner::snapshot::create_snapshot;
 
 macro_rules! unit_test {
