@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use deno_core::anyhow::Error;
-use deno_core::OpDecl;
 use deno_core::OpMetricsEvent;
 use deno_core::OpMetricsFactoryFn;
 use deno_core::OpMetricsSource;
