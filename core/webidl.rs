@@ -48,6 +48,8 @@ impl std::fmt::Display for WebIdlError {
           "can not be converted to '{converter}' because '{key}' is required in '{converter}'",
         )
       }
+      WebIdlErrorKind::IntNotFinite => write!(f, "is not a finite number"),
+      WebIdlErrorKind::IntRange { lower_bound, upper_bound } => write!(f, "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"),
       WebIdlErrorKind::Other(other) => std::fmt::Display::fmt(other, f),
     }
   }
@@ -62,16 +64,30 @@ pub enum WebIdlErrorKind {
     converter: &'static str,
     key: &'static str,
   },
+  IntNotFinite,
+  IntRange {
+    lower_bound: f64,
+    upper_bound: f64,
+  },
   Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 pub trait WebIdlConverter<'a>: Sized {
+  type Options: Default;
+
   fn convert(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: Cow<'static, str>,
+    options: &Self::Options,
   ) -> Result<Self, WebIdlError>;
+}
+
+#[derive(Debug, Default)]
+pub struct IntOptions {
+  pub clamp: bool,
+  pub enforce_range: bool,
 }
 
 /*
@@ -90,11 +106,14 @@ macro_rules! impl_ints {
   ($($t:ty: $unsigned:tt = $name: literal ),*) => {
     $(
       impl<'a> WebIdlConverter<'a> for $t {
+        type Options = IntOptions;
+
         fn convert(
           scope: &mut HandleScope<'a>,
           value: Local<'a, Value>,
           prefix: Cow<'static, str>,
           context: Cow<'static, str>,
+          options: &Self::Options,
         ) -> Result<Self, WebIdlError> {
           let Some(mut n) = value.number_value(scope) else {
             return Err(WebIdlError::new(prefix, context, WebIdlErrorKind::ConvertToConverterType($name)));
@@ -103,8 +122,32 @@ macro_rules! impl_ints {
             n = 0.0;
           }
 
-          // TODO: enforceRange
-          // TODO: clamp
+          if options.enforce_range {
+            if !n.is_finite() {
+              return Err(WebIdlError::new(prefix, context, WebIdlErrorKind::IntNotFinite));
+            }
+
+            n = n.trunc();
+            if n == -0.0 {
+              n = 0.0;
+            }
+
+            if n < Self::MIN as f64 || n > Self::MAX as f64 {
+              return Err(WebIdlError::new(prefix, context, WebIdlErrorKind::IntRange {
+                lower_bound: Self::MIN as f64,
+                upper_bound: Self::MAX as f64,
+              }));
+            }
+
+            return Ok(n as Self);
+          }
+
+          if !n.is_nan() && options.clamp {
+            return Ok(
+              n.clamp(Self::MIN as f64, Self::MAX as f64)
+              .round_ties_even() as Self
+            );
+          }
 
           if !n.is_finite() || n == 0.0 {
             return Ok(0);
@@ -162,22 +205,28 @@ impl_ints!(
 // TODO: float, unrestricted float, double, unrestricted double
 
 impl<'a> WebIdlConverter<'a> for bool {
+  type Options = ();
+
   fn convert(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
     _context: Cow<'static, str>,
+    _options: &Self::Options,
   ) -> Result<Self, WebIdlError> {
     Ok(value.to_boolean(scope).is_true())
   }
 }
 
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
+  type Options = T::Options;
+
   fn convert(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: Cow<'static, str>,
+    options: &Self::Options,
   ) -> Result<Self, WebIdlError> {
     let Some(obj) = value.to_object(scope) else {
       return Err(WebIdlError::new(
@@ -247,6 +296,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
         iter_val,
         prefix.clone(),
         format!("{context}, index {}", out.len()).into(),
+        options,
       )?);
     }
 

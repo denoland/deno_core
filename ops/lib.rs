@@ -33,7 +33,7 @@ fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
   }
 }
 
-#[proc_macro_derive(WebIDL, attributes(webidl))]
+#[proc_macro_derive(WebIDL, attributes(webidl, options))]
 pub fn webidl(item: TokenStream) -> TokenStream {
   match webidl::webidl(item.into()) {
     Ok(output) => output.into(),

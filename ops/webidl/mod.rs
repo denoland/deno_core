@@ -7,9 +7,8 @@ use quote::quote;
 use quote::ToTokens;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
-use syn::parse2;
+use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::Attribute;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
@@ -17,6 +16,8 @@ use syn::Expr;
 use syn::Field;
 use syn::Fields;
 use syn::Type;
+use syn::{parse2, LitStr, Token};
+use syn::{Attribute, MetaNameValue};
 
 pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let input = parse2::<DeriveInput>(item)?;
@@ -59,11 +60,15 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           .iter()
           .map(|field| field.name.clone())
           .collect::<Vec<_>>();
-        let v8_static_strings = names
+        let v8_static_strings = fields
           .iter()
-          .map(|name| {
-            let value = name.to_string();
+          .map(|field| {
+            let name = &field.name;
             let new_ident = format_ident!("__v8_static_{name}");
+            let value = field
+              .rename
+              .clone()
+              .unwrap_or_else(|| stringcase::camel_case(&name.to_string()));
             quote!(#new_ident = #value)
           })
           .collect::<Vec<_>>();
@@ -96,18 +101,47 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
             quote!(Some(val))
           };
 
+          let options = if field.converter_options.is_empty() {
+            quote!(Default::default())
+          } else {
+            let inner = field.converter_options
+              .into_iter()
+              .map(|(k, v)| quote!(#k: #v))
+              .collect::<Vec<_>>();
+            
+            let ty = field.ty;
+
+            quote! {
+              <#ty as ::deno_core::webidl::WebIdlConverter>::Options {
+                #(#inner),*,
+                ..Default::default()
+              }
+            }
+          };
+          
+          println!("{:?}", options.to_string());
+          
           quote! {
             let #name = {
               let __key = #v8_static_name
                 .v8_string(__scope)
                 .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), __context.clone(), e))?
                 .into();
-              if let Some(__value) = __obj.as_ref().and_then(|__obj| __obj.get(__scope, __key)) {
+              if let Some(__value) = __obj.as_ref()
+              .and_then(|__obj| __obj.get(__scope, __key))
+              .and_then(|__value| {
+                if __value.is_undefined() {
+                  None
+                } else {
+                  Some(__value)
+                }
+              }) {
                 let val = ::deno_core::webidl::WebIdlConverter::convert(
                   __scope,
                   __value,
                   __prefix.clone(),
                   format!("'{}' of '{}' ({__context})", #string_name, #ident_string).into(),
+                  &#options,
                 )?;
                 #val
               } else {
@@ -119,15 +153,18 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
 
         quote! {
           ::deno_core::v8_static_strings! {
-            #(#v8_static_strings)*,
+            #(#v8_static_strings),*
           }
 
           impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
+            type Options = ();
+
             fn convert(
               __scope: &mut::deno_core:: v8::HandleScope<'a>,
               __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
               __prefix: std::borrow::Cow<'static, str>,
-              __context: std::borrow::Cow<'static, str>
+              __context: std::borrow::Cow<'static, str>,
+              __options: &Self::Options,
             ) -> Result<Self, ::deno_core::webidl::WebIdlError> {
               let __obj = if __value.is_undefined() || __value.is_null() {
                 None
@@ -162,6 +199,9 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
 
 mod kw {
   syn::custom_keyword!(dictionary);
+  syn::custom_keyword!(default);
+  syn::custom_keyword!(rename);
+  syn::custom_keyword!(required);
 }
 
 enum ConverterType {
@@ -195,14 +235,54 @@ impl Parse for ConverterType {
 
 struct DictionaryField {
   name: Ident,
+  rename: Option<String>,
   default_value: Option<Expr>,
   required: bool,
+  converter_options: std::collections::HashMap<Ident, Expr>,
+  ty: Type,
 }
 
 impl TryFrom<Field> for DictionaryField {
   type Error = Error;
   fn try_from(value: Field) -> Result<Self, Self::Error> {
-    let is_optional = if let Type::Path(path) = value.ty {
+    let mut default_value: Option<Expr> = None;
+    let mut rename: Option<String> = None;
+    let mut required = false;
+    let mut converter_options = std::collections::HashMap::new();
+
+    for attr in value.attrs {
+      if attr.path().is_ident("webidl") {
+        let list = attr.meta.require_list()?;
+        let args = list.parse_args_with(
+          Punctuated::<FieldArgument, Token![,]>::parse_terminated,
+        )?;
+
+        for argument in args {
+          match argument {
+            FieldArgument::Default { value, .. } => default_value = Some(value),
+            FieldArgument::Rename { value, .. } => rename = Some(value.value()),
+            FieldArgument::Required { .. } => required = true,
+          }
+        }
+      } else if attr.path().is_ident("options") {
+        let list = attr.meta.require_list()?;
+        let args = list.parse_args_with(
+          Punctuated::<MetaNameValue, Token![,]>::parse_terminated,
+        )?;
+
+        let args = args
+          .into_iter()
+          .map(|kv| {
+            let ident = kv.path.require_ident()?;
+            Ok((ident.clone(), kv.value))
+          })
+          .collect::<Result<Vec<_>, Error>>()?;
+
+        converter_options.extend(args);
+      }
+    }
+
+    let is_option = if let Type::Path(path) = &value.ty {
       if let Some(last) = path.path.segments.last() {
         last.ident == "Option"
       } else {
@@ -212,35 +292,55 @@ impl TryFrom<Field> for DictionaryField {
       false
     };
 
-    let default_value = value
-      .attrs
-      .into_iter()
-      .find_map(|attr| {
-        if attr.path().is_ident("webidl") {
-          let list = match attr.meta.require_list() {
-            Ok(list) => list,
-            Err(e) => return Some(Err(e)),
-          };
-          let name_value = match list.parse_args::<syn::MetaNameValue>() {
-            Ok(name_value) => name_value,
-            Err(e) => return Some(Err(e)),
-          };
-
-          if name_value.path.is_ident("default") {
-            Some(Ok(name_value.value))
-          } else {
-            None
-          }
-        } else {
-          None
-        }
-      })
-      .transpose()?;
-
     Ok(Self {
       name: value.ident.unwrap(),
+      rename,
       default_value,
-      required: !is_optional,
+      required: required || !is_option,
+      converter_options,
+      ty: value.ty,
     })
+  }
+}
+
+#[allow(dead_code)]
+enum FieldArgument {
+  Default {
+    name_token: kw::default,
+    eq_token: Token![=],
+    value: Expr,
+  },
+  Rename {
+    name_token: kw::rename,
+    eq_token: Token![=],
+    value: LitStr,
+  },
+  Required {
+    name_token: kw::rename,
+  },
+}
+
+impl Parse for FieldArgument {
+  fn parse(input: ParseStream) -> Result<Self, Error> {
+    let lookahead = input.lookahead1();
+    if lookahead.peek(kw::default) {
+      Ok(FieldArgument::Default {
+        name_token: input.parse()?,
+        eq_token: input.parse()?,
+        value: input.parse()?,
+      })
+    } else if lookahead.peek(kw::rename) {
+      Ok(FieldArgument::Rename {
+        name_token: input.parse()?,
+        eq_token: input.parse()?,
+        value: input.parse()?,
+      })
+    } else if lookahead.peek(kw::required) {
+      Ok(FieldArgument::Required {
+        name_token: input.parse()?,
+      })
+    } else {
+      Err(lookahead.error())
+    }
   }
 }

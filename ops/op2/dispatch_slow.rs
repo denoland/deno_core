@@ -7,7 +7,6 @@ use super::dispatch_shared::v8slice_to_buffer;
 use super::generator_state::gs_extract;
 use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
-use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
 use super::signature::BufferMode;
@@ -21,6 +20,7 @@ use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
+use super::signature::{Arg, WebIDLPairs};
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use proc_macro2::Ident;
@@ -651,7 +651,7 @@ pub fn from_arg(
         };
       }
     }
-    Arg::WebIDL(ty) => {
+    Arg::WebIDL(ty, options) => {
       *needs_scope = true;
       let ty =
         syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
@@ -660,12 +660,30 @@ pub fn from_arg(
       let throw_exception = throw_type_error_string(generator_state, &err)?;
       let prefix = get_prefix(generator_state);
       let context = format!("Argument {}", index + 1);
+
+      let options = if options.is_empty() {
+        quote!(Default::default())
+      } else {
+        let inner = options
+          .iter()
+          .map(|WebIDLPairs(k, v)| quote!(#k: #v))
+          .collect::<Vec<_>>();
+
+        quote! {
+          <#ty as deno_core::webidl::WebIdlConverter>::Options {
+            #(#inner),*
+            ..Default::default()
+          }
+        }
+      };
+
       quote! {
         let #arg_ident = match <#ty as deno_core::webidl::WebIdlConverter>::convert(
           &mut #scope,
           #arg_ident,
           #prefix.into(),
-          #context.into()
+          #context.into(),
+          &#options,
         ) {
           Ok(t) => t,
           Err(#err) => {
