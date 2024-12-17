@@ -247,7 +247,7 @@ impl Foo {
         }
         impl Callable for Foo {
             #[inline(always)]
-            pub fn call(&self) -> u32 {
+            fn call(&self) -> u32 {
                 self.x.get()
             }
         }
@@ -370,7 +370,7 @@ impl Foo {
         }
         impl Callable for Foo {
             #[inline(always)]
-            pub fn call(&self, x: u32) {
+            fn call(&self, x: u32) {
                 self.x.set(x);
             }
         }
@@ -513,7 +513,7 @@ impl Foo {
         }
         impl Callable for Foo {
             #[inline(always)]
-            pub fn call(&self, _v: u32) {}
+            fn call(&self, _v: u32) {}
         }
         <bar as ::deno_core::_ops::Op>::DECL
     }
@@ -708,7 +708,7 @@ impl Foo {
         }
         impl Callable for Foo {
             #[inline(always)]
-            pub fn call(&self) {}
+            fn call(&self) {}
         }
         <zzz as ::deno_core::_ops::Op>::DECL
     }
@@ -814,11 +814,11 @@ impl Foo {
             }
         }
         trait Callable {
-            fn call(&self, args: Option<&v8::FunctionCallbackArguments>);
+            fn call(&self, _args: Option<&v8::FunctionCallbackArguments>);
         }
         impl Callable for Foo {
             #[inline(always)]
-            fn call(&self, args: Option<&v8::FunctionCallbackArguments>) {}
+            fn call(&self, _args: Option<&v8::FunctionCallbackArguments>) {}
         }
         <withVarargs as ::deno_core::_ops::Op>::DECL
     }

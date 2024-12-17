@@ -276,6 +276,7 @@ pub(crate) fn generate_op2(
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
   let op_fn_sig = &op_fn.sig;
   let callable = if let Some(ty) = config.method {
+    op_fn.vis = syn::Visibility::Inherited;
     let ident = format_ident!("{ty}");
     quote! {
       trait Callable {

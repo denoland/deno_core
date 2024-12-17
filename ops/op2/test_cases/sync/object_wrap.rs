@@ -43,7 +43,7 @@ impl Foo {
   #[nofast]
   fn with_varargs(
     &self,
-    #[varargs] args: Option<&v8::FunctionCallbackArguments>,
+    #[varargs] _args: Option<&v8::FunctionCallbackArguments>,
   ) {
   }
 
