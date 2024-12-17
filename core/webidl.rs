@@ -140,7 +140,7 @@ macro_rules! impl_ints {
 
   (@handle_unsigned false $n:ident $bit_len_num:ident) => {
     if $n >= Self::MAX as f64 {
-        return Ok(($n - $bit_len_num) as Self);
+      return Ok(($n - $bit_len_num) as Self);
     }
   };
 
