@@ -66,15 +66,6 @@ impl OpMetricsSummary {
   }
 }
 
-fn fmt_op_name(decl: &OpDecl) -> String {
-  match decl.accessor_type {
-    deno_core::AccessorType::Getter => todo!(),
-    deno_core::AccessorType::Setter => todo!(),
-    deno_core::AccessorType::None => todo!(),
-  }
-}
-
-// Option<Box<dyn Fn(u16, usize, &OpDecl) -> Option<Rc<dyn Fn(&OpCtx, OpMetricsEvent, OpMetricsSource), Global>>, Global>>
 pub fn create_metrics(
   strace: bool,
   summary: bool,
