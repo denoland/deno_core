@@ -74,15 +74,101 @@ pub trait WebIdlConverter<'a>: Sized {
   ) -> Result<Self, WebIdlError>;
 }
 
-impl<'a, T: crate::FromV8<'a>> WebIdlConverter<'a> for T {
+/*
+todo:
+If bitLength is 64, then:
+
+    Let upperBound be 253 − 1.
+
+    If signedness is "unsigned", then let lowerBound be 0.
+
+    Otherwise let lowerBound be −253 + 1.
+
+ */
+// https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
+macro_rules! impl_ints {
+  ($($t:ty: $unsigned:tt = $name: literal ),*) => {
+    $(
+      impl<'a> WebIdlConverter<'a> for $t {
+        fn convert(
+          scope: &mut HandleScope<'a>,
+          value: Local<'a, Value>,
+          prefix: Cow<'static, str>,
+          context: Cow<'static, str>,
+        ) -> Result<Self, WebIdlError> {
+          let Some(mut n) = value.number_value(scope) else {
+            return Err(WebIdlError::new(prefix, context, WebIdlErrorKind::ConvertToConverterType($name)));
+          };
+          if n == -0.0 {
+            n = 0.0;
+          }
+
+          // TODO: enforceRange
+          // TODO: clamp
+
+          if !n.is_finite() || n == 0.0 {
+            return Ok(0);
+          }
+
+          n = n.trunc();
+          if n == -0.0 {
+            n = 0.0;
+          }
+
+          if n >= Self::MIN as f64 && n <= Self::MAX as f64 {
+            return Ok(n as Self);
+          }
+
+          let bit_len_num = 2.0f64.powi(Self::BITS as i32);
+
+          n = {
+            let sign_might_not_match = n % bit_len_num;
+            if n.is_sign_positive() != bit_len_num.is_sign_positive() {
+              sign_might_not_match + bit_len_num
+            } else {
+              sign_might_not_match
+            }
+          };
+
+          impl_ints!(@handle_unsigned $unsigned n bit_len_num);
+
+          Ok(n as Self)
+        }
+      }
+    )*
+  };
+
+  (@handle_unsigned false $n:ident $bit_len_num:ident) => {
+    if $n >= Self::MAX as f64 {
+        return Ok(($n - $bit_len_num) as Self);
+    }
+  };
+
+  (@handle_unsigned true $n:ident $bit_len_num:ident) => {};
+}
+
+// https://webidl.spec.whatwg.org/#js-integer-types
+impl_ints!(
+  i8: false = "byte",
+  u8: true = "octet",
+  i16: false = "short",
+  u16: true = "unsigned short",
+  i32: false = "long",
+  u32: true = "unsigned long",
+  i64: false = "long long",
+  u64: true = "unsigned long long"
+);
+
+// TODO: float, unrestricted float, double, unrestricted double
+
+impl<'a> WebIdlConverter<'a> for bool {
   fn convert(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
-    prefix: Cow<'static, str>,
-    context: Cow<'static, str>,
+    _prefix: Cow<'static, str>,
+    _context: Cow<'static, str>,
   ) -> Result<Self, WebIdlError> {
-    Self::from_v8(scope, value)
-      .map_err(|e| WebIdlError::other(prefix, context, e))
+    Ok(value.to_boolean(scope).is_true())
   }
 }
 
