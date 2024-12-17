@@ -6,6 +6,7 @@ use clap::builder::Command;
 use clap::ArgMatches;
 use deno_core::anyhow::Error;
 
+use deno_core::RuntimeOptions;
 use deno_core_testing::create_runtime_from_snapshot;
 
 use std::net::SocketAddr;
@@ -16,7 +17,9 @@ static SNAPSHOT: &[u8] =
   include_bytes!(concat!(env!("OUT_DIR"), "/SNAPSHOT.bin"));
 
 mod inspector_server;
+mod metrics;
 use crate::inspector_server::InspectorServer;
+use crate::metrics::create_metrics;
 
 fn main() -> Result<(), Error> {
   eprintln!(
@@ -39,8 +42,35 @@ fn main() -> Result<(), Error> {
     None
   };
 
-  let mut js_runtime =
-    create_runtime_from_snapshot(SNAPSHOT, inspector_server.is_some(), vec![]);
+  let (metrics_summary, mut js_runtime) = if matches.get_flag("strace-ops")
+    || matches.get_flag("strace-ops-summary")
+  {
+    let (summary, op_metrics_factory_fn) = create_metrics(
+      matches.get_flag("strace-ops"),
+      matches.get_flag("strace-ops-summary"),
+    );
+    (
+      Some(summary),
+      deno_core_testing::create_runtime_from_snapshot_with_options(
+        SNAPSHOT,
+        inspector_server.is_some(),
+        vec![],
+        RuntimeOptions {
+          op_metrics_factory_fn: Some(op_metrics_factory_fn),
+          ..Default::default()
+        },
+      ),
+    )
+  } else {
+    (
+      None,
+      create_runtime_from_snapshot(
+        SNAPSHOT,
+        inspector_server.is_some(),
+        vec![],
+      ),
+    )
+  };
 
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()
@@ -65,7 +95,11 @@ fn main() -> Result<(), Error> {
     js_runtime.run_event_loop(Default::default()).await?;
     result.await
   };
-  runtime.block_on(future)
+  let result = runtime.block_on(future);
+  if let Some(summary) = metrics_summary {
+    eprintln!("{}", summary.to_json_pretty()?)
+  }
+  result
 }
 
 fn build_cli() -> Command {
@@ -110,6 +144,20 @@ fn build_cli() -> Command {
         .value_hint(clap::ValueHint::FilePath)
         .value_parser(clap::value_parser!(String))
         .required(true),
+    )
+    .arg(
+      Arg::new("strace-ops")
+        .help("Output a trace of op execution on stderr")
+        .long("strace-ops")
+        .num_args(0)
+        .required(false)
+        .action(clap::ArgAction::SetTrue)
+
+    ).arg(
+      Arg::new("strace-ops-summary")
+        .help("Output a summary of op execution on stderr when program exits")
+        .long("strace-ops-summary")
+        .action(clap::ArgAction::SetTrue)
     )
 }
 
