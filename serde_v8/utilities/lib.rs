@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use std::sync::Once;
 
 pub fn js_exec<'s>(

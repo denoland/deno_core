@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use super::Resource;
 use super::ResourceHandle;
 use super::ResourceHandleFd;

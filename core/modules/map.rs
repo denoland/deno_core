@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use super::module_map_data::ModuleMapSnapshotData;
 use super::IntoModuleCodeString;
 use super::IntoModuleName;

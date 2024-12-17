@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use std::io::IsTerminal;
 
 /// Represents an underlying handle for a platform. On unix, everything is an `fd`. On Windows, everything

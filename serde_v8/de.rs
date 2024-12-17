@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use serde::de::SeqAccess as _;
 use serde::de::Visitor;
 use serde::de::{self};

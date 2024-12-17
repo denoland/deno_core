@@ -1,4 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use super::config::MacroConfig;
 use super::dispatch_slow::generate_dispatch_slow_call;
 use super::dispatch_slow::return_value_infallible;
