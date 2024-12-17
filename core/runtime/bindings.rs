@@ -401,8 +401,8 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
     for method in op_method_ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
-      tmpl.set(method_key.into(), op_fn.into());
+      let method_key = method.decl.name_fast;
+      tmpl.set(method_key.v8_string(scope).unwrap().into(), op_fn.into());
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();
@@ -526,17 +526,15 @@ fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
   for method in ctx.methods.iter() {
     // Populate all setters first.
     if method.decl.accessor_type == AccessorType::Setter {
-      let key = method.decl.name_fast.to_string();
+      let key = method.decl.name_fast;
 
-      // All setters must start with "__set_".
-      let key = key.strip_prefix("__set_").expect("Invalid setter name");
-
+      let key_str = key.to_string();
       // There must be a getter for each setter.
       let getter = ctx
         .methods
         .iter()
         .find(|m| {
-          m.decl.name == key && m.decl.accessor_type == AccessorType::Getter
+          m.decl.name == key_str && m.decl.accessor_type == AccessorType::Getter
         })
         .expect("Getter not found for setter");
 
@@ -1018,8 +1016,8 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 
     for method in ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
-      tmpl.set(method_key.into(), op_fn.into());
+      let method_key = method.decl.name_fast;
+      tmpl.set(method_key.v8_string(scope).unwrap().into(), op_fn.into());
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();
