@@ -80,6 +80,7 @@ impl MacroConfig {
     }
 
     for flag in flags {
+      let flag = flag.replace(' ', "");
       if flag == "method" {
         // Doesn't need any special handling, its more of a marker.
         continue;
