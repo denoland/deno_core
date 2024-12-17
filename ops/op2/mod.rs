@@ -360,6 +360,24 @@ mod tests {
   use syn::File;
   use syn::Item;
 
+  fn to_attr_input(op2_attr: syn::Attribute) -> TokenStream {
+    match op2_attr.meta {
+      syn::Meta::Path(_) => quote!(),
+      syn::Meta::List(meta_list) => meta_list.tokens,
+      syn::Meta::NameValue(_) => panic!("unexpected op2 invocation"),
+    }
+  }
+
+  fn find_op2_attr<'a>(
+    attrs: impl IntoIterator<Item = &'a syn::Attribute>,
+  ) -> Option<(usize, syn::Attribute)> {
+    attrs
+      .into_iter()
+      .enumerate()
+      .find(|(_, attr)| attr.path().segments.first().unwrap().ident == "op2")
+      .map(|(idx, attr)| (idx, attr.to_owned()))
+  }
+
   #[testing_macros::fixture("op2/test_cases/sync/*.rs")]
   fn test_proc_macro_sync(input: PathBuf) {
     test_proc_macro_output(input)
@@ -368,6 +386,16 @@ mod tests {
   #[testing_macros::fixture("op2/test_cases/async/*.rs")]
   fn test_proc_macro_async(input: PathBuf) {
     test_proc_macro_output(input)
+  }
+
+  fn expand_op2(op2_attr: syn::Attribute, item: impl ToTokens) -> String {
+    let tokens = op2(to_attr_input(op2_attr), item.to_token_stream())
+      .expect("Failed to generate op");
+    println!("======== Raw tokens ========:\n{}", tokens.clone());
+    let tree = syn::parse2(tokens).unwrap();
+    let actual = prettyplease::unparse(&tree);
+    println!("======== Generated ========:\n{}", actual);
+    actual
   }
 
   fn test_proc_macro_output(input: PathBuf) {
@@ -388,29 +416,22 @@ deno_ops_compile_test_runner::prelude!();";
       syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
     let mut expected_out = vec![];
     for item in file.items {
-      if let Item::Fn(mut func) = item {
-        let mut config = None;
-        func.attrs.retain(|attr| {
-          let tokens = attr.into_token_stream();
-          let attr_string = attr.clone().into_token_stream().to_string();
-          println!("{}", attr_string);
-          if let Some(new_config) =
-            MacroConfig::from_maybe_attribute_tokens(tokens)
-              .expect("Failed to parse attribute")
-          {
-            config = Some(new_config);
-            false
-          } else {
-            true
+      match item {
+        Item::Fn(mut func) => {
+          if let Some((idx, op2_attr)) = find_op2_attr(&func.attrs) {
+            func.attrs.remove(idx);
+            let actual = expand_op2(op2_attr, func);
+            expected_out.push(actual);
           }
-        });
-        let tokens =
-          generate_op2(config.unwrap(), func).expect("Failed to generate op");
-        println!("======== Raw tokens ========:\n{}", tokens.clone());
-        let tree = syn::parse2(tokens).unwrap();
-        let actual = prettyplease::unparse(&tree);
-        println!("======== Generated ========:\n{}", actual);
-        expected_out.push(actual);
+        }
+        Item::Impl(mut imp) => {
+          if let Some((idx, op2_attr)) = find_op2_attr(&imp.attrs) {
+            imp.attrs.remove(idx);
+            let actual = expand_op2(op2_attr, imp);
+            expected_out.push(actual);
+          }
+        }
+        _ => {}
       }
     }
 
