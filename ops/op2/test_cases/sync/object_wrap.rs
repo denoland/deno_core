@@ -50,4 +50,11 @@ impl Foo {
   #[nofast]
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
+
+  #[nofast]
+  #[static_method]
+  fn do_thing() {}
+
+  #[nofast]
+  fn do_thing(&self) {}
 }
