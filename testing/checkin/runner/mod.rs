@@ -109,6 +109,19 @@ pub fn create_runtime_from_snapshot(
   inspector: bool,
   additional_extensions: Vec<Extension>,
 ) -> JsRuntime {
+  create_runtime_from_snapshot_with_options(
+    snapshot,
+    inspector,
+    additional_extensions,
+    RuntimeOptions::default(),
+  )
+}
+pub fn create_runtime_from_snapshot_with_options(
+  snapshot: &'static [u8],
+  inspector: bool,
+  additional_extensions: Vec<Extension>,
+  options: RuntimeOptions,
+) -> JsRuntime {
   let mut extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
   extensions.extend(additional_extensions);
   let module_loader =
@@ -124,7 +137,7 @@ pub fn create_runtime_from_snapshot(
     custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector,
     import_assertions_support: ImportAssertionsSupport::Warning,
-    ..Default::default()
+    ..options
   });
 
   let stats = runtime.runtime_activity_stats_factory();

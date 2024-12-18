@@ -759,6 +759,11 @@ fn map_v8_fastcall_arg_to_arg(
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
       }
     }
+    Arg::VarArgs => {
+      quote! {
+        let #arg_ident = None;
+      }
+    }
     Arg::String(Strings::RefStr) => {
       quote! {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
@@ -886,6 +891,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
     | Arg::State(..)
+    | Arg::VarArgs
     | Arg::Special(Special::Isolate)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled

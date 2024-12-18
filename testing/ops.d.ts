@@ -25,9 +25,18 @@ export class DOMPoint {
   static fromPoint(
     other: { x?: number; y?: number; z?: number; w?: number },
   ): DOMPoint;
+  fromPoint(
+    other: { x?: number; y?: number; z?: number; w?: number },
+  ): DOMPoint;
   get x(): number;
   get y(): number;
   get z(): number;
   get w(): number;
   wrappingSmi(value: number): number;
+}
+
+export class TestObjectWrap {
+  constructor();
+  withVarargs(...args: any[]): number;
+  with_RENAME(): void;
 }

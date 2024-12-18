@@ -272,9 +272,9 @@ checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
 
 [[package]]
 name = "capacity_builder"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2c0f637033edd76ceb881faaee372868a383f0ed7a4a59e8fdf90db2502f3d3"
+checksum = "ab97838e07d98bdddf1e7e191ffe3c718cba7477c0b6607fdfb96ecd696202df"
 dependencies = [
  "itoa",
 ]
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.325.0"
+version = "0.326.0"
 dependencies = [
  "anyhow",
  "az",
@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.201.0"
+version = "0.202.0"
 dependencies = [
  "pretty_assertions",
  "prettyplease",
@@ -1888,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.234.0"
+version = "0.235.0"
 dependencies = [
  "bencher",
  "deno_error",

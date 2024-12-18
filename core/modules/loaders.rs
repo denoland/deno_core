@@ -15,6 +15,7 @@ use crate::ModuleSourceCode;
 use anyhow::Context;
 use deno_core::error::CoreError;
 use futures::future::FutureExt;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
@@ -173,7 +174,7 @@ pub trait ModuleLoader {
   /// Returns a source map for given `file_name`.
   ///
   /// This function will soon be deprecated or renamed.
-  fn get_source_map(&self, _file_name: &str) -> Option<Vec<u8>> {
+  fn get_source_map(&self, _file_name: &str) -> Option<Cow<[u8]>> {
     None
   }
 

@@ -1,10 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
 use std::path::PathBuf;
-use std::rc::Rc;
 use url::Url;
 use v8::MapFnTo;
 
@@ -12,6 +10,7 @@ use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
 use crate::cppgc::cppgc_template_constructor;
+use crate::cppgc::FunctionTemplateData;
 use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
@@ -33,7 +32,6 @@ use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
-use crate::OpState;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
@@ -344,10 +342,10 @@ pub(crate) fn initialize_primordials_and_infra(
 /// Set up JavaScript bindings for ops.
 pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
-  op_state: Rc<RefCell<OpState>>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   op_method_ctxs: &[OpMethodCtx],
+  fn_template_store: &mut FunctionTemplateData,
 ) {
   let global = context.global(scope);
 
@@ -358,6 +356,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");
   let deno_core_ops_obj: v8::Local<v8::Object> =
     get(scope, deno_core_obj, OPS, "Deno.core.ops");
+
   let set_up_async_stub_fn: v8::Local<v8::Function> = get(
     scope,
     deno_core_obj,
@@ -401,18 +400,16 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
     for method in op_method_ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
-      tmpl.set(method_key.into(), op_fn.into());
+      let method_key = method.decl.name_fast;
+      tmpl.set(method_key.v8_string(scope).unwrap().into(), op_fn.into());
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();
     op_fn.set_name(key);
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
 
-    let id = op_method_ctx.id;
-    op_state
-      .borrow_mut()
-      .put_untyped(id, v8::Global::new(scope, tmpl));
+    let id = op_method_ctx.type_name.to_string();
+    fn_template_store.insert(id, v8::Global::new(scope, tmpl));
   }
 }
 
@@ -528,17 +525,15 @@ fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
   for method in ctx.methods.iter() {
     // Populate all setters first.
     if method.decl.accessor_type == AccessorType::Setter {
-      let key = method.decl.name_fast.to_string();
+      let key = method.decl.name_fast;
 
-      // All setters must start with "__set_".
-      let key = key.strip_prefix("__set_").expect("Invalid setter name");
-
+      let key_str = key.to_string();
       // There must be a getter for each setter.
       let getter = ctx
         .methods
         .iter()
         .find(|m| {
-          m.decl.name == key && m.decl.accessor_type == AccessorType::Getter
+          m.decl.name == key_str && m.decl.accessor_type == AccessorType::Getter
         })
         .expect("Getter not found for setter");
 
@@ -1040,8 +1035,8 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 
     for method in ctx.static_methods.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
-      tmpl.set(method_key.into(), op_fn.into());
+      let method_key = method.decl.name_fast;
+      tmpl.set(method_key.v8_string(scope).unwrap().into(), op_fn.into());
     }
 
     let op_fn = tmpl.get_function(scope).unwrap();

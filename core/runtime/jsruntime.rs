@@ -13,6 +13,7 @@ use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::ascii_str;
 use crate::ascii_str_include;
+use crate::cppgc::FunctionTemplateData;
 use crate::error::CoreError;
 use crate::error::JsError;
 use crate::error::{exception_to_err_result, JsNativeError};
@@ -429,6 +430,7 @@ pub struct JsRuntimeState {
   pub(crate) eval_context_code_cache_ready_cb:
     Option<EvalContextCodeCacheReadyCb>,
   pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
+  pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
   pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
@@ -859,6 +861,7 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       cppgc_template: None.into(),
+      function_templates: Default::default(),
       callsite_prototype: None.into(),
       import_assertions_support: options.import_assertions_support,
     });
@@ -1037,10 +1040,10 @@ impl JsRuntime {
     if init_mode.needs_ops_bindings() {
       bindings::initialize_deno_core_ops_bindings(
         scope,
-        op_state,
         context,
         &context_state.op_ctxs,
         &context_state.op_method_ctxs,
+        &mut state_rc.function_templates.borrow_mut(),
       );
     }
 
@@ -1088,6 +1091,15 @@ impl JsRuntime {
         snapshotted_data.module_map_data,
       );
 
+      state_rc
+        .function_templates
+        .borrow_mut()
+        .update_with_snapshotted_data(
+          scope,
+          &mut data_store,
+          snapshotted_data.function_templates_data,
+        );
+
       let mut mapper = state_rc.source_mapper.borrow_mut();
       for (key, map) in snapshotted_data.ext_source_maps {
         mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
@@ -1104,8 +1116,12 @@ impl JsRuntime {
 
     // ...we are ready to create a "realm" for the context...
     let main_realm = {
-      let main_realm =
-        JsRealmInner::new(context_state, main_context, module_map.clone());
+      let main_realm = JsRealmInner::new(
+        context_state,
+        main_context,
+        module_map.clone(),
+        state_rc.function_templates.clone(),
+      );
       // TODO(bartlomieju): why is this done in here? Maybe we can hoist it out?
       state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
@@ -2150,6 +2166,12 @@ impl JsRuntimeForSnapshot {
         let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(&mut data_store)
       };
+      let function_templates_data = {
+        let function_templates = realm.0.function_templates();
+        let f = std::mem::take(&mut *function_templates.borrow_mut());
+
+        f.serialize_for_snapshotting(&mut data_store)
+      };
       let maybe_js_handled_promise_rejection_cb = {
         let context_state = &realm.0.context_state;
         let exception_state = &context_state.exception_state;
@@ -2162,6 +2184,7 @@ impl JsRuntimeForSnapshot {
 
       let snapshotted_data = SnapshottedData {
         module_map_data,
+        function_templates_data,
         externals_count,
         op_count: self.inner.op_count,
         addl_refs_count: self.inner.addl_refs_count,
