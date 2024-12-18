@@ -107,7 +107,7 @@ jobs:
 
       - name: Test (valgrind)
         id: test-valgrind
-        if: inputs.job == 'test-valgrind'
+        if: inputs.is_main && inputs.job == 'test-valgrind'
         uses: ./.github/workflows/ci-test-valgrind
 
       - name: Publish (dry-run)
