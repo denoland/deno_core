@@ -979,49 +979,16 @@ pub fn create_exports_for_ops_virtual_module<'s>(
 
   let deno_obj = get(scope, global, DENO, "Deno");
   let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");
-  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
-    scope,
-    deno_core_obj,
-    SET_UP_ASYNC_STUB,
-    "Deno.core.setUpAsyncStub",
-  );
-
-  let undefined = v8::undefined(scope);
+  let ops_obj = get(scope, deno_core_obj, OPS, "Deno.core.ops");
 
   for op_ctx in op_ctxs {
-    let name = op_ctx.decl.name_fast.v8_string(scope).unwrap();
-    let mut op_fn = op_ctx_function(scope, op_ctx);
-
-    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
-    // this call will generate an optimized function that binds to the provided
-    // op, while keeping track of promises and error remapping.
-    if op_ctx.decl.is_async {
-      let result = set_up_async_stub_fn
-        .call(scope, undefined.into(), &[name.into(), op_fn.into()])
-        .unwrap();
-      op_fn = result.try_into().unwrap()
-    }
-    exports.push((op_ctx.decl.name_fast, op_fn.into()));
+    let op_fn = get(scope, ops_obj, op_ctx.decl.name_fast, "op");
+    exports.push((op_ctx.decl.name_fast, op_fn));
   }
 
   for ctx in op_method_ctxs {
-    let tmpl = op_ctx_template(scope, &ctx.constructor);
-    let prototype = tmpl.prototype_template(scope);
-
-    let accessor_store = create_accessor_store(ctx);
-
-    for method in ctx.methods.iter() {
-      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
-    }
-
-    for method in ctx.static_methods.iter() {
-      let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast;
-      tmpl.set(method_key.v8_string(scope).unwrap().into(), op_fn.into());
-    }
-
-    let op_fn = tmpl.get_function(scope).unwrap();
-    exports.push((ctx.constructor.decl.name_fast, op_fn.into()));
+    let op_fn = get(scope, ops_obj, ctx.constructor.decl.name_fast, "op");
+    exports.push((ctx.constructor.decl.name_fast, op_fn));
   }
 
   exports
