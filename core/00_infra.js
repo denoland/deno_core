@@ -31,6 +31,7 @@
   let nextPromiseId = 0;
   const promiseMap = new SafeMap();
   const RING_SIZE = 4 * 1024;
+  const outArray = [null, null];
   const NO_PROMISE = null; // Alias to null is faster than plain nulls
   const promiseRing = ArrayPrototypeFill(new Array(RING_SIZE), NO_PROMISE);
   // TODO(bartlomieju): in the future use `v8::Private` so it's not visible
@@ -198,9 +199,8 @@
       /* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */
       case 0:
         fn = function async_op_0() {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id);
+            const maybeResult = originalOp(outArray);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -208,18 +208,17 @@
             ErrorCaptureStackTrace(err, async_op_0);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 1:
         fn = function async_op_1(a) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a);
+            const maybeResult = originalOp(outArray, a);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -227,18 +226,17 @@
             ErrorCaptureStackTrace(err, async_op_1);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 2:
         fn = function async_op_2(a, b) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b);
+            const maybeResult = originalOp(outArray, a, b);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -246,18 +244,17 @@
             ErrorCaptureStackTrace(err, async_op_2);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 3:
         fn = function async_op_3(a, b, c) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c);
+            const maybeResult = originalOp(outArray, a, b, c);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -265,18 +262,17 @@
             ErrorCaptureStackTrace(err, async_op_3);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 4:
         fn = function async_op_4(a, b, c, d) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d);
+            const maybeResult = originalOp(outArray, a, b, c, d);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -284,18 +280,17 @@
             ErrorCaptureStackTrace(err, async_op_4);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 5:
         fn = function async_op_5(a, b, c, d, e) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e);
+            const maybeResult = originalOp(outArray, a, b, c, d, e);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -303,18 +298,17 @@
             ErrorCaptureStackTrace(err, async_op_5);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 6:
         fn = function async_op_6(a, b, c, d, e, f) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f);
+            const maybeResult = originalOp(outArray, a, b, c, d, e, f);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -322,18 +316,17 @@
             ErrorCaptureStackTrace(err, async_op_6);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 7:
         fn = function async_op_7(a, b, c, d, e, f, g) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g);
+            const maybeResult = originalOp(outArray, a, b, c, d, e, f, g);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -341,18 +334,17 @@
             ErrorCaptureStackTrace(err, async_op_7);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 8:
         fn = function async_op_8(a, b, c, d, e, f, g, h) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h);
+            const maybeResult = originalOp(outArray, a, b, c, d, e, f, g, h);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -360,18 +352,17 @@
             ErrorCaptureStackTrace(err, async_op_8);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       case 9:
         fn = function async_op_9(a, b, c, d, e, f, g, h, i) {
-          const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h, i);
+            const maybeResult = originalOp(outArray, a, b, c, d, e, f, g, h, i);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -379,11 +370,11 @@
             ErrorCaptureStackTrace(err, async_op_9);
             return PromiseReject(err);
           }
+          const id = outArray[0];
           if (isLeakTracingEnabled) {
             submitLeakTrace(id);
           }
-          nextPromiseId = (id + 1) & 0xffffffff;
-          return setPromise(id);
+          return outArray[1];
         };
         break;
       /* END TEMPLATE */

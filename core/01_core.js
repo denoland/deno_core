@@ -160,12 +160,6 @@
   // before last are alternating integers and any values that describe the
   // responses of async ops.
   function eventLoopTick() {
-    // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 3; i += 2) {
-      const promiseId = arguments[i];
-      const res = arguments[i + 1];
-      __resolvePromise(promiseId, res);
-    }
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
       for (let i = 0; i < nextTickCallbacks.length; i++) {

@@ -1436,7 +1436,12 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
+    let (
+      event_loop_tick_cb,
+      build_custom_error_cb,
+      wasm_instance_fn,
+      internal_promise_sym,
+    ) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1480,15 +1485,23 @@ impl JsRuntime {
         }
       }
 
+      let s =
+        FastString::from_static("Deno.core.internalPromiseId").v8_string(scope);
+      let sym = v8::Symbol::for_key(scope, s);
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
         wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
+        v8::Global::new(scope, sym),
       )
     };
 
     // Put global handles in the realm's ContextState
     let state_rc = realm.0.state();
+    state_rc
+      .internal_promise_sym
+      .borrow_mut()
+      .replace(Rc::new(internal_promise_sym));
     state_rc
       .js_event_loop_tick_cb
       .borrow_mut()
@@ -2551,6 +2564,9 @@ impl JsRuntime {
     let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
       SmallVec::with_capacity(32);
 
+    let policy = scope.get_microtasks_policy();
+    scope.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+
     loop {
       if args.len() >= MAX_VEC_SIZE_FOR_OPS {
         // We have too many, bail for now but re-wake the waker
@@ -2581,10 +2597,13 @@ impl JsRuntime {
       context_state
         .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
+      let promise = context_state.promises.complete(promise_id);
+      let promise = v8::Local::new(scope, promise);
+      promise.resolve(scope, res.unwrap_or_else(std::convert::identity));
       dispatched_ops |= true;
-      args.push(v8::Integer::new(scope, promise_id).into());
-      args.push(res.unwrap_or_else(std::convert::identity));
     }
+
+    scope.set_microtasks_policy(policy);
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
