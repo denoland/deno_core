@@ -4,7 +4,7 @@
 //! <https://chromedevtools.github.io/devtools-protocol/>
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
-use crate::error::generic_error;
+use crate::error::CoreError;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
@@ -19,7 +19,7 @@ use crate::futures::task::Context;
 use crate::futures::task::Poll;
 use crate::serde_json::json;
 use crate::serde_json::Value;
-use anyhow::Error;
+use deno_error::JsErrorBox;
 use parking_lot::Mutex;
 use std::cell::BorrowMutError;
 use std::cell::RefCell;
@@ -833,7 +833,7 @@ impl LocalInspectorSession {
     &mut self,
     method: &str,
     params: Option<T>,
-  ) -> Result<serde_json::Value, Error> {
+  ) -> Result<serde_json::Value, CoreError> {
     let id = self.next_message_id;
     self.next_message_id += 1;
 
@@ -857,7 +857,7 @@ impl LocalInspectorSession {
         Either::Right((result, _)) => {
           let response = result?;
           if let Some(error) = response.get("error") {
-            return Err(generic_error(error.to_string()));
+            return Err(JsErrorBox::generic(error.to_string()).into());
           }
 
           let result = response.get("result").unwrap().clone();

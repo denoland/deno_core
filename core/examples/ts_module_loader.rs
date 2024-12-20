@@ -10,13 +10,11 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
-use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::AnyError;
+use deno_core::error::ModuleLoaderError;
 use deno_core::resolve_import;
 use deno_core::resolve_path;
 use deno_core::JsRuntime;
@@ -45,7 +43,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     Ok(resolve_import(specifier, referrer)?)
   }
 
@@ -60,7 +58,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     fn load(
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
-    ) -> Result<ModuleSource, AnyError> {
+    ) -> Result<ModuleSource, ModuleLoaderError> {
       let path = module_specifier
         .to_file_path()
         .map_err(|_| anyhow!("Only file:// URLs are supported."))?;
@@ -79,7 +77,11 @@ impl ModuleLoader for TypescriptModuleLoader {
         | MediaType::Dcts
         | MediaType::Tsx => (ModuleType::JavaScript, true),
         MediaType::Json => (ModuleType::Json, false),
-        _ => bail!("Unknown extension {:?}", path.extension()),
+        _ => {
+          return Err(
+            anyhow!("Unknown extension {:?}", path.extension()).into(),
+          )
+        }
       };
 
       let code = std::fs::read_to_string(&path)?;
@@ -91,20 +93,23 @@ impl ModuleLoader for TypescriptModuleLoader {
           capture_tokens: false,
           scope_analysis: false,
           maybe_syntax: None,
-        })?;
-        let res = parsed.transpile(
-          &deno_ast::TranspileOptions {
-            imports_not_used_as_values:
-              deno_ast::ImportsNotUsedAsValues::Remove,
-            use_decorators_proposal: true,
-            ..Default::default()
-          },
-          &deno_ast::EmitOptions {
-            source_map: SourceMapOption::Separate,
-            inline_sources: true,
-            ..Default::default()
-          },
-        )?;
+        })
+        .map_err(anyhow::Error::new)?;
+        let res = parsed
+          .transpile(
+            &deno_ast::TranspileOptions {
+              imports_not_used_as_values:
+                deno_ast::ImportsNotUsedAsValues::Remove,
+              use_decorators_proposal: true,
+              ..Default::default()
+            },
+            &deno_ast::EmitOptions {
+              source_map: SourceMapOption::Separate,
+              inline_sources: true,
+              ..Default::default()
+            },
+          )
+          .map_err(anyhow::Error::new)?;
         let res = res.into_source();
         let source_map = res.source_map.unwrap();
         source_maps
@@ -134,7 +139,7 @@ impl ModuleLoader for TypescriptModuleLoader {
   }
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), anyhow::Error> {
   let args: Vec<String> = std::env::args().collect();
   if args.len() < 2 {
     println!("Usage: target/examples/debug/ts_module_loader <path_to_module>");
@@ -169,4 +174,5 @@ fn main() -> Result<(), Error> {
     .build()
     .unwrap()
     .block_on(future)
+    .map_err(|e| e.into())
 }

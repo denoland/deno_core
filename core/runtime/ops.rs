@@ -1,6 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use super::op_driver::OpDriver;
+use super::op_driver::OpScheduling;
+use super::op_driver::V8RetValMapper;
 use crate::ops::*;
-use anyhow::Error;
 use futures::future::Future;
 use serde::Deserialize;
 use serde_v8::from_v8;
@@ -10,10 +12,6 @@ use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 use v8::WriteOptions;
-
-use super::op_driver::OpDriver;
-use super::op_driver::OpScheduling;
-use super::op_driver::V8RetValMapper;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -49,7 +47,10 @@ pub fn map_async_op_infallible<R: 'static>(
 }
 
 #[inline(always)]
-pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
+pub fn map_async_op_fallible<
+  R: 'static,
+  E: Into<crate::error::OpError> + 'static,
+>(
   ctx: &OpCtx,
   lazy: bool,
   deferred: bool,
@@ -537,10 +538,8 @@ pub fn to_v8_slice_any(
 mod tests {
   use crate::convert::Number;
   use crate::convert::Smi;
-  use crate::error::generic_error;
-  use crate::error::AnyError;
-  use crate::error::JsError;
-  use crate::error::StdAnyError;
+  use crate::error::CoreError;
+  use crate::error::OpError;
   use crate::external;
   use crate::external::ExternalPointer;
   use crate::op2;
@@ -551,9 +550,8 @@ mod tests {
   use crate::OpState;
   use crate::RuntimeOptions;
   use crate::ToV8;
-  use anyhow::bail;
-  use anyhow::Error;
   use bytes::BytesMut;
+  use deno_error::JsErrorBox;
   use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
@@ -686,13 +684,13 @@ mod tests {
   }
 
   /// Run a test for a single op.
-  fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), AnyError> {
+  fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), CoreError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
     let err_mapper =
-      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
+      |err| JsErrorBox::generic(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -726,7 +724,7 @@ mod tests {
       ),
     )?;
     if FAIL.with(|b| b.get()) {
-      Err(generic_error(format!("{op} test failed ({test})")))
+      Err(JsErrorBox::generic(format!("{op} test failed ({test})")).into())
     } else {
       Ok(())
     }
@@ -737,13 +735,13 @@ mod tests {
     repeat: usize,
     op: &str,
     test: &str,
-  ) -> Result<(), AnyError> {
+  ) -> Result<(), anyhow::Error> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
     let err_mapper =
-      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
+      |err| JsErrorBox::generic(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -781,7 +779,7 @@ mod tests {
 
     runtime.run_event_loop(Default::default()).await?;
     if FAIL.with(|b| b.get()) {
-      Err(generic_error(format!("{op} test failed ({test})")))
+      Err(JsErrorBox::generic(format!("{op} test failed ({test})")).into())
     } else {
       Ok(())
     }
@@ -883,26 +881,27 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_result_void_switch() -> Result<(), AnyError> {
+  pub fn op_test_result_void_switch() -> Result<(), OpError> {
     let count = RETURN_COUNT.with(|count| {
       let new = count.get() + 1;
       count.set(new);
       new
     });
     if count > 5000 {
-      Err(generic_error("failed!!!"))
+      Err(JsErrorBox::generic("failed!!!").into())
     } else {
       Ok(())
     }
   }
 
   #[op2(fast)]
-  pub fn op_test_result_void_err() -> Result<(), AnyError> {
-    Err(generic_error("failed!!!"))
+  pub fn op_test_result_void_err() -> Result<(), OpError> {
+    Err(JsErrorBox::generic("failed!!!").into())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  pub fn op_test_result_void_ok() -> Result<(), AnyError> {
+  pub fn op_test_result_void_ok() -> Result<(), OpError> {
     Ok(())
   }
 
@@ -932,19 +931,22 @@ mod tests {
       "op_test_result_void_switch();",
     )
     .expect_err("Expected this to fail");
-    let js_err = err.downcast::<JsError>().unwrap();
+    let CoreError::Js(js_err) = err else {
+      unreachable!();
+    };
     assert_eq!(js_err.message, Some("failed!!!".into()));
     assert_eq!(RETURN_COUNT.with(|count| count.get()), 5001);
     Ok(())
   }
 
   #[op2(fast)]
-  pub fn op_test_result_primitive_err() -> Result<u32, AnyError> {
-    Err(generic_error("failed!!!"))
+  pub fn op_test_result_primitive_err() -> Result<u32, OpError> {
+    Err(JsErrorBox::generic("failed!!!").into())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  pub fn op_test_result_primitive_ok() -> Result<u32, AnyError> {
+  pub fn op_test_result_primitive_ok() -> Result<u32, OpError> {
     Ok(123)
   }
 
@@ -970,11 +972,11 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_bool_result(b: bool) -> Result<bool, AnyError> {
+  pub fn op_test_bool_result(b: bool) -> Result<bool, OpError> {
     if b {
       Ok(true)
     } else {
-      Err(generic_error("false!!!"))
+      Err(JsErrorBox::generic("false!!!").into())
     }
   }
 
@@ -1004,12 +1006,12 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, AnyError> {
+  pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, OpError> {
     let a = a as f64;
     if a + b >= 0. {
       Ok(a + b)
     } else {
-      Err(generic_error("negative!!!"))
+      Err(JsErrorBox::generic("negative!!!").into())
     }
   }
 
@@ -1059,12 +1061,12 @@ mod tests {
       &format!("assert(op_test_bigint_i64({}n) == {}n)", i64::MAX, i64::MAX),
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MAX_SAFE_INTEGER) == Number.MAX_SAFE_INTEGER)",
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MIN_SAFE_INTEGER) == Number.MIN_SAFE_INTEGER)",
     )?;
@@ -1173,7 +1175,7 @@ mod tests {
     run_test2(
       10,
       "op_test_string_roundtrip_char_onebyte",
-      "try { op_test_string_roundtrip_char_onebyte('\\u1000'); assert(false); } catch (e) {}"
+      "try { op_test_string_roundtrip_char_onebyte('\\u1000'); assert(false); } catch (e) {}",
     )?;
 
     Ok(())
@@ -1317,11 +1319,11 @@ mod tests {
   pub fn op_test_v8_type_handle_scope_result<'s>(
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
-  ) -> Result<v8::Local<'s, v8::Value>, AnyError> {
+  ) -> Result<v8::Local<'s, v8::Value>, OpError> {
     let key = v8::String::new(scope, "key").unwrap().into();
     o.get(scope, key)
       .filter(|v| !v.is_null_or_undefined())
-      .ok_or(generic_error("error!!!"))
+      .ok_or(JsErrorBox::generic("error!!!").into())
   }
 
   #[tokio::test]
@@ -1464,12 +1466,12 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_state_rc",
       "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_state_mut_attr",
       "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
     )?;
@@ -1739,7 +1741,7 @@ mod tests {
       "assert(op_buffer_any(new Uint32Array([1,2,3,4,0x01010101])) == 14);",
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new DataView(new Uint8Array([1,2,3,4]).buffer)) == 10);",
     )?;
@@ -2058,7 +2060,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_typed_external() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_typed_external, op_typed_external_process, op_typed_external_take",
       "let external = op_typed_external(); op_typed_external_process(external); assert(op_typed_external_take(external) == 43);",
     )?;
@@ -2168,9 +2170,9 @@ mod tests {
   }
 
   #[op2(async)]
-  pub async fn op_async_sleep_error() -> Result<(), Error> {
+  pub async fn op_async_sleep_error() -> Result<(), OpError> {
     tokio::time::sleep(Duration::from_millis(500)).await;
-    bail!("whoops")
+    Err(JsErrorBox::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2186,13 +2188,13 @@ mod tests {
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_success() -> Result<u32, Error> {
+  pub async fn op_async_deferred_success() -> Result<u32, OpError> {
     Ok(42)
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_error() -> Result<(), Error> {
-    bail!("whoops")
+  pub async fn op_async_deferred_error() -> Result<(), OpError> {
+    Err(JsErrorBox::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2205,22 +2207,22 @@ mod tests {
     )
     .await?;
     run_async_test(
-       JIT_SLOW_ITERATIONS,
+      JIT_SLOW_ITERATIONS,
       "op_async_deferred_error",
       "try { await op_async_deferred_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_success() -> Result<u32, Error> {
+  pub async fn op_async_lazy_success() -> Result<u32, OpError> {
     Ok(42)
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_error() -> Result<(), Error> {
-    bail!("whoops")
+  pub async fn op_async_lazy_error() -> Result<(), OpError> {
+    Err(JsErrorBox::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2232,11 +2234,11 @@ mod tests {
     )
     .await?;
     run_async_test(
-       JIT_SLOW_ITERATIONS,
+      JIT_SLOW_ITERATIONS,
       "op_async_lazy_error",
       "try { await op_async_lazy_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
@@ -2245,17 +2247,17 @@ mod tests {
   #[op2(async)]
   pub fn op_async_result_impl(
     mode: u8,
-  ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+  ) -> Result<impl Future<Output = Result<(), OpError>>, OpError> {
     if mode == 0 {
-      return Err(generic_error("early exit"));
+      return Err(JsErrorBox::generic("early exit").into());
     }
     Ok(async move {
       if mode == 1 {
-        return Err(generic_error("early async exit"));
+        return Err(JsErrorBox::generic("early async exit").into());
       }
       tokio::time::sleep(Duration::from_millis(500)).await;
       if mode == 2 {
-        return Err(generic_error("late async exit"));
+        return Err(JsErrorBox::generic("late async exit").into());
       }
       Ok(())
     })
@@ -2274,7 +2276,7 @@ mod tests {
         "op_async_result_impl",
         &format!("try {{ await op_async_result_impl({n}); assert(false) }} catch (e) {{ assertErrorContains(e, '{msg}') }}"),
       )
-      .await?;
+        .await?;
     }
     run_async_test(5, "op_async_result_impl", "await op_async_result_impl(3);")
       .await?;
@@ -2329,13 +2331,13 @@ mod tests {
       "op_async_buffer",
       "let output = await op_async_buffer(new Uint8Array([1,2,3])); assert(output.length == 3); assert(output[0] == 1);",
     )
-    .await?;
+      .await?;
     run_async_test(
       2,
       "op_async_buffer_vec",
       "let output = await op_async_buffer_vec(new Uint8Array([3,2,1])); assert(output.length == 3); assert(output[0] == 1);",
     )
-    .await?;
+      .await?;
     run_async_test(
       2,
       "op_async_buffer_impl",
@@ -2369,7 +2371,7 @@ mod tests {
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,
-  ) -> Result<Option<Serde>, AnyError> {
+  ) -> Result<Option<Serde>, OpError> {
     serde.s += "!";
     Ok(Some(serde))
   }
@@ -2455,7 +2457,7 @@ mod tests {
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = StdAnyError;
+    type Error = JsErrorBox;
 
     fn from_v8(
       scope: &mut v8::HandleScope<'a>,
