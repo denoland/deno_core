@@ -2,7 +2,7 @@
 use std::env::current_dir;
 use std::rc::Rc;
 
-use deno_core::error::AnyError;
+use deno_core::anyhow;
 use deno_core::extension;
 use deno_core::op2;
 use deno_core::FsModuleLoader;
@@ -27,7 +27,7 @@ fn op_call_rust(#[string] value: String) {
 
 extension!(runjs_extension, ops = [op_call_rust,],);
 
-async fn run_js(file_path: &str) -> Result<(), AnyError> {
+async fn run_js(file_path: &str) -> Result<(), anyhow::Error> {
   let cwd = current_dir()?;
   let main_module = deno_core::resolve_path(file_path, &cwd)?;
 

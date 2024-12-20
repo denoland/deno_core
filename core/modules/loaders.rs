@@ -1,5 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::JsNativeError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
@@ -11,6 +10,7 @@ use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
 use crate::ModuleSourceCode;
+use deno_error::JsErrorBox;
 
 use anyhow::Context;
 use deno_core::error::CoreError;
@@ -75,8 +75,8 @@ impl From<std::io::Error> for ModuleLoaderError {
     ModuleLoaderError::Core(CoreError::Io(err))
   }
 }
-impl From<JsNativeError> for ModuleLoaderError {
-  fn from(err: JsNativeError) -> Self {
+impl From<JsErrorBox> for ModuleLoaderError {
+  fn from(err: JsErrorBox) -> Self {
     ModuleLoaderError::Core(CoreError::JsNative(err))
   }
 }
@@ -406,7 +406,7 @@ impl ModuleLoader for FsModuleLoader {
     let module_specifier = module_specifier.clone();
     let fut = async move {
       let path = module_specifier.to_file_path().map_err(|_| {
-        JsNativeError::generic(format!(
+        JsErrorBox::generic(format!(
           "Provided module specifier \"{module_specifier}\" is not a file URL."
         ))
       })?;

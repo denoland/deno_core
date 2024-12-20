@@ -6,7 +6,6 @@ use super::ModuleConcreteError;
 use crate::ascii_str;
 use crate::error::exception_to_err_result;
 use crate::error::JsError;
-use crate::error::JsNativeError;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
@@ -32,6 +31,7 @@ use crate::ModuleSource;
 use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
 use capacity_builder::StringBuilder;
+use deno_error::JsErrorBox;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
@@ -886,7 +886,7 @@ impl ModuleMap {
 
     crate::error::throw_js_error_class(
       scope,
-      &JsNativeError::type_error(format!(
+      &JsErrorBox::type_error(format!(
         r#"Cannot resolve module "{specifier_str}" from "{referrer_name}""#
       )),
     );
@@ -915,7 +915,7 @@ impl ModuleMap {
         referrer
       };
       let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
-      return Err(JsNativeError::type_error(msg).into());
+      return Err(JsErrorBox::type_error(msg).into());
     }
 
     self

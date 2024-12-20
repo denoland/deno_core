@@ -3,7 +3,6 @@
 #![allow(clippy::print_stderr)]
 
 use crate::ascii_str;
-use crate::error::JsNativeError;
 use crate::error::{exception_to_err_result, CoreError};
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
@@ -29,6 +28,7 @@ use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use anyhow::anyhow;
+use deno_error::JsErrorBox;
 use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
@@ -794,9 +794,9 @@ fn test_custom_module_type_callback_synthetic() {
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
+  ) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
     if module_type != "bytes" {
-      return Err(JsNativeError::generic(format!(
+      return Err(JsErrorBox::generic(format!(
         "Can't load '{}' module",
         module_type
       )));
@@ -878,9 +878,9 @@ fn test_custom_module_type_callback_computed() {
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, JsNativeError> {
+  ) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
     if module_type != "foobar" {
-      return Err(JsNativeError::generic(format!(
+      return Err(JsErrorBox::generic(format!(
         "Can't load '{}' module",
         module_type
       )));

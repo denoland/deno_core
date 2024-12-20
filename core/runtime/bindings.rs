@@ -15,7 +15,6 @@ use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::error::CoreError;
-use crate::error::JsNativeError;
 use crate::error::JsStackFrame;
 use crate::extension_set::LoadedSources;
 use crate::modules::get_requested_module_type_from_attributes;
@@ -32,6 +31,7 @@ use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
+use deno_error::JsErrorBox;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
@@ -759,7 +759,7 @@ fn import_meta_resolve(
   if args.length() > 1 {
     return crate::error::throw_js_error_class(
       scope,
-      &JsNativeError::type_error("Invalid arguments"),
+      &JsErrorBox::type_error("Invalid arguments"),
     );
   }
 
@@ -767,7 +767,7 @@ fn import_meta_resolve(
   if maybe_arg_str.is_none() {
     return crate::error::throw_js_error_class(
       scope,
-      &JsNativeError::type_error("Invalid arguments"),
+      &JsErrorBox::type_error("Invalid arguments"),
     );
   }
   let specifier = maybe_arg_str.unwrap();
@@ -903,7 +903,7 @@ fn call_console(
   {
     return crate::error::throw_js_error_class(
       scope,
-      &JsNativeError::type_error("Invalid arguments"),
+      &JsErrorBox::type_error("Invalid arguments"),
     );
   }
 

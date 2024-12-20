@@ -2,7 +2,7 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 
-use crate::error::JsNativeError;
+use deno_error::JsErrorBox;
 use crate::error::OpError;
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
@@ -542,7 +542,7 @@ pub async fn op_async() {
 #[allow(unreachable_code)]
 pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, OpError>
 {
-  return Err(JsNativeError::generic("dead").into());
+  return Err(JsErrorBox::generic("dead").into());
   Ok(async {})
 }
 
@@ -556,13 +556,13 @@ pub async fn op_async_yield() {
 pub async fn op_async_yield_error() -> Result<(), OpError> {
   tokio::task::yield_now().await;
   println!("op_async_yield_error!");
-  Err(JsNativeError::generic("dead").into())
+  Err(JsErrorBox::generic("dead").into())
 }
 
 #[op2(async)]
 pub async fn op_async_error() -> Result<(), OpError> {
   println!("op_async_error!");
-  Err(JsNativeError::generic("dead").into())
+  Err(JsErrorBox::generic("dead").into())
 }
 
 #[op2(async(deferred), fast)]
@@ -582,7 +582,7 @@ pub fn op_sync() {
 
 #[op2(fast)]
 pub fn op_sync_error() -> Result<(), OpError> {
-  Err(JsNativeError::generic("Always fails").into())
+  Err(JsErrorBox::generic("Always fails").into())
 }
 
 #[op2(fast)]

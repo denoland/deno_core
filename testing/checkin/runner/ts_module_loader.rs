@@ -12,7 +12,6 @@ use anyhow::Context;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::JsNativeError;
 use deno_core::error::ModuleLoaderError;
 use deno_core::resolve_import;
 use deno_core::url::Url;
@@ -28,6 +27,7 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::SourceMapData;
+use deno_error::JsErrorBox;
 
 // TODO(bartlomieju): this is duplicated in `core/examples/ts_modules_loader.rs`.
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
@@ -183,7 +183,7 @@ impl ModuleLoader for TypescriptModuleLoader {
 pub fn maybe_transpile_source(
   specifier: ModuleName,
   source: ModuleCodeString,
-) -> Result<(ModuleCodeString, Option<SourceMapData>), JsNativeError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), JsErrorBox> {
   // Always transpile `checkin:` built-in modules, since they might be TypeScript.
   let media_type = if specifier.starts_with("checkin:") {
     MediaType::TypeScript
@@ -209,7 +209,7 @@ pub fn maybe_transpile_source(
     scope_analysis: false,
     maybe_syntax: None,
   })
-  .map_err(|err| JsNativeError::from_err(JsParseDiagnostic(err)))?;
+  .map_err(|err| JsErrorBox::from_err(JsParseDiagnostic(err)))?;
   let transpiled_source = parsed
     .transpile(
       &deno_ast::TranspileOptions {
@@ -223,7 +223,7 @@ pub fn maybe_transpile_source(
         ..Default::default()
       },
     )
-    .map_err(|err| JsNativeError::from_err(JsTranspileError(err)))?
+    .map_err(|err| JsErrorBox::from_err(JsTranspileError(err)))?
     .into_source();
 
   Ok((

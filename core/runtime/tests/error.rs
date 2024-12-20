@@ -1,10 +1,10 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::CoreError;
-use crate::error::JsNativeError;
 use crate::error::OpError;
 use crate::op2;
 use crate::JsRuntime;
 use crate::RuntimeOptions;
+use deno_error::JsErrorBox;
 use futures::future::poll_fn;
 use std::task::Poll;
 
@@ -12,7 +12,7 @@ use std::task::Poll;
 async fn test_error_builder() {
   #[op2(fast)]
   fn op_err() -> Result<(), OpError> {
-    Err(JsNativeError::new("DOMExceptionOperationError", "abc").into())
+    Err(JsErrorBox::new("DOMExceptionOperationError", "abc").into())
   }
 
   deno_core::extension!(test_ext, ops = [op_err]);

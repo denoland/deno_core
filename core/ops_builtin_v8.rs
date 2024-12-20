@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use crate::error::is_instance_of_error;
 use crate::error::JsError;
-use crate::error::JsNativeError;
 use crate::error::OpError;
 use crate::modules::script_origin;
 use crate::op2;
@@ -14,6 +13,7 @@ use crate::stats::RuntimeActivityType;
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
+use deno_error::JsErrorBox;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -268,7 +268,7 @@ pub fn op_eval_context<'a>(
   let state = JsRuntime::state_from(scope);
   let tc_scope = &mut v8::TryCatch::new(scope);
   let source = v8::Local::<v8::String>::try_from(source)
-    .map_err(|_| JsNativeError::type_error("Invalid source"))?;
+    .map_err(|_| JsErrorBox::type_error("Invalid source"))?;
   let specifier = resolve_url(&specifier)?;
   let specifier_v8 = v8::String::new(tc_scope, specifier.as_str()).unwrap();
   let host_defined_options = match host_defined_options {
@@ -346,7 +346,7 @@ pub fn op_eval_context<'a>(
     if let Some(cb) = state.eval_context_code_cache_ready_cb.as_ref() {
       let unbound_script = script.get_unbound_script(tc_scope);
       let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
-        JsNativeError::type_error(
+        JsErrorBox::type_error(
           "Unable to get code cache from unbound module script",
         )
       })?;
@@ -382,7 +382,7 @@ pub fn op_encode<'a>(
   text: v8::Local<'a, v8::Value>,
 ) -> Result<v8::Local<'a, v8::Uint8Array>, OpError> {
   let text = v8::Local::<v8::String>::try_from(text)
-    .map_err(|_| JsNativeError::type_error("Invalid argument"))?;
+    .map_err(|_| JsErrorBox::type_error("Invalid argument"))?;
   let text_str = serde_v8::to_utf8(text, scope);
   let bytes = text_str.into_bytes();
   let len = bytes.len();
@@ -418,7 +418,7 @@ pub fn op_decode<'a>(
   // - https://github.com/v8/v8/blob/d68fb4733e39525f9ff0a9222107c02c28096e2a/include/v8.h#L3277-L3278
   match v8::String::new_from_utf8(scope, buf, v8::NewStringType::Normal) {
     Some(text) => Ok(text),
-    None => Err(JsNativeError::range_error("string too long").into()),
+    None => Err(JsErrorBox::range_error("string too long").into()),
   }
 }
 
@@ -602,21 +602,21 @@ pub fn op_serialize(
   let error_callback = match error_callback {
     Some(cb) => Some(
       v8::Local::<v8::Function>::try_from(cb)
-        .map_err(|_| JsNativeError::type_error("Invalid error callback"))?,
+        .map_err(|_| JsErrorBox::type_error("Invalid error callback"))?,
     ),
     None => None,
   };
   let host_objects = match host_objects {
     Some(value) => Some(
       v8::Local::<v8::Array>::try_from(value)
-        .map_err(|_| JsNativeError::type_error("hostObjects not an array"))?,
+        .map_err(|_| JsErrorBox::type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
   let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => {
       Some(v8::Local::<v8::Array>::try_from(value).map_err(|_| {
-        JsNativeError::type_error("transferredArrayBuffers not an array")
+        JsErrorBox::type_error("transferredArrayBuffers not an array")
       })?)
     }
     None => None,
@@ -641,7 +641,7 @@ pub fn op_serialize(
       let i = v8::Number::new(scope, index as f64).into();
       let buf = transferred_array_buffers.get(scope, i).unwrap();
       let buf = v8::Local::<v8::ArrayBuffer>::try_from(buf).map_err(|_| {
-        JsNativeError::type_error(
+        JsErrorBox::type_error(
           "item in transferredArrayBuffers not an ArrayBuffer",
         )
       })?;
@@ -649,7 +649,7 @@ pub fn op_serialize(
       {
         if !buf.is_detachable() {
           return Err(
-            JsNativeError::type_error(
+            JsErrorBox::type_error(
               "item in transferredArrayBuffers is not transferable",
             )
             .into(),
@@ -658,7 +658,7 @@ pub fn op_serialize(
 
         if buf.was_detached() {
           return Err(
-            JsNativeError::new(
+            JsErrorBox::new(
               "DOMExceptionOperationError",
               format!("ArrayBuffer at index {index} is already detached"),
             )
@@ -686,7 +686,7 @@ pub fn op_serialize(
     let vector = value_serializer.release();
     Ok(vector)
   } else {
-    Err(JsNativeError::type_error("Failed to serialize response").into())
+    Err(JsErrorBox::type_error("Failed to serialize response").into())
   }
 }
 
@@ -701,14 +701,14 @@ pub fn op_deserialize<'a>(
   let host_objects = match host_objects {
     Some(value) => Some(
       v8::Local::<v8::Array>::try_from(value)
-        .map_err(|_| JsNativeError::type_error("hostObjects not an array"))?,
+        .map_err(|_| JsErrorBox::type_error("hostObjects not an array"))?,
     ),
     None => None,
   };
   let transferred_array_buffers = match transferred_array_buffers {
     Some(value) => {
       Some(v8::Local::<v8::Array>::try_from(value).map_err(|_| {
-        JsNativeError::type_error("transferredArrayBuffers not an array")
+        JsErrorBox::type_error("transferredArrayBuffers not an array")
       })?)
     }
     None => None,
@@ -726,9 +726,7 @@ pub fn op_deserialize<'a>(
     .read_header(scope.get_current_context())
     .unwrap_or_default();
   if !parsed_header {
-    return Err(
-      JsNativeError::range_error("could not deserialize value").into(),
-    );
+    return Err(JsErrorBox::range_error("could not deserialize value").into());
   }
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
@@ -741,7 +739,7 @@ pub fn op_deserialize<'a>(
           Some(id) => id as u32,
           None => {
             return Err(
-              JsNativeError::type_error(
+              JsErrorBox::type_error(
                 "item in transferredArrayBuffers not number",
               )
               .into(),
@@ -754,7 +752,7 @@ pub fn op_deserialize<'a>(
           value_deserializer.transfer_array_buffer(id, array_buffer);
           transferred_array_buffers.set(scope, i, array_buffer.into());
         } else {
-          return Err(JsNativeError::type_error(
+          return Err(JsErrorBox::type_error(
             "transferred array buffer not present in shared_array_buffer_store",
           ).into());
         }
@@ -765,9 +763,7 @@ pub fn op_deserialize<'a>(
   let value = value_deserializer.read_value(scope.get_current_context());
   match value {
     Some(deserialized) => Ok(deserialized),
-    None => {
-      Err(JsNativeError::range_error("could not deserialize value").into())
-    }
+    None => Err(JsErrorBox::range_error("could not deserialize value").into()),
   }
 }
 
@@ -956,10 +952,8 @@ pub fn op_set_wasm_streaming_callback(
   // callback in a JsRuntimeState slot.
   if context_state_rc.js_wasm_streaming_cb.borrow().is_some() {
     return Err(
-      JsNativeError::type_error(
-        "op_set_wasm_streaming_callback already called",
-      )
-      .into(),
+      JsErrorBox::type_error("op_set_wasm_streaming_callback already called")
+        .into(),
     );
   }
   *context_state_rc.js_wasm_streaming_cb.borrow_mut() = Some(Rc::new(cb));

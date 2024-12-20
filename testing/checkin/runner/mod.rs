@@ -3,7 +3,6 @@ use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
 use self::ts_module_loader::maybe_transpile_source;
-use deno_core::error::JsNativeError;
 use deno_core::v8;
 use deno_core::CrossIsolateStore;
 use deno_core::CustomModuleEvaluationKind;
@@ -13,6 +12,7 @@ use deno_core::ImportAssertionsSupport;
 use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
+use deno_error::JsErrorBox;
 use futures::Future;
 use std::any::Any;
 use std::any::TypeId;
@@ -178,11 +178,11 @@ fn custom_module_evaluation_cb(
   module_type: Cow<'_, str>,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, JsNativeError> {
+) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
   match &*module_type {
     "bytes" => Ok(bytes_module(scope, code)),
     "text" => text_module(scope, module_name, code),
-    _ => Err(JsNativeError::generic(format!(
+    _ => Err(JsErrorBox::generic(format!(
       "Can't import {:?} because of unknown module type {}",
       module_name, module_type
     ))),
@@ -211,14 +211,14 @@ fn text_module(
   scope: &mut v8::HandleScope,
   module_name: &FastString,
   code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, JsNativeError> {
+) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
   // FsModuleLoader always returns bytes.
   let ModuleSourceCode::Bytes(buf) = code else {
     unreachable!()
   };
 
   let code = std::str::from_utf8(buf.as_bytes()).map_err(|e| {
-    JsNativeError::generic(format!(
+    JsErrorBox::generic(format!(
       "Can't convert {module_name:?} source code to string: {e}"
     ))
   })?;

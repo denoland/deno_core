@@ -93,3 +93,6 @@ codegen-units = 1
 incremental = true
 lto = true
 opt-level = 'z' # Optimize for size
+
+[patch.crates-io]
+deno_error = { path = "../deno_error" }

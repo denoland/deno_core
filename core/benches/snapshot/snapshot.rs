@@ -3,7 +3,6 @@ use criterion::*;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::JsNativeError;
 use deno_core::Extension;
 use deno_core::JsRuntime;
 use deno_core::JsRuntimeForSnapshot;
@@ -11,6 +10,7 @@ use deno_core::ModuleCodeString;
 use deno_core::ModuleName;
 use deno_core::RuntimeOptions;
 use deno_core::SourceMapData;
+use deno_error::JsErrorBox;
 use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
@@ -64,7 +64,7 @@ deno_core::js_error_wrapper!(
 pub fn maybe_transpile_source(
   specifier: ModuleName,
   source: ModuleCodeString,
-) -> Result<(ModuleCodeString, Option<SourceMapData>), JsNativeError> {
+) -> Result<(ModuleCodeString, Option<SourceMapData>), JsErrorBox> {
   let media_type = MediaType::TypeScript;
 
   let parsed = deno_ast::parse_module(ParseParams {
@@ -75,7 +75,7 @@ pub fn maybe_transpile_source(
     scope_analysis: false,
     maybe_syntax: None,
   })
-  .map_err(|e| JsNativeError::from_err(JsParseDiagnostic(e)))?;
+  .map_err(|e| JsErrorBox::from_err(JsParseDiagnostic(e)))?;
   let transpiled_source = parsed
     .transpile(
       &deno_ast::TranspileOptions {
@@ -88,7 +88,7 @@ pub fn maybe_transpile_source(
         ..Default::default()
       },
     )
-    .map_err(|e| JsNativeError::from_err(JsTranspileError(e)))?
+    .map_err(|e| JsErrorBox::from_err(JsTranspileError(e)))?
     .into_source();
   Ok((
     String::from_utf8(transpiled_source.source).unwrap().into(),

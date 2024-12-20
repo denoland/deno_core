@@ -210,7 +210,7 @@ pub type CustomModuleEvaluationCb = Box<
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, crate::error::JsNativeError>,
+  ) -> Result<CustomModuleEvaluationKind, deno_error::JsErrorBox>,
 >;
 
 /// A callback to get the code cache for a script.
@@ -219,7 +219,7 @@ pub type EvalContextGetCodeCacheCb = Box<
   dyn Fn(
     &Url,
     &v8::String,
-  ) -> Result<SourceCodeCacheInfo, crate::error::JsNativeError>,
+  ) -> Result<SourceCodeCacheInfo, deno_error::JsErrorBox>,
 >;
 
 /// Callback when the code cache is ready.

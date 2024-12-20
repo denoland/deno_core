@@ -14,9 +14,9 @@ use super::SnapshottedData;
 use crate::ascii_str;
 use crate::ascii_str_include;
 use crate::cppgc::FunctionTemplateData;
+use crate::error::exception_to_err_result;
 use crate::error::CoreError;
 use crate::error::JsError;
-use crate::error::{exception_to_err_result, JsNativeError};
 use crate::extension_set;
 use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
@@ -59,6 +59,7 @@ use crate::OpMetadata;
 use crate::OpMetricsEvent;
 use crate::OpStackTraceCallback;
 use crate::OpState;
+use deno_error::JsErrorBox;
 use futures::future::poll_fn;
 use futures::task::AtomicWaker;
 use futures::Future;
@@ -91,7 +92,7 @@ pub type ExtensionTranspiler =
   dyn Fn(
     ModuleName,
     ModuleCodeString,
-  ) -> Result<(ModuleCodeString, Option<SourceMapData>), JsNativeError>;
+  ) -> Result<(ModuleCodeString, Option<SourceMapData>), JsErrorBox>;
 
 /// Objects that need to live as long as the isolate
 #[derive(Default)]

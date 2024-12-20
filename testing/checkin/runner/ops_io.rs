@@ -1,5 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use deno_core::error::{JsNativeError, OpError};
+use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::AsyncRefCell;
 use deno_core::BufView;
@@ -9,6 +9,7 @@ use deno_core::Resource;
 use deno_core::ResourceHandle;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
+use deno_error::JsErrorBox;
 use futures::FutureExt;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -31,7 +32,7 @@ impl Resource for PipeResource {
     async {
       let mut lock = RcRef::map(self, |this| &this.rx).borrow_mut().await;
       // Note that we're holding a slice across an await point, so this code is very much not safe
-      let res = lock.read(&mut buf).await.map_err(JsNativeError::from_err)?;
+      let res = lock.read(&mut buf).await.map_err(JsErrorBox::from_err)?;
       Ok((res, buf))
     }
     .boxed_local()
@@ -43,7 +44,7 @@ impl Resource for PipeResource {
   ) -> deno_core::AsyncResult<deno_core::WriteOutcome> {
     async {
       let mut lock = RcRef::map(self, |this| &this.tx).borrow_mut().await;
-      let nwritten = lock.write(&buf).await.map_err(JsNativeError::from_err)?;
+      let nwritten = lock.write(&buf).await.map_err(JsErrorBox::from_err)?;
       Ok(WriteOutcome::Partial {
         nwritten,
         view: buf,

@@ -13,6 +13,7 @@ use crate::url::Url;
 use crate::FastStaticString;
 use deno_error::builtin_classes::*;
 use deno_error::JsErrorClass;
+use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
@@ -37,7 +38,7 @@ pub enum CoreError {
   #[error(transparent)]
   Io(#[from] std::io::Error),
   #[error(transparent)]
-  ExtensionTranspiler(JsNativeError),
+  ExtensionTranspiler(deno_error::JsErrorBox),
   #[error("Failed to parse {0}")]
   Parse(FastStaticString),
   #[error("Failed to execute {0}")]
@@ -63,7 +64,7 @@ pub enum CoreError {
     specifier: String,
   },
   #[error(transparent)]
-  JsNative(#[from] JsNativeError),
+  JsNative(#[from] deno_error::JsErrorBox),
   #[error(transparent)]
   Url(#[from] url::ParseError),
   #[error(transparent)]
@@ -207,8 +208,12 @@ impl JsErrorClass for CoreError {
 
   fn get_additional_properties(
     &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    None // TODO
+  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
+    vec![] // TODO
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
   }
 }
 
@@ -236,88 +241,6 @@ fn js_class_and_message_to_exception<'s>(
     REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
     SYNTAX_ERROR => v8::Exception::syntax_error(scope, message),
     _ => v8::Exception::error(scope, message),
-  }
-}
-
-#[derive(Debug)]
-pub struct JsNativeError {
-  class: &'static str,
-  message: Cow<'static, str>,
-  pub inner: Option<Box<dyn JsErrorClass>>,
-}
-
-impl Display for JsNativeError {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.message)
-  }
-}
-
-impl Error for JsNativeError {}
-
-impl JsErrorClass for JsNativeError {
-  fn get_class(&self) -> &'static str {
-    self.class
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.message.clone()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
-    self
-      .inner
-      .as_ref()
-      .and_then(|source| source.get_additional_properties())
-  }
-}
-
-impl JsNativeError {
-  pub fn new(
-    class: &'static str,
-    message: impl Into<Cow<'static, str>>,
-  ) -> JsNativeError {
-    JsNativeError {
-      class,
-      message: message.into(),
-      inner: None,
-    }
-  }
-
-  pub fn from_err<T: JsErrorClass>(err: T) -> Self {
-    Self {
-      class: err.get_class(),
-      message: err.get_message(),
-      inner: Some(Box::new(err)),
-    }
-  }
-
-  pub fn generic(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new(GENERIC_ERROR, message)
-  }
-
-  pub fn type_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new(TYPE_ERROR, message)
-  }
-
-  pub fn range_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new(RANGE_ERROR, message)
-  }
-
-  pub fn uri_error(message: impl Into<Cow<'static, str>>) -> JsNativeError {
-    Self::new(URI_ERROR, message)
-  }
-
-  // Non-standard errors
-  pub fn not_supported() -> JsNativeError {
-    Self::new(NOT_SUPPORTED_ERROR, "The operation is not supported")
-  }
-}
-
-impl From<crate::Canceled> for JsNativeError {
-  fn from(value: crate::Canceled) -> Self {
-    Self::from_err(value)
   }
 }
 
@@ -1145,7 +1068,7 @@ pub(crate) fn exception_to_err_result<T>(
   }
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
-  Err(js_error.into())
+  Err(CoreError::Js(js_error))
 }
 
 v8_static_strings::v8_static_strings! {

@@ -2,7 +2,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::error::JsNativeError;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -12,6 +11,7 @@ use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
 use deno_core::GarbageCollected;
 use deno_core::OpState;
+use deno_error::JsErrorBox;
 
 use super::extensions::SomeType;
 use super::Output;
@@ -109,7 +109,7 @@ impl DOMPoint {
   fn from_point_inner(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, AnyError> {
+  ) -> Result<DOMPoint, JsErrorBox> {
     fn get(
       scope: &mut v8::HandleScope,
       other: v8::Local<v8::Object>,
@@ -154,7 +154,7 @@ impl DOMPoint {
   fn from_point(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, JsNativeError> {
+  ) -> Result<DOMPoint, JsErrorBox> {
     DOMPoint::from_point_inner(scope, other)
   }
 
@@ -164,7 +164,7 @@ impl DOMPoint {
     &self,
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, JsNativeError> {
+  ) -> Result<DOMPoint, JsErrorBox> {
     DOMPoint::from_point_inner(scope, other)
   }
 

@@ -641,13 +641,12 @@ dependencies = [
 [[package]]
 name = "deno_error"
 version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "199c66ffd17ee1a948904d33f3d3f364573951c1f9fb3f859bfe7770bf33862a"
 dependencies = [
  "deno_error_macro",
  "libc",
  "serde",
  "serde_json",
+ "thiserror 2.0.6",
  "tokio",
  "url",
 ]
@@ -655,8 +654,6 @@ dependencies = [
 [[package]]
 name = "deno_error_macro"
 version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cd99df6ae75443907e1f959fc42ec6dcea67a7bd083e76cf23a117102c9a2ce"
 dependencies = [
  "proc-macro2",
  "quote",

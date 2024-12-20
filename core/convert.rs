@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::JsNativeError;
 use crate::runtime::ops;
+use deno_error::JsErrorBox;
 use std::convert::Infallible;
 
 /// A conversion from a rust value to a v8 value.
@@ -87,16 +87,16 @@ pub trait ToV8<'a> {
 ///
 /// ```ignore
 /// use deno_core::FromV8;
-/// use deno_core::error::JsNativeError;
+/// use deno_error::JsErrorBox;
 /// use deno_core::convert::Smi;
 /// use deno_core::op2;
 ///
 /// struct Foo(i32);
 ///
 /// impl<'a> FromV8<'a> for Foo {
-///   // This conversion can fail, so we use `JsNativeError` as the error type.
+///   // This conversion can fail, so we use `JsErrorBox` as the error type.
 ///   // Any error type that implements `std::error::Error` can be used here.
-///   type Error = JsNativeError;
+///   type Error = JsErrorBox;
 ///
 ///   fn from_v8(scope: &mut v8::HandleScope<'a>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
 ///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::convert::Smi] wrapper type to convert it.
@@ -171,16 +171,15 @@ impl<'a, T: SmallInt> ToV8<'a> for Smi<T> {
 }
 
 impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
-  type Error = JsNativeError;
+  type Error = JsErrorBox;
 
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    let v = ops::to_i32_option(&value).ok_or_else(|| {
-      JsNativeError::type_error(format!("Expected {}", T::NAME))
-    })?;
+    let v = ops::to_i32_option(&value)
+      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))?;
     Ok(Smi(T::from_i32(v)))
   }
 }
@@ -241,7 +240,7 @@ impl<'a, T: Numeric> ToV8<'a> for Number<T> {
 }
 
 impl<'a, T: Numeric> FromV8<'a> for Number<T> {
-  type Error = JsNativeError;
+  type Error = JsErrorBox;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
@@ -249,7 +248,7 @@ impl<'a, T: Numeric> FromV8<'a> for Number<T> {
   ) -> Result<Self, Self::Error> {
     T::from_value(&value)
       .map(Number)
-      .ok_or_else(|| JsNativeError::type_error(format!("Expected {}", T::NAME)))
+      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))
   }
 }
 
@@ -265,7 +264,7 @@ impl<'a> ToV8<'a> for bool {
 }
 
 impl<'a> FromV8<'a> for bool {
-  type Error = JsNativeError;
+  type Error = JsErrorBox;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
@@ -274,6 +273,6 @@ impl<'a> FromV8<'a> for bool {
     value
       .try_cast::<v8::Boolean>()
       .map(|v| v.is_true())
-      .map_err(|_| JsNativeError::type_error("Expected boolean"))
+      .map_err(|_| JsErrorBox::type_error("Expected boolean"))
   }
 }

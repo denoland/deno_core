@@ -3,7 +3,6 @@ use super::create_runtime;
 use super::run_async;
 use super::Output;
 use anyhow::anyhow;
-use deno_core::error::JsNativeError;
 use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::url::Url;
@@ -12,6 +11,7 @@ use deno_core::GarbageCollected;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
+use deno_error::JsErrorBox;
 use std::cell::RefCell;
 use std::future::poll_fn;
 use std::rc::Rc;
@@ -181,7 +181,7 @@ pub fn op_worker_parent(
     worker.parent_channel.lock().unwrap().take(),
     worker.parent_close_watcher.lock().unwrap().take(),
   ) else {
-    return Err(JsNativeError::generic("No parent worker is available").into());
+    return Err(JsErrorBox::generic("No parent worker is available").into());
   };
   Ok(WorkerControl {
     worker_channel,

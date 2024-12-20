@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
 use crate::error::OpError;
-use crate::error::{exception_to_err_result, JsNativeError};
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -19,6 +19,7 @@ use crate::OpDecl;
 use crate::OpState;
 use crate::Resource;
 use bytes::BytesMut;
+use deno_error::JsErrorBox;
 use futures::StreamExt;
 use serde_v8::ByteString;
 use std::cell::RefCell;
@@ -175,13 +176,13 @@ pub async fn op_void_async() {}
 #[allow(clippy::unused_async)]
 #[op2(async)]
 pub async fn op_error_async() -> Result<(), OpError> {
-  Err(JsNativeError::generic("error").into())
+  Err(JsErrorBox::generic("error").into())
 }
 
 #[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
 pub async fn op_error_async_deferred() -> Result<(), OpError> {
-  Err(JsNativeError::generic("error").into())
+  Err(JsErrorBox::generic("error").into())
 }
 
 #[allow(clippy::unused_async)]
@@ -373,7 +374,7 @@ async fn op_write_type_error(
 ) -> Result<(), OpError> {
   let resource = state.borrow().resource_table.get_any(rid)?;
   resource
-    .write_error(&super::error::JsNativeError::type_error(error))
+    .write_error(&deno_error::JsErrorBox::type_error(error))
     .await?;
   Ok(())
 }
@@ -468,7 +469,7 @@ async fn do_load_job<'s>(
     | v8::ModuleStatus::Instantiating
     | v8::ModuleStatus::Evaluating => {
       return Err(
-        JsNativeError::generic(format!(
+        JsErrorBox::generic(format!(
           "Cannot require() ES Module {specifier} in a cycle."
         ))
         .into(),
@@ -572,7 +573,7 @@ fn op_import_sync<'s>(
     | v8::ModuleStatus::Instantiating
     | v8::ModuleStatus::Evaluating => {
       return Err(
-        JsNativeError::generic(format!(
+        JsErrorBox::generic(format!(
           "Cannot require() ES Module {specifier} in a cycle."
         ))
         .into(),

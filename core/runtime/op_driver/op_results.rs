@@ -6,6 +6,7 @@ use crate::PromiseId;
 use deno_error::JsErrorClass;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use std::any::Any;
 use std::borrow::Cow;
 use std::error::Error;
 
@@ -314,7 +315,11 @@ impl JsErrorClass for OpErrorWrapper {
 
   fn get_additional_properties(
     &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
     self.0 .0.get_additional_properties()
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self.0 .0.as_any()
   }
 }

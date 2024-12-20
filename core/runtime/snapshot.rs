@@ -1,10 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::error::CoreError;
-use crate::modules::ModuleMapSnapshotData;
-use crate::Extension;
-use crate::JsRuntimeForSnapshot;
-use crate::RuntimeOptions;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -14,6 +9,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use crate::cppgc::FunctionTemplateSnapshotData;
+use crate::error::CoreError;
 use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;

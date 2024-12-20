@@ -183,7 +183,7 @@
 
       if (res.additional_properties) {
         for (const [key, value] of res.additional_properties) {
-          res[key] = value;
+          err[key] = value;
         }
       }
       // Strip eventLoopTick() calls from stack trace

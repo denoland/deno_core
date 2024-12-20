@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use std::any::type_name;
+use std::any::{type_name, Any};
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
@@ -242,6 +242,12 @@ impl From<Canceled> for io::Error {
   }
 }
 
+impl From<Canceled> for deno_error::JsErrorBox {
+  fn from(value: Canceled) -> Self {
+    deno_error::JsErrorBox::from_err(value)
+  }
+}
+
 impl JsErrorClass for Canceled {
   fn get_class(&self) -> &'static str {
     let io_err: io::Error = self.to_owned().into();
@@ -255,9 +261,13 @@ impl JsErrorClass for Canceled {
 
   fn get_additional_properties(
     &self,
-  ) -> Option<Vec<(Cow<'static, str>, Cow<'static, str>)>> {
+  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
     let io_err: io::Error = self.to_owned().into();
     io_err.get_additional_properties()
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
   }
 }
 

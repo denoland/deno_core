@@ -539,7 +539,6 @@ mod tests {
   use crate::convert::Number;
   use crate::convert::Smi;
   use crate::error::CoreError;
-  use crate::error::JsNativeError;
   use crate::error::OpError;
   use crate::external;
   use crate::external::ExternalPointer;
@@ -552,6 +551,7 @@ mod tests {
   use crate::RuntimeOptions;
   use crate::ToV8;
   use bytes::BytesMut;
+  use deno_error::JsErrorBox;
   use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
@@ -689,9 +689,8 @@ mod tests {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
-    let err_mapper = |err| {
-      JsNativeError::generic(format!("{op} test failed ({test}): {err:?}"))
-    };
+    let err_mapper =
+      |err| JsErrorBox::generic(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -725,7 +724,7 @@ mod tests {
       ),
     )?;
     if FAIL.with(|b| b.get()) {
-      Err(JsNativeError::generic(format!("{op} test failed ({test})")).into())
+      Err(JsErrorBox::generic(format!("{op} test failed ({test})")).into())
     } else {
       Ok(())
     }
@@ -741,9 +740,8 @@ mod tests {
       extensions: vec![testing::init_ops_and_esm()],
       ..Default::default()
     });
-    let err_mapper = |err| {
-      JsNativeError::generic(format!("{op} test failed ({test}): {err:?}"))
-    };
+    let err_mapper =
+      |err| JsErrorBox::generic(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -781,7 +779,7 @@ mod tests {
 
     runtime.run_event_loop(Default::default()).await?;
     if FAIL.with(|b| b.get()) {
-      Err(JsNativeError::generic(format!("{op} test failed ({test})")).into())
+      Err(JsErrorBox::generic(format!("{op} test failed ({test})")).into())
     } else {
       Ok(())
     }
@@ -890,7 +888,7 @@ mod tests {
       new
     });
     if count > 5000 {
-      Err(JsNativeError::generic("failed!!!").into())
+      Err(JsErrorBox::generic("failed!!!").into())
     } else {
       Ok(())
     }
@@ -898,7 +896,7 @@ mod tests {
 
   #[op2(fast)]
   pub fn op_test_result_void_err() -> Result<(), OpError> {
-    Err(JsNativeError::generic("failed!!!").into())
+    Err(JsErrorBox::generic("failed!!!").into())
   }
 
   #[allow(clippy::unnecessary_wraps)]
@@ -943,7 +941,7 @@ mod tests {
 
   #[op2(fast)]
   pub fn op_test_result_primitive_err() -> Result<u32, OpError> {
-    Err(JsNativeError::generic("failed!!!").into())
+    Err(JsErrorBox::generic("failed!!!").into())
   }
 
   #[allow(clippy::unnecessary_wraps)]
@@ -978,7 +976,7 @@ mod tests {
     if b {
       Ok(true)
     } else {
-      Err(JsNativeError::generic("false!!!").into())
+      Err(JsErrorBox::generic("false!!!").into())
     }
   }
 
@@ -1013,7 +1011,7 @@ mod tests {
     if a + b >= 0. {
       Ok(a + b)
     } else {
-      Err(JsNativeError::generic("negative!!!").into())
+      Err(JsErrorBox::generic("negative!!!").into())
     }
   }
 
@@ -1325,7 +1323,7 @@ mod tests {
     let key = v8::String::new(scope, "key").unwrap().into();
     o.get(scope, key)
       .filter(|v| !v.is_null_or_undefined())
-      .ok_or(JsNativeError::generic("error!!!").into())
+      .ok_or(JsErrorBox::generic("error!!!").into())
   }
 
   #[tokio::test]
@@ -2174,7 +2172,7 @@ mod tests {
   #[op2(async)]
   pub async fn op_async_sleep_error() -> Result<(), OpError> {
     tokio::time::sleep(Duration::from_millis(500)).await;
-    Err(JsNativeError::generic("whoops").into())
+    Err(JsErrorBox::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2196,7 +2194,7 @@ mod tests {
 
   #[op2(async(deferred), fast)]
   pub async fn op_async_deferred_error() -> Result<(), OpError> {
-    Err(JsNativeError::generic("whoops").into())
+    Err(JsErrorBox::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2224,7 +2222,7 @@ mod tests {
 
   #[op2(async(lazy), fast)]
   pub async fn op_async_lazy_error() -> Result<(), OpError> {
-    Err(JsNativeError::generic("whoops").into())
+    Err(JsErrorBox::generic("whoops").into())
   }
 
   #[tokio::test]
@@ -2251,15 +2249,15 @@ mod tests {
     mode: u8,
   ) -> Result<impl Future<Output = Result<(), OpError>>, OpError> {
     if mode == 0 {
-      return Err(JsNativeError::generic("early exit").into());
+      return Err(JsErrorBox::generic("early exit").into());
     }
     Ok(async move {
       if mode == 1 {
-        return Err(JsNativeError::generic("early async exit").into());
+        return Err(JsErrorBox::generic("early async exit").into());
       }
       tokio::time::sleep(Duration::from_millis(500)).await;
       if mode == 2 {
-        return Err(JsNativeError::generic("late async exit").into());
+        return Err(JsErrorBox::generic("late async exit").into());
       }
       Ok(())
     })
@@ -2459,7 +2457,7 @@ mod tests {
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = JsNativeError;
+    type Error = JsErrorBox;
 
     fn from_v8(
       scope: &mut v8::HandleScope<'a>,

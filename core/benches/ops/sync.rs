@@ -183,7 +183,7 @@ fn bench_op(
     ..Default::default()
   });
   let err_mapper = |err| {
-    error::JsNativeError::generic(format!("{op} test failed ({call}): {err:?}"))
+    error::JsErrorBox::generic(format!("{op} test failed ({call}): {err:?}"))
   };
 
   let args = (0..arg_count)

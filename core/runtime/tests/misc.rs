@@ -981,7 +981,7 @@ async fn test_dynamic_import_module_error_stack() {
   #[op2(async)]
   async fn op_async_error() -> Result<(), OpError> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    Err(error::JsNativeError::type_error("foo").into())
+    Err(deno_error::JsErrorBox::type_error("foo").into())
   }
   deno_core::extension!(test_ext, ops = [op_async_error]);
   let loader = StaticModuleLoader::new([
