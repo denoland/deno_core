@@ -1178,7 +1178,7 @@ impl JsRuntime {
       //     skip_op_registration: true
       //   }
       // ) {
-      if init_mode == InitMode::New {
+      if init_mode.needs_ops_bindings() {
         js_runtime
           .execute_virtual_ops_module(context_global, module_map.clone());
       }
