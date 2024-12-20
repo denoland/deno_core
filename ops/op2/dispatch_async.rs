@@ -95,7 +95,10 @@ pub(crate) fn generate_dispatch_async(
     let lazy = config.async_lazy;
     let deferred = config.async_deferred;
     output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
-      let #promise_id = deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+      let out_arr = #fn_args.get(0);
+      let (promise_id, promise) = deno_core::_ops::make_promise(&mut *scope);
+      deno_core::_ops::set_out_promises(&mut *scope, out_arr, promise_id, promise);
       // Lazy and deferred results will always return None
       deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
         #return_value
@@ -103,7 +106,10 @@ pub(crate) fn generate_dispatch_async(
     }));
   } else {
     output.extend(gs_quote!(generator_state(promise_id, fn_args, result, opctx, scope) => {
-      let #promise_id = deno_core::_ops::to_i32_option(&#fn_args.get(0)).unwrap_or_default();
+      let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+      let out_arr = #fn_args.get(0);
+      let (promise_id, promise) = deno_core::_ops::make_promise(&mut *scope);
+      deno_core::_ops::set_out_promises(&mut *scope, out_arr, promise_id, promise);
       if let Some(#result) = deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
         #return_value
       }) {
