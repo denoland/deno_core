@@ -21,5 +21,5 @@ pub async fn op_async_throw_error_lazy() -> Result<(), JsErrorBox> {
 pub fn op_error_custom_sync(
   #[string] message: String,
 ) -> Result<(), JsErrorBox> {
-  Err(JsErrorBox::generic(message))
+  Err(JsErrorBox::new("BadResource", message))
 }
