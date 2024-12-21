@@ -304,6 +304,8 @@ pub enum ModuleType {
   JavaScript,
   Wasm,
   Json,
+  Text,
+  Binary,
   Other(Cow<'static, str>),
 }
 
@@ -313,6 +315,8 @@ impl std::fmt::Display for ModuleType {
       Self::JavaScript => write!(f, "JavaScript"),
       Self::Wasm => write!(f, "Wasm"),
       Self::Json => write!(f, "JSON"),
+      Self::Text => write!(f, "Text"),
+      Self::Binary => write!(f, "Binary"),
       Self::Other(ty) => write!(f, "{}", ty),
     }
   }
@@ -327,6 +331,8 @@ impl ModuleType {
       ModuleType::JavaScript => v8::Integer::new(scope, 0).into(),
       ModuleType::Wasm => v8::Integer::new(scope, 1).into(),
       ModuleType::Json => v8::Integer::new(scope, 2).into(),
+      ModuleType::Text => v8::Integer::new(scope, 3).into(),
+      ModuleType::Binary => v8::Integer::new(scope, 4).into(),
       ModuleType::Other(ty) => v8::String::new(scope, ty).unwrap().into(),
     }
   }
@@ -340,6 +346,8 @@ impl ModuleType {
         0 => ModuleType::JavaScript,
         1 => ModuleType::Wasm,
         2 => ModuleType::Json,
+        3 => ModuleType::Text,
+        4 => ModuleType::Binary,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
@@ -573,6 +581,8 @@ impl PartialEq<ModuleType> for RequestedModuleType {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Wasm => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
+      ModuleType::Text => self == &RequestedModuleType::Other(Cow::Borrowed("text")),
+      ModuleType::Binary => self == &RequestedModuleType::Other(Cow::Borrowed("binary")),
       ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
@@ -584,6 +594,8 @@ impl From<ModuleType> for RequestedModuleType {
       ModuleType::JavaScript => RequestedModuleType::None,
       ModuleType::Wasm => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
+      ModuleType::Text => RequestedModuleType::Other(Cow::Borrowed("text")),
+      ModuleType::Binary => RequestedModuleType::Other(Cow::Borrowed("binary")),
       ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
   }

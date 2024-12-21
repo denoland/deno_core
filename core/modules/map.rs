@@ -402,6 +402,18 @@ impl ModuleMap {
         let code = ModuleSource::get_string_source(code);
         self.new_json_module(scope, module_url_found, code)?
       }
+      ModuleType::Text => {
+        let code = ModuleSource::get_string_source(code);
+        self.new_text_module(scope, module_url_found, code)?
+      }
+      ModuleType::Binary => {
+        let ModuleSourceCode::Bytes(code) = code else {
+          return Err(ModuleError::Other(generic_error(
+            "Source code for Binary module must be provided as bytes",
+          )));
+        };
+        self.new_binary_module(scope, module_url_found, code)?
+      }
       ModuleType::Other(module_type) => {
         let state = JsRuntime::state_from(scope);
         let custom_module_evaluation_cb =
@@ -826,6 +838,45 @@ impl ModuleMap {
     };
     let exports = vec![(ascii_str!("default"), parsed_json)];
     self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports)
+  }
+
+  pub(crate) fn new_text_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: impl IntoModuleName,
+    code: impl IntoModuleCodeString,
+  ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
+    let code = code.into_module_code();
+    let source_str = v8::String::new_from_utf8(
+      scope,
+      strip_bom(code.as_bytes()),
+      v8::NewStringType::Normal,
+    )
+    .unwrap();
+    let source_str_local = v8::Local::new(scope, source_str);
+    let source_value_local = v8::Local::<v8::Value>::from(source_str_local);
+    let exports = vec![(ascii_str!("default"), source_value_local)];
+    self.new_synthetic_module(scope, name, ModuleType::Json, exports)
+  }
+
+  pub(crate) fn new_binary_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: impl IntoModuleName,
+    code: ModuleCodeBytes,
+  ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
+    let backing_store = match code {
+      // TODO: can we more efficiently reuse the existing storage with a future immutable arraybuffer variant?
+      ModuleCodeBytes::Static(bytes) => v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
+      ModuleCodeBytes::Boxed(bytes) => v8::ArrayBuffer::new_backing_store_from_boxed_slice(bytes),
+      ModuleCodeBytes::Arc(bytes) => v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
+    };
+    let source_arraybuffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
+    let source_value_local = v8::Local::<v8::Value>::from(source_arraybuffer);
+    let exports = vec![(ascii_str!("default"), source_value_local)];
+    self.new_synthetic_module(scope, name, ModuleType::Json, exports)
   }
 
   pub(crate) fn instantiate_module(
