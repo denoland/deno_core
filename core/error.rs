@@ -260,12 +260,23 @@ pub fn to_v8_error<'a>(
   let message = v8::String::new(tc_scope, &error.get_message()).unwrap();
   let mut args = vec![class.into(), message.into()];
 
-  if let Some(code) = (error as &dyn std::any::Any)
-    .downcast_ref::<std::io::Error>()
-    .and_then(deno_error::get_error_code)
-  {
-    args.push(v8::String::new(tc_scope, code).unwrap().into());
+  let additional_properties = error
+    .get_additional_properties()
+    .into_iter()
+    .map(|(key, value)| {
+      let key = v8::String::new(tc_scope, &key).unwrap().into();
+      let value = v8::String::new(tc_scope, &value).unwrap().into();
+
+      v8::Array::new_with_elements(tc_scope, &[key, value]).into()
+    })
+    .collect::<Vec<_>>();
+
+  if !additional_properties.is_empty() {
+    args.push(
+      v8::Array::new_with_elements(tc_scope, &additional_properties).into(),
+    );
   }
+
   let maybe_exception = cb.call(tc_scope, this, &args);
 
   match maybe_exception {
