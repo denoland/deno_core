@@ -51,7 +51,9 @@ deno_core::extension!(
   ],
   objects = [
     ops::DOMPoint,
-    ops::TestObjectWrap
+    ops::TestObjectWrap,
+    // INSERT HERE: OBJWRAP
+    // END INSERT HERE: OBJWRAP
   ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [

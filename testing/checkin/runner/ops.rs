@@ -191,6 +191,15 @@ impl DOMPoint {
     self.z
   }
 
+  #[setter]
+  fn y(&self, _: f64) {}
+
+  #[setter]
+  fn z(&self, _: f64) {}
+
+  #[setter]
+  fn w(&self, _: f64) {}
+
   #[fast]
   fn wrapping_smi(&self, #[smi] t: u32) -> u32 {
     t
@@ -201,3 +210,6 @@ impl DOMPoint {
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }
+
+// INSERT HERE: OBJWRAP
+// END INSERT HERE: OBJWRAP

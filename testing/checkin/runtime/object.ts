@@ -3,3 +3,9 @@
 import { DOMPoint, TestObjectWrap } from "ext:core/ops";
 
 export { DOMPoint, TestObjectWrap };
+
+// INSERT HERE: OBJWRAP
+// END INSERT HERE: OBJWRAP
+
+// INSERT HERE: JS
+// END INSERT HERE: JS
