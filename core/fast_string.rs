@@ -43,7 +43,7 @@ impl FastStaticString {
   pub const fn create_external_onebyte_const(
     s: &'static [u8],
   ) -> v8::OneByteConst {
-    v8::String::create_external_onebyte_const(s)
+    unsafe { v8::String::create_external_onebyte_const_unchecked(s) }
   }
 
   pub fn v8_string<'s>(
