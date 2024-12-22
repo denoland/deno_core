@@ -356,30 +356,11 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
   let undefined = v8::undefined(scope);
   let mut index = 0;
-  for op_ctx in op_ctxs {
+
+  for decl in op_method_decls {
     if index == methods_ctx_offset {
       break;
     }
-
-    let mut op_fn = op_ctx_function(scope, op_ctx);
-    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
-
-    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
-    // this call will generate an optimized function that binds to the provided
-    // op, while keeping track of promises and error remapping.
-    if op_ctx.decl.is_async {
-      let result = set_up_async_stub_fn
-        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
-        .unwrap();
-      op_fn = result.try_into().unwrap()
-    }
-
-    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
-
-    index += 1;
-  }
-
-  for decl in op_method_decls {
     let constructor_ctx = &op_ctxs[index];
 
     let tmpl = op_ctx_template(scope, constructor_ctx);
@@ -413,6 +394,26 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
     let id = (decl.type_name)().to_string();
     fn_template_store.insert(id, v8::Global::new(scope, tmpl));
+  }
+
+  let op_ctxs = &op_ctxs[index..];
+  for op_ctx in op_ctxs {
+    let mut op_fn = op_ctx_function(scope, op_ctx);
+    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
+
+    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
+    // this call will generate an optimized function that binds to the provided
+    // op, while keeping track of promises and error remapping.
+    if op_ctx.decl.is_async {
+      let result = set_up_async_stub_fn
+        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
+        .unwrap();
+      op_fn = result.try_into().unwrap()
+    }
+
+    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
+
+    index += 1;
   }
 }
 
@@ -984,22 +985,24 @@ pub fn create_exports_for_ops_virtual_module<'s>(
   let ops_obj = get(scope, deno_core_obj, OPS, "Deno.core.ops");
 
   let mut index = 0;
-  for op_ctx in op_ctxs {
+
+  for decl in op_method_decls {
     if index == methods_ctx_offset {
       break;
     }
-    let op_fn = get(scope, ops_obj, op_ctx.decl.name_fast, "op");
-    exports.push((op_ctx.decl.name_fast, op_fn));
-    index += 1;
-  }
-
-  for decl in op_method_decls {
     let constructor_ctx = &op_ctxs[index];
 
     let op_fn = get(scope, ops_obj, constructor_ctx.decl.name_fast, "op");
     exports.push((constructor_ctx.decl.name_fast, op_fn));
 
     index += 1 + decl.methods.len() + decl.static_methods.len();
+  }
+
+  let op_ctxs = &op_ctxs[index..];
+  for op_ctx in op_ctxs {
+    let op_fn = get(scope, ops_obj, op_ctx.decl.name_fast, "op");
+    exports.push((op_ctx.decl.name_fast, op_fn));
+    index += 1;
   }
 
   exports
