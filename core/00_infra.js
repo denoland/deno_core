@@ -99,8 +99,14 @@
     if (typeof error == "object") {
       ErrorCaptureStackTrace(error, buildCustomError);
       if (additionalProperties) {
-        for (const [key, value] of additionalProperties) {
-          error[key] = value;
+        for (const property of new SafeArrayIterator(additionalProperties)) {
+          const key = property[0];
+          if (!(key in error)) {
+            ObjectDefineProperty(error, key, {
+              value: property[1],
+              writable: false,
+            });
+          }
         }
       }
     }
