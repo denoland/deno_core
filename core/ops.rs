@@ -71,17 +71,6 @@ impl OpMetadata {
   }
 }
 
-/// Per-object contexts for members.
-pub struct OpMethodCtx {
-  pub type_name: &'static str,
-  /// Op context for the constructor
-  pub constructor: OpCtx,
-  /// Per-op context for the methods
-  pub methods: Vec<OpCtx>,
-  /// Per-op context for the static methods
-  pub static_methods: Vec<OpCtx>,
-}
-
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is

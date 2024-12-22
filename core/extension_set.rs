@@ -11,7 +11,6 @@ use crate::extensions::GlobalTemplateMiddlewareFn;
 use crate::extensions::OpMiddlewareFn;
 use crate::modules::ModuleName;
 use crate::ops::OpCtx;
-use crate::ops::OpMethodCtx;
 use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
@@ -135,17 +134,16 @@ fn check_no_duplicate_op_names(ops: &[OpDecl]) {
 #[allow(clippy::too_many_arguments)]
 pub fn create_op_ctxs(
   op_decls: Vec<OpDecl>,
-  op_method_decls: Vec<OpMethodDecl>,
+  op_method_decls: &mut [OpMethodDecl],
   op_metrics_factory_fn: Option<OpMetricsFactoryFn>,
   op_driver: Rc<OpDriverImpl>,
   op_state: Rc<RefCell<OpState>>,
   runtime_state: Rc<JsRuntimeState>,
   get_error_class_fn: GetErrorClassFn,
   enable_stack_trace_in_ops: bool,
-) -> (Box<[OpCtx]>, Box<[OpMethodCtx]>) {
-  let op_count = op_decls.len();
+) -> (Box<[OpCtx]>, usize) {
+  let op_count = op_decls.len() + op_method_decls.len();
   let mut op_ctxs = Vec::with_capacity(op_count);
-  let mut op_method_ctxs = Vec::with_capacity(op_method_decls.len());
 
   let runtime_state_ptr = runtime_state.as_ref() as *const _;
   let create_ctx = |index, decl| {
@@ -170,30 +168,25 @@ pub fn create_op_ctxs(
     op_ctxs.push(create_ctx(index, decl));
   }
 
-  for (index, mut decl) in op_method_decls.into_iter().enumerate() {
+  /* method op ctxs are stored after regular op ctxs */
+  let methods_ctx_offset = op_ctxs.len();
+
+  for (index, decl) in op_method_decls.into_iter().enumerate() {
     decl.constructor.name = decl.name.0;
     decl.constructor.name_fast = decl.name.1;
 
-    op_method_ctxs.push(OpMethodCtx {
-      type_name: (decl.type_name)(),
-      constructor: create_ctx(index, decl.constructor),
-      methods: decl
-        .methods
-        .iter()
-        .map(|method_decl| create_ctx(index, *method_decl))
-        .collect(),
-      static_methods: decl
-        .static_methods
-        .iter()
-        .map(|method_decl| create_ctx(index, *method_decl))
-        .collect(),
-    });
+    let index = index + methods_ctx_offset;
+
+    op_ctxs.push(create_ctx(index, decl.constructor));
+    for method in decl.methods {
+      op_ctxs.push(create_ctx(index, *method));
+    }
+    for method in decl.static_methods {
+      op_ctxs.push(create_ctx(index, *method));
+    }
   }
 
-  (
-    op_ctxs.into_boxed_slice(),
-    op_method_ctxs.into_boxed_slice(),
-  )
+  (op_ctxs.into_boxed_slice(), methods_ctx_offset)
 }
 
 pub fn get_middlewares_and_external_refs(
