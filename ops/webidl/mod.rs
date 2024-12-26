@@ -7,17 +7,20 @@ use quote::quote;
 use quote::ToTokens;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
+use syn::parse2;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
+use syn::Attribute;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
 use syn::Expr;
 use syn::Field;
 use syn::Fields;
+use syn::LitStr;
+use syn::MetaNameValue;
+use syn::Token;
 use syn::Type;
-use syn::{parse2, LitStr, Token};
-use syn::{Attribute, MetaNameValue};
 
 pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let input = parse2::<DeriveInput>(item)?;
@@ -108,19 +111,23 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
               .into_iter()
               .map(|(k, v)| quote!(#k: #v))
               .collect::<Vec<_>>();
-            
+
             let ty = field.ty;
 
+            // Type-alias to workaround https://github.com/rust-lang/rust/issues/86935
             quote! {
-              <#ty as ::deno_core::webidl::WebIdlConverter>::Options {
-                #(#inner),*,
-                ..Default::default()
+              {
+                type Alias<'a> = <#ty as ::deno_core::webidl::WebIdlConverter<'a>>::Options;
+                Alias {
+                  #(#inner),*,
+                  ..Default::default()
+                }
               }
             }
           };
-          
+
           println!("{:?}", options.to_string());
-          
+
           quote! {
             let #name = {
               let __key = #v8_static_name

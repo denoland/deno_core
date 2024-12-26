@@ -4,13 +4,13 @@
 name = "dcore"
 version = "0.1.0"
 authors.workspace = true
+default-run = "dcore"
 edition.workspace = true
 license.workspace = true
 publish = false
 readme = "README.md"
 repository.workspace = true
 description = "A simple binary that builds on deno_core"
-default-run = "dcore"
 
 [[bin]]
 name = "dcore"
