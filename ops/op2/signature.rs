@@ -1576,9 +1576,9 @@ pub(crate) fn parse_type(
       | AttributeModifier::ToV8
       | AttributeModifier::WebIDL(_) => {
         let make_arg: Box<dyn Fn(String) -> Arg> = match primary {
-          AttributeModifier::Serde => Box::new(|s| Arg::SerdeV8(s)),
-          AttributeModifier::FromV8 => Box::new(|s| Arg::FromV8(s)),
-          AttributeModifier::ToV8 => Box::new(|s| Arg::ToV8(s)),
+          AttributeModifier::Serde => Box::new(Arg::SerdeV8),
+          AttributeModifier::FromV8 => Box::new(Arg::FromV8),
+          AttributeModifier::ToV8 => Box::new(Arg::ToV8),
           AttributeModifier::WebIDL(ref options) => {
             Box::new(move |s| Arg::WebIDL(s, options.clone()))
           }
