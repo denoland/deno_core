@@ -181,7 +181,7 @@ pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }
 
-#[derive(deno_core::WebIDL, Debug)]
+#[derive(deno_core::WebIDL)]
 #[webidl(dictionary)]
 pub struct Foo {
   #[options(clamp = true)]
@@ -192,5 +192,6 @@ pub struct Foo {
 
 #[op2]
 pub fn op_webidl(#[webidl] arg: Foo) {
-  dbg!(arg);
+  println!("{}", arg.test.len());
+  println!("{:#?}", arg.my_number);
 }
