@@ -39,4 +39,5 @@ export class TestObjectWrap {
   constructor();
   withVarargs(...args: any[]): number;
   with_RENAME(): void;
+  withAsyncFn(ms: number): Promise<void>;
 }
