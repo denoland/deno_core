@@ -125,7 +125,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
               }
             }
           };
-          
+
           let new_context = format!("'{string_name}' of '{ident_string}'");
 
           quote! {
