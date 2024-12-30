@@ -683,7 +683,7 @@ pub fn from_arg(
           &mut #scope,
           #arg_ident,
           #prefix.into(),
-          #context.into(),
+          || std::borrow::Cow::Borrowed(#context),
           &#options,
         ) {
           Ok(t) => t,

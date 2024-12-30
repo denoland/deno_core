@@ -15,19 +15,19 @@ pub struct WebIdlError {
 impl WebIdlError {
   pub fn new(
     prefix: Cow<'static, str>,
-    context: Cow<'static, str>,
+    context: &impl Fn() -> Cow<'static, str>,
     kind: WebIdlErrorKind,
   ) -> Self {
     Self {
       prefix,
-      context,
+      context: context(),
       kind,
     }
   }
 
   pub fn other<T: std::error::Error + Send + Sync + 'static>(
     prefix: Cow<'static, str>,
-    context: Cow<'static, str>,
+    context: &impl Fn() -> Cow<'static, str>,
     other: T,
   ) -> Self {
     Self::new(prefix, context, WebIdlErrorKind::Other(Box::new(other)))
@@ -72,16 +72,20 @@ pub enum WebIdlErrorKind {
   Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
+pub type WebIdlContext = Box<dyn Fn() -> Cow<'static, str>>;
+
 pub trait WebIdlConverter<'a>: Sized {
   type Options: Default;
 
-  fn convert(
+  fn convert<C>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: Cow<'static, str>,
+    context: C,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError>;
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>;
 }
 
 #[derive(Debug, Default)]
@@ -94,11 +98,11 @@ pub struct IntOptions {
 todo:
 If bitLength is 64, then:
 
-    Let upperBound be 253 − 1.
+    Let upperBound be 2^53 − 1.
 
     If signedness is "unsigned", then let lowerBound be 0.
 
-    Otherwise let lowerBound be −253 + 1.
+    Otherwise let lowerBound be −2^53 + 1.
 
  */
 // https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
@@ -108,15 +112,22 @@ macro_rules! impl_ints {
       impl<'a> WebIdlConverter<'a> for $t {
         type Options = IntOptions;
 
-        fn convert(
+        fn convert<C>(
           scope: &mut HandleScope<'a>,
           value: Local<'a, Value>,
           prefix: Cow<'static, str>,
-          context: Cow<'static, str>,
+          context: C,
           options: &Self::Options,
-        ) -> Result<Self, WebIdlError> {
+        ) -> Result<Self, WebIdlError>
+        where
+          C: Fn() -> Cow<'static, str>,
+        {
+          if value.is_big_int() {
+            return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::ConvertToConverterType($name)));
+          }
+
           let Some(mut n) = value.number_value(scope) else {
-            return Err(WebIdlError::new(prefix, context, WebIdlErrorKind::ConvertToConverterType($name)));
+            return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::ConvertToConverterType($name)));
           };
           if n == -0.0 {
             n = 0.0;
@@ -124,7 +135,7 @@ macro_rules! impl_ints {
 
           if options.enforce_range {
             if !n.is_finite() {
-              return Err(WebIdlError::new(prefix, context, WebIdlErrorKind::IntNotFinite));
+              return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::IntNotFinite));
             }
 
             n = n.trunc();
@@ -133,7 +144,7 @@ macro_rules! impl_ints {
             }
 
             if n < Self::MIN as f64 || n > Self::MAX as f64 {
-              return Err(WebIdlError::new(prefix, context, WebIdlErrorKind::IntRange {
+              return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::IntRange {
                 lower_bound: Self::MIN as f64,
                 upper_bound: Self::MAX as f64,
               }));
@@ -204,16 +215,52 @@ impl_ints!(
 
 // TODO: float, unrestricted float, double, unrestricted double
 
+#[derive(Debug)]
+pub struct BigInt {
+  pub sign: bool,
+  pub words: Vec<u64>,
+}
+
+impl<'a> WebIdlConverter<'a> for BigInt {
+  type Options = ();
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let Some(bigint) = value.to_big_int(scope) else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("bigint"),
+      ));
+    };
+
+    let mut words = vec![];
+    let (sign, _) = bigint.to_words_array(&mut words);
+    Ok(Self { sign, words })
+  }
+}
+
 impl<'a> WebIdlConverter<'a> for bool {
   type Options = ();
 
-  fn convert(
+  fn convert<C>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
-    _context: Cow<'static, str>,
+    _context: C,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError> {
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
     Ok(value.to_boolean(scope).is_true())
   }
 }
@@ -221,17 +268,20 @@ impl<'a> WebIdlConverter<'a> for bool {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
   type Options = T::Options;
 
-  fn convert(
+  fn convert<C>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: Cow<'static, str>,
+    context: C,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError> {
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
     let Some(obj) = value.to_object(scope) else {
       return Err(WebIdlError::new(
         prefix,
-        context,
+        &context,
         WebIdlErrorKind::ConvertToConverterType("sequence"),
       ));
     };
@@ -245,7 +295,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
     else {
       return Err(WebIdlError::new(
         prefix,
-        context,
+        &context,
         WebIdlErrorKind::ConvertToConverterType("sequence"),
       ));
     };
@@ -254,15 +304,15 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
 
     let next_key = NEXT
       .v8_string(scope)
-      .map_err(|e| WebIdlError::other(prefix.clone(), context.clone(), e))?
+      .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?
       .into();
     let done_key = DONE
       .v8_string(scope)
-      .map_err(|e| WebIdlError::other(prefix.clone(), context.clone(), e))?
+      .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?
       .into();
     let value_key = VALUE
       .v8_string(scope)
-      .map_err(|e| WebIdlError::other(prefix.clone(), context.clone(), e))?
+      .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?
       .into();
 
     loop {
@@ -274,7 +324,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
       else {
         return Err(WebIdlError::new(
           prefix,
-          context,
+          &context,
           WebIdlErrorKind::ConvertToConverterType("sequence"),
         ));
       };
@@ -286,7 +336,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
       let Some(iter_val) = res.get(scope, value_key) else {
         return Err(WebIdlError::new(
           prefix,
-          context,
+          &context,
           WebIdlErrorKind::ConvertToConverterType("sequence"),
         ));
       };
@@ -295,7 +345,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
         scope,
         iter_val,
         prefix.clone(),
-        format!("{context}, index {}", out.len()).into(),
+        || format!("{}, index {}", context(), out.len()).into(),
         options,
       )?);
     }

@@ -85,7 +85,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
             quote! {
               return Err(::deno_core::webidl::WebIdlError::new(
                 __prefix,
-                __context,
+                &__context,
                 ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
                   converter: #ident_string,
                   key: #string_name,
@@ -125,14 +125,14 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
               }
             }
           };
-
-          println!("{:?}", options.to_string());
+          
+          let new_context = format!("'{string_name}' of '{ident_string}'");
 
           quote! {
             let #name = {
               let __key = #v8_static_name
                 .v8_string(__scope)
-                .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), __context.clone(), e))?
+                .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), &__context, e))?
                 .into();
               if let Some(__value) = __obj.as_ref()
               .and_then(|__obj| __obj.get(__scope, __key))
@@ -147,7 +147,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
                   __scope,
                   __value,
                   __prefix.clone(),
-                  format!("'{}' of '{}' ({__context})", #string_name, #ident_string).into(),
+                  || format!("{} ({})", #new_context, __context()).into(),
                   &#options,
                 )?;
                 #val
@@ -166,23 +166,28 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
             type Options = ();
 
-            fn convert(
-              __scope: &mut::deno_core:: v8::HandleScope<'a>,
+            fn convert<C>(
+              __scope: &mut ::deno_core::v8::HandleScope<'a>,
               __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
               __prefix: std::borrow::Cow<'static, str>,
-              __context: std::borrow::Cow<'static, str>,
+              __context: C,
               __options: &Self::Options,
-            ) -> Result<Self, ::deno_core::webidl::WebIdlError> {
-              let __obj = if __value.is_undefined() || __value.is_null() {
+            ) -> Result<Self, ::deno_core::webidl::WebIdlError>
+            where
+              C: Fn() -> std::borrow::Cow<'static, str>,
+            {
+              let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
                 None
               } else {
-                Some(__value.to_object(__scope).ok_or_else(|| {
-                  ::deno_core::webidl::WebIdlError::new(
-                    __prefix.clone(),
-                    __context.clone(),
+                if let Ok(obj) = __value.try_into() {
+                  Some(obj)
+                } else {
+                  return Err(::deno_core::webidl::WebIdlError::new(
+                    __prefix,
+                    &__context,
                     ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("dictionary")
-                  )
-                })?)
+                  ));
+                }
               };
 
               #(#fields)*
