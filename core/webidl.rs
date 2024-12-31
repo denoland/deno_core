@@ -51,6 +51,7 @@ impl std::fmt::Display for WebIdlError {
       }
       WebIdlErrorKind::IntNotFinite => write!(f, "is not a finite number"),
       WebIdlErrorKind::IntRange { lower_bound, upper_bound } => write!(f, "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"),
+      WebIdlErrorKind::InvalidByteString => write!(f, "is not a valid ByteString"),
       WebIdlErrorKind::Other(other) => std::fmt::Display::fmt(other, f),
     }
   }
@@ -70,6 +71,7 @@ pub enum WebIdlErrorKind {
     lower_bound: f64,
     upper_bound: f64,
   },
+  InvalidByteString,
   Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
@@ -89,22 +91,259 @@ pub trait WebIdlConverter<'a>: Sized {
     C: Fn() -> Cow<'static, str>;
 }
 
+// any converter
+impl<'a> WebIdlConverter<'a> for Local<'a, Value> {
+  type Options = ();
+
+  fn convert<C>(
+    _scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    _prefix: Cow<'static, str>,
+    _context: C,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    Ok(value)
+  }
+}
+
+// nullable converter
+impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
+  type Options = T::Options;
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    if value.is_null_or_undefined() {
+      Ok(None)
+    } else {
+      Ok(Some(WebIdlConverter::convert(
+        scope, value, prefix, context, options,
+      )?))
+    }
+  }
+}
+
+crate::v8_static_strings! {
+  NEXT = "next",
+  DONE = "done",
+  VALUE = "value",
+}
+
+thread_local! {
+  static NEXT_ETERNAL: v8::Eternal<v8::String> = v8::Eternal::empty();
+  static DONE_ETERNAL: v8::Eternal<v8::String> = v8::Eternal::empty();
+  static VALUE_ETERNAL: v8::Eternal<v8::String> = v8::Eternal::empty();
+}
+
+// sequence converter
+impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
+  type Options = T::Options;
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let Some(obj) = value.to_object(scope) else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("sequence"),
+      ));
+    };
+
+    let iter_key = v8::Symbol::get_iterator(scope);
+    let Some(iter) = obj
+      .get(scope, iter_key.into())
+      .and_then(|iter| iter.try_cast::<v8::Function>().ok())
+      .and_then(|iter| iter.call(scope, obj.cast(), &[]))
+      .and_then(|iter| iter.to_object(scope))
+    else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("sequence"),
+      ));
+    };
+
+    let mut out = vec![];
+
+    let next_key = NEXT_ETERNAL
+      .with(|eternal| {
+        eternal.get(scope).or_else(|| {
+          let key = NEXT
+            .v8_string(scope)
+            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
+          eternal.set(scope, key);
+          Ok(key)
+        })
+      })?
+      .into();
+
+    let done_key = DONE_ETERNAL
+      .with(|eternal| {
+        eternal.get(scope).or_else(|| {
+          let key = DONE
+            .v8_string(scope)
+            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
+          eternal.set(scope, key);
+          Ok(key)
+        })
+      })?
+      .into();
+
+    let value_key = VALUE_ETERNAL
+      .with(|eternal| {
+        eternal.get(scope).or_else(|| {
+          let key = VALUE
+            .v8_string(scope)
+            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
+          eternal.set(scope, key);
+          Ok(key)
+        })
+      })?
+      .into();
+
+    loop {
+      let Some(res) = iter
+        .get(scope, next_key)
+        .and_then(|next| next.try_cast::<v8::Function>().ok())
+        .and_then(|next| next.call(scope, iter.cast(), &[]))
+        .and_then(|res| res.to_object(scope))
+      else {
+        return Err(WebIdlError::new(
+          prefix,
+          &context,
+          WebIdlErrorKind::ConvertToConverterType("sequence"),
+        ));
+      };
+
+      if res.get(scope, done_key).is_some_and(|val| val.is_true()) {
+        break;
+      }
+
+      let Some(iter_val) = res.get(scope, value_key) else {
+        return Err(WebIdlError::new(
+          prefix,
+          &context,
+          WebIdlErrorKind::ConvertToConverterType("sequence"),
+        ));
+      };
+
+      out.push(WebIdlConverter::convert(
+        scope,
+        iter_val,
+        prefix.clone(),
+        || format!("{}, index {}", context(), out.len()).into(),
+        options,
+      )?);
+    }
+
+    Ok(out)
+  }
+}
+
+// record converter
+// the Options only apply to the value, not the key
+impl<
+    'a,
+    K: WebIdlConverter<'a> + Eq + std::hash::Hash,
+    V: WebIdlConverter<'a>,
+  > WebIdlConverter<'a> for HashMap<K, V>
+{
+  type Options = V::Options;
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let Ok(obj) = value.try_cast::<v8::Object>() else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("record"),
+      ));
+    };
+
+    if !obj.is_proxy() {
+      let Some(keys) = obj.get_own_property_names(
+        scope,
+        v8::GetPropertyNamesArgs {
+          mode: v8::KeyCollectionMode::OwnOnly,
+          property_filter: Default::default(),
+          index_filter: v8::IndexFilter::IncludeIndices,
+          key_conversion: v8::KeyConversionMode::ConvertToString,
+        },
+      ) else {
+        return Ok(Default::default());
+      };
+
+      let mut out = HashMap::with_capacity(keys.length() as _);
+
+      for i in 0..keys.length() {
+        let key = keys.get_index(scope, i).unwrap();
+        let value = obj.get(scope, key).unwrap();
+
+        let key = WebIdlConverter::convert(
+          scope,
+          key,
+          prefix.clone(),
+          &context,
+          &Default::default(),
+        )?;
+        let value = WebIdlConverter::convert(
+          scope,
+          value,
+          prefix.clone(),
+          &context,
+          options,
+        )?;
+
+        out.insert(key, value);
+      }
+
+      Ok(out)
+    } else {
+      todo!("handle proxy")
+    }
+  }
+}
+
 #[derive(Debug, Default)]
 pub struct IntOptions {
   pub clamp: bool,
   pub enforce_range: bool,
 }
 
+const U: u64 = 11 - 1;
+
 /*
 todo:
-If bitLength is 64, then:
-
+  If bitLength is 64, then:
     Let upperBound be 2^53 − 1.
-
     If signedness is "unsigned", then let lowerBound be 0.
-
     Otherwise let lowerBound be −2^53 + 1.
-
  */
 // https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
 macro_rules! impl_ints {
@@ -266,215 +505,52 @@ impl<'a> WebIdlConverter<'a> for bool {
   }
 }
 
-crate::v8_static_strings! {
-  NEXT = "next",
-  DONE = "done",
-  VALUE = "value",
-}
-
-thread_local! {
-  static NEXT_ETERNAL: v8::Eternal<v8::String> = v8::Eternal::empty();
-  static DONE_ETERNAL: v8::Eternal<v8::String> = v8::Eternal::empty();
-  static VALUE_ETERNAL: v8::Eternal<v8::String> = v8::Eternal::empty();
-}
-
-impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
-  type Options = T::Options;
-
-  fn convert<C>(
-    scope: &mut HandleScope<'a>,
-    value: Local<'a, Value>,
-    prefix: Cow<'static, str>,
-    context: C,
-    options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
-    let Some(obj) = value.to_object(scope) else {
-      return Err(WebIdlError::new(
-        prefix,
-        &context,
-        WebIdlErrorKind::ConvertToConverterType("sequence"),
-      ));
-    };
-
-    let iter_key = v8::Symbol::get_iterator(scope);
-    let Some(iter) = obj
-      .get(scope, iter_key.into())
-      .and_then(|iter| iter.try_cast::<v8::Function>().ok())
-      .and_then(|iter| iter.call(scope, obj.cast(), &[]))
-      .and_then(|iter| iter.to_object(scope))
-    else {
-      return Err(WebIdlError::new(
-        prefix,
-        &context,
-        WebIdlErrorKind::ConvertToConverterType("sequence"),
-      ));
-    };
-
-    let mut out = vec![];
-
-    let next_key = NEXT_ETERNAL
-      .with(|eternal| {
-        if eternal.is_empty() {
-          let key = NEXT
-            .v8_string(scope)
-            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
-          eternal.set(scope, key);
-          Ok(key)
-        } else {
-          Ok(eternal.get(scope))
-        }
-      })?
-      .into();
-
-    let done_key = DONE_ETERNAL
-      .with(|eternal| {
-        if eternal.is_empty() {
-          let key = DONE
-            .v8_string(scope)
-            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
-          eternal.set(scope, key);
-          Ok(key)
-        } else {
-          Ok(eternal.get(scope))
-        }
-      })?
-      .into();
-
-    let value_key = VALUE_ETERNAL
-      .with(|eternal| {
-        if eternal.is_empty() {
-          let key = VALUE
-            .v8_string(scope)
-            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
-          eternal.set(scope, key);
-          Ok(key)
-        } else {
-          Ok(eternal.get(scope))
-        }
-      })?
-      .into();
-
-    loop {
-      let Some(res) = iter
-        .get(scope, next_key)
-        .and_then(|next| next.try_cast::<v8::Function>().ok())
-        .and_then(|next| next.call(scope, iter.cast(), &[]))
-        .and_then(|res| res.to_object(scope))
-      else {
-        return Err(WebIdlError::new(
-          prefix,
-          &context,
-          WebIdlErrorKind::ConvertToConverterType("sequence"),
-        ));
-      };
-
-      if res.get(scope, done_key).is_some_and(|val| val.is_true()) {
-        break;
-      }
-
-      let Some(iter_val) = res.get(scope, value_key) else {
-        return Err(WebIdlError::new(
-          prefix,
-          &context,
-          WebIdlErrorKind::ConvertToConverterType("sequence"),
-        ));
-      };
-
-      out.push(WebIdlConverter::convert(
-        scope,
-        iter_val,
-        prefix.clone(),
-        || format!("{}, index {}", context(), out.len()).into(),
-        options,
-      )?);
-    }
-
-    Ok(out)
-  }
-}
-
-impl<
-    'a,
-    K: WebIdlConverter<'a> + Eq + std::hash::Hash,
-    V: WebIdlConverter<'a>,
-  > WebIdlConverter<'a> for HashMap<K, V>
-{
-  type Options = V::Options;
-
-  fn convert<C>(
-    scope: &mut HandleScope<'a>,
-    value: Local<'a, Value>,
-    prefix: Cow<'static, str>,
-    context: C,
-    options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
-    let Ok(obj) = value.try_cast::<v8::Object>() else {
-      return Err(WebIdlError::new(
-        prefix,
-        &context,
-        WebIdlErrorKind::ConvertToConverterType("record"),
-      ));
-    };
-
-    if !obj.is_proxy() {
-      let Some(keys) = obj.get_own_property_names(
-        scope,
-        v8::GetPropertyNamesArgs {
-          mode: v8::KeyCollectionMode::OwnOnly,
-          property_filter: Default::default(),
-          index_filter: v8::IndexFilter::IncludeIndices,
-          key_conversion: v8::KeyConversionMode::ConvertToString,
-        },
-      ) else {
-        return Ok(Default::default());
-      };
-
-      let mut out = HashMap::with_capacity(keys.length() as _);
-
-      for i in 0..keys.length() {
-        let key = keys.get_index(scope, i).unwrap();
-        let value = obj.get(scope, key).unwrap();
-
-        let key = WebIdlConverter::convert(
-          scope,
-          key,
-          prefix.clone(),
-          &context,
-          &Default::default(),
-        )?;
-        let value = WebIdlConverter::convert(
-          scope,
-          value,
-          prefix.clone(),
-          &context,
-          options,
-        )?;
-
-        out.insert(key, value);
-      }
-
-      Ok(out)
-    } else {
-      todo!()
-    }
-  }
-}
-
-pub struct DOMString(pub String);
-
 #[derive(Debug, Default)]
-pub struct DOMStringOptions {
+pub struct StringOptions {
   treat_null_as_empty_string: bool,
 }
 
-impl<'a> WebIdlConverter<'a> for DOMString {
-  type Options = DOMStringOptions;
+// DOMString and USVString, since we treat them the same
+impl<'a> WebIdlConverter<'a> for String {
+  type Options = StringOptions;
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let str = if value.is_string() {
+      value.try_cast::<v8::String>().unwrap()
+    } else if value.is_null() && options.treat_null_as_empty_string {
+      return Ok(String::new());
+    } else if value.is_symbol() {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("string"),
+      ));
+    } else if let Some(str) = value.to_string(scope) {
+      str
+    } else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("string"),
+      ));
+    };
+
+    Ok(str.to_rust_string_lossy(scope))
+  }
+}
+
+pub struct ByteString(pub String);
+impl<'a> WebIdlConverter<'a> for ByteString {
+  type Options = StringOptions;
 
   fn convert<C>(
     scope: &mut HandleScope<'a>,
@@ -506,26 +582,21 @@ impl<'a> WebIdlConverter<'a> for DOMString {
       ));
     };
 
+    if !str.contains_only_onebyte() {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::InvalidByteString,
+      ));
+    }
+
     Ok(Self(str.to_rust_string_lossy(scope)))
   }
 }
 
-pub struct ByteString(pub String);
-impl<'a> WebIdlConverter<'a> for ByteString {
-  type Options = DOMStringOptions;
-
-  fn convert<C>(
-    scope: &mut HandleScope<'a>,
-    value: Local<'a, Value>,
-    prefix: Cow<'static, str>,
-    context: C,
-    options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
-    let dom_str = DOMString::convert(scope, value, prefix, context, options)?;
-
-    Ok(Self(dom_str.0))
-  }
-}
+// TODO:
+//  object
+//  ArrayBuffer
+//  DataView
+//  Array buffer types
+//  ArrayBufferView

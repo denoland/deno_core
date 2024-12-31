@@ -143,15 +143,13 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
             let #name = {
               let __key = #v8_eternal_name
                 .with(|__eternal| {
-                  if __eternal.is_empty() {
+                  __eternal.get(__scope).or_else(|| {
                     let __key = #v8_static_name
                       .v8_string(__scope)
                       .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), &__context, e))?;
                     __eternal.set(__scope, __key);
                     Ok(__key)
-                  } else {
-                    Ok(__eternal.get(__scope))
-                  }
+                  })
                 })?
                 .into();
 
