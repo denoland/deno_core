@@ -1,4 +1,6 @@
-use crate::webidl::kw;
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+use super::kw;
 use proc_macro2::Ident;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
