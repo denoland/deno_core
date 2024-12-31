@@ -53,6 +53,7 @@ impl std::fmt::Display for WebIdlError {
       WebIdlErrorKind::IntRange { lower_bound, upper_bound } => write!(f, "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"),
       WebIdlErrorKind::InvalidByteString => write!(f, "is not a valid ByteString"),
       WebIdlErrorKind::Other(other) => std::fmt::Display::fmt(other, f),
+      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(f, "can not be converted to '{converter}' because '{variant}' is not a valid enum value")
     }
   }
 }
@@ -72,6 +73,10 @@ pub enum WebIdlErrorKind {
     upper_bound: f64,
   },
   InvalidByteString,
+  InvalidEnumVariant {
+    converter: &'static str,
+    variant: String,
+  },
   Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
@@ -185,37 +190,43 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
 
     let next_key = NEXT_ETERNAL
       .with(|eternal| {
-        eternal.get(scope).or_else(|| {
+        if let Some(key) = eternal.get(scope) {
+          Ok(key)
+        } else {
           let key = NEXT
             .v8_string(scope)
             .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
           eternal.set(scope, key);
           Ok(key)
-        })
+        }
       })?
       .into();
 
     let done_key = DONE_ETERNAL
       .with(|eternal| {
-        eternal.get(scope).or_else(|| {
+        if let Some(key) = eternal.get(scope) {
+          Ok(key)
+        } else {
           let key = DONE
             .v8_string(scope)
             .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
           eternal.set(scope, key);
           Ok(key)
-        })
+        }
       })?
       .into();
 
     let value_key = VALUE_ETERNAL
       .with(|eternal| {
-        eternal.get(scope).or_else(|| {
+        if let Some(key) = eternal.get(scope) {
+          Ok(key)
+        } else {
           let key = VALUE
             .v8_string(scope)
             .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
           eternal.set(scope, key);
           Ok(key)
-        })
+        }
       })?
       .into();
 
@@ -335,8 +346,6 @@ pub struct IntOptions {
   pub clamp: bool,
   pub enforce_range: bool,
 }
-
-const U: u64 = 11 - 1;
 
 /*
 todo:

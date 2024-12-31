@@ -190,6 +190,13 @@ pub struct Foo {
   my_number: Option<u64>,
 }
 
+#[derive(deno_core::WebIDL)]
+#[webidl(enum)]
+pub enum Bar {
+  #[webidl(rename = "zed")]
+  FaaFoo,
+}
+
 #[op2]
 pub fn op_webidl(#[webidl] arg: Foo) {
   println!("{}", arg.test.len());

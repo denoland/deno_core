@@ -1,26 +1,24 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+mod dictionary;
+mod r#enum;
+
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
+use std::collections::HashMap;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::parse2;
-use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::Attribute;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
-use syn::Expr;
-use syn::Field;
 use syn::Fields;
-use syn::LitStr;
-use syn::MetaNameValue;
 use syn::Token;
-use syn::Type;
 
 pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let input = parse2::<DeriveInput>(item)?;
@@ -56,7 +54,8 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           .named
           .into_iter()
           .map(TryInto::try_into)
-          .collect::<Result<Vec<DictionaryField>, Error>>()?;
+          .collect::<Result<Vec<dictionary::DictionaryField>, Error>>(
+        )?;
         fields.sort_by(|a, b| a.name.cmp(&b.name));
 
         let names = fields
@@ -143,13 +142,15 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
             let #name = {
               let __key = #v8_eternal_name
                 .with(|__eternal| {
-                  __eternal.get(__scope).or_else(|| {
+                  if let Some(__key) = __eternal.get(__scope) {
+                    Ok(__key)
+                  } else {
                     let __key = #v8_static_name
                       .v8_string(__scope)
                       .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), &__context, e))?;
                     __eternal.set(__scope, __key);
                     Ok(__key)
-                  })
+                  }
                 })?
                 .into();
 
@@ -177,6 +178,29 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           }
         }).collect::<Vec<_>>();
 
+        let implementation = create_impl(
+          ident,
+          quote! {
+            let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
+              None
+            } else {
+              if let Ok(obj) = __value.try_into() {
+                Some(obj)
+              } else {
+                return Err(::deno_core::webidl::WebIdlError::new(
+                  __prefix,
+                  &__context,
+                  ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("dictionary")
+                ));
+              }
+            };
+
+            #(#fields)*
+
+            Ok(Self { #(#names),* })
+          },
+        );
+
         quote! {
           ::deno_core::v8_static_strings! {
             #(#v8_static_strings),*
@@ -186,47 +210,52 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
             #(#v8_lazy_strings)*
           }
 
-          impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
-            type Options = ();
-
-            fn convert<C>(
-              __scope: &mut ::deno_core::v8::HandleScope<'a>,
-              __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
-              __prefix: std::borrow::Cow<'static, str>,
-              __context: C,
-              __options: &Self::Options,
-            ) -> Result<Self, ::deno_core::webidl::WebIdlError>
-            where
-              C: Fn() -> std::borrow::Cow<'static, str>,
-            {
-              let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
-                None
-              } else {
-                if let Ok(obj) = __value.try_into() {
-                  Some(obj)
-                } else {
-                  return Err(::deno_core::webidl::WebIdlError::new(
-                    __prefix,
-                    &__context,
-                    ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("dictionary")
-                  ));
-                }
-              };
-
-              #(#fields)*
-
-              Ok(Self { #(#names),* })
-            }
-          }
+          #implementation
         }
       }
+      ConverterType::Enum => {
+        return Err(Error::new(span, "Structs do not support enum converters"));
+      }
     },
-    Data::Enum(_) => {
-      return Err(Error::new(span, "Enums are currently not supported"));
-    }
-    Data::Union(_) => {
-      return Err(Error::new(span, "Unions are currently not supported"))
-    }
+    Data::Enum(data) => match converter {
+      ConverterType::Dictionary => {
+        return Err(Error::new(
+          span,
+          "Enums currently do not support dictionary converters",
+        ));
+      }
+      ConverterType::Enum => {
+        let variants = data
+          .variants
+          .into_iter()
+          .map(r#enum::get_variant_name)
+          .collect::<Result<HashMap<_, _>, _>>()?;
+
+        let variants = variants
+          .into_iter()
+          .map(|(name, ident)| quote!(#name => Ok(Self::#ident)))
+          .collect::<Vec<_>>();
+
+        create_impl(
+          ident,
+          quote! {
+            let Ok(str) = __value.try_cast::<v8::String>() else {
+              return Err(::deno_core::webidl::WebIdlError::new(
+                __prefix,
+                &__context,
+                ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("enum"),
+              ));
+            };
+
+            match str.to_rust_string_lossy(__scope).as_str() {
+              #(#variants),*,
+              s => Err(::deno_core::webidl::WebIdlError::new(__prefix, &__context, ::deno_core::webidl::WebIdlErrorKind::InvalidEnumVariant { converter: #ident_string, variant: s.to_string() }))
+            }
+          },
+        )
+      }
+    },
+    Data::Union(_) => return Err(Error::new(span, "Unions are not supported")),
   };
 
   Ok(out)
@@ -241,6 +270,7 @@ mod kw {
 
 enum ConverterType {
   Dictionary,
+  Enum,
 }
 
 impl ConverterType {
@@ -262,120 +292,32 @@ impl Parse for ConverterType {
     if lookahead.peek(kw::dictionary) {
       input.parse::<kw::dictionary>()?;
       Ok(Self::Dictionary)
+    } else if lookahead.peek(Token![enum]) {
+      input.parse::<Token![enum]>()?;
+      Ok(Self::Enum)
     } else {
       Err(lookahead.error())
     }
   }
 }
 
-struct DictionaryField {
-  name: Ident,
-  rename: Option<String>,
-  default_value: Option<Expr>,
-  required: bool,
-  converter_options: std::collections::HashMap<Ident, Expr>,
-  ty: Type,
-}
+fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
+  quote! {
+    impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
+      type Options = ();
 
-impl TryFrom<Field> for DictionaryField {
-  type Error = Error;
-  fn try_from(value: Field) -> Result<Self, Self::Error> {
-    let mut default_value: Option<Expr> = None;
-    let mut rename: Option<String> = None;
-    let mut required = false;
-    let mut converter_options = std::collections::HashMap::new();
-
-    for attr in value.attrs {
-      if attr.path().is_ident("webidl") {
-        let list = attr.meta.require_list()?;
-        let args = list.parse_args_with(
-          Punctuated::<FieldArgument, Token![,]>::parse_terminated,
-        )?;
-
-        for argument in args {
-          match argument {
-            FieldArgument::Default { value, .. } => default_value = Some(value),
-            FieldArgument::Rename { value, .. } => rename = Some(value.value()),
-            FieldArgument::Required { .. } => required = true,
-          }
-        }
-      } else if attr.path().is_ident("options") {
-        let list = attr.meta.require_list()?;
-        let args = list.parse_args_with(
-          Punctuated::<MetaNameValue, Token![,]>::parse_terminated,
-        )?;
-
-        let args = args
-          .into_iter()
-          .map(|kv| {
-            let ident = kv.path.require_ident()?;
-            Ok((ident.clone(), kv.value))
-          })
-          .collect::<Result<Vec<_>, Error>>()?;
-
-        converter_options.extend(args);
+      fn convert<C>(
+        __scope: &mut ::deno_core::v8::HandleScope<'a>,
+        __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
+        __prefix: std::borrow::Cow<'static, str>,
+        __context: C,
+        __options: &Self::Options,
+      ) -> Result<Self, ::deno_core::webidl::WebIdlError>
+      where
+        C: Fn() -> std::borrow::Cow<'static, str>,
+      {
+        #body
       }
-    }
-
-    let is_option = if let Type::Path(path) = &value.ty {
-      if let Some(last) = path.path.segments.last() {
-        last.ident == "Option"
-      } else {
-        false
-      }
-    } else {
-      false
-    };
-
-    Ok(Self {
-      name: value.ident.unwrap(),
-      rename,
-      default_value,
-      required: required || !is_option,
-      converter_options,
-      ty: value.ty,
-    })
-  }
-}
-
-#[allow(dead_code)]
-enum FieldArgument {
-  Default {
-    name_token: kw::default,
-    eq_token: Token![=],
-    value: Expr,
-  },
-  Rename {
-    name_token: kw::rename,
-    eq_token: Token![=],
-    value: LitStr,
-  },
-  Required {
-    name_token: kw::rename,
-  },
-}
-
-impl Parse for FieldArgument {
-  fn parse(input: ParseStream) -> Result<Self, Error> {
-    let lookahead = input.lookahead1();
-    if lookahead.peek(kw::default) {
-      Ok(FieldArgument::Default {
-        name_token: input.parse()?,
-        eq_token: input.parse()?,
-        value: input.parse()?,
-      })
-    } else if lookahead.peek(kw::rename) {
-      Ok(FieldArgument::Rename {
-        name_token: input.parse()?,
-        eq_token: input.parse()?,
-        value: input.parse()?,
-      })
-    } else if lookahead.peek(kw::required) {
-      Ok(FieldArgument::Required {
-        name_token: input.parse()?,
-      })
-    } else {
-      Err(lookahead.error())
     }
   }
 }

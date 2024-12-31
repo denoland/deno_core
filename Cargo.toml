@@ -28,7 +28,7 @@ serde_v8 = { version = "0.235.0", path = "./serde_v8" }
 deno_ast = { version = "=0.40.0", features = ["transpiling"] }
 deno_core_icudata = "0.74.0"
 deno_unsync = "0.4.1"
-v8 = { version = "130.0.3", default-features = false }
+v8 = { version = "130.0.4", default-features = false }
 
 anyhow = "1"
 bencher = "0.1"
