@@ -109,7 +109,7 @@ impl MacroConfig {
         .collect::<Vec<_>>();
       } else if flag == "nofast" {
         config.nofast = true;
-      } else if flag == "async" {
+      } else if flag == "async" || flag == "async_method" {
         config.r#async = true;
       } else if flag == "async(lazy)" {
         config.r#async = true;

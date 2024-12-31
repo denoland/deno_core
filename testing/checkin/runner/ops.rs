@@ -94,6 +94,12 @@ impl TestObjectWrap {
   #[fast]
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
+
+  #[async_method]
+  async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), AnyError> {
+    tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
+    Ok(())
+  }
 }
 
 pub struct DOMPoint {

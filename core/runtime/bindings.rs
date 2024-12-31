@@ -374,7 +374,14 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let accessor_store = create_accessor_store(method_ctxs);
 
     for method in method_ctxs.iter() {
-      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
+      op_ctx_template_or_accessor(
+        &accessor_store,
+        set_up_async_stub_fn,
+        scope,
+        prototype,
+        tmpl,
+        method,
+      );
     }
 
     index += decl.methods.len();
@@ -419,13 +426,31 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
 fn op_ctx_template_or_accessor<'s>(
   accessor_store: &AccessorStore,
+  set_up_async_stub_fn: v8::Local<v8::Function>,
   scope: &mut v8::HandleScope<'s>,
   tmpl: v8::Local<'s, v8::ObjectTemplate>,
+  constructor: v8::Local<'s, v8::FunctionTemplate>,
   op_ctx: &OpCtx,
 ) {
   if !op_ctx.decl.is_accessor() {
     let op_fn = op_ctx_template(scope, op_ctx);
     let method_key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
+    if op_ctx.decl.is_async {
+      let undefined = v8::undefined(scope);
+      let op_fn = op_fn.get_function(scope).unwrap();
+
+      let tmpl_fn = constructor.get_function(scope).unwrap();
+
+      let _result = set_up_async_stub_fn
+        .call(
+          scope,
+          undefined.into(),
+          &[method_key.into(), op_fn.into(), tmpl_fn.into()],
+        )
+        .unwrap();
+
+      return;
+    }
 
     tmpl.set(method_key.into(), op_fn.into());
 
