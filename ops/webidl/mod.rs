@@ -75,11 +75,22 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
             quote!(#new_ident = #value)
           })
           .collect::<Vec<_>>();
+        let v8_lazy_strings = fields
+          .iter()
+          .map(|field| {
+            let name = &field.name;
+            let v8_eternal_name = format_ident!("__v8_{name}_eternal");
+            quote! {
+              static #v8_eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            }
+          })
+          .collect::<Vec<_>>();
 
         let fields = fields.into_iter().map(|field| {
           let string_name = field.name.to_string();
           let name = field.name;
           let v8_static_name = format_ident!("__v8_static_{name}");
+          let v8_eternal_name = format_ident!("__v8_{name}_eternal");
 
           let required_or_default = if field.required && field.default_value.is_none() {
             quote! {
@@ -130,10 +141,20 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
 
           quote! {
             let #name = {
-              let __key = #v8_static_name
-                .v8_string(__scope)
-                .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), &__context, e))?
+              let __key = #v8_eternal_name
+                .with(|__eternal| {
+                  if __eternal.is_empty() {
+                    let __key = #v8_static_name
+                      .v8_string(__scope)
+                      .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), &__context, e))?;
+                    __eternal.set(__scope, __key);
+                    Ok(__key)
+                  } else {
+                    Ok(__eternal.get(__scope))
+                  }
+                })?
                 .into();
+
               if let Some(__value) = __obj.as_ref()
               .and_then(|__obj| __obj.get(__scope, __key))
               .and_then(|__value| {
@@ -161,6 +182,10 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
         quote! {
           ::deno_core::v8_static_strings! {
             #(#v8_static_strings),*
+          }
+
+          thread_local! {
+            #(#v8_lazy_strings)*
           }
 
           impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
