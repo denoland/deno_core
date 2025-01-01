@@ -86,7 +86,6 @@ pub const fn op_bigint() -> ::deno_core::_ops::OpDecl {
             let result = { Self::call() };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
