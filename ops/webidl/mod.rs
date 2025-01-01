@@ -65,19 +65,16 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
         let v8_static_strings = fields
           .iter()
           .map(|field| {
-            let name = &field.name;
+            let name = field.get_name();
             let new_ident = format_ident!("__v8_static_{name}");
-            let value = field
-              .rename
-              .clone()
-              .unwrap_or_else(|| stringcase::camel_case(&name.to_string()));
-            quote!(#new_ident = #value)
+            let name_str = name.to_string();
+            quote!(#new_ident = #name_str)
           })
           .collect::<Vec<_>>();
         let v8_lazy_strings = fields
           .iter()
           .map(|field| {
-            let name = &field.name;
+            let name = field.get_name();
             let v8_eternal_name = format_ident!("__v8_{name}_eternal");
             quote! {
               static #v8_eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
@@ -86,8 +83,9 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           .collect::<Vec<_>>();
 
         let fields = fields.into_iter().map(|field| {
-          let string_name = field.name.to_string();
-          let name = field.name;
+          let name = field.get_name();
+          let string_name = name.to_string();
+          let original_name = field.name;
           let v8_static_name = format_ident!("__v8_static_{name}");
           let v8_eternal_name = format_ident!("__v8_{name}_eternal");
 
@@ -139,7 +137,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           let new_context = format!("'{string_name}' of '{ident_string}'");
 
           quote! {
-            let #name = {
+            let #original_name = {
               let __key = #v8_eternal_name
                 .with(|__eternal| {
                   if let Some(__key) = __eternal.get(__scope) {
@@ -318,6 +316,95 @@ fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
       {
         #body
       }
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use pretty_assertions::assert_eq;
+  use quote::ToTokens;
+  use std::path::PathBuf;
+  use syn::punctuated::Punctuated;
+  use syn::File;
+  use syn::Item;
+
+  fn derives_webidl<'a>(
+    attrs: impl IntoIterator<Item = &'a Attribute>,
+  ) -> bool {
+    attrs.into_iter().any(|attr| {
+      attr.path().is_ident("derive") && {
+        let list = attr.meta.require_list().unwrap();
+        let idents = list
+          .parse_args_with(Punctuated::<Ident, Token![,]>::parse_terminated)
+          .unwrap();
+        idents.iter().any(|ident| ident == "WebIDL")
+      }
+    })
+  }
+
+  #[testing_macros::fixture("webidl/test_cases/*.rs")]
+  fn test_proc_macro_sync(input: PathBuf) {
+    test_proc_macro_output(input)
+  }
+
+  fn expand_webidl(item: impl ToTokens) -> String {
+    let tokens =
+      webidl(item.to_token_stream()).expect("Failed to generate WebIDL");
+    println!("======== Raw tokens ========:\n{}", tokens.clone());
+    let tree = syn::parse2(tokens).unwrap();
+    let actual = prettyplease::unparse(&tree);
+    println!("======== Generated ========:\n{}", actual);
+    actual
+  }
+
+  fn test_proc_macro_output(input: PathBuf) {
+    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
+
+    let source =
+      std::fs::read_to_string(&input).expect("Failed to read test file");
+
+    const PRELUDE: &str = r"// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+#![deny(warnings)]
+deno_ops_compile_test_runner::prelude!();";
+
+    if !source.starts_with(PRELUDE) {
+      panic!("Source does not start with expected prelude:]n{PRELUDE}");
+    }
+
+    let file =
+      syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
+    let mut expected_out = vec![];
+    for item in file.items {
+      match item {
+        Item::Struct(struct_item) => {
+          if derives_webidl(&struct_item.attrs) {
+            expected_out.push(expand_webidl(struct_item));
+          }
+        }
+        Item::Enum(enum_item) => {
+          dbg!();
+          if derives_webidl(&enum_item.attrs) {
+            expected_out.push(expand_webidl(enum_item));
+          }
+        }
+        _ => {}
+      }
+    }
+
+    let expected_out = expected_out.join("\n");
+
+    if update_expected {
+      std::fs::write(input.with_extension("out"), expected_out)
+        .expect("Failed to write expectation file");
+    } else {
+      let expected = std::fs::read_to_string(input.with_extension("out"))
+        .expect("Failed to read expectation file");
+      assert_eq!(
+        expected, expected_out,
+        "Failed to match expectation. Use UPDATE_EXPECTED=1."
+      );
     }
   }
 }

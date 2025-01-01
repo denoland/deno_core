@@ -23,7 +23,6 @@ deno_core::extension!(
     ops::op_stats_dump,
     ops::op_stats_delete,
     ops::op_nop_generic<P>,
-    ops::op_webidl,
     ops_io::op_pipe_create,
     ops_io::op_file_open,
     ops_io::op_path_to_url,

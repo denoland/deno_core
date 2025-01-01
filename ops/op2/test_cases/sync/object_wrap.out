@@ -422,8 +422,8 @@ impl Foo {
                 );
                 if args.length() < 1u8 as i32 {
                     let msg = format!(
-                        "{}{} {} required, but only {} present",
-                        "Failed to execute 'call' on 'Foo': ",
+                        "{}: {} {} required, but only {} present",
+                        "Failed to execute 'call' on 'Foo'",
                         1u8,
                         "argument",
                         args.length(),

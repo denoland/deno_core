@@ -2,9 +2,11 @@
 
 use super::kw;
 use proc_macro2::Ident;
+use proc_macro2::Span;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::Error;
 use syn::Expr;
 use syn::Field;
@@ -14,6 +16,7 @@ use syn::Token;
 use syn::Type;
 
 pub struct DictionaryField {
+  pub span: Span,
   pub name: Ident,
   pub rename: Option<String>,
   pub default_value: Option<Expr>,
@@ -22,9 +25,22 @@ pub struct DictionaryField {
   pub ty: Type,
 }
 
+impl DictionaryField {
+  pub fn get_name(&self) -> Ident {
+    Ident::new(
+      &self
+        .rename
+        .clone()
+        .unwrap_or_else(|| stringcase::camel_case(&self.name.to_string())),
+      self.span,
+    )
+  }
+}
+
 impl TryFrom<Field> for DictionaryField {
   type Error = Error;
   fn try_from(value: Field) -> Result<Self, Self::Error> {
+    let span = value.span();
     let mut default_value: Option<Expr> = None;
     let mut rename: Option<String> = None;
     let mut required = false;
@@ -77,6 +93,7 @@ impl TryFrom<Field> for DictionaryField {
     };
 
     Ok(Self {
+      span,
       name: value.ident.unwrap(),
       rename,
       default_value,

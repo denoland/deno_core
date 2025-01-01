@@ -207,25 +207,3 @@ impl DOMPoint {
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }
-
-#[derive(deno_core::WebIDL)]
-#[webidl(dictionary)]
-pub struct Foo {
-  #[options(clamp = true)]
-  test: Vec<u8>,
-  #[webidl(default = Some(3))]
-  my_number: Option<u64>,
-}
-
-#[derive(deno_core::WebIDL)]
-#[webidl(enum)]
-pub enum Bar {
-  #[webidl(rename = "zed")]
-  FaaFoo,
-}
-
-#[op2]
-pub fn op_webidl(#[webidl] arg: Foo, #[webidl] _bar: f64) {
-  println!("{}", arg.test.len());
-  println!("{:#?}", arg.my_number);
-}
