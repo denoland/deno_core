@@ -8,7 +8,6 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
-use std::collections::HashMap;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::parse2;
@@ -227,7 +226,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
           .variants
           .into_iter()
           .map(r#enum::get_variant_name)
-          .collect::<Result<HashMap<_, _>, _>>()?;
+          .collect::<Result<indexmap::IndexMap<_, _>, _>>()?;
 
         let variants = variants
           .into_iter()
