@@ -299,47 +299,53 @@ impl<
       ));
     };
 
-    if !obj.is_proxy() {
-      let Some(keys) = obj.get_own_property_names(
-        scope,
-        v8::GetPropertyNamesArgs {
-          mode: v8::KeyCollectionMode::OwnOnly,
-          property_filter: Default::default(),
-          index_filter: v8::IndexFilter::IncludeIndices,
-          key_conversion: v8::KeyConversionMode::ConvertToString,
-        },
-      ) else {
+    let obj = if let Ok(proxy) = obj.try_cast::<v8::Proxy>() {
+      if let Ok(obj) = proxy.get_target(scope).try_cast() {
+        obj
+      } else {
         return Ok(Default::default());
-      };
-
-      let mut out = HashMap::with_capacity(keys.length() as _);
-
-      for i in 0..keys.length() {
-        let key = keys.get_index(scope, i).unwrap();
-        let value = obj.get(scope, key).unwrap();
-
-        let key = WebIdlConverter::convert(
-          scope,
-          key,
-          prefix.clone(),
-          &context,
-          &Default::default(),
-        )?;
-        let value = WebIdlConverter::convert(
-          scope,
-          value,
-          prefix.clone(),
-          &context,
-          options,
-        )?;
-
-        out.insert(key, value);
       }
-
-      Ok(out)
     } else {
-      todo!("handle proxy")
+      obj
+    };
+
+    let Some(keys) = obj.get_own_property_names(
+      scope,
+      v8::GetPropertyNamesArgs {
+        mode: v8::KeyCollectionMode::OwnOnly,
+        property_filter: Default::default(),
+        index_filter: v8::IndexFilter::IncludeIndices,
+        key_conversion: v8::KeyConversionMode::ConvertToString,
+      },
+    ) else {
+      return Ok(Default::default());
+    };
+
+    let mut out = HashMap::with_capacity(keys.length() as _);
+
+    for i in 0..keys.length() {
+      let key = keys.get_index(scope, i).unwrap();
+      let value = obj.get(scope, key).unwrap();
+
+      let key = WebIdlConverter::convert(
+        scope,
+        key,
+        prefix.clone(),
+        &context,
+        &Default::default(),
+      )?;
+      let value = WebIdlConverter::convert(
+        scope,
+        value,
+        prefix.clone(),
+        &context,
+        options,
+      )?;
+
+      out.insert(key, value);
     }
+
+    Ok(out)
   }
 }
 
