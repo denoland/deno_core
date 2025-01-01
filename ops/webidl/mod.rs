@@ -237,7 +237,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
         create_impl(
           ident,
           quote! {
-            let Ok(str) = __value.try_cast::<v8::String>() else {
+            let Ok(str) = __value.try_cast::<::deno_core::v8::String>() else {
               return Err(::deno_core::webidl::WebIdlError::new(
                 __prefix,
                 &__context,

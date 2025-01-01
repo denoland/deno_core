@@ -10,7 +10,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Enumeration {
     where
         C: Fn() -> std::borrow::Cow<'static, str>,
     {
-        let Ok(str) = __value.try_cast::<v8::String>() else {
+        let Ok(str) = __value.try_cast::<::deno_core::v8::String>() else {
             return Err(
                 ::deno_core::webidl::WebIdlError::new(
                     __prefix,
