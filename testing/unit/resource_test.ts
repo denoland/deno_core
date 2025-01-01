@@ -64,15 +64,17 @@ test(async function testCppgcAsync() {
   assertEquals(await op_async_get_cppgc_resource(resource), 42);
 });
 
-test(function testDomPoint() {
+test(async function testDomPoint() {
   const p1 = new DOMPoint(100, 100);
   const p2 = new DOMPoint();
   const p3 = DOMPoint.fromPoint({ x: 200 });
   const p4 = DOMPoint.fromPoint({ x: 0, y: 100, z: 99.9, w: 100 });
+  const p5 = p1.fromPoint({ x: 200 });
   assertEquals(p1.x, 100);
   assertEquals(p2.x, 0);
   assertEquals(p3.x, 200);
   assertEquals(p4.x, 0);
+  assertEquals(p5.x, 200);
 
   let caught;
   try {
@@ -100,4 +102,9 @@ test(function testDomPoint() {
   assertEquals(wrap.withVarargs(undefined), 1);
 
   wrap.with_RENAME();
+
+  const promise = wrap.withAsyncFn(10);
+  assert(promise instanceof Promise);
+
+  await promise;
 });

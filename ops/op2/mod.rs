@@ -99,6 +99,7 @@ pub(crate) fn generate_op2(
 ) -> Result<TokenStream, Op2Error> {
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
+  let orig_name = func.sig.ident.clone();
   let mut op_fn = func.clone();
   // Collect non-special attributes
   let attrs = op_fn
@@ -121,6 +122,8 @@ pub(crate) fn generate_op2(
   if config.setter {
     // Prepend "__set_" to the setter function name.
     func.sig.ident = format_ident!("__set_{}", func.sig.ident);
+  } else if config.static_member {
+    func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
   let signature = parse_signature(func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
@@ -203,7 +206,8 @@ pub(crate) fn generate_op2(
 
   let mut slow_generator_state = base_generator_state.clone();
 
-  let name = func.sig.ident;
+  let rust_name = func.sig.ident;
+  let name = orig_name;
 
   let slow_fn = if signature.ret_val.is_async() {
     generate_dispatch_async(&config, &mut slow_generator_state, &signature)?
@@ -276,6 +280,7 @@ pub(crate) fn generate_op2(
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
   let op_fn_sig = &op_fn.sig;
   let callable = if let Some(ty) = config.method {
+    op_fn.vis = syn::Visibility::Inherited;
     let ident = format_ident!("{ty}");
     quote! {
       trait Callable {
@@ -289,7 +294,7 @@ pub(crate) fn generate_op2(
     }
   } else {
     quote! {
-      impl <#(#generic : #bound),*> #name <#(#generic),*> {
+      impl <#(#generic : #bound),*> #rust_name <#(#generic),*> {
         #[inline(always)]
         #(#attrs)*
         #op_fn
@@ -307,15 +312,15 @@ pub(crate) fn generate_op2(
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
-    #vis const fn #name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
+    #vis const fn #rust_name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
       #[allow(non_camel_case_types)]
       #(#attrs)*
-      #vis struct #name <#(#generic),*> {
+      #vis struct #rust_name <#(#generic),*> {
         // We need to mark these type parameters as used, so we use a PhantomData
         _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
       }
 
-      impl <#(#generic : #bound),*> ::deno_core::_ops::Op for #name <#(#generic),*> {
+      impl <#(#generic : #bound),*> ::deno_core::_ops::Op for #rust_name <#(#generic),*> {
         const NAME: &'static str = stringify!(#name);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
           /*name*/ ::deno_core::__op_name_fast!(#name),
@@ -335,7 +340,7 @@ pub(crate) fn generate_op2(
         );
       }
 
-      impl <#(#generic : #bound),*> #name <#(#generic),*> {
+      impl <#(#generic : #bound),*> #rust_name <#(#generic),*> {
         pub const fn name() -> &'static str {
           <Self as deno_core::_ops::Op>::NAME
         }
@@ -346,7 +351,7 @@ pub(crate) fn generate_op2(
 
       #callable
 
-      <#name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
+      <#rust_name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
     }
   })
 }
@@ -360,6 +365,24 @@ mod tests {
   use syn::File;
   use syn::Item;
 
+  fn to_attr_input(op2_attr: syn::Attribute) -> TokenStream {
+    match op2_attr.meta {
+      syn::Meta::Path(_) => quote!(),
+      syn::Meta::List(meta_list) => meta_list.tokens,
+      syn::Meta::NameValue(_) => panic!("unexpected op2 invocation"),
+    }
+  }
+
+  fn find_op2_attr<'a>(
+    attrs: impl IntoIterator<Item = &'a syn::Attribute>,
+  ) -> Option<(usize, syn::Attribute)> {
+    attrs
+      .into_iter()
+      .enumerate()
+      .find(|(_, attr)| attr.path().segments.first().unwrap().ident == "op2")
+      .map(|(idx, attr)| (idx, attr.to_owned()))
+  }
+
   #[testing_macros::fixture("op2/test_cases/sync/*.rs")]
   fn test_proc_macro_sync(input: PathBuf) {
     test_proc_macro_output(input)
@@ -368,6 +391,16 @@ mod tests {
   #[testing_macros::fixture("op2/test_cases/async/*.rs")]
   fn test_proc_macro_async(input: PathBuf) {
     test_proc_macro_output(input)
+  }
+
+  fn expand_op2(op2_attr: syn::Attribute, item: impl ToTokens) -> String {
+    let tokens = op2(to_attr_input(op2_attr), item.to_token_stream())
+      .expect("Failed to generate op");
+    println!("======== Raw tokens ========:\n{}", tokens.clone());
+    let tree = syn::parse2(tokens).unwrap();
+    let actual = prettyplease::unparse(&tree);
+    println!("======== Generated ========:\n{}", actual);
+    actual
   }
 
   fn test_proc_macro_output(input: PathBuf) {
@@ -388,29 +421,22 @@ deno_ops_compile_test_runner::prelude!();";
       syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
     let mut expected_out = vec![];
     for item in file.items {
-      if let Item::Fn(mut func) = item {
-        let mut config = None;
-        func.attrs.retain(|attr| {
-          let tokens = attr.into_token_stream();
-          let attr_string = attr.clone().into_token_stream().to_string();
-          println!("{}", attr_string);
-          if let Some(new_config) =
-            MacroConfig::from_maybe_attribute_tokens(tokens)
-              .expect("Failed to parse attribute")
-          {
-            config = Some(new_config);
-            false
-          } else {
-            true
+      match item {
+        Item::Fn(mut func) => {
+          if let Some((idx, op2_attr)) = find_op2_attr(&func.attrs) {
+            func.attrs.remove(idx);
+            let actual = expand_op2(op2_attr, func);
+            expected_out.push(actual);
           }
-        });
-        let tokens =
-          generate_op2(config.unwrap(), func).expect("Failed to generate op");
-        println!("======== Raw tokens ========:\n{}", tokens.clone());
-        let tree = syn::parse2(tokens).unwrap();
-        let actual = prettyplease::unparse(&tree);
-        println!("======== Generated ========:\n{}", actual);
-        expected_out.push(actual);
+        }
+        Item::Impl(mut imp) => {
+          if let Some((idx, op2_attr)) = find_op2_attr(&imp.attrs) {
+            imp.attrs.remove(idx);
+            let actual = expand_op2(op2_attr, imp);
+            expected_out.push(actual);
+          }
+        }
+        _ => {}
       }
     }
 

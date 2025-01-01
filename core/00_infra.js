@@ -190,8 +190,9 @@
     };
   }
 
-  function setUpAsyncStub(opName, originalOp) {
+  function setUpAsyncStub(opName, originalOp, maybeProto) {
     let fn;
+
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {
       /* BEGIN TEMPLATE setUpAsyncStub */
@@ -200,7 +201,8 @@
         fn = function async_op_0() {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -219,7 +221,8 @@
         fn = function async_op_1(a) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -238,7 +241,8 @@
         fn = function async_op_2(a, b) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -257,7 +261,8 @@
         fn = function async_op_3(a, b, c) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -276,7 +281,8 @@
         fn = function async_op_4(a, b, c, d) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -295,7 +301,8 @@
         fn = function async_op_5(a, b, c, d, e) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -314,7 +321,8 @@
         fn = function async_op_6(a, b, c, d, e, f) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -333,7 +341,8 @@
         fn = function async_op_7(a, b, c, d, e, f, g) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f, g);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -352,7 +361,8 @@
         fn = function async_op_8(a, b, c, d, e, f, g, h) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f, g, h);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -371,7 +381,8 @@
         fn = function async_op_9(a, b, c, d, e, f, g, h, i) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h, i);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f, g, h, i);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -400,6 +411,16 @@
       configurable: false,
       writable: false,
     });
+
+    if (maybeProto) {
+      ObjectDefineProperty(fn, "prototype", {
+        value: maybeProto.prototype,
+        configurable: false,
+        writable: false,
+      });
+      maybeProto.prototype[opName] = fn;
+    }
+
     return fn;
   }
 

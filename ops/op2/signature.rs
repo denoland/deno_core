@@ -1276,6 +1276,8 @@ fn parse_attribute(
       (#[getter]) => Some(AttributeModifier::Ignore),
       (#[setter]) => Some(AttributeModifier::Ignore),
       (#[fast]) => Some(AttributeModifier::Ignore),
+      // async is a keyword and does not work as #[async] so we use #[async_method] instead
+      (#[async_method]) => Some(AttributeModifier::Ignore),
       (#[static_method]) => Some(AttributeModifier::Ignore),
       (#[constructor]) => Some(AttributeModifier::Ignore),
       (#[allow ($_rule:path)]) => None,

@@ -20,10 +20,10 @@ repository = "https://github.com/denoland/deno_core"
 
 [workspace.dependencies]
 # Local dependencies
-deno_core = { version = "0.326.0", path = "./core" }
+deno_core = { version = "0.327.0", path = "./core" }
 deno_core_testing = { path = "./testing" }
-deno_ops = { version = "0.202.0", path = "./ops" }
-serde_v8 = { version = "0.235.0", path = "./serde_v8" }
+deno_ops = { version = "0.203.0", path = "./ops" }
+serde_v8 = { version = "0.236.0", path = "./serde_v8" }
 
 deno_ast = { version = "=0.40.0", features = ["transpiling"] }
 deno_core_icudata = "0.74.0"
