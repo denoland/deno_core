@@ -699,6 +699,12 @@ impl<'a> WebIdlConverter<'a> for String {
 }
 
 pub struct ByteString(pub String);
+impl std::ops::Deref for ByteString {
+  type Target = String;
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
 impl<'a> WebIdlConverter<'a> for ByteString {
   type Options = StringOptions;
 
