@@ -49,11 +49,12 @@ impl std::fmt::Display for WebIdlError {
           "can not be converted to '{converter}' because '{key}' is required in '{converter}'",
         )
       }
-      WebIdlErrorKind::IntNotFinite => write!(f, "is not a finite number"),
+      WebIdlErrorKind::NotFinite => write!(f, "is not a finite number"),
       WebIdlErrorKind::IntRange { lower_bound, upper_bound } => write!(f, "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"),
       WebIdlErrorKind::InvalidByteString => write!(f, "is not a valid ByteString"),
+      WebIdlErrorKind::Precision => write!(f, "is outside the range of a single-precision floating-point value"),
+      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(f, "can not be converted to '{converter}' because '{variant}' is not a valid enum value"),
       WebIdlErrorKind::Other(other) => std::fmt::Display::fmt(other, f),
-      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(f, "can not be converted to '{converter}' because '{variant}' is not a valid enum value")
     }
   }
 }
@@ -67,11 +68,12 @@ pub enum WebIdlErrorKind {
     converter: &'static str,
     key: &'static str,
   },
-  IntNotFinite,
+  NotFinite,
   IntRange {
     lower_bound: f64,
     upper_bound: f64,
   },
+  Precision,
   InvalidByteString,
   InvalidEnumVariant {
     converter: &'static str,
@@ -347,20 +349,14 @@ pub struct IntOptions {
   pub enforce_range: bool,
 }
 
-/*
-todo:
-  If bitLength is 64, then:
-    Let upperBound be 2^53 − 1.
-    If signedness is "unsigned", then let lowerBound be 0.
-    Otherwise let lowerBound be −2^53 + 1.
- */
 // https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
 macro_rules! impl_ints {
-  ($($t:ty: $unsigned:tt = $name: literal ),*) => {
+  ($($t:ty: $unsigned:tt = $name:literal: $min:expr => $max:expr),*) => {
     $(
       impl<'a> WebIdlConverter<'a> for $t {
         type Options = IntOptions;
 
+        #[allow(clippy::manual_range_contains)]
         fn convert<C>(
           scope: &mut HandleScope<'a>,
           value: Local<'a, Value>,
@@ -371,6 +367,9 @@ macro_rules! impl_ints {
         where
           C: Fn() -> Cow<'static, str>,
         {
+          const MIN: f64 = $min as f64;
+          const MAX: f64 = $max as f64;
+
           if value.is_big_int() {
             return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::ConvertToConverterType($name)));
           }
@@ -384,7 +383,7 @@ macro_rules! impl_ints {
 
           if options.enforce_range {
             if !n.is_finite() {
-              return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::IntNotFinite));
+              return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::NotFinite));
             }
 
             n = n.trunc();
@@ -392,10 +391,10 @@ macro_rules! impl_ints {
               n = 0.0;
             }
 
-            if n < Self::MIN as f64 || n > Self::MAX as f64 {
+            if n < MIN || n > MAX {
               return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::IntRange {
-                lower_bound: Self::MIN as f64,
-                upper_bound: Self::MAX as f64,
+                lower_bound: MIN,
+                upper_bound: MAX,
               }));
             }
 
@@ -404,7 +403,7 @@ macro_rules! impl_ints {
 
           if !n.is_nan() && options.clamp {
             return Ok(
-              n.clamp(Self::MIN as f64, Self::MAX as f64)
+              n.clamp(MIN, MAX)
               .round_ties_even() as Self
             );
           }
@@ -418,7 +417,7 @@ macro_rules! impl_ints {
             n = 0.0;
           }
 
-          if n >= Self::MIN as f64 && n <= Self::MAX as f64 {
+          if n >= MIN && n <= MAX {
             return Ok(n as Self);
           }
 
@@ -442,7 +441,7 @@ macro_rules! impl_ints {
   };
 
   (@handle_unsigned false $n:ident $bit_len_num:ident) => {
-    if $n >= Self::MAX as f64 {
+    if $n >= MAX {
       return Ok(($n - $bit_len_num) as Self);
     }
   };
@@ -452,17 +451,159 @@ macro_rules! impl_ints {
 
 // https://webidl.spec.whatwg.org/#js-integer-types
 impl_ints!(
-  i8: false = "byte",
-  u8: true = "octet",
-  i16: false = "short",
-  u16: true = "unsigned short",
-  i32: false = "long",
-  u32: true = "unsigned long",
-  i64: false = "long long",
-  u64: true = "unsigned long long"
+  i8:  false = "byte":               i8::MIN => i8::MAX,
+  u8:  true  = "octet":              u8::MIN => u8::MAX,
+  i16: false = "short":              i16::MIN => i16::MAX,
+  u16: true  = "unsigned short":     u16::MIN => u16::MAX,
+  i32: false = "long":               i32::MIN => i32::MAX,
+  u32: true  = "unsigned long":      u32::MIN => u32::MAX,
+  i64: false = "long long":          ((-2i64).pow(53) + 1) => (2i64.pow(53) - 1),
+  u64: true  = "unsigned long long": u64::MIN => (2u64.pow(53) - 1)
 );
 
-// TODO: float, unrestricted float, double, unrestricted double
+// float
+impl<'a> WebIdlConverter<'a> for f32 {
+  type Options = ();
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let Some(n) = value.number_value(scope) else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("float"),
+      ));
+    };
+
+    if !n.is_finite() {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::NotFinite,
+      ));
+    }
+
+    let n = n as f32;
+
+    if !n.is_finite() {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::Precision,
+      ));
+    }
+
+    Ok(n)
+  }
+}
+
+pub struct UnrestrictedFloat(pub f32);
+impl std::ops::Deref for UnrestrictedFloat {
+  type Target = f32;
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl<'a> WebIdlConverter<'a> for UnrestrictedFloat {
+  type Options = ();
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let Some(n) = value.number_value(scope) else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("float"),
+      ));
+    };
+
+    Ok(UnrestrictedFloat(n as f32))
+  }
+}
+
+// double
+impl<'a> WebIdlConverter<'a> for f64 {
+  type Options = ();
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let Some(n) = value.number_value(scope) else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("float"),
+      ));
+    };
+
+    if !n.is_finite() {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::NotFinite,
+      ));
+    }
+
+    Ok(n)
+  }
+}
+
+pub struct UnrestrictedDouble(pub f64);
+impl std::ops::Deref for UnrestrictedDouble {
+  type Target = f64;
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl<'a> WebIdlConverter<'a> for UnrestrictedDouble {
+  type Options = ();
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    let Some(n) = value.number_value(scope) else {
+      return Err(WebIdlError::new(
+        prefix,
+        &context,
+        WebIdlErrorKind::ConvertToConverterType("float"),
+      ));
+    };
+
+    Ok(UnrestrictedDouble(n))
+  }
+}
 
 #[derive(Debug)]
 pub struct BigInt {
