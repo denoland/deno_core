@@ -466,7 +466,7 @@ fn op_ctx_template_or_accessor<'s>(
       return;
     }
 
-    tmpl.set(method_key.into(), op_fn.into());
+    tmpl.set(method_key, op_fn.into());
 
     return;
   }
