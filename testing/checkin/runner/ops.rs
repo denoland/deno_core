@@ -198,7 +198,7 @@ pub enum Bar {
 }
 
 #[op2]
-pub fn op_webidl(#[webidl] arg: Foo) {
+pub fn op_webidl(#[webidl] arg: Foo, #[webidl] bar: f64) {
   println!("{}", arg.test.len());
   println!("{:#?}", arg.my_number);
 }

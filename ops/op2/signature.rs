@@ -1517,7 +1517,16 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
   }
 }
 
-fn better_alternative_exists(position: Position, of: &TypePath) -> bool {
+fn better_alternative_exists(
+  position: Position,
+  of: &TypePath,
+  is_webidl: bool,
+) -> bool {
+  // if this is #[webidl], we want to stick to it
+  if is_webidl {
+    return false;
+  }
+
   // If this type will parse without #[serde]/#[to_v8]/#[from_v8], it is illegal to use this type
   // with #[serde]/#[to_v8]/#[from_v8]
   if parse_type_path(position, Attributes::default(), TypePathContext::None, of)
@@ -1587,7 +1596,11 @@ pub(crate) fn parse_type(
         match ty {
           Type::Tuple(of) => return Ok(make_arg(stringify_token(of))),
           Type::Path(of) => {
-            if better_alternative_exists(position, of) {
+            if better_alternative_exists(
+              position,
+              of,
+              matches!(primary, AttributeModifier::WebIDL(_)),
+            ) {
               return Err(ArgError::InvalidAttributeType(
                 primary.name(),
                 stringify_token(ty),
