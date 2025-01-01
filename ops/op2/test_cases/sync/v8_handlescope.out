@@ -10,6 +10,7 @@ const fn op_handlescope() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_handlescope),
             false,
             false,
+            false,
             2usize as u8,
             false,
             Self::v8_fn_ptr as _,

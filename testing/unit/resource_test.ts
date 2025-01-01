@@ -95,6 +95,9 @@ test(async function testDomPoint() {
     DOMPoint.prototype.wrappingSmi.toString(),
   );
 
+  const f = Symbol.for("symbolMethod");
+  p1[f]();
+
   const wrap = new TestObjectWrap();
   assertEquals(wrap.withVarargs(1, 2, 3), 3);
   assertEquals(wrap.withVarargs(1, 2, 3, 4, 5), 5);

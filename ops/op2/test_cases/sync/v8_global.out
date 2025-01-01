@@ -10,6 +10,7 @@ pub const fn op_global() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_global),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,

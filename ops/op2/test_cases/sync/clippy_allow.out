@@ -12,6 +12,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_extra_annotation),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -155,6 +156,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_clippy_internal);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_clippy_internal),
+            false,
             false,
             false,
             0usize as u8,

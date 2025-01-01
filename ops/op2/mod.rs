@@ -310,6 +310,8 @@ pub(crate) fn generate_op2(
     quote!(::deno_core::AccessorType::None)
   };
 
+  let symbol_for = config.symbol;
+
   Ok(quote! {
     #[allow(non_camel_case_types)]
     #vis const fn #rust_name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
@@ -326,6 +328,7 @@ pub(crate) fn generate_op2(
           /*name*/ ::deno_core::__op_name_fast!(#name),
           /*is_async*/ #is_async,
           /*is_reentrant*/ #is_reentrant,
+          /*symbol_for*/ #symbol_for,
           /*arg_count*/ #arg_count as u8,
           /*no_side_effect*/ #no_side_effect,
           /*slow_fn*/ Self::#slow_function as _,

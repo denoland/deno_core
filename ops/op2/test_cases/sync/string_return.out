@@ -10,6 +10,7 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_string_return),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -108,6 +109,7 @@ pub const fn op_string_return_ref() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_string_return_ref),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -204,6 +206,7 @@ pub const fn op_string_return_cow() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_string_return_cow);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_string_return_cow),
+            false,
             false,
             false,
             0usize as u8,

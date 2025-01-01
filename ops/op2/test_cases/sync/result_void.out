@@ -10,6 +10,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_void_with_result),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
