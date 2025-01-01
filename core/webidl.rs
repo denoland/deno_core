@@ -37,7 +37,7 @@ impl WebIdlError {
 
 impl std::fmt::Display for WebIdlError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}: {}", self.prefix, self.context)?;
+    write!(f, "{}: {} ", self.prefix, self.context)?;
 
     match &self.kind {
       WebIdlErrorKind::ConvertToConverterType(kind) => {
