@@ -12,6 +12,7 @@ pub const fn op_maybe_windows() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_maybe_windows),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -156,6 +157,7 @@ pub const fn op_maybe_windows() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_maybe_windows);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_maybe_windows),
+            false,
             false,
             false,
             0usize as u8,

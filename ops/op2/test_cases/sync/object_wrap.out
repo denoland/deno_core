@@ -26,6 +26,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(constructor),
                 false,
                 false,
+                false,
                 1usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -156,6 +157,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(x),
                 false,
                 false,
+                false,
                 0usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -262,6 +264,7 @@ impl Foo {
             const NAME: &'static str = stringify!(x);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(x),
+                false,
                 false,
                 false,
                 1usize as u8,
@@ -384,6 +387,7 @@ impl Foo {
             const NAME: &'static str = stringify!(bar);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(bar),
+                false,
                 false,
                 false,
                 1usize as u8,
@@ -524,6 +528,7 @@ impl Foo {
             const NAME: &'static str = stringify!(zzz);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(zzz),
+                false,
                 false,
                 false,
                 0usize as u8,
@@ -720,6 +725,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(withVarargs),
                 false,
                 false,
+                false,
                 1usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -829,6 +835,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(with_RENAME),
                 false,
                 false,
+                false,
                 0usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -935,6 +942,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(doThing),
                 false,
                 false,
+                false,
                 0usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -1018,6 +1026,7 @@ impl Foo {
             const NAME: &'static str = stringify!(doThing);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(doThing),
+                false,
                 false,
                 false,
                 0usize as u8,

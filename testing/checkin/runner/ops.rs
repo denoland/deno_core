@@ -201,6 +201,10 @@ impl DOMPoint {
   fn wrapping_smi(&self, #[smi] t: u32) -> u32 {
     t
   }
+
+  #[fast]
+  #[symbol("symbolMethod")]
+  fn with_symbol(&self) {}
 }
 
 #[op2(fast)]

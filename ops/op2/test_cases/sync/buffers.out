@@ -10,6 +10,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_buffers),
             false,
             false,
+            false,
             4usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -292,6 +293,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_buffers_32),
             false,
             false,
+            false,
             4usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -572,6 +574,7 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_buffers_option);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_buffers_option),
+            false,
             false,
             false,
             2usize as u8,

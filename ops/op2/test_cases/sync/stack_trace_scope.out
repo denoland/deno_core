@@ -10,6 +10,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_stack_trace),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,

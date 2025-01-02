@@ -11,6 +11,7 @@ pub const fn op_has_doc_comment() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_has_doc_comment),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,

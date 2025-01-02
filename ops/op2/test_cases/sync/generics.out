@@ -10,6 +10,7 @@ pub const fn op_generics<T: Trait>() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_generics),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -152,6 +153,7 @@ pub const fn op_generics_static<T: Trait + 'static>() -> ::deno_core::_ops::OpDe
             ::deno_core::__op_name_fast!(op_generics_static),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -292,6 +294,7 @@ pub const fn op_generics_static_where<T: Trait + 'static>() -> ::deno_core::_ops
         const NAME: &'static str = stringify!(op_generics_static_where);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_generics_static_where),
+            false,
             false,
             false,
             0usize as u8,
