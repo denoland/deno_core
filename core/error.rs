@@ -1098,7 +1098,9 @@ fn maybe_to_path_str(string: &str) -> Option<String> {
 pub mod callsite_fns {
   use capacity_builder::StringBuilder;
 
-  use crate::{convert, FromV8, ToV8};
+  use crate::convert;
+  use crate::FromV8;
+  use crate::ToV8;
 
   use super::*;
 
