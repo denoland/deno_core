@@ -3,6 +3,7 @@
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
+use crate::_ops::OpMethodDecl;
 use crate::cppgc::FunctionTemplateData;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
@@ -15,7 +16,6 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
-use crate::ops::OpMethodCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
@@ -70,7 +70,8 @@ pub struct ContextState {
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,
-  pub(crate) op_method_ctxs: Box<[OpMethodCtx]>,
+  pub(crate) op_method_decls: Vec<OpMethodDecl>,
+  pub(crate) methods_ctx_offset: usize,
   pub(crate) isolate: Option<*mut v8::Isolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
@@ -84,7 +85,8 @@ impl ContextState {
     isolate_ptr: *mut v8::Isolate,
     get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
-    op_method_ctxs: Box<[OpMethodCtx]>,
+    op_method_decls: Vec<OpMethodDecl>,
+    methods_ctx_offset: usize,
     external_ops_tracker: ExternalOpsTracker,
   ) -> Self {
     Self {
@@ -97,7 +99,8 @@ impl ContextState {
       wasm_instance_fn: Default::default(),
       activity_traces: Default::default(),
       op_ctxs,
-      op_method_ctxs,
+      op_method_decls,
+      methods_ctx_offset,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),

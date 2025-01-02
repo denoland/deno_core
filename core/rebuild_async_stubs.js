@@ -8,7 +8,8 @@ const doNotModify =
 function __TEMPLATE__(__ARGS_PARAM__) {
   const id = nextPromiseId;
   try {
-    const maybeResult = __OP__(__ARGS__);
+    // deno-fmt-ignore
+    const maybeResult = __OP__.call(this, __ARGS__);
     if (maybeResult !== undefined) {
       return PromiseResolve(maybeResult);
     }

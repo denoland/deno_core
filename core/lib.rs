@@ -32,9 +32,12 @@ mod runtime;
 mod source_map;
 mod tasks;
 mod web_timeout;
+pub mod webidl;
 
 // Re-exports
 pub use anyhow;
+pub use deno_ops::op2;
+pub use deno_ops::WebIDL;
 pub use deno_unsync as unsync;
 pub use futures;
 pub use parking_lot;
@@ -50,8 +53,6 @@ pub use serde_v8::U16String;
 pub use sourcemap;
 pub use url;
 pub use v8;
-
-pub use deno_ops::op2;
 
 pub use crate::async_cancel::CancelFuture;
 pub use crate::async_cancel::CancelHandle;
@@ -83,6 +84,7 @@ pub use crate::external::ExternalPointer;
 pub use crate::external::Externalizable;
 pub use crate::fast_string::FastStaticString;
 pub use crate::fast_string::FastString;
+pub use crate::fast_string::FastStringV8AllocationError;
 pub use crate::feature_checker::FeatureChecker;
 pub use crate::flags::v8_set_flags;
 pub use crate::inspector::InspectorMsg;

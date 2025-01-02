@@ -100,6 +100,7 @@ pub(crate) fn generate_op2(
 ) -> Result<TokenStream, Op2Error> {
   // Create a copy of the original function, named "call"
   let call = Ident::new("call", Span::call_site());
+  let orig_name = func.sig.ident.clone();
   let mut op_fn = func.clone();
   // Collect non-special attributes
   let attrs = op_fn
@@ -122,6 +123,8 @@ pub(crate) fn generate_op2(
   if config.setter {
     // Prepend "__set_" to the setter function name.
     func.sig.ident = format_ident!("__set_{}", func.sig.ident);
+  } else if config.static_member {
+    func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
   let signature = parse_signature(func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
@@ -204,7 +207,8 @@ pub(crate) fn generate_op2(
 
   let mut slow_generator_state = base_generator_state.clone();
 
-  let name = func.sig.ident;
+  let rust_name = func.sig.ident;
+  let name = orig_name;
 
   let slow_fn = if signature.ret_val.is_async() {
     generate_dispatch_async(&config, &mut slow_generator_state, &signature)?
@@ -291,7 +295,7 @@ pub(crate) fn generate_op2(
     }
   } else {
     quote! {
-      impl <#(#generic : #bound),*> #name <#(#generic),*> {
+      impl <#(#generic : #bound),*> #rust_name <#(#generic),*> {
         #[inline(always)]
         #(#attrs)*
         #op_fn
@@ -307,22 +311,25 @@ pub(crate) fn generate_op2(
     quote!(::deno_core::AccessorType::None)
   };
 
+  let symbol_for = config.symbol;
+
   Ok(quote! {
     #[allow(non_camel_case_types)]
-    #vis const fn #name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
+    #vis const fn #rust_name <#(#generic : #bound),*> () -> ::deno_core::_ops::OpDecl {
       #[allow(non_camel_case_types)]
       #(#attrs)*
-      #vis struct #name <#(#generic),*> {
+      #vis struct #rust_name <#(#generic),*> {
         // We need to mark these type parameters as used, so we use a PhantomData
         _unconstructable: ::std::marker::PhantomData<(#(#generic),*)>
       }
 
-      impl <#(#generic : #bound),*> ::deno_core::_ops::Op for #name <#(#generic),*> {
+      impl <#(#generic : #bound),*> ::deno_core::_ops::Op for #rust_name <#(#generic),*> {
         const NAME: &'static str = stringify!(#name);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
           /*name*/ ::deno_core::__op_name_fast!(#name),
           /*is_async*/ #is_async,
           /*is_reentrant*/ #is_reentrant,
+          /*symbol_for*/ #symbol_for,
           /*arg_count*/ #arg_count as u8,
           /*no_side_effect*/ #no_side_effect,
           /*slow_fn*/ Self::#slow_function as _,
@@ -337,7 +344,7 @@ pub(crate) fn generate_op2(
         );
       }
 
-      impl <#(#generic : #bound),*> #name <#(#generic),*> {
+      impl <#(#generic : #bound),*> #rust_name <#(#generic),*> {
         pub const fn name() -> &'static str {
           <Self as deno_core::_ops::Op>::NAME
         }
@@ -348,7 +355,7 @@ pub(crate) fn generate_op2(
 
       #callable
 
-      <#name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
+      <#rust_name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
     }
   })
 }
