@@ -15,9 +15,7 @@ macro_rules! external {
         // SAFETY: Wash the pointer through black_box so the compiler cannot see what we're going to do with it and needs
         // to assume it will be used for valid purposes. We are taking the address of a static item, but we avoid taking an
         // intermediate mutable reference to make this safe.
-        let ptr = ::std::hint::black_box(unsafe {
-          ::std::ptr::addr_of_mut!(DEFINITION)
-        });
+        let ptr = ::std::hint::black_box(::std::ptr::addr_of_mut!(DEFINITION));
         ptr as ::core::primitive::usize
       }
 
