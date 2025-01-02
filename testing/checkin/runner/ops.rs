@@ -1,3 +1,4 @@
+use core::str;
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -20,6 +21,17 @@ use super::TestData;
 #[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
   println!("{s}");
+}
+
+#[op2(fast)]
+pub fn op_fast(scope: &mut v8::HandleScope<'_>, s: v8::Local<'_, v8::Value>) {
+  let x = v8::ValueView::new(scope, s.cast());
+  match x.data() {
+    v8::ValueViewData::OneByte(s) => {
+      let str = str::from_utf8(s).unwrap();
+    }
+    v8::ValueViewData::TwoByte(_) => {}
+  };
 }
 
 #[op2(fast)]
