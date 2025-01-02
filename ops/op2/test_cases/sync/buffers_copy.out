@@ -117,7 +117,6 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -348,7 +347,6 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {

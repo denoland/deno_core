@@ -26,7 +26,6 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -124,7 +123,6 @@ pub const fn op_string_return_ref() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -222,7 +220,6 @@ pub const fn op_string_return_cow() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {

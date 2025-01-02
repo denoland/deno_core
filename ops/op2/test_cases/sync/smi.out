@@ -153,7 +153,6 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -432,7 +431,6 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -584,7 +582,6 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {

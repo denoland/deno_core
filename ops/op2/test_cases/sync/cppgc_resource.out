@@ -127,7 +127,6 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -336,7 +335,6 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -444,7 +442,6 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -639,7 +636,6 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -743,7 +739,6 @@ const fn op_make_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -941,7 +936,6 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
