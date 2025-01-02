@@ -1308,7 +1308,7 @@ mod tests {
       #[webidl(default = Some(3))]
       c: Option<u32>,
       #[webidl(rename = "e")]
-      d: u32,
+      d: u16,
       f: HashMap<String, u32>,
       #[webidl(required)]
       g: Option<u32>,
@@ -1318,7 +1318,7 @@ mod tests {
     let val = runtime
       .execute_script(
         "",
-        "({ a: 1, b: [500000], e: 2, f: { 'foo': 1 }, g: undefined })",
+        "({ a: 1, b: [70000], e: 70000, f: { 'foo': 1 }, g: undefined })",
       )
       .unwrap();
 
@@ -1337,9 +1337,9 @@ mod tests {
       converted.unwrap(),
       Dict {
         a: 1,
-        b: vec![500],
+        b: vec![65535],
         c: Some(3),
-        d: 2,
+        d: 4464,
         f: HashMap::from([(String::from("foo"), 1)]),
         g: None,
       }

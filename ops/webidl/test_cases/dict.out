@@ -62,9 +62,6 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
-                .and_then(|__value| {
-                    if __value.is_undefined() { None } else { Some(__value) }
-                })
             {
                 let val = ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
@@ -108,9 +105,6 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
-                .and_then(|__value| {
-                    if __value.is_undefined() { None } else { Some(__value) }
-                })
             {
                 let val = ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
@@ -199,9 +193,6 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
-                .and_then(|__value| {
-                    if __value.is_undefined() { None } else { Some(__value) }
-                })
             {
                 let val = ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
@@ -245,9 +236,6 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
-                .and_then(|__value| {
-                    if __value.is_undefined() { None } else { Some(__value) }
-                })
             {
                 let val = ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
@@ -291,18 +279,19 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
-                .and_then(|__value| {
-                    if __value.is_undefined() { None } else { Some(__value) }
-                })
             {
-                let val = ::deno_core::webidl::WebIdlConverter::convert(
-                    __scope,
-                    __value,
-                    __prefix.clone(),
-                    || format!("{} ({})", "'g' of 'Dict'", __context()).into(),
-                    &Default::default(),
-                )?;
-                val
+                if __value.is_undefined() {
+                    None
+                } else {
+                    let val = ::deno_core::webidl::WebIdlConverter::convert(
+                        __scope,
+                        __value,
+                        __prefix.clone(),
+                        || format!("{} ({})", "'g' of 'Dict'", __context()).into(),
+                        &Default::default(),
+                    )?;
+                    Some(val)
+                }
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(

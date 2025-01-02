@@ -77,29 +77,6 @@ pub fn get_body(
     let v8_static_name = format_ident!("__v8_static_{name}");
     let v8_eternal_name = format_ident!("__v8_{name}_eternal");
 
-    let required_or_default = if field.required && field.default_value.is_none() {
-      quote! {
-        return Err(::deno_core::webidl::WebIdlError::new(
-          __prefix,
-          &__context,
-          ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
-            converter: #ident_string,
-            key: #string_name,
-          },
-        ));
-      }
-    } else if let Some(default) = field.default_value {
-      default.to_token_stream()
-    } else {
-      quote! { None }
-    };
-
-    let val = if field.required {
-      quote!(val)
-    } else {
-      quote!(Some(val))
-    };
-
     let options = if field.converter_options.is_empty() {
       quote!(Default::default())
     } else {
@@ -124,6 +101,67 @@ pub fn get_body(
 
     let new_context = format!("'{string_name}' of '{ident_string}'");
 
+    let convert = quote! {
+      let val = ::deno_core::webidl::WebIdlConverter::convert(
+        __scope,
+        __value,
+        __prefix.clone(),
+        || format!("{} ({})", #new_context, __context()).into(),
+        &#options,
+      )?;
+    };
+
+    let convert_body = if field.option_is_required {
+      quote! {
+        if __value.is_undefined() {
+          None
+        } else {
+          #convert
+          Some(val)
+        }
+      }
+    } else {
+      let val = if field.is_option {
+        quote!(Some(val))
+      } else {
+        quote!(val)
+      };
+
+      quote! {
+        #convert
+        #val
+      }
+    };
+
+    let undefined_as_none = if field.default_value.is_some() {
+      quote! {
+        .and_then(|__value| {
+          if __value.is_undefined() {
+            None
+          } else {
+            Some(__value)
+          }
+        })
+      }
+    } else {
+      quote!()
+    };
+
+    let required_or_default = if let Some(default) = field.default_value {
+      default.to_token_stream()
+    } else {
+      quote! {
+        return Err(::deno_core::webidl::WebIdlError::new(
+          __prefix,
+          &__context,
+          ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
+            converter: #ident_string,
+            key: #string_name,
+          },
+        ));
+      }
+    };
+
     quote! {
       let #original_name = {
         let __key = #v8_eternal_name
@@ -140,23 +178,8 @@ pub fn get_body(
           })?
           .into();
 
-        if let Some(__value) = __obj.as_ref()
-        .and_then(|__obj| __obj.get(__scope, __key))
-        .and_then(|__value| {
-          if __value.is_undefined() {
-            None
-          } else {
-            Some(__value)
-          }
-        }) {
-          let val = ::deno_core::webidl::WebIdlConverter::convert(
-            __scope,
-            __value,
-            __prefix.clone(),
-            || format!("{} ({})", #new_context, __context()).into(),
-            &#options,
-          )?;
-          #val
+        if let Some(__value) = __obj.as_ref().and_then(|__obj| __obj.get(__scope, __key))#undefined_as_none {
+          #convert_body
         } else {
           #required_or_default
         }
@@ -192,7 +215,8 @@ struct DictionaryField {
   name: Ident,
   rename: Option<String>,
   default_value: Option<Expr>,
-  required: bool,
+  is_option: bool,
+  option_is_required: bool,
   converter_options: std::collections::HashMap<Ident, Expr>,
   ty: Type,
 }
@@ -215,7 +239,7 @@ impl TryFrom<Field> for DictionaryField {
     let span = value.span();
     let mut default_value: Option<Expr> = None;
     let mut rename: Option<String> = None;
-    let mut required = false;
+    let mut option_is_required = false;
     let mut converter_options = std::collections::HashMap::new();
 
     for attr in value.attrs {
@@ -233,7 +257,9 @@ impl TryFrom<Field> for DictionaryField {
             DictionaryFieldArgument::Rename { value, .. } => {
               rename = Some(value.value())
             }
-            DictionaryFieldArgument::Required { .. } => required = true,
+            DictionaryFieldArgument::Required { .. } => {
+              option_is_required = true
+            }
           }
         }
       } else if attr.path().is_ident("options") {
@@ -264,12 +290,27 @@ impl TryFrom<Field> for DictionaryField {
       false
     };
 
+    if option_is_required && !is_option {
+      return Err(Error::new(
+        span,
+        "Required option can only be used with an Option",
+      ));
+    }
+
+    if option_is_required && default_value.is_some() {
+      return Err(Error::new(
+        span,
+        "Required option and default value cannot be used together",
+      ));
+    }
+
     Ok(Self {
       span,
       name: value.ident.unwrap(),
       rename,
       default_value,
-      required: required || !is_option,
+      is_option,
+      option_is_required,
       converter_options,
       ty: value.ty,
     })
