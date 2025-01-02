@@ -566,6 +566,14 @@ impl RequestedModuleType {
       return None;
     })
   }
+
+  pub fn as_str(&self) -> Option<&str> {
+    match self {
+      RequestedModuleType::None => None,
+      RequestedModuleType::Json => Some("json"),
+      RequestedModuleType::Other(ty) => Some(ty),
+    }
+  }
 }
 
 impl AsRef<RequestedModuleType> for RequestedModuleType {
