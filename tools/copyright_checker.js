@@ -3,7 +3,7 @@
 
 import { getSources, ROOT_PATH } from "./util.js";
 
-const copyrightYear = 2024;
+const copyrightYear = 2025;
 
 const SOURCES = [
   // js and ts
@@ -18,9 +18,9 @@ const SOURCES = [
 ];
 
 const COPYRIGHT_REGEX =
-  /^(#|\/\/) Copyright \d+-\d+ the Deno authors. All rights reserved. MIT license./;
+  /^(#|\/\/) Copyright \d+-\d+ the Deno authors. MIT license./;
 const COPYRIGHT_LINE =
-  `Copyright 2018-${copyrightYear} the Deno authors. All rights reserved. MIT license.`;
+  `Copyright 2018-${copyrightYear} the Deno authors. MIT license.`;
 
 // Acceptable content before the copyright line
 const ACCEPTABLE_LINES =
