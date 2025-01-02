@@ -10,6 +10,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_cppgc_object),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -127,7 +128,6 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -213,6 +213,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_option_cppgc_object);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_option_cppgc_object),
+            false,
             false,
             false,
             1usize as u8,
@@ -336,7 +337,6 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -428,6 +428,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_make_cppgc_object),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -444,7 +445,6 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -520,6 +520,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_use_cppgc_object);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_use_cppgc_object),
+            false,
             false,
             false,
             1usize as u8,
@@ -639,7 +640,6 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -727,6 +727,7 @@ const fn op_make_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_make_cppgc_object_option),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -743,7 +744,6 @@ const fn op_make_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -822,6 +822,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_use_cppgc_object_option);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_use_cppgc_object_option),
+            false,
             false,
             false,
             1usize as u8,
@@ -941,7 +942,6 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {

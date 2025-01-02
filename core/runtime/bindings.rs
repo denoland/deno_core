@@ -10,6 +10,7 @@ use v8::MapFnTo;
 use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
+use crate::OpDecl;
 use crate::_ops::OpMethodDecl;
 use crate::cppgc::cppgc_template_constructor;
 use crate::cppgc::FunctionTemplateData;
@@ -328,6 +329,18 @@ pub(crate) fn initialize_primordials_and_infra(
   Ok(())
 }
 
+fn name_key<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  decl: &OpDecl,
+) -> v8::Local<'s, v8::Name> {
+  let key_str = decl.name_fast.v8_string(scope).unwrap();
+  if decl.symbol_for {
+    v8::Symbol::for_key(scope, key_str).into()
+  } else {
+    key_str.into()
+  }
+}
+
 /// Set up JavaScript bindings for ops.
 pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
@@ -389,8 +402,9 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let static_method_ctxs = &op_ctxs[index..index + decl.static_methods.len()];
     for method in static_method_ctxs.iter() {
       let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast;
-      tmpl.set(method_key.v8_string(scope).unwrap().into(), op_fn.into());
+      let method_key = name_key(scope, &method.decl);
+
+      tmpl.set(method_key, op_fn.into());
     }
 
     index += decl.static_methods.len();
@@ -434,7 +448,7 @@ fn op_ctx_template_or_accessor<'s>(
 ) {
   if !op_ctx.decl.is_accessor() {
     let op_fn = op_ctx_template(scope, op_ctx);
-    let method_key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
+    let method_key = name_key(scope, &op_ctx.decl);
     if op_ctx.decl.is_async {
       let undefined = v8::undefined(scope);
       let op_fn = op_fn.get_function(scope).unwrap();
@@ -452,7 +466,7 @@ fn op_ctx_template_or_accessor<'s>(
       return;
     }
 
-    tmpl.set(method_key.into(), op_fn.into());
+    tmpl.set(method_key, op_fn.into());
 
     return;
   }
