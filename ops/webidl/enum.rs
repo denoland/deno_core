@@ -16,7 +16,7 @@ pub fn get_variant_name(value: Variant) -> Result<(String, Ident), Error> {
 
   if !value.fields.is_empty() {
     return Err(Error::new(
-      value.span(),
+      value.fields.span(),
       "variants with fields are not allowed for enum converters",
     ));
   }

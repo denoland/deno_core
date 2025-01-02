@@ -82,8 +82,6 @@ pub enum WebIdlErrorKind {
   Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
-pub type WebIdlContext = Box<dyn Fn() -> Cow<'static, str>>;
-
 pub trait WebIdlConverter<'a>: Sized {
   type Options: Default;
 
@@ -511,6 +509,7 @@ impl<'a> WebIdlConverter<'a> for f32 {
   }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct UnrestrictedFloat(pub f32);
 impl std::ops::Deref for UnrestrictedFloat {
   type Target = f32;
@@ -578,6 +577,7 @@ impl<'a> WebIdlConverter<'a> for f64 {
   }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct UnrestrictedDouble(pub f64);
 impl std::ops::Deref for UnrestrictedDouble {
   type Target = f64;
@@ -704,6 +704,7 @@ impl<'a> WebIdlConverter<'a> for String {
   }
 }
 
+#[derive(Debug, Clone)]
 pub struct ByteString(pub String);
 impl std::ops::Deref for ByteString {
   type Target = String;
@@ -762,3 +763,311 @@ impl<'a> WebIdlConverter<'a> for ByteString {
 //  DataView
 //  Array buffer types
 //  ArrayBufferView
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::JsRuntime;
+
+  #[test]
+  fn integers() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    macro_rules! test_integer {
+      ($t:ty: $($val:expr => $expected:literal$(, $opts:expr)?);+;) => {
+        $(
+          let val = v8::Number::new(scope, $val as f64);
+          let val = Local::new(scope, val);
+          let converted = <$t>::convert(
+            scope,
+            val.into(),
+            "prefix".into(),
+            || "context".into(),
+            &test_integer!(@opts $($opts)?),
+          );
+          assert_eq!(converted.unwrap(), $expected);
+        )+
+      };
+
+      ($t:ty: $($val:expr => ERR$(, $opts:expr)?);+;) => {
+        $(
+          let val = v8::Number::new(scope, $val as f64);
+          let val = Local::new(scope, val);
+          let converted = <$t>::convert(
+            scope,
+            val.into(),
+            "prefix".into(),
+            || "context".into(),
+            &test_integer!(@opts $($opts)?),
+          );
+          assert!(converted.is_err());
+        )+
+      };
+
+      (@opts $opts:expr) => { $opts };
+      (@opts) => { Default::default() };
+    }
+
+    test_integer!(
+      i8:
+      50 => 50;
+      -10 => -10;
+      130 => -126;
+      -130 => 126;
+      130 => 127, IntOptions { clamp: true, enforce_range: false };
+    );
+    test_integer!(
+      i8:
+      f64::INFINITY => ERR, IntOptions { clamp: false, enforce_range: true };
+      -f64::INFINITY => ERR, IntOptions { clamp: false, enforce_range: true };
+      f64::NAN => ERR, IntOptions { clamp: false, enforce_range: true };
+      130 => ERR, IntOptions { clamp: false, enforce_range: true };
+    );
+
+    test_integer!(
+      u8:
+      50 => 50;
+      -10 => 246;
+      260 => 4;
+      260 => 255, IntOptions { clamp: true, enforce_range: false };
+    );
+    test_integer!(
+      u8:
+      f64::INFINITY => ERR, IntOptions { clamp: false, enforce_range: true };
+      f64::NAN => ERR, IntOptions { clamp: false, enforce_range: true };
+      260 => ERR, IntOptions { clamp: false, enforce_range: true };
+    );
+
+    let val = v8::String::new(scope, "3").unwrap();
+    let converted = u8::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), 3);
+
+    let val = v8::String::new(scope, "test").unwrap();
+    let converted = u8::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), 0);
+
+    let val = v8::BigInt::new_from_i64(scope, 0);
+    let val = Local::new(scope, val);
+    let converted = u8::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+
+    let val = v8::Symbol::new(scope, None);
+    let converted = u8::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+
+    let val = v8::undefined(scope);
+    let converted = u8::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), 0);
+  }
+
+  #[test]
+  fn float() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::Number::new(scope, 3.0);
+    let val = Local::new(scope, val);
+    let converted = f32::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), 3.0);
+
+    let val = v8::Number::new(scope, f64::INFINITY);
+    let val = Local::new(scope, val);
+    let converted = f32::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+
+    let val = v8::Number::new(scope, f64::MAX);
+    let val = Local::new(scope, val);
+    let converted = f32::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+  }
+
+  #[test]
+  fn unrestricted_float() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::Number::new(scope, 3.0);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedFloat::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), 3.0);
+
+    let val = v8::Number::new(scope, f32::INFINITY as f64);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedFloat::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), f32::INFINITY);
+
+    let val = v8::Number::new(scope, f64::NAN);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedFloat::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+
+    assert!(converted.unwrap().is_nan());
+
+    let val = v8::Number::new(scope, f64::MAX);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedFloat::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.unwrap().is_infinite());
+  }
+
+  #[test]
+  fn double() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::Number::new(scope, 3.0);
+    let val = Local::new(scope, val);
+    let converted = f64::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), 3.0);
+
+    let val = v8::Number::new(scope, f64::INFINITY);
+    let val = Local::new(scope, val);
+    let converted = f64::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+
+    let val = v8::Number::new(scope, f64::MAX);
+    let val = Local::new(scope, val);
+    let converted = f64::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), f64::MAX);
+  }
+
+  #[test]
+  fn unrestricted_double() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::Number::new(scope, 3.0);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedDouble::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), 3.0);
+
+    let val = v8::Number::new(scope, f64::INFINITY);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedDouble::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), f64::INFINITY);
+
+    let val = v8::Number::new(scope, f64::NAN);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedDouble::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+
+    assert!(converted.unwrap().is_nan());
+
+    let val = v8::Number::new(scope, f64::MAX);
+    let val = Local::new(scope, val);
+    let converted = UnrestrictedDouble::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), f64::MAX);
+  }
+}

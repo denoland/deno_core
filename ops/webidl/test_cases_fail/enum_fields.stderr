@@ -1,5 +1,5 @@
 error: variants with fields are not allowed for enum converters
- --> ../webidl/test_cases_fail/enum.rs:8:3
+ --> ../webidl/test_cases_fail/enum_fields.rs:8:9
   |
 8 |   FooBar(u32),
-  |   ^^^^^^^^^^^
+  |         ^^^^^
