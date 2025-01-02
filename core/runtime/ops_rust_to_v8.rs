@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 //! This module provides traits and macros that facilitate the conversion of Rust objects into v8 objects.
 //!
