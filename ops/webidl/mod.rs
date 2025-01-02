@@ -175,6 +175,7 @@ mod tests {
       std::fs::read_to_string(&input).expect("Failed to read test file");
 
     const PRELUDE: &str = r"// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();";
 

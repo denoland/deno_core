@@ -1,4 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
+
 use std::rc::Rc;
 
 use deno_core::JsRuntimeForSnapshot;

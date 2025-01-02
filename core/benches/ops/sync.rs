@@ -1,4 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
+
 #![allow(deprecated)]
 use bencher::*;
 use deno_core::error::generic_error;

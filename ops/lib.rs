@@ -1,4 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
+
 #![doc = include_str!("README.md")]
 
 use proc_macro::TokenStream;
