@@ -21,6 +21,7 @@ use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
+use super::signature::WebIDLPairs;
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use proc_macro2::Ident;
@@ -234,6 +235,22 @@ pub(crate) fn with_fn_args(
   )
 }
 
+pub(crate) fn get_prefix(generator_state: &mut GeneratorState) -> String {
+  if generator_state.needs_self {
+    format!(
+      "Failed to execute '{}' on '{}'",
+      generator_state.name, generator_state.self_ty
+    )
+  } else if generator_state.use_this_cppgc {
+    format!("Failed to construct '{}'", generator_state.self_ty)
+  } else {
+    format!(
+      "Failed to execute '{}.{}'",
+      generator_state.self_ty, generator_state.name
+    )
+  }
+}
+
 pub(crate) fn with_required_check(
   generator_state: &mut GeneratorState,
   required: u8,
@@ -245,24 +262,12 @@ pub(crate) fn with_required_check(
     "argument"
   };
 
-  let prefix = if generator_state.needs_self {
-    format!(
-      "Failed to execute '{}' on '{}': ",
-      generator_state.name, generator_state.self_ty
-    )
-  } else if generator_state.use_this_cppgc {
-    format!("Failed to construct '{}': ", generator_state.self_ty)
-  } else {
-    format!(
-      "Failed to execute '{}.{}': ",
-      generator_state.self_ty, generator_state.name
-    )
-  };
+  let prefix = get_prefix(generator_state);
 
   gs_quote!(generator_state(fn_args, scope) =>
     (if #fn_args.length() < #required as i32 {
       let msg = format!(
-        "{}{} {} required, but only {} present",
+        "{}: {} {} required, but only {} present",
         #prefix,
         #required,
         #arguments_lit,
@@ -639,6 +644,47 @@ pub fn from_arg(
       let throw_exception = throw_type_error_string(generator_state, &err)?;
       quote! {
         let #arg_ident = match <#ty as deno_core::FromV8>::from_v8(&mut #scope, #arg_ident) {
+          Ok(t) => t,
+          Err(#err) => {
+            #throw_exception;
+          }
+        };
+      }
+    }
+    Arg::WebIDL(ty, options) => {
+      *needs_scope = true;
+      let ty =
+        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+      let scope = scope.clone();
+      let err = format_ident!("{}_err", arg_ident);
+      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      let prefix = get_prefix(generator_state);
+      let context = format!("Argument {}", index + 1);
+
+      let options = if options.is_empty() {
+        quote!(Default::default())
+      } else {
+        let inner = options
+          .iter()
+          .map(|WebIDLPairs(k, v)| quote!(#k: #v))
+          .collect::<Vec<_>>();
+
+        quote! {
+          <#ty as deno_core::webidl::WebIdlConverter>::Options {
+            #(#inner),*
+            ..Default::default()
+          }
+        }
+      };
+
+      quote! {
+        let #arg_ident = match <#ty as deno_core::webidl::WebIdlConverter>::convert(
+          &mut #scope,
+          #arg_ident,
+          #prefix.into(),
+          || std::borrow::Cow::Borrowed(#context),
+          &#options,
+        ) {
           Ok(t) => t,
           Err(#err) => {
             #throw_exception;

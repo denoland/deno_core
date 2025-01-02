@@ -15,6 +15,7 @@ path = "./lib.rs"
 proc-macro = true
 
 [dependencies]
+indexmap.workspace = true
 proc-macro-rules.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true

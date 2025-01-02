@@ -97,7 +97,14 @@ impl std::error::Error for CustomError {}
 /// If this error was crated with `custom_error()`, return the specified error
 /// class name. In all other cases this function returns `None`.
 pub fn get_custom_error_class(error: &Error) -> Option<&'static str> {
-  error.downcast_ref::<CustomError>().map(|e| e.class)
+  error
+    .downcast_ref::<CustomError>()
+    .map(|e| e.class)
+    .or_else(|| {
+      error
+        .downcast_ref::<crate::webidl::WebIdlError>()
+        .map(|_| "TypeError")
+    })
 }
 
 /// A wrapper around `anyhow::Error` that implements `std::error::Error`
