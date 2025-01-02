@@ -117,7 +117,7 @@ pub enum DictionaryFieldArgument {
     value: LitStr,
   },
   Required {
-    name_token: kw::rename,
+    name_token: kw::required,
   },
 }
 

@@ -778,7 +778,6 @@ mod tests {
       ($t:ty: $($val:expr => $expected:literal$(, $opts:expr)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
-          let val = Local::new(scope, val);
           let converted = <$t>::convert(
             scope,
             val.into(),
@@ -793,7 +792,6 @@ mod tests {
       ($t:ty: $($val:expr => ERR$(, $opts:expr)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
-          let val = Local::new(scope, val);
           let converted = <$t>::convert(
             scope,
             val.into(),
@@ -860,7 +858,6 @@ mod tests {
     assert_eq!(converted.unwrap(), 0);
 
     let val = v8::BigInt::new_from_i64(scope, 0);
-    let val = Local::new(scope, val);
     let converted = u8::convert(
       scope,
       val.into(),
@@ -897,7 +894,6 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     let val = v8::Number::new(scope, 3.0);
-    let val = Local::new(scope, val);
     let converted = f32::convert(
       scope,
       val.into(),
@@ -908,7 +904,6 @@ mod tests {
     assert_eq!(converted.unwrap(), 3.0);
 
     let val = v8::Number::new(scope, f64::INFINITY);
-    let val = Local::new(scope, val);
     let converted = f32::convert(
       scope,
       val.into(),
@@ -919,7 +914,6 @@ mod tests {
     assert!(converted.is_err());
 
     let val = v8::Number::new(scope, f64::MAX);
-    let val = Local::new(scope, val);
     let converted = f32::convert(
       scope,
       val.into(),
@@ -936,7 +930,6 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     let val = v8::Number::new(scope, 3.0);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedFloat::convert(
       scope,
       val.into(),
@@ -947,7 +940,6 @@ mod tests {
     assert_eq!(*converted.unwrap(), 3.0);
 
     let val = v8::Number::new(scope, f32::INFINITY as f64);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedFloat::convert(
       scope,
       val.into(),
@@ -958,7 +950,6 @@ mod tests {
     assert_eq!(*converted.unwrap(), f32::INFINITY);
 
     let val = v8::Number::new(scope, f64::NAN);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedFloat::convert(
       scope,
       val.into(),
@@ -970,7 +961,6 @@ mod tests {
     assert!(converted.unwrap().is_nan());
 
     let val = v8::Number::new(scope, f64::MAX);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedFloat::convert(
       scope,
       val.into(),
@@ -987,7 +977,6 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     let val = v8::Number::new(scope, 3.0);
-    let val = Local::new(scope, val);
     let converted = f64::convert(
       scope,
       val.into(),
@@ -998,7 +987,6 @@ mod tests {
     assert_eq!(converted.unwrap(), 3.0);
 
     let val = v8::Number::new(scope, f64::INFINITY);
-    let val = Local::new(scope, val);
     let converted = f64::convert(
       scope,
       val.into(),
@@ -1009,7 +997,6 @@ mod tests {
     assert!(converted.is_err());
 
     let val = v8::Number::new(scope, f64::MAX);
-    let val = Local::new(scope, val);
     let converted = f64::convert(
       scope,
       val.into(),
@@ -1026,7 +1013,6 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     let val = v8::Number::new(scope, 3.0);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedDouble::convert(
       scope,
       val.into(),
@@ -1037,7 +1023,6 @@ mod tests {
     assert_eq!(*converted.unwrap(), 3.0);
 
     let val = v8::Number::new(scope, f64::INFINITY);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedDouble::convert(
       scope,
       val.into(),
@@ -1048,7 +1033,6 @@ mod tests {
     assert_eq!(*converted.unwrap(), f64::INFINITY);
 
     let val = v8::Number::new(scope, f64::NAN);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedDouble::convert(
       scope,
       val.into(),
@@ -1060,7 +1044,6 @@ mod tests {
     assert!(converted.unwrap().is_nan());
 
     let val = v8::Number::new(scope, f64::MAX);
-    let val = Local::new(scope, val);
     let converted = UnrestrictedDouble::convert(
       scope,
       val.into(),
@@ -1069,5 +1052,248 @@ mod tests {
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), f64::MAX);
+  }
+
+  #[test]
+  fn string() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::String::new(scope, "foo").unwrap();
+    let converted = String::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), "foo");
+
+    let val = v8::Number::new(scope, 1.0);
+    let converted = String::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), "1");
+
+    let val = v8::Symbol::new(scope, None);
+    let converted = String::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+
+    let val = v8::null(scope);
+    let converted = String::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), "null");
+
+    let val = v8::null(scope);
+    let converted = String::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &StringOptions {
+        treat_null_as_empty_string: true,
+      },
+    );
+    assert_eq!(converted.unwrap(), "");
+
+    let val = v8::Object::new(scope);
+    let converted = String::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &StringOptions {
+        treat_null_as_empty_string: true,
+      },
+    );
+    assert_eq!(converted.unwrap(), "[object Object]");
+
+    let val = v8::String::new(scope, "生").unwrap();
+    let converted = String::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), "生");
+  }
+
+  #[test]
+  fn byte_string() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::String::new(scope, "foo").unwrap();
+    let converted = ByteString::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), "foo");
+
+    let val = v8::Number::new(scope, 1.0);
+    let converted = ByteString::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), "1");
+
+    let val = v8::Symbol::new(scope, None);
+    let converted = ByteString::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+
+    let val = v8::null(scope);
+    let converted = ByteString::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(*converted.unwrap(), "null");
+
+    let val = v8::null(scope);
+    let converted = ByteString::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &StringOptions {
+        treat_null_as_empty_string: true,
+      },
+    );
+    assert_eq!(*converted.unwrap(), "");
+
+    let val = v8::Object::new(scope);
+    let converted = ByteString::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &StringOptions {
+        treat_null_as_empty_string: true,
+      },
+    );
+    assert_eq!(*converted.unwrap(), "[object Object]");
+
+    let val = v8::String::new(scope, "生").unwrap();
+    let converted = ByteString::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+  }
+
+  #[test]
+  fn any() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::Object::new(scope);
+    let converted = v8::Local::<Value>::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.unwrap().is_object());
+  }
+
+  #[test]
+  fn sequence() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let a = v8::Number::new(scope, 1.0);
+    let b = v8::String::new(scope, "2").unwrap();
+    let val = v8::Array::new_with_elements(scope, &[a.into(), b.into()]);
+    let converted = Vec::<u8>::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), vec![1, 2]);
+  }
+
+  #[test]
+  fn nullable() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::undefined(scope);
+    let converted = Option::<u8>::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), None);
+
+    let val = v8::Number::new(scope, 1.0);
+    let converted = Option::<u8>::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), Some(1));
+  }
+
+  #[test]
+  fn record() {
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let key = v8::String::new(scope, "foo").unwrap();
+    let val = v8::Number::new(scope, 1.0);
+    let obj = v8::Object::new(scope);
+    obj.set(scope, key.into(), val.into());
+
+    let converted = HashMap::<String, u8>::convert(
+      scope,
+      obj.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(
+      converted.unwrap(),
+      HashMap::from([(String::from("foo"), 1)])
+    );
   }
 }

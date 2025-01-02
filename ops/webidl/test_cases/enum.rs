@@ -7,4 +7,6 @@ deno_ops_compile_test_runner::prelude!();
 pub enum Enumeration {
   FooBar,
   Baz,
+  #[webidl(rename = "hello")]
+  World,
 }
