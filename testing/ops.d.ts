@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 export function op_log_debug(...any: any[]): any;
 export function op_log_info(...any: any[]): any;

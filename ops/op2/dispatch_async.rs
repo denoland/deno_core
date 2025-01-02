@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use super::config::MacroConfig;
 use super::dispatch_slow::generate_dispatch_slow_call;

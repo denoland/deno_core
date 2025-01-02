@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read=. --allow-write=. --allow-run=git
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 import { getSources, ROOT_PATH } from "./util.js";
 
