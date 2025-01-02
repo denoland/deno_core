@@ -1,3 +1,5 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// deno-lint-ignore-file no-explicit-any
 type Thing = {
   name: string;
 };
@@ -5,8 +7,8 @@ type Thing = {
 try {
   throw new Error("This is an error");
 } catch (e) {
-  Error.prepareStackTrace = (_, stack) => {
-    return stack.map((s) => ({
+  (Error as any).prepareStackTrace = (_: any, stack: any) => {
+    return stack.map((s: any) => ({
       filename: s.getFileName(),
       methodName: s.getMethodName(),
       functionName: s.getFunctionName(),
@@ -14,5 +16,5 @@ try {
       columnNumber: s.getColumnNumber(),
     }));
   };
-  console.log(e.stack);
+  console.log((e as Error).stack);
 }

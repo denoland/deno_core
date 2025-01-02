@@ -1120,7 +1120,7 @@ pub mod callsite_fns {
     ) -> v8::Local<'a, v8::Value> {
       match self {
         Self::Ref(array) => array.get_index(scope, 0).unwrap(),
-        Self::Value { file_name, .. } => file_name.clone(),
+        Self::Value { file_name, .. } => *file_name,
       }
     }
     #[inline]
@@ -1130,7 +1130,7 @@ pub mod callsite_fns {
     ) -> v8::Local<'a, v8::Value> {
       match self {
         Self::Ref(array) => array.get_index(scope, 1).unwrap(),
-        Self::Value { line_number, .. } => line_number.clone(),
+        Self::Value { line_number, .. } => *line_number,
       }
     }
     #[inline]
@@ -1140,7 +1140,7 @@ pub mod callsite_fns {
     ) -> v8::Local<'a, v8::Value> {
       match self {
         Self::Ref(array) => array.get_index(scope, 2).unwrap(),
-        Self::Value { column_number, .. } => column_number.clone(),
+        Self::Value { column_number, .. } => *column_number,
       }
     }
   }
@@ -1163,7 +1163,7 @@ pub mod callsite_fns {
     let mut source_mapper = state.source_mapper.borrow_mut();
     let (mapped_file_name, mapped_line_number, mapped_column_number) =
       apply_source_map(
-        &mut *source_mapper,
+        &mut source_mapper,
         Cow::Owned(file_name),
         line_number,
         column_number,
@@ -1208,8 +1208,8 @@ pub mod callsite_fns {
     if let Some((mapped_file_name, mapped_line_number, mapped_column_number)) =
       maybe_apply_source_map(scope, file_name, line_number, column_number)
     {
-      let mapped_file_name_trimmed = maybe_to_path_str(&mapped_file_name)
-        .unwrap_or_else(|| mapped_file_name);
+      let mapped_file_name_trimmed =
+        maybe_to_path_str(&mapped_file_name).unwrap_or(mapped_file_name);
       let mapped_file_name = crate::FastString::from(mapped_file_name_trimmed)
         .v8_string(scope)
         .unwrap();
@@ -1218,13 +1218,13 @@ pub mod callsite_fns {
       let Ok(mapped_column_number) =
         convert::Number(mapped_column_number).to_v8(scope);
       info.set_index(scope, 0, mapped_file_name.into());
-      info.set_index(scope, 1, mapped_line_number.into());
-      info.set_index(scope, 2, mapped_column_number.into());
+      info.set_index(scope, 1, mapped_line_number);
+      info.set_index(scope, 2, mapped_column_number);
       callsite.set_private(scope, key, info.into());
       Some(SourceMappedCallsiteInfo::Value {
         file_name: mapped_file_name.into(),
-        line_number: mapped_line_number.into(),
-        column_number: mapped_column_number.into(),
+        line_number: mapped_line_number,
+        column_number: mapped_column_number,
       })
     } else {
       let file_name = file_name.unwrap_or_else(|| v8::undefined(scope).into());
@@ -1246,30 +1246,30 @@ pub mod callsite_fns {
   make_callsite_fn!(get_function_name, GET_FUNCTION_NAME);
   make_callsite_fn!(get_method_name, GET_METHOD_NAME);
 
-  pub fn get_file_name<'a, 'b, 'c>(
-    scope: &'c mut v8::HandleScope<'a>,
+  pub fn get_file_name<'a>(
+    scope: &mut v8::HandleScope<'a>,
     args: v8::FunctionCallbackArguments<'a>,
-    mut rv: v8::ReturnValue<'b>,
+    mut rv: v8::ReturnValue<'_>,
   ) {
     if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
       rv.set(info.file_name(scope));
     }
   }
 
-  pub fn get_line_number<'a, 'b, 'c>(
-    scope: &'c mut v8::HandleScope<'a>,
+  pub fn get_line_number<'a>(
+    scope: &mut v8::HandleScope<'a>,
     args: v8::FunctionCallbackArguments<'a>,
-    mut rv: v8::ReturnValue<'b>,
+    mut rv: v8::ReturnValue<'_>,
   ) {
     if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
       rv.set(info.line_number(scope));
     }
   }
 
-  pub fn get_column_number<'a, 'b, 'c>(
-    scope: &'c mut v8::HandleScope<'a>,
+  pub fn get_column_number<'a>(
+    scope: &mut v8::HandleScope<'a>,
     args: v8::FunctionCallbackArguments<'a>,
-    mut rv: v8::ReturnValue<'b>,
+    mut rv: v8::ReturnValue<'_>,
   ) {
     if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
       rv.set(info.column_number(scope));
@@ -1290,8 +1290,8 @@ pub mod callsite_fns {
   );
 
   // the bulk of the to_string logic
-  fn to_string_inner<'d, 'e>(
-    scope: &'d mut v8::HandleScope<'e>,
+  fn to_string_inner<'e>(
+    scope: &mut v8::HandleScope<'e>,
     this: v8::Local<'e, v8::Object>,
     orig: v8::Local<'e, Object>,
     orig_to_string_v8: v8::Local<'e, v8::String>,
@@ -1341,10 +1341,10 @@ pub mod callsite_fns {
     .unwrap()
   }
 
-  pub fn to_string<'a, 'b, 'c>(
-    scope: &'b mut v8::HandleScope<'a>,
+  pub fn to_string<'a>(
+    scope: &mut v8::HandleScope<'a>,
     args: v8::FunctionCallbackArguments<'a>,
-    mut rv: v8::ReturnValue<'c>,
+    mut rv: v8::ReturnValue<'_>,
   ) {
     let this = args.this();
     let Some(orig) = original_call_site(scope, this) else {
