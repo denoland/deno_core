@@ -519,7 +519,7 @@ pub enum RequestedModuleType {
   /// ```ignore
   /// import jsonData from "./data.json" with { type: "json" };
   ///
-  /// const jsonData2 = await import"./data2.json", { with { type: "json" } });
+  /// const jsonData2 = await import("./data2.json", { with { type: "json" } });
   /// ```
   Json,
 
