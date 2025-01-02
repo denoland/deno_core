@@ -764,7 +764,7 @@ impl<'a> WebIdlConverter<'a> for ByteString {
 //  Array buffer types
 //  ArrayBufferView
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
   use super::*;
   use crate::JsRuntime;
