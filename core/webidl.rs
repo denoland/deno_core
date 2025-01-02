@@ -1296,4 +1296,108 @@ mod tests {
       HashMap::from([(String::from("foo"), 1)])
     );
   }
+
+  #[test]
+  fn dictionary() {
+    #[derive(deno_ops::WebIDL, Debug, Eq, PartialEq)]
+    #[webidl(dictionary)]
+    pub struct Dict {
+      a: u8,
+      #[options(clamp = true)]
+      b: Vec<u16>,
+      #[webidl(default = Some(3))]
+      c: Option<u32>,
+      #[webidl(rename = "e")]
+      d: u32,
+      f: HashMap<String, u32>,
+      #[webidl(required)]
+      g: Option<u32>,
+    }
+
+    let mut runtime = JsRuntime::new(Default::default());
+    let val = runtime
+      .execute_script(
+        "",
+        "({ a: 1, b: [500000], e: 2, f: { 'foo': 1 }, g: undefined })",
+      )
+      .unwrap();
+
+    let scope = &mut runtime.handle_scope();
+    let val = Local::new(scope, val);
+
+    let converted = Dict::convert(
+      scope,
+      val,
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+
+    assert_eq!(
+      converted.unwrap(),
+      Dict {
+        a: 1,
+        b: vec![500],
+        c: Some(3),
+        d: 2,
+        f: HashMap::from([(String::from("foo"), 1)]),
+        g: None,
+      }
+    );
+  }
+
+  #[test]
+  fn r#enum() {
+    #[derive(deno_ops::WebIDL, Debug, Eq, PartialEq)]
+    #[webidl(enum)]
+    pub enum Enumeration {
+      FooBar,
+      Baz,
+      #[webidl(rename = "hello")]
+      World,
+    }
+
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let val = v8::String::new(scope, "foo-bar").unwrap();
+    let converted = Enumeration::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), Enumeration::FooBar);
+
+    let val = v8::String::new(scope, "baz").unwrap();
+    let converted = Enumeration::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), Enumeration::Baz);
+
+    let val = v8::String::new(scope, "hello").unwrap();
+    let converted = Enumeration::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert_eq!(converted.unwrap(), Enumeration::World);
+
+    let val = v8::String::new(scope, "unknown").unwrap();
+    let converted = Enumeration::convert(
+      scope,
+      val.into(),
+      "prefix".into(),
+      || "context".into(),
+      &Default::default(),
+    );
+    assert!(converted.is_err());
+  }
 }

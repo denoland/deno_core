@@ -22,6 +22,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Enumeration {
         match str.to_rust_string_lossy(__scope).as_str() {
             "foo-bar" => Ok(Self::FooBar),
             "baz" => Ok(Self::Baz),
+            "hello" => Ok(Self::World),
             s => {
                 Err(
                     ::deno_core::webidl::WebIdlError::new(

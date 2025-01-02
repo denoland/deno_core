@@ -2,16 +2,50 @@
 
 use super::kw;
 use proc_macro2::Ident;
+use proc_macro2::TokenStream;
+use quote::quote;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
+use syn::DataEnum;
 use syn::Error;
 use syn::LitStr;
 use syn::Token;
 use syn::Variant;
 
-pub fn get_variant_name(value: Variant) -> Result<(String, Ident), Error> {
+pub fn get_body(
+  ident_string: String,
+  data: DataEnum,
+) -> Result<TokenStream, Error> {
+  let variants = data
+    .variants
+    .into_iter()
+    .map(get_variant_name)
+    .collect::<Result<indexmap::IndexMap<_, _>, _>>()?;
+
+  let variants = variants
+    .into_iter()
+    .map(|(name, ident)| quote!(#name => Ok(Self::#ident)))
+    .collect::<Vec<_>>();
+
+  Ok(quote! {
+    let Ok(str) = __value.try_cast::<::deno_core::v8::String>() else {
+      return Err(::deno_core::webidl::WebIdlError::new(
+        __prefix,
+        &__context,
+        ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("enum"),
+      ));
+    };
+
+    match str.to_rust_string_lossy(__scope).as_str() {
+      #(#variants),*,
+      s => Err(::deno_core::webidl::WebIdlError::new(__prefix, &__context, ::deno_core::webidl::WebIdlErrorKind::InvalidEnumVariant { converter: #ident_string, variant: s.to_string() }))
+    }
+  })
+}
+
+fn get_variant_name(value: Variant) -> Result<(String, Ident), Error> {
   let mut rename: Option<String> = None;
 
   if !value.fields.is_empty() {
@@ -45,7 +79,7 @@ pub fn get_variant_name(value: Variant) -> Result<(String, Ident), Error> {
 }
 
 #[allow(dead_code)]
-pub enum EnumVariantArgument {
+enum EnumVariantArgument {
   Rename {
     name_token: kw::rename,
     eq_token: Token![=],

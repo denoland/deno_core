@@ -5,9 +5,7 @@ mod r#enum;
 
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
-use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::parse2;
@@ -16,7 +14,6 @@ use syn::Attribute;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
-use syn::Fields;
 use syn::Token;
 
 pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
@@ -33,170 +30,10 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let out = match input.data {
     Data::Struct(data) => match converter {
       ConverterType::Dictionary => {
-        let fields = match data.fields {
-          Fields::Named(fields) => fields,
-          Fields::Unnamed(_) => {
-            return Err(Error::new(
-              span,
-              "Unnamed fields are currently not supported",
-            ))
-          }
-          Fields::Unit => {
-            return Err(Error::new(
-              span,
-              "Unit fields are currently not supported",
-            ))
-          }
-        };
+        let (body, v8_static_strings, v8_lazy_strings) =
+          dictionary::get_body(ident_string, span, data)?;
 
-        let mut fields = fields
-          .named
-          .into_iter()
-          .map(TryInto::try_into)
-          .collect::<Result<Vec<dictionary::DictionaryField>, Error>>(
-        )?;
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let names = fields
-          .iter()
-          .map(|field| field.name.clone())
-          .collect::<Vec<_>>();
-        let v8_static_strings = fields
-          .iter()
-          .map(|field| {
-            let name = field.get_name();
-            let new_ident = format_ident!("__v8_static_{name}");
-            let name_str = name.to_string();
-            quote!(#new_ident = #name_str)
-          })
-          .collect::<Vec<_>>();
-        let v8_lazy_strings = fields
-          .iter()
-          .map(|field| {
-            let name = field.get_name();
-            let v8_eternal_name = format_ident!("__v8_{name}_eternal");
-            quote! {
-              static #v8_eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
-            }
-          })
-          .collect::<Vec<_>>();
-
-        let fields = fields.into_iter().map(|field| {
-          let name = field.get_name();
-          let string_name = name.to_string();
-          let original_name = field.name;
-          let v8_static_name = format_ident!("__v8_static_{name}");
-          let v8_eternal_name = format_ident!("__v8_{name}_eternal");
-
-          let required_or_default = if field.required && field.default_value.is_none() {
-            quote! {
-              return Err(::deno_core::webidl::WebIdlError::new(
-                __prefix,
-                &__context,
-                ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
-                  converter: #ident_string,
-                  key: #string_name,
-                },
-              ));
-            }
-          } else if let Some(default) = field.default_value {
-            default.to_token_stream()
-          } else {
-            quote! { None }
-          };
-
-          let val = if field.required {
-            quote!(val)
-          } else {
-            quote!(Some(val))
-          };
-
-          let options = if field.converter_options.is_empty() {
-            quote!(Default::default())
-          } else {
-            let inner = field.converter_options
-              .into_iter()
-              .map(|(k, v)| quote!(#k: #v))
-              .collect::<Vec<_>>();
-
-            let ty = field.ty;
-
-            // Type-alias to workaround https://github.com/rust-lang/rust/issues/86935
-            quote! {
-              {
-                type Alias<'a> = <#ty as ::deno_core::webidl::WebIdlConverter<'a>>::Options;
-                Alias {
-                  #(#inner),*,
-                  ..Default::default()
-                }
-              }
-            }
-          };
-
-          let new_context = format!("'{string_name}' of '{ident_string}'");
-
-          quote! {
-            let #original_name = {
-              let __key = #v8_eternal_name
-                .with(|__eternal| {
-                  if let Some(__key) = __eternal.get(__scope) {
-                    Ok(__key)
-                  } else {
-                    let __key = #v8_static_name
-                      .v8_string(__scope)
-                      .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), &__context, e))?;
-                    __eternal.set(__scope, __key);
-                    Ok(__key)
-                  }
-                })?
-                .into();
-
-              if let Some(__value) = __obj.as_ref()
-              .and_then(|__obj| __obj.get(__scope, __key))
-              .and_then(|__value| {
-                if __value.is_undefined() {
-                  None
-                } else {
-                  Some(__value)
-                }
-              }) {
-                let val = ::deno_core::webidl::WebIdlConverter::convert(
-                  __scope,
-                  __value,
-                  __prefix.clone(),
-                  || format!("{} ({})", #new_context, __context()).into(),
-                  &#options,
-                )?;
-                #val
-              } else {
-                #required_or_default
-              }
-            };
-          }
-        }).collect::<Vec<_>>();
-
-        let implementation = create_impl(
-          ident,
-          quote! {
-            let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
-              None
-            } else {
-              if let Ok(obj) = __value.try_into() {
-                Some(obj)
-              } else {
-                return Err(::deno_core::webidl::WebIdlError::new(
-                  __prefix,
-                  &__context,
-                  ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("dictionary")
-                ));
-              }
-            };
-
-            #(#fields)*
-
-            Ok(Self { #(#names),* })
-          },
-        );
+        let implementation = create_impl(ident, body);
 
         quote! {
           ::deno_core::v8_static_strings! {
@@ -222,34 +59,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
         ));
       }
       ConverterType::Enum => {
-        let variants = data
-          .variants
-          .into_iter()
-          .map(r#enum::get_variant_name)
-          .collect::<Result<indexmap::IndexMap<_, _>, _>>()?;
-
-        let variants = variants
-          .into_iter()
-          .map(|(name, ident)| quote!(#name => Ok(Self::#ident)))
-          .collect::<Vec<_>>();
-
-        create_impl(
-          ident,
-          quote! {
-            let Ok(str) = __value.try_cast::<::deno_core::v8::String>() else {
-              return Err(::deno_core::webidl::WebIdlError::new(
-                __prefix,
-                &__context,
-                ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("enum"),
-              ));
-            };
-
-            match str.to_rust_string_lossy(__scope).as_str() {
-              #(#variants),*,
-              s => Err(::deno_core::webidl::WebIdlError::new(__prefix, &__context, ::deno_core::webidl::WebIdlErrorKind::InvalidEnumVariant { converter: #ident_string, variant: s.to_string() }))
-            }
-          },
-        )
+        create_impl(ident, r#enum::get_body(ident_string, data)?)
       }
     },
     Data::Union(_) => return Err(Error::new(span, "Unions are not supported")),
