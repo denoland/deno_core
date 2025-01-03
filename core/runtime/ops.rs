@@ -322,6 +322,10 @@ pub fn to_cow_one_byte(
     WriteOptions::NO_NULL_TERMINATION,
   );
 
+  // SAFETY: We initialized bytes from `0..capacity` in
+  // `write_one_byte_uninit` above.
+  unsafe { buffer.set_len(capacity) };
+
   Ok(Cow::Owned(buffer))
 }
 
