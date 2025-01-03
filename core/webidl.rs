@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use indexmap::IndexMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use v8::HandleScope;
 use v8::Local;
 use v8::Value;
@@ -82,6 +82,41 @@ pub enum WebIdlErrorKind {
   Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum Type {
+  Null,
+  Undefined,
+  Boolean,
+  Number,
+  String,
+  Symbol,
+  BigInt,
+  Object,
+}
+
+pub fn type_of<'a>(
+  scope: &mut HandleScope<'a>,
+  value: Local<'a, Value>,
+) -> Type {
+  if value.is_null() {
+    return Type::Null;
+  }
+
+  #[allow(clippy::wildcard_in_or_patterns)]
+  match value.type_of(scope).to_rust_string_lossy(scope).as_str() {
+    "undefined" => Type::Undefined,
+    "boolean" => Type::Boolean,
+    "number" => Type::Number,
+    "string" => Type::String,
+    "symbol" => Type::Symbol,
+    "bigint" => Type::BigInt,
+    // Per ES spec, typeof returns an implementation-defined value that is not any of the existing ones for
+    // uncallable non-standard exotic objects. Yet Type() which the Web IDL spec depends on returns Object for
+    // such cases. So treat the default case as an object.
+    "object" | "function" | _ => Type::Object,
+  }
+}
+
 pub trait WebIdlConverter<'a>: Sized {
   type Options: Default;
 
@@ -94,6 +129,31 @@ pub trait WebIdlConverter<'a>: Sized {
   ) -> Result<Self, WebIdlError>
   where
     C: Fn() -> Cow<'static, str>;
+}
+
+// Option's None is treated as undefined. this behaviour differs from a nullable
+// converter, as it doesn't treat null as None.
+impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
+  type Options = T::Options;
+
+  fn convert<C>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: C,
+    options: &Self::Options,
+  ) -> Result<Self, WebIdlError>
+  where
+    C: Fn() -> Cow<'static, str>,
+  {
+    if value.is_undefined() {
+      Ok(None)
+    } else {
+      Ok(Some(WebIdlConverter::convert(
+        scope, value, prefix, context, options,
+      )?))
+    }
+  }
 }
 
 // any converter
@@ -114,8 +174,21 @@ impl<'a> WebIdlConverter<'a> for Local<'a, Value> {
   }
 }
 
-// nullable converter
-impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
+#[derive(Debug, Eq, PartialEq)]
+pub enum Nullable<T> {
+  Value(T),
+  Null,
+}
+impl<T> Nullable<T> {
+  fn into_option(self) -> Option<T> {
+    match self {
+      Nullable::Value(v) => Some(v),
+      Nullable::Null => None,
+    }
+  }
+}
+
+impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Nullable<T> {
   type Options = T::Options;
 
   fn convert<C>(
@@ -129,9 +202,9 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
     C: Fn() -> Cow<'static, str>,
   {
     if value.is_null_or_undefined() {
-      Ok(None)
+      Ok(Self::Null)
     } else {
-      Ok(Some(WebIdlConverter::convert(
+      Ok(Self::Value(WebIdlConverter::convert(
         scope, value, prefix, context, options,
       )?))
     }
@@ -275,7 +348,7 @@ impl<
     'a,
     K: WebIdlConverter<'a> + Eq + std::hash::Hash,
     V: WebIdlConverter<'a>,
-  > WebIdlConverter<'a> for HashMap<K, V>
+  > WebIdlConverter<'a> for IndexMap<K, V>
 {
   type Options = V::Options;
 
@@ -319,7 +392,7 @@ impl<
       return Ok(Default::default());
     };
 
-    let mut out = HashMap::with_capacity(keys.length() as _);
+    let mut out = IndexMap::with_capacity(keys.length() as _);
 
     for i in 0..keys.length() {
       let key = keys.get_index(scope, i).unwrap();
@@ -1254,24 +1327,24 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     let val = v8::undefined(scope);
-    let converted = Option::<u8>::convert(
+    let converted = Nullable::<u8>::convert(
       scope,
       val.into(),
       "prefix".into(),
       || "context".into(),
       &Default::default(),
     );
-    assert_eq!(converted.unwrap(), None);
+    assert_eq!(converted.unwrap(), Nullable::Null);
 
     let val = v8::Number::new(scope, 1.0);
-    let converted = Option::<u8>::convert(
+    let converted = Nullable::<u8>::convert(
       scope,
       val.into(),
       "prefix".into(),
       || "context".into(),
       &Default::default(),
     );
-    assert_eq!(converted.unwrap(), Some(1));
+    assert_eq!(converted.unwrap(), Nullable::Value(1));
   }
 
   #[test]
@@ -1284,7 +1357,7 @@ mod tests {
     let obj = v8::Object::new(scope);
     obj.set(scope, key.into(), val.into());
 
-    let converted = HashMap::<String, u8>::convert(
+    let converted = IndexMap::<String, u8>::convert(
       scope,
       obj.into(),
       "prefix".into(),
@@ -1293,7 +1366,7 @@ mod tests {
     );
     assert_eq!(
       converted.unwrap(),
-      HashMap::from([(String::from("foo"), 1)])
+      IndexMap::from([(String::from("foo"), 1)])
     );
   }
 
@@ -1309,7 +1382,7 @@ mod tests {
       c: Option<u32>,
       #[webidl(rename = "e")]
       d: u16,
-      f: HashMap<String, u32>,
+      f: IndexMap<String, u32>,
       #[webidl(required)]
       g: Option<u32>,
     }
@@ -1340,7 +1413,7 @@ mod tests {
         b: vec![65535],
         c: Some(3),
         d: 4464,
-        f: HashMap::from([(String::from("foo"), 1)]),
+        f: IndexMap::from([(String::from("foo"), 1)]),
         g: None,
       }
     );
