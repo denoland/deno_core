@@ -180,7 +180,7 @@ pub enum Nullable<T> {
   Null,
 }
 impl<T> Nullable<T> {
-  fn into_option(self) -> Option<T> {
+  pub fn into_option(self) -> Option<T> {
     match self {
       Nullable::Value(v) => Some(v),
       Nullable::Null => None,

@@ -681,8 +681,12 @@ pub fn from_arg(
       let default = if let Some(default) = default {
         let tokens = default.0.to_token_stream();
         let default = if let Ok(lit) = parse2::<syn::LitStr>(tokens) {
-          quote! {
-            v8::String::new(&mut #scope, #lit).unwrap()
+          if lit.value().is_empty() {
+            quote! {
+              v8::String::empty(&mut #scope)
+            }
+          } else {
+            return Err("unsupported WebIDL default value");
           }
         } else {
           return Err("unsupported WebIDL default value");

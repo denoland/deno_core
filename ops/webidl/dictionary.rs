@@ -25,7 +25,7 @@ pub fn get_body(
   ident_string: String,
   span: Span,
   data: DataStruct,
-) -> Result<(TokenStream, Vec<TokenStream>, Vec<TokenStream>), Error> {
+) -> Result<TokenStream, Error> {
   let fields = match data.fields {
     Fields::Named(fields) => fields,
     Fields::Unnamed(_) => {
@@ -113,15 +113,11 @@ pub fn get_body(
 
     let convert_body = if field.option_is_required {
       quote! {
-        if __value.is_undefined() {
-          None
-        } else {
-          #convert
-          Some(val)
-        }
+        #convert
+        val
       }
     } else {
-      let val = if field.is_option {
+      let val = if field.is_option  {
         quote!(Some(val))
       } else {
         quote!(val)
@@ -188,6 +184,14 @@ pub fn get_body(
   }).collect::<Vec<_>>();
 
   let body = quote! {
+    ::deno_core::v8_static_strings! {
+      #(#v8_static_strings),*
+    }
+
+    thread_local! {
+      #(#v8_lazy_strings)*
+    }
+
     let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
       None
     } else {
@@ -207,7 +211,7 @@ pub fn get_body(
     Ok(Self { #(#names),* })
   };
 
-  Ok((body, v8_static_strings, v8_lazy_strings))
+  Ok(body)
 }
 
 struct DictionaryField {
