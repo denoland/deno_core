@@ -110,9 +110,6 @@ pub fn type_of<'a>(
     "string" => Type::String,
     "symbol" => Type::Symbol,
     "bigint" => Type::BigInt,
-    // Per ES spec, typeof returns an implementation-defined value that is not any of the existing ones for
-    // uncallable non-standard exotic objects. Yet Type() which the Web IDL spec depends on returns Object for
-    // such cases. So treat the default case as an object.
     "object" | "function" | _ => Type::Object,
   }
 }
