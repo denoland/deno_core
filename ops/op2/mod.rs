@@ -254,7 +254,7 @@ pub(crate) fn generate_op2(
         }
       }
       None => {
-        if config.fast || config.getter || config.setter {
+        if config.fast {
           return Err(Op2Error::ShouldNotBeFast("fast"));
         }
         if config.nofast {

@@ -101,6 +101,12 @@ impl TestObjectWrap {
     tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
     Ok(())
   }
+
+  #[getter]
+  #[string]
+  fn with_slow_getter(&self) -> String {
+    String::from("getter")
+  }
 }
 
 pub struct DOMPoint {
