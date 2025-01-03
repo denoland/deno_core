@@ -869,11 +869,18 @@ impl ModuleMap {
     let name = name.into_module_name();
     let backing_store = match code {
       // TODO: can we more efficiently reuse the existing storage with a future immutable arraybuffer variant?
-      ModuleCodeBytes::Static(bytes) => v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
-      ModuleCodeBytes::Boxed(bytes) => v8::ArrayBuffer::new_backing_store_from_boxed_slice(bytes),
-      ModuleCodeBytes::Arc(bytes) => v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
+      ModuleCodeBytes::Static(bytes) => {
+        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec())
+      }
+      ModuleCodeBytes::Boxed(bytes) => {
+        v8::ArrayBuffer::new_backing_store_from_boxed_slice(bytes)
+      }
+      ModuleCodeBytes::Arc(bytes) => {
+        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec())
+      }
     };
-    let source_arraybuffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
+    let source_arraybuffer =
+      v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
     let source_value_local = v8::Local::<v8::Value>::from(source_arraybuffer);
     let exports = vec![(ascii_str!("default"), source_value_local)];
     self.new_synthetic_module(scope, name, ModuleType::Binary, exports)

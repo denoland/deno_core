@@ -522,9 +522,12 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     requested_module_type: RequestedModuleType,
   ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
     self.prepare_count.set(self.prepare_count.get() + 1);
-    self
-      .loader
-      .prepare_load(module_specifier, maybe_referrer, is_dyn_import, requested_module_type)
+    self.loader.prepare_load(
+      module_specifier,
+      maybe_referrer,
+      is_dyn_import,
+      requested_module_type,
+    )
   }
 
   fn finish_load(&self) {

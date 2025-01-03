@@ -589,8 +589,12 @@ impl PartialEq<ModuleType> for RequestedModuleType {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Wasm => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
-      ModuleType::Text => self == &RequestedModuleType::Other(Cow::Borrowed("text")),
-      ModuleType::Binary => self == &RequestedModuleType::Other(Cow::Borrowed("binary")),
+      ModuleType::Text => {
+        self == &RequestedModuleType::Other(Cow::Borrowed("text"))
+      }
+      ModuleType::Binary => {
+        self == &RequestedModuleType::Other(Cow::Borrowed("binary"))
+      }
       ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
