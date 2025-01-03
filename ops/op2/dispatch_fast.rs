@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use super::config::MacroConfig;
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
@@ -761,6 +762,11 @@ fn map_v8_fastcall_arg_to_arg(
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
       }
     }
+    Arg::VarArgs => {
+      quote! {
+        let #arg_ident = None;
+      }
+    }
     Arg::String(Strings::RefStr) => {
       quote! {
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
@@ -888,6 +894,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
     | Arg::State(..)
+    | Arg::VarArgs
     | Arg::Special(Special::Isolate)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
@@ -897,6 +904,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
     | Arg::FromV8(_)
+    | Arg::WebIDL(_, _)
     | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
     Arg::V8Global(_) | Arg::OptionV8Global(_) => return Ok(None),
@@ -947,7 +955,10 @@ fn map_retval_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
-    Arg::OptionNumeric(..) | Arg::SerdeV8(_) | Arg::ToV8(_) => return Ok(None),
+    Arg::OptionNumeric(..)
+    | Arg::SerdeV8(_)
+    | Arg::ToV8(_)
+    | Arg::WebIDL(_, _) => return Ok(None),
     Arg::Void => V8FastCallType::Void,
     Arg::Numeric(NumericArg::bool, _) => V8FastCallType::Bool,
     Arg::Numeric(NumericArg::u32, _)

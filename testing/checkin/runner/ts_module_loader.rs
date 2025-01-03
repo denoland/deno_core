@@ -1,4 +1,6 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
@@ -152,8 +154,12 @@ impl ModuleLoader for TypescriptModuleLoader {
     ))
   }
 
-  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.source_maps.borrow().get(specifier).cloned()
+  fn get_source_map(&self, specifier: &str) -> Option<Cow<[u8]>> {
+    self
+      .source_maps
+      .borrow()
+      .get(specifier)
+      .map(|v| v.clone().into())
   }
 }
 

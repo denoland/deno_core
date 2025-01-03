@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 export function op_log_debug(...any: any[]): any;
 export function op_log_info(...any: any[]): any;
@@ -25,9 +25,19 @@ export class DOMPoint {
   static fromPoint(
     other: { x?: number; y?: number; z?: number; w?: number },
   ): DOMPoint;
+  fromPoint(
+    other: { x?: number; y?: number; z?: number; w?: number },
+  ): DOMPoint;
   get x(): number;
   get y(): number;
   get z(): number;
   get w(): number;
   wrappingSmi(value: number): number;
+}
+
+export class TestObjectWrap {
+  constructor();
+  withVarargs(...args: any[]): number;
+  with_RENAME(): void;
+  withAsyncFn(ms: number): Promise<void>;
 }

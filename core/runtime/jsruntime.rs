@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::watch_promise;
@@ -13,6 +14,7 @@ use super::SnapshotStoreDataStore;
 use super::SnapshottedData;
 use crate::ascii_str;
 use crate::ascii_str_include;
+use crate::cppgc::FunctionTemplateData;
 use crate::error::exception_to_err_result;
 use crate::error::AnyError;
 use crate::error::GetErrorClassFn;
@@ -434,6 +436,7 @@ pub struct JsRuntimeState {
   pub(crate) eval_context_code_cache_ready_cb:
     Option<EvalContextCodeCacheReadyCb>,
   pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
+  pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
   pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
@@ -865,22 +868,23 @@ impl JsRuntime {
       inspector: None.into(),
       has_inspector: false.into(),
       cppgc_template: None.into(),
+      function_templates: Default::default(),
       callsite_prototype: None.into(),
       import_assertions_support: options.import_assertions_support,
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
     // and get ready to actually create V8 isolate...
-    let (op_decls, op_method_decls) =
+    let (op_decls, mut op_method_decls) =
       extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
 
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
     let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
-    let (mut op_ctxs, mut op_method_ctxs) = extension_set::create_op_ctxs(
+    let (mut op_ctxs, methods_ctx_offset) = extension_set::create_op_ctxs(
       op_decls,
-      op_method_decls,
+      &mut op_method_decls,
       op_metrics_factory_fn,
       op_driver.clone(),
       op_state.clone(),
@@ -929,7 +933,6 @@ impl JsRuntime {
     isolate_allocations.external_refs =
       Some(Box::new(bindings::create_external_references(
         &op_ctxs,
-        &op_method_ctxs,
         &additional_references,
         &isolate_allocations.externalized_sources,
         ops_in_snapshot,
@@ -964,12 +967,6 @@ impl JsRuntime {
     for op_ctx in op_ctxs.iter_mut() {
       op_ctx.isolate = isolate_ptr;
     }
-    for op_method_ctx in op_method_ctxs.iter_mut() {
-      op_method_ctx.constructor.isolate = isolate_ptr;
-      for op in &mut op_method_ctx.methods {
-        op.isolate = isolate_ptr;
-      }
-    }
 
     op_state.borrow_mut().put(isolate_ptr);
 
@@ -979,7 +976,8 @@ impl JsRuntime {
       isolate_ptr,
       options.get_error_class_fn.unwrap_or(&|_| "Error"),
       op_ctxs,
-      op_method_ctxs,
+      op_method_decls,
+      methods_ctx_offset,
       op_state.borrow().external_ops_tracker.clone(),
     ));
 
@@ -1046,10 +1044,11 @@ impl JsRuntime {
     if init_mode.needs_ops_bindings() {
       bindings::initialize_deno_core_ops_bindings(
         scope,
-        op_state,
         context,
         &context_state.op_ctxs,
-        &context_state.op_method_ctxs,
+        &context_state.op_method_decls,
+        methods_ctx_offset,
+        &mut state_rc.function_templates.borrow_mut(),
       );
     }
 
@@ -1097,6 +1096,15 @@ impl JsRuntime {
         snapshotted_data.module_map_data,
       );
 
+      state_rc
+        .function_templates
+        .borrow_mut()
+        .update_with_snapshotted_data(
+          scope,
+          &mut data_store,
+          snapshotted_data.function_templates_data,
+        );
+
       let mut mapper = state_rc.source_mapper.borrow_mut();
       for (key, map) in snapshotted_data.ext_source_maps {
         mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
@@ -1113,8 +1121,12 @@ impl JsRuntime {
 
     // ...we are ready to create a "realm" for the context...
     let main_realm = {
-      let main_realm =
-        JsRealmInner::new(context_state, main_context, module_map.clone());
+      let main_realm = JsRealmInner::new(
+        context_state,
+        main_context,
+        module_map.clone(),
+        state_rc.function_templates.clone(),
+      );
       // TODO(bartlomieju): why is this done in here? Maybe we can hoist it out?
       state_rc.has_inspector.set(inspector.is_some());
       *state_rc.inspector.borrow_mut() = inspector;
@@ -1263,7 +1275,8 @@ impl JsRuntime {
     let global = context_local.global(scope);
     let synthetic_module_exports = create_exports_for_ops_virtual_module(
       &context_state.op_ctxs,
-      &context_state.op_method_ctxs,
+      &context_state.op_method_decls,
+      context_state.methods_ctx_offset,
       scope,
       global,
     );
@@ -2162,6 +2175,12 @@ impl JsRuntimeForSnapshot {
         let module_map = realm.0.module_map();
         module_map.serialize_for_snapshotting(&mut data_store)
       };
+      let function_templates_data = {
+        let function_templates = realm.0.function_templates();
+        let f = std::mem::take(&mut *function_templates.borrow_mut());
+
+        f.serialize_for_snapshotting(&mut data_store)
+      };
       let maybe_js_handled_promise_rejection_cb = {
         let context_state = &realm.0.context_state;
         let exception_state = &context_state.exception_state;
@@ -2174,6 +2193,7 @@ impl JsRuntimeForSnapshot {
 
       let snapshotted_data = SnapshottedData {
         module_map_data,
+        function_templates_data,
         externals_count,
         op_count: self.inner.op_count,
         addl_refs_count: self.inner.addl_refs_count,

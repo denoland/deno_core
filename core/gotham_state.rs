@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 // Forked from Gotham:
 // https://github.com/gotham-rs/gotham/blob/bcbbf8923789e341b7a0e62c59909428ca4e22e2/gotham/src/state/mod.rs
 // Copyright 2017 Gotham Project Developers. MIT license.
@@ -22,11 +22,6 @@ impl GothamState {
     self.data.insert(type_id, Box::new(t));
   }
 
-  // For internal use.
-  pub(crate) fn put_untyped<T: 'static>(&mut self, t: TypeId, v: T) {
-    self.data.insert(t, Box::new(v));
-  }
-
   /// Determines if the current value exists in `GothamState` storage.
   pub fn has<T: 'static>(&self) -> bool {
     let type_id = TypeId::of::<T>();
@@ -37,11 +32,6 @@ impl GothamState {
   pub fn try_borrow<T: 'static>(&self) -> Option<&T> {
     let type_id = TypeId::of::<T>();
     self.data.get(&type_id).and_then(|b| b.downcast_ref())
-  }
-
-  // For internal use.
-  pub(crate) fn try_borrow_untyped<T: 'static>(&self, t: TypeId) -> Option<&T> {
-    self.data.get(&t).and_then(|b| b.downcast_ref())
   }
 
   /// Borrows a value from the `GothamState` storage.

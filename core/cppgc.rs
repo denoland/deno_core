@@ -1,7 +1,13 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::runtime::SnapshotLoadDataStore;
+use crate::runtime::SnapshotStoreDataStore;
 use crate::JsRuntime;
+use serde::Deserialize;
+use serde::Serialize;
+use std::any::type_name;
 use std::any::TypeId;
+use std::collections::BTreeMap;
 pub use v8::cppgc::GarbageCollected;
 
 const CPPGC_TAG: u16 = 1;
@@ -36,18 +42,9 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   t: T,
 ) -> v8::Local<'a, v8::Object> {
   let state = JsRuntime::state_from(scope);
-  let opstate = state.op_state.borrow();
+  let templates = state.function_templates.borrow();
 
-  // To initialize object wraps correctly, we store the function
-  // template in OpState with `T`'s TypeId as the key when binding
-  // because it'll be pretty annoying to propogate `T` generic everywhere.
-  //
-  // Here we try to retrive a function template for `T`, falling back to
-  // the default cppgc template.
-  let id = TypeId::of::<T>();
-  let obj = if let Some(templ) =
-    opstate.try_borrow_untyped::<v8::Global<v8::FunctionTemplate>>(id)
-  {
+  let obj = if let Some(templ) = templates.get::<T>() {
     let templ = v8::Local::new(scope, templ);
     let inst = templ.instance_template(scope);
     inst.new_instance(scope).unwrap()
@@ -134,4 +131,54 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
     inner: obj,
     root: None,
   })
+}
+
+#[derive(Default)]
+pub struct FunctionTemplateData {
+  store: BTreeMap<String, v8::Global<v8::FunctionTemplate>>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct FunctionTemplateSnapshotData {
+  store_handles: Vec<(String, u32)>,
+}
+
+impl FunctionTemplateData {
+  pub fn insert(
+    &mut self,
+    key: String,
+    value: v8::Global<v8::FunctionTemplate>,
+  ) {
+    self.store.insert(key, value);
+  }
+
+  fn get<T>(&self) -> Option<&v8::Global<v8::FunctionTemplate>> {
+    self.store.get(type_name::<T>())
+  }
+
+  pub fn serialize_for_snapshotting(
+    self,
+    data_store: &mut SnapshotStoreDataStore,
+  ) -> FunctionTemplateSnapshotData {
+    FunctionTemplateSnapshotData {
+      store_handles: self
+        .store
+        .into_iter()
+        .map(|(k, v)| (k, data_store.register(v)))
+        .collect(),
+    }
+  }
+
+  pub fn update_with_snapshotted_data(
+    &mut self,
+    scope: &mut v8::HandleScope,
+    data_store: &mut SnapshotLoadDataStore,
+    data: FunctionTemplateSnapshotData,
+  ) {
+    self.store = data
+      .store_handles
+      .into_iter()
+      .map(|(k, v)| (k, data_store.get::<v8::FunctionTemplate>(scope, v)))
+      .collect();
+  }
 }

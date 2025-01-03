@@ -1,5 +1,7 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use proc_macro2::Ident;
+use proc_macro2::Literal;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use proc_macro_rules::rules;
@@ -247,6 +249,16 @@ pub enum NumericFlag {
   Number,
 }
 
+// its own struct to facility Eq & PartialEq on other structs
+#[derive(Clone, Debug)]
+pub struct WebIDLPairs(pub Ident, pub Literal);
+impl PartialEq for WebIDLPairs {
+  fn eq(&self, other: &Self) -> bool {
+    self.0 == other.0 && self.1.to_string() == other.1.to_string()
+  }
+}
+impl Eq for WebIDLPairs {}
+
 /// Args are not a 1:1 mapping with Rust types, rather they represent broad classes of types that
 /// tend to have similar argument handling characteristics. This may need one more level of indirection
 /// given how many of these types have option variants, however.
@@ -278,6 +290,8 @@ pub enum Arg {
   OptionCppGcResource(String),
   FromV8(String),
   ToV8(String),
+  WebIDL(String, Vec<WebIDLPairs>),
+  VarArgs,
 }
 
 impl Arg {
@@ -351,6 +365,7 @@ impl Arg {
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
+      Self::VarArgs => true,
       _ => false,
     }
   }
@@ -730,7 +745,7 @@ pub enum BufferSource {
   Any,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
@@ -738,6 +753,8 @@ pub enum AttributeModifier {
   ToV8,
   /// #[from_v8] for types that impl `FromV8`
   FromV8,
+  /// #[webidl], for types that impl `WebIdlConverter`
+  WebIDL(Vec<WebIDLPairs>),
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
@@ -757,6 +774,8 @@ pub enum AttributeModifier {
   CppGcResource,
   /// Any attribute that we may want to omit if not syntactically valid.
   Ignore,
+  /// Varaible-length arguments.
+  VarArgs,
 }
 
 impl AttributeModifier {
@@ -769,11 +788,13 @@ impl AttributeModifier {
       AttributeModifier::Buffer(..) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
+      AttributeModifier::WebIDL(_) => "webidl",
       AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
       AttributeModifier::Ignore => "ignore",
+      AttributeModifier::VarArgs => "varargs",
     }
   }
 }
@@ -868,7 +889,7 @@ pub enum RetError {
   AttributeError(#[from] AttributeError),
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Attributes {
   primary: Option<AttributeModifier>,
 }
@@ -1193,7 +1214,7 @@ fn parse_attributes(
     return Ok(Attributes::default());
   }
   Ok(Attributes {
-    primary: Some(*attrs.first().unwrap()),
+    primary: Some((*attrs.first().unwrap()).clone()),
   })
 }
 
@@ -1226,10 +1247,13 @@ fn parse_attribute(
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[number]) => Some(AttributeModifier::Number),
       (#[serde]) => Some(AttributeModifier::Serde),
+      (#[webidl]) => Some(AttributeModifier::WebIDL(vec![])),
+      (#[webidl($($key: ident = $value: literal),*)]) => Some(AttributeModifier::WebIDL(key.into_iter().zip(value.into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect())),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
       (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
       (#[state]) => Some(AttributeModifier::State),
+      (#[varargs]) => Some(AttributeModifier::VarArgs),
       (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::TypedArray)),
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::TypedArray)),
       (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::TypedArray)),
@@ -1247,11 +1271,14 @@ fn parse_attribute(
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
       (#[required ($_attr:literal)]) => Some(AttributeModifier::Ignore),
+      (#[rename ($_attr:literal)]) => Some(AttributeModifier::Ignore),
       (#[method ($_attr:literal)]) => Some(AttributeModifier::Ignore),
       (#[method]) => Some(AttributeModifier::Ignore),
       (#[getter]) => Some(AttributeModifier::Ignore),
       (#[setter]) => Some(AttributeModifier::Ignore),
       (#[fast]) => Some(AttributeModifier::Ignore),
+      // async is a keyword and does not work as #[async] so we use #[async_method] instead
+      (#[async_method]) => Some(AttributeModifier::Ignore),
       (#[static_method]) => Some(AttributeModifier::Ignore),
       (#[constructor]) => Some(AttributeModifier::Ignore),
       (#[allow ($_rule:path)]) => None,
@@ -1348,10 +1375,10 @@ fn parse_type_path(
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
       ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
       ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
-      ( $( std :: rc :: )? Rc < RefCell < $ty:ty $(,)? > $(,)? > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs, &ty)?))),
-      ( $( std :: rc :: )? Rc < $ty:ty $(,)? > ) => Ok(CRc(TSpecial(parse_type_special(position, attrs, &ty)?))),
+      ( $( std :: rc :: )? Rc < RefCell < $ty:ty $(,)? > $(,)? > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs.clone(), &ty)?))),
+      ( $( std :: rc :: )? Rc < $ty:ty $(,)? > ) => Ok(CRc(TSpecial(parse_type_special(position, attrs.clone(), &ty)?))),
       ( Option < $ty:ty $(,)? > ) => {
-        match parse_type(position, attrs, &ty)? {
+        match parse_type(position, attrs.clone(), &ty)? {
           Arg::Special(special) => Ok(COption(TSpecial(special))),
           Arg::String(string) => Ok(COption(TString(string))),
           Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
@@ -1519,10 +1546,20 @@ pub(crate) fn parse_type(
   use ParsedType::*;
   use ParsedTypeContainer::*;
 
-  if let Some(primary) = attrs.primary {
+  if let Some(primary) = attrs.clone().primary {
     match primary {
       AttributeModifier::Ignore => {
         unreachable!();
+      }
+      AttributeModifier::VarArgs => {
+        if position == Position::RetVal {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "argument",
+          ));
+        }
+
+        return Ok(Arg::VarArgs);
       }
       AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
       AttributeModifier::FromV8 if position == Position::RetVal => {
@@ -1539,17 +1576,23 @@ pub(crate) fn parse_type(
       }
       AttributeModifier::Serde
       | AttributeModifier::FromV8
-      | AttributeModifier::ToV8 => {
-        let make_arg = match primary {
-          AttributeModifier::Serde => Arg::SerdeV8,
-          AttributeModifier::FromV8 => Arg::FromV8,
-          AttributeModifier::ToV8 => Arg::ToV8,
+      | AttributeModifier::ToV8
+      | AttributeModifier::WebIDL(_) => {
+        let make_arg: Box<dyn Fn(String) -> Arg> = match primary {
+          AttributeModifier::Serde => Box::new(Arg::SerdeV8),
+          AttributeModifier::FromV8 => Box::new(Arg::FromV8),
+          AttributeModifier::ToV8 => Box::new(Arg::ToV8),
+          AttributeModifier::WebIDL(ref options) => {
+            Box::new(move |s| Arg::WebIDL(s, options.clone()))
+          }
           _ => unreachable!(),
         };
         match ty {
           Type::Tuple(of) => return Ok(make_arg(stringify_token(of))),
           Type::Path(of) => {
-            if better_alternative_exists(position, of) {
+            if !matches!(primary, AttributeModifier::WebIDL(_))
+              && better_alternative_exists(position, of)
+            {
               return Err(ArgError::InvalidAttributeType(
                 primary.name(),
                 stringify_token(ty),
@@ -1598,7 +1641,12 @@ pub(crate) fn parse_type(
       }
       AttributeModifier::Number => match ty {
         Type::Path(of) => {
-          match parse_type_path(position, attrs, TypePathContext::None, of)? {
+          match parse_type_path(
+            position,
+            attrs.clone(),
+            TypePathContext::None,
+            of,
+          )? {
             COption(TNumeric(
               n @ (NumericArg::u64
               | NumericArg::usize
@@ -1666,8 +1714,8 @@ pub(crate) fn parse_type(
               }
               numeric => {
                 let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
-                res.validate_attributes(position, attrs, &of)?;
-                Arg::from_parsed(res, attrs).map_err(|_| {
+                res.validate_attributes(position, attrs.clone(), &of)?;
+                Arg::from_parsed(res, attrs.clone()).map_err(|_| {
                   ArgError::InvalidType(stringify_token(ty), "for slice")
                 })
               }
@@ -1677,7 +1725,12 @@ pub(crate) fn parse_type(
           }
         }
         Type::Path(of) => {
-          match parse_type_path(position, attrs, TypePathContext::Ref, of)? {
+          match parse_type_path(
+            position,
+            attrs.clone(),
+            TypePathContext::Ref,
+            of,
+          )? {
             CBare(TString(Strings::RefStr)) => Ok(Arg::String(Strings::RefStr)),
             COption(TString(Strings::RefStr)) => {
               Ok(Arg::OptionString(Strings::RefStr))
@@ -1701,14 +1754,19 @@ pub(crate) fn parse_type(
       };
       match &*of.elem {
         Type::Path(of) => {
-          match parse_type_path(position, attrs, TypePathContext::Ptr, of)? {
+          match parse_type_path(
+            position,
+            attrs.clone(),
+            TypePathContext::Ptr,
+            of,
+          )? {
             CBare(TNumeric(NumericArg::__VOID__)) => {
               Ok(Arg::External(External::Ptr(mut_type)))
             }
             CBare(TNumeric(numeric)) => {
               let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
-              res.validate_attributes(position, attrs, &of)?;
-              Arg::from_parsed(res, attrs).map_err(|_| {
+              res.validate_attributes(position, attrs.clone(), &of)?;
+              Arg::from_parsed(res, attrs.clone()).map_err(|_| {
                 ArgError::InvalidType(
                   stringify_token(ty),
                   "for numeric pointer",
@@ -1728,7 +1786,7 @@ pub(crate) fn parse_type(
       }
     }
     Type::Path(of) => Arg::from_parsed(
-      parse_type_path(position, attrs, TypePathContext::None, of)?,
+      parse_type_path(position, attrs.clone(), TypePathContext::None, of)?,
       attrs,
     )
     .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path")),

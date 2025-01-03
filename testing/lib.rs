@@ -1,8 +1,9 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 mod checkin;
 
 pub use checkin::runner::create_runtime_from_snapshot;
+pub use checkin::runner::create_runtime_from_snapshot_with_options;
 pub use checkin::runner::snapshot::create_snapshot;
 
 macro_rules! unit_test {
@@ -65,6 +66,7 @@ integration_test!(
   error_ext_stack,
   error_prepare_stack_trace,
   error_prepare_stack_trace_crash,
+  error_source_maps_with_prepare_stack_trace,
   error_with_stack,
   error_without_stack,
   error_get_file_name,

@@ -3,7 +3,7 @@
   "getFunctionName": "Foo",
   "getMethodName": null,
   "getFileName": "test:///integration/error_callsite/error_callsite.ts",
-  "getLineNumber": 36,
+  "getLineNumber": 34,
   "getColumnNumber": 5,
   "isToplevel": false,
   "isEval": false,
@@ -13,13 +13,13 @@
   "isPromiseAll": false,
   "getPromiseIndex": null
 }
-new Foo (test:///integration/error_callsite/error_callsite.ts:36:5)
+new Foo (test:///integration/error_callsite/error_callsite.ts:34:5)
 {
   "getTypeName": null,
   "getFunctionName": null,
   "getMethodName": null,
   "getFileName": "test:///integration/error_callsite/error_callsite.ts",
-  "getLineNumber": 39,
+  "getLineNumber": 38,
   "getColumnNumber": 1,
   "isToplevel": true,
   "isEval": false,
@@ -29,4 +29,4 @@ new Foo (test:///integration/error_callsite/error_callsite.ts:36:5)
   "isPromiseAll": false,
   "getPromiseIndex": null
 }
-test:///integration/error_callsite/error_callsite.ts:39:1
+test:///integration/error_callsite/error_callsite.ts:38:1

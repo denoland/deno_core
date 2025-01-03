@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -93,8 +93,7 @@ pub(crate) fn generate_impl_ops(
         stringcase::camel_case(&method.sig.ident.to_string())
       );
 
-      let ident = method.sig.ident.clone();
-      let func = ItemFn {
+      let mut func = ItemFn {
         attrs: item_fn_attrs,
         vis: method.vis,
         sig: method.sig,
@@ -105,6 +104,11 @@ pub(crate) fn generate_impl_ops(
         #(#attrs)*
       })?;
 
+      if let Some(ref rename) = config.rename {
+        func.sig.ident = format_ident!("{}", rename);
+      }
+
+      let ident = func.sig.ident.clone();
       if config.constructor {
         if constructor.is_some() {
           return Err(Op2Error::MultipleConstructors);
@@ -112,7 +116,7 @@ pub(crate) fn generate_impl_ops(
 
         constructor = Some(ident);
       } else if config.static_member {
-        static_methods.push(ident);
+        static_methods.push(format_ident!("__static_{}", ident));
       } else {
         if config.setter {
           methods.push(format_ident!("__set_{}", ident));
@@ -145,7 +149,7 @@ pub(crate) fn generate_impl_ops(
           ],
           constructor: #self_ty::#constructor(),
           name: ::deno_core::__op_name_fast!(#self_ty),
-          id: || ::std::any::TypeId::of::<#self_ty>()
+          type_name: || std::any::type_name::<#self_ty>(),
         };
 
         #tokens

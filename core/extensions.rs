@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
 use crate::ops::OpMetadata;
@@ -179,9 +180,7 @@ const NOOP_FN: CFunction = CFunction::new(
 // Declaration for object wrappers.
 #[derive(Clone, Copy)]
 pub struct OpMethodDecl {
-  // TypeId::of::<T>() is unstable-nightly in const context so
-  // we store the fn pointer instead.
-  pub id: fn() -> std::any::TypeId,
+  pub type_name: fn() -> &'static str,
   pub name: (&'static str, FastStaticString),
   pub constructor: OpDecl,
   pub methods: &'static [OpDecl],
@@ -201,6 +200,7 @@ pub struct OpDecl {
   pub name_fast: FastStaticString,
   pub is_async: bool,
   pub is_reentrant: bool,
+  pub symbol_for: bool,
   pub accessor_type: AccessorType,
   pub arg_count: u8,
   pub no_side_effects: bool,
@@ -224,6 +224,7 @@ impl OpDecl {
     name: (&'static str, FastStaticString),
     is_async: bool,
     is_reentrant: bool,
+    symbol_for: bool,
     arg_count: u8,
     no_side_effects: bool,
     slow_fn: OpFnRef,
@@ -239,6 +240,7 @@ impl OpDecl {
       name_fast: name.1,
       is_async,
       is_reentrant,
+      symbol_for,
       arg_count,
       no_side_effects,
       slow_fn,

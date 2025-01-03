@@ -1,7 +1,10 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
+use crate::_ops::OpMethodDecl;
+use crate::cppgc::FunctionTemplateData;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::script_origin;
@@ -13,7 +16,6 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
-use crate::ops::OpMethodCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
@@ -68,7 +70,8 @@ pub struct ContextState {
   // We don't explicitly re-read this prop but need the slice to live alongside
   // the context
   pub(crate) op_ctxs: Box<[OpCtx]>,
-  pub(crate) op_method_ctxs: Box<[OpMethodCtx]>,
+  pub(crate) op_method_decls: Vec<OpMethodDecl>,
+  pub(crate) methods_ctx_offset: usize,
   pub(crate) isolate: Option<*mut v8::Isolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
@@ -82,7 +85,8 @@ impl ContextState {
     isolate_ptr: *mut v8::Isolate,
     get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
-    op_method_ctxs: Box<[OpMethodCtx]>,
+    op_method_decls: Vec<OpMethodDecl>,
+    methods_ctx_offset: usize,
     external_ops_tracker: ExternalOpsTracker,
   ) -> Self {
     Self {
@@ -95,7 +99,8 @@ impl ContextState {
       wasm_instance_fn: Default::default(),
       activity_traces: Default::default(),
       op_ctxs,
-      op_method_ctxs,
+      op_method_decls,
+      methods_ctx_offset,
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
@@ -142,6 +147,7 @@ pub(crate) struct JsRealmInner {
   pub(crate) context_state: Rc<ContextState>,
   context: Rc<v8::Global<v8::Context>>,
   pub(crate) module_map: Rc<ModuleMap>,
+  pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
 }
 
 impl JsRealmInner {
@@ -149,11 +155,13 @@ impl JsRealmInner {
     context_state: Rc<ContextState>,
     context: v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
+    function_templates: Rc<RefCell<FunctionTemplateData>>,
   ) -> Self {
     Self {
       context_state,
       context: context.into(),
       module_map,
+      function_templates,
     }
   }
 
@@ -170,6 +178,11 @@ impl JsRealmInner {
   #[inline(always)]
   pub(crate) fn module_map(&self) -> Rc<ModuleMap> {
     self.module_map.clone()
+  }
+
+  #[inline(always)]
+  pub(crate) fn function_templates(&self) -> Rc<RefCell<FunctionTemplateData>> {
+    self.function_templates.clone()
   }
 
   /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].

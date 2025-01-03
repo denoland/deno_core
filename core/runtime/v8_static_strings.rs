@@ -1,4 +1,6 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+#[macro_export]
 macro_rules! v8_static_strings {
   ($($ident:ident = $str:literal),* $(,)?) => {
     $(
@@ -7,7 +9,7 @@ macro_rules! v8_static_strings {
   };
 }
 
-pub(crate) use v8_static_strings;
+pub use v8_static_strings;
 
 v8_static_strings!(
   BUILD_CUSTOM_ERROR = "buildCustomError",

@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
@@ -205,13 +205,13 @@ mod tests {
       unreachable!()
     }
 
-    fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
+    fn get_source_map(&self, file_name: &str) -> Option<Cow<[u8]>> {
       let url = Url::parse(file_name).unwrap();
       let content = self.map.get(&url)?;
       content
         .source_map
         .as_ref()
-        .map(|s| s.to_string().into_bytes())
+        .map(|s| Cow::Borrowed(s.as_bytes()))
     }
 
     fn get_source_mapped_source_line(

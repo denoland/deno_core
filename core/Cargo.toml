@@ -1,8 +1,8 @@
-# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+# Copyright 2018-2025 the Deno authors. MIT license.
 
 [package]
 name = "deno_core"
-version = "0.325.0"
+version = "0.328.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -35,7 +35,7 @@ deno_core_icudata = { workspace = true, optional = true }
 deno_ops.workspace = true
 deno_unsync.workspace = true
 futures.workspace = true
-indexmap = "2.1.0"
+indexmap.workspace = true
 libc.workspace = true
 memoffset.workspace = true
 parking_lot.workspace = true

@@ -1,9 +1,10 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 //! This example shows how to use swc to transpile TypeScript and JSX/TSX
 //! modules.
 //!
 //! It will only transpile, not typecheck (like Deno's `--no-check` flag).
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -124,8 +125,12 @@ impl ModuleLoader for TypescriptModuleLoader {
     ModuleLoadResponse::Sync(load(source_maps, module_specifier))
   }
 
-  fn get_source_map(&self, specifier: &str) -> Option<Vec<u8>> {
-    self.source_maps.borrow().get(specifier).cloned()
+  fn get_source_map(&self, specifier: &str) -> Option<Cow<[u8]>> {
+    self
+      .source_maps
+      .borrow()
+      .get(specifier)
+      .map(|v| v.clone().into())
   }
 }
 

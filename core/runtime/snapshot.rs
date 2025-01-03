@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use anyhow::Error;
 use serde::Deserialize;
@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
+use crate::cppgc::FunctionTemplateSnapshotData;
 use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
@@ -299,6 +300,7 @@ pub fn get_js_files(
 pub(crate) struct SnapshottedData<'snapshot> {
   pub js_handled_promise_rejection_cb: Option<u32>,
   pub module_map_data: ModuleMapSnapshotData,
+  pub function_templates_data: FunctionTemplateSnapshotData,
   pub externals_count: u32,
   pub extension_count: usize,
   pub op_count: usize,
