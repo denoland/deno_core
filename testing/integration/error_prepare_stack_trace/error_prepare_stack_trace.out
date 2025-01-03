@@ -20,7 +20,7 @@
 ]
 []
 [
-  "test:///integration/error_prepare_stack_trace/error_prepare_stack_trace.ts:12:13"
+  "test:///integration/error_prepare_stack_trace/error_prepare_stack_trace.ts:13:13"
 ]
 getThis() threw an error: The receiver is not a valid callsite object.
 getTypeName() threw an error: The receiver is not a valid callsite object.

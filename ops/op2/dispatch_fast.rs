@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use super::config::MacroConfig;
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;

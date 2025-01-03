@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --quiet --allow-read --allow-write --allow-run --allow-env
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 import $, * as dax from "https://deno.land/x/dax@0.39.2/mod.ts";
 

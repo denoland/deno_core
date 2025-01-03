@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 // deno-lint-ignore-file no-unused-vars, prefer-const
 
 // This harness is dynamically generated for each individual bench run.

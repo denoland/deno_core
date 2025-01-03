@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -253,7 +254,7 @@ pub(crate) fn generate_op2(
         }
       }
       None => {
-        if config.fast || config.getter || config.setter {
+        if config.fast {
           return Err(Op2Error::ShouldNotBeFast("fast"));
         }
         if config.nofast {
@@ -412,7 +413,8 @@ mod tests {
     let source =
       std::fs::read_to_string(&input).expect("Failed to read test file");
 
-    const PRELUDE: &str = r"// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+    const PRELUDE: &str = r"// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();";
 
