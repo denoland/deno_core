@@ -101,30 +101,21 @@ pub fn get_body(
 
     let new_context = format!("'{string_name}' of '{ident_string}'");
 
-    let convert = quote! {
-      let val = ::deno_core::webidl::WebIdlConverter::convert(
-        __scope,
-        __value,
-        __prefix.clone(),
-        || format!("{} ({})", #new_context, __context()).into(),
-        &#options,
-      )?;
-    };
-
-    let convert_body = if field.option_is_required {
-      quote! {
-        #convert
-        val
-      }
-    } else {
-      let val = if field.is_option  {
+    let convert_body = {
+      let val = if field.is_option && !field.option_is_required  {
         quote!(Some(val))
       } else {
         quote!(val)
       };
 
       quote! {
-        #convert
+        let val = ::deno_core::webidl::WebIdlConverter::convert(
+          __scope,
+          __value,
+          __prefix.clone(),
+          || format!("{} ({})", #new_context, __context()).into(),
+          &#options,
+        )?;
         #val
       }
     };
