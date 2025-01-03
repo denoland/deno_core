@@ -27,9 +27,11 @@ use super::V8MappingError;
 use super::V8SignatureMappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use quote::format_ident;
 use quote::quote;
-use quote::{format_ident, ToTokens};
-use syn::{parse2, Type};
+use quote::ToTokens;
+use syn::parse2;
+use syn::Type;
 
 pub(crate) fn generate_dispatch_slow_call(
   generator_state: &mut GeneratorState,
