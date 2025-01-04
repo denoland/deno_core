@@ -169,7 +169,7 @@ const fn op_state_rc() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_state_rc {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_arg: &Something, _arg_opt: Option<&Something>) {}
     }
     <op_state_rc as ::deno_core::_ops::Op>::DECL

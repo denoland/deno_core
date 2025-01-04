@@ -188,7 +188,7 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_cow {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(s: Cow<str>) -> u32 {
             s.len() as _
         }

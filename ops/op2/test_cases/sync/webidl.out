@@ -121,7 +121,7 @@ const fn op_webidl() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_webidl {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(s: String, _n: u32) -> u32 {
             s.len() as _
         }

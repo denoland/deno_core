@@ -269,7 +269,7 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_smi_unsigned_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Uint32 {
             a as Uint32 + b as Uint32 + c as Uint32 + d as Uint32
         }
@@ -548,7 +548,7 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_smi_signed_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Int32 {
             a as Int32 + b as Int32 + c as Int32 + d as Int32
         }
@@ -659,7 +659,7 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_smi_option {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: Option<Uint32>) -> Option<Uint32> {
             a
         }

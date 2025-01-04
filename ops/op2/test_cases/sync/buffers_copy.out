@@ -231,7 +231,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_buffers {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_a: Vec<u8>, _b: Box<[u8]>, _c: bytes::Bytes) {}
     }
     <op_buffers as ::deno_core::_ops::Op>::DECL
@@ -442,7 +442,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_buffers_32 {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_a: Vec<u32>, _b: Box<[u32]>) {}
     }
     <op_buffers_32 as ::deno_core::_ops::Op>::DECL
