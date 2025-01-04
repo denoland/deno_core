@@ -216,7 +216,10 @@ impl DOMPoint {
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
-pub enum TestEnumWrap {}
+pub enum TestEnumWrap {
+  #[allow(dead_code)]
+  A,
+}
 
 impl GarbageCollected for TestEnumWrap {}
 
