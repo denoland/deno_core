@@ -96,7 +96,7 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call() {}
     }
     <op_async as ::deno_core::_ops::Op>::DECL

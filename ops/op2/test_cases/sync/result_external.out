@@ -187,7 +187,7 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_external_with_result {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> Result<*mut std::ffi::c_void, AnyError> {
             Ok(0 as _)
         }

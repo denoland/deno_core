@@ -115,7 +115,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_make_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call() -> Wrap {
             Wrap
         }
@@ -242,7 +242,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_use_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call(_wrap: &Wrap) {}
     }
     <op_use_cppgc_object as ::deno_core::_ops::Op>::DECL
@@ -371,7 +371,7 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_use_optional_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call(_wrap: Option<&Wrap>) {}
     }
     <op_use_optional_cppgc_object as ::deno_core::_ops::Op>::DECL

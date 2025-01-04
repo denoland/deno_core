@@ -136,7 +136,7 @@ impl Foo {
             }
         }
         impl constructor {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             pub fn call(x: Option<u32>) -> Foo {
                 Foo {
                     x: Cell::new(x.unwrap_or_default()),
@@ -247,7 +247,7 @@ impl Foo {
             fn call(&self) -> u32;
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) -> u32 {
                 self.x.get()
             }
@@ -370,7 +370,7 @@ impl Foo {
             fn call(&self, x: u32);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self, x: u32) {
                 self.x.set(x);
             }
@@ -513,7 +513,7 @@ impl Foo {
             fn call(&self, _v: u32);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self, _v: u32) {}
         }
         <bar as ::deno_core::_ops::Op>::DECL
@@ -708,7 +708,7 @@ impl Foo {
             fn call(&self);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) {}
         }
         <zzz as ::deno_core::_ops::Op>::DECL
@@ -818,7 +818,7 @@ impl Foo {
             fn call(&self, _args: Option<&v8::FunctionCallbackArguments>);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self, _args: Option<&v8::FunctionCallbackArguments>) {}
         }
         <withVarargs as ::deno_core::_ops::Op>::DECL
@@ -925,7 +925,7 @@ impl Foo {
             fn call(&self);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) {}
         }
         <with_RENAME as ::deno_core::_ops::Op>::DECL
@@ -1011,7 +1011,7 @@ impl Foo {
             }
         }
         impl __static_doThing {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call() {}
         }
         <__static_doThing as ::deno_core::_ops::Op>::DECL
@@ -1118,7 +1118,7 @@ impl Foo {
             fn call(&self);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) {}
         }
         <doThing as ::deno_core::_ops::Op>::DECL

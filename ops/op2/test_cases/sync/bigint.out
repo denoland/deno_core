@@ -136,7 +136,7 @@ pub const fn op_bigint() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_bigint {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> u64 {
             0
         }

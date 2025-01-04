@@ -194,7 +194,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_void_with_result {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(_scope: &mut v8::HandleScope) -> Result<(), AnyError> {
             Ok(())
         }

@@ -209,7 +209,7 @@ const fn op_add() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_add {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: u32, b: u32) -> u32 {
             a + b
         }

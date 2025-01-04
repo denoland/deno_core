@@ -193,7 +193,7 @@ pub const fn op_u32_with_result() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_u32_with_result {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> Result<u32, AnyError> {
             Ok(0)
         }

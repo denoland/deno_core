@@ -288,7 +288,7 @@ pub(crate) fn generate_op2(
         #op_fn_sig;
       }
       impl Callable for #ident {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         #(#attrs)*
         #op_fn
       }
@@ -296,7 +296,7 @@ pub(crate) fn generate_op2(
   } else {
     quote! {
       impl <#(#generic : #bound),*> #rust_name <#(#generic),*> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         #(#attrs)*
         #op_fn
       }

@@ -95,7 +95,7 @@ pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_from_v8_arg {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(foo: Foo) {
             let _ = foo;
         }

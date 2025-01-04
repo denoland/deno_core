@@ -94,7 +94,7 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_to_v8_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> Foo {
             Foo
         }

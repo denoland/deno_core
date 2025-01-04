@@ -248,7 +248,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_v8_lifetime {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call<'s>(_s: Option<&v8::String>, _s2: Option<&v8::String>) {}
     }
     <op_v8_lifetime as ::deno_core::_ops::Op>::DECL
