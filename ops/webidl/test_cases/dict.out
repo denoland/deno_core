@@ -62,14 +62,13 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
             {
-                let val = ::deno_core::webidl::WebIdlConverter::convert(
+                ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
                     __value,
                     __prefix.clone(),
                     || format!("{} ({})", "'a' of 'Dict'", __context()).into(),
                     &Default::default(),
-                )?;
-                val
+                )?
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
@@ -105,7 +104,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
             {
-                let val = ::deno_core::webidl::WebIdlConverter::convert(
+                ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
                     __value,
                     __prefix.clone(),
@@ -119,8 +118,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                             ..Default::default()
                         }
                     },
-                )?;
-                val
+                )?
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
@@ -159,14 +157,13 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     if __value.is_undefined() { None } else { Some(__value) }
                 })
             {
-                let val = ::deno_core::webidl::WebIdlConverter::convert(
+                ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
                     __value,
                     __prefix.clone(),
                     || format!("{} ({})", "'c' of 'Dict'", __context()).into(),
                     &Default::default(),
-                )?;
-                Some(val)
+                )?
             } else {
                 Some(3)
             }
@@ -193,14 +190,13 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
             {
-                let val = ::deno_core::webidl::WebIdlConverter::convert(
+                ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
                     __value,
                     __prefix.clone(),
                     || format!("{} ({})", "'e' of 'Dict'", __context()).into(),
                     &Default::default(),
-                )?;
-                val
+                )?
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
@@ -236,14 +232,13 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
             {
-                let val = ::deno_core::webidl::WebIdlConverter::convert(
+                ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
                     __value,
                     __prefix.clone(),
                     || format!("{} ({})", "'f' of 'Dict'", __context()).into(),
                     &Default::default(),
-                )?;
-                val
+                )?
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
