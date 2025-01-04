@@ -13,6 +13,5 @@ pub struct Dict {
   c: Option<u32>,
   #[webidl(rename = "e")]
   d: u64,
-  #[webidl(required)]
   f: Option<u32>,
 }

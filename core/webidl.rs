@@ -1349,9 +1349,12 @@ mod tests {
     let mut runtime = JsRuntime::new(Default::default());
     let scope = &mut runtime.handle_scope();
 
+    let obj = v8::Object::new(scope);
     let key = v8::String::new(scope, "foo").unwrap();
     let val = v8::Number::new(scope, 1.0);
-    let obj = v8::Object::new(scope);
+    obj.set(scope, key.into(), val.into());
+    let key = v8::String::new(scope, "bar").unwrap();
+    let val = v8::Number::new(scope, 2.0);
     obj.set(scope, key.into(), val.into());
 
     let converted = IndexMap::<String, u8>::convert(
@@ -1360,11 +1363,10 @@ mod tests {
       "prefix".into(),
       || "context".into(),
       &Default::default(),
-    );
-    assert_eq!(
-      converted.unwrap(),
-      IndexMap::from([(String::from("foo"), 1)])
-    );
+    )
+    .unwrap();
+    assert_eq!(converted.get_index(0).unwrap(), (&String::from("foo"), &1));
+    assert_eq!(converted.get_index(1).unwrap(), (&String::from("bar"), &2));
   }
 
   #[test]
@@ -1380,7 +1382,6 @@ mod tests {
       #[webidl(rename = "e")]
       d: u16,
       f: IndexMap<String, u32>,
-      #[webidl(required)]
       g: Option<u32>,
     }
 
