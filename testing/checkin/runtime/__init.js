@@ -6,12 +6,15 @@ import * as timers from "checkin:timers";
 import * as worker from "checkin:worker";
 import * as throw_ from "checkin:throw";
 import * as object from "checkin:object";
+import * as streams from "checkin:streams";
 async;
 error;
 throw_;
 object;
 
 globalThis.console = console.console;
+globalThis.ReadableStream = streams.ReadableStream;
+globalThis.WritableStream = streams.WritableStream;
 globalThis.setTimeout = timers.setTimeout;
 globalThis.setInterval = timers.setInterval;
 globalThis.clearTimeout = timers.clearTimeout;

@@ -36,6 +36,7 @@ mod ops_error;
 mod ops_io;
 mod ops_worker;
 pub mod snapshot;
+mod streams;
 #[cfg(test)]
 pub mod testing;
 mod ts_module_loader;

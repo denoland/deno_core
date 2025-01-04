@@ -6,6 +6,7 @@ use crate::checkin::runner::ops_buffer;
 use crate::checkin::runner::ops_error;
 use crate::checkin::runner::ops_io;
 use crate::checkin::runner::ops_worker;
+use crate::checkin::runner::streams;
 use crate::checkin::runner::Output;
 use crate::checkin::runner::TestData;
 
@@ -49,6 +50,14 @@ deno_core::extension!(
     ops_worker::op_worker_parent,
     ops_worker::op_worker_await_close,
     ops_worker::op_worker_terminate,
+    streams::op_readable_stream_resource_allocate,
+    streams::op_readable_stream_resource_allocate_sized,
+    streams::op_readable_stream_resource_get_sink,
+    streams::op_readable_stream_resource_write_error,
+    streams::op_readable_stream_resource_write_buf,
+    streams::op_readable_stream_resource_write_sync,
+    streams::op_readable_stream_resource_close,
+    streams::op_readable_stream_resource_await_close,
   ],
   objects = [
     ops::DOMPoint,
@@ -61,8 +70,10 @@ deno_core::extension!(
     "checkin:async" = "async.ts",
     "checkin:console" = "console.ts",
     "checkin:object" = "object.ts",
+    "checkin:streams" = "streams.ts",
     "checkin:error" = "error.ts",
     "checkin:timers" = "timers.ts",
+    "checkin:webidl" = "webidl.ts",
     "checkin:worker" = "worker.ts",
     "checkin:throw" = "throw.ts",
   ],
