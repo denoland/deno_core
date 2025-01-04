@@ -30,22 +30,7 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let out = match input.data {
     Data::Struct(data) => match converter {
       ConverterType::Dictionary => {
-        let (body, v8_static_strings, v8_lazy_strings) =
-          dictionary::get_body(ident_string, span, data)?;
-
-        let implementation = create_impl(ident, body);
-
-        quote! {
-          ::deno_core::v8_static_strings! {
-            #(#v8_static_strings),*
-          }
-
-          thread_local! {
-            #(#v8_lazy_strings)*
-          }
-
-          #implementation
-        }
+        create_impl(ident, dictionary::get_body(ident_string, span, data)?)
       }
       ConverterType::Enum => {
         return Err(Error::new(span, "Structs do not support enum converters"));

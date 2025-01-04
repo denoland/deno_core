@@ -13,7 +13,6 @@ pub struct Dict {
   c: Option<u32>,
   #[webidl(rename = "e")]
   d: u64,
-  f: std::collections::HashMap<String, f32>,
   #[webidl(required)]
-  g: Option<u32>,
+  f: Option<u32>,
 }

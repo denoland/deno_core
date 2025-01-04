@@ -182,3 +182,34 @@ impl FunctionTemplateData {
       .collect();
   }
 }
+
+pub struct SameObject<T: GarbageCollected + 'static> {
+  cell: std::cell::OnceCell<v8::Global<v8::Object>>,
+  _phantom_data: std::marker::PhantomData<T>,
+}
+impl<T: GarbageCollected + 'static> SameObject<T> {
+  #[allow(clippy::new_without_default)]
+  pub fn new() -> Self {
+    Self {
+      cell: Default::default(),
+      _phantom_data: Default::default(),
+    }
+  }
+
+  pub fn get<F>(
+    &self,
+    scope: &mut v8::HandleScope,
+    f: F,
+  ) -> v8::Global<v8::Object>
+  where
+    F: FnOnce() -> T,
+  {
+    self
+      .cell
+      .get_or_init(|| {
+        let obj = make_cppgc_object(scope, f());
+        v8::Global::new(scope, obj)
+      })
+      .clone()
+  }
+}
