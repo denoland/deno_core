@@ -376,7 +376,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
       break;
     }
 
-    let tmpl = if let Some(_) = decl.constructor {
+    let tmpl = if decl.constructor.is_some() {
       let constructor_ctx = &op_ctxs[index];
 
       let tmpl = op_ctx_template(scope, constructor_ctx);
