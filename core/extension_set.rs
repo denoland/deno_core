@@ -166,10 +166,13 @@ pub fn create_op_ctxs(
   };
 
   for (index, decl) in op_method_decls.iter_mut().enumerate() {
-    decl.constructor.name = decl.name.0;
-    decl.constructor.name_fast = decl.name.1;
+    if let Some(mut constructor) = decl.constructor {
+      constructor.name = decl.name.0;
+      constructor.name_fast = decl.name.1;
 
-    op_ctxs.push(create_ctx(index, decl.constructor));
+      op_ctxs.push(create_ctx(index, constructor));
+    }
+
     for method in decl.methods {
       op_ctxs.push(create_ctx(index, *method));
     }

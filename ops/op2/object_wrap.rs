@@ -134,6 +134,12 @@ pub(crate) fn generate_impl_ops(
     }
   }
 
+  let constructor = if let Some(constructor) = constructor {
+    quote! { Some(#self_ty::#constructor()) }
+  } else {
+    quote! { None }
+  };
+
   let res = quote! {
       impl #self_ty {
         pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
@@ -147,7 +153,7 @@ pub(crate) fn generate_impl_ops(
               #self_ty::#static_methods(),
             )*
           ],
-          constructor: #self_ty::#constructor(),
+          constructor: #constructor,
           name: ::deno_core::__op_name_fast!(#self_ty),
           type_name: || std::any::type_name::<#self_ty>(),
         };
