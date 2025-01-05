@@ -135,7 +135,7 @@ pub const fn op_generics<T: Trait>() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl<T: Trait> op_generics<T> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() {}
     }
     <op_generics<T> as ::deno_core::_ops::Op>::DECL
@@ -278,7 +278,7 @@ pub const fn op_generics_static<T: Trait + 'static>() -> ::deno_core::_ops::OpDe
         }
     }
     impl<T: Trait + 'static> op_generics_static<T> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() {}
     }
     <op_generics_static<T> as ::deno_core::_ops::Op>::DECL
@@ -421,7 +421,7 @@ pub const fn op_generics_static_where<T: Trait + 'static>() -> ::deno_core::_ops
         }
     }
     impl<T: Trait + 'static> op_generics_static_where<T> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call()
         where
             T: Trait + 'static,

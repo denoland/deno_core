@@ -99,7 +99,7 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(s: Option<String>) -> Option<String> {
             s
         }

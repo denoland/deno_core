@@ -151,7 +151,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_bool {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(arg: bool) -> bool {
             arg
         }

@@ -143,7 +143,7 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async_result_impl {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(
             x: i32,
         ) -> Result<impl Future<Output = std::io::Result<i32>>, AnyError> {

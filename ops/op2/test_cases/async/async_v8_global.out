@@ -115,7 +115,7 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async_v8_global {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call(_s: v8::Global<v8::String>) {}
     }
     <op_async_v8_global as ::deno_core::_ops::Op>::DECL

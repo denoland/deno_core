@@ -97,7 +97,7 @@ const fn op_handlescope() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_handlescope {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call<'a>(
             _scope: &v8::HandleScope<'a>,
             _str2: v8::Local<v8::String>,

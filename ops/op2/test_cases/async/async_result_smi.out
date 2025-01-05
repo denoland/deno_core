@@ -145,7 +145,7 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call(rid: ResourceId) -> std::io::Result<ResourceId> {
             Ok(rid as _)
         }
