@@ -137,7 +137,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_extra_annotation {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         /// This is a doc comment.
         #[allow(clippy::some_annotation)]
         pub fn call() -> () {}
@@ -282,7 +282,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_clippy_internal {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> () {
             { #![allow(clippy::await_holding_refcell_ref)] }
         }

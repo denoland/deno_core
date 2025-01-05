@@ -112,7 +112,7 @@ const fn op_v8_string() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_v8_string {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call<'a>(
             _str1: &v8::String,
             _str2: v8::Local<v8::String>,

@@ -97,7 +97,7 @@ pub const fn op_global() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_global {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(g: v8::Global<v8::String>) -> v8::Global<v8::String> {
             g
         }

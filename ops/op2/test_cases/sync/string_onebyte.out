@@ -182,7 +182,7 @@ const fn op_string_onebyte() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_onebyte {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(s: Cow<[u8]>) -> u32 {
             s.len() as _
         }

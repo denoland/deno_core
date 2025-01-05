@@ -190,7 +190,7 @@ pub const fn op_async_deferred() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async_deferred {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call() -> std::io::Result<i32> {
             Ok(0)
         }

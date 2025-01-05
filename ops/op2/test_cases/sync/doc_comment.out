@@ -136,7 +136,7 @@ pub const fn op_has_doc_comment() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_has_doc_comment {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         /// This is a doc comment.
         pub fn call() -> () {}
     }

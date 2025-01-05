@@ -111,7 +111,7 @@ pub const fn op_async_stack_trace() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async_stack_trace {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call() {}
     }
     <op_async_stack_trace as ::deno_core::_ops::Op>::DECL

@@ -275,7 +275,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_buffers {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_a: &[u8], _b: &mut [u8], _c: *const u8, _d: *mut u8) {}
     }
     <op_buffers as ::deno_core::_ops::Op>::DECL
@@ -558,7 +558,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_buffers_32 {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_a: &[u32], _b: &mut [u32], _c: *const u32, _d: *mut u32) {}
     }
     <op_buffers_32 as ::deno_core::_ops::Op>::DECL
@@ -706,7 +706,7 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_buffers_option {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_a: Option<&[u8]>, _b: Option<JsBuffer>) {}
     }
     <op_buffers_option as ::deno_core::_ops::Op>::DECL
