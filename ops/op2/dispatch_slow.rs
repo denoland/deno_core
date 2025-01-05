@@ -29,6 +29,8 @@ use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
+use quote::ToTokens;
+use syn::parse2;
 use syn::Type;
 
 pub(crate) fn generate_dispatch_slow_call(
@@ -652,7 +654,7 @@ pub fn from_arg(
         };
       }
     }
-    Arg::WebIDL(ty, options) => {
+    Arg::WebIDL(ty, options, default) => {
       *needs_scope = true;
       let ty =
         syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
@@ -678,7 +680,33 @@ pub fn from_arg(
         }
       };
 
+      let default = if let Some(default) = default {
+        let tokens = default.0.to_token_stream();
+        let default = if let Ok(lit) = parse2::<syn::LitStr>(tokens) {
+          if lit.value().is_empty() {
+            quote! {
+              v8::String::empty(&mut #scope)
+            }
+          } else {
+            return Err("unsupported WebIDL default value");
+          }
+        } else {
+          return Err("unsupported WebIDL default value");
+        };
+
+        quote! {
+          let #arg_ident = if #arg_ident.is_undefined() {
+            #default.into()
+          } else {
+            #arg_ident
+          };
+        }
+      } else {
+        quote!()
+      };
+
       quote! {
+        #default
         let #arg_ident = match <#ty as deno_core::webidl::WebIdlConverter>::convert(
           &mut #scope,
           #arg_ident,

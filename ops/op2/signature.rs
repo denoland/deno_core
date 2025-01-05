@@ -259,6 +259,15 @@ impl PartialEq for WebIDLPairs {
 }
 impl Eq for WebIDLPairs {}
 
+#[derive(Clone, Debug)]
+pub struct WebIDLDefault(pub syn::Expr);
+impl PartialEq for WebIDLDefault {
+  fn eq(&self, _other: &Self) -> bool {
+    true
+  }
+}
+impl Eq for WebIDLDefault {}
+
 /// Args are not a 1:1 mapping with Rust types, rather they represent broad classes of types that
 /// tend to have similar argument handling characteristics. This may need one more level of indirection
 /// given how many of these types have option variants, however.
@@ -290,7 +299,7 @@ pub enum Arg {
   OptionCppGcResource(String),
   FromV8(String),
   ToV8(String),
-  WebIDL(String, Vec<WebIDLPairs>),
+  WebIDL(String, Vec<WebIDLPairs>, Option<WebIDLDefault>),
   VarArgs,
 }
 
@@ -754,7 +763,10 @@ pub enum AttributeModifier {
   /// #[from_v8] for types that impl `FromV8`
   FromV8,
   /// #[webidl], for types that impl `WebIdlConverter`
-  WebIDL(Vec<WebIDLPairs>),
+  WebIDL {
+    options: Vec<WebIDLPairs>,
+    default: Option<WebIDLDefault>,
+  },
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
@@ -788,7 +800,7 @@ impl AttributeModifier {
       AttributeModifier::Buffer(..) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
-      AttributeModifier::WebIDL(_) => "webidl",
+      AttributeModifier::WebIDL { .. } => "webidl",
       AttributeModifier::String(_) => "string",
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
@@ -1247,8 +1259,8 @@ fn parse_attribute(
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[number]) => Some(AttributeModifier::Number),
       (#[serde]) => Some(AttributeModifier::Serde),
-      (#[webidl]) => Some(AttributeModifier::WebIDL(vec![])),
-      (#[webidl($($key: ident = $value: literal),*)]) => Some(AttributeModifier::WebIDL(key.into_iter().zip(value.into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect())),
+      (#[webidl]) => Some(AttributeModifier::WebIDL { options: vec![],default: None }),
+      (#[webidl($(default = $default:expr)?$($(,)? options($($key:ident = $value:literal),*))?)]) => Some(AttributeModifier::WebIDL { options: key.map(|key| key.into_iter().zip(value.unwrap().into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect()).unwrap_or_default(), default: default.map(WebIDLDefault) }),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
       (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
@@ -1577,20 +1589,20 @@ pub(crate) fn parse_type(
       AttributeModifier::Serde
       | AttributeModifier::FromV8
       | AttributeModifier::ToV8
-      | AttributeModifier::WebIDL(_) => {
-        let make_arg: Box<dyn Fn(String) -> Arg> = match primary {
+      | AttributeModifier::WebIDL { .. } => {
+        let make_arg: Box<dyn Fn(String) -> Arg> = match &primary {
           AttributeModifier::Serde => Box::new(Arg::SerdeV8),
           AttributeModifier::FromV8 => Box::new(Arg::FromV8),
           AttributeModifier::ToV8 => Box::new(Arg::ToV8),
-          AttributeModifier::WebIDL(ref options) => {
-            Box::new(move |s| Arg::WebIDL(s, options.clone()))
+          AttributeModifier::WebIDL { options, default } => {
+            Box::new(move |s| Arg::WebIDL(s, options.clone(), default.clone()))
           }
           _ => unreachable!(),
         };
         match ty {
           Type::Tuple(of) => return Ok(make_arg(stringify_token(of))),
           Type::Path(of) => {
-            if !matches!(primary, AttributeModifier::WebIDL(_))
+            if !matches!(primary, AttributeModifier::WebIDL { .. })
               && better_alternative_exists(position, of)
             {
               return Err(ArgError::InvalidAttributeType(

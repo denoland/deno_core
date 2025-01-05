@@ -25,7 +25,7 @@ pub fn get_body(
   ident_string: String,
   span: Span,
   data: DataStruct,
-) -> Result<(TokenStream, Vec<TokenStream>, Vec<TokenStream>), Error> {
+) -> Result<TokenStream, Error> {
   let fields = match data.fields {
     Fields::Named(fields) => fields,
     Fields::Unnamed(_) => {
@@ -99,40 +99,6 @@ pub fn get_body(
       }
     };
 
-    let new_context = format!("'{string_name}' of '{ident_string}'");
-
-    let convert = quote! {
-      let val = ::deno_core::webidl::WebIdlConverter::convert(
-        __scope,
-        __value,
-        __prefix.clone(),
-        || format!("{} ({})", #new_context, __context()).into(),
-        &#options,
-      )?;
-    };
-
-    let convert_body = if field.option_is_required {
-      quote! {
-        if __value.is_undefined() {
-          None
-        } else {
-          #convert
-          Some(val)
-        }
-      }
-    } else {
-      let val = if field.is_option {
-        quote!(Some(val))
-      } else {
-        quote!(val)
-      };
-
-      quote! {
-        #convert
-        #val
-      }
-    };
-
     let undefined_as_none = if field.default_value.is_some() {
       quote! {
         .and_then(|__value| {
@@ -162,6 +128,8 @@ pub fn get_body(
       }
     };
 
+    let new_context = format!("'{string_name}' of '{ident_string}'");
+
     quote! {
       let #original_name = {
         let __key = #v8_eternal_name
@@ -179,7 +147,13 @@ pub fn get_body(
           .into();
 
         if let Some(__value) = __obj.as_ref().and_then(|__obj| __obj.get(__scope, __key))#undefined_as_none {
-          #convert_body
+          ::deno_core::webidl::WebIdlConverter::convert(
+            __scope,
+            __value,
+            __prefix.clone(),
+            || format!("{} ({})", #new_context, __context()).into(),
+            &#options,
+          )?
         } else {
           #required_or_default
         }
@@ -188,6 +162,14 @@ pub fn get_body(
   }).collect::<Vec<_>>();
 
   let body = quote! {
+    ::deno_core::v8_static_strings! {
+      #(#v8_static_strings),*
+    }
+
+    thread_local! {
+      #(#v8_lazy_strings)*
+    }
+
     let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
       None
     } else {
@@ -207,7 +189,7 @@ pub fn get_body(
     Ok(Self { #(#names),* })
   };
 
-  Ok((body, v8_static_strings, v8_lazy_strings))
+  Ok(body)
 }
 
 struct DictionaryField {
@@ -215,8 +197,6 @@ struct DictionaryField {
   name: Ident,
   rename: Option<String>,
   default_value: Option<Expr>,
-  is_option: bool,
-  option_is_required: bool,
   converter_options: std::collections::HashMap<Ident, Expr>,
   ty: Type,
 }
@@ -239,7 +219,6 @@ impl TryFrom<Field> for DictionaryField {
     let span = value.span();
     let mut default_value: Option<Expr> = None;
     let mut rename: Option<String> = None;
-    let mut option_is_required = false;
     let mut converter_options = std::collections::HashMap::new();
 
     for attr in value.attrs {
@@ -256,9 +235,6 @@ impl TryFrom<Field> for DictionaryField {
             }
             DictionaryFieldArgument::Rename { value, .. } => {
               rename = Some(value.value())
-            }
-            DictionaryFieldArgument::Required { .. } => {
-              option_is_required = true
             }
           }
         }
@@ -280,37 +256,11 @@ impl TryFrom<Field> for DictionaryField {
       }
     }
 
-    let is_option = if let Type::Path(path) = &value.ty {
-      if let Some(last) = path.path.segments.last() {
-        last.ident == "Option"
-      } else {
-        false
-      }
-    } else {
-      false
-    };
-
-    if option_is_required && !is_option {
-      return Err(Error::new(
-        span,
-        "Required option can only be used with an Option",
-      ));
-    }
-
-    if option_is_required && default_value.is_some() {
-      return Err(Error::new(
-        span,
-        "Required option and default value cannot be used together",
-      ));
-    }
-
     Ok(Self {
       span,
       name: value.ident.unwrap(),
       rename,
       default_value,
-      is_option,
-      option_is_required,
       converter_options,
       ty: value.ty,
     })
@@ -329,9 +279,6 @@ enum DictionaryFieldArgument {
     eq_token: Token![=],
     value: LitStr,
   },
-  Required {
-    name_token: kw::required,
-  },
 }
 
 impl Parse for DictionaryFieldArgument {
@@ -348,10 +295,6 @@ impl Parse for DictionaryFieldArgument {
         name_token: input.parse()?,
         eq_token: input.parse()?,
         value: input.parse()?,
-      })
-    } else if lookahead.peek(kw::required) {
-      Ok(DictionaryFieldArgument::Required {
-        name_token: input.parse()?,
       })
     } else {
       Err(lookahead.error())
