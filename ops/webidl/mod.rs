@@ -98,15 +98,13 @@ fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
     impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
       type Options = ();
 
-      fn convert<C>(
+      fn convert<'b>(
         __scope: &mut ::deno_core::v8::HandleScope<'a>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
         __prefix: std::borrow::Cow<'static, str>,
-        __context: C,
+        __context: ::deno_core::webidl::ContextFn<'b>,
         __options: &Self::Options,
       ) -> Result<Self, ::deno_core::webidl::WebIdlError>
-      where
-        C: Fn() -> std::borrow::Cow<'static, str>,
       {
         #body
       }
