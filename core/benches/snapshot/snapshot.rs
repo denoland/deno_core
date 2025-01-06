@@ -50,13 +50,13 @@ fn make_extensions_ops() -> Vec<Extension> {
   fake_extensions!(init_ops, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
 }
 
-deno_core::js_error_wrapper!(
+deno_error::js_error_wrapper!(
   deno_ast::ParseDiagnostic,
   JsParseDiagnostic,
   "TypeError"
 );
 
-deno_core::js_error_wrapper!(
+deno_error::js_error_wrapper!(
   deno_ast::TranspileError,
   JsTranspileError,
   "TypeError"
