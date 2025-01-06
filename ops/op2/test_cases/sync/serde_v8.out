@@ -44,10 +44,7 @@ pub const fn op_serde_v8() -> ::deno_core::_ops::OpDecl {
                 let arg0 = match deno_core::_ops::serde_v8_to_rust(&mut scope, arg0) {
                     Ok(t) => t,
                     Err(arg0_err) => {
-                        deno_core::_ops::throw_error2(
-                            &mut scope,
-                            deno_core::anyhow::Error::from(arg0_err),
-                        );
+                        deno_core::_ops::throw_error2(&mut scope, arg0_err);
                         return 1;
                     }
                 };
@@ -62,10 +59,7 @@ pub const fn op_serde_v8() -> ::deno_core::_ops::OpDecl {
             ) {
                 Ok(v) => rv.set(v),
                 Err(rv_err) => {
-                    deno_core::_ops::throw_error2(
-                        &mut scope,
-                        deno_core::anyhow::Error::from(rv_err),
-                    );
+                    deno_core::_ops::throw_error2(&mut scope, rv_err);
                     return 1;
                 }
             };

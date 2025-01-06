@@ -195,14 +195,23 @@ pub mod _ops {
   pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
 
   pub fn throw_error1(scope: &mut v8::CallbackScope<'_>, message: &str) {
-    let msg = deno_core::v8::String::new_from_one_byte(scope, message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
+    let msg = deno_core::v8::String::new_from_one_byte(
+      scope,
+      message.as_bytes(),
+      deno_core::v8::NewStringType::Normal,
+    )
+    .unwrap();
     let exc = deno_core::v8::Exception::type_error(scope, msg);
     scope.throw_exception(exc);
   }
 
-  pub fn throw_error2(scope: &mut v8::CallbackScope<'_>, message: deno_core::anyhow::Error) {
+  pub fn throw_error2<S>(scope: &mut v8::CallbackScope<'_>, message: S)
+  where
+    S: Into<deno_core::anyhow::Error>,
+  {
     // TODO(mmastrac): This might be allocating too much, even if it's on the error path
-    let msg = deno_core::v8::String::new(scope, &format!("{}", message)).unwrap();
+    let e: deno_core::anyhow::Error = message.into();
+    let msg = deno_core::v8::String::new(scope, &format!("{}", e)).unwrap();
     let exc = deno_core::v8::Exception::type_error(scope, msg);
     scope.throw_exception(exc);
   }

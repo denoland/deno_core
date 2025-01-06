@@ -1216,7 +1216,7 @@ fn throw_type_error_string(
 
   Ok(gs_quote!(generator_state(scope) => {
     #maybe_scope
-    deno_core::_ops::throw_error2(&mut #scope, deno_core::anyhow::Error::from(#message));
+    deno_core::_ops::throw_error2(&mut #scope, #message);
     return 1;
   }))
 }

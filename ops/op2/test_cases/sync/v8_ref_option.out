@@ -114,14 +114,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected String".as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        crate::_ops::throw_error1(&mut scope, "expected String");
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -138,14 +131,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected String".as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        crate::_ops::throw_error1(&mut scope, "expected String");
                         return unsafe { std::mem::zeroed() };
                     }
                 };
