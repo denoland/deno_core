@@ -394,14 +394,7 @@ const fn op_state_and_v8() -> ::deno_core::_ops::OpDecl {
                     deno_core::v8::Function,
                 >(arg1) else {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Function".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Function");
                     return 1;
                 };
                 let arg1 = deno_core::v8::Global::new(&mut scope, arg1);
@@ -612,14 +605,7 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                     deno_core::v8::Function,
                 >(arg1) else {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Function".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Function");
                     return 1;
                 };
                 let arg1 = arg1;

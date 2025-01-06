@@ -46,13 +46,10 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
             ) {
                 Ok(v) => rv.set(v),
                 Err(rv_err) => {
-                    let msg = deno_core::v8::String::new(
-                            &mut scope,
-                            &format!("{}", deno_core::anyhow::Error::from(rv_err)),
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error2(
+                        &mut scope,
+                        deno_core::anyhow::Error::from(rv_err),
+                    );
                     return 1;
                 }
             };

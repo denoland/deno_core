@@ -1198,9 +1198,7 @@ fn throw_type_error(
 
   Ok(gs_quote!(generator_state(scope) => {
     #maybe_scope
-    let msg = deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+    deno_core::_ops::throw_error1(&mut #scope, #message);
     return 1;
   }))
 }
@@ -1218,10 +1216,7 @@ fn throw_type_error_string(
 
   Ok(gs_quote!(generator_state(scope) => {
     #maybe_scope
-    // TODO(mmastrac): This might be allocating too much, even if it's on the error path
-    let msg = deno_core::v8::String::new(&mut #scope, &format!("{}", deno_core::anyhow::Error::from(#message))).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+    deno_core::_ops::throw_error2(&mut #scope, deno_core::anyhow::Error::from(#message));
     return 1;
   }))
 }
@@ -1239,9 +1234,7 @@ fn throw_type_error_static_string(
 
   Ok(gs_quote!(generator_state(scope) => {
     #maybe_scope
-    let msg = deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+    deno_core::_ops::throw_error1(&mut #scope, #message);
     return 1;
   }))
 }

@@ -50,13 +50,10 @@ const fn op_webidl() -> ::deno_core::_ops::OpDecl {
                 ) {
                     Ok(t) => t,
                     Err(arg0_err) => {
-                        let msg = deno_core::v8::String::new(
-                                &mut scope,
-                                &format!("{}", deno_core::anyhow::Error::from(arg0_err)),
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error2(
+                            &mut scope,
+                            deno_core::anyhow::Error::from(arg0_err),
+                        );
                         return 1;
                     }
                 };
@@ -70,13 +67,10 @@ const fn op_webidl() -> ::deno_core::_ops::OpDecl {
                 ) {
                     Ok(t) => t,
                     Err(arg1_err) => {
-                        let msg = deno_core::v8::String::new(
-                                &mut scope,
-                                &format!("{}", deno_core::anyhow::Error::from(arg1_err)),
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error2(
+                            &mut scope,
+                            deno_core::anyhow::Error::from(arg1_err),
+                        );
                         return 1;
                     }
                 };

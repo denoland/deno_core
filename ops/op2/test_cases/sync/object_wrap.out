@@ -66,17 +66,7 @@ impl Foo {
                             let mut scope = unsafe {
                                 deno_core::v8::CallbackScope::new(info)
                             };
-                            let msg = deno_core::v8::String::new_from_one_byte(
-                                    &mut scope,
-                                    "expected u32".as_bytes(),
-                                    deno_core::v8::NewStringType::Normal,
-                                )
-                                .unwrap();
-                            let exc = deno_core::v8::Exception::type_error(
-                                &mut scope,
-                                msg,
-                            );
-                            scope.throw_exception(exc);
+                            deno_core::_ops::throw_error1(&mut scope, "expected u32");
                             return 1;
                         };
                         let arg0 = arg0 as _;
@@ -191,14 +181,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Foo".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -297,14 +280,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Foo".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -314,14 +290,7 @@ impl Foo {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(info)
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected u32".as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error1(&mut scope, "expected u32");
                         return 1;
                     };
                     let arg0 = arg0 as _;
@@ -423,10 +392,8 @@ impl Foo {
                 if args.length() < 1u8 as i32 {
                     let msg = format!(
                         "{}: {} {} required, but only {} present",
-                        "Failed to execute 'call' on 'Foo'",
-                        1u8,
-                        "argument",
-                        args.length(),
+                        "Failed to execute 'call' on 'Foo'", 1u8, "argument", args
+                        .length()
                     );
                     let msg = deno_core::v8::String::new(&mut scope, &msg).unwrap();
                     let exception = deno_core::v8::Exception::type_error(
@@ -439,14 +406,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Foo".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -456,14 +416,7 @@ impl Foo {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(info)
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected u32".as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error1(&mut scope, "expected u32");
                         return 1;
                     };
                     let arg0 = arg0 as _;
@@ -652,14 +605,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Foo".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -759,14 +705,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Foo".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -869,14 +808,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Foo".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -1062,14 +994,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Foo".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
