@@ -184,7 +184,9 @@ fn bench_op(
     ..Default::default()
   });
   let err_mapper = |err| {
-    error::JsErrorBox::generic(format!("{op} test failed ({call}): {err:?}"))
+    deno_error::JsErrorBox::generic(format!(
+      "{op} test failed ({call}): {err:?}"
+    ))
   };
 
   let args = (0..arg_count)
