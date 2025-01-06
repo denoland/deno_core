@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use proc_macro2::TokenStream;
 use proc_macro2::TokenTree;
 use proc_macro_rules::rules;
@@ -43,6 +44,8 @@ pub(crate) struct MacroConfig {
   pub required: u8,
   /// Rename the op to the given name.
   pub rename: Option<String>,
+  /// Symbol.for("op_name") for the op.
+  pub symbol: bool,
 }
 
 impl MacroConfig {
@@ -109,7 +112,7 @@ impl MacroConfig {
         .collect::<Vec<_>>();
       } else if flag == "nofast" {
         config.nofast = true;
-      } else if flag == "async" {
+      } else if flag == "async" || flag == "async_method" {
         config.r#async = true;
       } else if flag == "async(lazy)" {
         config.r#async = true;
@@ -144,6 +147,10 @@ impl MacroConfig {
       } else if flag.starts_with("rename(") {
         let tokens = syn::parse_str::<LitStr>(&flag[7..flag.len() - 1])?;
         config.rename = Some(tokens.value());
+      } else if flag.starts_with("symbol(") {
+        let tokens = syn::parse_str::<LitStr>(&flag[7..flag.len() - 1])?;
+        config.rename = Some(tokens.value());
+        config.symbol = true;
       } else {
         return Err(Op2Error::InvalidAttribute(flag));
       }

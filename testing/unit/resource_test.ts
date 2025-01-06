@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
 import { DOMPoint, TestObjectWrap } from "checkin:object";
 
@@ -64,7 +64,7 @@ test(async function testCppgcAsync() {
   assertEquals(await op_async_get_cppgc_resource(resource), 42);
 });
 
-test(function testDomPoint() {
+test(async function testDomPoint() {
   const p1 = new DOMPoint(100, 100);
   const p2 = new DOMPoint();
   const p3 = DOMPoint.fromPoint({ x: 200 });
@@ -95,6 +95,9 @@ test(function testDomPoint() {
     DOMPoint.prototype.wrappingSmi.toString(),
   );
 
+  const f = Symbol.for("symbolMethod");
+  p1[f]();
+
   const wrap = new TestObjectWrap();
   assertEquals(wrap.withVarargs(1, 2, 3), 3);
   assertEquals(wrap.withVarargs(1, 2, 3, 4, 5), 5);
@@ -102,4 +105,9 @@ test(function testDomPoint() {
   assertEquals(wrap.withVarargs(undefined), 1);
 
   wrap.with_RENAME();
+
+  const promise = wrap.withAsyncFn(10);
+  assert(promise instanceof Promise);
+
+  await promise;
 });

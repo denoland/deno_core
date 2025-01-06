@@ -26,6 +26,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(constructor),
                 false,
                 false,
+                false,
                 1usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -42,7 +43,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -136,7 +136,7 @@ impl Foo {
             }
         }
         impl constructor {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             pub fn call(x: Option<u32>) -> Foo {
                 Foo {
                     x: Cell::new(x.unwrap_or_default()),
@@ -157,6 +157,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(x),
                 false,
                 false,
+                false,
                 0usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -173,7 +174,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -247,7 +247,7 @@ impl Foo {
             fn call(&self) -> u32;
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) -> u32 {
                 self.x.get()
             }
@@ -266,6 +266,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(x),
                 false,
                 false,
+                false,
                 1usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -282,7 +283,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -370,7 +370,7 @@ impl Foo {
             fn call(&self, x: u32);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self, x: u32) {
                 self.x.set(x);
             }
@@ -389,6 +389,7 @@ impl Foo {
                 ::deno_core::__op_name_fast!(bar),
                 false,
                 false,
+                false,
                 1usize as u8,
                 false,
                 Self::v8_fn_ptr as _,
@@ -405,7 +406,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -422,8 +422,8 @@ impl Foo {
                 );
                 if args.length() < 1u8 as i32 {
                     let msg = format!(
-                        "{}{} {} required, but only {} present",
-                        "Failed to execute 'call' on 'Foo': ",
+                        "{}: {} {} required, but only {} present",
+                        "Failed to execute 'call' on 'Foo'",
                         1u8,
                         "argument",
                         args.length(),
@@ -513,7 +513,7 @@ impl Foo {
             fn call(&self, _v: u32);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self, _v: u32) {}
         }
         <bar as ::deno_core::_ops::Op>::DECL
@@ -528,6 +528,7 @@ impl Foo {
             const NAME: &'static str = stringify!(zzz);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(zzz),
+                false,
                 false,
                 false,
                 0usize as u8,
@@ -634,7 +635,6 @@ impl Foo {
                 let result = { self_.call() };
                 result as _
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -708,7 +708,7 @@ impl Foo {
             fn call(&self);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) {}
         }
         <zzz as ::deno_core::_ops::Op>::DECL
@@ -723,6 +723,7 @@ impl Foo {
             const NAME: &'static str = stringify!(withVarargs);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(withVarargs),
+                false,
                 false,
                 false,
                 1usize as u8,
@@ -741,7 +742,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -818,7 +818,7 @@ impl Foo {
             fn call(&self, _args: Option<&v8::FunctionCallbackArguments>);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self, _args: Option<&v8::FunctionCallbackArguments>) {}
         }
         <withVarargs as ::deno_core::_ops::Op>::DECL
@@ -833,6 +833,7 @@ impl Foo {
             const NAME: &'static str = stringify!(with_RENAME);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(with_RENAME),
+                false,
                 false,
                 false,
                 0usize as u8,
@@ -851,7 +852,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -925,7 +925,7 @@ impl Foo {
             fn call(&self);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) {}
         }
         <with_RENAME as ::deno_core::_ops::Op>::DECL
@@ -940,6 +940,7 @@ impl Foo {
             const NAME: &'static str = stringify!(doThing);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(doThing),
+                false,
                 false,
                 false,
                 0usize as u8,
@@ -958,7 +959,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -1011,7 +1011,7 @@ impl Foo {
             }
         }
         impl __static_doThing {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call() {}
         }
         <__static_doThing as ::deno_core::_ops::Op>::DECL
@@ -1026,6 +1026,7 @@ impl Foo {
             const NAME: &'static str = stringify!(doThing);
             const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
                 ::deno_core::__op_name_fast!(doThing),
+                false,
                 false,
                 false,
                 0usize as u8,
@@ -1044,7 +1045,6 @@ impl Foo {
             pub const fn name() -> &'static str {
                 <Self as deno_core::_ops::Op>::NAME
             }
-            #[inline(always)]
             fn slow_function_impl<'s>(
                 info: &'s deno_core::v8::FunctionCallbackInfo,
             ) -> usize {
@@ -1118,7 +1118,7 @@ impl Foo {
             fn call(&self);
         }
         impl Callable for Foo {
-            #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             fn call(&self) {}
         }
         <doThing as ::deno_core::_ops::Op>::DECL

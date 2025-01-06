@@ -10,6 +10,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_stack_trace),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -128,7 +129,6 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -205,7 +205,7 @@ const fn op_stack_trace() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_stack_trace {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_: String) {}
     }
     <op_stack_trace as ::deno_core::_ops::Op>::DECL

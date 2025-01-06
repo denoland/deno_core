@@ -10,6 +10,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_async_lazy),
             true,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -123,7 +124,6 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                 |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
             );
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -190,7 +190,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async_lazy {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call() -> std::io::Result<i32> {
             Ok(0)
         }

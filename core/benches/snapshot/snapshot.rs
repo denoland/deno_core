@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use criterion::*;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;

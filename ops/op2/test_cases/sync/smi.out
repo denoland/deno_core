@@ -10,6 +10,7 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_smi_unsigned_return),
             false,
             false,
+            false,
             4usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -153,7 +154,6 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -269,7 +269,7 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_smi_unsigned_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Uint32 {
             a as Uint32 + b as Uint32 + c as Uint32 + d as Uint32
         }
@@ -289,6 +289,7 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_smi_signed_return),
             false,
             false,
+            false,
             4usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -432,7 +433,6 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -548,7 +548,7 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_smi_signed_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: Int16, b: Int32, c: Uint16, d: Uint32) -> Int32 {
             a as Int32 + b as Int32 + c as Int32 + d as Int32
         }
@@ -568,6 +568,7 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_smi_option),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -584,7 +585,6 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -659,7 +659,7 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_smi_option {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: Option<Uint32>) -> Option<Uint32> {
             a
         }

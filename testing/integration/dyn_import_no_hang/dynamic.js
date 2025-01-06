@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 await new Promise((resolve) => {
   // Resolve the promise after one tick of the event loop.
   setTimeout(() => {

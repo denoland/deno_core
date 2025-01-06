@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 #![deny(clippy::print_stderr)]
 #![deny(clippy::print_stdout)]
@@ -32,9 +32,12 @@ mod runtime;
 mod source_map;
 mod tasks;
 mod web_timeout;
+pub mod webidl;
 
 // Re-exports
 pub use anyhow;
+pub use deno_ops::op2;
+pub use deno_ops::WebIDL;
 pub use deno_unsync as unsync;
 pub use futures;
 pub use parking_lot;
@@ -51,9 +54,6 @@ pub use sourcemap;
 pub use thiserror;
 pub use url;
 pub use v8;
-
-pub use deno_error::JsError;
-pub use deno_ops::op2;
 
 pub use crate::async_cancel::CancelFuture;
 pub use crate::async_cancel::CancelHandle;

@@ -10,6 +10,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_v8_lifetime),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -96,7 +96,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_v8_lifetime {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call<'s>(_s: v8::Local<'s, v8::String>) -> v8::Local<'s, v8::String> {
             unimplemented!()
         }

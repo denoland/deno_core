@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -251,7 +252,7 @@ pub(crate) fn generate_op2(
         }
       }
       None => {
-        if config.fast || config.getter || config.setter {
+        if config.fast {
           return Err(Op2Error::ShouldNotBeFast("fast"));
         }
         if config.nofast {
@@ -285,7 +286,7 @@ pub(crate) fn generate_op2(
         #op_fn_sig;
       }
       impl Callable for #ident {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         #(#attrs)*
         #op_fn
       }
@@ -293,7 +294,7 @@ pub(crate) fn generate_op2(
   } else {
     quote! {
       impl <#(#generic : #bound),*> #rust_name <#(#generic),*> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         #(#attrs)*
         #op_fn
       }
@@ -307,6 +308,8 @@ pub(crate) fn generate_op2(
   } else {
     quote!(::deno_core::AccessorType::None)
   };
+
+  let symbol_for = config.symbol;
 
   Ok(quote! {
     #[allow(non_camel_case_types)]
@@ -324,6 +327,7 @@ pub(crate) fn generate_op2(
           /*name*/ ::deno_core::__op_name_fast!(#name),
           /*is_async*/ #is_async,
           /*is_reentrant*/ #is_reentrant,
+          /*symbol_for*/ #symbol_for,
           /*arg_count*/ #arg_count as u8,
           /*no_side_effect*/ #no_side_effect,
           /*slow_fn*/ Self::#slow_function as _,
@@ -407,7 +411,8 @@ mod tests {
     let source =
       std::fs::read_to_string(&input).expect("Failed to read test file");
 
-    const PRELUDE: &str = r"// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+    const PRELUDE: &str = r"// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();";
 

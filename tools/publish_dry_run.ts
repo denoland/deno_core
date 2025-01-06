@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A --lock=tools/deno.lock.json
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 import { Crate, DenoWorkspace } from "./deno_core_workspace.ts";
 
 const workspace = await DenoWorkspace.load();

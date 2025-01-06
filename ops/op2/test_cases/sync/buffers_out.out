@@ -10,6 +10,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_buffers),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -113,7 +113,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_buffers {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(buffer: JsBuffer) -> JsBuffer {
             buffer
         }
@@ -133,6 +133,7 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_buffers_option),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -149,7 +150,6 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -246,7 +246,7 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_buffers_option {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(buffer: Option<JsBuffer>) -> Option<JsBuffer> {
             buffer
         }
@@ -266,6 +266,7 @@ const fn op_arraybuffers() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_arraybuffers),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -282,7 +283,6 @@ const fn op_arraybuffers() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -365,7 +365,7 @@ const fn op_arraybuffers() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_arraybuffers {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(buffer: JsBuffer) -> JsBuffer {
             buffer
         }

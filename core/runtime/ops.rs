@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors.  MIT license.
+
 use super::op_driver::OpDriver;
 use super::op_driver::OpScheduling;
 use super::op_driver::V8RetValMapper;
@@ -243,16 +244,16 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
 
   // SAFETY: We're allocating a buffer of 2x the input size, writing valid UTF-8, then turning that into a string
   unsafe {
-    // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid
-    // accidentally creating a slice of u8 which would be invalid.
-    let layout = std::alloc::Layout::from_size_align(capacity, 1).unwrap();
-    let out = std::alloc::alloc(layout);
+    // Create an uninitialized buffer of `capacity` bytes.
+    let mut buffer = Vec::<u8>::with_capacity(capacity);
 
-    let written = latin1_to_utf8(input_buf.len(), input_buf.as_ptr(), out);
+    let written =
+      latin1_to_utf8(input_buf.len(), input_buf.as_ptr(), buffer.as_mut_ptr());
 
     debug_assert!(written <= capacity);
+    buffer.set_len(written);
     // We know it's valid UTF-8, so make a string
-    String::from_raw_parts(out, written, capacity)
+    String::from_utf8_unchecked(buffer)
   }
 }
 
@@ -312,25 +313,21 @@ pub fn to_cow_one_byte(
     return Err("expected one-byte String");
   }
 
-  // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid
-  // accidentally creating a slice of u8 which would be invalid.
-  unsafe {
-    let layout = std::alloc::Layout::from_size_align(capacity, 1).unwrap();
-    let out = std::alloc::alloc(layout);
+  // Create an uninitialized buffer of `capacity` bytes.
+  let mut buffer = Vec::<u8>::with_capacity(capacity);
+  // Write the buffer to a slice made from this uninitialized data
+  string.write_one_byte_uninit(
+    scope,
+    buffer.spare_capacity_mut(),
+    0,
+    WriteOptions::NO_NULL_TERMINATION,
+  );
 
-    // Write the buffer to a slice made from this uninitialized data
-    {
-      let buffer = std::slice::from_raw_parts_mut(out as _, capacity);
-      string.write_one_byte_uninit(
-        scope,
-        buffer,
-        0,
-        WriteOptions::NO_NULL_TERMINATION,
-      );
-    }
+  // SAFETY: We initialized bytes from `0..capacity` in
+  // `write_one_byte_uninit` above.
+  unsafe { buffer.set_len(capacity) };
 
-    Ok(Vec::from_raw_parts(out, capacity, capacity).into())
-  }
+  Ok(Cow::Owned(buffer))
 }
 
 /// Converts from a raw [`v8::Value`] to the expected V8 data type.

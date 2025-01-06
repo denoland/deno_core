@@ -10,6 +10,7 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_slow),
             false,
             false,
+            false,
             3usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -108,7 +108,7 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_slow {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
             a + b
         }
@@ -128,6 +128,7 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_fast),
             false,
             false,
+            false,
             2usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -245,7 +246,6 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -327,7 +327,7 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_fast {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: u32, b: u32) -> u32 {
             a + b
         }
@@ -347,6 +347,7 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_slow_generic),
             false,
             false,
+            false,
             3usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -363,7 +364,6 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -445,7 +445,7 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl<T: Trait> op_slow_generic<T> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
             a + b
         }
@@ -463,6 +463,7 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
         const NAME: &'static str = stringify!(op_fast_generic);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
             ::deno_core::__op_name_fast!(op_fast_generic),
+            false,
             false,
             false,
             2usize as u8,
@@ -582,7 +583,6 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -664,7 +664,7 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl<T: Trait> op_fast_generic<T> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: u32, b: u32) -> u32 {
             a + b
         }

@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![doc = include_str!("README.md")]
 #![deny(clippy::unnecessary_wraps)]
 
@@ -6,6 +7,7 @@ use proc_macro::TokenStream;
 use std::error::Error;
 
 mod op2;
+mod webidl;
 
 /// A macro designed to provide an extremely fast V8->Rust interface layer.
 #[doc = include_str!("op2/README.md")]
@@ -30,5 +32,13 @@ fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
       }
       panic!("{output}");
     }
+  }
+}
+
+#[proc_macro_derive(WebIDL, attributes(webidl, options))]
+pub fn webidl(item: TokenStream) -> TokenStream {
+  match webidl::webidl(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
   }
 }

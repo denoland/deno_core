@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 mod checkin;
 
@@ -66,6 +66,7 @@ integration_test!(
   error_ext_stack,
   error_prepare_stack_trace,
   error_prepare_stack_trace_crash,
+  error_source_maps_with_prepare_stack_trace,
   error_with_stack,
   error_without_stack,
   error_get_file_name,

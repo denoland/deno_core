@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
@@ -180,5 +180,36 @@ impl FunctionTemplateData {
       .into_iter()
       .map(|(k, v)| (k, data_store.get::<v8::FunctionTemplate>(scope, v)))
       .collect();
+  }
+}
+
+pub struct SameObject<T: GarbageCollected + 'static> {
+  cell: std::cell::OnceCell<v8::Global<v8::Object>>,
+  _phantom_data: std::marker::PhantomData<T>,
+}
+impl<T: GarbageCollected + 'static> SameObject<T> {
+  #[allow(clippy::new_without_default)]
+  pub fn new() -> Self {
+    Self {
+      cell: Default::default(),
+      _phantom_data: Default::default(),
+    }
+  }
+
+  pub fn get<F>(
+    &self,
+    scope: &mut v8::HandleScope,
+    f: F,
+  ) -> v8::Global<v8::Object>
+  where
+    F: FnOnce() -> T,
+  {
+    self
+      .cell
+      .get_or_init(|| {
+        let obj = make_cppgc_object(scope, f());
+        v8::Global::new(scope, obj)
+      })
+      .clone()
   }
 }

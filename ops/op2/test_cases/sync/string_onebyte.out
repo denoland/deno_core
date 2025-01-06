@@ -10,6 +10,7 @@ const fn op_string_onebyte() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_string_onebyte),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -103,7 +104,6 @@ const fn op_string_onebyte() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -182,7 +182,7 @@ const fn op_string_onebyte() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_onebyte {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(s: Cow<[u8]>) -> u32 {
             s.len() as _
         }

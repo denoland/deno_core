@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 pub(crate) mod bindings;
 pub(crate) mod exception_state;
 mod jsrealm;
@@ -10,7 +11,7 @@ pub mod ops_rust_to_v8;
 mod setup;
 mod snapshot;
 pub mod stats;
-pub(crate) mod v8_static_strings;
+pub mod v8_static_strings;
 
 #[cfg(all(test, not(miri)))]
 mod tests;

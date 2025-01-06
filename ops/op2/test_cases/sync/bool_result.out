@@ -10,6 +10,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_bool),
             false,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -125,7 +126,6 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -198,7 +198,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_bool {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(arg: bool) -> Result<bool, OpError> {
             Ok(arg)
         }

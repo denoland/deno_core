@@ -10,6 +10,7 @@ const fn op_v8_string() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_v8_string),
             false,
             false,
+            false,
             2usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ const fn op_v8_string() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -112,7 +112,7 @@ const fn op_v8_string() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_v8_string {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call<'a>(
             _str1: &v8::String,
             _str2: v8::Local<v8::String>,

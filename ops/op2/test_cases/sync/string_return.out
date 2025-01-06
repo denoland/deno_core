@@ -10,6 +10,7 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_string_return),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -88,7 +88,7 @@ pub const fn op_string_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> String {
             "".into()
         }
@@ -108,6 +108,7 @@ pub const fn op_string_return_ref() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_string_return_ref),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -124,7 +125,6 @@ pub const fn op_string_return_ref() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -186,7 +186,7 @@ pub const fn op_string_return_ref() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_return_ref {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> &'static str {
             ""
         }
@@ -206,6 +206,7 @@ pub const fn op_string_return_cow() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_string_return_cow),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -222,7 +223,6 @@ pub const fn op_string_return_cow() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -284,7 +284,7 @@ pub const fn op_string_return_cow() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_return_cow {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call<'a>() -> Cow<'a, str> {
             "".into()
         }

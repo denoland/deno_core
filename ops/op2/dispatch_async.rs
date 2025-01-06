@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use super::config::MacroConfig;
 use super::dispatch_slow::generate_dispatch_slow_call;
 use super::dispatch_slow::return_value_infallible;
@@ -155,7 +156,6 @@ pub(crate) fn generate_dispatch_async(
 
   Ok(
     gs_quote!(generator_state(info, slow_function, slow_function_metrics, opctx) => {
-      #[inline(always)]
       fn slow_function_impl<'s>(info: &'s deno_core::v8::FunctionCallbackInfo) -> usize {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);

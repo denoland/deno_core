@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 //!  This example shows you how to evaluate JavaScript expression and deserialize
 //!  return value into a Rust object.
 

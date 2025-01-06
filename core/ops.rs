@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
@@ -68,17 +68,6 @@ impl OpMetadata {
       sanitizer_fix: None,
     }
   }
-}
-
-/// Per-object contexts for members.
-pub struct OpMethodCtx {
-  pub type_name: &'static str,
-  /// Op context for the constructor
-  pub constructor: OpCtx,
-  /// Per-op context for the methods
-  pub methods: Vec<OpCtx>,
-  /// Per-op context for the static methods
-  pub static_methods: Vec<OpCtx>,
 }
 
 /// Per-op context.

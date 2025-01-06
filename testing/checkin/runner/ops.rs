@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -94,6 +95,18 @@ impl TestObjectWrap {
   #[fast]
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
+
+  #[async_method]
+  async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), AnyError> {
+    tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
+    Ok(())
+  }
+
+  #[getter]
+  #[string]
+  fn with_slow_getter(&self) -> String {
+    String::from("getter")
+  }
 }
 
 pub struct DOMPoint {
@@ -195,6 +208,10 @@ impl DOMPoint {
   fn wrapping_smi(&self, #[smi] t: u32) -> u32 {
     t
   }
+
+  #[fast]
+  #[symbol("symbolMethod")]
+  fn with_symbol(&self) {}
 }
 
 #[op2(fast)]

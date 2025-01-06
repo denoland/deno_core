@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 pub use super::modules::ModuleConcreteError;
 pub use super::runtime::op_driver::OpError;
@@ -1104,6 +1104,7 @@ v8_static_strings::v8_static_strings! {
   TO_STRING = "toString",
   PREPARE_STACK_TRACE = "prepareStackTrace",
   ORIGINAL = "deno_core::original_call_site",
+  SOURCE_MAPPED_INFO = "deno_core::source_mapped_call_site_info",
   ERROR_RECEIVER_IS_NOT_VALID_CALLSITE_OBJECT = "The receiver is not a valid callsite object.",
 }
 
@@ -1112,6 +1113,13 @@ pub(crate) fn original_call_site_key<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Private> {
   let name = ORIGINAL.v8_string(scope).unwrap();
+  v8::Private::for_api(scope, Some(name))
+}
+
+pub(crate) fn source_mapped_info_key<'a>(
+  scope: &mut v8::HandleScope<'a>,
+) -> v8::Local<'a, v8::Private> {
+  let name = SOURCE_MAPPED_INFO.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
 
@@ -1188,7 +1196,149 @@ fn maybe_to_path_str(string: &str) -> Option<String> {
 }
 
 pub mod callsite_fns {
+  use capacity_builder::StringBuilder;
+
+  use crate::convert;
+  use crate::FromV8;
+  use crate::ToV8;
+
   use super::*;
+
+  enum SourceMappedCallsiteInfo<'a> {
+    Ref(v8::Local<'a, v8::Array>),
+    Value {
+      file_name: v8::Local<'a, v8::Value>,
+      line_number: v8::Local<'a, v8::Value>,
+      column_number: v8::Local<'a, v8::Value>,
+    },
+  }
+  impl<'a> SourceMappedCallsiteInfo<'a> {
+    #[inline]
+    fn file_name(
+      &self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> v8::Local<'a, v8::Value> {
+      match self {
+        Self::Ref(array) => array.get_index(scope, 0).unwrap(),
+        Self::Value { file_name, .. } => *file_name,
+      }
+    }
+    #[inline]
+    fn line_number(
+      &self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> v8::Local<'a, v8::Value> {
+      match self {
+        Self::Ref(array) => array.get_index(scope, 1).unwrap(),
+        Self::Value { line_number, .. } => *line_number,
+      }
+    }
+    #[inline]
+    fn column_number(
+      &self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> v8::Local<'a, v8::Value> {
+      match self {
+        Self::Ref(array) => array.get_index(scope, 2).unwrap(),
+        Self::Value { column_number, .. } => *column_number,
+      }
+    }
+  }
+
+  type MaybeValue<'a> = Option<v8::Local<'a, v8::Value>>;
+
+  fn maybe_apply_source_map<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    file_name: MaybeValue<'a>,
+    line_number: MaybeValue<'a>,
+    column_number: MaybeValue<'a>,
+  ) -> Option<(String, i64, i64)> {
+    let file_name = serde_v8::to_utf8(file_name?.try_cast().ok()?, scope);
+    let convert::Number(line_number) =
+      FromV8::from_v8(scope, line_number?).ok()?;
+    let convert::Number(column_number) =
+      FromV8::from_v8(scope, column_number?).ok()?;
+
+    let state = JsRuntime::state_from(scope);
+    let mut source_mapper = state.source_mapper.borrow_mut();
+    let (mapped_file_name, mapped_line_number, mapped_column_number) =
+      apply_source_map(
+        &mut source_mapper,
+        Cow::Owned(file_name),
+        line_number,
+        column_number,
+      );
+    Some((
+      mapped_file_name.into_owned(),
+      mapped_line_number,
+      mapped_column_number,
+    ))
+  }
+  fn source_mapped_call_site_info<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    callsite: v8::Local<'a, v8::Object>,
+  ) -> Option<SourceMappedCallsiteInfo<'a>> {
+    let key = source_mapped_info_key(scope);
+    // return the cached value if it exists
+    if let Some(info) = callsite.get_private(scope, key) {
+      if let Ok(array) = info.try_cast::<v8::Array>() {
+        return Some(SourceMappedCallsiteInfo::Ref(array));
+      }
+    }
+    let orig_callsite = original_call_site(scope, callsite)?;
+
+    let file_name =
+      call_method::<v8::Value>(scope, orig_callsite, super::GET_FILE_NAME, &[]);
+    let line_number = call_method::<v8::Value>(
+      scope,
+      orig_callsite,
+      super::GET_LINE_NUMBER,
+      &[],
+    );
+    let column_number = call_method::<v8::Value>(
+      scope,
+      orig_callsite,
+      super::GET_COLUMN_NUMBER,
+      &[],
+    );
+
+    let info = v8::Array::new(scope, 3);
+
+    // if the types are right, apply the source map, otherwise just take them as is
+    if let Some((mapped_file_name, mapped_line_number, mapped_column_number)) =
+      maybe_apply_source_map(scope, file_name, line_number, column_number)
+    {
+      let mapped_file_name_trimmed =
+        maybe_to_path_str(&mapped_file_name).unwrap_or(mapped_file_name);
+      let mapped_file_name = crate::FastString::from(mapped_file_name_trimmed)
+        .v8_string(scope)
+        .unwrap();
+      let Ok(mapped_line_number) =
+        convert::Number(mapped_line_number).to_v8(scope);
+      let Ok(mapped_column_number) =
+        convert::Number(mapped_column_number).to_v8(scope);
+      info.set_index(scope, 0, mapped_file_name.into());
+      info.set_index(scope, 1, mapped_line_number);
+      info.set_index(scope, 2, mapped_column_number);
+      callsite.set_private(scope, key, info.into());
+      Some(SourceMappedCallsiteInfo::Value {
+        file_name: mapped_file_name.into(),
+        line_number: mapped_line_number,
+        column_number: mapped_column_number,
+      })
+    } else {
+      let file_name = file_name.unwrap_or_else(|| v8::undefined(scope).into());
+      let line_number =
+        line_number.unwrap_or_else(|| v8::undefined(scope).into());
+      let column_number =
+        column_number.unwrap_or_else(|| v8::undefined(scope).into());
+      info.set_index(scope, 0, file_name);
+      info.set_index(scope, 1, line_number);
+      info.set_index(scope, 2, column_number);
+      callsite.set_private(scope, key, info.into());
+      Some(SourceMappedCallsiteInfo::Ref(info))
+    }
+  }
 
   make_callsite_fn!(get_this, GET_THIS);
   make_callsite_fn!(get_type_name, GET_TYPE_NAME);
@@ -1196,36 +1346,36 @@ pub mod callsite_fns {
   make_callsite_fn!(get_function_name, GET_FUNCTION_NAME);
   make_callsite_fn!(get_method_name, GET_METHOD_NAME);
 
-  pub fn get_file_name(
-    scope: &mut v8::HandleScope<'_>,
-    args: v8::FunctionCallbackArguments<'_>,
+  pub fn get_file_name<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
     mut rv: v8::ReturnValue<'_>,
   ) {
-    let Some(orig) = original_call_site(scope, args.this()) else {
-      return;
-    };
-    // call getFileName
-    let orig_ret =
-      call_method::<v8::Value>(scope, orig, super::GET_FILE_NAME, &[]);
-    if let Some(ret_val) =
-      orig_ret.and_then(|v| v.try_cast::<v8::String>().ok())
-    {
-      // strip off `file://`
-      let string = ret_val.to_rust_string_lossy(scope);
-      if let Some(file_name) = maybe_to_path_str(&string) {
-        let v8_str = crate::FastString::from(file_name)
-          .v8_string(scope)
-          .unwrap()
-          .into();
-        rv.set(v8_str);
-      } else {
-        rv.set(ret_val.into());
-      }
+    if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
+      rv.set(info.file_name(scope));
     }
   }
 
-  make_callsite_fn!(get_line_number, GET_LINE_NUMBER);
-  make_callsite_fn!(get_column_number, GET_COLUMN_NUMBER);
+  pub fn get_line_number<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
+    mut rv: v8::ReturnValue<'_>,
+  ) {
+    if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
+      rv.set(info.line_number(scope));
+    }
+  }
+
+  pub fn get_column_number<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
+    mut rv: v8::ReturnValue<'_>,
+  ) {
+    if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
+      rv.set(info.column_number(scope));
+    }
+  }
+
   make_callsite_fn!(get_eval_origin, GET_EVAL_ORIGIN);
   make_callsite_fn!(is_toplevel, IS_TOPLEVEL);
   make_callsite_fn!(is_eval, IS_EVAL);
@@ -1239,12 +1389,65 @@ pub mod callsite_fns {
     GET_SCRIPT_NAME_OR_SOURCE_URL
   );
 
-  pub fn to_string(
-    scope: &mut v8::HandleScope<'_>,
-    args: v8::FunctionCallbackArguments<'_>,
+  // the bulk of the to_string logic
+  fn to_string_inner<'e>(
+    scope: &mut v8::HandleScope<'e>,
+    this: v8::Local<'e, v8::Object>,
+    orig: v8::Local<'e, Object>,
+    orig_to_string_v8: v8::Local<'e, v8::String>,
+  ) -> Option<v8::Local<'e, v8::String>> {
+    let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
+    // `this[kOriginalCallsite].getFileName()`
+    let orig_file_name =
+      call_method::<v8::Value>(scope, orig, GET_FILE_NAME, &[])
+        .and_then(|v| v.try_cast::<v8::String>().ok())?;
+    let orig_line_number =
+      call_method::<v8::Value>(scope, orig, GET_LINE_NUMBER, &[])
+        .and_then(|v| v.try_cast::<v8::Number>().ok())?;
+    let orig_column_number =
+      call_method::<v8::Value>(scope, orig, GET_COLUMN_NUMBER, &[])
+        .and_then(|v| v.try_cast::<v8::Number>().ok())?;
+    let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
+    let orig_line_number = orig_line_number.value() as i64;
+    let orig_column_number = orig_column_number.value() as i64;
+    let orig_file_name_line_col =
+      fmt_file_line_col(&orig_file_name, orig_line_number, orig_column_number);
+    let mapped = source_mapped_call_site_info(scope, this)?;
+    let mapped_file_name = mapped.file_name(scope).to_rust_string_lossy(scope);
+    let mapped_line_num = mapped
+      .line_number(scope)
+      .try_cast::<v8::Number>()
+      .ok()
+      .map(|n| n.value() as i64)?;
+    let mapped_col_num =
+      mapped.column_number(scope).cast::<v8::Number>().value() as i64;
+    let file_name_line_col =
+      fmt_file_line_col(&mapped_file_name, mapped_line_num, mapped_col_num);
+    // replace file URL with file path, and source map in original `toString`
+    let to_string = orig_to_string
+      .replace(&orig_file_name_line_col, &file_name_line_col)
+      .replace(&orig_file_name, &mapped_file_name); // maybe unnecessary?
+    Some(crate::FastString::from(to_string).v8_string(scope).unwrap())
+  }
+
+  fn fmt_file_line_col(file: &str, line: i64, col: i64) -> String {
+    StringBuilder::build(|builder| {
+      builder.append(file);
+      builder.append(':');
+      builder.append(line);
+      builder.append(':');
+      builder.append(col);
+    })
+    .unwrap()
+  }
+
+  pub fn to_string<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
     mut rv: v8::ReturnValue<'_>,
   ) {
-    let Some(orig) = original_call_site(scope, args.this()) else {
+    let this = args.this();
+    let Some(orig) = original_call_site(scope, this) else {
       return;
     };
     // `this[kOriginalCallsite].toString()`
@@ -1253,24 +1456,10 @@ pub mod callsite_fns {
     else {
       return;
     };
-    let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
-    // `this[kOriginalCallsite].getFileName()`
-    let orig_ret_file_name =
-      call_method::<v8::Value>(scope, orig, GET_FILE_NAME, &[]);
-    let Some(orig_file_name) =
-      orig_ret_file_name.and_then(|v| v.try_cast::<v8::String>().ok())
-    else {
-      return;
-    };
-    // replace file URL with file path in original `toString`
-    let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
-    if let Some(file_name) = maybe_to_path_str(&orig_file_name) {
-      let to_string = orig_to_string.replace(&orig_file_name, &file_name);
-      let v8_str = crate::FastString::from(to_string)
-        .v8_string(scope)
-        .unwrap()
-        .into();
-      rv.set(v8_str);
+
+    if let Some(v8_str) = to_string_inner(scope, this, orig, orig_to_string_v8)
+    {
+      rv.set(v8_str.into());
     } else {
       rv.set(orig_to_string_v8.into());
     }

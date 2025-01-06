@@ -10,6 +10,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_void_with_result),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -112,7 +113,6 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -181,7 +181,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_void_with_result {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> std::io::Result<()> {
             Ok(())
         }
