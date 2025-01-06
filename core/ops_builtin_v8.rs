@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors.  MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::error::is_instance_of_error;
 use crate::error::JsError;

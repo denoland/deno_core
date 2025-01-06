@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors.  MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use self::runtime::create_snapshot;
 use self::runtime::CreateSnapshotOptions;

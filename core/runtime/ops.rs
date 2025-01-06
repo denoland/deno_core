@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors.  MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use super::op_driver::OpDriver;
 use super::op_driver::OpScheduling;
