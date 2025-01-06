@@ -665,7 +665,7 @@ pub fn from_arg(
         syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
-      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      let throw_exception = throw_type_error_string(generator_state, &err);
       let prefix = get_prefix(generator_state);
       let context = format!("Argument {}", index + 1);
 

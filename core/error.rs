@@ -1393,7 +1393,7 @@ pub mod callsite_fns {
   fn to_string_inner<'e>(
     scope: &mut v8::HandleScope<'e>,
     this: v8::Local<'e, v8::Object>,
-    orig: v8::Local<'e, Object>,
+    orig: v8::Local<'e, v8::Object>,
     orig_to_string_v8: v8::Local<'e, v8::String>,
   ) -> Option<v8::Local<'e, v8::String>> {
     let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
