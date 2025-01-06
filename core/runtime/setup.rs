@@ -81,7 +81,7 @@ fn v8_init(
   v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
 
-  v8::cppgc::initalize_process(v8_platform);
+  v8::cppgc::initialize_process(v8_platform);
 }
 
 pub fn init_v8(
