@@ -191,7 +191,9 @@
       );
 
       if (res.additional_properties) {
-        for (const property of new SafeArrayIterator(res.additional_properties)) {
+        for (
+          const property of new SafeArrayIterator(res.additional_properties)
+        ) {
           const key = property[0];
           if (!(key in err)) {
             ObjectDefineProperty(err, key, {

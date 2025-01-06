@@ -14,12 +14,12 @@ description = "Rust to V8 serialization and deserialization"
 path = "lib.rs"
 
 [dependencies]
+deno_error.workspace = true
 num-bigint.workspace = true
 serde.workspace = true
 smallvec = { workspace = true, features = ["union"] }
 thiserror.workspace = true
 v8.workspace = true
-deno_error.workspace = true
 
 [dev-dependencies]
 bencher.workspace = true

@@ -3,19 +3,21 @@
 #![allow(clippy::print_stderr)]
 
 use crate::ascii_str;
-use crate::error::{exception_to_err_result, CoreError};
+use crate::error::exception_to_err_result;
+use crate::error::CoreError;
 use crate::modules::loaders::ModuleLoadEventCounts;
 use crate::modules::loaders::TestingModuleLoader;
 use crate::modules::loaders::*;
+use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeBytes;
+use crate::modules::ModuleConcreteError;
 use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
 use crate::modules::RequestedModuleType;
 use crate::modules::SourceCodeCacheInfo;
-use crate::modules::{CustomModuleEvaluationKind, ModuleConcreteError};
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
