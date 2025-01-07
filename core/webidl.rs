@@ -13,55 +13,52 @@ pub struct WebIdlError {
   pub kind: WebIdlErrorKind,
 }
 
-type DynContext<'a> = dyn Fn() -> Cow<'static, str> + 'a;
+type DynContextFn<'a> = dyn Fn() -> Cow<'static, str> + 'a;
 
-enum MyCow<'a> {
-  Borrowed(&'a DynContext<'a>),
-  Owned(Box<DynContext<'a>>),
+enum ContextFnInner<'a> {
+  Borrowed(&'a DynContextFn<'a>),
+  Owned(Box<DynContextFn<'a>>),
 }
 
-pub struct ContextFn<'a>(MyCow<'a>);
+/// A function that returns a context string for an error.
+///
+/// When possible, prefer to use `ContextFn::new_borrowed` when creating a new context function
+/// to avoid unnecessary allocations.
+/// 
+/// To pass a borrow of the context function, use `ContextFn::borrowed`.
+pub struct ContextFn<'a>(ContextFnInner<'a>);
 
 impl<'a, T> From<T> for ContextFn<'a>
 where
   T: Fn() -> Cow<'static, str> + 'a,
 {
   fn from(f: T) -> Self {
-    Self(MyCow::Owned(Box::new(f)))
+    Self(ContextFnInner::Owned(Box::new(f)))
   }
 }
 
 impl<'a> ContextFn<'a> {
   pub fn call(&self) -> Cow<'static, str> {
     match &self.0 {
-      MyCow::Borrowed(b) => b(),
-      MyCow::Owned(b) => b(),
+      ContextFnInner::Borrowed(b) => b(),
+      ContextFnInner::Owned(b) => b(),
     }
   }
 
   pub fn new(f: impl Fn() -> Cow<'static, str> + 'a) -> Self {
-    Self(MyCow::Owned(Box::new(f)))
+    Self(ContextFnInner::Owned(Box::new(f)))
   }
 
-  pub fn new_borrowed(b: &'a DynContext<'a>) -> Self {
-    Self(MyCow::Borrowed(b))
-  }
-}
-
-impl<'a> AsRef<DynContext<'a>> for ContextFn<'a> {
-  fn as_ref(&self) -> &DynContext<'a> {
-    match &self.0 {
-      MyCow::Borrowed(b) => *b,
-      MyCow::Owned(b) => b.as_ref(),
-    }
+  pub fn new_borrowed(b: &'a DynContextFn<'a>) -> Self {
+    Self(ContextFnInner::Borrowed(b))
   }
 }
 
 impl<'a> ContextFn<'a> {
   pub fn borrowed(&'a self) -> ContextFn<'a> {
     match self {
-      Self(MyCow::Borrowed(b)) => Self(MyCow::Borrowed(*b)),
-      Self(MyCow::Owned(b)) => Self(MyCow::Borrowed(&**b)),
+      Self(ContextFnInner::Borrowed(b)) => Self(ContextFnInner::Borrowed(*b)),
+      Self(ContextFnInner::Owned(b)) => Self(ContextFnInner::Borrowed(&**b)),
     }
   }
 }
@@ -371,8 +368,8 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
         scope,
         iter_val,
         prefix.clone(),
-        ContextFn::from(|| {
-          format!("{}, index {}", (context.as_ref())(), out.len()).into()
+        ContextFn::new_borrowed(&|| {
+          format!("{}, index {}", context.call(), out.len()).into()
         }),
         options,
       )?);

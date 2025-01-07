@@ -1,15 +1,12 @@
 impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
     type Options = ();
-    fn convert<C>(
+    fn convert<'b>(
         __scope: &mut ::deno_core::v8::HandleScope<'a>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
         __prefix: std::borrow::Cow<'static, str>,
-        __context: C,
+        __context: ::deno_core::webidl::ContextFn<'b>,
         __options: &Self::Options,
-    ) -> Result<Self, ::deno_core::webidl::WebIdlError>
-    where
-        C: Fn() -> std::borrow::Cow<'static, str>,
-    {
+    ) -> Result<Self, ::deno_core::webidl::WebIdlError> {
         ::deno_core::v8_static_strings! {
             __v8_static_a = "a", __v8_static_b = "b", __v8_static_c = "c", __v8_static_e
             = "e", __v8_static_f = "f"
@@ -32,7 +29,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
                         __prefix,
-                        &__context,
+                        __context.borrowed(),
                         ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType(
                             "dictionary",
                         ),
@@ -50,7 +47,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                             .v8_string(__scope)
                             .map_err(|e| ::deno_core::webidl::WebIdlError::other(
                                 __prefix.clone(),
-                                &__context,
+                                __context.borrowed(),
                                 e,
                             ))?;
                         __eternal.set(__scope, __key);
@@ -66,14 +63,16 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __scope,
                     __value,
                     __prefix.clone(),
-                    || format!("{} ({})", "'a' of 'Dict'", __context()).into(),
+                    ::deno_core::webidl::ContextFn::new_borrowed(
+                        &|| format!("{} ({})", "'a' of 'Dict'", __context.call()).into(),
+                    ),
                     &Default::default(),
                 )?
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
                         __prefix,
-                        &__context,
+                        __context.borrowed(),
                         ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
                             converter: "Dict",
                             key: "a",
@@ -92,7 +91,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                             .v8_string(__scope)
                             .map_err(|e| ::deno_core::webidl::WebIdlError::other(
                                 __prefix.clone(),
-                                &__context,
+                                __context.borrowed(),
                                 e,
                             ))?;
                         __eternal.set(__scope, __key);
@@ -108,7 +107,9 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __scope,
                     __value,
                     __prefix.clone(),
-                    || format!("{} ({})", "'b' of 'Dict'", __context()).into(),
+                    ::deno_core::webidl::ContextFn::new_borrowed(
+                        &|| format!("{} ({})", "'b' of 'Dict'", __context.call()).into(),
+                    ),
                     &{
                         type Alias<'a> = <Vec<
                             u16,
@@ -123,7 +124,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
                         __prefix,
-                        &__context,
+                        __context.borrowed(),
                         ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
                             converter: "Dict",
                             key: "b",
@@ -142,7 +143,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                             .v8_string(__scope)
                             .map_err(|e| ::deno_core::webidl::WebIdlError::other(
                                 __prefix.clone(),
-                                &__context,
+                                __context.borrowed(),
                                 e,
                             ))?;
                         __eternal.set(__scope, __key);
@@ -161,7 +162,9 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __scope,
                     __value,
                     __prefix.clone(),
-                    || format!("{} ({})", "'c' of 'Dict'", __context()).into(),
+                    ::deno_core::webidl::ContextFn::new_borrowed(
+                        &|| format!("{} ({})", "'c' of 'Dict'", __context.call()).into(),
+                    ),
                     &Default::default(),
                 )?
             } else {
@@ -178,7 +181,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                             .v8_string(__scope)
                             .map_err(|e| ::deno_core::webidl::WebIdlError::other(
                                 __prefix.clone(),
-                                &__context,
+                                __context.borrowed(),
                                 e,
                             ))?;
                         __eternal.set(__scope, __key);
@@ -194,14 +197,16 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __scope,
                     __value,
                     __prefix.clone(),
-                    || format!("{} ({})", "'e' of 'Dict'", __context()).into(),
+                    ::deno_core::webidl::ContextFn::new_borrowed(
+                        &|| format!("{} ({})", "'e' of 'Dict'", __context.call()).into(),
+                    ),
                     &Default::default(),
                 )?
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
                         __prefix,
-                        &__context,
+                        __context.borrowed(),
                         ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
                             converter: "Dict",
                             key: "e",
@@ -220,7 +225,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                             .v8_string(__scope)
                             .map_err(|e| ::deno_core::webidl::WebIdlError::other(
                                 __prefix.clone(),
-                                &__context,
+                                __context.borrowed(),
                                 e,
                             ))?;
                         __eternal.set(__scope, __key);
@@ -236,14 +241,16 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __scope,
                     __value,
                     __prefix.clone(),
-                    || format!("{} ({})", "'f' of 'Dict'", __context()).into(),
+                    ::deno_core::webidl::ContextFn::new_borrowed(
+                        &|| format!("{} ({})", "'f' of 'Dict'", __context.call()).into(),
+                    ),
                     &Default::default(),
                 )?
             } else {
                 return Err(
                     ::deno_core::webidl::WebIdlError::new(
                         __prefix,
-                        &__context,
+                        __context.borrowed(),
                         ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
                             converter: "Dict",
                             key: "f",
