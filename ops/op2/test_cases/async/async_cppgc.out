@@ -175,7 +175,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(mut arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    deno_core::_ops::throw_error1(&info, "expected Wrap");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 arg0.root();
@@ -298,7 +298,7 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     arg0.root();
                     Some(arg0)
                 } else {
-                    deno_core::_ops::throw_error1(&info, "expected Wrap");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 async move {

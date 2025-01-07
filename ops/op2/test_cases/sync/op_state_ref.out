@@ -393,7 +393,10 @@ const fn op_state_and_v8() -> ::deno_core::_ops::OpDecl {
                 let Ok(mut arg1) = deno_core::_ops::v8_try_convert::<
                     deno_core::v8::Function,
                 >(arg1) else {
-                    deno_core::_ops::throw_error1(&info, "expected Function");
+                    deno_core::_ops::throw_error_one_byte_info(
+                        &info,
+                        "expected Function",
+                    );
                     return 1;
                 };
                 let arg1 = deno_core::v8::Global::new(&mut scope, arg1);
@@ -564,7 +567,10 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error3(&mut scope, "expected Function");
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Function",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -596,7 +602,10 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                 let Ok(mut arg1) = deno_core::_ops::v8_try_convert::<
                     deno_core::v8::Function,
                 >(arg1) else {
-                    deno_core::_ops::throw_error1(&info, "expected Function");
+                    deno_core::_ops::throw_error_one_byte_info(
+                        &info,
+                        "expected Function",
+                    );
                     return 1;
                 };
                 let arg1 = arg1;

@@ -177,6 +177,9 @@ extern crate self as deno_core;
 pub mod _ops {
   pub use super::cppgc::make_cppgc_object;
   pub use super::cppgc::try_unwrap_cppgc_object;
+  pub use super::error::throw_error_anyhow;
+  pub use super::error::throw_error_one_byte;
+  pub use super::error::throw_error_one_byte_info;
   pub use super::error::throw_type_error;
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
@@ -193,33 +196,6 @@ pub mod _ops {
   pub use super::runtime::ops_rust_to_v8::*;
   pub use super::runtime::V8_WRAPPER_OBJECT_INDEX;
   pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
-
-  pub fn throw_error1(info: &v8::FunctionCallbackInfo, message: &str) {
-    let mut scope = unsafe { v8::CallbackScope::new(info) };
-    throw_error3(&mut scope, message);
-  }
-
-  pub fn throw_error2<S>(scope: &mut v8::CallbackScope<'_>, message: S)
-  where
-    S: Into<deno_core::anyhow::Error>,
-  {
-    // TODO(mmastrac): This might be allocating too much, even if it's on the error path
-    let e: deno_core::anyhow::Error = message.into();
-    let msg = deno_core::v8::String::new(scope, &format!("{}", e)).unwrap();
-    let exc = deno_core::v8::Exception::type_error(scope, msg);
-    scope.throw_exception(exc);
-  }
-
-  pub fn throw_error3(scope: &mut v8::CallbackScope, message: &str) {
-    let msg = deno_core::v8::String::new_from_one_byte(
-      scope,
-      message.as_bytes(),
-      deno_core::v8::NewStringType::Normal,
-    )
-    .unwrap();
-    let exc = deno_core::v8::Exception::type_error(scope, msg);
-    scope.throw_exception(exc);
-  }
 }
 
 pub mod snapshot {

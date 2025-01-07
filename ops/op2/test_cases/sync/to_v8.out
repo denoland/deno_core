@@ -46,7 +46,7 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
             ) {
                 Ok(v) => rv.set(v),
                 Err(rv_err) => {
-                    deno_core::_ops::throw_error2(&mut scope, rv_err);
+                    deno_core::_ops::throw_error_anyhow(&mut scope, rv_err);
                     return 1;
                 }
             };

@@ -1191,7 +1191,7 @@ fn throw_type_error(
   debug_assert!(message.is_ascii() && message.len() < 1024);
 
   Ok(gs_quote!(generator_state(info) => {
-    deno_core::_ops::throw_error1(&#info, #message);
+    deno_core::_ops::throw_error_one_byte_info(&#info, #message);
     return 1;
   }))
 }
@@ -1209,7 +1209,7 @@ fn throw_type_error_string(
 
   Ok(gs_quote!(generator_state(scope) => {
     #maybe_scope
-    deno_core::_ops::throw_error2(&mut #scope, #message);
+    deno_core::_ops::throw_error_anyhow(&mut #scope, #message);
     return 1;
   }))
 }
@@ -1220,7 +1220,7 @@ fn throw_type_error_static_string(
   message: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   Ok(gs_quote!(generator_state(info) => {
-    deno_core::_ops::throw_error1(&#info, #message);
+    deno_core::_ops::throw_error_one_byte_info(&#info, #message);
     return 1;
   }))
 }

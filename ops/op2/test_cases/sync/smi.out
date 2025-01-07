@@ -168,25 +168,25 @@ const fn op_smi_unsigned_return() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let arg0 = args.get(0usize as i32);
                 let Some(arg0) = deno_core::_ops::to_i32_option(&arg0) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg0 = arg0 as _;
                 let arg1 = args.get(1usize as i32);
                 let Some(arg1) = deno_core::_ops::to_i32_option(&arg1) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg1 = arg1 as _;
                 let arg2 = args.get(2usize as i32);
                 let Some(arg2) = deno_core::_ops::to_i32_option(&arg2) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg2 = arg2 as _;
                 let arg3 = args.get(3usize as i32);
                 let Some(arg3) = deno_core::_ops::to_i32_option(&arg3) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg3 = arg3 as _;
@@ -415,25 +415,25 @@ const fn op_smi_signed_return() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let arg0 = args.get(0usize as i32);
                 let Some(arg0) = deno_core::_ops::to_i32_option(&arg0) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg0 = arg0 as _;
                 let arg1 = args.get(1usize as i32);
                 let Some(arg1) = deno_core::_ops::to_i32_option(&arg1) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg1 = arg1 as _;
                 let arg2 = args.get(2usize as i32);
                 let Some(arg2) = deno_core::_ops::to_i32_option(&arg2) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg2 = arg2 as _;
                 let arg3 = args.get(3usize as i32);
                 let Some(arg3) = deno_core::_ops::to_i32_option(&arg3) else {
-                    deno_core::_ops::throw_error1(&info, "expected i32");
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected i32");
                     return 1;
                 };
                 let arg3 = arg3 as _;
@@ -538,7 +538,10 @@ const fn op_smi_option() -> ::deno_core::_ops::OpDecl {
                     None
                 } else {
                     let Some(arg0) = deno_core::_ops::to_i32_option(&arg0) else {
-                        deno_core::_ops::throw_error1(&info, "expected i32");
+                        deno_core::_ops::throw_error_one_byte_info(
+                            &info,
+                            "expected i32",
+                        );
                         return 1;
                     };
                     let arg0 = arg0 as _;
