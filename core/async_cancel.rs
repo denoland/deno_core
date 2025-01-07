@@ -250,7 +250,7 @@ impl From<Canceled> for deno_error::JsErrorBox {
 }
 
 impl JsErrorClass for Canceled {
-  fn get_class(&self) -> &'static str {
+  fn get_class(&self) -> Cow<'static, str> {
     let io_err: io::Error = self.to_owned().into();
     io_err.get_class()
   }

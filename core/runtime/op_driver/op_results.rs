@@ -290,7 +290,7 @@ impl Serialize for OpError {
     S: serde::Serializer,
   {
     let mut serde_state = serializer.serialize_struct("OpError", 3)?;
-    serde_state.serialize_field("$err_class_name", self.0.get_class())?;
+    serde_state.serialize_field("$err_class_name", &self.0.get_class())?;
     serde_state.serialize_field("message", &self.0.get_message())?;
     serde_state.serialize_field(
       "additional_properties",
@@ -306,7 +306,7 @@ impl Serialize for OpError {
 pub struct OpErrorWrapper(pub OpError);
 
 impl JsErrorClass for OpErrorWrapper {
-  fn get_class(&self) -> &'static str {
+  fn get_class(&self) -> Cow<'static, str> {
     self.0 .0.get_class()
   }
 

@@ -134,7 +134,7 @@ impl CoreError {
     };
 
     let exception =
-      js_class_and_message_to_exception(scope, self.get_class(), &message);
+      js_class_and_message_to_exception(scope, &self.get_class(), &message);
     v8::Global::new(scope, exception)
   }
 }
@@ -152,10 +152,14 @@ impl From<ModuleLoaderError> for CoreError {
 }
 
 impl JsErrorClass for CoreError {
-  fn get_class(&self) -> &'static str {
+  fn get_class(&self) -> Cow<'static, str> {
     match self {
       CoreError::Js(js_error) => {
-        unreachable!("JsError should not be reachable: {}", js_error)
+        if let Some(name) = &js_error.name {
+          Cow::Owned(name.clone())
+        } else {
+          Cow::Borrowed(GENERIC_ERROR)
+        }
       }
       CoreError::Io(err) => err.get_class(),
       CoreError::ExtensionTranspiler(err) => err.get_class(),
@@ -165,7 +169,7 @@ impl JsErrorClass for CoreError {
       CoreError::Url(err) => err.get_class(),
       CoreError::Module(err) => err.get_class(),
       CoreError::DataError(err) => err.get_class(),
-      CoreError::FutureCanceled(_) => "Interrupted",
+      CoreError::FutureCanceled(_) => Cow::Borrowed("Interrupted"),
       CoreError::TLA
       | CoreError::Parse(_)
       | CoreError::Execute(_)
@@ -175,14 +179,18 @@ impl JsErrorClass for CoreError {
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
       | CoreError::EvaluateDynamicImportedModule
-      | CoreError::Other(_) => GENERIC_ERROR,
+      | CoreError::Other(_) => Cow::Borrowed(GENERIC_ERROR),
     }
   }
 
   fn get_message(&self) -> Cow<'static, str> {
     match self {
       CoreError::Js(js_error) => {
-        unreachable!("JsError should not be reachable: {}", js_error)
+        if let Some(name) = &js_error.message {
+          Cow::Owned(name.clone())
+        } else {
+          Cow::Borrowed("")
+        }
       }
       CoreError::Io(err) => err.get_message(),
       CoreError::ExtensionTranspiler(err) => err.get_message(),
@@ -223,7 +231,7 @@ pub fn throw_js_error_class<E: JsErrorClass>(
 ) {
   let exception = js_class_and_message_to_exception(
     scope,
-    error.get_class(),
+    &error.get_class(),
     &error.get_message(),
   );
   scope.throw_exception(exception);
@@ -256,7 +264,7 @@ pub fn to_v8_error<'a>(
     .expect("Custom error builder must be set");
   let cb = cb.open(tc_scope);
   let this = v8::undefined(tc_scope).into();
-  let class = v8::String::new(tc_scope, error.get_class()).unwrap();
+  let class = v8::String::new(tc_scope, &error.get_class()).unwrap();
   let message = v8::String::new(tc_scope, &error.get_message()).unwrap();
   let mut args = vec![class.into(), message.into()];
 
