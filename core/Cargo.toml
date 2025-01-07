@@ -57,6 +57,7 @@ bencher.workspace = true
 criterion.workspace = true
 deno_ast.workspace = true
 fastrand.workspace = true
+paste.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
 twox-hash.workspace = true

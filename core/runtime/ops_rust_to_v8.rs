@@ -347,26 +347,6 @@ to_v8!(RustToV8Marker<ArrayBufferMarker, serde_v8::JsBuffer>: |value, scope| {
 to_v8_fallible!(serde_v8::JsBuffer: |value, scope| {
   value.into_parts().to_v8_fallible(scope)
 });
-to_v8!(RustToV8Marker<ArrayBufferMarker, Box<[u8]>>: |buf, scope| {
-  let buf = buf.0;
-  if buf.is_empty() {
-    v8::ArrayBuffer::new(scope, 0)
-  } else {
-    let backing_store =
-      v8::ArrayBuffer::new_backing_store_from_boxed_slice(buf);
-    let backing_store_shared = backing_store.make_shared();
-    v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared)
-  }
-});
-to_v8_fallible!(Box<[u8]>: |buf, scope| {
-  let len = buf.len();
-  let ab = unsafe { v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
-  v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
-});
-to_v8!(RustToV8Marker<ArrayBufferMarker, Vec<u8>>: |value, scope| {
-  RustToV8Marker::<ArrayBufferMarker, _>::from(value.0.into_boxed_slice()).to_v8(scope)
-});
-to_v8_fallible!(Vec<u8>: |value, scope| value.into_boxed_slice().to_v8_fallible(scope));
 to_v8!(RustToV8Marker<ArrayBufferMarker, BytesMut>: |value, scope| {
   let value = value.0;
   let ptr = value.as_ptr();
@@ -392,6 +372,42 @@ to_v8_fallible!(BytesMut: |buf, scope| {
   let ab = unsafe { v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
   v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
+
+macro_rules! typedarray {
+  ($rty:ty, $v8ty:ident) => {
+    to_v8!(RustToV8Marker<ArrayBufferMarker, Box<[$rty]>>: |buf, scope| {
+      let buf = buf.0;
+      if buf.is_empty() {
+        v8::ArrayBuffer::new(scope, 0)
+      } else {
+        let backing_store =
+          v8::ArrayBuffer::new_backing_store_from_bytes(buf);
+        let backing_store_shared = backing_store.make_shared();
+        v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared)
+      }
+    });
+    to_v8_fallible!(Box<[$rty]>: |buf, scope| {
+      let len = buf.len();
+      let ab = unsafe {
+        v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope))
+      };
+      v8::$v8ty::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+    });
+    to_v8!(RustToV8Marker<ArrayBufferMarker, Vec<$rty>>: |value, scope| {
+      RustToV8Marker::<ArrayBufferMarker, _>::from(value.0.into_boxed_slice()).to_v8(scope)
+    });
+    to_v8_fallible!(Vec<$rty>: |value, scope| value.into_boxed_slice().to_v8_fallible(scope));
+  }
+}
+
+typedarray!(u8, Uint8Array);
+typedarray!(u16, Uint16Array);
+typedarray!(u32, Uint32Array);
+typedarray!(u64, BigUint64Array);
+typedarray!(i8, Int8Array);
+typedarray!(i16, Int16Array);
+typedarray!(i32, Int32Array);
+typedarray!(i64, BigInt64Array);
 
 //
 // Serde
