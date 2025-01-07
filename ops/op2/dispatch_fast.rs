@@ -332,9 +332,7 @@ fn throw_type_error(
   let message = format!("{message}");
   quote!({
     let mut scope = #create_scope;
-    let msg = deno_core::v8::String::new_from_one_byte(&mut scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-    scope.throw_exception(exc);
+    deno_core::_ops::throw_error_one_byte(&mut scope, #message);
     // SAFETY: All fast return types have zero as a valid value
     return unsafe { std::mem::zeroed() };
   })

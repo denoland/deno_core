@@ -659,6 +659,15 @@ mod tests {
       op_smi_to_from_v8,
       op_number_to_from_v8,
       op_bool_to_from_v8,
+
+      op_create_buf_u8,
+      op_create_buf_u16,
+      op_create_buf_u32,
+      op_create_buf_u64,
+      op_create_buf_i8,
+      op_create_buf_i16,
+      op_create_buf_i32,
+      op_create_buf_i64,
     ],
     state = |state| {
       state.put(1234u32);
@@ -2499,6 +2508,55 @@ mod tests {
       err.to_string(),
       "TypeError: Expected boolean\n    at <anonymous>:4:7"
     );
+    Ok(())
+  }
+
+  macro_rules! op_create_buf {
+    ($size:ident) => {
+      paste::paste! {
+        #[op2]
+        #[buffer]
+        fn [< op_create_buf_ $size >] () -> Vec<$size> {
+          vec![1, 2, 3, 4]
+        }
+      }
+    };
+  }
+  op_create_buf!(u8);
+  op_create_buf!(u16);
+  op_create_buf!(u32);
+  op_create_buf!(u64);
+  op_create_buf!(i8);
+  op_create_buf!(i16);
+  op_create_buf!(i32);
+  op_create_buf!(i64);
+
+  #[test]
+  fn return_buffers() -> Result<(), Box<dyn std::error::Error>> {
+    fn test(size: &str) -> Result<(), Box<dyn std::error::Error>> {
+      run_test2(
+        1,
+        &format!("op_create_buf_{size}"),
+        &format!(
+          r"
+        let buf = op_create_buf_{size}();
+        assert(Number(buf[0]) === 1);
+        assert(Number(buf[1]) === 2);
+        assert(Number(buf[2]) === 3);
+        assert(Number(buf[3]) === 4);
+        "
+        ),
+      )?;
+      Ok(())
+    }
+    test("u8")?;
+    test("u16")?;
+    test("u32")?;
+    test("u64")?;
+    test("i8")?;
+    test("i16")?;
+    test("i32")?;
+    test("i64")?;
     Ok(())
   }
 }

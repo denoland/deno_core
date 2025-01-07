@@ -1193,17 +1193,8 @@ fn throw_type_error(
   // Sanity check ASCII and a valid/reasonable message size
   debug_assert!(message.is_ascii() && message.len() < 1024);
 
-  let maybe_scope = if generator_state.needs_scope {
-    quote!()
-  } else {
-    with_scope(generator_state)
-  };
-
-  gs_quote!(generator_state(scope) => {
-    #maybe_scope
-    let msg = deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+  gs_quote!(generator_state(info) => {
+    deno_core::_ops::throw_error_one_byte_info(&#info, #message);
     return 1;
   })
 }
@@ -1221,10 +1212,7 @@ fn throw_type_error_string(
 
   gs_quote!(generator_state(scope) => {
     #maybe_scope
-    // TODO(mmastrac): This might be allocating too much, even if it's on the error path
-    let msg = deno_core::v8::String::new(&mut #scope, &format!("{}", deno_core::anyhow::Error::from(#message))).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+    deno_core::_ops::throw_error_anyhow(&mut #scope, #message);
     return 1;
   })
 }
@@ -1234,17 +1222,8 @@ fn throw_type_error_static_string(
   generator_state: &mut GeneratorState,
   message: &Ident,
 ) -> TokenStream {
-  let maybe_scope = if generator_state.needs_scope {
-    quote!()
-  } else {
-    with_scope(generator_state)
-  };
-
-  gs_quote!(generator_state(scope) => {
-    #maybe_scope
-    let msg = deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+  gs_quote!(generator_state(info) => {
+    deno_core::_ops::throw_error_one_byte_info(&#info, #message);
     return 1;
   })
 }

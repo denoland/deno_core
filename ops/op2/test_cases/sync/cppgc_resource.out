@@ -111,15 +111,10 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -145,14 +140,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
@@ -320,15 +308,10 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -358,14 +341,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 >(&mut scope, arg0) {
                     Some(arg0)
                 } else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = arg0.as_deref();
@@ -623,15 +599,10 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -657,14 +628,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
@@ -925,15 +889,10 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -959,14 +918,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
