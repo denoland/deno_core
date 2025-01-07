@@ -9,7 +9,6 @@ use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::any::Any;
 use std::borrow::Cow;
-use std::error::Error;
 
 const MAX_RESULT_SIZE: usize = 32;
 
@@ -266,11 +265,7 @@ impl<C: OpMappingContext> OpResult<C> {
 #[derive(Debug)]
 pub struct OpError(Box<dyn JsErrorClass>);
 
-impl std::error::Error for OpError {
-  fn source(&self) -> Option<&(dyn Error + 'static)> {
-    todo!()
-  }
-}
+impl std::error::Error for OpError {}
 
 impl std::fmt::Display for OpError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

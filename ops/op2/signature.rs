@@ -819,25 +819,19 @@ pub enum SignatureError {
   RetError(#[from] RetError),
   #[error("Only one lifetime is permitted")]
   TooManyLifetimes,
-  #[error("Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)"
-  )]
+  #[error("Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)")]
   GenericBoundCardinality(String),
-  #[error("Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)"
-  )]
+  #[error("Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)")]
   WherePredicateMustAppearInGenerics(String),
-  #[error("All generics must appear only once in the generics parameter list or where clause"
-  )]
+  #[error("All generics must appear only once in the generics parameter list or where clause")]
   DuplicateGeneric(String),
   #[error("Generic lifetime '{0}' may not have bounds (eg: <'a: 'b>)")]
   LifetimesMayNotHaveBounds(String),
-  #[error("Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)"
-  )]
+  #[error("Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)")]
   InvalidGeneric(String),
-  #[error("Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)"
-  )]
+  #[error("Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)")]
   InvalidWherePredicate(String),
-  #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s"
-  )]
+  #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s")]
   InvalidOpStateCombination,
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
@@ -849,8 +843,7 @@ pub enum SignatureError {
 pub enum AttributeError {
   #[error("Unknown or invalid attribute '{0}'")]
   InvalidAttribute(String),
-  #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead."
-  )]
+  #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead.")]
   InvalidInnerAttribute,
 }
 
@@ -890,8 +883,7 @@ pub enum ArgError {
   AttributeError(#[from] AttributeError),
   #[error("The type '{0}' is not allowed in this position")]
   NotAllowedInThisPosition(String),
-  #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position."
-  )]
+  #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
   InvalidDenoCorePrefix(String, String, String),
   #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
   ExpectedCppGcReference(String),

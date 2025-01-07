@@ -225,9 +225,9 @@ impl JsErrorClass for CoreError {
   }
 }
 
-pub fn throw_js_error_class<E: JsErrorClass>(
+pub fn throw_js_error_class(
   scope: &mut v8::HandleScope,
-  error: &E,
+  error: &dyn JsErrorClass,
 ) {
   let exception = js_class_and_message_to_exception(
     scope,
@@ -254,7 +254,7 @@ fn js_class_and_message_to_exception<'s>(
 
 pub fn to_v8_error<'a>(
   scope: &mut v8::HandleScope<'a>,
-  error: &impl JsErrorClass,
+  error: &dyn JsErrorClass,
 ) -> v8::Local<'a, v8::Value> {
   let tc_scope = &mut v8::TryCatch::new(scope);
   let cb = JsRealm::exception_state_from_scope(tc_scope)
