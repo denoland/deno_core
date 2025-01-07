@@ -114,7 +114,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(&mut scope, "expected String");
+                        deno_core::_ops::throw_error1(&mut scope, "expected String");
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -131,7 +131,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(&mut scope, "expected String");
+                        deno_core::_ops::throw_error1(&mut scope, "expected String");
                         return unsafe { std::mem::zeroed() };
                     }
                 };

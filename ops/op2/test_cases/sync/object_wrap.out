@@ -573,7 +573,7 @@ impl Foo {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(&mut scope, "expected Foo");
+                        deno_core::_ops::throw_error1(&mut scope, "expected Foo");
                         return unsafe { std::mem::zeroed() };
                     }
                 };

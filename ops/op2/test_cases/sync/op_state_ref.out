@@ -565,7 +565,7 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(&mut scope, "expected Function");
+                        deno_core::_ops::throw_error1(&mut scope, "expected Function");
                         return unsafe { std::mem::zeroed() };
                     }
                 };

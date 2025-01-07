@@ -111,7 +111,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(
+                        deno_core::_ops::throw_error1(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
@@ -308,7 +308,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(
+                        deno_core::_ops::throw_error1(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
@@ -599,7 +599,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(
+                        deno_core::_ops::throw_error1(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
@@ -889,7 +889,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        crate::_ops::throw_error1(
+                        deno_core::_ops::throw_error1(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
