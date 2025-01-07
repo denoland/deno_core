@@ -111,7 +111,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error1(
+                        deno_core::_ops::throw_error3(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
@@ -140,7 +140,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Wrap");
+                    deno_core::_ops::throw_error1(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
@@ -308,7 +308,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error1(
+                        deno_core::_ops::throw_error3(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
@@ -341,7 +341,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 >(&mut scope, arg0) {
                     Some(arg0)
                 } else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Wrap");
+                    deno_core::_ops::throw_error1(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = arg0.as_deref();
@@ -599,7 +599,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error1(
+                        deno_core::_ops::throw_error3(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
@@ -628,7 +628,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Wrap");
+                    deno_core::_ops::throw_error1(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
@@ -889,7 +889,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error1(
+                        deno_core::_ops::throw_error3(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
                         );
@@ -918,7 +918,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Wrap");
+                    deno_core::_ops::throw_error1(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;

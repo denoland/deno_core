@@ -1190,15 +1190,8 @@ fn throw_type_error(
   // Sanity check ASCII and a valid/reasonable message size
   debug_assert!(message.is_ascii() && message.len() < 1024);
 
-  let maybe_scope = if generator_state.needs_scope {
-    quote!()
-  } else {
-    with_scope(generator_state)
-  };
-
-  Ok(gs_quote!(generator_state(scope) => {
-    #maybe_scope
-    deno_core::_ops::throw_error1(&mut #scope, #message);
+  Ok(gs_quote!(generator_state(info) => {
+    deno_core::_ops::throw_error1(&#info, #message);
     return 1;
   }))
 }
@@ -1226,15 +1219,8 @@ fn throw_type_error_static_string(
   generator_state: &mut GeneratorState,
   message: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
-  let maybe_scope = if generator_state.needs_scope {
-    quote!()
-  } else {
-    with_scope(generator_state)
-  };
-
-  Ok(gs_quote!(generator_state(scope) => {
-    #maybe_scope
-    deno_core::_ops::throw_error1(&mut #scope, #message);
+  Ok(gs_quote!(generator_state(info) => {
+    deno_core::_ops::throw_error1(&#info, #message);
     return 1;
   }))
 }

@@ -44,7 +44,7 @@ const fn op_handlescope() -> ::deno_core::_ops::OpDecl {
                 let Ok(mut arg1) = deno_core::_ops::v8_try_convert::<
                     deno_core::v8::String,
                 >(arg1) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected String");
+                    deno_core::_ops::throw_error1(&info, "expected String");
                     return 1;
                 };
                 let arg1 = arg1;

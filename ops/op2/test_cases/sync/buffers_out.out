@@ -45,10 +45,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg0) } {
                     Ok(arg0) => arg0,
                     Err(arg0_err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        deno_core::_ops::throw_error1(&mut scope, arg0_err);
+                        deno_core::_ops::throw_error1(&info, arg0_err);
                         return 1;
                     }
                 };
@@ -160,10 +157,7 @@ const fn op_buffers_option() -> ::deno_core::_ops::OpDecl {
                     } {
                         Ok(arg0) => arg0,
                         Err(arg0_err) => {
-                            let mut scope = unsafe {
-                                deno_core::v8::CallbackScope::new(info)
-                            };
-                            deno_core::_ops::throw_error1(&mut scope, arg0_err);
+                            deno_core::_ops::throw_error1(&info, arg0_err);
                             return 1;
                         }
                     };
@@ -272,10 +266,7 @@ const fn op_arraybuffers() -> ::deno_core::_ops::OpDecl {
                 arg0_temp = match unsafe { deno_core::_ops::to_v8_slice_buffer(arg0) } {
                     Ok(arg0) => arg0,
                     Err(arg0_err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        deno_core::_ops::throw_error1(&mut scope, arg0_err);
+                        deno_core::_ops::throw_error1(&info, arg0_err);
                         return 1;
                     }
                 };

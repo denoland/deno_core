@@ -332,7 +332,7 @@ fn throw_type_error(
   let message = format!("{message}");
   quote!({
     let mut scope = #create_scope;
-    deno_core::_ops::throw_error1(&mut scope, #message);
+    deno_core::_ops::throw_error3(&mut scope, #message);
     // SAFETY: All fast return types have zero as a valid value
     return unsafe { std::mem::zeroed() };
   })

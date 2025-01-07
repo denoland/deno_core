@@ -127,10 +127,7 @@ const fn op_string_onebyte() -> ::deno_core::_ops::OpDecl {
                 let arg0 = match deno_core::_ops::to_cow_one_byte(&mut scope, &arg0) {
                     Ok(arg0) => arg0,
                     Err(arg0) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        deno_core::_ops::throw_error1(&mut scope, arg0);
+                        deno_core::_ops::throw_error1(&info, arg0);
                         return 1;
                     }
                 };

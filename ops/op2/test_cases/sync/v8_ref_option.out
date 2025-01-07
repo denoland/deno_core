@@ -114,7 +114,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error1(&mut scope, "expected String");
+                        deno_core::_ops::throw_error3(&mut scope, "expected String");
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -131,7 +131,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error1(&mut scope, "expected String");
+                        deno_core::_ops::throw_error3(&mut scope, "expected String");
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -159,8 +159,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                 let Ok(mut arg0) = deno_core::_ops::v8_try_convert_option::<
                     deno_core::v8::String,
                 >(arg0) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    deno_core::_ops::throw_error1(&mut scope, "expected String");
+                    deno_core::_ops::throw_error1(&info, "expected String");
                     return 1;
                 };
                 let arg0 = match &arg0 {
@@ -171,8 +170,7 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                 let Ok(mut arg1) = deno_core::_ops::v8_try_convert_option::<
                     deno_core::v8::String,
                 >(arg1) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    deno_core::_ops::throw_error1(&mut scope, "expected String");
+                    deno_core::_ops::throw_error1(&info, "expected String");
                     return 1;
                 };
                 let arg1 = match &arg1 {

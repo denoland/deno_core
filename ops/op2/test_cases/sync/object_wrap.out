@@ -63,10 +63,7 @@ impl Foo {
                         None
                     } else {
                         let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
-                            let mut scope = unsafe {
-                                deno_core::v8::CallbackScope::new(info)
-                            };
-                            deno_core::_ops::throw_error1(&mut scope, "expected u32");
+                            deno_core::_ops::throw_error1(&info, "expected u32");
                             return 1;
                         };
                         let arg0 = arg0 as _;
@@ -181,7 +178,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                    deno_core::_ops::throw_error1(&info, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -280,17 +277,14 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                    deno_core::_ops::throw_error1(&info, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
                 let result = {
                     let arg0 = args.get(0usize as i32);
                     let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        deno_core::_ops::throw_error1(&mut scope, "expected u32");
+                        deno_core::_ops::throw_error1(&info, "expected u32");
                         return 1;
                     };
                     let arg0 = arg0 as _;
@@ -408,17 +402,14 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                    deno_core::_ops::throw_error1(&info, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
                 let result = {
                     let arg0 = args.get(0usize as i32);
                     let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        deno_core::_ops::throw_error1(&mut scope, "expected u32");
+                        deno_core::_ops::throw_error1(&info, "expected u32");
                         return 1;
                     };
                     let arg0 = arg0 as _;
@@ -575,7 +566,7 @@ impl Foo {
                                 &*fast_api_callback_options,
                             )
                         };
-                        deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                        deno_core::_ops::throw_error3(&mut scope, "expected Foo");
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -600,7 +591,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                    deno_core::_ops::throw_error1(&info, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -700,7 +691,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                    deno_core::_ops::throw_error1(&info, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -803,7 +794,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                    deno_core::_ops::throw_error1(&info, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
@@ -989,7 +980,7 @@ impl Foo {
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, args.this().into()) else {
-                    deno_core::_ops::throw_error1(&mut scope, "expected Foo");
+                    deno_core::_ops::throw_error1(&info, "expected Foo");
                     return 1;
                 };
                 let self_ = &*self_;
