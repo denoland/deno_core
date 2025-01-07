@@ -27,7 +27,7 @@ serde_v8 = { version = "0.237.0", path = "./serde_v8" }
 
 deno_ast = { version = "=0.40.0", features = ["transpiling"] }
 deno_core_icudata = "0.74.0"
-deno_error = { version = "0.5.2", features = ["serde_json", "serde", "url", "tokio"] }
+deno_error = { version = "0.5.3", features = ["serde_json", "serde", "url", "tokio"] }
 deno_unsync = "0.4.1"
 v8 = { version = "130.0.5", default-features = false }
 
@@ -94,6 +94,3 @@ codegen-units = 1
 incremental = true
 lto = true
 opt-level = 'z' # Optimize for size
-
-[patch.crates-io]
-deno_error = { path = "../deno_error" }
