@@ -177,6 +177,9 @@ extern crate self as deno_core;
 pub mod _ops {
   pub use super::cppgc::make_cppgc_object;
   pub use super::cppgc::try_unwrap_cppgc_object;
+  pub use super::error::throw_error_anyhow;
+  pub use super::error::throw_error_one_byte;
+  pub use super::error::throw_error_one_byte_info;
   pub use super::error::throw_type_error;
   pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;

@@ -1723,6 +1723,36 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   result
 }
 
+pub fn throw_error_one_byte_info(
+  info: &v8::FunctionCallbackInfo,
+  message: &str,
+) {
+  let mut scope = unsafe { v8::CallbackScope::new(info) };
+  throw_error_one_byte(&mut scope, message);
+}
+
+pub fn throw_error_anyhow<S>(scope: &mut v8::CallbackScope<'_>, message: S)
+where
+  S: Into<deno_core::anyhow::Error>,
+{
+  // TODO(mmastrac): This might be allocating too much, even if it's on the error path
+  let e: deno_core::anyhow::Error = message.into();
+  let msg = deno_core::v8::String::new(scope, &format!("{}", e)).unwrap();
+  let exc = deno_core::v8::Exception::type_error(scope, msg);
+  scope.throw_exception(exc);
+}
+
+pub fn throw_error_one_byte(scope: &mut v8::CallbackScope, message: &str) {
+  let msg = deno_core::v8::String::new_from_one_byte(
+    scope,
+    message.as_bytes(),
+    deno_core::v8::NewStringType::Normal,
+  )
+  .unwrap();
+  let exc = deno_core::v8::Exception::type_error(scope, msg);
+  scope.throw_exception(exc);
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

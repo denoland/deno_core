@@ -135,17 +135,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg0) } {
                     Ok(arg0) => arg0,
                     Err(arg0_err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                arg0_err.as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte_info(&info, arg0_err);
                         return 1;
                     }
                 };
@@ -155,17 +145,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 arg1_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg1) } {
                     Ok(arg1) => arg1,
                     Err(arg1_err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                arg1_err.as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte_info(&info, arg1_err);
                         return 1;
                     }
                 };
@@ -175,17 +155,7 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 arg2_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg2) } {
                     Ok(arg2) => arg2,
                     Err(arg2_err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                arg2_err.as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte_info(&info, arg2_err);
                         return 1;
                     }
                 };
@@ -366,17 +336,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg0) } {
                     Ok(arg0) => arg0,
                     Err(arg0_err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                arg0_err.as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte_info(&info, arg0_err);
                         return 1;
                     }
                 };
@@ -386,17 +346,7 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 arg1_temp = match unsafe { deno_core::_ops::to_v8_slice::<u32>(arg1) } {
                     Ok(arg1) => arg1,
                     Err(arg1_err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                arg1_err.as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte_info(&info, arg1_err);
                         return 1;
                     }
                 };
