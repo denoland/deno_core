@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 #![doc = include_str!("README.md")]
+#![deny(clippy::unnecessary_wraps)]
 
 use proc_macro::TokenStream;
 use std::error::Error;

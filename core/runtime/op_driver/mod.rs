@@ -2,7 +2,6 @@
 
 use crate::OpId;
 use crate::PromiseId;
-use anyhow::Error;
 use bit_set::BitSet;
 use std::future::Future;
 use std::task::Context;
@@ -16,6 +15,8 @@ mod op_results;
 #[allow(unused)]
 pub use futures_unordered_driver::FuturesUnorderedDriver;
 
+pub use self::op_results::OpError;
+pub use self::op_results::OpErrorWrapper;
 pub use self::op_results::OpMappingContext;
 pub use self::op_results::OpResult;
 use self::op_results::PendingOpInfo;
@@ -85,7 +86,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// might return an error (`Result`).
   fn submit_op_fallible<
     R: 'static,
-    E: Into<Error> + 'static,
+    E: Into<OpError> + 'static,
     const LAZY: bool,
     const DEFERRED: bool,
   >(
@@ -99,7 +100,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// Submits an operation that is expected to complete successfully without errors.
   #[inline(always)]
   #[allow(clippy::too_many_arguments)]
-  fn submit_op_fallible_scheduling<R: 'static, E: Into<Error> + 'static>(
+  fn submit_op_fallible_scheduling<R: 'static, E: Into<OpError> + 'static>(
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
@@ -145,8 +146,6 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
 
 #[cfg(test)]
 mod tests {
-  use crate::GetErrorClassFn;
-
   use super::op_results::*;
   use super::*;
   use bit_set::BitSet;
@@ -161,8 +160,7 @@ mod tests {
 
     fn map_error(
       _context: &mut Self::Context,
-      err: Error,
-      _get_error_class_fn: GetErrorClassFn,
+      err: OpError,
     ) -> UnmappedResult<'s, Self> {
       Ok(format!("{err:?}"))
     }
@@ -234,11 +232,12 @@ mod tests {
     let (promise_id, op_id, result) = poll_fn(|cx| driver.poll_ready(cx)).await;
     assert!(bitset.insert(promise_id as usize));
     assert_eq!(1234, op_id);
-    assert_eq!(expected, &(result.unwrap(&mut (), &|_| "Error").unwrap()));
+    assert_eq!(expected, &(result.unwrap(&mut ()).unwrap()));
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,
@@ -268,7 +267,8 @@ mod tests {
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver_yield<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,
@@ -305,7 +305,8 @@ mod tests {
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver_large<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,
@@ -344,7 +345,8 @@ mod tests {
 
   #[cfg(not(miri))] // needs I/O
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver_io<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,

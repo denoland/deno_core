@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use anyhow::Context;
 use clap::builder::Arg;
 use clap::builder::Command;
 use clap::ArgMatches;
@@ -11,6 +10,7 @@ use deno_core_testing::create_runtime_from_snapshot;
 
 use std::net::SocketAddr;
 
+use anyhow::Context;
 use std::sync::Arc;
 
 static SNAPSHOT: &[u8] =
@@ -106,7 +106,7 @@ fn main() -> Result<(), Error> {
   if let Some(summary) = metrics_summary {
     eprintln!("{}", summary.to_json_pretty()?)
   }
-  result
+  result.map_err(|e| e.into())
 }
 
 fn build_cli() -> Command {

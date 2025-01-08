@@ -6,8 +6,6 @@ use crate::ops::OpMetadata;
 use crate::runtime::bindings;
 use crate::FastStaticString;
 use crate::OpState;
-use anyhow::Context as _;
-use anyhow::Error;
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -118,7 +116,7 @@ impl ExtensionFileSource {
   }
 
   #[allow(deprecated)]
-  pub fn load(&self) -> Result<ModuleCodeString, Error> {
+  pub fn load(&self) -> Result<ModuleCodeString, std::io::Error> {
     match &self.code {
       ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code)
       | ExtensionFileSourceCode::IncludedInBinary(code) => {
@@ -131,8 +129,7 @@ impl ExtensionFileSource {
         Ok(IntoModuleCodeString::into_module_code(*code))
       }
       ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) => {
-        let msg = || format!("Failed to read \"{}\"", path);
-        let s = std::fs::read_to_string(path).with_context(msg)?;
+        let s = std::fs::read_to_string(path)?;
         debug_assert!(
           s.is_ascii(),
           "Extension code must be 7-bit ASCII: {} (found {})",

@@ -20,6 +20,7 @@
     PromisePrototypeThen,
     RangeError,
     ReferenceError,
+    SafeArrayIterator,
     SafeMap,
     StringPrototypeSplit,
     SymbolFor,
@@ -85,7 +86,7 @@
   registerErrorClass("TypeError", TypeError);
   registerErrorClass("URIError", URIError);
 
-  function buildCustomError(className, message, code) {
+  function buildCustomError(className, message, additionalProperties) {
     let error;
     try {
       error = errorMap[className]?.(message);
@@ -97,8 +98,16 @@
     // Strip buildCustomError() calls from stack trace
     if (typeof error == "object") {
       ErrorCaptureStackTrace(error, buildCustomError);
-      if (code) {
-        error.code = code;
+      if (additionalProperties) {
+        for (const property of new SafeArrayIterator(additionalProperties)) {
+          const key = property[0];
+          if (!(key in error)) {
+            ObjectDefineProperty(error, key, {
+              value: property[1],
+              writable: false,
+            });
+          }
+        }
       }
     }
     return error;
@@ -180,9 +189,19 @@
       const err = errorBuilder ? errorBuilder(res.message) : new Error(
         `Unregistered error class: "${className}"\n  ${res.message}\n  Classes of errors returned from ops should be registered via Deno.core.registerErrorClass().`,
       );
-      // Set .code if error was a known OS error, see error_codes.rs
-      if (res.code) {
-        err.code = res.code;
+
+      if (res.additional_properties) {
+        for (
+          const property of new SafeArrayIterator(res.additional_properties)
+        ) {
+          const key = property[0];
+          if (!(key in err)) {
+            ObjectDefineProperty(err, key, {
+              value: property[1],
+              writable: false,
+            });
+          }
+        }
       }
       // Strip eventLoopTick() calls from stack trace
       ErrorCaptureStackTrace(err, eventLoopTick);

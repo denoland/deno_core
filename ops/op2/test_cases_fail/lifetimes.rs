@@ -1,7 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
-use deno_core::error::AnyError;
 use deno_core::GarbageCollected;
 use std::future::Future;
 

@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::error::AnyError;
+use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -13,6 +13,7 @@ use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
 use deno_core::GarbageCollected;
 use deno_core::OpState;
+use deno_error::JsErrorBox;
 
 use super::extensions::SomeType;
 use super::Output;
@@ -97,7 +98,7 @@ impl TestObjectWrap {
   fn with_rename(&self) {}
 
   #[async_method]
-  async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), AnyError> {
+  async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), OpError> {
     tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
     Ok(())
   }
@@ -122,7 +123,7 @@ impl DOMPoint {
   fn from_point_inner(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, AnyError> {
+  ) -> Result<DOMPoint, JsErrorBox> {
     fn get(
       scope: &mut v8::HandleScope,
       other: v8::Local<v8::Object>,
@@ -167,7 +168,7 @@ impl DOMPoint {
   fn from_point(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, AnyError> {
+  ) -> Result<DOMPoint, JsErrorBox> {
     DOMPoint::from_point_inner(scope, other)
   }
 
@@ -177,7 +178,7 @@ impl DOMPoint {
     &self,
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, AnyError> {
+  ) -> Result<DOMPoint, JsErrorBox> {
     DOMPoint::from_point_inner(scope, other)
   }
 

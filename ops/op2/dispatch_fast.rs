@@ -345,16 +345,14 @@ pub(crate) fn generate_fast_result_early_exit(
 ) -> TokenStream {
   generator_state.needs_opctx = true;
   let create_scope = create_scope(generator_state);
-  gs_quote!(generator_state(opctx, result) => {
+  gs_quote!(generator_state(result) => {
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
-        let err = err.into();
         let mut scope = #create_scope;
         let exception = deno_core::error::to_v8_error(
           &mut scope,
-          #opctx.get_error_class_fn,
-          &err,
+          &deno_core::error::OpErrorWrapper(err.into()),
         );
         scope.throw_exception(exception);
         // SAFETY: All fast return types have zero as a valid value

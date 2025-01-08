@@ -6,6 +6,7 @@ use super::op_driver::OpDriver;
 use crate::_ops::OpMethodDecl;
 use crate::cppgc::FunctionTemplateData;
 use crate::error::exception_to_err_result;
+use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::script_origin;
 use crate::modules::IntoModuleCodeString;
@@ -19,8 +20,6 @@ use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
-use crate::GetErrorClassFn;
-use anyhow::Error;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -75,7 +74,6 @@ pub struct ContextState {
   pub(crate) isolate: Option<*mut v8::Isolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
-  pub(crate) get_error_class_fn: GetErrorClassFn,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
 }
 
@@ -83,7 +81,6 @@ impl ContextState {
   pub(crate) fn new(
     op_driver: Rc<OpDriverImpl>,
     isolate_ptr: *mut v8::Isolate,
-    get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
     op_method_decls: Vec<OpMethodDecl>,
     methods_ctx_offset: usize,
@@ -91,7 +88,6 @@ impl ContextState {
   ) -> Self {
     Self {
       isolate: Some(isolate_ptr),
-      get_error_class_fn,
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
@@ -326,7 +322,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.into_module_code().v8_string(scope).unwrap();
@@ -364,7 +360,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, Error> {
+  ) -> Result<v8::Global<v8::Object>, CoreError> {
     self
       .0
       .module_map()
@@ -400,14 +396,14 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let scope = &mut self.handle_scope(isolate);
       // true for main module
       module_map_rc
         .new_es_module(scope, true, specifier.to_owned(), code, false, None)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load =
@@ -418,7 +414,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       load
         .register_and_recurse(scope, &request, info)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -445,7 +441,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let specifier = specifier.to_owned();
@@ -453,7 +449,7 @@ impl JsRealm {
       // false for side module (not main module)
       module_map_rc
         .new_es_module(scope, false, specifier, code, false, None)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load =
@@ -464,7 +460,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       load
         .register_and_recurse(scope, &request, info)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -488,7 +484,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     module_specifier: ModuleName,
     code: ModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);
     module_map_rc.lazy_load_es_module_with_code(
