@@ -1,5 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-import { DOMPoint, TestObjectWrap } from "ext:core/ops";
+import { DOMPoint, TestEnumWrap, TestObjectWrap } from "ext:core/ops";
 
-export { DOMPoint, TestObjectWrap };
+export { DOMPoint, TestEnumWrap, TestObjectWrap };

@@ -41,3 +41,5 @@ export class TestObjectWrap {
   with_RENAME(): void;
   withAsyncFn(ms: number): Promise<void>;
 }
+
+export class TestEnumWrap {}

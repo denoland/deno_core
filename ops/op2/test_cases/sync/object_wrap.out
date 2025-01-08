@@ -10,7 +10,7 @@ impl Foo {
             Foo::doThing(),
         ],
         static_methods: &[Foo::__static_doThing()],
-        constructor: Foo::constructor(),
+        constructor: Some(Foo::constructor()),
         name: ::deno_core::__op_name_fast!(Foo),
         type_name: || std::any::type_name::<Foo>(),
     };

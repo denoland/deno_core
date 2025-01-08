@@ -182,7 +182,7 @@ const NOOP_FN: CFunction = CFunction::new(
 pub struct OpMethodDecl {
   pub type_name: fn() -> &'static str,
   pub name: (&'static str, FastStaticString),
-  pub constructor: OpDecl,
+  pub constructor: Option<OpDecl>,
   pub methods: &'static [OpDecl],
   pub static_methods: &'static [OpDecl],
 }

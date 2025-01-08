@@ -375,14 +375,22 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     if index == methods_ctx_offset {
       break;
     }
-    let constructor_ctx = &op_ctxs[index];
 
-    let tmpl = op_ctx_template(scope, constructor_ctx);
+    let tmpl = if decl.constructor.is_some() {
+      let constructor_ctx = &op_ctxs[index];
+
+      let tmpl = op_ctx_template(scope, constructor_ctx);
+
+      index += 1;
+
+      tmpl
+    } else {
+      crate::cppgc::make_cppgc_template(scope)
+    };
+
+    let key = decl.name.1.v8_string(scope).unwrap();
+
     let prototype = tmpl.prototype_template(scope);
-    let key = decl.constructor.name_fast.v8_string(scope).unwrap();
-
-    index += 1;
-
     let method_ctxs = &op_ctxs[index..index + decl.methods.len()];
 
     let accessor_store = create_accessor_store(method_ctxs);
@@ -1030,12 +1038,16 @@ pub fn create_exports_for_ops_virtual_module<'s>(
     if index == methods_ctx_offset {
       break;
     }
-    let constructor_ctx = &op_ctxs[index];
 
-    let op_fn = get(scope, ops_obj, constructor_ctx.decl.name_fast, "op");
-    exports.push((constructor_ctx.decl.name_fast, op_fn));
+    if decl.constructor.is_some() {
+      index += 1;
+    }
 
-    index += 1 + decl.methods.len() + decl.static_methods.len();
+    let name = decl.name.1;
+    let op_fn = get(scope, ops_obj, name, "op");
+    exports.push((name, op_fn));
+
+    index += decl.methods.len() + decl.static_methods.len();
   }
 
   let op_ctxs = &op_ctxs[index..];

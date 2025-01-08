@@ -214,6 +214,23 @@ impl DOMPoint {
   fn with_symbol(&self) {}
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum TestEnumWrap {
+  #[allow(dead_code)]
+  A,
+}
+
+impl GarbageCollected for TestEnumWrap {}
+
+#[op2]
+impl TestEnumWrap {
+  #[getter]
+  fn as_int(&self) -> u8 {
+    *self as u8
+  }
+}
+
 #[op2(fast)]
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
