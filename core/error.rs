@@ -239,17 +239,22 @@ pub fn throw_js_error_class(
 
 fn js_class_and_message_to_exception<'s>(
   scope: &mut v8::HandleScope<'s>,
-  class: &str,
+  _class: &str,
   message: &str,
 ) -> v8::Local<'s, v8::Value> {
   let message = v8::String::new(scope, message).unwrap();
+  /*
+  commented out since this was previously only handling type errors, but this
+  change is breaking CLI, so visiting on a later date
+
   match class {
     TYPE_ERROR => v8::Exception::type_error(scope, message),
     RANGE_ERROR => v8::Exception::range_error(scope, message),
     REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
     SYNTAX_ERROR => v8::Exception::syntax_error(scope, message),
     _ => v8::Exception::error(scope, message),
-  }
+  }*/
+  v8::Exception::type_error(scope, message)
 }
 
 pub fn to_v8_error<'a>(
