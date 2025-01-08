@@ -119,7 +119,7 @@ pub fn get_body(
       quote! {
         return Err(::deno_core::webidl::WebIdlError::new(
           __prefix,
-          &__context,
+          __context.borrowed(),
           ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
             converter: #ident_string,
             key: #string_name,
@@ -139,7 +139,7 @@ pub fn get_body(
             } else {
               let __key = #v8_static_name
                 .v8_string(__scope)
-                .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), &__context, e))?;
+                .map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), __context.borrowed(), e))?;
               __eternal.set(__scope, __key);
               Ok(__key)
             }
@@ -151,7 +151,7 @@ pub fn get_body(
             __scope,
             __value,
             __prefix.clone(),
-            || format!("{} ({})", #new_context, __context()).into(),
+            ::deno_core::webidl::ContextFn::new_borrowed(&|| format!("{} ({})", #new_context, __context.call()).into()),
             &#options,
           )?
         } else {
@@ -178,7 +178,7 @@ pub fn get_body(
       } else {
         return Err(::deno_core::webidl::WebIdlError::new(
           __prefix,
-          &__context,
+          __context.borrowed(),
           ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("dictionary")
         ));
       }

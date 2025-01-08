@@ -711,7 +711,7 @@ pub fn from_arg(
           &mut #scope,
           #arg_ident,
           #prefix.into(),
-          || std::borrow::Cow::Borrowed(#context),
+          deno_core::webidl::ContextFn::new_borrowed(&|| std::borrow::Cow::Borrowed(#context)),
           &#options,
         ) {
           Ok(t) => t,

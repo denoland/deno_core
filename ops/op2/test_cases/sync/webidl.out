@@ -45,7 +45,9 @@ const fn op_webidl() -> ::deno_core::_ops::OpDecl {
                     &mut scope,
                     arg0,
                     "Failed to execute 'UNINIT.call'".into(),
-                    || std::borrow::Cow::Borrowed("Argument 1"),
+                    deno_core::webidl::ContextFn::new_borrowed(
+                        &|| std::borrow::Cow::Borrowed("Argument 1"),
+                    ),
                     &Default::default(),
                 ) {
                     Ok(t) => t,
@@ -59,7 +61,9 @@ const fn op_webidl() -> ::deno_core::_ops::OpDecl {
                     &mut scope,
                     arg1,
                     "Failed to execute 'UNINIT.call'".into(),
-                    || std::borrow::Cow::Borrowed("Argument 2"),
+                    deno_core::webidl::ContextFn::new_borrowed(
+                        &|| std::borrow::Cow::Borrowed("Argument 2"),
+                    ),
                     &Default::default(),
                 ) {
                     Ok(t) => t,
