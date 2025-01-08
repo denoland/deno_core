@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use std::any::type_name;
+use std::any::Any;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
@@ -10,15 +11,15 @@ use std::io;
 use std::pin::Pin;
 use std::rc::Rc;
 
+use crate::RcLike;
+use crate::Resource;
+use deno_error::JsErrorClass;
 use futures::future::FusedFuture;
 use futures::future::Future;
 use futures::future::TryFuture;
 use futures::task::Context;
 use futures::task::Poll;
 use pin_project::pin_project;
-
-use crate::RcLike;
-use crate::Resource;
 
 use self::internal as i;
 
@@ -239,6 +240,35 @@ impl Error for Canceled {}
 impl From<Canceled> for io::Error {
   fn from(_: Canceled) -> Self {
     io::Error::new(io::ErrorKind::Interrupted, Canceled)
+  }
+}
+
+impl From<Canceled> for deno_error::JsErrorBox {
+  fn from(value: Canceled) -> Self {
+    deno_error::JsErrorBox::from_err(value)
+  }
+}
+
+impl JsErrorClass for Canceled {
+  fn get_class(&self) -> Cow<'static, str> {
+    let io_err: io::Error = self.to_owned().into();
+    io_err.get_class()
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    let io_err: io::Error = self.to_owned().into();
+    io_err.get_message()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
+    let io_err: io::Error = self.to_owned().into();
+    io_err.get_additional_properties()
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
   }
 }
 
@@ -666,7 +696,6 @@ mod internal {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use anyhow::Error;
   use futures::future::pending;
   use futures::future::poll_fn;
   use futures::future::ready;
@@ -782,7 +811,7 @@ mod tests {
       // Cancel a spawned task before it actually runs.
       let cancel_handle = Rc::new(CancelHandle::new());
       let future = spawn(async { panic!("the task should not be spawned") })
-        .map_err(Error::from)
+        .map_err(anyhow::Error::from)
         .try_or_cancel(&cancel_handle);
       cancel_handle.cancel();
       let error = future.await.unwrap_err();

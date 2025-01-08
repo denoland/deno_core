@@ -1347,7 +1347,7 @@ fn parse_type_path(
     CBare(TNumeric(numeric))
   } else {
     std::panic::catch_unwind(|| {
-    rules!(tokens => {
+      rules!(tokens => {
       ( $( std :: str  :: )? String ) => {
         Ok(CBare(TString(Strings::String)))
       }
@@ -1412,7 +1412,7 @@ fn parse_type_path(
         Err(ArgError::InvalidTypePath(stringify_token(any)))
       }
     })
-  }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
+    }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
   };
 
   // Ensure that we have the correct reference state. This is a bit awkward but it's
@@ -1967,19 +1967,19 @@ mod tests {
     (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None))
   );
   test!(
-    fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, AnyError>;
+    fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, OpError>;
     (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None))
   );
   test!(
-    #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, AnyError>;
+    #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, OpError>;
     (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
   );
   test!(
-    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, AnyError>;
+    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, OpError>;
     (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
   );
   test!(
-    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, AnyError>;
+    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, OpError>;
     (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
   );
   test!(
@@ -2080,7 +2080,7 @@ mod tests {
       #[smi] rid: ResourceId
     ) -> Result<
       ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas,
-      AnyError,
+      OpError,
     >;
     (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
   );

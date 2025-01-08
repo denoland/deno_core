@@ -6,7 +6,6 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use anyhow::Error;
 use futures::Future;
 use std::pin::Pin;
 
@@ -23,11 +22,13 @@ pub use resource::Resource;
 pub use resource_handle::ResourceHandle;
 pub use resource_handle::ResourceHandleFd;
 pub use resource_handle::ResourceHandleSocket;
+pub use resource_table::ResourceError;
 pub use resource_table::ResourceId;
 pub use resource_table::ResourceTable;
 
 /// Returned by resource shutdown methods
-pub type AsyncResult<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
+pub type AsyncResult<T> =
+  Pin<Box<dyn Future<Output = Result<T, deno_error::JsErrorBox>>>>;
 
 pub enum WriteOutcome {
   Partial { nwritten: usize, view: BufView },

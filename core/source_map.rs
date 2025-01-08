@@ -165,11 +165,11 @@ impl SourceMapper {
 
 #[cfg(test)]
 mod tests {
-  use anyhow::Error;
   use url::Url;
 
   use super::*;
   use crate::ascii_str;
+  use crate::error::ModuleLoaderError;
   use crate::ModuleCodeString;
   use crate::ModuleLoadResponse;
   use crate::ModuleSpecifier;
@@ -191,7 +191,7 @@ mod tests {
       _specifier: &str,
       _referrer: &str,
       _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
       unreachable!()
     }
 

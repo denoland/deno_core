@@ -1,10 +1,12 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::map::ModuleMap;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
+use crate::modules::ModuleLoaderError;
 use crate::modules::ModuleRequest;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
@@ -12,7 +14,6 @@ use crate::resolve_url;
 use crate::ModuleLoadResponse;
 use crate::ModuleLoader;
 use crate::ModuleSource;
-use anyhow::Error;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::Stream;
@@ -26,8 +27,9 @@ use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 
-type ModuleLoadFuture =
-  dyn Future<Output = Result<Option<(ModuleRequest, ModuleSource)>, Error>>;
+type ModuleLoadFuture = dyn Future<
+  Output = Result<Option<(ModuleRequest, ModuleSource)>, ModuleLoaderError>,
+>;
 
 /// Describes the entrypoint of a recursive module load.
 #[derive(Debug)]
@@ -132,7 +134,7 @@ impl RecursiveModuleLoad {
     load
   }
 
-  fn resolve_root(&self) -> Result<ModuleSpecifier, Error> {
+  fn resolve_root(&self) -> Result<ModuleSpecifier, CoreError> {
     match self.init {
       LoadInit::Main(ref specifier) => {
         self
@@ -150,7 +152,7 @@ impl RecursiveModuleLoad {
     }
   }
 
-  pub(crate) async fn prepare(&self) -> Result<(), Error> {
+  pub(crate) async fn prepare(&self) -> Result<(), CoreError> {
     let (module_specifier, maybe_referrer) = match self.init {
       LoadInit::Main(ref specifier) => {
         let spec = self.module_map_rc.resolve(
@@ -181,6 +183,7 @@ impl RecursiveModuleLoad {
       .loader
       .prepare_load(&module_specifier, maybe_referrer, self.is_dynamic_import())
       .await
+      .map_err(|e| e.into())
   }
 
   fn is_currently_loading_main_module(&self) -> bool {
@@ -304,7 +307,7 @@ impl RecursiveModuleLoad {
 }
 
 impl Stream for RecursiveModuleLoad {
-  type Item = Result<(ModuleRequest, ModuleSource), Error>;
+  type Item = Result<(ModuleRequest, ModuleSource), CoreError>;
 
   fn poll_next(
     self: Pin<&mut Self>,

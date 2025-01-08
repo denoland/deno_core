@@ -1,16 +1,15 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use self::runtime::create_snapshot;
+use self::runtime::CreateSnapshotOptions;
+use crate::error::OpError;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
-use anyhow::Error;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
-
-use self::runtime::create_snapshot;
-use self::runtime::CreateSnapshotOptions;
 
 #[test]
 fn will_snapshot() {
@@ -232,9 +231,10 @@ fn es_snapshot() {
     }
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
-  fn op_test() -> Result<String, Error> {
+  fn op_test() -> Result<String, OpError> {
     Ok(String::from("test"))
   }
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {

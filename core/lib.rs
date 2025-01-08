@@ -3,6 +3,7 @@
 #![deny(clippy::print_stderr)]
 #![deny(clippy::print_stdout)]
 #![deny(clippy::unused_async)]
+#![deny(clippy::unnecessary_wraps)]
 
 pub mod arena;
 mod async_cancel;
@@ -10,7 +11,6 @@ mod async_cell;
 pub mod convert;
 pub mod cppgc;
 pub mod error;
-mod error_codes;
 mod extension_set;
 mod extensions;
 mod external;
@@ -51,6 +51,7 @@ pub use serde_v8::StringOrBuffer;
 pub use serde_v8::ToJsBuffer;
 pub use serde_v8::U16String;
 pub use sourcemap;
+pub use thiserror;
 pub use url;
 pub use v8;
 
@@ -70,8 +71,6 @@ pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
 pub use crate::convert::ToV8;
 pub use crate::cppgc::GarbageCollected;
-pub use crate::error::GetErrorClassFn;
-pub use crate::error::JsErrorCreateFn;
 pub use crate::extensions::AccessorType;
 pub use crate::extensions::Extension;
 pub use crate::extensions::ExtensionFileSource;
@@ -112,7 +111,6 @@ pub use crate::module_specifier::specifier_has_uri_scheme;
 pub use crate::module_specifier::ModuleResolutionError;
 pub use crate::module_specifier::ModuleSpecifier;
 pub use crate::modules::CustomModuleEvaluationKind;
-pub use crate::modules::ExtModuleLoaderCb;
 pub use crate::modules::FsModuleLoader;
 pub use crate::modules::ModuleCodeBytes;
 pub use crate::modules::ModuleCodeString;
@@ -180,8 +178,6 @@ pub mod _ops {
   pub use super::error::throw_error_anyhow;
   pub use super::error::throw_error_one_byte;
   pub use super::error::throw_error_one_byte_info;
-  pub use super::error::throw_type_error;
-  pub use super::error_codes::get_error_code;
   pub use super::extensions::Op;
   pub use super::extensions::OpDecl;
   pub use super::extensions::OpMethodDecl;

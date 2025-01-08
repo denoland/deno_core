@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use anyhow::Context;
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
@@ -18,8 +17,7 @@ use crate::cppgc::FunctionTemplateData;
 use crate::error::callsite_fns;
 use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
-use crate::error::throw_type_error;
-use crate::error::AnyError;
+use crate::error::CoreError;
 use crate::error::JsStackFrame;
 use crate::extension_set::LoadedSources;
 use crate::modules::get_requested_module_type_from_attributes;
@@ -35,6 +33,7 @@ use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
+use deno_error::JsErrorBox;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
@@ -313,7 +312,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 /// to function properly
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
-) -> Result<(), AnyError> {
+) -> Result<(), CoreError> {
   for source_file in &CONTEXT_SETUP_SOURCES {
     let name = source_file.specifier.v8_string(scope).unwrap();
     let source = source_file.source.v8_string(scope).unwrap();
@@ -321,10 +320,10 @@ pub(crate) fn initialize_primordials_and_infra(
     let origin = crate::modules::script_origin(scope, name, false, None);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source, Some(&origin))
-      .with_context(|| format!("Failed to parse {}", source_file.specifier))?;
-    script.run(scope).with_context(|| {
-      format!("Failed to execute {}", source_file.specifier)
-    })?;
+      .ok_or_else(|| CoreError::Parse(source_file.specifier))?;
+    script
+      .run(scope)
+      .ok_or_else(|| CoreError::Execute(source_file.specifier))?;
   }
 
   Ok(())
@@ -620,6 +619,7 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
   }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn host_import_module_dynamically_callback<'s>(
   scope: &mut v8::HandleScope<'s>,
   _host_defined_options: v8::Local<'s, v8::Data>,
@@ -807,12 +807,18 @@ fn import_meta_resolve(
   mut rv: v8::ReturnValue,
 ) {
   if args.length() > 1 {
-    return throw_type_error(scope, "Invalid arguments");
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsErrorBox::type_error("Invalid arguments"),
+    );
   }
 
   let maybe_arg_str = args.get(0).to_string(scope);
   if maybe_arg_str.is_none() {
-    return throw_type_error(scope, "Invalid arguments");
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsErrorBox::type_error("Invalid arguments"),
+    );
   }
   let specifier = maybe_arg_str.unwrap();
   let referrer = {
@@ -835,7 +841,7 @@ fn import_meta_resolve(
       rv.set(resolved_val);
     }
     Err(err) => {
-      throw_type_error(scope, err.to_string());
+      crate::error::throw_js_error_class(scope, &err);
     }
   };
 }
@@ -858,7 +864,9 @@ fn catch_dynamic_import_promise_error(
   let arg = args.get(0);
   if is_instance_of_error(scope, arg) {
     let e: crate::error::NativeJsError = serde_v8::from_v8(scope, arg).unwrap();
-    let name = e.name.unwrap_or_else(|| "Error".to_string());
+    let name = e.name.unwrap_or_else(|| {
+      deno_error::builtin_classes::GENERIC_ERROR.to_string()
+    });
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
@@ -873,10 +881,18 @@ fn catch_dynamic_import_promise_error(
         }
       }
       let exception = match name.as_str() {
-        "RangeError" => v8::Exception::range_error(scope, message),
-        "TypeError" => v8::Exception::type_error(scope, message),
-        "SyntaxError" => v8::Exception::syntax_error(scope, message),
-        "ReferenceError" => v8::Exception::reference_error(scope, message),
+        deno_error::builtin_classes::RANGE_ERROR => {
+          v8::Exception::range_error(scope, message)
+        }
+        deno_error::builtin_classes::TYPE_ERROR => {
+          v8::Exception::type_error(scope, message)
+        }
+        deno_error::builtin_classes::SYNTAX_ERROR => {
+          v8::Exception::syntax_error(scope, message)
+        }
+        deno_error::builtin_classes::REFERENCE_ERROR => {
+          v8::Exception::reference_error(scope, message)
+        }
         _ => v8::Exception::error(scope, message),
       };
       let code_key = CODE.v8_string(scope).unwrap();
@@ -935,7 +951,10 @@ fn call_console(
     || !args.get(0).is_function()
     || !args.get(1).is_function()
   {
-    return throw_type_error(scope, "Invalid arguments");
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsErrorBox::type_error("Invalid arguments"),
+    );
   }
 
   let mut call_args = vec![];

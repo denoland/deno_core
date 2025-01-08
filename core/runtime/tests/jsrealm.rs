@@ -1,6 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error;
+use crate::error::CoreError;
 use crate::modules::StaticModuleLoader;
 use crate::op2;
 use crate::JsRuntime;
@@ -44,8 +44,9 @@ fn test_set_format_exception_callback_realms() {
         format!("throw new Error('{realm_name}');"),
       );
       assert!(result.is_err());
-
-      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      let CoreError::Js(error) = result.unwrap_err() else {
+        unreachable!()
+      };
       assert_eq!(
         error.exception_message,
         format!("{realm_name} / Error: {realm_name}")
@@ -65,7 +66,9 @@ fn test_set_format_exception_callback_realms() {
       let result =
         futures::executor::block_on(runtime.run_event_loop(Default::default()));
       assert!(result.is_err());
-      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      let CoreError::Js(error) = result.unwrap_err() else {
+        unreachable!()
+      };
       assert_eq!(
         error.exception_message,
         format!("Uncaught (in promise) {realm_name} / Error: {realm_name}")

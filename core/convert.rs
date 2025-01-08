@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::StdAnyError;
 use crate::runtime::ops;
+use deno_error::JsErrorBox;
 use std::convert::Infallible;
 
 /// A conversion from a rust value to a v8 value.
@@ -87,15 +87,16 @@ pub trait ToV8<'a> {
 ///
 /// ```ignore
 /// use deno_core::FromV8;
+/// use deno_error::JsErrorBox;
 /// use deno_core::convert::Smi;
 /// use deno_core::op2;
 ///
 /// struct Foo(i32);
 ///
 /// impl<'a> FromV8<'a> for Foo {
-///   // This conversion can fail, so we use `deno_core::error::StdAnyError` as the error type.
+///   // This conversion can fail, so we use `JsErrorBox` as the error type.
 ///   // Any error type that implements `std::error::Error` can be used here.
-///   type Error = deno_core::error::StdAnyError;
+///   type Error = JsErrorBox;
 ///
 ///   fn from_v8(scope: &mut v8::HandleScope<'a>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
 ///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::convert::Smi] wrapper type to convert it.
@@ -122,7 +123,7 @@ pub trait FromV8<'a>: Sized {
 // impls
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.  
+/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.
 #[repr(transparent)]
 pub struct Smi<T: SmallInt>(pub T);
 
@@ -170,22 +171,21 @@ impl<'a, T: SmallInt> ToV8<'a> for Smi<T> {
 }
 
 impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
-  type Error = StdAnyError;
+  type Error = JsErrorBox;
 
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    let v = crate::runtime::ops::to_i32_option(&value).ok_or_else(|| {
-      crate::error::type_error(format!("Expected {}", T::NAME))
-    })?;
+    let v = ops::to_i32_option(&value)
+      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))?;
     Ok(Smi(T::from_i32(v)))
   }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.  
+/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.
 #[repr(transparent)]
 pub struct Number<T: Numeric>(pub T);
 
@@ -240,15 +240,15 @@ impl<'a, T: Numeric> ToV8<'a> for Number<T> {
 }
 
 impl<'a, T: Numeric> FromV8<'a> for Number<T> {
-  type Error = StdAnyError;
+  type Error = JsErrorBox;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    T::from_value(&value).map(Number).ok_or_else(|| {
-      crate::error::type_error(format!("Expected {}", T::NAME)).into()
-    })
+    T::from_value(&value)
+      .map(Number)
+      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))
   }
 }
 
@@ -264,7 +264,7 @@ impl<'a> ToV8<'a> for bool {
 }
 
 impl<'a> FromV8<'a> for bool {
-  type Error = StdAnyError;
+  type Error = JsErrorBox;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
@@ -273,6 +273,6 @@ impl<'a> FromV8<'a> for bool {
     value
       .try_cast::<v8::Boolean>()
       .map(|v| v.is_true())
-      .map_err(|_| crate::error::type_error("Expected boolean").into())
+      .map_err(|_| JsErrorBox::type_error("Expected boolean"))
   }
 }

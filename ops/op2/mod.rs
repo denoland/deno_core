@@ -74,8 +74,6 @@ pub enum V8SignatureMappingError {
   NoRetValMapping(V8MappingError, RetVal),
   #[error("Unable to map argument {1:?} to {0}")]
   NoArgMapping(V8MappingError, Arg),
-  #[error("Unable to map self")]
-  NoSelfMapping(V8MappingError),
 }
 
 pub type V8MappingError = &'static str;

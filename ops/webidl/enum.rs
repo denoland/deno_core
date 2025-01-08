@@ -33,14 +33,14 @@ pub fn get_body(
     let Ok(str) = __value.try_cast::<::deno_core::v8::String>() else {
       return Err(::deno_core::webidl::WebIdlError::new(
         __prefix,
-        &__context,
+        __context,
         ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("enum"),
       ));
     };
 
     match str.to_rust_string_lossy(__scope).as_str() {
       #(#variants),*,
-      s => Err(::deno_core::webidl::WebIdlError::new(__prefix, &__context, ::deno_core::webidl::WebIdlErrorKind::InvalidEnumVariant { converter: #ident_string, variant: s.to_string() }))
+      s => Err(::deno_core::webidl::WebIdlError::new(__prefix, __context, ::deno_core::webidl::WebIdlErrorKind::InvalidEnumVariant { converter: #ident_string, variant: s.to_string() }))
     }
   })
 }

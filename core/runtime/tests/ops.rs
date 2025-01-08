@@ -2,14 +2,13 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 
-use crate::error::AnyError;
+use crate::error::OpError;
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
 use crate::*;
-use anyhow::bail;
-use anyhow::Error;
+use deno_error::JsErrorBox;
 use futures::Future;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -25,7 +24,7 @@ async fn test_async_opstate_borrow() {
   #[op2(async)]
   async fn op_async_borrow(
     op_state: Rc<RefCell<OpState>>,
-  ) -> Result<(), Error> {
+  ) -> Result<(), OpError> {
     let n = {
       let op_state = op_state.borrow();
       let inner_state = op_state.borrow::<InnerState>();
@@ -60,10 +59,11 @@ async fn test_async_opstate_borrow() {
 
 #[tokio::test]
 async fn test_sync_op_serialize_object_with_numbers_as_keys() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   fn op_sync_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
-  ) -> Result<(), Error> {
+  ) -> Result<(), OpError> {
     assert_eq!(
       value.to_string(),
       r#"{"lines":{"100":{"unit":"m"},"200":{"unit":"cm"}}}"#
@@ -105,7 +105,7 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
   #[op2(async)]
   async fn op_async_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
-  ) -> Result<(), Error> {
+  ) -> Result<(), OpError> {
     assert_eq!(
       value.to_string(),
       r#"{"lines":{"100":{"unit":"m"},"200":{"unit":"cm"}}}"#
@@ -145,9 +145,10 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
 
 #[test]
 fn test_op_return_serde_v8_error() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[serde]
-  fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, anyhow::Error> {
+  fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, OpError> {
     Ok([(1, 2), (3, 4)].into_iter().collect()) // Maps can't have non-string keys in serde_v8
   }
 
@@ -166,6 +167,7 @@ fn test_op_return_serde_v8_error() {
 
 #[test]
 fn test_op_high_arity() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   #[number]
   fn op_add_4(
@@ -173,7 +175,7 @@ fn test_op_high_arity() {
     #[number] x2: i64,
     #[number] x3: i64,
     #[number] x4: i64,
-  ) -> Result<i64, anyhow::Error> {
+  ) -> Result<i64, OpError> {
     Ok(x1 + x2 + x3 + x4)
   }
 
@@ -191,9 +193,10 @@ fn test_op_high_arity() {
 
 #[test]
 fn test_op_disabled() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   #[number]
-  fn op_foo() -> Result<i64, anyhow::Error> {
+  fn op_foo() -> Result<i64, OpError> {
     Ok(42)
   }
 
@@ -215,16 +218,16 @@ fn test_op_disabled() {
 
 #[test]
 fn test_op_detached_buffer() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
-  fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, anyhow::Error> {
+  fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, OpError> {
     Ok(b.as_ref().iter().clone().map(|x| *x as u32).sum())
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[buffer]
-  fn op_boomerang(
-    #[buffer(detach)] b: JsBuffer,
-  ) -> Result<JsBuffer, anyhow::Error> {
+  fn op_boomerang(#[buffer(detach)] b: JsBuffer) -> Result<JsBuffer, OpError> {
     Ok(b)
   }
 
@@ -296,16 +299,17 @@ fn duplicate_op_names() {
   mod a {
     use super::*;
 
+    #[allow(clippy::unnecessary_wraps)]
     #[op2]
     #[string]
-    pub fn op_test() -> Result<String, Error> {
+    pub fn op_test() -> Result<String, OpError> {
       Ok(String::from("Test"))
     }
   }
 
   #[op2]
   #[string]
-  pub fn op_test() -> Result<String, Error> {
+  pub fn op_test() -> Result<String, OpError> {
     Ok(String::from("Test"))
   }
 
@@ -318,15 +322,16 @@ fn duplicate_op_names() {
 
 #[test]
 fn ops_in_js_have_proper_names() {
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
-  fn op_test_sync() -> Result<String, Error> {
+  fn op_test_sync() -> Result<String, OpError> {
     Ok(String::from("Test"))
   }
 
   #[op2(async)]
   #[string]
-  async fn op_test_async() -> Result<String, Error> {
+  async fn op_test_async() -> Result<String, OpError> {
     Ok(String::from("Test"))
   }
 
@@ -535,9 +540,9 @@ pub async fn op_async() {
 
 #[op2(async)]
 #[allow(unreachable_code)]
-pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, AnyError>
+pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, OpError>
 {
-  bail!("dead");
+  return Err(JsErrorBox::generic("dead").into());
   Ok(async {})
 }
 
@@ -548,16 +553,16 @@ pub async fn op_async_yield() {
 }
 
 #[op2(async)]
-pub async fn op_async_yield_error() -> Result<(), AnyError> {
+pub async fn op_async_yield_error() -> Result<(), OpError> {
   tokio::task::yield_now().await;
   println!("op_async_yield_error!");
-  bail!("dead");
+  Err(JsErrorBox::generic("dead").into())
 }
 
 #[op2(async)]
-pub async fn op_async_error() -> Result<(), AnyError> {
+pub async fn op_async_error() -> Result<(), OpError> {
   println!("op_async_error!");
-  bail!("dead");
+  Err(JsErrorBox::generic("dead").into())
 }
 
 #[op2(async(deferred), fast)]
@@ -576,8 +581,8 @@ pub fn op_sync() {
 }
 
 #[op2(fast)]
-pub fn op_sync_error() -> Result<(), AnyError> {
-  bail!("Always fails");
+pub fn op_sync_error() -> Result<(), OpError> {
+  Err(JsErrorBox::generic("Always fails").into())
 }
 
 #[op2(fast)]

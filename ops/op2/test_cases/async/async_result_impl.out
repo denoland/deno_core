@@ -57,11 +57,9 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
                 Ok(result) => result,
                 Err(err) => {
                     let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let err = err.into();
                     let exception = deno_core::error::to_v8_error(
                         &mut scope,
-                        opctx.get_error_class_fn,
-                        &err,
+                        &deno_core::error::OpErrorWrapper(err.into()),
                     );
                     scope.throw_exception(exception);
                     return 1;
@@ -85,11 +83,9 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(info)
                         };
-                        let err = err.into();
                         let exception = deno_core::error::to_v8_error(
                             &mut scope,
-                            opctx.get_error_class_fn,
-                            &err,
+                            &deno_core::error::OpErrorWrapper(err.into()),
                         );
                         scope.throw_exception(exception);
                         return 1;
@@ -138,7 +134,7 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
         #[allow(clippy::too_many_arguments)]
         pub fn call(
             x: i32,
-        ) -> Result<impl Future<Output = std::io::Result<i32>>, AnyError> {
+        ) -> Result<impl Future<Output = std::io::Result<i32>>, OpError> {
             Ok(async move { Ok(x) })
         }
     }

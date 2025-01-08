@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -10,6 +9,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use crate::cppgc::FunctionTemplateSnapshotData;
+use crate::error::CoreError;
 use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
@@ -181,7 +181,7 @@ pub struct CreateSnapshotOutput {
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
   warmup_script: Option<&'static str>,
-) -> Result<CreateSnapshotOutput, Error> {
+) -> Result<CreateSnapshotOutput, CoreError> {
   let mut mark = Instant::now();
   #[allow(clippy::print_stdout)]
   {
