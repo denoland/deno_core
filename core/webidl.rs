@@ -24,7 +24,7 @@ enum ContextFnInner<'a> {
 ///
 /// When possible, prefer to use `ContextFn::new_borrowed` when creating a new context function
 /// to avoid unnecessary allocations.
-/// 
+///
 /// To pass a borrow of the context function, use `ContextFn::borrowed`.
 pub struct ContextFn<'a>(ContextFnInner<'a>);
 
