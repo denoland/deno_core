@@ -18,7 +18,6 @@ deno_core::extension!(
     op_async_void_lazy_nofast,
     op_async_void_deferred,
     op_async_void_deferred_nofast,
-    op_async_error,
     op_async_void_deferred_return,
     op_async_yield,
     op_async_yield_lazy,
