@@ -364,7 +364,6 @@ mod tests {
   use pretty_assertions::assert_eq;
   use quote::ToTokens;
   use std::path::PathBuf;
-  use syn::File;
   use syn::Item;
 
   fn to_attr_input(op2_attr: syn::Attribute) -> TokenStream {
@@ -385,6 +384,11 @@ mod tests {
       .map(|(idx, attr)| (idx, attr.to_owned()))
   }
 
+  fn expand_op2(op2_attr: syn::Attribute, item: impl ToTokens) -> TokenStream {
+    op2(to_attr_input(op2_attr), item.to_token_stream())
+      .expect("Failed to generate op")
+  }
+
   #[testing_macros::fixture("op2/test_cases/sync/*.rs")]
   fn test_proc_macro_sync(input: PathBuf) {
     test_proc_macro_output(input)
@@ -395,67 +399,28 @@ mod tests {
     test_proc_macro_output(input)
   }
 
-  fn expand_op2(op2_attr: syn::Attribute, item: impl ToTokens) -> String {
-    let tokens = op2(to_attr_input(op2_attr), item.to_token_stream())
-      .expect("Failed to generate op");
-    println!("======== Raw tokens ========:\n{}", tokens.clone());
-    let tree = syn::parse2(tokens).unwrap();
-    let actual = prettyplease::unparse(&tree);
-    println!("======== Generated ========:\n{}", actual);
-    actual
-  }
-
   fn test_proc_macro_output(input: PathBuf) {
-    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
-
-    let source =
-      std::fs::read_to_string(&input).expect("Failed to read test file");
-
-    const PRELUDE: &str = r"// Copyright 2018-2025 the Deno authors. MIT license.
-
-#![deny(warnings)]
-deno_ops_compile_test_runner::prelude!();";
-
-    if !source.starts_with(PRELUDE) {
-      panic!("Source does not start with expected prelude:]n{PRELUDE}");
-    }
-
-    let file =
-      syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
-    let mut expected_out = vec![];
-    for item in file.items {
-      match item {
-        Item::Fn(mut func) => {
-          if let Some((idx, op2_attr)) = find_op2_attr(&func.attrs) {
-            func.attrs.remove(idx);
-            let actual = expand_op2(op2_attr, func);
-            expected_out.push(actual);
+    crate::infra::run_macro_expansion_test(input, |file| {
+      file.items.into_iter().filter_map(|item| {
+        match item {
+          Item::Fn(mut func) => {
+            if let Some((idx, op2_attr)) = find_op2_attr(&func.attrs) {
+              func.attrs.remove(idx);
+              return Some(expand_op2(op2_attr, func));
+            }
           }
-        }
-        Item::Impl(mut imp) => {
-          if let Some((idx, op2_attr)) = find_op2_attr(&imp.attrs) {
-            imp.attrs.remove(idx);
-            let actual = expand_op2(op2_attr, imp);
-            expected_out.push(actual);
+          Item::Impl(mut imp) => {
+            if let Some((idx, op2_attr)) = find_op2_attr(&imp.attrs) {
+              imp.attrs.remove(idx);
+              return Some(expand_op2(op2_attr, imp));
+            }
           }
+          _ => {}
         }
-        _ => {}
-      }
-    }
 
-    let expected_out = expected_out.join("\n");
-
-    if update_expected {
-      std::fs::write(input.with_extension("out"), expected_out)
-        .expect("Failed to write expectation file");
-    } else {
-      let expected = std::fs::read_to_string(input.with_extension("out"))
-        .expect("Failed to read expectation file");
-      assert_eq!(
-        expected, expected_out,
-        "Failed to match expectation. Use UPDATE_EXPECTED=1."
-      );
-    }
+        None
+      })
+    })
   }
 
   fn parse_md(md: &str, mut f: impl FnMut(&str, Vec<&str>)) {

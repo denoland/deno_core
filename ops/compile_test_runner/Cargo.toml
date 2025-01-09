@@ -6,21 +6,16 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-readme = "README.md"
 repository.workspace = true
 description = "Compile-test runner for deno_ops"
 
 [lib]
+path = "lib.rs"
 
 [dev-dependencies]
 bytes.workspace = true
 deno_core.workspace = true
 deno_error.workspace = true
 deno_ops.workspace = true
-pretty_assertions.workspace = true
-prettyplease = "0.2.9"
-rustversion = "1.0"
 serde.workspace = true
-syn.workspace = true
-testing_macros = "0.2.11"
 trybuild = "1.0"

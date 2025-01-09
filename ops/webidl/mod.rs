@@ -115,11 +115,9 @@ fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use pretty_assertions::assert_eq;
   use quote::ToTokens;
   use std::path::PathBuf;
   use syn::punctuated::Punctuated;
-  use syn::File;
   use syn::Item;
 
   fn derives_webidl<'a>(
@@ -136,68 +134,30 @@ mod tests {
     })
   }
 
+  fn expand_webidl(item: impl ToTokens) -> TokenStream {
+    webidl(item.to_token_stream()).expect("Failed to generate WebIDL")
+  }
+
   #[testing_macros::fixture("webidl/test_cases/*.rs")]
   fn test_proc_macro_sync(input: PathBuf) {
-    test_proc_macro_output(input)
-  }
-
-  fn expand_webidl(item: impl ToTokens) -> String {
-    let tokens =
-      webidl(item.to_token_stream()).expect("Failed to generate WebIDL");
-    println!("======== Raw tokens ========:\n{}", tokens.clone());
-    let tree = syn::parse2(tokens).unwrap();
-    let actual = prettyplease::unparse(&tree);
-    println!("======== Generated ========:\n{}", actual);
-    actual
-  }
-
-  fn test_proc_macro_output(input: PathBuf) {
-    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
-
-    let source =
-      std::fs::read_to_string(&input).expect("Failed to read test file");
-
-    const PRELUDE: &str = r"// Copyright 2018-2025 the Deno authors. MIT license.
-
-#![deny(warnings)]
-deno_ops_compile_test_runner::prelude!();";
-
-    if !source.starts_with(PRELUDE) {
-      panic!("Source does not start with expected prelude:]n{PRELUDE}");
-    }
-
-    let file =
-      syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
-    let mut expected_out = vec![];
-    for item in file.items {
-      match item {
-        Item::Struct(struct_item) => {
-          if derives_webidl(&struct_item.attrs) {
-            expected_out.push(expand_webidl(struct_item));
+    crate::infra::run_macro_expansion_test(input, |file| {
+      file.items.into_iter().filter_map(|item| {
+        match item {
+          Item::Struct(struct_item) => {
+            if derives_webidl(&struct_item.attrs) {
+              return Some(expand_webidl(struct_item));
+            }
           }
-        }
-        Item::Enum(enum_item) => {
-          dbg!();
-          if derives_webidl(&enum_item.attrs) {
-            expected_out.push(expand_webidl(enum_item));
+          Item::Enum(enum_item) => {
+            if derives_webidl(&enum_item.attrs) {
+              return Some(expand_webidl(enum_item));
+            }
           }
+          _ => {}
         }
-        _ => {}
-      }
-    }
 
-    let expected_out = expected_out.join("\n");
-
-    if update_expected {
-      std::fs::write(input.with_extension("out"), expected_out)
-        .expect("Failed to write expectation file");
-    } else {
-      let expected = std::fs::read_to_string(input.with_extension("out"))
-        .expect("Failed to read expectation file");
-      assert_eq!(
-        expected, expected_out,
-        "Failed to match expectation. Use UPDATE_EXPECTED=1."
-      );
-    }
+        None
+      })
+    })
   }
 }
