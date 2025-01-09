@@ -87,8 +87,10 @@ deno_ops_compile_test_runner::prelude!();";
     } else {
       let expected = std::fs::read_to_string(input.with_extension("out"))
         .expect("Failed to read expectation file");
-      assert_eq!(
-        expected, expected_out,
+
+      pretty_assertions::assert_eq!(
+        expected,
+        expected_out,
         "Failed to match expectation. Use UPDATE_EXPECTED=1."
       );
     }

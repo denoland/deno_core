@@ -12,16 +12,11 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
             = "e", __v8_static_f = "f"
         }
         thread_local! {
-            static __v8_a_eternal : ::deno_core::v8::Eternal < ::deno_core::v8::String >
-            = ::deno_core::v8::Eternal::empty(); static __v8_b_eternal :
-            ::deno_core::v8::Eternal < ::deno_core::v8::String > =
-            ::deno_core::v8::Eternal::empty(); static __v8_c_eternal :
-            ::deno_core::v8::Eternal < ::deno_core::v8::String > =
-            ::deno_core::v8::Eternal::empty(); static __v8_e_eternal :
-            ::deno_core::v8::Eternal < ::deno_core::v8::String > =
-            ::deno_core::v8::Eternal::empty(); static __v8_f_eternal :
-            ::deno_core::v8::Eternal < ::deno_core::v8::String > =
-            ::deno_core::v8::Eternal::empty();
+            static __v8_a_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            static __v8_b_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            static __v8_c_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            static __v8_e_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            static __v8_f_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
         }
         let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value
             .is_undefined() || __value.is_null()
