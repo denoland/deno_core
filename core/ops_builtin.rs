@@ -514,8 +514,7 @@ async fn do_load_job<'s>(
           false,
           false,
         )
-        .unwrap_err()
-        .into(),
+        .unwrap_err(),
       );
     }
   }
@@ -621,8 +620,7 @@ fn op_import_sync<'s>(
           false,
           false,
         )
-        .unwrap_err()
-        .into(),
+        .unwrap_err(),
       );
     }
   }
