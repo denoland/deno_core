@@ -1,8 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::error::is_instance_of_error;
+use crate::error::CoreError;
 use crate::error::JsError;
-use crate::error::OpError;
+use crate::io::ResourceError;
 use crate::modules::script_origin;
 use crate::op2;
 use crate::ops_builtin::WasmStreamingResource;
@@ -193,11 +194,9 @@ pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
 pub fn op_lazy_load_esm(
   scope: &mut v8::HandleScope,
   #[string] module_specifier: String,
-) -> Result<v8::Global<v8::Value>, OpError> {
+) -> Result<v8::Global<v8::Value>, CoreError> {
   let module_map_rc = JsRealm::module_map_from(scope);
-  module_map_rc
-    .lazy_load_esm_module(scope, &module_specifier)
-    .map_err(|e| e.into())
+  module_map_rc.lazy_load_esm_module(scope, &module_specifier)
 }
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
@@ -264,13 +263,13 @@ pub fn op_eval_context<'a>(
   source: v8::Local<'a, v8::Value>,
   #[string] specifier: String,
   host_defined_options: Option<v8::Local<'a, v8::Array>>,
-) -> Result<v8::Local<'a, v8::Value>, OpError> {
+) -> Result<v8::Local<'a, v8::Value>, JsErrorBox> {
   let out = v8::Array::new(scope, 2);
   let state = JsRuntime::state_from(scope);
   let tc_scope = &mut v8::TryCatch::new(scope);
   let source = v8::Local::<v8::String>::try_from(source)
     .map_err(|_| JsErrorBox::type_error("Invalid source"))?;
-  let specifier = resolve_url(&specifier)?;
+  let specifier = resolve_url(&specifier).map_err(JsErrorBox::from_err)?;
   let specifier_v8 = v8::String::new(tc_scope, specifier.as_str()).unwrap();
   let host_defined_options = match host_defined_options {
     Some(array) => {
@@ -279,7 +278,7 @@ pub fn op_eval_context<'a>(
         let value = array.get_index(tc_scope, i).unwrap();
         let value = value
           .try_cast::<v8::Primitive>()
-          .map_err(crate::error::DataError)?;
+          .map_err(|e| JsErrorBox::from_err(crate::error::DataError(e)))?;
         output.set(tc_scope, i as _, value);
       }
       Some(output.into())
@@ -381,7 +380,7 @@ pub fn op_eval_context<'a>(
 pub fn op_encode<'a>(
   scope: &mut v8::HandleScope<'a>,
   text: v8::Local<'a, v8::Value>,
-) -> Result<v8::Local<'a, v8::Uint8Array>, OpError> {
+) -> Result<v8::Local<'a, v8::Uint8Array>, JsErrorBox> {
   let text = v8::Local::<v8::String>::try_from(text)
     .map_err(|_| JsErrorBox::type_error("Invalid argument"))?;
   let text_str = serde_v8::to_utf8(text, scope);
@@ -398,7 +397,7 @@ pub fn op_encode<'a>(
 pub fn op_decode<'a>(
   scope: &mut v8::HandleScope<'a>,
   #[buffer] zero_copy: &[u8],
-) -> Result<v8::Local<'a, v8::String>, OpError> {
+) -> Result<v8::Local<'a, v8::String>, JsErrorBox> {
   let buf = &zero_copy;
 
   // Strip BOM
@@ -419,7 +418,7 @@ pub fn op_decode<'a>(
   // - https://github.com/v8/v8/blob/d68fb4733e39525f9ff0a9222107c02c28096e2a/include/v8.h#L3277-L3278
   match v8::String::new_from_utf8(scope, buf, v8::NewStringType::Normal) {
     Some(text) => Ok(text),
-    None => Err(JsErrorBox::range_error("string too long").into()),
+    None => Err(JsErrorBox::range_error("string too long")),
   }
 }
 
@@ -599,7 +598,7 @@ pub fn op_serialize(
   transferred_array_buffers: Option<v8::Local<v8::Value>>,
   for_storage: bool,
   error_callback: Option<v8::Local<v8::Value>>,
-) -> Result<Vec<u8>, OpError> {
+) -> Result<Vec<u8>, JsErrorBox> {
   let error_callback = match error_callback {
     Some(cb) => Some(
       v8::Local::<v8::Function>::try_from(cb)
@@ -649,22 +648,16 @@ pub fn op_serialize(
       if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store
       {
         if !buf.is_detachable() {
-          return Err(
-            JsErrorBox::type_error(
-              "item in transferredArrayBuffers is not transferable",
-            )
-            .into(),
-          );
+          return Err(JsErrorBox::type_error(
+            "item in transferredArrayBuffers is not transferable",
+          ));
         }
 
         if buf.was_detached() {
-          return Err(
-            JsErrorBox::new(
-              "DOMExceptionOperationError",
-              format!("ArrayBuffer at index {index} is already detached"),
-            )
-            .into(),
-          );
+          return Err(JsErrorBox::new(
+            "DOMExceptionOperationError",
+            format!("ArrayBuffer at index {index} is already detached"),
+          ));
         }
 
         let backing_store = buf.get_backing_store();
@@ -687,7 +680,7 @@ pub fn op_serialize(
     let vector = value_serializer.release();
     Ok(vector)
   } else {
-    Err(JsErrorBox::type_error("Failed to serialize response").into())
+    Err(JsErrorBox::type_error("Failed to serialize response"))
   }
 }
 
@@ -698,7 +691,7 @@ pub fn op_deserialize<'a>(
   host_objects: Option<v8::Local<v8::Value>>,
   transferred_array_buffers: Option<v8::Local<v8::Value>>,
   for_storage: bool,
-) -> Result<v8::Local<'a, v8::Value>, OpError> {
+) -> Result<v8::Local<'a, v8::Value>, JsErrorBox> {
   let host_objects = match host_objects {
     Some(value) => Some(
       v8::Local::<v8::Array>::try_from(value)
@@ -727,7 +720,7 @@ pub fn op_deserialize<'a>(
     .read_header(scope.get_current_context())
     .unwrap_or_default();
   if !parsed_header {
-    return Err(JsErrorBox::range_error("could not deserialize value").into());
+    return Err(JsErrorBox::range_error("could not deserialize value"));
   }
 
   if let Some(transferred_array_buffers) = transferred_array_buffers {
@@ -739,12 +732,9 @@ pub fn op_deserialize<'a>(
         let id = match id_val.number_value(scope) {
           Some(id) => id as u32,
           None => {
-            return Err(
-              JsErrorBox::type_error(
-                "item in transferredArrayBuffers not number",
-              )
-              .into(),
-            )
+            return Err(JsErrorBox::type_error(
+              "item in transferredArrayBuffers not number",
+            ))
           }
         };
         if let Some(backing_store) = shared_array_buffer_store.take(id) {
@@ -755,7 +745,7 @@ pub fn op_deserialize<'a>(
         } else {
           return Err(JsErrorBox::type_error(
             "transferred array buffer not present in shared_array_buffer_store",
-          ).into());
+          ));
         }
       }
     }
@@ -764,7 +754,7 @@ pub fn op_deserialize<'a>(
   let value = value_deserializer.read_value(scope.get_current_context());
   match value {
     Some(deserialized) => Ok(deserialized),
-    None => Err(JsErrorBox::range_error("could not deserialize value").into()),
+    None => Err(JsErrorBox::range_error("could not deserialize value")),
   }
 }
 
@@ -800,16 +790,15 @@ pub fn op_set_promise_hooks(
   before_hook: v8::Local<v8::Value>,
   after_hook: v8::Local<v8::Value>,
   resolve_hook: v8::Local<v8::Value>,
-) -> Result<(), OpError> {
+) -> Result<(), crate::error::DataError> {
   let v8_fns = [init_hook, before_hook, after_hook, resolve_hook]
     .into_iter()
     .enumerate()
     .filter(|(_, hook)| !hook.is_undefined())
     .try_fold([None; 4], |mut v8_fns, (i, hook)| {
-      let v8_fn = v8::Local::<v8::Function>::try_from(hook)
-        .map_err(crate::error::DataError)?;
+      let v8_fn = v8::Local::<v8::Function>::try_from(hook)?;
       v8_fns[i] = Some(v8_fn);
-      Ok::<_, OpError>(v8_fns)
+      Ok::<_, crate::error::DataError>(v8_fns)
     })?;
 
   scope.set_promise_hooks(
@@ -946,16 +935,15 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
   #[global] cb: v8::Global<v8::Function>,
-) -> Result<(), OpError> {
+) -> Result<(), JsErrorBox> {
   let context_state_rc = JsRealm::state_from_scope(scope);
   // The callback to pass to the v8 API has to be a unit type, so it can't
   // borrow or move any local variables. Therefore, we're storing the JS
   // callback in a JsRuntimeState slot.
   if context_state_rc.js_wasm_streaming_cb.borrow().is_some() {
-    return Err(
-      JsErrorBox::type_error("op_set_wasm_streaming_callback already called")
-        .into(),
-    );
+    return Err(JsErrorBox::type_error(
+      "op_set_wasm_streaming_callback already called",
+    ));
   }
   *context_state_rc.js_wasm_streaming_cb.borrow_mut() = Some(Rc::new(cb));
 
@@ -994,7 +982,7 @@ pub fn op_abort_wasm_streaming(
   state: Rc<RefCell<OpState>>,
   rid: u32,
   error: v8::Local<v8::Value>,
-) -> Result<(), OpError> {
+) -> Result<(), ResourceError> {
   // NOTE: v8::WasmStreaming::abort can't be called while `state` is borrowed;
   let wasm_streaming = state
     .borrow_mut()

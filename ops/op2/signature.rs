@@ -1967,19 +1967,19 @@ mod tests {
     (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None))
   );
   test!(
-    fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, OpError>;
+    fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, JsErrorBox>;
     (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None))
   );
   test!(
-    #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, OpError>;
+    #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, JsErrorBox>;
     (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
   );
   test!(
-    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, OpError>;
+    fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, JsErrorBox>;
     (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
   );
   test!(
-    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, OpError>;
+    #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, JsErrorBox>;
     (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
   );
   test!(
@@ -2080,7 +2080,7 @@ mod tests {
       #[smi] rid: ResourceId
     ) -> Result<
       ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas,
-      OpError,
+      JsErrorBox,
     >;
     (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
   );

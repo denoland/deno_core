@@ -1,7 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::error::CoreError;
-use crate::error::OpError;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
@@ -9,6 +8,7 @@ use crate::*;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
+use deno_error::JsErrorBox;
 use futures::future::poll_fn;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -86,7 +86,7 @@ async fn test_wakers_for_async_ops() {
   static STATE: AtomicI8 = AtomicI8::new(0);
 
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), OpError> {
+  async fn op_async_sleep() -> Result<(), JsErrorBox> {
     STATE.store(1, Ordering::SeqCst);
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     STATE.store(2, Ordering::SeqCst);
@@ -658,7 +658,7 @@ fn test_is_proxy() {
 #[tokio::test]
 async fn test_set_macrotask_callback_set_next_tick_callback() {
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), OpError> {
+  async fn op_async_sleep() -> Result<(), JsErrorBox> {
     // Future must be Poll::Pending on first call
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     Ok(())
@@ -709,14 +709,14 @@ fn test_has_tick_scheduled() {
 
   #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  fn op_macrotask() -> Result<(), OpError> {
+  fn op_macrotask() -> Result<(), JsErrorBox> {
     MACROTASK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
 
   #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  fn op_next_tick() -> Result<(), OpError> {
+  fn op_next_tick() -> Result<(), JsErrorBox> {
     NEXT_TICK.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
@@ -980,9 +980,9 @@ async fn test_stalled_tla() {
 #[tokio::test]
 async fn test_dynamic_import_module_error_stack() {
   #[op2(async)]
-  async fn op_async_error() -> Result<(), OpError> {
+  async fn op_async_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    Err(deno_error::JsErrorBox::type_error("foo").into())
+    Err(deno_error::JsErrorBox::type_error("foo"))
   }
   deno_core::extension!(test_ext, ops = [op_async_error]);
   let loader = StaticModuleLoader::new([
@@ -1204,7 +1204,7 @@ async fn task_spawner_cross_thread_blocking() {
 #[tokio::test]
 async fn terminate_execution_run_event_loop_js() {
   #[op2(async)]
-  async fn op_async_sleep() -> Result<(), OpError> {
+  async fn op_async_sleep() -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     Ok(())
   }

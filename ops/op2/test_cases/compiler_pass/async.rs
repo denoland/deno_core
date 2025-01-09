@@ -3,9 +3,9 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::error::OpError;
 use deno_core::JsBuffer;
 use deno_core::OpState;
+use deno_error::JsErrorBox;
 use std::cell::RefCell;
 use std::future::Future;
 use std::rc::Rc;
@@ -26,14 +26,14 @@ pub async fn op_async3(x: i32) -> std::io::Result<i32> {
 }
 
 #[op2(async)]
-pub fn op_async4(x: i32) -> Result<impl Future<Output = i32>, OpError> {
+pub fn op_async4(x: i32) -> Result<impl Future<Output = i32>, JsErrorBox> {
   Ok(async move { x })
 }
 
 #[op2(async)]
 pub fn op_async5(
   x: i32,
-) -> Result<impl Future<Output = std::io::Result<i32>>, OpError> {
+) -> Result<impl Future<Output = std::io::Result<i32>>, JsErrorBox> {
   Ok(async move { Ok(x) })
 }
 

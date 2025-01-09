@@ -1,11 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::OpError;
 use crate::op2;
 use crate::CrossIsolateStore;
 use crate::JsRuntime;
 use crate::OpState;
 use crate::RuntimeOptions;
+use deno_error::JsErrorBox;
 use serde_v8::JsBuffer;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -37,7 +37,7 @@ async fn op_test(
   rc_op_state: Rc<RefCell<OpState>>,
   control: u8,
   #[buffer] buf: Option<JsBuffer>,
-) -> Result<u8, OpError> {
+) -> Result<u8, JsErrorBox> {
   let op_state_ = rc_op_state.borrow();
   let test_state = op_state_.borrow::<TestState>();
   test_state.dispatch_count.fetch_add(1, Ordering::Relaxed);

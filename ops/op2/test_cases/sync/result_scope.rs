@@ -3,12 +3,12 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::error::OpError;
 use deno_core::v8;
+use deno_error::JsErrorBox;
 
 #[op2(fast)]
 pub fn op_void_with_result(
   _scope: &mut v8::HandleScope,
-) -> Result<(), OpError> {
+) -> Result<(), JsErrorBox> {
   Ok(())
 }

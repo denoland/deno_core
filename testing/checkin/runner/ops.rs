@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -98,7 +97,7 @@ impl TestObjectWrap {
   fn with_rename(&self) {}
 
   #[async_method]
-  async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), OpError> {
+  async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
     Ok(())
   }

@@ -1178,7 +1178,7 @@ pub(crate) fn throw_exception(
     #maybe_opctx
     let exception = deno_core::error::to_v8_error(
       &mut #scope,
-      &deno_core::error::OpErrorWrapper(err.into()),
+      &err,
     );
     #scope.throw_exception(exception);
     return 1;

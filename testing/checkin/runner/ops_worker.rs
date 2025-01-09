@@ -4,7 +4,6 @@ use super::create_runtime;
 use super::run_async;
 use super::Output;
 use anyhow::anyhow;
-use deno_core::error::OpError;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8::IsolateHandle;
@@ -95,7 +94,7 @@ pub fn op_worker_spawn(
   #[state] output: &Output,
   #[string] base_url: String,
   #[string] main_script: String,
-) -> Result<WorkerControl, OpError> {
+) -> Result<WorkerControl, std::sync::mpsc::RecvError> {
   let output = output.clone();
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();
@@ -160,7 +159,7 @@ async fn run_worker_task(
 pub fn op_worker_send(
   #[cppgc] worker: &WorkerControl,
   #[string] message: String,
-) -> Result<(), OpError> {
+) -> Result<(), tokio::sync::mpsc::error::SendError<String>> {
   worker.worker_channel.tx.send(message)?;
   Ok(())
 }
@@ -175,14 +174,14 @@ pub async fn op_worker_recv(#[cppgc] worker: &WorkerControl) -> Option<String> {
 #[cppgc]
 pub fn op_worker_parent(
   state: Rc<RefCell<OpState>>,
-) -> Result<WorkerControl, OpError> {
+) -> Result<WorkerControl, JsErrorBox> {
   let state = state.borrow_mut();
   let worker: &Worker = state.borrow();
   let (Some(worker_channel), Some(close_watcher)) = (
     worker.parent_channel.lock().unwrap().take(),
     worker.parent_close_watcher.lock().unwrap().take(),
   ) else {
-    return Err(JsErrorBox::generic("No parent worker is available").into());
+    return Err(JsErrorBox::generic("No parent worker is available"));
   };
   Ok(WorkerControl {
     worker_channel,

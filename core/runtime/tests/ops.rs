@@ -2,7 +2,6 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 
-use crate::error::OpError;
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::setup;
@@ -24,7 +23,7 @@ async fn test_async_opstate_borrow() {
   #[op2(async)]
   async fn op_async_borrow(
     op_state: Rc<RefCell<OpState>>,
-  ) -> Result<(), OpError> {
+  ) -> Result<(), JsErrorBox> {
     let n = {
       let op_state = op_state.borrow();
       let inner_state = op_state.borrow::<InnerState>();
@@ -63,7 +62,7 @@ async fn test_sync_op_serialize_object_with_numbers_as_keys() {
   #[op2]
   fn op_sync_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
-  ) -> Result<(), OpError> {
+  ) -> Result<(), JsErrorBox> {
     assert_eq!(
       value.to_string(),
       r#"{"lines":{"100":{"unit":"m"},"200":{"unit":"cm"}}}"#
@@ -105,7 +104,7 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
   #[op2(async)]
   async fn op_async_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
-  ) -> Result<(), OpError> {
+  ) -> Result<(), JsErrorBox> {
     assert_eq!(
       value.to_string(),
       r#"{"lines":{"100":{"unit":"m"},"200":{"unit":"cm"}}}"#
@@ -148,7 +147,7 @@ fn test_op_return_serde_v8_error() {
   #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[serde]
-  fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, OpError> {
+  fn op_err() -> Result<std::collections::BTreeMap<u64, u64>, JsErrorBox> {
     Ok([(1, 2), (3, 4)].into_iter().collect()) // Maps can't have non-string keys in serde_v8
   }
 
@@ -175,7 +174,7 @@ fn test_op_high_arity() {
     #[number] x2: i64,
     #[number] x3: i64,
     #[number] x4: i64,
-  ) -> Result<i64, OpError> {
+  ) -> Result<i64, JsErrorBox> {
     Ok(x1 + x2 + x3 + x4)
   }
 
@@ -196,7 +195,7 @@ fn test_op_disabled() {
   #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
   #[number]
-  fn op_foo() -> Result<i64, OpError> {
+  fn op_foo() -> Result<i64, JsErrorBox> {
     Ok(42)
   }
 
@@ -220,14 +219,16 @@ fn test_op_disabled() {
 fn test_op_detached_buffer() {
   #[allow(clippy::unnecessary_wraps)]
   #[op2]
-  fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, OpError> {
+  fn op_sum_take(#[buffer(detach)] b: JsBuffer) -> Result<u32, JsErrorBox> {
     Ok(b.as_ref().iter().clone().map(|x| *x as u32).sum())
   }
 
   #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[buffer]
-  fn op_boomerang(#[buffer(detach)] b: JsBuffer) -> Result<JsBuffer, OpError> {
+  fn op_boomerang(
+    #[buffer(detach)] b: JsBuffer,
+  ) -> Result<JsBuffer, JsErrorBox> {
     Ok(b)
   }
 
@@ -302,14 +303,14 @@ fn duplicate_op_names() {
     #[allow(clippy::unnecessary_wraps)]
     #[op2]
     #[string]
-    pub fn op_test() -> Result<String, OpError> {
+    pub fn op_test() -> Result<String, JsErrorBox> {
       Ok(String::from("Test"))
     }
   }
 
   #[op2]
   #[string]
-  pub fn op_test() -> Result<String, OpError> {
+  pub fn op_test() -> Result<String, JsErrorBox> {
     Ok(String::from("Test"))
   }
 
@@ -325,13 +326,13 @@ fn ops_in_js_have_proper_names() {
   #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
-  fn op_test_sync() -> Result<String, OpError> {
+  fn op_test_sync() -> Result<String, JsErrorBox> {
     Ok(String::from("Test"))
   }
 
   #[op2(async)]
   #[string]
-  async fn op_test_async() -> Result<String, OpError> {
+  async fn op_test_async() -> Result<String, JsErrorBox> {
     Ok(String::from("Test"))
   }
 
@@ -540,9 +541,9 @@ pub async fn op_async() {
 
 #[op2(async)]
 #[allow(unreachable_code)]
-pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, OpError>
-{
-  return Err(JsErrorBox::generic("dead").into());
+pub fn op_async_impl_future_error(
+) -> Result<impl Future<Output = ()>, JsErrorBox> {
+  return Err(JsErrorBox::generic("dead"));
   Ok(async {})
 }
 
@@ -553,16 +554,16 @@ pub async fn op_async_yield() {
 }
 
 #[op2(async)]
-pub async fn op_async_yield_error() -> Result<(), OpError> {
+pub async fn op_async_yield_error() -> Result<(), JsErrorBox> {
   tokio::task::yield_now().await;
   println!("op_async_yield_error!");
-  Err(JsErrorBox::generic("dead").into())
+  Err(JsErrorBox::generic("dead"))
 }
 
 #[op2(async)]
-pub async fn op_async_error() -> Result<(), OpError> {
+pub async fn op_async_error() -> Result<(), JsErrorBox> {
   println!("op_async_error!");
-  Err(JsErrorBox::generic("dead").into())
+  Err(JsErrorBox::generic("dead"))
 }
 
 #[op2(async(deferred), fast)]
@@ -581,8 +582,8 @@ pub fn op_sync() {
 }
 
 #[op2(fast)]
-pub fn op_sync_error() -> Result<(), OpError> {
-  Err(JsErrorBox::generic("Always fails").into())
+pub fn op_sync_error() -> Result<(), JsErrorBox> {
+  Err(JsErrorBox::generic("Always fails"))
 }
 
 #[op2(fast)]

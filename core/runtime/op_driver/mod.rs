@@ -3,6 +3,7 @@
 use crate::OpId;
 use crate::PromiseId;
 use bit_set::BitSet;
+use deno_error::JsErrorClass;
 use std::future::Future;
 use std::task::Context;
 use std::task::Poll;
@@ -15,8 +16,6 @@ mod op_results;
 #[allow(unused)]
 pub use futures_unordered_driver::FuturesUnorderedDriver;
 
-pub use self::op_results::OpError;
-pub use self::op_results::OpErrorWrapper;
 pub use self::op_results::OpMappingContext;
 pub use self::op_results::OpResult;
 use self::op_results::PendingOpInfo;
@@ -86,7 +85,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// might return an error (`Result`).
   fn submit_op_fallible<
     R: 'static,
-    E: Into<OpError> + 'static,
+    E: JsErrorClass + 'static,
     const LAZY: bool,
     const DEFERRED: bool,
   >(
@@ -100,7 +99,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// Submits an operation that is expected to complete successfully without errors.
   #[inline(always)]
   #[allow(clippy::too_many_arguments)]
-  fn submit_op_fallible_scheduling<R: 'static, E: Into<OpError> + 'static>(
+  fn submit_op_fallible_scheduling<R: 'static, E: JsErrorClass + 'static>(
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
@@ -149,6 +148,7 @@ mod tests {
   use super::op_results::*;
   use super::*;
   use bit_set::BitSet;
+  use deno_error::JsErrorBox;
   use rstest::rstest;
   use std::future::poll_fn;
 
@@ -160,9 +160,9 @@ mod tests {
 
     fn map_error(
       _context: &mut Self::Context,
-      err: OpError,
-    ) -> UnmappedResult<'s, Self> {
-      Ok(format!("{err:?}"))
+      err: JsErrorBox,
+    ) -> Self::Result {
+      format!("{err:?}")
     }
 
     fn map_mapping_error(

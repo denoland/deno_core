@@ -4,11 +4,8 @@ use super::erased_future::TypeErased;
 use super::future_arena::FutureContextMapper;
 use crate::OpId;
 use crate::PromiseId;
+use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
-use serde::ser::SerializeStruct;
-use serde::Serialize;
-use std::any::Any;
-use std::borrow::Cow;
 
 const MAX_RESULT_SIZE: usize = 32;
 
@@ -26,10 +23,7 @@ pub trait OpMappingContextLifetime<'s> {
   type Result: 's;
   type MappingError: 's;
 
-  fn map_error(
-    context: &mut Self::Context,
-    err: OpError,
-  ) -> UnmappedResult<'s, Self>;
+  fn map_error(context: &mut Self::Context, err: JsErrorBox) -> Self::Result;
   fn map_mapping_error(
     context: &mut Self::Context,
     err: Self::MappingError,
@@ -69,16 +63,16 @@ impl<'s> OpMappingContextLifetime<'s> for V8OpMappingContext {
   #[inline(always)]
   fn map_error(
     scope: &mut v8::HandleScope<'s>,
-    err: OpError,
-  ) -> UnmappedResult<'s, Self> {
-    serde_v8::to_v8(scope, err)
+    err: JsErrorBox,
+  ) -> Self::Result {
+    crate::error::to_v8_error(scope, &err)
   }
 
   fn map_mapping_error(
     scope: &mut v8::HandleScope<'s>,
     err: Self::MappingError,
   ) -> v8::Local<'s, v8::Value> {
-    serde_v8::to_v8(scope, OpError::from(err)).unwrap()
+    crate::error::to_v8_error(scope, &err)
   }
 }
 
@@ -107,14 +101,14 @@ pub struct PendingOp<C: OpMappingContext>(pub PendingOpInfo, pub OpResult<C>);
 
 impl<C: OpMappingContext> PendingOp<C> {
   #[inline(always)]
-  pub fn new<R: 'static, E: Into<OpError> + 'static>(
+  pub fn new<R: 'static, E: JsErrorClass + 'static>(
     info: PendingOpInfo,
     rv_map: C::MappingFn<R>,
     result: Result<R, E>,
   ) -> Self {
     match result {
       Ok(r) => PendingOp(info, OpResult::new_value(r, rv_map)),
-      Err(err) => PendingOp(info, OpResult::Err(err.into())),
+      Err(err) => PendingOp(info, OpResult::Err(JsErrorBox::from_err(err))),
     }
   }
 
@@ -150,7 +144,7 @@ impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Clone
   }
 }
 
-impl<C: OpMappingContext, R: 'static, E: Into<OpError> + 'static>
+impl<C: OpMappingContext, R: 'static, E: JsErrorClass + 'static>
   FutureContextMapper<PendingOp<C>, PendingOpInfo, Result<R, E>>
   for PendingOpMappingInfo<C, R, true>
 {
@@ -226,7 +220,7 @@ impl<C: OpMappingContext, R> ValueLargeFn<C> for ValueLarge<C, R> {
 
 pub enum OpResult<C: OpMappingContext> {
   /// Errors.
-  Err(OpError),
+  Err(JsErrorBox),
   /// For small ops, we include them in an erased type container.
   Value(OpValue<C>),
   /// For ops that return "large" results (> MAX_RESULT_SIZE bytes) we just box a function
@@ -248,7 +242,7 @@ impl<C: OpMappingContext> OpResult<C> {
     context: &mut <C as OpMappingContextLifetime<'a>>::Context,
   ) -> MappedResult<'a, C> {
     let (success, res) = match self {
-      Self::Err(err) => (false, C::map_error(context, err)),
+      Self::Err(err) => (false, Ok(C::map_error(context, err))),
       Self::Value(f) => (true, (f.map_fn)(&(), context, f.rv_map, f.value)),
       Self::ValueLarge(f) => (true, f.unwrap(context)),
     };
@@ -259,63 +253,5 @@ impl<C: OpMappingContext> OpResult<C> {
         <C as OpMappingContextLifetime<'a>>::map_mapping_error(context, err),
       ),
     }
-  }
-}
-
-#[derive(Debug)]
-pub struct OpError(Box<dyn JsErrorClass>);
-
-impl std::error::Error for OpError {}
-
-impl std::fmt::Display for OpError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}: {}", self.0.get_class(), self.0.get_message())
-  }
-}
-
-impl<T: JsErrorClass> From<T> for OpError {
-  fn from(err: T) -> Self {
-    Self(Box::new(err))
-  }
-}
-
-impl Serialize for OpError {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-    S: serde::Serializer,
-  {
-    let mut serde_state = serializer.serialize_struct("OpError", 3)?;
-    serde_state.serialize_field("$err_class_name", &self.0.get_class())?;
-    serde_state.serialize_field("message", &self.0.get_message())?;
-    serde_state.serialize_field(
-      "additional_properties",
-      &self.0.get_additional_properties(),
-    )?;
-    serde_state.end()
-  }
-}
-
-/// Wrapper type to avoid circular trait implementation error due to From implementation
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct OpErrorWrapper(pub OpError);
-
-impl JsErrorClass for OpErrorWrapper {
-  fn get_class(&self) -> Cow<'static, str> {
-    self.0 .0.get_class()
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    self.0 .0.get_message()
-  }
-
-  fn get_additional_properties(
-    &self,
-  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
-    self.0 .0.get_additional_properties()
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self.0 .0.as_any()
   }
 }
