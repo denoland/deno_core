@@ -15,6 +15,7 @@ description = "Compile-test runner for deno_ops"
 [dev-dependencies]
 bytes.workspace = true
 deno_core.workspace = true
+deno_error.workspace = true
 deno_ops.workspace = true
 pretty_assertions.workspace = true
 prettyplease = "0.2.9"
@@ -23,4 +24,3 @@ serde.workspace = true
 syn.workspace = true
 testing_macros = "0.2.11"
 trybuild = "1.0"
-deno_error.workspace = true

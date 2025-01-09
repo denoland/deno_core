@@ -1,7 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::{exception_to_err_result, ResourceError};
-use crate::error::{format_file_name, CoreError};
+use crate::error::exception_to_err_result;
+use crate::error::format_file_name;
+use crate::error::CoreError;
+use crate::error::ResourceError;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;

@@ -226,7 +226,9 @@ fn test_op_detached_buffer() {
   #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[buffer]
-  fn op_boomerang(#[buffer(detach)] b: JsBuffer) -> Result<JsBuffer, JsErrorBox> {
+  fn op_boomerang(
+    #[buffer(detach)] b: JsBuffer,
+  ) -> Result<JsBuffer, JsErrorBox> {
     Ok(b)
   }
 
@@ -539,8 +541,8 @@ pub async fn op_async() {
 
 #[op2(async)]
 #[allow(unreachable_code)]
-pub fn op_async_impl_future_error() -> Result<impl Future<Output = ()>, JsErrorBox>
-{
+pub fn op_async_impl_future_error(
+) -> Result<impl Future<Output = ()>, JsErrorBox> {
   return Err(JsErrorBox::generic("dead"));
   Ok(async {})
 }

@@ -142,7 +142,7 @@
         // recreate the stacktrace and strip eventLoopTick() calls from stack trace
         ErrorCaptureStackTrace(res, eventLoopTick);
         throw res;
-      }
+      },
     );
     wrappedPromise[promiseIdSymbol] = promiseId;
     return wrappedPromise;
