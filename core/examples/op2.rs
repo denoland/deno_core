@@ -1,7 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use anyhow::Context;
-use deno_core::error::OpError;
 use deno_core::*;
 use std::rc::Rc;
 
@@ -9,7 +8,7 @@ use std::rc::Rc;
 fn op_use_state(
   state: &mut OpState,
   #[global] callback: v8::Global<v8::Function>,
-) -> Result<(), OpError> {
+) -> Result<(), deno_error::JsErrorBox> {
   state.put(callback);
   Ok(())
 }

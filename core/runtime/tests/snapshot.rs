@@ -2,11 +2,11 @@
 
 use self::runtime::create_snapshot;
 use self::runtime::CreateSnapshotOptions;
-use crate::error::OpError;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
+use deno_error::JsErrorBox;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -234,7 +234,7 @@ fn es_snapshot() {
   #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
-  fn op_test() -> Result<String, OpError> {
+  fn op_test() -> Result<String, JsErrorBox> {
     Ok(String::from("test"))
   }
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {

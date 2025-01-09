@@ -18,6 +18,7 @@ deno_core::extension!(
     op_async_void_lazy_nofast,
     op_async_void_deferred,
     op_async_void_deferred_nofast,
+    op_async_error,
     op_async_void_deferred_return,
     op_async_yield,
     op_async_yield_lazy,
@@ -95,6 +96,11 @@ pub async fn op_async_void_deferred() {}
 
 #[op2(async(deferred), nofast)]
 pub async fn op_async_void_deferred_nofast() {}
+
+#[op2(async)]
+pub async fn op_async_error() -> Result<(), JsErrorBox> {
+  Err(JsErrorBox::generic("foo"))
+}
 
 fn bench_op(
   b: &mut Bencher,
@@ -235,6 +241,16 @@ fn bench_op_async_void_deferred_return(b: &mut Bencher) {
   );
 }
 
+fn bench_op_async_error(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_async_error",
+    0,
+    "try { await op_async_error() } catch(e) {}",
+  );
+}
+
 macro_rules! bench_void {
   ($bench:ident, $op:ident) => {
     fn $bench(b: &mut Bencher) {
@@ -286,6 +302,7 @@ benchmark_group!(
   bench_op_async_void_deferred,
   bench_op_async_void_deferred_nofast,
   bench_op_async_void_deferred_return,
+  bench_op_async_error,
 );
 
 benchmark_main!(benches);

@@ -352,7 +352,7 @@ pub(crate) fn generate_fast_result_early_exit(
         let mut scope = #create_scope;
         let exception = deno_core::error::to_v8_error(
           &mut scope,
-          &deno_core::error::OpErrorWrapper(err.into()),
+          &err,
         );
         scope.throw_exception(exception);
         // SAFETY: All fast return types have zero as a valid value

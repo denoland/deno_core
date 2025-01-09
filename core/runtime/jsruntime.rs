@@ -2569,6 +2569,7 @@ impl JsRuntime {
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
+      args.push(v8::Boolean::new(scope, res.is_ok()).into());
       args.push(res.unwrap_or_else(std::convert::identity));
     }
 

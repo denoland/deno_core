@@ -1,8 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 pub use super::modules::ModuleConcreteError;
-pub use super::runtime::op_driver::OpError;
-pub use super::runtime::op_driver::OpErrorWrapper;
 pub use crate::io::ResourceError;
 pub use crate::modules::ModuleLoaderError;
 use crate::runtime::v8_static_strings;

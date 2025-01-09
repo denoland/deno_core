@@ -4,6 +4,7 @@ use super::op_driver::OpDriver;
 use super::op_driver::OpScheduling;
 use super::op_driver::V8RetValMapper;
 use crate::ops::*;
+use deno_error::JsErrorClass;
 use futures::future::Future;
 use serde::Deserialize;
 use serde_v8::from_v8;
@@ -48,10 +49,7 @@ pub fn map_async_op_infallible<R: 'static>(
 }
 
 #[inline(always)]
-pub fn map_async_op_fallible<
-  R: 'static,
-  E: Into<crate::error::OpError> + 'static,
->(
+pub fn map_async_op_fallible<R: 'static, E: JsErrorClass + 'static>(
   ctx: &OpCtx,
   lazy: bool,
   deferred: bool,
@@ -536,7 +534,6 @@ mod tests {
   use crate::convert::Number;
   use crate::convert::Smi;
   use crate::error::CoreError;
-  use crate::error::OpError;
   use crate::external;
   use crate::external::ExternalPointer;
   use crate::op2;
@@ -887,27 +884,27 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_result_void_switch() -> Result<(), OpError> {
+  pub fn op_test_result_void_switch() -> Result<(), JsErrorBox> {
     let count = RETURN_COUNT.with(|count| {
       let new = count.get() + 1;
       count.set(new);
       new
     });
     if count > 5000 {
-      Err(JsErrorBox::generic("failed!!!").into())
+      Err(JsErrorBox::generic("failed!!!"))
     } else {
       Ok(())
     }
   }
 
   #[op2(fast)]
-  pub fn op_test_result_void_err() -> Result<(), OpError> {
-    Err(JsErrorBox::generic("failed!!!").into())
+  pub fn op_test_result_void_err() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::generic("failed!!!"))
   }
 
   #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  pub fn op_test_result_void_ok() -> Result<(), OpError> {
+  pub fn op_test_result_void_ok() -> Result<(), JsErrorBox> {
     Ok(())
   }
 
@@ -946,13 +943,13 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_result_primitive_err() -> Result<u32, OpError> {
-    Err(JsErrorBox::generic("failed!!!").into())
+  pub fn op_test_result_primitive_err() -> Result<u32, JsErrorBox> {
+    Err(JsErrorBox::generic("failed!!!"))
   }
 
   #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  pub fn op_test_result_primitive_ok() -> Result<u32, OpError> {
+  pub fn op_test_result_primitive_ok() -> Result<u32, JsErrorBox> {
     Ok(123)
   }
 
@@ -978,11 +975,11 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_bool_result(b: bool) -> Result<bool, OpError> {
+  pub fn op_test_bool_result(b: bool) -> Result<bool, JsErrorBox> {
     if b {
       Ok(true)
     } else {
-      Err(JsErrorBox::generic("false!!!").into())
+      Err(JsErrorBox::generic("false!!!"))
     }
   }
 
@@ -1012,12 +1009,12 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, OpError> {
+  pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, JsErrorBox> {
     let a = a as f64;
     if a + b >= 0. {
       Ok(a + b)
     } else {
-      Err(JsErrorBox::generic("negative!!!").into())
+      Err(JsErrorBox::generic("negative!!!"))
     }
   }
 
@@ -1325,11 +1322,11 @@ mod tests {
   pub fn op_test_v8_type_handle_scope_result<'s>(
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
-  ) -> Result<v8::Local<'s, v8::Value>, OpError> {
+  ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
     let key = v8::String::new(scope, "key").unwrap().into();
     o.get(scope, key)
       .filter(|v| !v.is_null_or_undefined())
-      .ok_or(JsErrorBox::generic("error!!!").into())
+      .ok_or(JsErrorBox::generic("error!!!"))
   }
 
   #[tokio::test]
@@ -2176,9 +2173,9 @@ mod tests {
   }
 
   #[op2(async)]
-  pub async fn op_async_sleep_error() -> Result<(), OpError> {
+  pub async fn op_async_sleep_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(Duration::from_millis(500)).await;
-    Err(JsErrorBox::generic("whoops").into())
+    Err(JsErrorBox::generic("whoops"))
   }
 
   #[tokio::test]
@@ -2194,13 +2191,13 @@ mod tests {
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_success() -> Result<u32, OpError> {
+  pub async fn op_async_deferred_success() -> Result<u32, JsErrorBox> {
     Ok(42)
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_error() -> Result<(), OpError> {
-    Err(JsErrorBox::generic("whoops").into())
+  pub async fn op_async_deferred_error() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::generic("whoops"))
   }
 
   #[tokio::test]
@@ -2222,13 +2219,13 @@ mod tests {
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_success() -> Result<u32, OpError> {
+  pub async fn op_async_lazy_success() -> Result<u32, JsErrorBox> {
     Ok(42)
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_error() -> Result<(), OpError> {
-    Err(JsErrorBox::generic("whoops").into())
+  pub async fn op_async_lazy_error() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::generic("whoops"))
   }
 
   #[tokio::test]
@@ -2253,17 +2250,17 @@ mod tests {
   #[op2(async)]
   pub fn op_async_result_impl(
     mode: u8,
-  ) -> Result<impl Future<Output = Result<(), OpError>>, OpError> {
+  ) -> Result<impl Future<Output = Result<(), JsErrorBox>>, JsErrorBox> {
     if mode == 0 {
-      return Err(JsErrorBox::generic("early exit").into());
+      return Err(JsErrorBox::generic("early exit"));
     }
     Ok(async move {
       if mode == 1 {
-        return Err(JsErrorBox::generic("early async exit").into());
+        return Err(JsErrorBox::generic("early async exit"));
       }
       tokio::time::sleep(Duration::from_millis(500)).await;
       if mode == 2 {
-        return Err(JsErrorBox::generic("late async exit").into());
+        return Err(JsErrorBox::generic("late async exit"));
       }
       Ok(())
     })
@@ -2377,7 +2374,7 @@ mod tests {
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,
-  ) -> Result<Option<Serde>, OpError> {
+  ) -> Result<Option<Serde>, JsErrorBox> {
     serde.s += "!";
     Ok(Some(serde))
   }

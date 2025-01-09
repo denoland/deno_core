@@ -116,10 +116,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
                     let mut scope = unsafe {
                         deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
                     };
-                    let exception = deno_core::error::to_v8_error(
-                        &mut scope,
-                        &deno_core::error::OpErrorWrapper(err.into()),
-                    );
+                    let exception = deno_core::error::to_v8_error(&mut scope, &err);
                     scope.throw_exception(exception);
                     return unsafe { std::mem::zeroed() };
                 }
@@ -152,10 +149,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
                         >::cast_unchecked(args.data())
                             .value() as *const deno_core::_ops::OpCtx)
                     };
-                    let exception = deno_core::error::to_v8_error(
-                        &mut scope,
-                        &deno_core::error::OpErrorWrapper(err.into()),
-                    );
+                    let exception = deno_core::error::to_v8_error(&mut scope, &err);
                     scope.throw_exception(exception);
                     return 1;
                 }
@@ -199,7 +193,7 @@ pub const fn op_bool() -> ::deno_core::_ops::OpDecl {
     }
     impl op_bool {
         #[allow(clippy::too_many_arguments)]
-        pub fn call(arg: bool) -> Result<bool, OpError> {
+        pub fn call(arg: bool) -> Result<bool, JsErrorBox> {
             Ok(arg)
         }
     }

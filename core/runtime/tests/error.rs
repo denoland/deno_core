@@ -1,7 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::error::CoreError;
-use crate::error::OpError;
 use crate::op2;
 use crate::JsRuntime;
 use crate::RuntimeOptions;
@@ -12,8 +11,8 @@ use std::task::Poll;
 #[tokio::test]
 async fn test_error_builder() {
   #[op2(fast)]
-  fn op_err() -> Result<(), OpError> {
-    Err(JsErrorBox::new("DOMExceptionOperationError", "abc").into())
+  fn op_err() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::new("DOMExceptionOperationError", "abc"))
   }
 
   deno_core::extension!(test_ext, ops = [op_err]);

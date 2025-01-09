@@ -699,6 +699,7 @@ version = "0.2.0"
 dependencies = [
  "bytes",
  "deno_core",
+ "deno_error",
  "deno_ops",
  "pretty_assertions",
  "prettyplease",
