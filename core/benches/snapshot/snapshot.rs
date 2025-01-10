@@ -50,18 +50,6 @@ fn make_extensions_ops() -> Vec<Extension> {
   fake_extensions!(init_ops, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
 }
 
-deno_error::js_error_wrapper!(
-  deno_ast::ParseDiagnostic,
-  JsParseDiagnostic,
-  "TypeError"
-);
-
-deno_error::js_error_wrapper!(
-  deno_ast::TranspileError,
-  JsTranspileError,
-  "TypeError"
-);
-
 pub fn maybe_transpile_source(
   specifier: ModuleName,
   source: ModuleCodeString,
@@ -76,24 +64,25 @@ pub fn maybe_transpile_source(
     scope_analysis: false,
     maybe_syntax: None,
   })
-  .map_err(|e| JsErrorBox::from_err(JsParseDiagnostic(e)))?;
+  .map_err(JsErrorBox::from_err)?;
   let transpiled_source = parsed
     .transpile(
       &deno_ast::TranspileOptions {
         imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
         ..Default::default()
       },
+      &deno_ast::TranspileModuleOptions { module_kind: None },
       &deno_ast::EmitOptions {
         source_map: SourceMapOption::Separate,
         inline_sources: true,
         ..Default::default()
       },
     )
-    .map_err(|e| JsErrorBox::from_err(JsTranspileError(e)))?
+    .map_err(JsErrorBox::from_err)?
     .into_source();
   Ok((
-    String::from_utf8(transpiled_source.source).unwrap().into(),
-    transpiled_source.source_map.map(|s| s.into()),
+    transpiled_source.text.into(),
+    transpiled_source.source_map.map(|s| s.into_bytes().into()),
   ))
 }
 
