@@ -1833,9 +1833,9 @@ pub fn throw_error_one_byte_info(
   throw_error_one_byte(&mut scope, message);
 }
 
-pub fn throw_error_serde_v8(
+pub fn throw_error_js_error_class<T: JsErrorClass>(
   scope: &mut v8::CallbackScope<'_>,
-  err: serde_v8::Error,
+  err: T,
 ) {
   let exc = to_v8_error(scope, &err);
   scope.throw_exception(exc);

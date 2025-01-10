@@ -20,9 +20,9 @@ deno_core.workspace = true
 deno_core.features = ["unsafe_use_unprotected_platform", "snapshot_flags_eager_parse"]
 deno_error.workspace = true
 futures.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
