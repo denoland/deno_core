@@ -4,6 +4,7 @@ use crate::ops::OpCtx;
 use crate::serde::Serialize;
 use crate::OpDecl;
 use crate::OpId;
+use deno_core::v8;
 use std::cell::Ref;
 use std::cell::RefCell;
 use std::cell::RefMut;
@@ -58,6 +59,26 @@ pub fn merge_op_metrics(
       })),
     }
   })
+}
+
+pub fn with_metrics<'s>(
+  info: &'s v8::FunctionCallbackInfo,
+  closure: impl FnOnce() -> usize,
+) {
+  let args = v8::FunctionCallbackArguments::from_function_callback_info(info);
+
+  let opctx: &'s _ = unsafe {
+    &*(v8::Local::<v8::External>::cast_unchecked(args.data()).value()
+      as *const OpCtx)
+  };
+
+  dispatch_metrics_slow(opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
+  let res = closure();
+  if res == 0 {
+    dispatch_metrics_slow(opctx, OpMetricsEvent::Completed);
+  } else {
+    dispatch_metrics_slow(opctx, OpMetricsEvent::Error);
+  }
 }
 
 #[doc(hidden)]

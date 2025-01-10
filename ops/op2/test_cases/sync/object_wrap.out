@@ -98,31 +98,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         impl constructor {
@@ -199,31 +175,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         trait Callable {
@@ -308,31 +260,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         trait Callable {
@@ -437,31 +365,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         trait Callable {
@@ -621,31 +525,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         trait Callable {
@@ -724,31 +604,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         trait Callable {
@@ -824,31 +680,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         trait Callable {
@@ -913,31 +745,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         impl __static_doThing {
@@ -1010,31 +818,7 @@ impl Foo {
                 info: *const deno_core::v8::FunctionCallbackInfo,
             ) {
                 let info: &'s _ = unsafe { &*info };
-                let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
-                    info,
-                );
-                let opctx: &'s _ = unsafe {
-                    &*(deno_core::v8::Local::<
-                        deno_core::v8::External,
-                    >::cast_unchecked(args.data())
-                        .value() as *const deno_core::_ops::OpCtx)
-                };
-                deno_core::_ops::dispatch_metrics_slow(
-                    opctx,
-                    deno_core::_ops::OpMetricsEvent::Dispatched,
-                );
-                let res = Self::slow_function_impl(info);
-                if res == 0 {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Completed,
-                    );
-                } else {
-                    deno_core::_ops::dispatch_metrics_slow(
-                        opctx,
-                        deno_core::_ops::OpMetricsEvent::Error,
-                    );
-                }
+                deno_core::_ops::with_metrics(info, || Self::slow_function_impl(info));
             }
         }
         trait Callable {
