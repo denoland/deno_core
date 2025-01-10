@@ -52,7 +52,10 @@ const fn op_webidl() -> ::deno_core::_ops::OpDecl {
                 ) {
                     Ok(t) => t,
                     Err(arg0_err) => {
-                        deno_core::_ops::throw_error_anyhow(&mut scope, arg0_err);
+                        deno_core::_ops::throw_error_js_error_class(
+                            &mut scope,
+                            arg0_err,
+                        );
                         return 1;
                     }
                 };
@@ -68,7 +71,10 @@ const fn op_webidl() -> ::deno_core::_ops::OpDecl {
                 ) {
                     Ok(t) => t,
                     Err(arg1_err) => {
-                        deno_core::_ops::throw_error_anyhow(&mut scope, arg1_err);
+                        deno_core::_ops::throw_error_js_error_class(
+                            &mut scope,
+                            arg1_err,
+                        );
                         return 1;
                     }
                 };
