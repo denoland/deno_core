@@ -1833,11 +1833,11 @@ pub fn throw_error_one_byte_info(
   throw_error_one_byte(&mut scope, message);
 }
 
-pub fn throw_error_js_error_class<T: JsErrorClass>(
+pub fn throw_error_js_error_class(
   scope: &mut v8::CallbackScope<'_>,
-  err: T,
+  err: &dyn JsErrorClass,
 ) {
-  let exc = to_v8_error(scope, &err);
+  let exc = to_v8_error(scope, err);
   scope.throw_exception(exc);
 }
 

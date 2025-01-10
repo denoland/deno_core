@@ -46,7 +46,7 @@ pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
                     Err(arg0_err) => {
                         deno_core::_ops::throw_error_js_error_class(
                             &mut scope,
-                            arg0_err,
+                            &arg0_err,
                         );
                         return 1;
                     }
