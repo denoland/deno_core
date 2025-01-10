@@ -10,3 +10,18 @@ test(function testCustomError() {
     assert(e instanceof Deno.core.BadResource);
   }
 });
+
+test(function testJsErrorConstructors() {
+  const error = new Error("message");
+  const badResource = new Deno.core.BadResource("bad resource", { cause: error });
+  assertEquals(badResource.message, "bad resource");
+  assertEquals(badResource.cause, error);
+
+  const Interrupted = new Deno.core.Interrupted("interrupted", { cause: error });
+  assertEquals(Interrupted.message, "interrupted");
+  assertEquals(Interrupted.cause, error);
+
+  const notCapable = new Deno.core.NotCapable("not capable", { cause: error });
+  assertEquals(notCapable.message, "not capable");
+  assertEquals(notCapable.cause, error);
+})
