@@ -301,24 +301,24 @@
   // errors in the JS code (eg. "deno_net") so they are provided in "Deno.core"
   // but later reexported on "Deno.errors"
   class BadResource extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "BadResource";
     }
   }
   const BadResourcePrototype = BadResource.prototype;
 
   class Interrupted extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "Interrupted";
     }
   }
   const InterruptedPrototype = Interrupted.prototype;
 
   class NotCapable extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "NotCapable";
     }
   }
