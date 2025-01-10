@@ -188,6 +188,7 @@ pub mod _ops {
   pub use super::ops_metrics::dispatch_metrics_fast;
   pub use super::ops_metrics::dispatch_metrics_slow;
   pub use super::ops_metrics::with_metrics;
+  pub use super::ops_metrics::with_metrics_fast;
   pub use super::ops_metrics::OpMetricsEvent;
   pub use super::runtime::ops::*;
   pub use super::runtime::ops_rust_to_v8::*;

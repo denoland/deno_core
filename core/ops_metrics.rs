@@ -81,6 +81,22 @@ pub fn with_metrics<'s>(
   }
 }
 
+pub fn with_metrics_fast<'s, Output>(
+  fast_api_callback_options: *mut v8::fast_api::FastApiCallbackOptions<'s>,
+  closure: impl FnOnce() -> Output,
+) -> Output {
+  let opctx: &'s _ = unsafe {
+    &*(v8::Local::<v8::External>::cast_unchecked(
+      (*fast_api_callback_options).data,
+    )
+    .value() as *const deno_core::_ops::OpCtx)
+  };
+  dispatch_metrics_fast(opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
+  let res = closure();
+  dispatch_metrics_fast(opctx, deno_core::_ops::OpMetricsEvent::Completed);
+  res
+}
+
 #[doc(hidden)]
 pub fn dispatch_metrics_fast(opctx: &OpCtx, metrics: OpMetricsEvent) {
   // SAFETY: this should only be called from ops where we know the function is Some

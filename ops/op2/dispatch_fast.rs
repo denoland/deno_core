@@ -558,23 +558,13 @@ pub(crate) fn generate_dispatch_fast(
   let (fastcall_names, fastcall_types): (Vec<_>, Vec<_>) =
     fastsig.input_args(generator_state).into_iter().unzip();
 
-  let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
+  let fast_fn = gs_quote!(generator_state(result, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
     extern "C" fn #fast_function_metrics<'s>(
       this: deno_core::v8::Local<deno_core::v8::Object>,
       #( #fastcall_metrics_names: #fastcall_metrics_types, )*
     ) -> #output_type {
-      let #fast_api_callback_options: &'s mut _ =
-        unsafe { &mut *#fast_api_callback_options };
-      let opctx: &'s _ = unsafe {
-          &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(
-            unsafe { #fast_api_callback_options.data }
-          ).value() as *const deno_core::_ops::OpCtx)
-      };
-      deno_core::_ops::dispatch_metrics_fast(opctx, deno_core::_ops::OpMetricsEvent::Dispatched);
-      let res = Self::#fast_function( this, #( #fastcall_names, )* );
-      deno_core::_ops::dispatch_metrics_fast(opctx, deno_core::_ops::OpMetricsEvent::Completed);
-      res
+      deno_core::_ops::with_metrics_fast(fast_api_callback_options, || Self::#fast_function( this, #( #fastcall_names, )* ))
     }
 
     #[allow(clippy::too_many_arguments)]
