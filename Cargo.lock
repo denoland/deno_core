@@ -628,6 +628,7 @@ name = "deno_core_testing"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "deno_ast",
  "deno_core",
  "deno_error",
@@ -635,6 +636,7 @@ dependencies = [
  "pretty_assertions",
  "prettyplease",
  "testing_macros",
+ "thiserror",
  "tokio",
  "url",
 ]
