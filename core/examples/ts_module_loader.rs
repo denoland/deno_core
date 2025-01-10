@@ -9,7 +9,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use anyhow::anyhow;
 use anyhow::Context;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
@@ -27,6 +26,7 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
+use deno_error::JsErrorBox;
 
 // TODO(bartlomieju): this is duplicated in `testing/checkin`
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
@@ -61,7 +61,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     ) -> Result<ModuleSource, ModuleLoaderError> {
       let path = module_specifier
         .to_file_path()
-        .map_err(|_| anyhow!("Only file:// URLs are supported."))?;
+        .map_err(|_| JsErrorBox::generic("Only file:// URLs are supported."))?;
 
       let media_type = MediaType::from_path(&path);
       let (module_type, should_transpile) = match MediaType::from_path(&path) {
@@ -79,7 +79,11 @@ impl ModuleLoader for TypescriptModuleLoader {
         MediaType::Json => (ModuleType::Json, false),
         _ => {
           return Err(
-            anyhow!("Unknown extension {:?}", path.extension()).into(),
+            JsErrorBox::generic(format!(
+              "Unknown extension {:?}",
+              path.extension()
+            ))
+            .into(),
           )
         }
       };
@@ -94,7 +98,7 @@ impl ModuleLoader for TypescriptModuleLoader {
           scope_analysis: false,
           maybe_syntax: None,
         })
-        .map_err(anyhow::Error::new)?;
+        .map_err(JsErrorBox::from_err)?;
         let res = parsed
           .transpile(
             &deno_ast::TranspileOptions {
@@ -103,19 +107,20 @@ impl ModuleLoader for TypescriptModuleLoader {
               use_decorators_proposal: true,
               ..Default::default()
             },
+            &deno_ast::TranspileModuleOptions { module_kind: None },
             &deno_ast::EmitOptions {
               source_map: SourceMapOption::Separate,
               inline_sources: true,
               ..Default::default()
             },
           )
-          .map_err(anyhow::Error::new)?;
+          .map_err(JsErrorBox::from_err)?;
         let res = res.into_source();
-        let source_map = res.source_map.unwrap();
+        let source_map = res.source_map.unwrap().into_bytes();
         source_maps
           .borrow_mut()
           .insert(module_specifier.to_string(), source_map);
-        String::from_utf8(res.source).unwrap()
+        res.text
       } else {
         code
       };

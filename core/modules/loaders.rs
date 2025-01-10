@@ -13,7 +13,6 @@ use crate::resolve_import;
 use crate::ModuleSourceCode;
 use deno_error::JsErrorBox;
 
-use anyhow::Context;
 use deno_core::error::CoreError;
 use futures::future::FutureExt;
 use std::borrow::Cow;
@@ -65,12 +64,6 @@ pub enum ModuleLoaderError {
   ),
 }
 
-impl From<anyhow::Error> for ModuleLoaderError {
-  fn from(err: anyhow::Error) -> Self {
-    ModuleLoaderError::Core(CoreError::Other(err))
-  }
-}
-
 impl From<std::io::Error> for ModuleLoaderError {
   fn from(err: std::io::Error) -> Self {
     ModuleLoaderError::Core(CoreError::Io(err))
@@ -78,7 +71,7 @@ impl From<std::io::Error> for ModuleLoaderError {
 }
 impl From<JsErrorBox> for ModuleLoaderError {
   fn from(err: JsErrorBox) -> Self {
-    ModuleLoaderError::Core(CoreError::JsNative(err))
+    ModuleLoaderError::Core(CoreError::JsBox(err))
   }
 }
 
@@ -380,6 +373,16 @@ impl ModuleLoader for LazyEsmModuleLoader {
   }
 }
 
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(inherit)]
+#[error("Failed to load {specifier}")]
+pub struct LoadFailedError {
+  specifier: ModuleSpecifier,
+  #[source]
+  #[inherit]
+  source: std::io::Error,
+}
+
 /// Basic file system module loader.
 ///
 /// Note that this loader will **block** event loop
@@ -438,8 +441,11 @@ impl ModuleLoader for FsModuleLoader {
         return Err(ModuleLoaderError::JsonMissingAttribute);
       }
 
-      let code = std::fs::read(path).with_context(|| {
-        format!("Failed to load {}", module_specifier.as_str())
+      let code = std::fs::read(path).map_err(|source| {
+        JsErrorBox::from_err(LoadFailedError {
+          specifier: module_specifier.clone(),
+          source,
+        })
       })?;
       let module = ModuleSource::new(
         module_type,

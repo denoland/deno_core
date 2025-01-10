@@ -22,6 +22,7 @@ deno_error.workspace = true
 futures.workspace = true
 tokio.workspace = true
 url.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
