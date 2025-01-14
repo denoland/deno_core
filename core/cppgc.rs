@@ -82,7 +82,6 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
   obj
 }
 
-#[doc(hidden)]
 pub struct Ptr<T: GarbageCollected> {
   inner: v8::cppgc::Ptr<CppGcObject<T>>,
   root: Option<v8::cppgc::Persistent<CppGcObject<T>>>,
@@ -202,12 +201,13 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
     f: F,
   ) -> v8::Global<v8::Object>
   where
-    F: FnOnce() -> T,
+    F: FnOnce(&mut v8::HandleScope) -> T,
   {
     self
       .cell
       .get_or_init(|| {
-        let obj = make_cppgc_object(scope, f());
+        let v = f(scope);
+        let obj = make_cppgc_object(scope, v);
         v8::Global::new(scope, obj)
       })
       .clone()

@@ -236,6 +236,9 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
+                .and_then(|__value| {
+                    if __value.is_undefined() { None } else { Some(__value) }
+                })
             {
                 ::deno_core::webidl::WebIdlConverter::convert(
                     __scope,
@@ -247,16 +250,7 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     &Default::default(),
                 )?
             } else {
-                return Err(
-                    ::deno_core::webidl::WebIdlError::new(
-                        __prefix,
-                        __context.borrowed(),
-                        ::deno_core::webidl::WebIdlErrorKind::DictionaryCannotConvertKey {
-                            converter: "Dict",
-                            key: "f",
-                        },
-                    ),
-                );
+                None
             }
         };
         Ok(Self { a, b, c, d, f })

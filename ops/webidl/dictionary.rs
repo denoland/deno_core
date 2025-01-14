@@ -128,8 +128,6 @@ pub fn get_body(
       }
     };
 
-    let new_context = format!("'{string_name}' of '{ident_string}'");
-
     quote! {
       let #original_name = {
         let __key = #v8_eternal_name
@@ -151,7 +149,7 @@ pub fn get_body(
             __scope,
             __value,
             __prefix.clone(),
-            ::deno_core::webidl::ContextFn::new_borrowed(&|| format!("{} ({})", #new_context, __context.call()).into()),
+            ::deno_core::webidl::ContextFn::new_borrowed(&|| format!("'{}' of '{}' ({})", #string_name, #ident_string, __context.call()).into()),
             &#options,
           )?
         } else {
@@ -253,6 +251,22 @@ impl TryFrom<Field> for DictionaryField {
           .collect::<Result<Vec<_>, Error>>()?;
 
         converter_options.extend(args);
+      }
+    }
+
+    if default_value.is_none() {
+      let is_option = if let Type::Path(path) = &value.ty {
+        if let Some(last) = path.path.segments.last() {
+          last.ident == "Option"
+        } else {
+          false
+        }
+      } else {
+        false
+      };
+
+      if is_option {
+        default_value = Some(syn::parse_quote!(None));
       }
     }
 
