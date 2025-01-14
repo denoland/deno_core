@@ -468,17 +468,6 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
-  let with_isolate = if generator_state.needs_fast_isolate
-    && !generator_state.needs_fast_scope
-  {
-    generator_state.needs_opctx = true;
-    gs_quote!(generator_state(opctx, scope) =>
-      (let mut #scope = unsafe { &mut *#opctx.isolate };)
-    )
-  } else {
-    quote!()
-  };
-
   let with_opctx = if generator_state.needs_opctx {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
@@ -492,15 +481,13 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_self = if generator_state.needs_self {
-    generator_state.needs_fast_api_callback_options = true;
+    generator_state.needs_fast_isolate = true;
     let throw_exception = throw_type_error(
       generator_state,
       format!("expected {}", &generator_state.self_ty),
     );
-    gs_quote!(generator_state(self_ty, fast_api_callback_options) => {
-      // SAFETY: Isolate is valid if this function is being called.
-      let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(isolate, this.into()) else {
+    gs_quote!(generator_state(self_ty, scope) => {
+      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into()) else {
         #throw_exception
       };
       let self_ = &*self_;
@@ -509,6 +496,17 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
+  let with_isolate = if generator_state.needs_fast_isolate
+    && !generator_state.needs_fast_scope
+    && !generator_state.needs_stack_trace
+  {
+    generator_state.needs_fast_api_callback_options = true;
+    gs_quote!(generator_state(scope, fast_api_callback_options) =>
+      (let mut #scope = unsafe { &mut *#fast_api_callback_options.isolate };)
+    )
+  } else {
+    quote!()
+  };
   let with_scope = if generator_state.needs_scope {
     let create_scope = create_scope(generator_state);
     gs_quote!(generator_state(scope) => {
@@ -591,8 +589,8 @@ pub(crate) fn generate_dispatch_fast(
       #with_opstate;
       #with_stack_trace
       #with_js_runtime_state
-      #with_self
       #with_isolate
+      #with_self
       let #result = {
         #(#call_args)*
         #call (#(#call_names),*)
@@ -632,6 +630,7 @@ fn map_v8_fastcall_arg_to_arg(
     needs_scope,
     needs_opctx,
     needs_fast_api_callback_options,
+    needs_fast_isolate,
     needs_js_runtime_state,
     ..
   } = generator_state;
@@ -799,13 +798,11 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_api_callback_options = true;
+      *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(fast_api_callback_options) => {
-        // SAFETY: Isolate is valid if this function is being called.
-        let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
-        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(isolate, #arg_ident) else {
+      gs_quote!(generator_state(scope) => {
+        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
           #throw_exception
         };
         let #arg_ident = &*#arg_ident;
@@ -815,15 +812,13 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_api_callback_options = true;
+      *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(fast_api_callback_options) => {
-        // SAFETY: Isolate is valid if this function is being called.
-        let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
+      gs_quote!(generator_state(scope) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
-        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(isolate, #arg_ident) {
+        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
           Some(#arg_ident)
         } else {
           #throw_exception
