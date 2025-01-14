@@ -565,10 +565,10 @@ impl Foo {
                 let fast_api_callback_options: &'s mut _ = unsafe {
                     &mut *fast_api_callback_options
                 };
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
+                let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
-                >(isolate, this.into()) else {
+                >(&mut scope, this.into()) else {
                     {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(

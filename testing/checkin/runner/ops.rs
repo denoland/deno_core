@@ -212,6 +212,10 @@ impl DOMPoint {
   #[fast]
   #[symbol("symbolMethod")]
   fn with_symbol(&self) {}
+
+  #[fast]
+  #[stack_trace]
+  fn with_stack_trace(&self) {}
 }
 
 #[repr(u8)]

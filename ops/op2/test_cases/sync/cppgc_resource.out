@@ -100,11 +100,11 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) else {
+                >(&mut scope, arg0) else {
                     {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(
@@ -293,13 +293,13 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let arg0 = if arg0.is_null_or_undefined() {
                     None
                 } else if let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) {
+                >(&mut scope, arg0) {
                     Some(arg0)
                 } else {
                     {
@@ -588,11 +588,11 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) else {
+                >(&mut scope, arg0) else {
                     {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(
@@ -878,11 +878,11 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) else {
+                >(&mut scope, arg0) else {
                     {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(
