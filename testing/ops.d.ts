@@ -12,6 +12,7 @@ export function op_async_throw_error_lazy(...any: any[]): any;
 export function op_error_context_async(...any: any[]): any;
 export function op_error_context_sync(...any: any[]): any;
 export function op_error_custom_sync(...any: any[]): any;
+export function op_error_custom_with_code_sync(...any: any[]): any;
 
 export function op_worker_await_close(...any: any[]): any;
 export function op_worker_parent(...any: any[]): any;

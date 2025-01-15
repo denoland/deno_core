@@ -39,6 +39,7 @@ deno_core::extension!(
     ops_error::op_async_throw_error_lazy,
     ops_error::op_async_throw_error_deferred,
     ops_error::op_error_custom_sync,
+    ops_error::op_error_custom_with_code_sync,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
     ops_worker::op_worker_spawn,
