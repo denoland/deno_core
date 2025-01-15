@@ -2,7 +2,7 @@
 import { assertEquals, test } from "checkin:testing";
 import { throwCustomErrorWithCode } from "checkin:error";
 
-test(async function additionalPropertyIsWritable() {
+test(function additionalPropertyIsWritable() {
   try {
     throwCustomErrorWithCode("foo", 1);
   } catch (e) {
