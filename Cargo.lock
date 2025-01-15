@@ -635,6 +635,7 @@ dependencies = [
  "pretty_assertions",
  "prettyplease",
  "testing_macros",
+ "thiserror 2.0.6",
  "tokio",
  "url",
 ]

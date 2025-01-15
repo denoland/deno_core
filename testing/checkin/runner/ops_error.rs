@@ -24,3 +24,20 @@ pub fn op_error_custom_sync(
 ) -> Result<(), JsErrorBox> {
   Err(JsErrorBox::new("BadResource", message))
 }
+
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(type)]
+#[error("{message}")]
+struct MyError {
+  message: String,
+  #[property]
+  code: u32,
+}
+
+#[op2(fast)]
+pub fn op_error_custom_with_code_sync(
+  #[string] message: String,
+  code: u32,
+) -> Result<(), MyError> {
+  Err(MyError { message, code })
+}

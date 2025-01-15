@@ -102,10 +102,7 @@
         for (const property of new SafeArrayIterator(additionalProperties)) {
           const key = property[0];
           if (!(key in error)) {
-            ObjectDefineProperty(error, key, {
-              value: property[1],
-              writable: false,
-            });
+            error[key] = property[1];
           }
         }
       }
