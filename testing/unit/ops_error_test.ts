@@ -2,7 +2,6 @@
 import { assertEquals, test } from "checkin:testing";
 import { throwCustomErrorWithCode } from "checkin:error";
 
-// Test that stack traces from async ops are all sane
 test(async function additionalPropertyIsWritable() {
   try {
     throwCustomErrorWithCode("foo", 1);
