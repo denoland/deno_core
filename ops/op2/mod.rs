@@ -85,7 +85,7 @@ pub(crate) fn op2(
 ) -> Result<TokenStream, Op2Error> {
   let Ok(func) = parse2::<ItemFn>(item.clone()) else {
     let impl_block = parse2::<syn::ItemImpl>(item)?;
-    return object_wrap::generate_impl_ops(impl_block);
+    return object_wrap::generate_impl_ops(attr, impl_block);
   };
 
   let config = MacroConfig::from_tokens(attr)?;

@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use deno_core::cppgc::PrototypeChain;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -143,7 +144,19 @@ impl DOMPoint {
   }
 }
 
+pub struct DOMPointReadOnly {}
+
+impl GarbageCollected for DOMPointReadOnly {}
+
 #[op2]
+impl DOMPointReadOnly {
+  #[fast]
+  fn sub_method(&self) {
+    println!("sub_method");
+  }
+}
+
+#[op2(DOMPointReadOnly)]
 impl DOMPoint {
   #[constructor]
   #[cppgc]

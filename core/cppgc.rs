@@ -12,10 +12,35 @@ pub use v8::cppgc::GarbageCollected;
 
 const CPPGC_TAG: u16 = 1;
 
+#[derive(Clone)]
 #[repr(C)]
 struct CppGcObject<T: GarbageCollected> {
   tag: TypeId,
-  member: T,
+  member: Box<T>,
+}
+
+pub trait PrototypeChain {
+  fn prototype_index() -> Option<usize> {
+    None
+  }
+}
+
+const MAX_PROTO_CHAIN: usize = 3;
+
+struct PrototypeChainStore<T: GarbageCollected>(
+  [Option<v8::cppgc::Ptr<CppGcObject<T>>>; MAX_PROTO_CHAIN],
+);
+
+impl<T: GarbageCollected> v8::cppgc::GarbageCollected
+  for PrototypeChainStore<T>
+{
+  fn trace(&self, visitor: &v8::cppgc::Visitor) {
+    for obj in self.0.iter() {
+      if let Some(obj) = obj {
+        obj.trace(visitor);
+      }
+    }
+  }
 }
 
 impl<T: GarbageCollected> v8::cppgc::GarbageCollected for CppGcObject<T> {
@@ -69,15 +94,24 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
   let member = unsafe {
     v8::cppgc::make_garbage_collected(
       heap,
-      CppGcObject {
-        tag: TypeId::of::<T>(),
-        member: t,
-      },
+      PrototypeChainStore([
+        Some(v8::cppgc::make_garbage_collected(
+          heap,
+          CppGcObject {
+            tag: TypeId::of::<T>(),
+            member: Box::new(t),
+          },
+        )),
+        None,
+        None,
+      ]),
     )
   };
 
   unsafe {
-    v8::Object::wrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj, &member);
+    v8::Object::wrap::<CPPGC_TAG, PrototypeChainStore<T>>(
+      isolate, obj, &member,
+    );
   }
   obj
 }
@@ -109,7 +143,10 @@ impl<T: GarbageCollected> std::ops::Deref for Ptr<T> {
 
 #[doc(hidden)]
 #[allow(clippy::needless_lifetimes)]
-pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
+pub fn try_unwrap_cppgc_object<
+  'sc,
+  T: GarbageCollected + PrototypeChain + 'static,
+>(
   isolate: &mut v8::Isolate,
   val: v8::Local<'sc, v8::Value>,
 ) -> Option<Ptr<T>> {
@@ -120,15 +157,23 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
     return None;
   }
 
-  let obj =
-    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) }?;
+  let proto_chain = unsafe {
+    v8::Object::unwrap::<CPPGC_TAG, PrototypeChainStore<T>>(isolate, obj)
+  }?;
+
+  let proto_index = T::prototype_index().unwrap_or_default();
+  dbg!(proto_index, std::any::type_name::<T>());
+
+  let Some(ref obj) = proto_chain.0[proto_index] else {
+    return None;
+  };
 
   if obj.tag != TypeId::of::<T>() {
     return None;
   }
 
   Some(Ptr {
-    inner: obj,
+    inner: unsafe { v8::cppgc::Ptr::new(obj).unwrap() },
     root: None,
   })
 }
@@ -154,6 +199,13 @@ impl FunctionTemplateData {
 
   fn get<T>(&self) -> Option<&v8::Global<v8::FunctionTemplate>> {
     self.store.get(type_name::<T>())
+  }
+
+  pub fn get_raw(
+    &self,
+    key: &str,
+  ) -> Option<&v8::Global<v8::FunctionTemplate>> {
+    self.store.get(key)
   }
 
   pub fn serialize_for_snapshotting(

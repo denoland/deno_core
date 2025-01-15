@@ -417,6 +417,11 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
     index += decl.static_methods.len();
 
+    if let Some(e) = (decl.inherits_type_name)() {
+      let parent = fn_template_store.get_raw(e).unwrap();
+      tmpl.inherit(v8::Local::new(scope, parent));
+    }
+
     let op_fn = tmpl.get_function(scope).unwrap();
     op_fn.set_name(key);
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());

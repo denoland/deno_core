@@ -49,6 +49,7 @@ deno_core::extension!(
     ops_worker::op_worker_terminate,
   ],
   objects = [
+    ops::DOMPointReadOnly,
     ops::DOMPoint,
     ops::TestObjectWrap,
     ops::TestEnumWrap

@@ -182,6 +182,7 @@ pub struct OpMethodDecl {
   pub constructor: Option<OpDecl>,
   pub methods: &'static [OpDecl],
   pub static_methods: &'static [OpDecl],
+  pub inherits_type_name: fn() -> Option<&'static str>,
 }
 
 #[derive(Clone, Copy, PartialEq)]

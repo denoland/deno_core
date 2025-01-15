@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::TokenStream;
+use proc_macro_rules::rules;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
@@ -70,8 +71,14 @@ use super::signature::is_attribute_special;
 // - setters
 //
 pub(crate) fn generate_impl_ops(
+  attrs: TokenStream,
   item: ItemImpl,
 ) -> Result<TokenStream, Op2Error> {
+  let maybe_inherits_type = rules!(attrs => {
+    () => None,
+    ($ty:ty) => Some(ty),
+  });
+
   let mut tokens = TokenStream::new();
 
   let self_ty = &item.self_ty;
@@ -140,7 +147,35 @@ pub(crate) fn generate_impl_ops(
     quote! { None }
   };
 
+  let prototype_index = if let Some(inherits_type) = &maybe_inherits_type {
+    quote! {
+      fn prototype_index() -> Option<usize> {
+        Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap() + 1)
+      }
+    }
+  } else {
+    quote! {
+      fn prototype_index() -> Option<usize> {
+        None
+      }
+    }
+  };
+
+  let inherits_type_name = if let Some(inherits_type) = maybe_inherits_type {
+    quote! {
+      inherits_type_name: || Some(std::any::type_name::<#inherits_type>()),
+    }
+  } else {
+    quote! {
+      inherits_type_name: || None,
+    }
+  };
+
   let res = quote! {
+      impl deno_core::cppgc::PrototypeChain for #self_ty {
+        #prototype_index
+      }
+
       impl #self_ty {
         pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
           methods: &[
@@ -156,6 +191,7 @@ pub(crate) fn generate_impl_ops(
           constructor: #constructor,
           name: ::deno_core::__op_name_fast!(#self_ty),
           type_name: || std::any::type_name::<#self_ty>(),
+          #inherits_type_name
         };
 
         #tokens
