@@ -76,7 +76,7 @@ pub(crate) fn generate_impl_ops(
 ) -> Result<TokenStream, Op2Error> {
   let maybe_inherits_type = rules!(attrs => {
     () => None,
-    ($ty:ty) => Some(ty),
+    (inherit = $inherits_type:ty) => Some(inherits_type),
   });
 
   let mut tokens = TokenStream::new();

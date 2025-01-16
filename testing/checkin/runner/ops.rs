@@ -171,7 +171,7 @@ impl DOMPointReadOnly {
   }
 }
 
-#[op2(DOMPointReadOnly)]
+#[op2(inherit = DOMPointReadOnly)]
 impl DOMPoint {
   #[constructor]
   #[cppgc]
