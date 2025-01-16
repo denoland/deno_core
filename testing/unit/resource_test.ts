@@ -1,6 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
-import { DOMPoint, TestEnumWrap, TestObjectWrap } from "checkin:object";
+import {
+  DOMPoint,
+  DOMPointReadOnly,
+  TestEnumWrap,
+  TestObjectWrap,
+} from "checkin:object";
 
 const {
   op_pipe_create,
@@ -75,6 +80,9 @@ test(async function testDomPoint() {
   assertEquals(p3.x, 200);
   assertEquals(p4.x, 0);
   assertEquals(p5.x, 200);
+
+  assert(p1 instanceof DOMPoint);
+  assert(p1 instanceof DOMPointReadOnly);
 
   let caught;
   try {

@@ -295,7 +295,7 @@ pub enum Arg {
   SerdeV8(String),
   State(RefType, String),
   OptionState(RefType, String),
-  CppGcResource(String),
+  CppGcResource(bool, String),
   OptionCppGcResource(String),
   CppGcProtochain(Vec<String>),
   FromV8(String),
@@ -431,7 +431,7 @@ impl Arg {
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
-      Arg::OptionCppGcResource(t) => Arg::CppGcResource(t.clone()),
+      Arg::OptionCppGcResource(t) => Arg::CppGcResource(false, t.clone()),
       _ => return None,
     })
   }
@@ -485,7 +485,7 @@ impl Arg {
         Arg::OptionBuffer(.., BufferSource::TypedArray) => {
           ArgSlowRetval::V8LocalFalliable
         }
-        Arg::CppGcResource(_) | Arg::CppGcProtochain(_) => {
+        Arg::CppGcResource(..) | Arg::CppGcProtochain(_) => {
           ArgSlowRetval::V8Local
         }
         _ => ArgSlowRetval::None,
@@ -504,7 +504,7 @@ impl Arg {
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
       Arg::CppGcProtochain(_)
-      | Arg::CppGcResource(_)
+      | Arg::CppGcResource(..)
       | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
       Arg::ToV8(_) => ArgMarker::ToV8,
       _ => ArgMarker::None,
@@ -789,6 +789,8 @@ pub enum AttributeModifier {
   Number,
   /// #[cppgc], for a resource backed managed by cppgc.
   CppGcResource,
+  /// #[proto]
+  CppGcProto,
   /// Any attribute that we may want to omit if not syntactically valid.
   Ignore,
   /// Varaible-length arguments.
@@ -810,6 +812,7 @@ impl AttributeModifier {
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
+      AttributeModifier::CppGcProto => "proto",
       AttributeModifier::Ignore => "ignore",
       AttributeModifier::VarArgs => "varargs",
     }
@@ -1285,6 +1288,7 @@ fn parse_attribute(
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
+      (#[proto]) => Some(AttributeModifier::CppGcProto),
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
       (#[required ($_attr:literal)]) => Some(AttributeModifier::Ignore),
@@ -1493,11 +1497,17 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
-fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
+fn parse_cppgc(
+  position: Position,
+  ty: &Type,
+  proto: bool,
+) -> Result<Arg, ArgError> {
   match (position, ty) {
     (Position::Arg, Type::Reference(of)) if of.mutability.is_none() => {
       match &*of.elem {
-        Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+        Type::Path(of) => {
+          Ok(Arg::CppGcResource(proto, stringify_token(&of.path)))
+        }
         _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
       }
     }
@@ -1533,7 +1543,7 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
            _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
         },
         ( $ty:ty ) => match ty {
-          Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+          Type::Path(of) => Ok(Arg::CppGcResource(proto, stringify_token(&of.path))),
           _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
         },
       })
@@ -1582,7 +1592,10 @@ pub(crate) fn parse_type(
 
         return Ok(Arg::VarArgs);
       }
-      AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
+      AttributeModifier::CppGcResource => {
+        return parse_cppgc(position, ty, false)
+      }
+      AttributeModifier::CppGcProto => return parse_cppgc(position, ty, true),
       AttributeModifier::FromV8 if position == Position::RetVal => {
         return Err(ArgError::InvalidAttributePosition(
           primary.name(),

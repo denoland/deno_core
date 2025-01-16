@@ -48,13 +48,18 @@ impl ErasedPtr {
 
 impl<T: GarbageCollected> From<v8::cppgc::Ptr<CppGcObject<T>>> for ErasedPtr {
   fn from(ptr: v8::cppgc::Ptr<CppGcObject<T>>) -> Self {
-    assert!(
+    debug_assert!(
       std::mem::size_of::<v8::cppgc::Ptr<CppGcObject<T>>>()
         == std::mem::size_of::<ErasedPtr>()
     );
 
     Self {
-      ptr: unsafe { std::mem::transmute(ptr) },
+      ptr: unsafe {
+        std::mem::transmute::<
+          v8::cppgc::Ptr<CppGcObject<T>>,
+          v8::cppgc::Ptr<CppGcObject<DummyT>>,
+        >(ptr)
+      },
     }
   }
 }
@@ -255,10 +260,7 @@ pub fn try_unwrap_cppgc_object<
   }?;
 
   let proto_index = T::prototype_index().unwrap_or_default();
-
-  let Some(ref obj) = proto_chain.0[proto_index] else {
-    return None;
-  };
+  let obj = proto_chain.0[proto_index].as_ref()?;
 
   let obj = obj.downcast::<T>()?;
 

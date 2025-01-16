@@ -1,5 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -109,20 +110,15 @@ impl TestObjectWrap {
   }
 }
 
-pub struct DOMPoint {
-  pub x: f64,
-  pub y: f64,
-  pub z: f64,
-  pub w: f64,
-}
+pub struct DOMPoint {}
 
 impl GarbageCollected for DOMPoint {}
 
-impl DOMPoint {
+impl DOMPointReadOnly {
   fn from_point_inner(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, JsErrorBox> {
+  ) -> Result<DOMPointReadOnly, JsErrorBox> {
     fn get(
       scope: &mut v8::HandleScope,
       other: v8::Local<v8::Object>,
@@ -134,24 +130,44 @@ impl DOMPoint {
         .map(|x| x.to_number(scope).unwrap().value())
     }
 
-    Ok(DOMPoint {
-      x: get(scope, other, "x").unwrap_or(0.0),
-      y: get(scope, other, "y").unwrap_or(0.0),
-      z: get(scope, other, "z").unwrap_or(0.0),
-      w: get(scope, other, "w").unwrap_or(0.0),
+    Ok(DOMPointReadOnly {
+      x: get(scope, other, "x").unwrap_or(0.0).into(),
+      y: get(scope, other, "y").unwrap_or(0.0).into(),
+      z: get(scope, other, "z").unwrap_or(0.0).into(),
+      w: get(scope, other, "w").unwrap_or(0.0).into(),
     })
   }
 }
 
-pub struct DOMPointReadOnly {}
+pub struct DOMPointReadOnly {
+  x: Cell<f64>,
+  y: Cell<f64>,
+  z: Cell<f64>,
+  w: Cell<f64>,
+}
 
 impl GarbageCollected for DOMPointReadOnly {}
 
 #[op2]
 impl DOMPointReadOnly {
-  #[fast]
-  fn sub_method(&self) {
-    println!("sub_method");
+  #[getter]
+  fn x(&self) -> f64 {
+    self.x.get()
+  }
+
+  #[getter]
+  fn y(&self) -> f64 {
+    self.y.get()
+  }
+
+  #[getter]
+  fn z(&self) -> f64 {
+    self.z.get()
+  }
+
+  #[getter]
+  fn w(&self) -> f64 {
+    self.w.get()
   }
 }
 
@@ -165,17 +181,14 @@ impl DOMPoint {
     z: Option<f64>,
     w: Option<f64>,
   ) -> (DOMPointReadOnly, DOMPoint) {
-    let ro = DOMPointReadOnly {};
+    let ro = DOMPointReadOnly {
+      x: Cell::new(x.unwrap_or(0.0)),
+      y: Cell::new(y.unwrap_or(0.0)),
+      z: Cell::new(z.unwrap_or(0.0)),
+      w: Cell::new(w.unwrap_or(0.0)),
+    };
 
-    (
-      ro,
-      DOMPoint {
-        x: x.unwrap_or(0.0),
-        y: y.unwrap_or(0.0),
-        z: z.unwrap_or(0.0),
-        w: w.unwrap_or(0.0),
-      },
-    )
+    (ro, DOMPoint {})
   }
 
   #[required(1)]
@@ -184,8 +197,8 @@ impl DOMPoint {
   fn from_point(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, JsErrorBox> {
-    DOMPoint::from_point_inner(scope, other)
+  ) -> Result<DOMPointReadOnly, JsErrorBox> {
+    DOMPointReadOnly::from_point_inner(scope, other)
   }
 
   #[required(1)]
@@ -194,31 +207,48 @@ impl DOMPoint {
     &self,
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, JsErrorBox> {
-    DOMPoint::from_point_inner(scope, other)
-  }
-
-  #[getter]
-  fn x(&self) -> f64 {
-    self.x
+  ) -> Result<DOMPointReadOnly, JsErrorBox> {
+    DOMPointReadOnly::from_point_inner(scope, other)
   }
 
   #[setter]
-  fn x(&self, _: f64) {}
-
-  #[getter]
-  fn y(&self) -> f64 {
-    self.y
-  }
-  #[getter]
-  fn w(&self) -> f64 {
-    self.w
+  fn x(&self, x: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.x.set(x);
   }
 
-  #[fast]
   #[getter]
-  fn z(&self) -> f64 {
-    self.z
+  fn x(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.x.get()
+  }
+
+  #[setter]
+  fn y(&self, y: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.y.set(y);
+  }
+
+  #[getter]
+  fn y(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.y.get()
+  }
+
+  #[setter]
+  fn z(&self, z: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.z.set(z);
+  }
+
+  #[getter]
+  fn z(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.z.get()
+  }
+
+  #[setter]
+  fn w(&self, w: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.w.set(w);
+  }
+
+  #[getter]
+  fn w(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.w.get()
   }
 
   #[fast]
