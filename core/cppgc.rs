@@ -18,17 +18,31 @@ struct CppGcObject<T: GarbageCollected> {
   member: T,
 }
 
+/// PrototypeChain defines the position of the object in the prototype chain.
+///
+///   A    (index 0)
+///  / \
+/// B   C  (index 1)
+/// |
+/// D      (index 2)
+///
+/// where each B, C and D hold their own prototype chain.
 pub trait PrototypeChain {
   fn prototype_index() -> Option<usize> {
     None
   }
 }
 
+/// A good enough number for the maximum prototype chain depth based on the
+/// usage.
 const MAX_PROTO_CHAIN: usize = 3;
 
 struct DummyT;
 impl GarbageCollected for DummyT {}
 
+/// ErasedPtr is a wrapper around a `v8::cppgc::Ptr` that allows downcasting
+/// to a specific type. Safety is guaranteed by the `tag` field in the
+/// `CppGcObject` struct.
 struct ErasedPtr {
   ptr: v8::cppgc::Ptr<CppGcObject<DummyT>>,
 }
@@ -38,6 +52,8 @@ impl ErasedPtr {
     &self,
   ) -> Option<v8::cppgc::Ptr<CppGcObject<T>>> {
     if self.ptr.tag == TypeId::of::<T>() {
+      // Safety: The tag is always guaranteed by `wrap_object` to be the
+      // correct type.
       Some(unsafe { std::mem::transmute_copy(&self.ptr) })
     } else {
       None
@@ -53,6 +69,8 @@ impl<T: GarbageCollected> From<v8::cppgc::Ptr<CppGcObject<T>>> for ErasedPtr {
     );
 
     Self {
+      // Safety: Both have the same size, representation and a tag guarantees safe
+      // downcasting.
       ptr: unsafe {
         std::mem::transmute::<
           v8::cppgc::Ptr<CppGcObject<T>>,
@@ -67,6 +85,7 @@ struct PrototypeChainStore([Option<ErasedPtr>; MAX_PROTO_CHAIN]);
 
 impl v8::cppgc::GarbageCollected for PrototypeChainStore {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
+    // Trace all the objects top-down the prototype chain.
     for ptr in self.0.iter() {
       if let Some(ptr) = ptr {
         ptr.ptr.trace(visitor);
@@ -267,6 +286,10 @@ pub fn try_unwrap_cppgc_object<
   }?;
 
   let proto_index = T::prototype_index().unwrap_or_default();
+  if proto_index >= MAX_PROTO_CHAIN {
+    return None;
+  }
+
   let obj = proto_chain.0[proto_index].as_ref()?;
 
   let obj = obj.downcast::<T>()?;
