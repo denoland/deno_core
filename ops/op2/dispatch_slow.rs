@@ -1212,7 +1212,7 @@ fn throw_type_error_string(
 
   gs_quote!(generator_state(scope) => {
     #maybe_scope
-    deno_core::_ops::throw_error_anyhow(&mut #scope, #message);
+    deno_core::_ops::throw_error_js_error_class(&mut #scope, &#message);
     return 1;
   })
 }

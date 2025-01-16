@@ -76,7 +76,7 @@ pub const fn op_async_v8_buffer() -> ::deno_core::_ops::OpDecl {
                 ) {
                     Ok(v) => rv.set(v),
                     Err(rv_err) => {
-                        deno_core::_ops::throw_error_anyhow(&mut scope, rv_err);
+                        deno_core::_ops::throw_error_js_error_class(&mut scope, &rv_err);
                         return 1;
                     }
                 };

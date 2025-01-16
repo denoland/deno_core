@@ -29,12 +29,13 @@ use crate::ModuleSpecifier;
 use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
-use anyhow::anyhow;
 use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
 use deno_ops::op2;
 use futures::future::poll_fn;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
+use std::any::Any;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -205,6 +206,26 @@ impl std::error::Error for MockError {
   }
 }
 
+impl JsErrorClass for MockError {
+  fn get_class(&self) -> Cow<'static, str> {
+    unimplemented!()
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    unimplemented!()
+  }
+
+  fn get_additional_properties(
+    &self,
+  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
+    unimplemented!()
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
+}
+
 struct DelayedSourceCodeFuture {
   url: String,
   counter: u32,
@@ -248,7 +269,7 @@ impl Future for DelayedSourceCodeFuture {
           }),
         )))
       }
-      None => Poll::Ready(Err(anyhow::Error::new(MockError::LoadErr).into())),
+      None => Poll::Ready(Err(JsErrorBox::from_err(MockError::LoadErr).into())),
     }
   }
 }
@@ -268,13 +289,15 @@ impl ModuleLoader for MockLoader {
 
     let output_specifier = match resolve_import(specifier, referrer) {
       Ok(specifier) => specifier,
-      Err(..) => return Err(anyhow::Error::new(MockError::ResolveErr).into()),
+      Err(..) => {
+        return Err(JsErrorBox::from_err(MockError::ResolveErr).into())
+      }
     };
 
     if mock_source_code(output_specifier.as_ref()).is_some() {
       Ok(output_specifier)
     } else {
-      Err(anyhow::Error::new(MockError::ResolveErr).into())
+      Err(JsErrorBox::from_err(MockError::ResolveErr).into())
     }
   }
 
@@ -1345,11 +1368,11 @@ async fn loader_disappears_after_error() {
   let CoreError::ModuleLoader(err) = result.unwrap_err() else {
     unreachable!();
   };
-  let ModuleLoaderError::Core(CoreError::Other(err)) = *err else {
+  let ModuleLoaderError::Core(CoreError::JsBox(err)) = *err else {
     unreachable!();
   };
   assert_eq!(
-    err.downcast_ref::<MockError>().unwrap(),
+    err.as_any().downcast_ref::<MockError>().unwrap(),
     &MockError::ResolveErr
   );
 }
@@ -1689,7 +1712,7 @@ async fn import_meta_resolve_cb() {
       return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
     }
 
-    Err(anyhow!("unexpected").into())
+    Err(JsErrorBox::generic("unexpected").into())
   }
 
   let mut runtime = JsRuntime::new(RuntimeOptions {

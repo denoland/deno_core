@@ -62,7 +62,7 @@ pub enum CoreError {
     specifier: String,
   },
   #[error(transparent)]
-  JsNative(#[from] deno_error::JsErrorBox),
+  JsBox(#[from] deno_error::JsErrorBox),
   #[error(transparent)]
   Url(#[from] url::ParseError),
   #[error(transparent)]
@@ -81,8 +81,6 @@ pub enum CoreError {
   Module(ModuleConcreteError),
   #[error(transparent)]
   DataError(DataError),
-  #[error(transparent)]
-  Other(#[from] anyhow::Error),
 }
 
 impl CoreError {
@@ -163,7 +161,7 @@ impl JsErrorClass for CoreError {
       CoreError::ExtensionTranspiler(err) => err.get_class(),
       CoreError::ModuleLoader(err) => err.get_class(),
       CoreError::CouldNotExecute { error, .. } => error.get_class(),
-      CoreError::JsNative(err) => err.get_class(),
+      CoreError::JsBox(err) => err.get_class(),
       CoreError::Url(err) => err.get_class(),
       CoreError::Module(err) => err.get_class(),
       CoreError::DataError(err) => err.get_class(),
@@ -176,8 +174,9 @@ impl JsErrorClass for CoreError {
       | CoreError::MissingFromModuleMap(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule
-      | CoreError::Other(_) => Cow::Borrowed(GENERIC_ERROR),
+      | CoreError::EvaluateDynamicImportedModule => {
+        Cow::Borrowed(GENERIC_ERROR)
+      }
     }
   }
 
@@ -194,7 +193,7 @@ impl JsErrorClass for CoreError {
       CoreError::ExtensionTranspiler(err) => err.get_message(),
       CoreError::ModuleLoader(err) => err.get_message(),
       CoreError::CouldNotExecute { error, .. } => error.get_message(),
-      CoreError::JsNative(err) => err.get_message(),
+      CoreError::JsBox(err) => err.get_message(),
       CoreError::Url(err) => err.get_message(),
       CoreError::Module(err) => err.get_message(),
       CoreError::DataError(err) => err.get_message(),
@@ -207,8 +206,7 @@ impl JsErrorClass for CoreError {
       | CoreError::FutureCanceled(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule
-      | CoreError::Other(_) => self.to_string().into(),
+      | CoreError::EvaluateDynamicImportedModule => self.to_string().into(),
     }
   }
 
@@ -1835,14 +1833,11 @@ pub fn throw_error_one_byte_info(
   throw_error_one_byte(&mut scope, message);
 }
 
-pub fn throw_error_anyhow<S>(scope: &mut v8::CallbackScope<'_>, message: S)
-where
-  S: Into<deno_core::anyhow::Error>,
-{
-  // TODO(mmastrac): This might be allocating too much, even if it's on the error path
-  let e: deno_core::anyhow::Error = message.into();
-  let msg = deno_core::v8::String::new(scope, &format!("{}", e)).unwrap();
-  let exc = deno_core::v8::Exception::type_error(scope, msg);
+pub fn throw_error_js_error_class(
+  scope: &mut v8::CallbackScope<'_>,
+  err: &dyn JsErrorClass,
+) {
+  let exc = to_v8_error(scope, err);
   scope.throw_exception(exc);
 }
 
