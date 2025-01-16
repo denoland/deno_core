@@ -12,7 +12,6 @@ pub use v8::cppgc::GarbageCollected;
 
 const CPPGC_TAG: u16 = 1;
 
-#[derive(Clone)]
 #[repr(C)]
 struct CppGcObject<T: GarbageCollected> {
   tag: TypeId,
@@ -66,7 +65,15 @@ impl<T: GarbageCollected> From<v8::cppgc::Ptr<CppGcObject<T>>> for ErasedPtr {
 
 struct PrototypeChainStore([Option<ErasedPtr>; MAX_PROTO_CHAIN]);
 
-impl v8::cppgc::GarbageCollected for PrototypeChainStore {}
+impl v8::cppgc::GarbageCollected for PrototypeChainStore {
+  fn trace(&self, visitor: &v8::cppgc::Visitor) {
+    for ptr in self.0.iter() {
+      if let Some(ptr) = ptr {
+        ptr.ptr.trace(visitor);
+      }
+    }
+  }
+}
 
 impl<T: GarbageCollected> v8::cppgc::GarbageCollected for CppGcObject<T> {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
