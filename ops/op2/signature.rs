@@ -297,6 +297,7 @@ pub enum Arg {
   OptionState(RefType, String),
   CppGcResource(String),
   OptionCppGcResource(String),
+  CppGcProtochain(Vec<String>),
   FromV8(String),
   ToV8(String),
   WebIDL(String, Vec<WebIDLPairs>, Option<WebIDLDefault>),
@@ -484,7 +485,9 @@ impl Arg {
         Arg::OptionBuffer(.., BufferSource::TypedArray) => {
           ArgSlowRetval::V8LocalFalliable
         }
-        Arg::CppGcResource(_) => ArgSlowRetval::V8Local,
+        Arg::CppGcResource(_) | Arg::CppGcProtochain(_) => {
+          ArgSlowRetval::V8Local
+        }
         _ => ArgSlowRetval::None,
       }
     }
@@ -500,7 +503,9 @@ impl Arg {
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
-      Arg::CppGcResource(_) | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
+      Arg::CppGcProtochain(_)
+      | Arg::CppGcResource(_)
+      | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
       Arg::ToV8(_) => ArgMarker::ToV8,
       _ => ArgMarker::None,
     }
@@ -1523,6 +1528,10 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
             _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
           }
         }
+        ( ($sup:ty, $ty:ty) ) => match (sup, &ty) {
+           (Type::Path(sup), Type::Path(ty)) => Ok(Arg::CppGcProtochain(vec![stringify_token(&sup.path), stringify_token(&ty.path)])),
+           _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+        },
         ( $ty:ty ) => match ty {
           Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
           _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),

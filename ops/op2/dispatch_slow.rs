@@ -1020,8 +1020,15 @@ pub fn return_value_infallible(
     }
     ArgMarker::Cppgc if generator_state.use_this_cppgc => {
       generator_state.needs_isolate = true;
+      let wrap_object = match ret_type {
+        Arg::CppGcProtochain(chain) => {
+          let wrap_object = format_ident!("wrap_object{}", chain.len());
+          quote!(#wrap_object)
+        }
+        _ => quote!(wrap_object),
+      };
       gs_quote!(generator_state(result, scope) => (
-           Some(deno_core::cppgc::wrap_object(&mut #scope, args.this(), #result))
+           Some(deno_core::cppgc::#wrap_object(&mut #scope, args.this(), #result))
       ))
     }
     ArgMarker::Cppgc => {

@@ -150,7 +150,7 @@ pub(crate) fn generate_impl_ops(
   let prototype_index = if let Some(inherits_type) = &maybe_inherits_type {
     quote! {
       fn prototype_index() -> Option<usize> {
-        Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap() + 1)
+        Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
       }
     }
   } else {

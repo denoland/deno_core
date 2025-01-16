@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::cppgc::PrototypeChain;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -165,13 +164,18 @@ impl DOMPoint {
     y: Option<f64>,
     z: Option<f64>,
     w: Option<f64>,
-  ) -> DOMPoint {
-    DOMPoint {
-      x: x.unwrap_or(0.0),
-      y: y.unwrap_or(0.0),
-      z: z.unwrap_or(0.0),
-      w: w.unwrap_or(0.0),
-    }
+  ) -> (DOMPointReadOnly, DOMPoint) {
+    let ro = DOMPointReadOnly {};
+
+    (
+      ro,
+      DOMPoint {
+        x: x.unwrap_or(0.0),
+        y: y.unwrap_or(0.0),
+        z: z.unwrap_or(0.0),
+        w: w.unwrap_or(0.0),
+      },
+    )
   }
 
   #[required(1)]
