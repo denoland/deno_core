@@ -154,11 +154,7 @@ pub(crate) fn generate_impl_ops(
       }
     }
   } else {
-    quote! {
-      fn prototype_index() -> Option<usize> {
-        None
-      }
-    }
+    quote! {}
   };
 
   let inherits_type_name = if let Some(inherits_type) = maybe_inherits_type {
