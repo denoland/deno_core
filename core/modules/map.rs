@@ -415,7 +415,7 @@ impl ModuleMap {
           &module_url_found,
           code,
         )
-        .map_err(|e| ModuleError::Core(CoreError::JsNative(e)))?;
+        .map_err(|e| ModuleError::Core(CoreError::JsBox(e)))?;
 
         match module_evaluation_kind {
           // Simple case, we just got a single value so we create a regular

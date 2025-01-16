@@ -41,6 +41,7 @@ unit_test!(
   microtask_test,
   ops_async_test,
   ops_buffer_test,
+  ops_error_test,
   resource_test,
   serialize_deserialize_test,
   stats_test,
