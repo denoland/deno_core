@@ -2,6 +2,7 @@
 
 use criterion::*;
 use deno_ast::MediaType;
+use deno_ast::ModuleKind;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
 use deno_core::Extension;
@@ -71,7 +72,9 @@ pub fn maybe_transpile_source(
         imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
         ..Default::default()
       },
-      &deno_ast::TranspileModuleOptions { module_kind: None },
+      &deno_ast::TranspileModuleOptions {
+        module_kind: Some(ModuleKind::Esm),
+      },
       &deno_ast::EmitOptions {
         source_map: SourceMapOption::Separate,
         inline_sources: true,
