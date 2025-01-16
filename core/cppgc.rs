@@ -86,10 +86,8 @@ struct PrototypeChainStore([Option<ErasedPtr>; MAX_PROTO_CHAIN]);
 impl v8::cppgc::GarbageCollected for PrototypeChainStore {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
     // Trace all the objects top-down the prototype chain.
-    for ptr in self.0.iter() {
-      if let Some(ptr) = ptr {
-        ptr.ptr.trace(visitor);
-      }
+    for ptr in self.0.iter().flatten() {
+      ptr.ptr.trace(visitor);
     }
   }
 }
