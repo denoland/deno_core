@@ -70,8 +70,9 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
                     ::deno_core::webidl::ContextFn::new_borrowed(
                         &|| {
                             format!(
-                                "{} ({})",
-                                "'forceFallbackAdapter' of 'GPURequestAdapterOptions'",
+                                "'{}' of '{}' ({})",
+                                "forceFallbackAdapter",
+                                "GPURequestAdapterOptions",
                                 __context.call(),
                             )
                                 .into()
@@ -115,8 +116,9 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
                     ::deno_core::webidl::ContextFn::new_borrowed(
                         &|| {
                             format!(
-                                "{} ({})",
-                                "'powerPreference' of 'GPURequestAdapterOptions'",
+                                "'{}' of '{}' ({})",
+                                "powerPreference",
+                                "GPURequestAdapterOptions",
                                 __context.call(),
                             )
                                 .into()

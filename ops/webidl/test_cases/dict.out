@@ -64,7 +64,10 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __value,
                     __prefix.clone(),
                     ::deno_core::webidl::ContextFn::new_borrowed(
-                        &|| format!("{} ({})", "'a' of 'Dict'", __context.call()).into(),
+                        &|| {
+                            format!("'{}' of '{}' ({})", "a", "Dict", __context.call())
+                                .into()
+                        },
                     ),
                     &Default::default(),
                 )?
@@ -108,7 +111,10 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __value,
                     __prefix.clone(),
                     ::deno_core::webidl::ContextFn::new_borrowed(
-                        &|| format!("{} ({})", "'b' of 'Dict'", __context.call()).into(),
+                        &|| {
+                            format!("'{}' of '{}' ({})", "b", "Dict", __context.call())
+                                .into()
+                        },
                     ),
                     &{
                         type Alias<'a> = <Vec<
@@ -163,7 +169,10 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __value,
                     __prefix.clone(),
                     ::deno_core::webidl::ContextFn::new_borrowed(
-                        &|| format!("{} ({})", "'c' of 'Dict'", __context.call()).into(),
+                        &|| {
+                            format!("'{}' of '{}' ({})", "c", "Dict", __context.call())
+                                .into()
+                        },
                     ),
                     &Default::default(),
                 )?
@@ -198,7 +207,10 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __value,
                     __prefix.clone(),
                     ::deno_core::webidl::ContextFn::new_borrowed(
-                        &|| format!("{} ({})", "'e' of 'Dict'", __context.call()).into(),
+                        &|| {
+                            format!("'{}' of '{}' ({})", "e", "Dict", __context.call())
+                                .into()
+                        },
                     ),
                     &Default::default(),
                 )?
@@ -245,7 +257,10 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Dict {
                     __value,
                     __prefix.clone(),
                     ::deno_core::webidl::ContextFn::new_borrowed(
-                        &|| format!("{} ({})", "'f' of 'Dict'", __context.call()).into(),
+                        &|| {
+                            format!("'{}' of '{}' ({})", "f", "Dict", __context.call())
+                                .into()
+                        },
                     ),
                     &Default::default(),
                 )?
