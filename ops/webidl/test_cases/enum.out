@@ -35,3 +35,12 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for Enumeration {
         }
     }
 }
+impl Enumeration {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::FooBar => "foo-bar",
+            Self::Baz => "baz",
+            Self::World => "hello",
+        }
+    }
+}

@@ -3,9 +3,9 @@
 mod dictionary;
 mod r#enum;
 
-use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::quote;
+use quote::ToTokens;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::parse2;
@@ -25,7 +25,9 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
     .attrs
     .into_iter()
     .find_map(|attr| ConverterType::from_attribute(attr).transpose())
-    .ok_or_else(|| Error::new(span, "missing #[webidl] attribute"))??;
+    .ok_or_else(|| {
+      Error::new(span, "missing top-level #[webidl] attribute")
+    })??;
 
   let out = match input.data {
     Data::Struct(data) => match converter {
@@ -44,7 +46,13 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
         ));
       }
       ConverterType::Enum => {
-        create_impl(ident, r#enum::get_body(ident_string, data)?)
+        let (body, as_str) = r#enum::get_body(ident_string, &ident, data)?;
+        let implementation = create_impl(ident, body);
+
+        quote! {
+          #implementation
+          #as_str
+        }
       }
     },
     Data::Union(_) => return Err(Error::new(span, "Unions are not supported")),
@@ -93,7 +101,7 @@ impl Parse for ConverterType {
   }
 }
 
-fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
+fn create_impl(ident: impl ToTokens, body: TokenStream) -> TokenStream {
   quote! {
     impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
       type Options = ();
@@ -115,7 +123,7 @@ fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use quote::ToTokens;
+  use proc_macro2::Ident;
   use std::path::PathBuf;
   use syn::punctuated::Punctuated;
   use syn::Item;

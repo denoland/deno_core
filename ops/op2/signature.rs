@@ -1,7 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::Ident;
-use proc_macro2::Literal;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use proc_macro_rules::rules;
@@ -251,10 +250,10 @@ pub enum NumericFlag {
 
 // its own struct to facility Eq & PartialEq on other structs
 #[derive(Clone, Debug)]
-pub struct WebIDLPairs(pub Ident, pub Literal);
+pub struct WebIDLPairs(pub Ident, pub syn::Expr);
 impl PartialEq for WebIDLPairs {
   fn eq(&self, other: &Self) -> bool {
-    self.0 == other.0 && self.1.to_string() == other.1.to_string()
+    self.0 == other.0
   }
 }
 impl Eq for WebIDLPairs {}
@@ -1260,7 +1259,7 @@ fn parse_attribute(
       (#[number]) => Some(AttributeModifier::Number),
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[webidl]) => Some(AttributeModifier::WebIDL { options: vec![],default: None }),
-      (#[webidl($(default = $default:expr)?$($(,)? options($($key:ident = $value:literal),*))?)]) => Some(AttributeModifier::WebIDL { options: key.map(|key| key.into_iter().zip(value.unwrap().into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect()).unwrap_or_default(), default: default.map(WebIDLDefault) }),
+      (#[webidl($(default = $default:expr)?$($(, )?options($($key:ident = $value:expr),*))?)]) => Some(AttributeModifier::WebIDL { options: key.map(|key| key.into_iter().zip(value.unwrap().into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect()).unwrap_or_default(), default: default.map(WebIDLDefault) }),
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
       (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),

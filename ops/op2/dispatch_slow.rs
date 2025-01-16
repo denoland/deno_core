@@ -667,33 +667,48 @@ pub fn from_arg(
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
       let prefix = get_prefix(generator_state);
-      let context = format!("Argument {}", index + 1);
+      let context = format!("Argument {}", index);
 
-      let options = if options.is_empty() {
-        quote!(Default::default())
+      let (alias, options) = if options.is_empty() {
+        (None, quote!(Default::default()))
       } else {
         let inner = options
           .iter()
           .map(|WebIDLPairs(k, v)| quote!(#k: #v))
           .collect::<Vec<_>>();
 
-        quote! {
-          <#ty as deno_core::webidl::WebIdlConverter>::Options {
-            #(#inner),*
-            ..Default::default()
-          }
-        }
+        let alias = format_ident!("{arg_ident}_webidl_alias");
+        // Type-alias to workaround https://github.com/rust-lang/rust/issues/86935
+        (
+          Some(quote! {
+            type #alias<'a> = <#ty as ::deno_core::webidl::WebIdlConverter<'a>>::Options;
+          }),
+          quote! {
+            #alias {
+              #(#inner),*,
+              ..Default::default()
+            }
+          },
+        )
       };
 
       let default = if let Some(default) = default {
         let tokens = default.0.to_token_stream();
-        let default = if let Ok(lit) = parse2::<syn::LitStr>(tokens) {
+        let default = if let Ok(lit) = parse2::<syn::LitStr>(tokens.clone()) {
           if lit.value().is_empty() {
             quote! {
-              v8::String::empty(&mut #scope)
+              deno_core::v8::String::empty(&mut #scope)
             }
           } else {
             return Err("unsupported WebIDL default value");
+          }
+        } else if let Ok(lit) = parse2::<syn::LitInt>(tokens.clone()) {
+          quote! {
+            deno_core::v8::Number::new(&mut #scope, #lit as _)
+          }
+        } else if let Ok(lit) = parse2::<syn::LitFloat>(tokens) {
+          quote! {
+            deno_core::v8::Number::new(&mut #scope, #lit)
           }
         } else {
           return Err("unsupported WebIDL default value");
@@ -712,6 +727,7 @@ pub fn from_arg(
 
       quote! {
         #default
+        #alias
         let #arg_ident = match <#ty as deno_core::webidl::WebIdlConverter>::convert(
           &mut #scope,
           #arg_ident,

@@ -840,6 +840,37 @@ impl<'a> WebIdlConverter<'a> for ByteString {
   }
 }
 
+pub trait WebIdlInterfaceConverter:
+  v8::cppgc::GarbageCollected + 'static
+{
+  const NAME: &'static str;
+}
+
+impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
+  for crate::cppgc::Ptr<T>
+{
+  type Options = ();
+
+  fn convert<'b>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: ContextFn<'b>,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError> {
+    if let Some(ptr) = crate::cppgc::try_unwrap_cppgc_object::<T>(scope, value)
+    {
+      Ok(ptr)
+    } else {
+      Err(WebIdlError::new(
+        prefix,
+        context,
+        WebIdlErrorKind::ConvertToConverterType(T::NAME),
+      ))
+    }
+  }
+}
+
 // TODO:
 //  object
 //  ArrayBuffer
@@ -1451,8 +1482,10 @@ mod tests {
       "prefix".into(),
       (|| "context".into()).into(),
       &Default::default(),
-    );
-    assert_eq!(converted.unwrap(), Enumeration::FooBar);
+    )
+    .unwrap();
+    assert_eq!(converted, Enumeration::FooBar);
+    assert_eq!(converted.as_str(), "foo-bar");
 
     let val = v8::String::new(scope, "baz").unwrap();
     let converted = Enumeration::convert(
@@ -1461,8 +1494,10 @@ mod tests {
       "prefix".into(),
       (|| "context".into()).into(),
       &Default::default(),
-    );
-    assert_eq!(converted.unwrap(), Enumeration::Baz);
+    )
+    .unwrap();
+    assert_eq!(converted, Enumeration::Baz);
+    assert_eq!(converted.as_str(), "baz");
 
     let val = v8::String::new(scope, "hello").unwrap();
     let converted = Enumeration::convert(
@@ -1471,8 +1506,10 @@ mod tests {
       "prefix".into(),
       (|| "context".into()).into(),
       &Default::default(),
-    );
-    assert_eq!(converted.unwrap(), Enumeration::World);
+    )
+    .unwrap();
+    assert_eq!(converted, Enumeration::World);
+    assert_eq!(converted.as_str(), "hello");
 
     let val = v8::String::new(scope, "unknown").unwrap();
     let converted = Enumeration::convert(
