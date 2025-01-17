@@ -86,6 +86,9 @@ struct PrototypeChainStore([Option<ErasedPtr>; MAX_PROTO_CHAIN]);
 impl v8::cppgc::GarbageCollected for PrototypeChainStore {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
     // Trace all the objects top-down the prototype chain.
+    //
+    // This works out with ErasedPtr because v8::cppgc::Ptr doesn't
+    // trace based on `T` but rather the pointer.
     for ptr in self.0.iter().flatten() {
       ptr.ptr.trace(visitor);
     }
@@ -132,6 +135,41 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   wrap_object(scope, obj, t)
 }
 
+// Wrap an API object (eg: `args.This()`)
+pub fn wrap_object<'a, T: GarbageCollected + 'static>(
+  isolate: &mut v8::Isolate,
+  obj: v8::Local<'a, v8::Object>,
+  t: T,
+) -> v8::Local<'a, v8::Object> {
+  let heap = isolate.get_cpp_heap().unwrap();
+
+  let member = unsafe {
+    v8::cppgc::make_garbage_collected(
+      heap,
+      PrototypeChainStore([
+        Some(
+          v8::cppgc::make_garbage_collected(
+            heap,
+            CppGcObject {
+              tag: TypeId::of::<T>(),
+              member: t,
+            },
+          )
+          .into(),
+        ),
+        None,
+        None,
+      ]),
+    )
+  };
+
+  unsafe {
+    v8::Object::wrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj, &member);
+  }
+  obj
+}
+
+#[doc(hidden)]
 pub fn make_cppgc_object2<
   'a,
   T: GarbageCollected + 'static,
@@ -158,6 +196,7 @@ pub fn make_cppgc_object2<
   wrap_object2(scope, obj, (t, t2))
 }
 
+#[doc(hidden)]
 pub fn wrap_object2<
   'a,
   T: GarbageCollected + 'static,
@@ -204,11 +243,45 @@ pub fn wrap_object2<
   obj
 }
 
-// Wrap an API object (eg: `args.This()`)
-pub fn wrap_object<'a, T: GarbageCollected + 'static>(
+#[doc(hidden)]
+pub fn make_cppgc_object3<
+  'a,
+  T: GarbageCollected + 'static,
+  S: GarbageCollected + 'static,
+  R: GarbageCollected + 'static,
+>(
+  scope: &mut v8::HandleScope<'a>,
+  t: T,
+  t2: S,
+  t3: R,
+) -> v8::Local<'a, v8::Object> {
+  let state = JsRuntime::state_from(scope);
+  let templates = state.function_templates.borrow();
+
+  let obj = if let Some(templ) = templates.get::<T>() {
+    let templ = v8::Local::new(scope, templ);
+    let inst = templ.instance_template(scope);
+    inst.new_instance(scope).unwrap()
+  } else {
+    let templ =
+      v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
+    let func = templ.get_function(scope).unwrap();
+    func.new_instance(scope, &[]).unwrap()
+  };
+
+  wrap_object3(scope, obj, (t, t2, t3))
+}
+
+#[doc(hidden)]
+pub fn wrap_object3<
+  'a,
+  T: GarbageCollected + 'static,
+  S: GarbageCollected + 'static,
+  R: GarbageCollected + 'static,
+>(
   isolate: &mut v8::Isolate,
   obj: v8::Local<'a, v8::Object>,
-  t: T,
+  t: (T, S, R),
 ) -> v8::Local<'a, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
 
@@ -221,13 +294,31 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
             heap,
             CppGcObject {
               tag: TypeId::of::<T>(),
-              member: t,
+              member: t.0,
             },
           )
           .into(),
         ),
-        None,
-        None,
+        Some(
+          v8::cppgc::make_garbage_collected(
+            heap,
+            CppGcObject {
+              tag: TypeId::of::<S>(),
+              member: t.1,
+            },
+          )
+          .into(),
+        ),
+        Some(
+          v8::cppgc::make_garbage_collected(
+            heap,
+            CppGcObject {
+              tag: TypeId::of::<R>(),
+              member: t.2,
+            },
+          )
+          .into(),
+        ),
       ]),
     )
   };
