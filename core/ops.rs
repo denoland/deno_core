@@ -142,9 +142,12 @@ impl OpCtx {
 
   /// Generates four external references for each op. If an op does not have a fastcall, it generates
   /// "null" slots to avoid changing the size of the external references array.
-  pub const fn external_references(&self) -> [v8::ExternalReference; 4] {
+  pub const fn external_references(&self) -> [v8::ExternalReference; 5] {
     extern "C" fn placeholder() {}
 
+    let name_ptr = v8::ExternalReference {
+      pointer: self.decl.name_fast.into_v8_const_ptr() as _,
+    };
     let ctx_ptr = v8::ExternalReference {
       pointer: self as *const OpCtx as _,
     };
@@ -165,9 +168,9 @@ impl OpCtx {
         let fast_info = v8::ExternalReference {
           type_info: fast_fn_info.type_info(),
         };
-        [ctx_ptr, slow_fn, fast_fn, fast_info]
+        [name_ptr, ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {
-        [ctx_ptr, slow_fn, null, null]
+        [name_ptr, ctx_ptr, slow_fn, null, null]
       }
     } else {
       let slow_fn = v8::ExternalReference {
@@ -182,9 +185,9 @@ impl OpCtx {
         let fast_info = v8::ExternalReference {
           type_info: fast_fn_info.type_info(),
         };
-        [ctx_ptr, slow_fn, fast_fn, fast_info]
+        [name_ptr, ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {
-        [ctx_ptr, slow_fn, null, null]
+        [name_ptr, ctx_ptr, slow_fn, null, null]
       }
     }
   }
