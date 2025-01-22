@@ -502,6 +502,12 @@ pub fn from_arg(
         let #arg_ident = Some(&#fn_args);
       })
     }
+    Arg::This => {
+      *needs_isolate = true;
+      gs_quote!(generator_state(scope, fn_args) => {
+        let #arg_ident = deno_core::v8::Global::new(&mut #scope, #fn_args.this());
+      })
+    }
     Arg::Buffer(buffer_type, mode, source) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);

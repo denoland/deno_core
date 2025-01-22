@@ -111,5 +111,7 @@ test(async function testDomPoint() {
 
   await promise;
 
+  wrap.withThis();
+
   new TestEnumWrap();
 });

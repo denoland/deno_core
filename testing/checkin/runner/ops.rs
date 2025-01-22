@@ -107,6 +107,9 @@ impl TestObjectWrap {
   fn with_slow_getter(&self) -> String {
     String::from("getter")
   }
+
+  #[fast]
+  fn with_this(&self, #[this] _: v8::Global<v8::Object>) {}
 }
 
 pub struct DOMPoint {

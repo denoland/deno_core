@@ -300,6 +300,7 @@ pub enum Arg {
   ToV8(String),
   WebIDL(String, Vec<WebIDLPairs>, Option<WebIDLDefault>),
   VarArgs,
+  This,
 }
 
 impl Arg {
@@ -373,7 +374,7 @@ impl Arg {
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
-      Self::VarArgs => true,
+      Self::This | Self::VarArgs => true,
       _ => false,
     }
   }
@@ -787,6 +788,8 @@ pub enum AttributeModifier {
   Ignore,
   /// Varaible-length arguments.
   VarArgs,
+  /// The `this` receiver.
+  This,
 }
 
 impl AttributeModifier {
@@ -806,6 +809,7 @@ impl AttributeModifier {
       AttributeModifier::CppGcResource => "cppgc",
       AttributeModifier::Ignore => "ignore",
       AttributeModifier::VarArgs => "varargs",
+      AttributeModifier::This => "this",
     }
   }
 }
@@ -1278,6 +1282,7 @@ fn parse_attribute(
       (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
+      (#[this]) => Some(AttributeModifier::This),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
@@ -1649,6 +1654,15 @@ pub(crate) fn parse_type(
       | AttributeModifier::Bigint
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
+      }
+      AttributeModifier::This => {
+        if position == Position::RetVal {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "argument",
+          ));
+        }
+        return Ok(Arg::This);
       }
       AttributeModifier::Number => match ty {
         Type::Path(of) => {
