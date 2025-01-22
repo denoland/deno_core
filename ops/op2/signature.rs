@@ -654,9 +654,9 @@ impl ParsedTypeContainer {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RetVal {
   /// An op that can never fail.
-  Infallible(Arg),
+  Infallible(Arg, bool),
   /// An op returning Result<Something, ...>
-  Result(Arg),
+  Result(Arg, bool),
   /// An op returning a future, either `async fn() -> Something` or `fn() -> impl Future<Output = Something>`.
   Future(Arg),
   /// An op returning a future with a result, either `async fn() -> Result<Something, ...>`
@@ -675,7 +675,12 @@ impl RetVal {
     use RetVal::*;
     matches!(
       self,
-      Future(..) | FutureResult(..) | ResultFuture(..) | ResultFutureResult(..)
+      Future(..)
+        | FutureResult(..)
+        | ResultFuture(..)
+        | ResultFutureResult(..)
+        | Infallible(.., true)
+        | Result(.., true)
     )
   }
 
@@ -683,7 +688,7 @@ impl RetVal {
   pub fn unwrap_result(&self) -> Option<RetVal> {
     use RetVal::*;
     Some(match self {
-      Result(arg) => Infallible(arg.clone()),
+      Result(arg, false) => Infallible(arg.clone(), false),
       ResultFuture(arg) => Future(arg.clone()),
       ResultFutureResult(arg) => FutureResult(arg.clone()),
       _ => return None,
@@ -693,8 +698,8 @@ impl RetVal {
   pub fn arg(&self) -> &Arg {
     use RetVal::*;
     match self {
-      Infallible(arg)
-      | Result(arg)
+      Infallible(arg, ..)
+      | Result(arg, ..)
       | Future(arg)
       | FutureResult(arg)
       | ResultFuture(arg)
@@ -999,6 +1004,7 @@ fn parse_metadata(
 }
 
 pub fn parse_signature(
+  is_fake_async: bool,
   attributes: Vec<Attribute>,
   signature: Signature,
 ) -> Result<ParsedSignature, SignatureError> {
@@ -1020,6 +1026,7 @@ pub fn parse_signature(
   }
   let ret_val = parse_return(
     signature.asyncness.is_some(),
+    is_fake_async,
     parse_attributes(&attributes).map_err(RetError::AttributeError)?,
     &signature.output,
   )?;
@@ -1879,9 +1886,10 @@ mod tests {
       .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
 
     let attrs = item_fn.attrs;
-    let sig = parse_signature(attrs, item_fn.sig).unwrap_or_else(|err| {
-      panic!("Failed to successfully parse signature from {op} ({err:?})")
-    });
+    let sig =
+      parse_signature(false, attrs, item_fn.sig).unwrap_or_else(|err| {
+        panic!("Failed to successfully parse signature from {op} ({err:?})")
+      });
     println!("Raw parsed signatures = {sig:?}");
 
     let mut generics_res = vec![];

@@ -124,7 +124,8 @@ pub(crate) fn generate_op2(
   } else if config.static_member {
     func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
-  let signature = parse_signature(func.attrs, func.sig.clone())?;
+  let signature =
+    parse_signature(config.fake_async, func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
   {
     op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
@@ -217,7 +218,7 @@ pub(crate) fn generate_op2(
   let is_reentrant = config.reentrant;
   let no_side_effect = config.no_side_effects;
 
-  match (is_async, config.r#async) {
+  match (is_async, config.r#async || config.fake_async) {
     (true, false) => return Err(Op2Error::ShouldBeAsync),
     (false, true) => return Err(Op2Error::ShouldNotBeAsync),
     _ => {}

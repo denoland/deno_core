@@ -212,4 +212,10 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
       })
       .clone()
   }
+
+  pub fn value(&self, scope: &mut v8::HandleScope) -> Option<Ptr<T>> {
+    let global = self.cell.get()?.clone();
+    let local = v8::Local::new(scope, global).into();
+    try_unwrap_cppgc_object(scope, local)
+  }
 }

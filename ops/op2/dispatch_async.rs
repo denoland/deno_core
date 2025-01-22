@@ -28,15 +28,21 @@ pub(crate) fn map_async_return_type(
 ) -> Result<(TokenStream, TokenStream, TokenStream), V8MappingError> {
   let return_value = return_value_v8_value(generator_state, ret_val.arg())?;
   let (mapper, return_value_immediate) = match ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => (
+    RetVal::Infallible(r, true)
+    | RetVal::Future(r)
+    | RetVal::ResultFuture(r) => (
       quote!(map_async_op_infallible),
       return_value_infallible(generator_state, r)?,
     ),
-    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => (
+    RetVal::Result(r, true)
+    | RetVal::FutureResult(r)
+    | RetVal::ResultFutureResult(r) => (
       quote!(map_async_op_fallible),
       return_value_result(generator_state, r)?,
     ),
-    RetVal::Infallible(_) | RetVal::Result(_) => return Err("an async return"),
+    RetVal::Infallible(_, false) | RetVal::Result(_, false) => {
+      return Err("an async return")
+    }
   };
   Ok((return_value, mapper, return_value_immediate))
 }

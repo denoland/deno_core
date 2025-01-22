@@ -18,6 +18,7 @@ pub(crate) struct MacroConfig {
   pub fast_alternatives: Vec<String>,
   /// Marks an async function (either `async fn` or `fn -> impl Future`).
   pub r#async: bool,
+  pub fake_async: bool,
   /// Marks a lazy async function (async must also be true).
   pub async_lazy: bool,
   /// Marks a deferred async function (async must also be true).
@@ -114,6 +115,8 @@ impl MacroConfig {
         config.nofast = true;
       } else if flag == "async" || flag == "async_method" {
         config.r#async = true;
+      } else if flag == "async(fake)" || flag == "async_method(fake)" {
+        config.r#fake_async = true;
       } else if flag == "async(lazy)" {
         config.r#async = true;
         config.async_lazy = true;

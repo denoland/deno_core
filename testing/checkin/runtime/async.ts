@@ -9,6 +9,7 @@ const {
   op_stats_dump,
   op_stats_delete,
   op_async_never_resolves,
+  op_async_fake,
 } = Deno
   .core
   .ops;
@@ -37,6 +38,10 @@ export function asyncNeverResolves() {
 }
 
 let nextStats = 0;
+
+export function fakeAsync() {
+  return op_async_fake();
+}
 
 export class Stats {
   constructor(public name: string) {
