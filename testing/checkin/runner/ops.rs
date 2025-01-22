@@ -96,6 +96,9 @@ impl TestObjectWrap {
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
 
+  #[fast]
+  fn with_this(&self, #[this] _: v8::Global<v8::Object>) {}
+
   #[async_method]
   async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
@@ -107,9 +110,6 @@ impl TestObjectWrap {
   fn with_slow_getter(&self) -> String {
     String::from("getter")
   }
-
-  #[fast]
-  fn with_this(&self, #[this] _: v8::Global<v8::Object>) {}
 }
 
 pub struct DOMPoint {

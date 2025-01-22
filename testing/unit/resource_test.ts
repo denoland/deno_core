@@ -104,14 +104,13 @@ test(async function testDomPoint() {
   assertEquals(wrap.withVarargs(), 0);
   assertEquals(wrap.withVarargs(undefined), 1);
 
+  wrap.withThis();
   wrap.with_RENAME();
 
   const promise = wrap.withAsyncFn(10);
   assert(promise instanceof Promise);
 
   await promise;
-
-  wrap.withThis();
 
   new TestEnumWrap();
 });
