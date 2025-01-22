@@ -16,4 +16,3 @@ tokio.workspace = true
 
 [build-dependencies]
 deno_core.workspace = true
-deno_path_util.workspace = true

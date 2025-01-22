@@ -261,7 +261,6 @@ name = "build-your-own-js-snapshot"
 version = "0.1.0"
 dependencies = [
  "deno_core",
- "deno_path_util",
  "tokio",
 ]
 
