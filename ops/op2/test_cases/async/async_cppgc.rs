@@ -2,11 +2,14 @@
 
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
+use deno_core::cppgc::PrototypeChain;
 use deno_core::GarbageCollected;
 
 struct Wrap;
 
 impl GarbageCollected for Wrap {}
+
+impl PrototypeChain for Wrap {}
 
 #[op2(async)]
 #[cppgc]

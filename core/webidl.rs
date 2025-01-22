@@ -841,13 +841,13 @@ impl<'a> WebIdlConverter<'a> for ByteString {
 }
 
 pub trait WebIdlInterfaceConverter:
-  v8::cppgc::GarbageCollected + 'static
+  v8::cppgc::GarbageCollected + crate::cppgc::PrototypeChain + 'static
 {
   const NAME: &'static str;
 }
 
-impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
-  for crate::cppgc::Ptr<T>
+impl<'a, T: WebIdlInterfaceConverter + crate::cppgc::PrototypeChain>
+  WebIdlConverter<'a> for crate::cppgc::Ptr<T>
 {
   type Options = ();
 

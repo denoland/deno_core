@@ -4,6 +4,7 @@ use super::create_runtime;
 use super::run_async;
 use super::Output;
 use anyhow::anyhow;
+use deno_core::cppgc::PrototypeChain;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8::IsolateHandle;
@@ -33,6 +34,8 @@ pub struct WorkerControl {
 }
 
 impl GarbageCollected for WorkerControl {}
+
+impl PrototypeChain for WorkerControl {}
 
 pub struct WorkerChannel {
   tx: UnboundedSender<String>,

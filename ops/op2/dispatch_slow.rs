@@ -373,6 +373,7 @@ pub fn from_arg(
     needs_isolate,
     needs_opstate,
     needs_opctx,
+    fn_args,
     needs_js_runtime_state,
     ..
   } = &mut generator_state;
@@ -748,16 +749,22 @@ pub fn from_arg(
         };
       }
     }
-    Arg::CppGcResource(ty) => {
+    Arg::CppGcResource(proto, ty) => {
       *needs_scope = true;
       let scope = scope.clone();
+      let from_ident = if *proto {
+        quote!(#fn_args.this().into())
+      } else {
+        quote!(#arg_ident)
+      };
       let throw_exception =
         throw_type_error(generator_state, format!("expected {}", &ty));
+
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
         let tokens = quote! {
-          let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+          let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
           #arg_ident.root();
@@ -768,7 +775,7 @@ pub fn from_arg(
         tokens
       } else {
         quote! {
-          let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+          let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
           let #arg_ident = &*#arg_ident;
@@ -1042,8 +1049,15 @@ pub fn return_value_infallible(
     }
     ArgMarker::Cppgc if generator_state.use_this_cppgc => {
       generator_state.needs_isolate = true;
+      let wrap_object = match ret_type {
+        Arg::CppGcProtochain(chain) => {
+          let wrap_object = format_ident!("wrap_object{}", chain.len());
+          quote!(#wrap_object)
+        }
+        _ => quote!(wrap_object),
+      };
       gs_quote!(generator_state(result, scope) => (
-           Some(deno_core::cppgc::wrap_object(&mut #scope, args.this(), #result))
+           Some(deno_core::cppgc::#wrap_object(&mut #scope, args.this(), #result))
       ))
     }
     ArgMarker::Cppgc => {
