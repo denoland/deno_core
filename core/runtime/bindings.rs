@@ -46,7 +46,7 @@ pub(crate) fn create_external_references(
   let mut references = Vec::with_capacity(
     6 + CONTEXT_SETUP_SOURCES.len()
       + BUILTIN_SOURCES.len()
-      + (ops.len() * 5)
+      + (ops.len() * 4)
       + additional_references.len()
       + sources.len()
       + 18, // for callsite_fns
