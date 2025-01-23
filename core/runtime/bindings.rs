@@ -395,6 +395,11 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let accessor_store = create_accessor_store(method_ctxs);
 
     for method in method_ctxs.iter() {
+      // Skip async methods, we are going to register them later.
+      if method.decl.is_async {
+        continue;
+      }
+
       op_ctx_template_or_accessor(
         &accessor_store,
         set_up_async_stub_fn,
@@ -416,6 +421,20 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     }
 
     index += decl.static_methods.len();
+
+    // Register async methods at the end since we need to create the template instance.
+    for method in method_ctxs.iter() {
+      if method.decl.is_async {
+        op_ctx_template_or_accessor(
+          &accessor_store,
+          set_up_async_stub_fn,
+          scope,
+          prototype,
+          tmpl,
+          method,
+        );
+      }
+    }
 
     let op_fn = tmpl.get_function(scope).unwrap();
     op_fn.set_name(key);
