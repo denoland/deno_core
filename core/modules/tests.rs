@@ -1028,6 +1028,27 @@ async fn dyn_import_err() {
 }
 
 #[tokio::test]
+async fn dyn_import_recurse_err() {
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  runtime
+    .execute_script(
+      "file:///dyn_import2.js",
+      r#"
+function bar(v) {
+  bar(import(0));
+}
+bar("foo");
+      "#,
+    )
+    .expect_err("should throw range error");
+}
+
+#[tokio::test]
 async fn dyn_import_ok() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
     Url::parse("file:///b.js").unwrap(),
