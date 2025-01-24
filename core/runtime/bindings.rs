@@ -648,8 +648,8 @@ pub fn host_import_module_dynamically_callback<'s>(
     ImportAttributesKind::DynamicImport,
   );
 
+  let tc_scope = &mut v8::TryCatch::new(scope);
   {
-    let tc_scope = &mut v8::TryCatch::new(scope);
     {
       let state = JsRuntime::state_from(tc_scope);
       if let Some(validate_import_attributes_cb) =
@@ -667,15 +667,15 @@ pub fn host_import_module_dynamically_callback<'s>(
   let requested_module_type =
     get_requested_module_type_from_attributes(&assertions);
 
-  let resolver_handle = v8::Global::new(scope, resolver);
-  let cped_handle = v8::Global::new(scope, cped);
+  let resolver_handle = v8::Global::new(tc_scope, resolver);
+  let cped_handle = v8::Global::new(tc_scope, cped);
   {
-    let state = JsRuntime::state_from(scope);
-    let module_map_rc = JsRealm::module_map_from(scope);
+    let state = JsRuntime::state_from(tc_scope);
+    let module_map_rc = JsRealm::module_map_from(tc_scope);
 
     if !ModuleMap::load_dynamic_import(
       module_map_rc,
-      scope,
+      tc_scope,
       &specifier_str,
       &referrer_name_str,
       requested_module_type,
@@ -695,11 +695,18 @@ pub fn host_import_module_dynamically_callback<'s>(
   let builder = v8::FunctionBuilder::new(catch_dynamic_import_promise_error);
 
   let map_err =
-    v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
+    v8::FunctionBuilder::<v8::Function>::build(builder, tc_scope).unwrap();
 
-  let promise = promise.catch(scope, map_err).unwrap();
+  let Some(promise_new) = promise.catch(tc_scope, map_err) else {
+    if tc_scope.has_caught() {
+      let e = tc_scope.exception().unwrap();
+      resolver.reject(tc_scope, e);
+    }
 
-  Some(promise)
+    return Some(promise);
+  };
+
+  Some(promise_new)
 }
 
 pub extern "C" fn host_initialize_import_meta_object_callback(
