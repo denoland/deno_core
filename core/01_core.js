@@ -644,6 +644,7 @@
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
+    internalFdSymbol: Symbol("Deno.internal.fd"),
     resources,
     eventLoopTick,
     BadResource,
