@@ -7,6 +7,7 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
+use syn::ext::IdentExt;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
@@ -53,7 +54,7 @@ pub fn get_body(
   let v8_static_strings = fields
     .iter()
     .map(|field| {
-      let name = field.get_name();
+      let name = field.get_js_name();
       let new_ident = format_ident!("__v8_static_{name}");
       let name_str = name.to_string();
       quote!(#new_ident = #name_str)
@@ -62,7 +63,7 @@ pub fn get_body(
   let v8_lazy_strings = fields
     .iter()
     .map(|field| {
-      let name = field.get_name();
+      let name = field.get_js_name();
       let v8_eternal_name = format_ident!("__v8_{name}_eternal");
       quote! {
         static #v8_eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
@@ -71,7 +72,7 @@ pub fn get_body(
     .collect::<Vec<_>>();
 
   let fields = fields.into_iter().map(|field| {
-    let name = field.get_name();
+    let name = field.get_js_name();
     let string_name = name.to_string();
     let original_name = field.name;
     let v8_static_name = format_ident!("__v8_static_{name}");
@@ -200,7 +201,7 @@ struct DictionaryField {
 }
 
 impl DictionaryField {
-  fn get_name(&self) -> Ident {
+  fn get_js_name(&self) -> Ident {
     Ident::new(
       &self
         .rename
@@ -270,9 +271,14 @@ impl TryFrom<Field> for DictionaryField {
       }
     }
 
+    let name = value.ident.unwrap();
+    if rename.is_none() {
+      rename = Some(stringcase::camel_case(&name.unraw().to_string()));
+    }
+
     Ok(Self {
       span,
-      name: value.ident.unwrap(),
+      name,
       rename,
       default_value,
       converter_options,
