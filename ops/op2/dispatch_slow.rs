@@ -755,7 +755,13 @@ pub fn from_arg(
         throw_type_error(generator_state, format!("expected {}", &ty));
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+      if matches!(
+        ret_val,
+        RetVal::Future(_)
+          | RetVal::FutureResult(_)
+          | RetVal::Infallible(.., true)
+          | RetVal::Result(.., true)
+      ) {
         let tokens = quote! {
           let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
             #throw_exception;
@@ -782,7 +788,13 @@ pub fn from_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       let scope = &generator_state.scope;
-      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+      if matches!(
+        ret_val,
+        RetVal::Future(_)
+          | RetVal::FutureResult(_)
+          | RetVal::Infallible(.., true)
+          | RetVal::Result(.., true)
+      ) {
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
@@ -1002,6 +1014,11 @@ pub fn call(
       #moves
       #call.await
     })
+  } else if matches!(
+    ret_val,
+    RetVal::Infallible(.., true) | RetVal::Result(.., true)
+  ) {
+    return quote!(std::future::ready(#call));
   } else {
     call
   }
@@ -1012,10 +1029,12 @@ pub fn return_value(
   ret_type: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   match ret_type {
-    RetVal::Infallible(ret_type) => {
+    RetVal::Infallible(ret_type, ..) => {
       return_value_infallible(generator_state, ret_type)
     }
-    RetVal::Result(ret_type) => return_value_result(generator_state, ret_type),
+    RetVal::Result(ret_type, ..) => {
+      return_value_result(generator_state, ret_type)
+    }
     _ => todo!(),
   }
 }

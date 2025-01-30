@@ -1,17 +1,17 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::Output;
+use super::TestData;
 use deno_core::op2;
 use deno_core::v8;
 use deno_core::GarbageCollected;
 use deno_core::OpState;
 use deno_core::V8TaskSpawner;
+use deno_error::JsErrorBox;
 use futures::future::poll_fn;
 use std::cell::RefCell;
 use std::future::Future;
 use std::rc::Rc;
-
-use super::Output;
-use super::TestData;
 
 #[op2]
 pub fn op_task_submit(
@@ -86,4 +86,9 @@ pub async fn op_async_get_cppgc_resource(
 #[op2(async)]
 pub fn op_async_never_resolves() -> impl Future<Output = ()> {
   futures::future::pending::<()>()
+}
+
+#[op2(async(fake))]
+pub fn op_async_fake() -> Result<u32, JsErrorBox> {
+  Ok(1)
 }

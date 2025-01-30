@@ -67,17 +67,24 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
 
 pub(crate) fn parse_return(
   is_async: bool,
+  is_fake_async: bool,
   attrs: Attributes,
   rt: &ReturnType,
 ) -> Result<RetVal, RetError> {
   use UnwrappedReturn::*;
 
   let res = match rt {
-    ReturnType::Default => RetVal::Infallible(Arg::Void),
+    ReturnType::Default => RetVal::Infallible(Arg::Void, is_fake_async),
     ReturnType::Type(_, rt) => match unwrap_return(rt)? {
-      Type(ty) => RetVal::Infallible(parse_type(Position::RetVal, attrs, &ty)?),
+      Type(ty) => RetVal::Infallible(
+        parse_type(Position::RetVal, attrs, &ty)?,
+        is_fake_async,
+      ),
       Result(ty) => match unwrap_return(&ty)? {
-        Type(ty) => RetVal::Result(parse_type(Position::RetVal, attrs, &ty)?),
+        Type(ty) => RetVal::Result(
+          parse_type(Position::RetVal, attrs, &ty)?,
+          is_fake_async,
+        ),
         Future(ty) => match unwrap_return(&ty)? {
           Type(ty) => {
             RetVal::ResultFuture(parse_type(Position::RetVal, attrs, &ty)?)
@@ -119,8 +126,8 @@ pub(crate) fn parse_return(
   // If the signature was async, wrap this return value in one level of future.
   if is_async {
     let res = match res {
-      RetVal::Infallible(t) => RetVal::Future(t),
-      RetVal::Result(t) => RetVal::FutureResult(t),
+      RetVal::Infallible(t, ..) => RetVal::Future(t),
+      RetVal::Result(t, ..) => RetVal::FutureResult(t),
       _ => {
         return Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(rt),
@@ -145,10 +152,10 @@ mod tests {
     use RetVal::*;
 
     for (expected, input) in [
-      (Infallible(Void), "()"),
-      (Result(Void), "Result<()>"),
-      (Result(Void), "Result<(), ()>"),
-      (Result(Void), "Result<(), (),>"),
+      (Infallible(Void, false), "()"),
+      (Result(Void, false), "Result<()>"),
+      (Result(Void, false), "Result<(), ()>"),
+      (Result(Void, false), "Result<(), (),>"),
       (Future(Void), "impl Future<Output = ()>"),
       (FutureResult(Void), "impl Future<Output = Result<()>>"),
       (ResultFuture(Void), "Result<impl Future<Output = ()>>"),
@@ -159,7 +166,7 @@ mod tests {
     ] {
       let rt = parse_str::<ReturnType>(&format!("-> {input}"))
         .expect("Failed to parse");
-      let actual = parse_return(false, Attributes::default(), &rt)
+      let actual = parse_return(false, false, Attributes::default(), &rt)
         .expect("Failed to parse return");
       assert_eq!(expected, actual);
     }
