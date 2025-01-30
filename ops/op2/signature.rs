@@ -1939,7 +1939,7 @@ mod tests {
         let item_fn = parse_str::<ItemFn>(op)
           .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
         let attrs = item_fn.attrs;
-        let error = parse_signature(attrs, item_fn.sig)
+        let error = parse_signature(false, attrs, item_fn.sig)
           .expect_err("Expected function to fail to parse");
         assert_eq!(format!("{error:?}"), format!("{:?}", $error));
       }
@@ -1948,119 +1948,119 @@ mod tests {
 
   test!(
     fn op_state_and_number(opstate: &mut OpState, a: u32) -> ();
-    (Ref(Mut, OpState), Numeric(u32, None)) -> Infallible(Void)
+    (Ref(Mut, OpState), Numeric(u32, None)) -> Infallible(Void, false)
   );
   test!(
     fn op_slices(#[buffer] r#in: &[u8], #[buffer] out: &mut [u8]);
-    (Buffer(Slice(Ref, u8), Default, TypedArray), Buffer(Slice(Mut, u8), Default, TypedArray)) -> Infallible(Void)
+    (Buffer(Slice(Ref, u8), Default, TypedArray), Buffer(Slice(Mut, u8), Default, TypedArray)) -> Infallible(Void, false)
   );
   test!(
     fn op_pointers(#[buffer] r#in: *const u8, #[buffer] out: *mut u8);
-    (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Infallible(Void)
+    (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Infallible(Void, false)
   );
   test!(
     fn op_arraybuffer(#[arraybuffer] r#in: &[u8]);
-    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Infallible(Void)
+    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Infallible(Void, false)
   );
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
-    (SerdeV8(package::SerdeInputType)) -> Result(SerdeV8(package::SerdeReturnType))
+    (SerdeV8(package::SerdeInputType)) -> Result(SerdeV8(package::SerdeReturnType), false)
   );
   // Note the turbofish syntax here because of macro constraints
   test!(
     #[serde] fn op_serde_option(#[serde] maybe: Option<package::SerdeInputType>) -> Result<Option<package::SerdeReturnType>, Error>;
-    (SerdeV8(Option::<package::SerdeInputType>)) -> Result(SerdeV8(Option::<package::SerdeReturnType>))
+    (SerdeV8(Option::<package::SerdeInputType>)) -> Result(SerdeV8(Option::<package::SerdeReturnType>), false)
   );
   test!(
     #[serde] fn op_serde_tuple(#[serde] input: (A, B)) -> (A, B);
-    (SerdeV8((A, B))) -> Infallible(SerdeV8((A, B)))
+    (SerdeV8((A, B))) -> Infallible(SerdeV8((A, B)), false)
   );
   test!(
     fn op_local(input: v8::Local<v8::String>) -> Result<v8::Local<v8::String>, Error>;
-    (V8Local(String)) -> Result(V8Local(String))
+    (V8Local(String)) -> Result(V8Local(String), false)
   );
   test!(
     fn op_resource(#[smi] rid: ResourceId, #[buffer] buffer: &[u8]);
-    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8), Default, TypedArray)) ->  Infallible(Void)
+    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8), Default, TypedArray)) ->  Infallible(Void, false)
   );
   test!(
     #[smi] fn op_resource2(#[smi] rid: ResourceId) -> Result<ResourceId, Error>;
-    (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None))
+    (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None), false)
   );
   test!(
     fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, JsErrorBox>;
-    (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None))
+    (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None), false)
   );
   test!(
     #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, JsErrorBox>;
-    (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
+    (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None), false)
   );
   test!(
     fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, JsErrorBox>;
-    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
+    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None), false)
   );
   test!(
     #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, JsErrorBox>;
-    (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
+    (Numeric(isize, Number)) -> Result(Numeric(u64, Number), false)
   );
   test!(
     fn op_ptr_out(ptr: *const c_void) -> *mut c_void;
-    (External(Ptr(Ref))) -> Infallible(External(Ptr(Mut)))
+    (External(Ptr(Ref))) -> Infallible(External(Ptr(Mut)), false)
   );
   test!(
     fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error>;
-    (String(RefStr), Numeric(bool, None)) -> Result(Void)
+    (String(RefStr), Numeric(bool, None)) -> Result(Void, false)
   );
   test!(
     #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>, #[string(onebyte)] s4: Cow<[u8]>) -> String;
-    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Infallible(String(String))
+    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Infallible(String(String), false)
   );
   test!(
     #[string] fn op_lots_of_option_strings(#[string] s: Option<String>, #[string] s2: Option<&str>, #[string] s3: Option<Cow<str>>) -> Option<String>;
-    (OptionString(String), OptionString(RefStr), OptionString(CowStr)) -> Infallible(OptionString(String))
+    (OptionString(String), OptionString(RefStr), OptionString(CowStr)) -> Infallible(OptionString(String), false)
   );
   test!(
     fn op_scope<'s>(#[string] msg: &'s str);
-    <'s> (String(RefStr)) -> Infallible(Void)
+    <'s> (String(RefStr)) -> Infallible(Void, false)
   );
   test!(
     fn op_scope_and_generics<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait, BC: OtherTrait;
-    <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Infallible(Void)
+    <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Infallible(Void, false)
   );
   test!(
     fn op_generics_static<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait + 'static, BC: OtherTrait;
-    <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Infallible(Void)
+    <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Infallible(Void, false)
   );
   test!(
     fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, #[global] s3: v8::Global<v8::String>);
-    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void)
+    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void, false)
   );
   test!(
     fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
-    <'s> (Ref(Mut, HandleScope)) -> Infallible(Void)
+    <'s> (Ref(Mut, HandleScope)) -> Infallible(Void, false)
   );
   test!(
     fn op_state_rc(state: Rc<RefCell<OpState>>);
-    (RcRefCell(OpState)) -> Infallible(Void)
+    (RcRefCell(OpState)) -> Infallible(Void, false)
   );
   test!(
     fn op_state_ref(state: &OpState);
-    (Ref(Ref, OpState)) -> Infallible(Void)
+    (Ref(Ref, OpState)) -> Infallible(Void, false)
   );
   test!(
     fn op_state_attr(#[state] something: &Something, #[state] another: Option<&Something>);
-    (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
+    (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void, false)
   );
   test!(
     #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes,
       #[buffer] d: V8Slice<u8>, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
     (Buffer(Vec(u8), Copy, TypedArray), Buffer(BoxSlice(u8), Copy, TypedArray),
       Buffer(Bytes, Copy, TypedArray), Buffer(V8Slice(u8), Default, TypedArray),
-      Buffer(JsBuffer, Default, TypedArray), Buffer(JsBuffer, Detach, TypedArray)) -> Infallible(Buffer(Vec(u8), Default, TypedArray))
+      Buffer(JsBuffer, Default, TypedArray), Buffer(JsBuffer, Detach, TypedArray)) -> Infallible(Buffer(Vec(u8), Default, TypedArray), false)
   );
   test!(
     #[buffer] fn op_return_bytesmut() -> bytes::BytesMut;
-    () -> Infallible(Buffer(BytesMut, Default, TypedArray))
+    () -> Infallible(Buffer(BytesMut, Default, TypedArray), false)
   );
   test!(
     async fn op_async_void();
@@ -2080,19 +2080,19 @@ mod tests {
   );
   test!(
     fn op_js_runtime_state_ref(state: &JsRuntimeState);
-    (Ref(Ref, JsRuntimeState)) -> Infallible(Void)
+    (Ref(Ref, JsRuntimeState)) -> Infallible(Void, false)
   );
   test!(
     fn op_js_runtime_state_mut(state: &mut JsRuntimeState);
-    (Ref(Mut, JsRuntimeState)) -> Infallible(Void)
+    (Ref(Mut, JsRuntimeState)) -> Infallible(Void, false)
   );
   test!(
     fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
-    (Rc(JsRuntimeState)) -> Infallible(Void)
+    (Rc(JsRuntimeState)) -> Infallible(Void, false)
   );
   test!(
     fn op_isolate(isolate: *mut v8::Isolate);
-    (Special(Isolate)) -> Infallible(Void)
+    (Special(Isolate)) -> Infallible(Void, false)
   );
   test!(
     #[serde]

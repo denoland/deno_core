@@ -491,7 +491,7 @@ mod tests {
         let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig = parse_signature(vec![], function.sig.clone())
+        let sig = parse_signature(false, vec![], function.sig.clone())
           .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
@@ -549,8 +549,9 @@ mod tests {
         let function = format!("{} fn op_test() -> {} {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig = parse_signature(function.attrs.clone(), function.sig.clone())
-          .expect("Failed to parse signature");
+        let sig =
+          parse_signature(false, function.attrs.clone(), function.sig.clone())
+            .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
           MacroConfig {
@@ -565,9 +566,12 @@ mod tests {
           let function = format!("{} async fn op_test() -> {} {{}}", attr, ty);
           let function =
             syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-          let sig =
-            parse_signature(function.attrs.clone(), function.sig.clone())
-              .expect("Failed to parse signature");
+          let sig = parse_signature(
+            false,
+            function.attrs.clone(),
+            function.sig.clone(),
+          )
+          .expect("Failed to parse signature");
           println!("Parsed signature: {sig:?}");
           generate_op2(
             MacroConfig {
