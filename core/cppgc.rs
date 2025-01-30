@@ -182,10 +182,12 @@ impl FunctionTemplateData {
   }
 }
 
+#[derive(Debug)]
 pub struct SameObject<T: GarbageCollected + 'static> {
   cell: std::cell::OnceCell<v8::Global<v8::Object>>,
   _phantom_data: std::marker::PhantomData<T>,
 }
+
 impl<T: GarbageCollected + 'static> SameObject<T> {
   #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
@@ -213,9 +215,18 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
       .clone()
   }
 
-  pub fn value(&self, scope: &mut v8::HandleScope) -> Option<Ptr<T>> {
-    let global = self.cell.get()?.clone();
-    let local = v8::Local::new(scope, global).into();
-    try_unwrap_cppgc_object(scope, local)
+  pub fn set(
+    &self,
+    scope: &mut v8::HandleScope,
+    value: T,
+  ) -> Result<(), v8::Global<v8::Object>> {
+    let obj = make_cppgc_object(scope, value);
+    self.cell.set(v8::Global::new(scope, obj))
+  }
+
+  pub fn try_unwrap(&self, scope: &mut v8::HandleScope) -> Option<Ptr<T>> {
+    let obj = self.cell.get()?;
+    let val = v8::Local::new(scope, obj);
+    try_unwrap_cppgc_object(scope, val.cast())
   }
 }
