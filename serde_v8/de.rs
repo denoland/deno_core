@@ -745,20 +745,33 @@ fn to_utf8_fast(
 ) -> Option<String> {
   // Over-allocate by 20% to avoid checking string twice
   let str_chars = s.length();
+  if str_chars == 0 {
+    return Some(String::new());
+  }
   let capacity = (str_chars as f64 * 1.2) as usize;
   let mut buf = Vec::with_capacity(capacity);
 
   let bytes_len = s.write_utf8_uninit(
     scope,
     buf.spare_capacity_mut(),
-    v8::WriteFlags::kReplaceInvalidUtf8,
+    v8::WriteFlags::kReplaceInvalidUtf8 | v8::WriteFlags::kNullTerminate,
   );
+
+  if bytes_len >= capacity {
+    return None;
+  }
 
   // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8
   unsafe {
     buf.set_len(bytes_len);
-    Some(String::from_utf8_unchecked(buf))
   }
+
+  if buf[bytes_len - 1] != 0 {
+    return None;
+  }
+
+  // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8
+  unsafe { Some(String::from_utf8_unchecked(buf)) }
 }
 
 fn to_utf8_slow(
