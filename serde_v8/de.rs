@@ -771,7 +771,10 @@ fn to_utf8_fast(
   }
 
   // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8
-  unsafe { Some(String::from_utf8_unchecked(buf)) }
+  unsafe {
+    buf.set_len(buf.len() - 1);
+    Some(String::from_utf8_unchecked(buf))
+  }
 }
 
 fn to_utf8_slow(

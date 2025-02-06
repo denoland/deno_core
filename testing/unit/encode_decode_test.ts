@@ -26,6 +26,24 @@ test(function testFixture1() {
   assertEquals(Deno.core.decode(new Uint8Array(fixture1)), "𝓽𝓮𝔁𝓽");
 });
 
+test(function testWithNul() {
+  // deno-fmt-ignore
+  const fixture1 = [
+    0xf0, 0x9d, 0x93, 0xbd,
+    0xf0, 0x9d, 0x93, 0xae,
+    0xf0, 0x9d, 0x94, 0x81,
+    0xf0, 0x9d, 0x93, 0xbd,
+    0
+  ];
+  const res = Array.from(Deno.core.encode("𝓽𝓮𝔁𝓽\0"));
+  console.log(res);
+  assertArrayEquals(
+    res,
+    fixture1,
+  );
+  assertEquals(Deno.core.decode(new Uint8Array(fixture1)), "𝓽𝓮𝔁𝓽\0");
+});
+
 test(function testFixture2() {
   // deno-fmt-ignore
   const fixture2 = [
