@@ -610,8 +610,11 @@ fn fast_api_typed_array_to_buffer(
   Ok(quote! {
     // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
     // fastcall.
-    let mut #buffer = [0; v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
-    let #input = unsafe { &*#input }.cast::<v8::Uint8Array>().get_contents(&mut buffer);
+    let mut buffer = [0; v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
+    // We are assuming that the fast calls give us type-valid buffers.
+    let #input = unsafe { &*#input }.cast::<v8::ArrayBufferView>();
+    // TODO: v8 get_contents should return mutable reference?
+    let #input = unsafe { &mut *(#input.get_contents(&mut buffer) as *const [_] as *mut [_]) };
     #convert
   })
 }
