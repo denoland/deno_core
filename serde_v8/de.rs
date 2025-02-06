@@ -748,18 +748,11 @@ fn to_utf8_fast(
   let capacity = (str_chars as f64 * 1.2) as usize;
   let mut buf = Vec::with_capacity(capacity);
 
-  let mut nchars = 0;
   let bytes_len = s.write_utf8_uninit(
     scope,
     buf.spare_capacity_mut(),
-    Some(&mut nchars),
-    v8::WriteOptions::NO_NULL_TERMINATION
-      | v8::WriteOptions::REPLACE_INVALID_UTF8,
+    v8::WriteFlags::kReplaceInvalidUtf8,
   );
-
-  if nchars < str_chars {
-    return None;
-  }
 
   // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8
   unsafe {
@@ -778,9 +771,7 @@ fn to_utf8_slow(
   let bytes_len = s.write_utf8_uninit(
     scope,
     buf.spare_capacity_mut(),
-    None,
-    v8::WriteOptions::NO_NULL_TERMINATION
-      | v8::WriteOptions::REPLACE_INVALID_UTF8,
+    v8::WriteFlags::kReplaceInvalidUtf8,
   );
 
   // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8
