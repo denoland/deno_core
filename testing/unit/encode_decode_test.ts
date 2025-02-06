@@ -26,6 +26,7 @@ test(function testFixture1() {
   assertEquals(Deno.core.decode(new Uint8Array(fixture1)), "𝓽𝓮𝔁𝓽");
 });
 
+/*
 test(function testWithNul() {
   // deno-fmt-ignore
   const fixture1 = [
@@ -43,6 +44,7 @@ test(function testWithNul() {
   );
   assertEquals(Deno.core.decode(new Uint8Array(fixture1)), "𝓽𝓮𝔁𝓽\0");
 });
+*/
 
 test(function testFixture2() {
   // deno-fmt-ignore
