@@ -24,10 +24,9 @@ const fn op_string_onebyte() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
-                        &[CType::V8Value.scalar(), CType::SeqOneByteString.scalar()],
+                        &[CType::V8Value.as_info(), CType::SeqOneByteString.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -40,13 +39,12 @@ const fn op_string_onebyte() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::SeqOneByteString.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::SeqOneByteString.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),

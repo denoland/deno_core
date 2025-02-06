@@ -12,12 +12,10 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
             __v8_static_powerPreference = "powerPreference"
         }
         thread_local! {
-            static __v8_forceFallbackAdapter_eternal: ::deno_core::v8::Eternal<
-                ::deno_core::v8::String,
-            > = ::deno_core::v8::Eternal::empty();
-            static __v8_powerPreference_eternal: ::deno_core::v8::Eternal<
-                ::deno_core::v8::String,
-            > = ::deno_core::v8::Eternal::empty();
+            static __v8_forceFallbackAdapter_eternal : ::deno_core::v8::Eternal <
+            ::deno_core::v8::String > = ::deno_core::v8::Eternal::empty(); static
+            __v8_powerPreference_eternal : ::deno_core::v8::Eternal <
+            ::deno_core::v8::String > = ::deno_core::v8::Eternal::empty();
         }
         let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value
             .is_undefined() || __value.is_null()
@@ -70,10 +68,8 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
                     ::deno_core::webidl::ContextFn::new_borrowed(
                         &|| {
                             format!(
-                                "'{}' of '{}' ({})",
-                                "forceFallbackAdapter",
-                                "GPURequestAdapterOptions",
-                                __context.call(),
+                                "'{}' of '{}' ({})", "forceFallbackAdapter",
+                                "GPURequestAdapterOptions", __context.call()
                             )
                                 .into()
                         },
@@ -116,10 +112,8 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
                     ::deno_core::webidl::ContextFn::new_borrowed(
                         &|| {
                             format!(
-                                "'{}' of '{}' ({})",
-                                "powerPreference",
-                                "GPURequestAdapterOptions",
-                                __context.call(),
+                                "'{}' of '{}' ({})", "powerPreference",
+                                "GPURequestAdapterOptions", __context.call()
                             )
                                 .into()
                         },
