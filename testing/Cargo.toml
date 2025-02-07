@@ -19,7 +19,6 @@ deno_ast.workspace = true
 deno_core.workspace = true
 deno_core.features = ["unsafe_use_unprotected_platform", "snapshot_flags_eager_parse"]
 deno_error.workspace = true
-fork = "0.2.0"
 futures.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
