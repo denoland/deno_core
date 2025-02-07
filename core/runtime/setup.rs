@@ -36,11 +36,13 @@ fn v8_init(
   } else {
     ""
   };
-  let import_assertions_flag = if import_assertions_enabled {
-    "--harmony-import-assertions"
-  } else {
-    "--no-harmony-import-assertions"
-  };
+  // let import_assertions_flag = if import_assertions_enabled {
+  //   // "--harmony-import-assertions"
+  //   ""
+  // } else {
+  //   "--no-harmony-import-assertions"
+  // };
+  let import_assertions_flag = "";
   // TODO(bartlomieju): this is ridiculous, rewrite this
   #[allow(clippy::useless_format)]
   let flags = match (snapshot, expose_natives, import_assertions_enabled) {
