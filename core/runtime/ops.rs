@@ -313,7 +313,7 @@ pub fn to_cow_one_byte(
   // Create an uninitialized buffer of `capacity` bytes.
   let mut buffer = Vec::<u8>::with_capacity(capacity);
   // Write the buffer to a slice made from this uninitialized data
-  string.write_one_byte_uninit(
+  string.write_one_byte_uninit_v2(
     scope,
     0,
     buffer.spare_capacity_mut(),

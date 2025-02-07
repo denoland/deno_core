@@ -751,7 +751,7 @@ fn to_utf8_fast(
   let capacity = (str_chars as f64 * 1.2) as usize;
   let mut buf = Vec::with_capacity(capacity);
 
-  let bytes_len = s.write_utf8_uninit(
+  let bytes_len = s.write_utf8_uninit_v2(
     scope,
     buf.spare_capacity_mut(),
     v8::WriteFlags::kReplaceInvalidUtf8 | v8::WriteFlags::kNullTerminate,
@@ -784,7 +784,7 @@ fn to_utf8_slow(
   let capacity = s.utf8_length(scope);
   let mut buf = Vec::with_capacity(capacity);
 
-  let bytes_len = s.write_utf8_uninit(
+  let bytes_len = s.write_utf8_uninit_v2(
     scope,
     buf.spare_capacity_mut(),
     v8::WriteFlags::kReplaceInvalidUtf8,

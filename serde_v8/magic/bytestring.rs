@@ -79,7 +79,7 @@ impl FromV8 for ByteString {
     // before immediately writing into that buffer and sanity check with an assert
     unsafe {
       buffer.set_len(len);
-      v8str.write_one_byte(scope, 0, &mut buffer, v8::WriteFlags::empty());
+      v8str.write_one_byte_v2(scope, 0, &mut buffer, v8::WriteFlags::empty());
     }
     Ok(Self(buffer))
   }
