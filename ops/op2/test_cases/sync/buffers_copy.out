@@ -102,20 +102,20 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 &<Self as deno_core::_ops::Op>::DECL,
             );
             let result = {
-                let mut buffer = [0; v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
-                let arg0 = unsafe { &*arg0 }.cast::<v8::ArrayBufferView>();
+                let mut buffer = [0; deno_core::v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
+                let arg0 = unsafe { &*arg0 }.cast::<deno_core::v8::ArrayBufferView>();
                 let arg0 = unsafe {
                     &mut *(arg0.get_contents(&mut buffer) as *const [_] as *mut [_])
                 };
                 let arg0 = arg0.to_vec();
-                let mut buffer = [0; v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
-                let arg1 = unsafe { &*arg1 }.cast::<v8::ArrayBufferView>();
+                let mut buffer = [0; deno_core::v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
+                let arg1 = unsafe { &*arg1 }.cast::<deno_core::v8::ArrayBufferView>();
                 let arg1 = unsafe {
                     &mut *(arg1.get_contents(&mut buffer) as *const [_] as *mut [_])
                 };
                 let arg1 = arg1.to_vec().into_boxed_slice();
-                let mut buffer = [0; v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
-                let arg2 = unsafe { &*arg2 }.cast::<v8::ArrayBufferView>();
+                let mut buffer = [0; deno_core::v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
+                let arg2 = unsafe { &*arg2 }.cast::<deno_core::v8::ArrayBufferView>();
                 let arg2 = unsafe {
                     &mut *(arg2.get_contents(&mut buffer) as *const [_] as *mut [_])
                 };
@@ -313,14 +313,14 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 &<Self as deno_core::_ops::Op>::DECL,
             );
             let result = {
-                let mut buffer = [0; v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
-                let arg0 = unsafe { &*arg0 }.cast::<v8::ArrayBufferView>();
+                let mut buffer = [0; deno_core::v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
+                let arg0 = unsafe { &*arg0 }.cast::<deno_core::v8::ArrayBufferView>();
                 let arg0 = unsafe {
                     &mut *(arg0.get_contents(&mut buffer) as *const [_] as *mut [_])
                 };
                 let arg0 = arg0.to_vec();
-                let mut buffer = [0; v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
-                let arg1 = unsafe { &*arg1 }.cast::<v8::ArrayBufferView>();
+                let mut buffer = [0; deno_core::v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
+                let arg1 = unsafe { &*arg1 }.cast::<deno_core::v8::ArrayBufferView>();
                 let arg1 = unsafe {
                     &mut *(arg1.get_contents(&mut buffer) as *const [_] as *mut [_])
                 };
