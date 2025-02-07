@@ -24,7 +24,6 @@ use std::sync::mpsc::channel;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::OnceLock;
 use std::time::Duration;
 
 mod extensions;
@@ -93,13 +92,14 @@ impl TestData {
   }
 }
 
-static SNAPSHOT: OnceLock<&'static [u8]> = OnceLock::new();
-
 pub fn create_runtime(
   parent: Option<WorkerCloseWatcher>,
   additional_extensions: Vec<Extension>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
+
+  /* TODO: remove, this is a hack
+  static SNAPSHOT: std::sync::OnceLock<&'static [u8]> = std::sync::OnceLock::new();
 
   let snapshot = SNAPSHOT.get_or_init(|| {
     match fork::fork() {
@@ -113,7 +113,10 @@ pub fn create_runtime(
     let snapshot = std::fs::read("CLI_SNAPSHOT.bin").unwrap();
     Box::leak(snapshot.into_boxed_slice())
   });
+  */
 
+  let snapshot = snapshot::create_snapshot();
+  let snapshot = Box::leak(snapshot);
   let mut runtime =
     create_runtime_from_snapshot(snapshot, false, additional_extensions);
   runtime.op_state().borrow_mut().put(worker);
