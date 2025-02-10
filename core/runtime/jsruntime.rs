@@ -1399,12 +1399,12 @@ impl JsRuntime {
       };
 
       let isolate = self.v8_isolate();
-      let mut scope = &mut realm.handle_scope(isolate);
+      let scope = &mut realm.handle_scope(isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
       let mut cx = Context::from_waker(futures::task::noop_waker_ref());
       // poll once so code cache is populated. the `ExtCodeCache` trait is sync, so
       // the `CodeCacheReady` futures will always finish on the first poll.
-      let _ = module_map.poll_progress(&mut cx, &mut scope);
+      let _ = module_map.poll_progress(&mut cx, scope);
     }
 
     #[cfg(debug_assertions)]

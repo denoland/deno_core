@@ -349,16 +349,9 @@ impl ModuleLoader for ExtModuleLoader {
     code_cache: &[u8],
   ) -> Pin<Box<dyn Future<Output = ()>>> {
     if let Some(ext_code_cache) = &self.ext_code_cache {
-      std::future::ready(ext_code_cache.code_cache_ready(
-        module_specifier,
-        hash,
-        code_cache,
-        true,
-      ))
-      .boxed_local()
-    } else {
-      std::future::ready(()).boxed_local()
+      ext_code_cache.code_cache_ready(module_specifier, hash, code_cache, true);
     }
+    std::future::ready(()).boxed_local()
   }
 }
 
