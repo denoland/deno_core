@@ -81,6 +81,8 @@ pub enum CoreError {
   Module(ModuleConcreteError),
   #[error(transparent)]
   DataError(DataError),
+  #[error("Unable to get code cache from unbound module script for {0}")]
+  CreateCodeCache(String),
 }
 
 impl CoreError {
@@ -174,6 +176,7 @@ impl JsErrorClass for CoreError {
       | CoreError::MissingFromModuleMap(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
+      | CoreError::CreateCodeCache(_)
       | CoreError::EvaluateDynamicImportedModule => {
         Cow::Borrowed(GENERIC_ERROR)
       }
@@ -206,7 +209,8 @@ impl JsErrorClass for CoreError {
       | CoreError::FutureCanceled(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule => self.to_string().into(),
+      | CoreError::EvaluateDynamicImportedModule
+      | CoreError::CreateCodeCache(_) => self.to_string().into(),
     }
   }
 
