@@ -354,6 +354,8 @@ impl JsRealm {
     }
   }
 
+  // TODO(nathanwhit): reduce duplication between this and `execute_script`, and
+  // try to factor out the code cache logic to share with `op_eval_context`
   pub fn execute_script_with_cache(
     &self,
     isolate: &mut v8::Isolate,
