@@ -30,6 +30,7 @@ use crate::modules::script_origin;
 use crate::modules::CustomModuleEvaluationCb;
 use crate::modules::EvalContextCodeCacheReadyCb;
 use crate::modules::EvalContextGetCodeCacheCb;
+use crate::modules::ExtCodeCache;
 use crate::modules::ExtModuleLoader;
 use crate::modules::ImportMetaResolveCallback;
 use crate::modules::IntoModuleCodeString;
@@ -449,6 +450,9 @@ pub struct RuntimeOptions {
   /// If not provided runtime will error if code being
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
+
+  /// If specified, enables V8 code cache for extension code.
+  pub extension_code_cache: Option<Rc<dyn ExtCodeCache>>,
 
   /// If specified, transpiles extensions before loading.
   pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
@@ -1181,7 +1185,12 @@ impl JsRuntime {
 
       js_runtime.store_js_callbacks(&realm, will_snapshot);
 
-      js_runtime.init_extension_js(&realm, &module_map, sources)?;
+      js_runtime.init_extension_js(
+        &realm,
+        &module_map,
+        sources,
+        options.extension_code_cache,
+      )?;
     }
 
     if will_snapshot {
@@ -1326,6 +1335,7 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
   ) -> Result<(), CoreError> {
     // First, add all the lazy ESM
     for source in loaded_sources.lazy_esm {
@@ -1344,11 +1354,13 @@ impl JsRuntime {
       modules.push(ModuleSpecifier::parse(&esm.specifier).unwrap());
       sources.push((esm.specifier, esm.code));
     }
-    let ext_loader = Rc::new(ExtModuleLoader::new(sources));
+    let ext_loader =
+      Rc::new(ExtModuleLoader::new(sources, ext_code_cache.clone()));
     *module_map.loader.borrow_mut() = ext_loader.clone();
 
     // Next, load the extension modules as side modules (but do not execute them)
     for module in modules {
+      // eprintln!("loading module: {module}");
       realm
         .load_side_es_module_from_code(self.v8_isolate(), &module, None)
         .await?;
@@ -1356,7 +1368,26 @@ impl JsRuntime {
 
     // Execute extension scripts
     for source in loaded_sources.js {
-      realm.execute_script(self.v8_isolate(), source.specifier, source.code)?;
+      if let Some(ext_code_cache) = &ext_code_cache {
+        let specifier = ModuleSpecifier::parse(&source.specifier)?;
+        realm.execute_script_with_cache(
+          self.v8_isolate(),
+          specifier,
+          source.code,
+          &|specifier, code| {
+            ext_code_cache.get_code_cache_info(specifier, code, false)
+          },
+          &|specifier, hash, code_cache| {
+            ext_code_cache.code_cache_ready(specifier, hash, code_cache, false)
+          },
+        )?;
+      } else {
+        realm.execute_script(
+          self.v8_isolate(),
+          source.specifier,
+          source.code,
+        )?;
+      }
     }
 
     // ...then execute all entry points
@@ -1368,8 +1399,12 @@ impl JsRuntime {
       };
 
       let isolate = self.v8_isolate();
-      let scope = &mut realm.handle_scope(isolate);
+      let mut scope = &mut realm.handle_scope(isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
+      let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+      // poll once so code cache is populated. the `ExtCodeCache` trait is sync, so
+      // the `CodeCacheReady` futures will always finish on the first poll.
+      let _ = module_map.poll_progress(&mut cx, &mut scope);
     }
 
     #[cfg(debug_assertions)]
@@ -1380,10 +1415,7 @@ impl JsRuntime {
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
-    Rc::try_unwrap(ext_loader)
-      .map_err(drop)
-      .unwrap()
-      .finalize()?;
+    ext_loader.finalize()?;
 
     Ok(())
   }
@@ -1394,11 +1426,13 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
   ) -> Result<(), CoreError> {
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
       module_map,
       loaded_sources,
+      ext_code_cache,
     ))?;
 
     Ok(())

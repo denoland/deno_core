@@ -1,5 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
@@ -13,7 +14,6 @@ use crate::resolve_import;
 use crate::ModuleSourceCode;
 use deno_error::JsErrorBox;
 
-use deno_core::error::CoreError;
 use futures::future::FutureExt;
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -21,6 +21,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+
+use super::SourceCodeCacheInfo;
 
 #[derive(Debug, thiserror::Error, deno_error::JsError)]
 #[class(generic)]
@@ -220,12 +222,33 @@ impl ModuleLoader for NoopModuleLoader {
   }
 }
 
+pub trait ExtCodeCache {
+  fn get_code_cache_info(
+    &self,
+    specifier: &ModuleSpecifier,
+    code: &ModuleSourceCode,
+    esm: bool,
+  ) -> SourceCodeCacheInfo;
+
+  fn code_cache_ready(
+    &self,
+    specifier: ModuleSpecifier,
+    hash: u64,
+    code_cache: &[u8],
+    esm: bool,
+  );
+}
+
 pub(crate) struct ExtModuleLoader {
   sources: RefCell<HashMap<ModuleName, ModuleCodeString>>,
+  ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
 }
 
 impl ExtModuleLoader {
-  pub fn new(loaded_sources: Vec<(ModuleName, ModuleCodeString)>) -> Self {
+  pub fn new(
+    loaded_sources: Vec<(ModuleName, ModuleCodeString)>,
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
+  ) -> Self {
     // Guesstimate a length
     let mut sources = HashMap::with_capacity(loaded_sources.len());
     for source in loaded_sources {
@@ -233,10 +256,11 @@ impl ExtModuleLoader {
     }
     ExtModuleLoader {
       sources: RefCell::new(sources),
+      ext_code_cache,
     }
   }
 
-  pub fn finalize(self) -> Result<(), CoreError> {
+  pub fn finalize(&self) -> Result<(), CoreError> {
     let sources = self.sources.take();
     let unused_modules: Vec<_> = sources.iter().collect();
 
@@ -296,11 +320,16 @@ impl ModuleLoader for ExtModuleLoader {
         ))
       }
     };
+    let code = ModuleSourceCode::String(source);
+    let code_cache = self
+      .ext_code_cache
+      .as_ref()
+      .map(|cache| cache.get_code_cache_info(specifier, &code, true));
     ModuleLoadResponse::Sync(Ok(ModuleSource::new(
       ModuleType::JavaScript,
-      ModuleSourceCode::String(source),
+      code,
       specifier,
-      None,
+      code_cache,
     )))
   }
 
@@ -311,6 +340,25 @@ impl ModuleLoader for ExtModuleLoader {
     _is_dyn_import: bool,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
+  }
+
+  fn code_cache_ready(
+    &self,
+    module_specifier: ModuleSpecifier,
+    hash: u64,
+    code_cache: &[u8],
+  ) -> Pin<Box<dyn Future<Output = ()>>> {
+    if let Some(ext_code_cache) = &self.ext_code_cache {
+      std::future::ready(ext_code_cache.code_cache_ready(
+        module_specifier,
+        hash,
+        code_cache,
+        true,
+      ))
+      .boxed_local()
+    } else {
+      std::future::ready(()).boxed_local()
+    }
   }
 }
 
