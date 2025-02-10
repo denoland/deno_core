@@ -21,6 +21,7 @@ mod recursive_load;
 #[cfg(all(test, not(miri)))]
 mod tests;
 
+pub use loaders::ExtCodeCache;
 pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;

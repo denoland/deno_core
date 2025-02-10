@@ -3,6 +3,8 @@
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
+use crate::ModuleSourceCode;
+use crate::SourceCodeCacheInfo;
 use crate::_ops::OpMethodDecl;
 use crate::cppgc::FunctionTemplateData;
 use crate::error::exception_to_err_result;
@@ -338,6 +340,93 @@ impl JsRealm {
         return exception_to_err_result(tc_scope, exception, false, false);
       }
     };
+
+    match script.run(tc_scope) {
+      Some(value) => {
+        let value_handle = v8::Global::new(tc_scope, value);
+        Ok(value_handle)
+      }
+      None => {
+        assert!(tc_scope.has_caught());
+        let exception = tc_scope.exception().unwrap();
+        exception_to_err_result(tc_scope, exception, false, false)
+      }
+    }
+  }
+
+  // TODO(nathanwhit): reduce duplication between this and `execute_script`, and
+  // try to factor out the code cache logic to share with `op_eval_context`
+  pub fn execute_script_with_cache(
+    &self,
+    isolate: &mut v8::Isolate,
+    name: ModuleSpecifier,
+    source_code: impl IntoModuleCodeString,
+    get_cache: &dyn Fn(
+      &ModuleSpecifier,
+      &ModuleSourceCode,
+    ) -> SourceCodeCacheInfo,
+    cache_ready: &dyn Fn(ModuleSpecifier, u64, &[u8]),
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
+    let scope = &mut self.0.handle_scope(isolate);
+
+    let specifier = name.clone();
+    let code = source_code.into_module_code();
+    let source = ModuleSourceCode::String(code);
+    let code_cache = get_cache(&name, &source);
+    let ModuleSourceCode::String(source) = source else {
+      unreachable!()
+    };
+    let name = name.into_module_name().v8_string(scope).unwrap();
+    let source = source.v8_string(scope).unwrap();
+    let origin = script_origin(scope, name, false, None);
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let (maybe_script, maybe_code_cache_hash) =
+      if let Some(data) = &code_cache.data {
+        let mut source = v8::script_compiler::Source::new_with_cached_data(
+          source,
+          Some(&origin),
+          v8::CachedData::new(data),
+        );
+        let script = v8::script_compiler::compile(
+          tc_scope,
+          &mut source,
+          v8::script_compiler::CompileOptions::ConsumeCodeCache,
+          v8::script_compiler::NoCacheReason::NoReason,
+        );
+        // Check if the provided code cache is rejected by V8.
+        let rejected = match source.get_cached_data() {
+          Some(cached_data) => cached_data.rejected(),
+          _ => true,
+        };
+        let maybe_code_cache_hash = if rejected {
+          Some(code_cache.hash) // recreate the cache
+        } else {
+          None
+        };
+        (Some(script), maybe_code_cache_hash)
+      } else {
+        (None, Some(code_cache.hash))
+      };
+
+    let script = maybe_script
+      .unwrap_or_else(|| v8::Script::compile(tc_scope, source, Some(&origin)));
+
+    let script = match script {
+      Some(script) => script,
+      None => {
+        let exception = tc_scope.exception().unwrap();
+        return exception_to_err_result(tc_scope, exception, false, false);
+      }
+    };
+
+    if let Some(code_cache_hash) = maybe_code_cache_hash {
+      let unbound_script = script.get_unbound_script(tc_scope);
+      let code_cache = unbound_script
+        .create_code_cache()
+        .ok_or_else(|| CoreError::CreateCodeCache(specifier.to_string()))?;
+      cache_ready(specifier, code_cache_hash, &code_cache);
+    }
 
     match script.run(tc_scope) {
       Some(value) => {
