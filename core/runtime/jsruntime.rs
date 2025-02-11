@@ -22,7 +22,6 @@ use crate::extension_set;
 use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
-use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::default_import_meta_resolve_cb;
