@@ -329,7 +329,10 @@ pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
 pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
-  include_js_files!(core "mod.js",);
+  [ExtensionFileSource::new(
+    "ext:core/mod.js",
+    ascii_str_include!(concat!(env!("CARGO_MANIFEST_DIR"), "/mod.js")),
+  )];
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
 #[cfg(test)]
