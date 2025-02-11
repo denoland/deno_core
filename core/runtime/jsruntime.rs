@@ -331,7 +331,7 @@ pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
 pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
   [ExtensionFileSource::new(
     "ext:core/mod.js",
-    ascii_str_include!(concat!(env!("CARGO_MANIFEST_DIR"), "/mod.js")),
+    ascii_str_include!("../mod.js"),
   )];
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
