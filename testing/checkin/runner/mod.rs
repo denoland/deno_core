@@ -101,10 +101,7 @@ pub fn create_runtime(
 
   static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
 
-  let snapshot = SNAPSHOT.get_or_init(|| {
-    let snapshot = snapshot::create_snapshot();
-    snapshot.into()
-  });
+  let snapshot = SNAPSHOT.get_or_init(snapshot::create_snapshot);
 
   let mut runtime =
     create_runtime_from_snapshot(snapshot, false, additional_extensions);
