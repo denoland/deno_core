@@ -3,10 +3,11 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 use deno_core::v8;
+use deno_core::FromV8 as FromV8Trait;
 
 struct Foo;
 
-impl<'a> FromV8<'a> for Foo {
+impl<'a> FromV8Trait<'a> for Foo {
   type Error = std::convert::Infallible;
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
