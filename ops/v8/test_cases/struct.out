@@ -1,25 +1,5 @@
-#[derive(Debug)]
-pub enum MyStructFromV8Error {
-    FastStringV8Allocation(::deno_core::FastStringV8AllocationError),
-    NotAnObject,
-    A(<deno_core::convert::Smi<u8> as ::deno_core::convert::FromV8<'static>>::Error),
-    D(<deno_core::convert::Smi<u32> as ::deno_core::convert::FromV8<'static>>::Error),
-    r#B(<String as ::deno_core::convert::FromV8<'static>>::Error),
-}
-impl std::fmt::Display for MyStructFromV8Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::FastStringV8Allocation(e) => std::fmt::Display::fmt(e, f),
-            Self::NotAnObject => f.write_str("value is not an object"),
-            Self::A(e) => std::fmt::Display::fmt(e, f),
-            Self::D(e) => std::fmt::Display::fmt(e, f),
-            Self::r#B(e) => std::fmt::Display::fmt(e, f),
-        }
-    }
-}
-impl std::error::Error for MyStructFromV8Error {}
 impl<'a> ::deno_core::convert::FromV8<'a> for MyStruct {
-    type Error = MyStructFromV8Error;
+    type Error = ::deno_error::JsErrorBox;
     fn from_v8(
         __scope: &mut ::deno_core::v8::HandleScope<'a>,
         __value: ::deno_core::v8::Local<'a, deno_core::v8::Value>,
@@ -35,7 +15,7 @@ impl<'a> ::deno_core::convert::FromV8<'a> for MyStruct {
         }
         let __obj = __value
             .try_cast::<::deno_core::v8::Object>()
-            .map_err(|_| MyStructFromV8Error::NotAnObject)?;
+            .map_err(|_| ::deno_error::JsErrorBox::type_error("Not an object"))?;
         let a = {
             let __key = __v8_a_eternal
                 .with(|__eternal| {
@@ -44,20 +24,20 @@ impl<'a> ::deno_core::convert::FromV8<'a> for MyStruct {
                     } else {
                         let __key = __v8_static_a
                             .v8_string(__scope)
-                            .map_err(MyStructFromV8Error::FastStringV8Allocation)?;
+                            .map_err(::deno_error::JsErrorBox::from_err)?;
                         __eternal.set(__scope, __key);
-                        Ok(__key)
+                        Ok::<_, ::deno_error::JsErrorBox>(__key)
                     }
                 })?
                 .cast::<::deno_core::v8::Value>();
             if let Some(__value) = __obj.get(__scope, __key) {
                 ::deno_core::convert::FromV8::from_v8(__scope, __value)
-                    .map_err(MyStructFromV8Error::A)?
+                    .map_err(::deno_error::JsErrorBox::from_err)?
             } else {
                 let __undefined_value = ::deno_core::v8::undefined(__scope)
                     .cast::<::deno_core::v8::Value>();
                 ::deno_core::convert::FromV8::from_v8(__scope, __undefined_value)
-                    .map_err(MyStructFromV8Error::A)?
+                    .map_err(::deno_error::JsErrorBox::from_err)?
             }
         };
         let d = {
@@ -68,20 +48,20 @@ impl<'a> ::deno_core::convert::FromV8<'a> for MyStruct {
                     } else {
                         let __key = __v8_static_e
                             .v8_string(__scope)
-                            .map_err(MyStructFromV8Error::FastStringV8Allocation)?;
+                            .map_err(::deno_error::JsErrorBox::from_err)?;
                         __eternal.set(__scope, __key);
-                        Ok(__key)
+                        Ok::<_, ::deno_error::JsErrorBox>(__key)
                     }
                 })?
                 .cast::<::deno_core::v8::Value>();
             if let Some(__value) = __obj.get(__scope, __key) {
                 ::deno_core::convert::FromV8::from_v8(__scope, __value)
-                    .map_err(MyStructFromV8Error::D)?
+                    .map_err(::deno_error::JsErrorBox::from_err)?
             } else {
                 let __undefined_value = ::deno_core::v8::undefined(__scope)
                     .cast::<::deno_core::v8::Value>();
                 ::deno_core::convert::FromV8::from_v8(__scope, __undefined_value)
-                    .map_err(MyStructFromV8Error::D)?
+                    .map_err(::deno_error::JsErrorBox::from_err)?
             }
         };
         let r#b = {
@@ -92,45 +72,27 @@ impl<'a> ::deno_core::convert::FromV8<'a> for MyStruct {
                     } else {
                         let __key = __v8_static_b
                             .v8_string(__scope)
-                            .map_err(MyStructFromV8Error::FastStringV8Allocation)?;
+                            .map_err(::deno_error::JsErrorBox::from_err)?;
                         __eternal.set(__scope, __key);
-                        Ok(__key)
+                        Ok::<_, ::deno_error::JsErrorBox>(__key)
                     }
                 })?
                 .cast::<::deno_core::v8::Value>();
             if let Some(__value) = __obj.get(__scope, __key) {
                 ::deno_core::convert::FromV8::from_v8(__scope, __value)
-                    .map_err(MyStructFromV8Error::r#B)?
+                    .map_err(::deno_error::JsErrorBox::from_err)?
             } else {
                 let __undefined_value = ::deno_core::v8::undefined(__scope)
                     .cast::<::deno_core::v8::Value>();
                 ::deno_core::convert::FromV8::from_v8(__scope, __undefined_value)
-                    .map_err(MyStructFromV8Error::r#B)?
+                    .map_err(::deno_error::JsErrorBox::from_err)?
             }
         };
         Ok(Self { a, d, r#b })
     }
 }
-#[derive(Debug)]
-pub enum MyStructToV8Error {
-    FastStringV8Allocation(::deno_core::FastStringV8AllocationError),
-    A(<deno_core::convert::Smi<u8> as ::deno_core::convert::ToV8<'static>>::Error),
-    D(<deno_core::convert::Smi<u32> as ::deno_core::convert::ToV8<'static>>::Error),
-    r#B(<String as ::deno_core::convert::ToV8<'static>>::Error),
-}
-impl std::fmt::Display for MyStructToV8Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::FastStringV8Allocation(e) => std::fmt::Display::fmt(e, f),
-            Self::A(e) => std::fmt::Display::fmt(e, f),
-            Self::D(e) => std::fmt::Display::fmt(e, f),
-            Self::r#B(e) => std::fmt::Display::fmt(e, f),
-        }
-    }
-}
-impl std::error::Error for MyStructToV8Error {}
 impl<'a> ::deno_core::convert::ToV8<'a> for MyStruct {
-    type Error = MyStructToV8Error;
+    type Error = ::deno_error::JsErrorBox;
     fn to_v8(
         self,
         __scope: &mut ::deno_core::v8::HandleScope<'a>,
@@ -153,14 +115,14 @@ impl<'a> ::deno_core::convert::ToV8<'a> for MyStruct {
                     } else {
                         let __key = __v8_static_a
                             .v8_string(__scope)
-                            .map_err(MyStructToV8Error::FastStringV8Allocation)?;
+                            .map_err(::deno_error::JsErrorBox::from_err)?;
                         __eternal.set(__scope, __key);
-                        Ok(__key)
+                        Ok::<_, ::deno_error::JsErrorBox>(__key)
                     }
                 })?
                 .cast::<::deno_core::v8::Value>();
             let __value = ::deno_core::convert::ToV8::to_v8(self.a, __scope)
-                .map_err(MyStructToV8Error::A)?;
+                .map_err(::deno_error::JsErrorBox::from_err)?;
             __obj.set(__scope, __key, __value);
         }
         {
@@ -171,14 +133,14 @@ impl<'a> ::deno_core::convert::ToV8<'a> for MyStruct {
                     } else {
                         let __key = __v8_static_e
                             .v8_string(__scope)
-                            .map_err(MyStructToV8Error::FastStringV8Allocation)?;
+                            .map_err(::deno_error::JsErrorBox::from_err)?;
                         __eternal.set(__scope, __key);
-                        Ok(__key)
+                        Ok::<_, ::deno_error::JsErrorBox>(__key)
                     }
                 })?
                 .cast::<::deno_core::v8::Value>();
             let __value = ::deno_core::convert::ToV8::to_v8(self.d, __scope)
-                .map_err(MyStructToV8Error::D)?;
+                .map_err(::deno_error::JsErrorBox::from_err)?;
             __obj.set(__scope, __key, __value);
         }
         {
@@ -189,14 +151,14 @@ impl<'a> ::deno_core::convert::ToV8<'a> for MyStruct {
                     } else {
                         let __key = __v8_static_b
                             .v8_string(__scope)
-                            .map_err(MyStructToV8Error::FastStringV8Allocation)?;
+                            .map_err(::deno_error::JsErrorBox::from_err)?;
                         __eternal.set(__scope, __key);
-                        Ok(__key)
+                        Ok::<_, ::deno_error::JsErrorBox>(__key)
                     }
                 })?
                 .cast::<::deno_core::v8::Value>();
             let __value = ::deno_core::convert::ToV8::to_v8(self.r#b, __scope)
-                .map_err(MyStructToV8Error::r#B)?;
+                .map_err(::deno_error::JsErrorBox::from_err)?;
             __obj.set(__scope, __key, __value);
         }
         Ok(__obj.into())

@@ -2,6 +2,7 @@
 
 use crate::runtime::ops;
 use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
 use std::convert::Infallible;
 
 /// A conversion from a rust value to a v8 value.
@@ -64,7 +65,7 @@ use std::convert::Infallible;
 /// Tuples, on the other hand, are keyed by `smi`s, which are immediates
 /// and don't require allocation or garbage collection.
 pub trait ToV8<'a> {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts the value to a V8 value.
   fn to_v8(
@@ -111,7 +112,7 @@ pub trait ToV8<'a> {
 /// }
 /// ```
 pub trait FromV8<'a>: Sized {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts a V8 value to a Rust value.
   fn from_v8(

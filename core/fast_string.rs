@@ -1,5 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use deno_error::JsError;
 use serde::Deserializer;
 use serde::Serializer;
 use std::borrow::Borrow;
@@ -121,7 +122,8 @@ impl Display for FastStaticString {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, JsError)]
+#[class(generic)]
 pub struct FastStringV8AllocationError;
 
 impl std::error::Error for FastStringV8AllocationError {}

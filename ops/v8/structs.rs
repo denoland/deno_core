@@ -16,7 +16,6 @@ use syn::Field;
 use syn::Fields;
 use syn::LitStr;
 use syn::Token;
-use syn::Type;
 
 pub fn get_fields(
   span: Span,
@@ -77,8 +76,7 @@ pub struct StructField {
   pub name: Ident,
   pub v8_static: Ident,
   pub v8_eternal: Ident,
-  pub ty: Type,
-  pub error_variant_name: Ident,
+  pub get_key: TokenStream,
 }
 
 impl TryFrom<Field> for StructField {
@@ -107,20 +105,28 @@ impl TryFrom<Field> for StructField {
 
     let js_name = Ident::new(&rename, span);
 
-    let variant_name = stringcase::pascal_case(&name.unraw().to_string());
+    let v8_static = format_ident!("__v8_static_{js_name}");
+    let v8_eternal = format_ident!("__v8_{js_name}_eternal");
 
-    let error_variant_name = if name.to_string().starts_with("r#") {
-      Ident::new_raw(&variant_name, span)
-    } else {
-      Ident::new(&variant_name, span)
+    let get_key = quote! {
+      #v8_eternal
+        .with(|__eternal| {
+          if let Some(__key) = __eternal.get(__scope) {
+            Ok(__key)
+          } else {
+            let __key = #v8_static.v8_string(__scope).map_err(::deno_error::JsErrorBox::from_err)?;
+            __eternal.set(__scope, __key);
+            Ok::<_, ::deno_error::JsErrorBox>(__key)
+          }
+        })?
+        .cast::<::deno_core::v8::Value>()
     };
 
     Ok(Self {
-      v8_static: format_ident!("__v8_static_{js_name}"),
-      v8_eternal: format_ident!("__v8_{js_name}_eternal"),
+      v8_static,
+      v8_eternal,
+      get_key,
       name,
-      ty: value.ty,
-      error_variant_name,
     })
   }
 }
@@ -150,54 +156,5 @@ impl Parse for StructFieldArgument {
     } else {
       Err(lookahead.error())
     }
-  }
-}
-
-pub fn create_error(
-  ident: &Ident,
-  kind: Ident,
-  fields: &[StructField],
-) -> TokenStream {
-  let error_variants = fields.iter().map(
-    |StructField {
-       error_variant_name,
-       ty,
-       ..
-     }| quote!(#error_variant_name(<#ty as ::deno_core::convert::#kind<'static>>::Error)),
-  );
-  let display_variants = fields.iter().map(
-    |StructField {
-       error_variant_name, ..
-     }| quote!(Self::#error_variant_name(e) => std::fmt::Display::fmt(e, f)),
-  );
-
-  let (maybe_variant, maybe_display) = if kind == "FromV8" {
-    (
-      quote!(NotAnObject,),
-      quote!(Self::NotAnObject => f.write_str("value is not an object"),),
-    )
-  } else {
-    (quote!(), quote!())
-  };
-
-  quote! {
-    #[derive(Debug)]
-    pub enum #ident {
-      FastStringV8Allocation(::deno_core::FastStringV8AllocationError),
-      #maybe_variant
-      #(#error_variants),*
-    }
-
-    impl std::fmt::Display for #ident {
-      fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-          Self::FastStringV8Allocation(e) => std::fmt::Display::fmt(e, f),
-          #maybe_display
-          #(#display_variants),*
-        }
-      }
-    }
-
-    impl std::error::Error for #ident {}
   }
 }
