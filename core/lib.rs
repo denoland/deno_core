@@ -109,6 +109,7 @@ pub use crate::module_specifier::resolve_url;
 pub use crate::module_specifier::ModuleResolutionError;
 pub use crate::module_specifier::ModuleSpecifier;
 pub use crate::modules::CustomModuleEvaluationKind;
+pub use crate::modules::ExtCodeCache;
 pub use crate::modules::FsModuleLoader;
 pub use crate::modules::ModuleCodeBytes;
 pub use crate::modules::ModuleCodeString;

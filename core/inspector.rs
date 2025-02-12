@@ -258,7 +258,7 @@ impl JsRuntimeInspector {
     let stack_trace = message.get_stack_trace(scope);
     let mut v8_inspector_ref = self.v8_inspector.borrow_mut();
     let v8_inspector = v8_inspector_ref.as_mut().unwrap();
-    let stack_trace = v8_inspector.create_stack_trace(stack_trace);
+    let stack_trace = v8_inspector.create_stack_trace(stack_trace.unwrap());
     v8_inspector.exception_thrown(
       context,
       if in_promise {
