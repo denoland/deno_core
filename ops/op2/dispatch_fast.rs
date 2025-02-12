@@ -142,7 +142,7 @@ impl FastSignature {
         Self::#fast_function as _,
         &deno_core::v8::fast_api::CFunctionInfo::new(
           #output_type,
-          &[ CType::V8Value.scalar(), #( #input_types ),* ],
+          &[ CType::V8Value.as_info(), #( #input_types ),* ],
           deno_core::v8::fast_api::Int64Representation::BigInt,
         ),
       )
@@ -203,7 +203,10 @@ impl V8FastCallType {
       V8FastCallType::F32 => quote!(f32),
       V8FastCallType::F64 => quote!(f64),
       V8FastCallType::Pointer => quote!(*mut ::std::ffi::c_void),
-      V8FastCallType::V8Value => {
+      V8FastCallType::V8Value
+      | V8FastCallType::Uint8Array
+      | V8FastCallType::Uint32Array
+      | V8FastCallType::Float64Array => {
         quote!(deno_core::v8::Local<deno_core::v8::Value>)
       }
       V8FastCallType::CallbackOptions => {
@@ -211,15 +214,6 @@ impl V8FastCallType {
       }
       V8FastCallType::SeqOneByteString => {
         quote!(*mut deno_core::v8::fast_api::FastApiOneByteString)
-      }
-      V8FastCallType::Uint8Array => {
-        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<u8>)
-      }
-      V8FastCallType::Uint32Array => {
-        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<u32>)
-      }
-      V8FastCallType::Float64Array => {
-        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<f64>)
       }
       V8FastCallType::AnyArray | V8FastCallType::ArrayBuffer => {
         quote!(deno_core::v8::Local<deno_core::v8::Value>)
@@ -231,35 +225,33 @@ impl V8FastCallType {
   /// Quote fast value type's variant.
   fn quote_ctype(&self) -> TokenStream {
     match &self {
-      V8FastCallType::Void => quote!(CType::Void.scalar()),
-      V8FastCallType::Bool => quote!(CType::Bool.scalar()),
+      V8FastCallType::Void => quote!(CType::Void.as_info()),
+      V8FastCallType::Bool => quote!(CType::Bool.as_info()),
       V8FastCallType::U32 => quote!(v8::fast_api::CTypeInfo::new(
         CType::Uint32,
-        v8::fast_api::SequenceType::Scalar,
         v8::fast_api::Flags::Clamp
       )),
       V8FastCallType::I32 => quote!(v8::fast_api::CTypeInfo::new(
         CType::Int32,
-        v8::fast_api::SequenceType::Scalar,
         v8::fast_api::Flags::Clamp
       )),
-      V8FastCallType::U64 => quote!(CType::Uint64.scalar()),
-      V8FastCallType::I64 => quote!(CType::Int64.scalar()),
-      V8FastCallType::F32 => quote!(CType::Float32.scalar()),
-      V8FastCallType::F64 => quote!(CType::Float64.scalar()),
-      V8FastCallType::Pointer => quote!(CType::Pointer.scalar()),
-      V8FastCallType::V8Value => quote!(CType::V8Value.scalar()),
+      V8FastCallType::U64 => quote!(CType::Uint64.as_info()),
+      V8FastCallType::I64 => quote!(CType::Int64.as_info()),
+      V8FastCallType::F32 => quote!(CType::Float32.as_info()),
+      V8FastCallType::F64 => quote!(CType::Float64.as_info()),
+      V8FastCallType::Pointer => quote!(CType::Pointer.as_info()),
+      V8FastCallType::V8Value => quote!(CType::V8Value.as_info()),
       V8FastCallType::CallbackOptions => {
-        quote!(CType::CallbackOptions.scalar())
+        quote!(CType::CallbackOptions.as_info())
       }
-      V8FastCallType::AnyArray => quote!(CType::V8Value.scalar()),
-      V8FastCallType::Uint8Array => quote!(CType::Uint8.typed_array()),
-      V8FastCallType::Uint32Array => quote!(CType::Uint32.typed_array()),
-      V8FastCallType::Float64Array => quote!(CType::Float64.typed_array()),
+      V8FastCallType::AnyArray => quote!(CType::V8Value.as_info()),
+      V8FastCallType::Uint8Array => quote!(CType::V8Value.as_info()),
+      V8FastCallType::Uint32Array => quote!(CType::V8Value.as_info()),
+      V8FastCallType::Float64Array => quote!(CType::V8Value.as_info()),
       V8FastCallType::SeqOneByteString => {
-        quote!(CType::SeqOneByteString.scalar())
+        quote!(CType::SeqOneByteString.as_info())
       }
-      V8FastCallType::ArrayBuffer => quote!(CType::V8Value.scalar()),
+      V8FastCallType::ArrayBuffer => quote!(CType::V8Value.as_info()),
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
@@ -604,15 +596,29 @@ pub(crate) fn generate_dispatch_fast(
 }
 
 fn fast_api_typed_array_to_buffer(
+  generator_state: &mut GeneratorState,
   arg_ident: &Ident,
   input: &Ident,
   buffer: BufferType,
 ) -> Result<TokenStream, V8MappingError> {
   let convert = byte_slice_to_buffer(arg_ident, input, buffer)?;
+  let throw_exception =
+    throw_type_error(generator_state, "expected ArrayBufferView");
   Ok(quote! {
+    let Ok(#input) = #input.try_cast::<deno_core::v8::ArrayBufferView>() else {
+        #throw_exception
+    };
+    let mut buffer = [0; ::deno_core::v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
     // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
     // fastcall.
-    let #input = unsafe { &*#input }.get_storage_if_aligned().expect("Invalid buffer");
+    let #input = unsafe {
+      let (input_ptr, input_len) = #input.get_contents_raw_parts(&mut buffer);
+      let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+      let (before, slice, after) = slice.align_to_mut();
+      debug_assert!(before.is_empty());
+      debug_assert!(after.is_empty());
+      slice
+    };
     #convert
   })
 }
@@ -693,7 +699,12 @@ fn map_v8_fastcall_arg_to_arg(
       )
     }
     Arg::Buffer(buffer, _, BufferSource::TypedArray) => {
-      fast_api_typed_array_to_buffer(arg_ident, arg_ident, *buffer)?
+      fast_api_typed_array_to_buffer(
+        generator_state,
+        arg_ident,
+        arg_ident,
+        *buffer,
+      )?
     }
     Arg::Special(Special::Isolate) => {
       *needs_fast_api_callback_options = true;

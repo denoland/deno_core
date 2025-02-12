@@ -171,7 +171,7 @@ extern "C" fn noop() {}
 
 const NOOP_FN: CFunction = CFunction::new(
   noop as _,
-  &CFunctionInfo::new(Type::Void.scalar(), &[], Int64Representation::Number),
+  &CFunctionInfo::new(Type::Void.as_info(), &[], Int64Representation::Number),
 );
 
 // Declaration for object wrappers.

@@ -22,8 +22,8 @@ pub const fn op_bigint() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Uint64.scalar(),
-                        &[CType::V8Value.scalar()],
+                        CType::Uint64.as_info(),
+                        &[CType::V8Value.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -34,8 +34,8 @@ pub const fn op_bigint() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Uint64.scalar(),
-                        &[CType::V8Value.scalar(), CType::CallbackOptions.scalar()],
+                        CType::Uint64.as_info(),
+                        &[CType::V8Value.as_info(), CType::CallbackOptions.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )

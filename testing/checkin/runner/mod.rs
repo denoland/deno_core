@@ -24,6 +24,7 @@ use std::sync::mpsc::channel;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 mod extensions;
@@ -97,8 +98,14 @@ pub fn create_runtime(
   additional_extensions: Vec<Extension>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let snapshot = snapshot::create_snapshot();
-  let snapshot = Box::leak(snapshot);
+
+  static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
+
+  let snapshot = SNAPSHOT.get_or_init(|| {
+    let snapshot = snapshot::create_snapshot();
+    snapshot.into()
+  });
+
   let mut runtime =
     create_runtime_from_snapshot(snapshot, false, additional_extensions);
   runtime.op_state().borrow_mut().put(worker);

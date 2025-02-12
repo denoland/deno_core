@@ -79,13 +79,7 @@ impl FromV8 for ByteString {
     // before immediately writing into that buffer and sanity check with an assert
     unsafe {
       buffer.set_len(len);
-      let written = v8str.write_one_byte(
-        scope,
-        &mut buffer,
-        0,
-        v8::WriteOptions::NO_NULL_TERMINATION,
-      );
-      assert!(written == len);
+      v8str.write_one_byte_v2(scope, 0, &mut buffer, v8::WriteFlags::empty());
     }
     Ok(Self(buffer))
   }
