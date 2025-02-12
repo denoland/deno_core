@@ -36,6 +36,8 @@ pub mod webidl;
 // Re-exports
 pub use anyhow;
 pub use deno_ops::op2;
+pub use deno_ops::FromV8;
+pub use deno_ops::ToV8;
 pub use deno_ops::WebIDL;
 pub use deno_unsync as unsync;
 pub use futures;
