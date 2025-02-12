@@ -74,12 +74,9 @@ pub fn get_fields(
 }
 
 pub struct StructField {
-  pub span: Span,
   pub name: Ident,
   pub v8_static: Ident,
   pub v8_eternal: Ident,
-  pub js_name: Ident,
-  pub rename: Option<String>,
   pub ty: Type,
   pub error_variant_name: Ident,
 }
@@ -88,7 +85,8 @@ impl TryFrom<Field> for StructField {
   type Error = Error;
   fn try_from(value: Field) -> Result<Self, Self::Error> {
     let span = value.span();
-    let mut rename: Option<String> = None;
+    let name = value.ident.unwrap();
+    let mut rename = stringcase::camel_case(&name.unraw().to_string());
 
     for attr in value.attrs {
       if attr.path().is_ident("v8") {
@@ -100,24 +98,14 @@ impl TryFrom<Field> for StructField {
         for argument in args {
           match argument {
             StructFieldArgument::Rename { value, .. } => {
-              rename = Some(value.value())
+              rename = value.value();
             }
           }
         }
       }
     }
 
-    let name = value.ident.unwrap();
-    if rename.is_none() {
-      rename = Some(stringcase::camel_case(&name.unraw().to_string()));
-    }
-
-    let js_name = Ident::new(
-      &rename
-        .clone()
-        .unwrap_or_else(|| stringcase::camel_case(&name.to_string())),
-      span,
-    );
+    let js_name = Ident::new(&rename, span);
 
     let variant_name = stringcase::pascal_case(&name.unraw().to_string());
 
@@ -130,10 +118,7 @@ impl TryFrom<Field> for StructField {
     Ok(Self {
       v8_static: format_ident!("__v8_static_{js_name}"),
       v8_eternal: format_ident!("__v8_{js_name}_eternal"),
-      span,
       name,
-      js_name,
-      rename,
       ty: value.ty,
       error_variant_name,
     })

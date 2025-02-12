@@ -401,3 +401,36 @@ where
     }
   }
 }
+
+#[cfg(all(test, not(miri)))]
+mod tests {
+  use super::FromV8 as _;
+  use super::Smi;
+  use super::ToV8 as _;
+  use crate::JsRuntime;
+  use deno_ops::FromV8;
+  use deno_ops::ToV8;
+
+  #[test]
+  fn macros() {
+    #[derive(FromV8, ToV8)]
+    pub struct MyStruct {
+      a: Smi<u8>,
+      r#b: String,
+      #[v8(rename = "e")]
+      d: Smi<u32>,
+    }
+
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let my_struct = MyStruct {
+      a: Smi(1),
+      b: "foo".to_string(),
+      d: Smi(2),
+    };
+
+    let value = my_struct.to_v8(scope).unwrap();
+    MyStruct::from_v8(scope, value).unwrap();
+  }
+}
