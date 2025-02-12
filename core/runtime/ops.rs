@@ -13,7 +13,6 @@ use std::borrow::Cow;
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
-use v8::WriteOptions;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -314,11 +313,11 @@ pub fn to_cow_one_byte(
   // Create an uninitialized buffer of `capacity` bytes.
   let mut buffer = Vec::<u8>::with_capacity(capacity);
   // Write the buffer to a slice made from this uninitialized data
-  string.write_one_byte_uninit(
+  string.write_one_byte_uninit_v2(
     scope,
-    buffer.spare_capacity_mut(),
     0,
-    WriteOptions::NO_NULL_TERMINATION,
+    buffer.spare_capacity_mut(),
+    v8::WriteFlags::empty(),
   );
 
   // SAFETY: We initialized bytes from `0..capacity` in
