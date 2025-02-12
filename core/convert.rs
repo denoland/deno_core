@@ -402,6 +402,18 @@ where
   }
 }
 
+impl<'a> FromV8<'a> for *mut std::ffi::c_void {
+  type Error = JsErrorBox;
+
+  fn from_v8(
+    _scope: &mut v8::HandleScope<'a>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    crate::_ops::to_external_option(&value)
+      .ok_or_else(|| JsErrorBox::type_error("Invalid external option"))
+  }
+}
+
 #[cfg(all(test, not(miri)))]
 mod tests {
   use super::FromV8 as _;
