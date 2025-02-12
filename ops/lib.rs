@@ -7,6 +7,7 @@ use proc_macro::TokenStream;
 use std::error::Error;
 
 mod op2;
+mod v8;
 mod webidl;
 
 /// A macro designed to provide an extremely fast V8->Rust interface layer.
@@ -38,6 +39,22 @@ fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_derive(WebIDL, attributes(webidl, options))]
 pub fn webidl(item: TokenStream) -> TokenStream {
   match webidl::webidl(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+#[proc_macro_derive(FromV8, attributes(v8))]
+pub fn from_v8(item: TokenStream) -> TokenStream {
+  match v8::from::from_v8(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+#[proc_macro_derive(ToV8, attributes(v8))]
+pub fn to_v8(item: TokenStream) -> TokenStream {
+  match v8::to::to_v8(item.into()) {
     Ok(output) => output.into(),
     Err(err) => err.into_compile_error().into(),
   }
