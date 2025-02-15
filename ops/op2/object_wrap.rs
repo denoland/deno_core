@@ -4,6 +4,7 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use quote::ToTokens;
+use syn::spanned::Spanned;
 use syn::ImplItem;
 use syn::ItemFn;
 use syn::ItemImpl;
@@ -84,6 +85,7 @@ pub(crate) fn generate_impl_ops(
 
   for item in item.items {
     if let ImplItem::Fn(mut method) = item {
+      let span = method.span();
       let (item_fn_attrs, attrs) =
         method.attrs.into_iter().partition(is_attribute_special);
 
@@ -100,9 +102,7 @@ pub(crate) fn generate_impl_ops(
         block: Box::new(method.block),
       };
 
-      let mut config = MacroConfig::from_tokens(quote! {
-        #(#attrs)*
-      })?;
+      let mut config = MacroConfig::from_attributes(span, attrs)?;
 
       if let Some(ref rename) = config.rename {
         func.sig.ident = format_ident!("{}", rename);

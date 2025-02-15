@@ -6,8 +6,10 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use std::iter::zip;
+use syn::parse::Parser;
 use syn::parse2;
 use syn::parse_str;
+use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::FnArg;
 use syn::ItemFn;
@@ -39,12 +41,12 @@ pub mod signature_retval;
 
 #[derive(Debug, Error)]
 pub enum Op2Error {
-  #[error("Failed to match a pattern for '{0}': (input was '{1}')")]
-  PatternMatchFailed(&'static str, String),
-  #[error("Invalid attribute: '{0}'")]
-  InvalidAttribute(String),
   #[error("Failed to parse syntax tree")]
-  ParseError(#[from] syn::Error),
+  ParseError(
+    #[from]
+    #[source]
+    syn::Error,
+  ),
   #[error("Failed to map signature to V8")]
   V8SignatureMappingError(#[from] V8SignatureMappingError),
   #[error("Failed to parse signature")]
@@ -59,10 +61,6 @@ pub enum Op2Error {
   ShouldBeAsync,
   #[error("This op is not async and should not be marked as (async)")]
   ShouldNotBeAsync,
-  #[error("Only one fast alternative is supported in fast(...) at this time")]
-  TooManyFastAlternatives,
-  #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
-  ImproperlySortedAttribute(String),
   #[error("Only one constructor is allowed per object")]
   MultipleConstructors,
 }
@@ -88,7 +86,16 @@ pub(crate) fn op2(
     return object_wrap::generate_impl_ops(impl_block);
   };
 
-  let config = MacroConfig::from_tokens(attr)?;
+  let span = attr.span();
+
+  let metas =
+    Punctuated::<config::CustomMeta, syn::Token![,]>::parse_terminated
+      .parse2(attr)?
+      .into_iter()
+      .collect::<Vec<_>>();
+
+  let config = MacroConfig::from_metas(span, metas)?;
+
   generate_op2(config, func)
 }
 
@@ -235,7 +242,7 @@ pub(crate) fn generate_op2(
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast
           && !config.nofast
-          && config.fast_alternatives.is_empty()
+          && config.fast_alternative.is_none()
           && !config.getter
           && !config.setter
         {
