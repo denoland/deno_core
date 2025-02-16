@@ -54,7 +54,7 @@ pub fn op_void_no_side_effects() {}
 #[op2(nofast)]
 pub fn op_void_nofast() {}
 
-#[op2(no_side_effects, nofast)]
+#[op2(nofast, no_side_effects)]
 pub fn op_void_nofast_no_side_effects() {}
 
 #[op2(fast)]

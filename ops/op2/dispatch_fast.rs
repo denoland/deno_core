@@ -362,7 +362,7 @@ pub(crate) fn generate_dispatch_fast(
   Option<(TokenStream, TokenStream, TokenStream)>,
   V8SignatureMappingError,
 > {
-  if let Some(alternative) = config.fast_alternatives.first() {
+  if let Some(alternative) = &config.fast_alternative {
     // TODO(mmastrac): we should validate the alternatives. For now we just assume the caller knows what
     // they are doing.
     let alternative =
