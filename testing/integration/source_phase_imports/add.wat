@@ -1,8 +1,9 @@
 (module
-  (func $add (import "./import_from_wasm.mjs" "add") (param i32) (param i32) (result i32))
-  (func (export "exported_add") (result i32)
-    i32.const 21
-    i32.const 21
-    call $add
+  (func $add (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    local.get $b
+    i32.add
   )
+
+  (export "add" (func $add))
 )
