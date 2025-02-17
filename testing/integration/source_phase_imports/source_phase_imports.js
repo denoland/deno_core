@@ -13,3 +13,8 @@ if (mod[Symbol.toStringTag] !== "WebAssembly.Module") {
 }
 
 console.log(mod[Symbol.toStringTag]);
+console.log("exports", WebAssembly.Module.exports(mod));
+console.log("imports", WebAssembly.Module.imports(mod));
+
+const instance = new WebAssembly.Instance(mod, {});
+console.log("result", instance.exports.add(1, 2));
