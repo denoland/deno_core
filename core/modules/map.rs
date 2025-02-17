@@ -689,7 +689,7 @@ impl ModuleMap {
         .to_rust_string_lossy(tc_scope);
 
       let import_attributes = module_request.get_import_attributes();
-
+      // TODO(bartlomieju): this should handle import phase - ie. we don't handle source phase imports here
       let attributes = parse_import_attributes(
         tc_scope,
         import_attributes,
