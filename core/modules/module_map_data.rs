@@ -131,6 +131,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) handles_inverted: HashMap<v8::Global<v8::Module>, usize>,
   /// The handles we have loaded so far, corresponding with the [`ModuleInfo`] in `info`.
   pub(crate) handles: Vec<v8::Global<v8::Module>>,
+  pub(crate) sources: HashMap<ModuleId, v8::Global<v8::Object>>,
   pub(crate) main_module_callbacks: Vec<v8::Global<v8::Function>>,
   /// The modules we have loaded so far.
   pub(crate) info: Vec<ModuleInfo>,
@@ -248,6 +249,13 @@ impl ModuleMapData {
     id: ModuleId,
   ) -> Option<v8::Global<v8::Module>> {
     self.handles.get(id).cloned()
+  }
+
+  pub(crate) fn get_source(
+    &self,
+    id: ModuleId,
+  ) -> Option<v8::Global<v8::Object>> {
+    self.sources.get(&id).cloned()
   }
 
   pub(crate) fn get_name_by_module(
