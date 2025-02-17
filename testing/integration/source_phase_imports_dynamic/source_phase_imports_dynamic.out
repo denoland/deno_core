@@ -1,0 +1,9 @@
+WebAssembly.Module
+exports [
+  {
+    "name": "add",
+    "kind": "function"
+  }
+]
+imports []
+result 3

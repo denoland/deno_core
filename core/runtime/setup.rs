@@ -173,6 +173,9 @@ pub fn create_isolate(
   isolate.set_host_import_module_dynamically_callback(
     bindings::host_import_module_dynamically_callback,
   );
+  isolate.set_host_import_module_with_phase_dynamically_callback(
+    bindings::host_import_module_with_phase_dynamically_callback,
+  );
   isolate.set_wasm_async_resolve_promise_callback(
     bindings::wasm_async_resolve_promise_callback,
   );
