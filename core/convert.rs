@@ -2,6 +2,7 @@
 
 use crate::runtime::ops;
 use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
 use std::convert::Infallible;
 
 /// A conversion from a rust value to a v8 value.
@@ -64,7 +65,7 @@ use std::convert::Infallible;
 /// Tuples, on the other hand, are keyed by `smi`s, which are immediates
 /// and don't require allocation or garbage collection.
 pub trait ToV8<'a> {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts the value to a V8 value.
   fn to_v8(
@@ -111,7 +112,7 @@ pub trait ToV8<'a> {
 /// }
 /// ```
 pub trait FromV8<'a>: Sized {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts a V8 value to a Rust value.
   fn from_v8(
@@ -399,5 +400,50 @@ where
     } else {
       T::from_v8(scope, value).map(|v| OptionUndefined(Some(v)))
     }
+  }
+}
+
+impl<'a> FromV8<'a> for *mut std::ffi::c_void {
+  type Error = JsErrorBox;
+
+  fn from_v8(
+    _scope: &mut v8::HandleScope<'a>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    crate::_ops::to_external_option(&value)
+      .ok_or_else(|| JsErrorBox::type_error("Invalid external option"))
+  }
+}
+
+#[cfg(all(test, not(miri)))]
+mod tests {
+  use super::FromV8 as _;
+  use super::Smi;
+  use super::ToV8 as _;
+  use crate::JsRuntime;
+  use deno_ops::FromV8;
+  use deno_ops::ToV8;
+
+  #[test]
+  fn macros() {
+    #[derive(FromV8, ToV8)]
+    pub struct MyStruct {
+      a: Smi<u8>,
+      r#b: String,
+      #[v8(rename = "e")]
+      d: Smi<u32>,
+    }
+
+    let mut runtime = JsRuntime::new(Default::default());
+    let scope = &mut runtime.handle_scope();
+
+    let my_struct = MyStruct {
+      a: Smi(1),
+      b: "foo".to_string(),
+      d: Smi(2),
+    };
+
+    let value = my_struct.to_v8(scope).unwrap();
+    MyStruct::from_v8(scope, value).unwrap();
   }
 }
