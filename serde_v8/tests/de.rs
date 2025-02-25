@@ -50,7 +50,7 @@ fn dedo(
 }
 
 macro_rules! decheck {
-  ($fn_name:ident, $t:ty, $src:expr, $x:ident, $check:expr) => {
+  ($fn_name:ident, $t:ty, $src:expr_2021, $x:ident, $check:expr_2021) => {
     #[test]
     fn $fn_name() {
       #[allow(clippy::bool_assert_comparison)]
@@ -65,13 +65,13 @@ macro_rules! decheck {
 }
 
 macro_rules! detest {
-  ($fn_name:ident, $t:ty, $src:expr, $rust:expr) => {
+  ($fn_name:ident, $t:ty, $src:expr_2021, $rust:expr_2021) => {
     decheck!($fn_name, $t, $src, t, assert_eq!(t, $rust));
   };
 }
 
 macro_rules! defail {
-  ($fn_name:ident, $t:ty, $src:expr, $failcase:expr) => {
+  ($fn_name:ident, $t:ty, $src:expr_2021, $failcase:expr_2021) => {
     #[test]
     fn $fn_name() {
       #[allow(clippy::bool_assert_comparison, clippy::redundant_closure_call)]

@@ -21,22 +21,36 @@ enum UnwrappedReturn {
 fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
   match ty {
     Type::ImplTrait(imp) => {
-      if imp.bounds.len() != 1 {
+      if imp
+        .bounds
+        .iter()
+        .filter(|b| {
+          matches!(
+            b,
+            TypeParamBound::Lifetime(_)
+              | TypeParamBound::Trait(_)
+              | TypeParamBound::Verbatim(_)
+          )
+        })
+        .count()
+        > 1
+      {
         return Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
           "for impl trait bounds",
         )));
       }
-      if let Some(TypeParamBound::Trait(t)) = imp.bounds.first() {
-        rules!(t.into_token_stream() => {
-          ($($_package:ident ::)* Future < Output = $ty:ty $(,)? >) => Ok(UnwrappedReturn::Future(ty)),
-          ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty), "for impl Future"))),
-        })
-      } else {
-        Err(RetError::InvalidType(ArgError::InvalidType(
+      match imp.bounds.first() {
+        Some(TypeParamBound::Trait(t)) => {
+          rules!(t.into_token_stream() => {
+            ($($_package:ident ::)* Future < Output = $ty:ty $(,)? >) => Ok(UnwrappedReturn::Future(ty)),
+            ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty), "for impl Future"))),
+          })
+        }
+        _ => Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
           "for impl",
-        )))
+        ))),
       }
     }
     Type::Path(ty) => {

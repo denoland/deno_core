@@ -700,24 +700,33 @@ pub fn from_arg(
 
       let default = if let Some(default) = default {
         let tokens = default.0.to_token_stream();
-        let default = if let Ok(lit) = parse2::<syn::LitStr>(tokens.clone()) {
-          if lit.value().is_empty() {
-            quote! {
-              deno_core::v8::String::empty(&mut #scope)
+        let default = match parse2::<syn::LitStr>(tokens.clone()) {
+          Ok(lit) => {
+            if lit.value().is_empty() {
+              quote! {
+                deno_core::v8::String::empty(&mut #scope)
+              }
+            } else {
+              return Err("unsupported WebIDL default value");
             }
-          } else {
-            return Err("unsupported WebIDL default value");
           }
-        } else if let Ok(lit) = parse2::<syn::LitInt>(tokens.clone()) {
-          quote! {
-            deno_core::v8::Number::new(&mut #scope, #lit as _)
-          }
-        } else if let Ok(lit) = parse2::<syn::LitFloat>(tokens) {
-          quote! {
-            deno_core::v8::Number::new(&mut #scope, #lit)
-          }
-        } else {
-          return Err("unsupported WebIDL default value");
+          _ => match parse2::<syn::LitInt>(tokens.clone()) {
+            Ok(lit) => {
+              quote! {
+                deno_core::v8::Number::new(&mut #scope, #lit as _)
+              }
+            }
+            _ => match parse2::<syn::LitFloat>(tokens) {
+              Ok(lit) => {
+                quote! {
+                  deno_core::v8::Number::new(&mut #scope, #lit)
+                }
+              }
+              _ => {
+                return Err("unsupported WebIDL default value");
+              }
+            },
+          },
         };
 
         quote! {

@@ -193,7 +193,7 @@ impl BufferType {
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::Any),
         )*]
       };
-      (extra = $t:expr, $($mode:ident),*) => {
+      (extra = $t:expr_2021, $($mode:ident),*) => {
         &[$t, $(
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::TypedArray),
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::ArrayBuffer),
@@ -438,54 +438,57 @@ impl Arg {
   /// This must be kept in sync with the `RustToV8`/`RustToV8Fallible` implementations in `deno_core`. If
   /// this falls out of sync, you will see compile errors.
   pub fn slow_retval(&self) -> ArgSlowRetval {
-    if let Some(some) = self.some_type() {
-      // If this is an optional return value, we use the same return type as the underlying object.
-      match some.slow_retval() {
-        // We need a scope in the case of an option so we can allocate a null
-        ArgSlowRetval::V8LocalNoScope => ArgSlowRetval::RetVal,
-        rv => rv,
+    match self.some_type() {
+      Some(some) => {
+        // If this is an optional return value, we use the same return type as the underlying object.
+        match some.slow_retval() {
+          // We need a scope in the case of an option so we can allocate a null
+          ArgSlowRetval::V8LocalNoScope => ArgSlowRetval::RetVal,
+          rv => rv,
+        }
       }
-    } else {
-      match self {
-        Arg::Numeric(
-          NumericArg::i64
-          | NumericArg::u64
-          | NumericArg::isize
-          | NumericArg::usize,
-          NumericFlag::None,
-        ) => ArgSlowRetval::V8Local,
-        Arg::Numeric(
-          NumericArg::i64
-          | NumericArg::u64
-          | NumericArg::isize
-          | NumericArg::usize,
-          NumericFlag::Number,
-        ) => ArgSlowRetval::RetVal,
-        Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
-        Arg::External(_) => ArgSlowRetval::V8Local,
-        // Fast return value path for empty strings
-        Arg::String(_) => ArgSlowRetval::RetValFallible,
-        Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
-        Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
-        // No scope required for these
-        Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
-        Arg::V8Global(_) => ArgSlowRetval::V8Local,
-        // ArrayBuffer is infallible
-        Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
-        // TypedArray is fallible
-        Arg::Buffer(.., BufferSource::TypedArray) => {
-          ArgSlowRetval::V8LocalFalliable
+      _ => {
+        match self {
+          Arg::Numeric(
+            NumericArg::i64
+            | NumericArg::u64
+            | NumericArg::isize
+            | NumericArg::usize,
+            NumericFlag::None,
+          ) => ArgSlowRetval::V8Local,
+          Arg::Numeric(
+            NumericArg::i64
+            | NumericArg::u64
+            | NumericArg::isize
+            | NumericArg::usize,
+            NumericFlag::Number,
+          ) => ArgSlowRetval::RetVal,
+          Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
+          Arg::External(_) => ArgSlowRetval::V8Local,
+          // Fast return value path for empty strings
+          Arg::String(_) => ArgSlowRetval::RetValFallible,
+          Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
+          Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
+          // No scope required for these
+          Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
+          Arg::V8Global(_) => ArgSlowRetval::V8Local,
+          // ArrayBuffer is infallible
+          Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
+          // TypedArray is fallible
+          Arg::Buffer(.., BufferSource::TypedArray) => {
+            ArgSlowRetval::V8LocalFalliable
+          }
+          // ArrayBuffer is infallible
+          Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
+            ArgSlowRetval::V8Local
+          }
+          // TypedArray is fallible
+          Arg::OptionBuffer(.., BufferSource::TypedArray) => {
+            ArgSlowRetval::V8LocalFalliable
+          }
+          Arg::CppGcResource(_) => ArgSlowRetval::V8Local,
+          _ => ArgSlowRetval::None,
         }
-        // ArrayBuffer is infallible
-        Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
-          ArgSlowRetval::V8Local
-        }
-        // TypedArray is fallible
-        Arg::OptionBuffer(.., BufferSource::TypedArray) => {
-          ArgSlowRetval::V8LocalFalliable
-        }
-        Arg::CppGcResource(_) => ArgSlowRetval::V8Local,
-        _ => ArgSlowRetval::None,
       }
     }
   }
@@ -1354,10 +1357,10 @@ fn parse_type_path(
   use ParsedTypeContainer::*;
 
   let tokens = tp.clone().into_token_stream();
-  let res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
-    CBare(TNumeric(numeric))
-  } else {
-    std::panic::catch_unwind(|| {
+  let res = match parse_numeric_type(&tp.path) {
+    Ok(numeric) => CBare(TNumeric(numeric)),
+    _ => {
+      std::panic::catch_unwind(|| {
       rules!(tokens => {
       ( $( std :: str  :: )? String ) => {
         Ok(CBare(TString(Strings::String)))
@@ -1424,6 +1427,7 @@ fn parse_type_path(
       }
     })
     }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
+    }
   };
 
   // Ensure that we have the correct reference state. This is a bit awkward but it's
@@ -1738,24 +1742,19 @@ pub(crate) fn parse_type(
       match &*of.elem {
         // Note that we only allow numeric slices here -- if we decide to allow slices of things like v8 values,
         // this branch will need to be re-written.
-        Type::Slice(of) => {
-          if let Type::Path(path) = &*of.elem {
-            match parse_numeric_type(&path.path)? {
-              NumericArg::__VOID__ => {
-                Ok(Arg::External(External::Ptr(mut_type)))
-              }
-              numeric => {
-                let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
-                res.validate_attributes(position, attrs.clone(), &of)?;
-                Arg::from_parsed(res, attrs.clone()).map_err(|_| {
-                  ArgError::InvalidType(stringify_token(ty), "for slice")
-                })
-              }
+        Type::Slice(of) => match &*of.elem {
+          Type::Path(path) => match parse_numeric_type(&path.path)? {
+            NumericArg::__VOID__ => Ok(Arg::External(External::Ptr(mut_type))),
+            numeric => {
+              let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
+              res.validate_attributes(position, attrs.clone(), &of)?;
+              Arg::from_parsed(res, attrs.clone()).map_err(|_| {
+                ArgError::InvalidType(stringify_token(ty), "for slice")
+              })
             }
-          } else {
-            Err(ArgError::InvalidType(stringify_token(ty), "for slice"))
-          }
-        }
+          },
+          _ => Err(ArgError::InvalidType(stringify_token(ty), "for slice")),
+        },
         Type::Path(of) => {
           match parse_type_path(
             position,
@@ -1862,7 +1861,7 @@ mod tests {
       $( where $($trait:ident : $bounds:ty),* )?
       ;
       // Expected return value
-      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:ty )* >)? ( $( $arg_res:expr ),* ) -> $ret_res:expr ) => {
+      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:ty )* >)? ( $( $arg_res:expr_2021 ),* ) -> $ret_res:expr_2021 ) => {
       #[test]
       fn $($name1)? $($name2)? () {
         test(
@@ -1924,7 +1923,7 @@ mod tests {
   }
 
   macro_rules! expect_fail {
-    ($name:ident, $error:expr, $f:item) => {
+    ($name:ident, $error:expr_2021, $f:item) => {
       #[test]
       pub fn $name() {
         #[allow(unused)]

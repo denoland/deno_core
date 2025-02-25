@@ -44,13 +44,13 @@ impl<T: 'static> ArenaBox<T> {
   /// Constructs a `NonNull` reference to `ArenaBoxData` from a raw pointer to `T`.
   #[inline(always)]
   unsafe fn data_from_ptr(ptr: NonNull<T>) -> NonNull<ArenaBoxData<T>> {
-    ptr_byte_sub(ptr, Self::PTR_OFFSET)
+    unsafe { ptr_byte_sub(ptr, Self::PTR_OFFSET) }
   }
 
   /// Obtains a raw pointer to `T` from a `NonNull` reference to `ArenaBoxData`.  
   #[inline(always)]
   unsafe fn ptr_from_data(ptr: NonNull<ArenaBoxData<T>>) -> NonNull<T> {
-    ptr_byte_add(ptr, Self::PTR_OFFSET)
+    unsafe { ptr_byte_add(ptr, Self::PTR_OFFSET) }
   }
 
   /// Transforms an `ArenaBox` into a raw pointer to `T` and forgets it.
@@ -74,11 +74,13 @@ impl<T: 'static> ArenaBox<T> {
   /// valid and properly aligned. Misuse may lead to undefined behavior, memory unsafety, or data corruption.
   #[inline(always)]
   pub unsafe fn from_raw(ptr: NonNull<T>) -> ArenaBox<T> {
-    let ptr = Self::data_from_ptr(ptr);
+    unsafe {
+      let ptr = Self::data_from_ptr(ptr);
 
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(ptr.as_ref().signature, SIGNATURE);
-    ArenaBox { ptr }
+      #[cfg(debug_assertions)]
+      debug_assert_eq!(ptr.as_ref().signature, SIGNATURE);
+      ArenaBox { ptr }
+    }
   }
 }
 
@@ -204,19 +206,23 @@ impl<T> ArenaUnique<T> {
   #[cold]
   #[inline(never)]
   unsafe fn drop_data(data: NonNull<ArenaUniqueData<T>>) {
-    let data = data.as_ptr();
-    std::ptr::drop_in_place(data);
-    std::alloc::dealloc(data as _, Layout::new::<ArenaUniqueData<T>>());
+    unsafe {
+      let data = data.as_ptr();
+      std::ptr::drop_in_place(data);
+      std::alloc::dealloc(data as _, Layout::new::<ArenaUniqueData<T>>());
+    }
   }
 
   /// Deletes the data associated with an `ArenaBox` from the arena. If this is the last
   /// allocation for the arena and the arena has been dropped, de-allocate everything.
   #[inline(always)]
   unsafe fn delete(data: NonNull<ArenaBoxData<T>>) {
-    let arena_data = data.as_ref().arena_data;
-    let arena = arena_data.as_ref();
-    if arena.raw_arena.recycle(data) && !arena.alive {
-      Self::drop_data(arena_data)
+    unsafe {
+      let arena_data = data.as_ref().arena_data;
+      let arena = arena_data.as_ref();
+      if arena.raw_arena.recycle(data) && !arena.alive {
+        Self::drop_data(arena_data)
+      }
     }
   }
 
@@ -279,9 +285,11 @@ impl<T> ArenaUnique<T> {
   /// arena that created them.
   #[inline(always)]
   pub unsafe fn reserve_space(&self) -> Option<ArenaUniqueReservation<T>> {
-    let this = &mut *self.ptr.as_ptr();
-    let ptr = this.raw_arena.allocate_if_space()?;
-    Some(ArenaUniqueReservation(ptr))
+    unsafe {
+      let this = &mut *self.ptr.as_ptr();
+      let ptr = this.raw_arena.allocate_if_space()?;
+      Some(ArenaUniqueReservation(ptr))
+    }
   }
 
   /// Forget a reservation.
@@ -294,10 +302,12 @@ impl<T> ArenaUnique<T> {
     &self,
     reservation: ArenaUniqueReservation<T>,
   ) {
-    let ptr = reservation.0;
-    std::mem::forget(reservation);
-    let this = self.ptr.as_ptr();
-    (*this).raw_arena.recycle_without_drop(ptr);
+    unsafe {
+      let ptr = reservation.0;
+      std::mem::forget(reservation);
+      let this = self.ptr.as_ptr();
+      (*this).raw_arena.recycle_without_drop(ptr);
+    }
   }
 
   /// Complete a reservation.
@@ -312,22 +322,24 @@ impl<T> ArenaUnique<T> {
     reservation: ArenaUniqueReservation<T>,
     data: T,
   ) -> ArenaBox<T> {
-    let ptr = reservation.0;
-    std::mem::forget(reservation);
-    let ptr = {
-      std::ptr::write(
-        ptr.as_ptr(),
-        ArenaBoxData {
-          #[cfg(debug_assertions)]
-          signature: SIGNATURE,
-          arena_data: self.ptr,
-          data,
-        },
-      );
-      ptr
-    };
+    unsafe {
+      let ptr = reservation.0;
+      std::mem::forget(reservation);
+      let ptr = {
+        std::ptr::write(
+          ptr.as_ptr(),
+          ArenaBoxData {
+            #[cfg(debug_assertions)]
+            signature: SIGNATURE,
+            arena_data: self.ptr,
+            data,
+          },
+        );
+        ptr
+      };
 
-    ArenaBox { ptr }
+      ArenaBox { ptr }
+    }
   }
 }
 

@@ -496,7 +496,7 @@ impl<'de> serde::Deserialize<'de> for FastString {
 /// This macro creates a [`FastStaticString`] that may be converted to a [`FastString`] via [`Into::into`].
 #[macro_export]
 macro_rules! ascii_str_include {
-  ($file:expr) => {{
+  ($file:expr_2021) => {{
     const STR: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const(
         ::std::include_str!($file).as_bytes(),
@@ -512,7 +512,7 @@ macro_rules! ascii_str_include {
 /// This macro creates a [`FastStaticString`] that may be converted to a [`FastString`] via [`Into::into`].
 #[macro_export]
 macro_rules! ascii_str {
-  ($str:expr) => {{
+  ($str:expr_2021) => {{
     const C: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const($str.as_bytes());
     $crate::FastStaticString::new(&C)

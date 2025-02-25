@@ -200,11 +200,14 @@ impl Parse for Flags {
     let lookahead = input.lookahead1();
 
     let flag = if lookahead.peek(kw::method) {
-      if let Some(list) = input.parse::<CustomMeta>()?.as_meta_list() {
-        let ty = list.parse_args::<Type>()?;
-        Flags::Method(Some(ty.into_token_stream().to_string().replace(' ', "")))
-      } else {
-        Flags::Method(None)
+      match input.parse::<CustomMeta>()?.as_meta_list() {
+        Some(list) => {
+          let ty = list.parse_args::<Type>()?;
+          Flags::Method(Some(
+            ty.into_token_stream().to_string().replace(' ', ""),
+          ))
+        }
+        _ => Flags::Method(None),
       }
     } else if lookahead.peek(kw::static_method) {
       input.parse::<kw::static_method>()?;
@@ -219,38 +222,40 @@ impl Parse for Flags {
       input.parse::<kw::setter>()?;
       Flags::Setter
     } else if lookahead.peek(kw::fast) {
-      if let Some(list) = input.parse::<CustomMeta>()?.as_meta_list() {
-        let ty = list.parse_args::<Type>()?;
-        Flags::Fast(Some(ty.into_token_stream().to_string().replace(' ', "")))
-      } else {
-        Flags::Fast(None)
+      match input.parse::<CustomMeta>()?.as_meta_list() {
+        Some(list) => {
+          let ty = list.parse_args::<Type>()?;
+          Flags::Fast(Some(ty.into_token_stream().to_string().replace(' ', "")))
+        }
+        _ => Flags::Fast(None),
       }
     } else if lookahead.peek(kw::nofast) {
       input.parse::<kw::nofast>()?;
       Flags::NoFast
     } else if lookahead.peek(Token![async]) || lookahead.peek(kw::async_method)
     {
-      if let Some(list) = input.parse::<CustomMeta>()?.as_meta_list() {
-        let async_mode = list.parse_args_with(|input: ParseStream| {
-          let lookahead = input.lookahead1();
+      match input.parse::<CustomMeta>()?.as_meta_list() {
+        Some(list) => {
+          let async_mode = list.parse_args_with(|input: ParseStream| {
+            let lookahead = input.lookahead1();
 
-          if lookahead.peek(kw::fake) {
-            input.parse::<kw::fake>()?;
-            Ok(AsyncMode::Fake)
-          } else if lookahead.peek(kw::lazy) {
-            input.parse::<kw::lazy>()?;
-            Ok(AsyncMode::Lazy)
-          } else if lookahead.peek(kw::deferred) {
-            input.parse::<kw::deferred>()?;
-            Ok(AsyncMode::Deferred)
-          } else {
-            Err(lookahead.error())
-          }
-        })?;
+            if lookahead.peek(kw::fake) {
+              input.parse::<kw::fake>()?;
+              Ok(AsyncMode::Fake)
+            } else if lookahead.peek(kw::lazy) {
+              input.parse::<kw::lazy>()?;
+              Ok(AsyncMode::Lazy)
+            } else if lookahead.peek(kw::deferred) {
+              input.parse::<kw::deferred>()?;
+              Ok(AsyncMode::Deferred)
+            } else {
+              Err(lookahead.error())
+            }
+          })?;
 
-        Flags::Async(Some(async_mode))
-      } else {
-        Flags::Async(None)
+          Flags::Async(Some(async_mode))
+        }
+        _ => Flags::Async(None),
       }
     } else if lookahead.peek(kw::reentrant) {
       input.parse::<kw::reentrant>()?;
@@ -301,26 +306,24 @@ impl Parse for CustomMeta {
     };
 
     let args = if input.peek(syn::token::Paren) {
-      let (delimiter, tokenstream) = input.step(|cursor| {
-        if let Some((proc_macro2::TokenTree::Group(g), rest)) =
-          cursor.token_tree()
-        {
-          let span = g.delim_span();
+      let (delimiter, tokenstream) =
+        input.step(|cursor| match cursor.token_tree() {
+          Some((proc_macro2::TokenTree::Group(g), rest)) => {
+            let span = g.delim_span();
 
-          let delimiter = match g.delimiter() {
-            Delimiter::Parenthesis => {
-              MacroDelimiter::Paren(syn::token::Paren(span))
-            }
-            _ => {
-              return Err(cursor.error("expected `(`"));
-            }
-          };
+            let delimiter = match g.delimiter() {
+              Delimiter::Parenthesis => {
+                MacroDelimiter::Paren(syn::token::Paren(span))
+              }
+              _ => {
+                return Err(cursor.error("expected `(`"));
+              }
+            };
 
-          Ok(((delimiter, g.stream()), rest))
-        } else {
-          Err(cursor.error("expected delimiter"))
-        }
-      })?;
+            Ok(((delimiter, g.stream()), rest))
+          }
+          _ => Err(cursor.error("expected delimiter")),
+        })?;
 
       Some((delimiter, tokenstream))
     } else if input.peek(Token![=]) {
@@ -357,10 +360,13 @@ impl CustomMeta {
 
 impl ToTokens for CustomMeta {
   fn to_tokens(&self, tokens: &mut TokenStream) {
-    if let Some(list) = self.as_meta_list() {
-      list.to_tokens(tokens);
-    } else {
-      self.ident.to_tokens(tokens);
+    match self.as_meta_list() {
+      Some(list) => {
+        list.to_tokens(tokens);
+      }
+      _ => {
+        self.ident.to_tokens(tokens);
+      }
     }
   }
 }
@@ -400,20 +406,28 @@ mod tests {
     let item_fn = syn::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))
       .expect("Failed to parse function");
     let attr = item_fn.attrs.first().unwrap();
-    if let Meta::List(list) = &attr.meta {
-      let metas = Punctuated::<CustomMeta, Token![,]>::parse_terminated
-        .parse2(list.tokens.clone())
-        .expect("Failed to parse attribute")
-        .into_iter()
-        .collect::<Vec<_>>();
+    match &attr.meta {
+      Meta::List(list) => {
+        let metas = Punctuated::<CustomMeta, Token![,]>::parse_terminated
+          .parse2(list.tokens.clone())
+          .expect("Failed to parse attribute")
+          .into_iter()
+          .collect::<Vec<_>>();
 
-      let config = MacroConfig::from_metas(list.span(), metas)
-        .expect("Failed to parse attribute");
-      assert_eq!(expected, config);
-    } else if let Meta::Path(..) = &attr.meta {
-      // Ignored
-    } else {
-      panic!("Not a list or path");
+        let config = MacroConfig::from_metas(list.span(), metas)
+          .expect("Failed to parse attribute");
+        assert_eq!(expected, config);
+      }
+      _ => {
+        match &attr.meta {
+          Meta::Path(..) => {
+            // Ignored
+          }
+          _ => {
+            panic!("Not a list or path");
+          }
+        }
+      }
     }
   }
 

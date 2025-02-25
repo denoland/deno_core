@@ -44,15 +44,18 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   let state = JsRuntime::state_from(scope);
   let templates = state.function_templates.borrow();
 
-  let obj = if let Some(templ) = templates.get::<T>() {
-    let templ = v8::Local::new(scope, templ);
-    let inst = templ.instance_template(scope);
-    inst.new_instance(scope).unwrap()
-  } else {
-    let templ =
-      v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
-    let func = templ.get_function(scope).unwrap();
-    func.new_instance(scope, &[]).unwrap()
+  let obj = match templates.get::<T>() {
+    Some(templ) => {
+      let templ = v8::Local::new(scope, templ);
+      let inst = templ.instance_template(scope);
+      inst.new_instance(scope).unwrap()
+    }
+    _ => {
+      let templ =
+        v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
+      let func = templ.get_function(scope).unwrap();
+      func.new_instance(scope, &[]).unwrap()
+    }
   };
 
   wrap_object(scope, obj, t)

@@ -53,7 +53,7 @@ where
     p1: std::marker::PhantomData<T>,
   }
 
-  impl<'de, T: MagicType> serde::de::Visitor<'de> for ValueVisitor<T> {
+  impl<T: MagicType> serde::de::Visitor<'_> for ValueVisitor<T> {
     type Value = T;
 
     fn expecting(

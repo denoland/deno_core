@@ -39,10 +39,15 @@ impl FromV8 for StringOrBuffer {
     scope: &mut v8::HandleScope,
     value: v8::Local<v8::Value>,
   ) -> Result<Self, crate::Error> {
-    if let Ok(buf) = JsBuffer::from_v8(scope, value) {
-      return Ok(Self::Buffer(buf));
-    } else if let Ok(s) = crate::from_v8(scope, value) {
-      return Ok(Self::String(s));
+    match JsBuffer::from_v8(scope, value) {
+      Ok(buf) => {
+        return Ok(Self::Buffer(buf));
+      }
+      _ => {
+        if let Ok(s) = crate::from_v8(scope, value) {
+          return Ok(Self::String(s));
+        }
+      }
     }
     Err(Error::ExpectedBuffer(value.type_repr()))
   }

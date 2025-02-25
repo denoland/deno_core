@@ -19,23 +19,25 @@ pub struct TypeErased<const MAX_SIZE: usize> {
 impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
   #[inline(always)]
   pub unsafe fn take<R: 'static>(self) -> R {
-    assert!(
-      std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory),
-      "Invalid size for {}: {} (max {})",
-      std::any::type_name::<R>(),
-      std::mem::size_of::<R>(),
-      std::mem::size_of_val(&self.memory)
-    );
-    assert!(
-      std::mem::align_of::<R>() <= std::mem::align_of_val(&self),
-      "Invalid alignment for {}: {} (max {})",
-      std::any::type_name::<R>(),
-      std::mem::align_of::<R>(),
-      std::mem::align_of_val(&self)
-    );
-    let r = std::ptr::read(self.memory.as_ptr() as _);
-    std::mem::forget(self);
-    r
+    unsafe {
+      assert!(
+        std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory),
+        "Invalid size for {}: {} (max {})",
+        std::any::type_name::<R>(),
+        std::mem::size_of::<R>(),
+        std::mem::size_of_val(&self.memory)
+      );
+      assert!(
+        std::mem::align_of::<R>() <= std::mem::align_of_val(&self),
+        "Invalid alignment for {}: {} (max {})",
+        std::any::type_name::<R>(),
+        std::mem::align_of::<R>(),
+        std::mem::align_of_val(&self)
+      );
+      let r = std::ptr::read(self.memory.as_ptr() as _);
+      std::mem::forget(self);
+      r
+    }
   }
 
   #[inline(always)]
@@ -95,10 +97,12 @@ impl<const MAX_SIZE: usize, Output> ErasedFuture<MAX_SIZE, Output> {
   where
     F: Future<Output = Output>,
   {
-    F::poll(
-      std::mem::transmute::<Pin<&mut TypeErased<MAX_SIZE>>, Pin<&mut F>>(pin),
-      cx,
-    )
+    unsafe {
+      F::poll(
+        std::mem::transmute::<Pin<&mut TypeErased<MAX_SIZE>>, Pin<&mut F>>(pin),
+        cx,
+      )
+    }
   }
 
   #[allow(dead_code)]
