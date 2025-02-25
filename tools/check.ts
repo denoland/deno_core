@@ -167,7 +167,7 @@ async function runCommands(
 }
 
 const CLIPPY_FEATURES =
-  `deno_core/default deno_core/include_js_files_for_snapshotting deno_core/unsafe_runtime_options deno_core/unsafe_use_unprotected_platform`;
+  `deno_core/include_js_files_for_snapshotting deno_core/unsafe_runtime_options deno_core/unsafe_use_unprotected_platform`;
 
 export async function main(command: string, flag: string) {
   if (command == "format") {
