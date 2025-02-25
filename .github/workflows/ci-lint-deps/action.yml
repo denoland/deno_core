@@ -5,7 +5,7 @@ runs:
     - name: Install Rust (nightly)
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: nightly-2025-01-02
+        toolchain: nightly-2025-02-25
     - name: Lint deps
       shell: bash
       run: |
