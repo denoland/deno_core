@@ -429,7 +429,7 @@ struct SerializeDeserialize<'a> {
   host_object_brand: Option<v8::Global<v8::Symbol>>,
 }
 
-impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
+impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
   #[allow(unused_variables)]
   fn throw_data_clone_error<'s>(
     &self,
@@ -458,12 +458,13 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
       return None;
     }
     let state = JsRuntime::state_from(scope);
-    if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
-      let backing_store = shared_array_buffer.get_backing_store();
-      let id = shared_array_buffer_store.insert(backing_store);
-      Some(id)
-    } else {
-      None
+    match &state.shared_array_buffer_store {
+      Some(shared_array_buffer_store) => {
+        let backing_store = shared_array_buffer.get_backing_store();
+        let id = shared_array_buffer_store.insert(backing_store);
+        Some(id)
+      }
+      _ => None,
     }
   }
 
@@ -478,13 +479,13 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
       return None;
     }
     let state = JsRuntime::state_from(scope);
-    if let Some(compiled_wasm_module_store) = &state.compiled_wasm_module_store
-    {
-      let compiled_wasm_module = module.get_compiled_module();
-      let id = compiled_wasm_module_store.insert(compiled_wasm_module);
-      Some(id)
-    } else {
-      None
+    match &state.compiled_wasm_module_store {
+      Some(compiled_wasm_module_store) => {
+        let compiled_wasm_module = module.get_compiled_module();
+        let id = compiled_wasm_module_store.insert(compiled_wasm_module);
+        Some(id)
+      }
+      _ => None,
     }
   }
 
@@ -497,11 +498,12 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
     scope: &mut v8::HandleScope<'s>,
     object: v8::Local<'s, v8::Object>,
   ) -> Option<bool> {
-    if let Some(symbol) = &self.host_object_brand {
-      let key = v8::Local::new(scope, symbol);
-      object.has_own_property(scope, key.into())
-    } else {
-      Some(false)
+    match &self.host_object_brand {
+      Some(symbol) => {
+        let key = v8::Local::new(scope, symbol);
+        object.has_own_property(scope, key.into())
+      }
+      _ => Some(false),
     }
   }
 
@@ -526,7 +528,7 @@ impl<'a> v8::ValueSerializerImpl for SerializeDeserialize<'a> {
   }
 }
 
-impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
+impl v8::ValueDeserializerImpl for SerializeDeserialize<'_> {
   fn get_shared_array_buffer_from_id<'s>(
     &self,
     scope: &mut v8::HandleScope<'s>,
@@ -536,13 +538,14 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
       return None;
     }
     let state = JsRuntime::state_from(scope);
-    if let Some(shared_array_buffer_store) = &state.shared_array_buffer_store {
-      let backing_store = shared_array_buffer_store.take(transfer_id)?;
-      let shared_array_buffer =
-        v8::SharedArrayBuffer::with_backing_store(scope, &backing_store);
-      Some(shared_array_buffer)
-    } else {
-      None
+    match &state.shared_array_buffer_store {
+      Some(shared_array_buffer_store) => {
+        let backing_store = shared_array_buffer_store.take(transfer_id)?;
+        let shared_array_buffer =
+          v8::SharedArrayBuffer::with_backing_store(scope, &backing_store);
+        Some(shared_array_buffer)
+      }
+      _ => None,
     }
   }
 
@@ -555,12 +558,12 @@ impl<'a> v8::ValueDeserializerImpl for SerializeDeserialize<'a> {
       return None;
     }
     let state = JsRuntime::state_from(scope);
-    if let Some(compiled_wasm_module_store) = &state.compiled_wasm_module_store
-    {
-      let compiled_module = compiled_wasm_module_store.take(clone_id)?;
-      v8::WasmModuleObject::from_compiled_module(scope, &compiled_module)
-    } else {
-      None
+    match &state.compiled_wasm_module_store {
+      Some(compiled_wasm_module_store) => {
+        let compiled_module = compiled_wasm_module_store.take(clone_id)?;
+        v8::WasmModuleObject::from_compiled_module(scope, &compiled_module)
+      }
+      _ => None,
     }
   }
 
@@ -737,15 +740,18 @@ pub fn op_deserialize<'a>(
             ))
           }
         };
-        if let Some(backing_store) = shared_array_buffer_store.take(id) {
-          let array_buffer =
-            v8::ArrayBuffer::with_backing_store(scope, &backing_store);
-          value_deserializer.transfer_array_buffer(id, array_buffer);
-          transferred_array_buffers.set(scope, i, array_buffer.into());
-        } else {
-          return Err(JsErrorBox::type_error(
+        match shared_array_buffer_store.take(id) {
+          Some(backing_store) => {
+            let array_buffer =
+              v8::ArrayBuffer::with_backing_store(scope, &backing_store);
+            value_deserializer.transfer_array_buffer(id, array_buffer);
+            transferred_array_buffers.set(scope, i, array_buffer.into());
+          }
+          _ => {
+            return Err(JsErrorBox::type_error(
             "transferred array buffer not present in shared_array_buffer_store",
           ));
+          }
         }
       }
     }
@@ -992,10 +998,13 @@ pub fn op_abort_wasm_streaming(
   // At this point there are no clones of Rc<WasmStreamingResource> on the
   // resource table, and no one should own a reference because we're never
   // cloning them. So we can be sure `wasm_streaming` is the only reference.
-  if let Ok(wsr) = std::rc::Rc::try_unwrap(wasm_streaming) {
-    wsr.0.into_inner().abort(Some(error));
-  } else {
-    panic!("Couldn't consume WasmStreamingResource.");
+  match std::rc::Rc::try_unwrap(wasm_streaming) {
+    Ok(wsr) => {
+      wsr.0.into_inner().abort(Some(error));
+    }
+    _ => {
+      panic!("Couldn't consume WasmStreamingResource.");
+    }
   }
   Ok(())
 }

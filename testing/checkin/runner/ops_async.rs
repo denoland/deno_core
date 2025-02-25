@@ -44,7 +44,7 @@ pub fn op_async_barrier_create(
 pub fn op_async_barrier_await(
   #[state] test_data: &TestData,
   #[string] name: String,
-) -> impl Future<Output = ()> {
+) -> impl Future<Output = ()> + use<> {
   let barrier: &Rc<tokio::sync::Barrier> = test_data.get(name);
   let barrier = barrier.clone();
   async move {

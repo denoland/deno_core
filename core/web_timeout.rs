@@ -122,7 +122,7 @@ pub(crate) struct WebTimersIteratorImpl<'a, T> {
   timers: btree_set::Iter<'a, TimerKey>,
 }
 
-impl<'a, T> Iterator for WebTimersIteratorImpl<'a, T> {
+impl<T> Iterator for WebTimersIteratorImpl<'_, T> {
   type Item = (u64, bool, bool);
   fn next(&mut self) -> Option<Self::Item> {
     loop {
@@ -322,12 +322,15 @@ impl<T: Clone> WebTimers<T> {
     let deadline = Instant::now()
       .checked_add(Duration::from_millis(timeout_ms))
       .unwrap();
-    if let Some(TimerKey(k, ..)) = timers.first() {
-      if &deadline < k {
+    match timers.first() {
+      Some(TimerKey(k, ..)) => {
+        if &deadline < k {
+          self.sleep.change(deadline);
+        }
+      }
+      _ => {
         self.sleep.change(deadline);
       }
-    } else {
-      self.sleep.change(deadline);
     }
 
     let timer_type = if repeat {
@@ -355,31 +358,31 @@ impl<T: Clone> WebTimers<T> {
   /// with the given ID was found.
   pub fn cancel_timer(&self, timer: u64) -> Option<T> {
     let mut data_map = self.data_map.borrow_mut();
-    if let Some(TimerData {
-      data,
-      unrefd,
-      high_res,
-    }) = data_map.remove(&timer)
-    {
-      if data_map.is_empty() {
-        // When the # of running timers hits zero, clear the timer tree.
-        // When debug assertions are enabled, we do a consistency check.
-        debug_assert_eq!(self.unrefd_count.get(), if unrefd { 1 } else { 0 });
-        #[cfg(any(windows, test))]
-        debug_assert_eq!(self.high_res_timer_lock.is_locked(), high_res);
-        self.high_res_timer_lock.clear();
-        self.unrefd_count.set(0);
-        self.timers.borrow_mut().clear();
-        self.sleep.clear();
-      } else {
-        self.high_res_timer_lock.maybe_unlock(high_res);
-        if unrefd {
-          self.unrefd_count.set(self.unrefd_count.get() - 1);
+    match data_map.remove(&timer) {
+      Some(TimerData {
+        data,
+        unrefd,
+        high_res,
+      }) => {
+        if data_map.is_empty() {
+          // When the # of running timers hits zero, clear the timer tree.
+          // When debug assertions are enabled, we do a consistency check.
+          debug_assert_eq!(self.unrefd_count.get(), if unrefd { 1 } else { 0 });
+          #[cfg(any(windows, test))]
+          debug_assert_eq!(self.high_res_timer_lock.is_locked(), high_res);
+          self.high_res_timer_lock.clear();
+          self.unrefd_count.set(0);
+          self.timers.borrow_mut().clear();
+          self.sleep.clear();
+        } else {
+          self.high_res_timer_lock.maybe_unlock(high_res);
+          if unrefd {
+            self.unrefd_count.set(self.unrefd_count.get() - 1);
+          }
         }
+        Some(data)
       }
-      Some(data)
-    } else {
-      None
+      _ => None,
     }
   }
 
@@ -407,11 +410,10 @@ impl<T: Clone> WebTimers<T> {
           ));
         }
       } else if let Some(TimerData {
-        data,
-        unrefd,
-        high_res,
-      }) = data.remove(&id)
-      {
+          data,
+          unrefd,
+          high_res,
+        }) = data.remove(&id) {
         self.high_res_timer_lock.maybe_unlock(high_res);
         if unrefd {
           self.unrefd_count.set(self.unrefd_count.get() - 1);

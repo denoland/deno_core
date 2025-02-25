@@ -153,7 +153,7 @@ mod tests {
   use std::future::poll_fn;
 
   struct TestMappingContext {}
-  impl<'s> OpMappingContextLifetime<'s> for TestMappingContext {
+  impl OpMappingContextLifetime<'_> for TestMappingContext {
     type Context = ();
     type Result = String;
     type MappingError = anyhow::Error;

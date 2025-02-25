@@ -358,10 +358,10 @@ macro_rules! ops {
 /// Return the first argument if not empty, otherwise the second.
 #[macro_export]
 macro_rules! or {
-  ($e:expr, $fallback:expr) => {
+  ($e:expr_2021, $fallback:expr_2021) => {
     $e
   };
-  (, $fallback:expr) => {
+  (, $fallback:expr_2021) => {
     $fallback
   };
 }
@@ -410,18 +410,18 @@ macro_rules! extension {
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
     $(, objects = [ $( $(#[$masd:meta])* $( $object:ident )::+ ),+ $(,)? ] )?
-    $(, esm_entry_point = $esm_entry_point:expr )?
+    $(, esm_entry_point = $esm_entry_point:expr_2021 )?
     $(, esm = [ $($esm:tt)* ] )?
     $(, lazy_loaded_esm = [ $($lazy_loaded_esm:tt)* ] )?
     $(, js = [ $($js:tt)* ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
-    $(, middleware = $middleware_fn:expr )?
-    $(, state = $state_fn:expr )?
-    $(, global_template_middleware = $global_template_middleware_fn:expr )?
-    $(, global_object_middleware = $global_object_middleware_fn:expr )?
-    $(, external_references = [ $( $external_reference:expr ),* $(,)? ] )?
-    $(, customizer = $customizer_fn:expr )?
-    $(, docs = $($docblocks:expr),+)?
+    $(, middleware = $middleware_fn:expr_2021 )?
+    $(, state = $state_fn:expr_2021 )?
+    $(, global_template_middleware = $global_template_middleware_fn:expr_2021 )?
+    $(, global_object_middleware = $global_object_middleware_fn:expr_2021 )?
+    $(, external_references = [ $( $external_reference:expr_2021 ),* $(,)? ] )?
+    $(, customizer = $customizer_fn:expr_2021 )?
+    $(, docs = $($docblocks:expr_2021),+)?
     $(,)?
   ) => {
     $( $(#[doc = $docblocks])+ )?
@@ -566,7 +566,7 @@ macro_rules! extension {
   };
 
   // This branch of the macro generates a config object that calls the state function with itself.
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } $( state_fn = $state_fn:expr )? ) => {
+  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } $( state_fn = $state_fn:expr_2021 )? ) => {
     {
       #[doc(hidden)]
       struct Config $( <  $( $param : $type + 'static ),+ > )? {
@@ -585,7 +585,7 @@ macro_rules! extension {
     }
   };
 
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr )? ) => {
+  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr_2021 )? ) => {
     $( $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn)); )?
   };
 
@@ -898,7 +898,7 @@ macro_rules! __extension_include_js_files_detect {
 #[macro_export]
 macro_rules! __extension_include_js_files_inner {
   // Entry point: (mode=, name=, dir=, [... files])
-  (mode=$mode:ident, name=$name:ident, dir=$dir:expr, $([
+  (mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $([
     $s1:literal
     $(with_specifier $s2:literal)?
     $(= $config:tt)?
@@ -919,11 +919,11 @@ macro_rules! __extension_include_js_files_inner {
   // @parse_item macros will parse a single file entry, and then call @item macros with the destructured data
 
   // "file" -> Include a file, use the generated specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $file:literal) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $file:literal) => {
     $crate::__extension_include_js_files_inner!(@item mode=$mode, dir=$dir, specifier=concat!("ext:", stringify!($name), "/", $file), file=$file)
   };
   // "file" with_specifier "specifier" -> Include a file, use the provided specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $file:literal with_specifier $specifier:literal) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $file:literal with_specifier $specifier:literal) => {
     {
       #[deprecated="When including JS files 'file with_specifier specifier' is deprecated: use 'specifier = file' instead"]
       struct WithSpecifierIsDeprecated {}
@@ -932,30 +932,30 @@ macro_rules! __extension_include_js_files_inner {
     }
   };
   // "specifier" = "file" -> Include a file, use the provided specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $specifier:literal = $file:literal) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $specifier:literal = $file:literal) => {
     $crate::__extension_include_js_files_inner!(@item mode=$mode, dir=$dir, specifier=$specifier, file=$file)
   };
   // "specifier" = { source = "source" } -> Include a file, use the provided specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $specifier:literal = { source = $source:literal }) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $specifier:literal = { source = $source:literal }) => {
     $crate::__extension_include_js_files_inner!(@item mode=$mode, specifier=$specifier, source=$source)
   };
 
   // @item macros generate the final output
 
   // loaded, source
-  (@item mode=loaded, specifier=$specifier:expr, source=$source:expr) => {
+  (@item mode=loaded, specifier=$specifier:expr_2021, source=$source:expr_2021) => {
     $crate::ExtensionFileSource::loaded_from_memory_during_snapshot($specifier, $crate::ascii_str!($source))
   };
   // loaded, file
-  (@item mode=loaded, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
+  (@item mode=loaded, dir=$dir:expr_2021, specifier=$specifier:expr_2021, file=$file:literal) => {
     $crate::ExtensionFileSource::loaded_during_snapshot($specifier, concat!($dir, "/", $file))
   };
   // included, source
-  (@item mode=included, specifier=$specifier:expr, source=$source:expr) => {
+  (@item mode=included, specifier=$specifier:expr_2021, source=$source:expr_2021) => {
     $crate::ExtensionFileSource::new($specifier, $crate::ascii_str!($source))
   };
   // included, file
-  (@item mode=included, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
+  (@item mode=included, dir=$dir:expr_2021, specifier=$specifier:expr_2021, file=$file:literal) => {
     $crate::ExtensionFileSource::new($specifier, $crate::ascii_str_include!(concat!($dir, "/", $file)))
   };
 }
@@ -967,7 +967,7 @@ macro_rules! __extension_root_dir {
   () => {
     env!("CARGO_MANIFEST_DIR")
   };
-  ($dir:expr) => {
+  ($dir:expr_2021) => {
     concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir)
   };
 }
