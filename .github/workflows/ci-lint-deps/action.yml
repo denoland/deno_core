@@ -11,5 +11,5 @@ runs:
       run: |
         cargo install cargo-machete --locked
         cargo machete
-        cargo install cargo-udeps@0.1.54 --locked
-        cargo +nightly-2025-01-02 udeps
+        cargo install cargo-udeps@0.1.55 --locked
+        cargo +nightly-2025-02-25 udeps
