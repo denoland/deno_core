@@ -464,7 +464,7 @@ pub struct IntOptions {
 
 // https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
 macro_rules! impl_ints {
-  ($($t:ty: $unsigned:tt = $name:literal: $min:expr => $max:expr),*) => {
+  ($($t:ty: $unsigned:tt = $name:literal: $min:expr_2021 => $max:expr_2021),*) => {
     $(
       impl<'a> WebIdlConverter<'a> for $t {
         type Options = IntOptions;
@@ -858,15 +858,13 @@ impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
     context: ContextFn<'b>,
     _options: &Self::Options,
   ) -> Result<Self, WebIdlError> {
-    if let Some(ptr) = crate::cppgc::try_unwrap_cppgc_object::<T>(scope, value)
-    {
-      Ok(ptr)
-    } else {
-      Err(WebIdlError::new(
+    match crate::cppgc::try_unwrap_cppgc_object::<T>(scope, value) {
+      Some(ptr) => Ok(ptr),
+      _ => Err(WebIdlError::new(
         prefix,
         context,
         WebIdlErrorKind::ConvertToConverterType(T::NAME),
-      ))
+      )),
     }
   }
 }
@@ -889,7 +887,7 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     macro_rules! test_integer {
-      ($t:ty: $($val:expr => $expected:literal$(, $opts:expr)?);+;) => {
+      ($t:ty: $($val:expr_2021 => $expected:literal$(, $opts:expr_2021)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
           let converted = <$t>::convert(
@@ -903,7 +901,7 @@ mod tests {
         )+
       };
 
-      ($t:ty: $($val:expr => ERR$(, $opts:expr)?);+;) => {
+      ($t:ty: $($val:expr_2021 => ERR$(, $opts:expr_2021)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
           let converted = <$t>::convert(
@@ -917,7 +915,7 @@ mod tests {
         )+
       };
 
-      (@opts $opts:expr) => { $opts };
+      (@opts $opts:expr_2021) => { $opts };
       (@opts) => { Default::default() };
     }
 

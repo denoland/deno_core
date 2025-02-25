@@ -63,24 +63,27 @@ async fn run_integration_test_task(
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   let mut actual_output = String::new();
-  if let Err(e) = runtime
+  match runtime
     .run_event_loop(PollEventLoopOptions::default())
     .await
   {
-    let state = runtime.op_state().clone();
-    let state = state.borrow();
-    let output: &Output = state.borrow();
-    for line in e.to_string().split('\n') {
-      output.line(format!("[ERR] {line}"));
-    }
-  } else {
-    // Only await the module if we didn't fail
-    if let Err(e) = f.await {
+    Err(e) => {
       let state = runtime.op_state().clone();
       let state = state.borrow();
       let output: &Output = state.borrow();
       for line in e.to_string().split('\n') {
         output.line(format!("[ERR] {line}"));
+      }
+    }
+    _ => {
+      // Only await the module if we didn't fail
+      if let Err(e) = f.await {
+        let state = runtime.op_state().clone();
+        let state = state.borrow();
+        let output: &Output = state.borrow();
+        for line in e.to_string().split('\n') {
+          output.line(format!("[ERR] {line}"));
+        }
       }
     }
   }

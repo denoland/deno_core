@@ -239,8 +239,10 @@ impl JsRealmInner {
 }
 
 unsafe fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
-  Rc::increment_strong_count(raw);
-  Rc::from_raw(raw)
+  unsafe {
+    Rc::increment_strong_count(raw);
+    Rc::from_raw(raw)
+  }
 }
 
 impl JsRealm {

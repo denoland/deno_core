@@ -254,10 +254,9 @@ impl ModuleMapData {
     &self,
     global: &v8::Global<v8::Module>,
   ) -> Option<String> {
-    if let Some(id) = self.handles_inverted.get(global) {
-      self.get_name_by_id(*id)
-    } else {
-      None
+    match self.handles_inverted.get(global) {
+      Some(id) => self.get_name_by_id(*id),
+      _ => None,
     }
   }
 
@@ -265,11 +264,12 @@ impl ModuleMapData {
     &self,
     global: &v8::Global<v8::Module>,
   ) -> Option<ModuleType> {
-    if let Some(id) = self.handles_inverted.get(global) {
-      let info = self.info.get(*id).unwrap();
-      Some(info.module_type.clone())
-    } else {
-      None
+    match self.handles_inverted.get(global) {
+      Some(id) => {
+        let info = self.info.get(*id).unwrap();
+        Some(info.module_type.clone())
+      }
+      _ => None,
     }
   }
 

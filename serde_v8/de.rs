@@ -107,9 +107,7 @@ macro_rules! deserialize_unsigned {
   };
 }
 
-impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
-  for &'x mut Deserializer<'a, 'b, 's>
-{
+impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'_, '_, '_> {
   type Error = Error;
 
   fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
@@ -676,9 +674,7 @@ struct VariantDeserializer<'a, 'b, 's> {
   scope: &'b mut v8::HandleScope<'s>,
 }
 
-impl<'de, 'a, 'b, 's> de::VariantAccess<'de>
-  for VariantDeserializer<'a, 'b, 's>
-{
+impl<'de> de::VariantAccess<'de> for VariantDeserializer<'_, '_, '_> {
   type Error = Error;
 
   fn unit_variant(self) -> Result<()> {

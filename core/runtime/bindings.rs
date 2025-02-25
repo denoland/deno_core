@@ -758,22 +758,25 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   // Add special method that allows Wasm module to instantiate themselves.
   if module_type == ModuleType::Wasm {
     let wasm_instance_key = WASM_INSTANCE.v8_string(scope).unwrap();
-    if let Some(f) = state.wasm_instance_fn.borrow().as_ref() {
-      let wasm_instance_val = v8::Local::new(scope, &**f);
-      meta.create_data_property(
-        scope,
-        wasm_instance_key.into(),
-        wasm_instance_val.into(),
-      );
-    } else {
-      let message = v8::String::new(
-        scope,
-        "WebAssembly is not available in this environment",
-      )
-      .unwrap();
-      let exception = v8::Exception::error(scope, message);
-      scope.throw_exception(exception);
-      return;
+    match state.wasm_instance_fn.borrow().as_ref() {
+      Some(f) => {
+        let wasm_instance_val = v8::Local::new(scope, &**f);
+        meta.create_data_property(
+          scope,
+          wasm_instance_key.into(),
+          wasm_instance_val.into(),
+        );
+      }
+      _ => {
+        let message = v8::String::new(
+          scope,
+          "WebAssembly is not available in this environment",
+        )
+        .unwrap();
+        let exception = v8::Exception::error(scope, message);
+        scope.throw_exception(exception);
+        return;
+      }
     }
   }
 

@@ -289,11 +289,12 @@ impl Future for RcPromiseFuture {
   type Output = Result<v8::Global<v8::Value>, CoreError>;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
-    if let Some(resolved) = this.0.resolved.take() {
-      Poll::Ready(resolved)
-    } else {
-      this.0.waker.set(Some(cx.waker().clone()));
-      Poll::Pending
+    match this.0.resolved.take() {
+      Some(resolved) => Poll::Ready(resolved),
+      _ => {
+        this.0.waker.set(Some(cx.waker().clone()));
+        Poll::Pending
+      }
     }
   }
 }
@@ -1370,25 +1371,29 @@ impl JsRuntime {
 
     // Execute extension scripts
     for source in loaded_sources.js {
-      if let Some(ext_code_cache) = &ext_code_cache {
-        let specifier = ModuleSpecifier::parse(&source.specifier)?;
-        realm.execute_script_with_cache(
-          self.v8_isolate(),
-          specifier,
-          source.code,
-          &|specifier, code| {
-            ext_code_cache.get_code_cache_info(specifier, code, false)
-          },
-          &|specifier, hash, code_cache| {
-            ext_code_cache.code_cache_ready(specifier, hash, code_cache, false)
-          },
-        )?;
-      } else {
-        realm.execute_script(
-          self.v8_isolate(),
-          source.specifier,
-          source.code,
-        )?;
+      match &ext_code_cache {
+        Some(ext_code_cache) => {
+          let specifier = ModuleSpecifier::parse(&source.specifier)?;
+          realm.execute_script_with_cache(
+            self.v8_isolate(),
+            specifier,
+            source.code,
+            &|specifier, code| {
+              ext_code_cache.get_code_cache_info(specifier, code, false)
+            },
+            &|specifier, hash, code_cache| {
+              ext_code_cache
+                .code_cache_ready(specifier, hash, code_cache, false)
+            },
+          )?;
+        }
+        _ => {
+          realm.execute_script(
+            self.v8_isolate(),
+            source.specifier,
+            source.code,
+          )?;
+        }
       }
     }
 
@@ -1580,7 +1585,8 @@ impl JsRuntime {
   pub fn call(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     self.call_with_args(function, &[])
   }
 
@@ -1594,7 +1600,8 @@ impl JsRuntime {
   pub fn scoped_call(
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     Self::scoped_call_with_args(scope, function, &[])
   }
 
@@ -1609,7 +1616,8 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut self.handle_scope();
     Self::scoped_call_with_args(scope, function, args)
   }
@@ -1625,7 +1633,8 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut v8::TryCatch::new(scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
@@ -1792,7 +1801,8 @@ impl JsRuntime {
   pub fn resolve(
     &mut self,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut self.handle_scope();
     Self::scoped_resolve(scope, promise)
   }
@@ -1804,7 +1814,8 @@ impl JsRuntime {
   pub fn scoped_resolve(
     scope: &mut v8::HandleScope,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let promise = v8::Local::new(scope, promise);
     if !promise.is_promise() {
       return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
@@ -2402,7 +2413,7 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), CoreError>> {
+  ) -> impl Future<Output = Result<(), CoreError>> + use<> {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
@@ -2664,8 +2675,8 @@ impl JsRuntime {
 
     // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
     // storing the exception-reporting callback.
-    let timers =
-      if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
+    let timers = match context_state.timers.poll_timers(cx) {
+      Poll::Ready(timers) => {
         let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
@@ -2685,9 +2696,9 @@ impl JsRuntime {
           arr.set_index(scope, (i * 3 + 2) as _, value.into());
         }
         arr.into()
-      } else {
-        undefined
-      };
+      }
+      _ => undefined,
+    };
     args.push(timers);
 
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);

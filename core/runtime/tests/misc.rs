@@ -1250,9 +1250,10 @@ async fn terminate_execution_run_event_loop_js() {
 
 #[tokio::test]
 async fn global_template_middleware() {
+  use parking_lot::Mutex;
   use v8::MapFnTo;
 
-  static mut CALLS: Vec<String> = Vec::new();
+  static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
   pub fn descriptor<'s>(
     _scope: &mut v8::HandleScope<'s>,
@@ -1260,9 +1261,8 @@ async fn global_template_middleware() {
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("descriptor".to_string());
-    }
+    CALLS.lock().push("descriptor".to_string());
+
     v8::Intercepted::No
   }
 
@@ -1273,9 +1273,7 @@ async fn global_template_middleware() {
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("setter".to_string());
-    }
+    CALLS.lock().push("setter".to_string());
     v8::Intercepted::No
   }
 
@@ -1286,9 +1284,7 @@ async fn global_template_middleware() {
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("definer".to_string());
-    }
+    CALLS.lock().push("definer".to_string());
     v8::Intercepted::No
   }
 
@@ -1324,8 +1320,11 @@ async fn global_template_middleware() {
     )
     .unwrap();
 
-  let calls_set =
-    unsafe { CALLS.clone().into_iter().collect::<HashSet<String>>() };
+  let calls_set = CALLS
+    .lock()
+    .clone()
+    .into_iter()
+    .collect::<HashSet<String>>();
   assert!(calls_set.contains("definer"));
   assert!(calls_set.contains("setter"));
   assert!(calls_set.contains("descriptor"));

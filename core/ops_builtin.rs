@@ -234,10 +234,13 @@ impl Resource for WasmStreamingResource {
     // At this point there are no clones of Rc<WasmStreamingResource> on the
     // resource table, and no one should own a reference outside of the stack.
     // Therefore, we can be sure `self` is the only reference.
-    if let Ok(wsr) = Rc::try_unwrap(self) {
-      wsr.0.into_inner().finish();
-    } else {
-      panic!("Couldn't consume WasmStreamingResource.");
+    match Rc::try_unwrap(self) {
+      Ok(wsr) => {
+        wsr.0.into_inner().finish();
+      }
+      _ => {
+        panic!("Couldn't consume WasmStreamingResource.");
+      }
     }
   }
 }
@@ -456,8 +459,8 @@ fn op_is_terminal(
   Ok(handle.is_terminal())
 }
 
-async fn do_load_job<'s>(
-  scope: &mut v8::HandleScope<'s>,
+async fn do_load_job(
+  scope: &mut v8::HandleScope<'_>,
   module_map_rc: Rc<ModuleMap>,
   specifier: &str,
   code: Option<String>,
@@ -637,8 +640,7 @@ fn op_import_sync<'s>(
   {
     let Some(module) = wrap_module(scope, module) else {
       let exception = scope.exception().unwrap();
-      return exception_to_err_result(scope, exception, false, false)
-        .map_err(Into::into);
+      return exception_to_err_result(scope, exception, false, false);
     };
     Ok(v8::Local::new(scope, module.get_module_namespace()))
   } else {
