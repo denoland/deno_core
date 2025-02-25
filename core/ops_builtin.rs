@@ -1,15 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::CancelHandle;
-use crate::JsBuffer;
-use crate::ModuleId;
-use crate::OpDecl;
-use crate::OpState;
-use crate::Resource;
-use crate::error::CoreError;
-use crate::error::ResourceError;
 use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
+use crate::error::CoreError;
+use crate::error::ResourceError;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -18,16 +12,22 @@ use crate::modules::ModuleMap;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
-use crate::runtime::JsRealm;
 use crate::runtime::v8_static_strings;
+use crate::runtime::JsRealm;
+use crate::CancelHandle;
+use crate::JsBuffer;
+use crate::ModuleId;
+use crate::OpDecl;
+use crate::OpState;
+use crate::Resource;
 use bytes::BytesMut;
 use deno_error::JsErrorBox;
 use futures::StreamExt;
 use serde_v8::ByteString;
 use std::cell::RefCell;
-use std::io::Write;
 use std::io::stderr;
 use std::io::stdout;
+use std::io::Write;
 use std::rc::Rc;
 
 macro_rules! builtin_ops {

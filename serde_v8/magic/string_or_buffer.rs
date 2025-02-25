@@ -43,9 +43,11 @@ impl FromV8 for StringOrBuffer {
       Ok(buf) => {
         return Ok(Self::Buffer(buf));
       }
-      _ => if let Ok(s) = crate::from_v8(scope, value) {
-        return Ok(Self::String(s));
-      },
+      _ => {
+        if let Ok(s) = crate::from_v8(scope, value) {
+          return Ok(Self::String(s));
+        }
+      }
     }
     Err(Error::ExpectedBuffer(value.type_repr()))
   }

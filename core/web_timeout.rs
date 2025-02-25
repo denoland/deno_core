@@ -410,10 +410,11 @@ impl<T: Clone> WebTimers<T> {
           ));
         }
       } else if let Some(TimerData {
-          data,
-          unrefd,
-          high_res,
-        }) = data.remove(&id) {
+        data,
+        unrefd,
+        high_res,
+      }) = data.remove(&id)
+      {
         self.high_res_timer_lock.maybe_unlock(high_res);
         if unrefd {
           self.unrefd_count.set(self.unrefd_count.get() - 1);
