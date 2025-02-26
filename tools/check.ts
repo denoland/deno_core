@@ -167,7 +167,7 @@ async function runCommands(
 }
 
 const CLIPPY_FEATURES =
-  `deno_core/include_js_files_for_snapshotting deno_core/unsafe_runtime_options deno_core/unsafe_use_unprotected_platform`;
+  `deno_core/default deno_core/include_js_files_for_snapshotting deno_core/unsafe_runtime_options deno_core/unsafe_use_unprotected_platform`;
 
 export async function main(command: string, flag: string) {
   if (command == "format") {
@@ -187,7 +187,7 @@ export async function main(command: string, flag: string) {
       await runCommands("Linting (--fix)", {
         "copyright": $`tools/copyright_checker.js --fix`,
         "cargo clippy":
-          $`cargo clippy --fix --allow-dirty --allow-staged --locked --release --features "${CLIPPY_FEATURES}" --all-targets -- -D clippy::all`,
+          $`cargo clippy --fix --allow-dirty --allow-staged --locked --release --features ${CLIPPY_FEATURES} --all-targets -- -D clippy::all`,
       });
     } else {
       await runCommands("Linting", {
@@ -199,7 +199,7 @@ export async function main(command: string, flag: string) {
         "tsc":
           $`deno run --allow-read --allow-env npm:typescript@5.5.3/tsc --noEmit -p testing/tsconfig.json`,
         "cargo clippy":
-          $`cargo clippy --locked --release --features "${CLIPPY_FEATURES}" --all-targets -- -D clippy::all`,
+          $`cargo clippy --locked --release --features ${CLIPPY_FEATURES} --all-targets -- -D clippy::all`,
       });
     }
   }
