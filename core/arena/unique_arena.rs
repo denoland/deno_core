@@ -60,8 +60,8 @@ impl<T: 'static> ArenaBox<T> {
   /// This function returns a raw pointer without managing the memory, potentially leading to
   /// memory leaks if the pointer is not properly handled or deallocated.
   #[inline(always)]
-  pub fn into_raw(mut alloc: ArenaBox<T>) -> NonNull<T> {
-    let ptr = NonNull::from(alloc.data_mut());
+  pub fn into_raw(alloc: ArenaBox<T>) -> NonNull<T> {
+    let ptr: NonNull<ArenaBoxData<T>> = alloc.ptr;
     std::mem::forget(alloc);
     unsafe { Self::ptr_from_data(ptr) }
   }
@@ -94,8 +94,10 @@ impl<T> ArenaBox<T> {
   }
 
   #[inline(always)]
-  fn data_mut(&mut self) -> &mut ArenaBoxData<T> {
-    unsafe { self.ptr.as_mut() }
+  pub(crate) fn deref_data(&self) -> NonNull<T> {
+    unsafe {
+      NonNull::new_unchecked(std::ptr::addr_of_mut!((*self.ptr.as_ptr()).data))
+    }
   }
 }
 
@@ -123,20 +125,6 @@ impl<T> std::convert::AsRef<T> for ArenaBox<T> {
   }
 }
 
-impl<T> std::ops::DerefMut for ArenaBox<T> {
-  #[inline(always)]
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.data_mut().data
-  }
-}
-
-impl<T> std::convert::AsMut<T> for ArenaBox<T> {
-  #[inline(always)]
-  fn as_mut(&mut self) -> &mut T {
-    &mut self.data_mut().data
-  }
-}
-
 impl<F, R> std::future::Future for ArenaBox<F>
 where
   F: Future<Output = R>,
@@ -145,10 +133,10 @@ where
 
   #[inline(always)]
   fn poll(
-    mut self: Pin<&mut Self>,
+    self: Pin<&mut Self>,
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
-    unsafe { F::poll(Pin::new_unchecked(&mut self.data_mut().data), cx) }
+    unsafe { F::poll(Pin::new_unchecked(self.deref_data().as_mut()), cx) }
   }
 }
 
