@@ -41,8 +41,11 @@ impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
   }
 
   #[inline(always)]
-  pub fn raw_ptr<R>(&mut self) -> NonNull<R> {
-    unsafe { NonNull::new_unchecked(self.memory.as_mut_ptr() as *mut _) }
+  /// Safety: This uses a place projection to `this.memory`, which must be in-bounds.
+  pub unsafe fn raw_ptr<R>(this: *mut Self) -> NonNull<R> {
+    unsafe {
+      NonNull::new_unchecked(std::ptr::addr_of_mut!((*this).memory) as *mut _)
+    }
   }
 
   #[inline(always)]
@@ -73,7 +76,7 @@ impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
 
 impl<const MAX_SIZE: usize> Drop for TypeErased<MAX_SIZE> {
   fn drop(&mut self) {
-    (self.drop)(self.raw_ptr::<()>())
+    (self.drop)(unsafe { Self::raw_ptr(self) })
   }
 }
 

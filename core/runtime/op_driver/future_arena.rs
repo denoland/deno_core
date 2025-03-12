@@ -4,6 +4,7 @@ use super::erased_future::TypeErased;
 use crate::arena::ArenaBox;
 use crate::arena::ArenaUnique;
 use pin_project::pin_project;
+use std::cell::UnsafeCell;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
@@ -26,7 +27,7 @@ pub trait FutureContextMapper<T, C, R> {
 
 struct DynFutureInfoErased<T, C> {
   ptr: MaybeUninit<NonNull<dyn ContextFuture<T, C>>>,
-  data: TypeErased<MAX_ARENA_FUTURE_SIZE>,
+  data: UnsafeCell<TypeErased<MAX_ARENA_FUTURE_SIZE>>,
 }
 
 pub trait ContextFuture<T, C>: Future<Output = T> {
@@ -191,19 +192,20 @@ impl<T, C: Clone> FutureArena<T, C> {
     {
       unsafe {
         if let Some(reservation) = self.arena.reserve_space() {
-          let mut alloc = self.arena.complete_reservation(
+          let alloc = self.arena.complete_reservation(
             reservation,
             DynFutureInfoErased {
               ptr: MaybeUninit::uninit(),
-              data: TypeErased::new(DynFutureInfo {
+              data: UnsafeCell::new(TypeErased::new(DynFutureInfo {
                 context,
                 future,
                 _phantom: PhantomData,
-              }),
+              })),
             },
           );
-          let ptr = alloc.data.raw_ptr::<DynFutureInfo<T, C, M, F>>();
-          alloc.ptr.write(ptr);
+          let ptr =
+            TypeErased::raw_ptr::<DynFutureInfo<T, C, M, F>>(alloc.data.get());
+          (*alloc.deref_data().as_ptr()).ptr.write(ptr);
           return TypedFutureAllocation {
             inner: FutureAllocation::Arena(alloc),
             ptr,
