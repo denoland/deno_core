@@ -6,7 +6,7 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use futures::Future;
+use std::future::Future;
 use std::pin::Pin;
 
 mod buffer_strategy;

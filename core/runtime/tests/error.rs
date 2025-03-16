@@ -5,7 +5,7 @@ use crate::RuntimeOptions;
 use crate::error::CoreError;
 use crate::op2;
 use deno_error::JsErrorBox;
-use futures::future::poll_fn;
+use std::future::poll_fn;
 use std::task::Poll;
 
 #[tokio::test]
