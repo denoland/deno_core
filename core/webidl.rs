@@ -102,10 +102,24 @@ impl std::fmt::Display for WebIdlError {
         )
       }
       WebIdlErrorKind::NotFinite => write!(f, "is not a finite number"),
-      WebIdlErrorKind::IntRange { lower_bound, upper_bound } => write!(f, "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"),
-      WebIdlErrorKind::InvalidByteString => write!(f, "is not a valid ByteString"),
-      WebIdlErrorKind::Precision => write!(f, "is outside the range of a single-precision floating-point value"),
-      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(f, "can not be converted to '{converter}' because '{variant}' is not a valid enum value"),
+      WebIdlErrorKind::IntRange {
+        lower_bound,
+        upper_bound,
+      } => write!(
+        f,
+        "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"
+      ),
+      WebIdlErrorKind::InvalidByteString => {
+        write!(f, "is not a valid ByteString")
+      }
+      WebIdlErrorKind::Precision => write!(
+        f,
+        "is outside the range of a single-precision floating-point value"
+      ),
+      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(
+        f,
+        "can not be converted to '{converter}' because '{variant}' is not a valid enum value"
+      ),
       WebIdlErrorKind::Other(other) => std::fmt::Display::fmt(other, f),
     }
   }
@@ -383,11 +397,8 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
 
 // record converter
 // the Options only apply to the value, not the key
-impl<
-    'a,
-    K: WebIdlConverter<'a> + Eq + std::hash::Hash,
-    V: WebIdlConverter<'a>,
-  > WebIdlConverter<'a> for IndexMap<K, V>
+impl<'a, K: WebIdlConverter<'a> + Eq + std::hash::Hash, V: WebIdlConverter<'a>>
+  WebIdlConverter<'a> for IndexMap<K, V>
 {
   type Options = V::Options;
 

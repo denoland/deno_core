@@ -8,12 +8,12 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::cppgc::FunctionTemplateSnapshotData;
-use crate::error::CoreError;
-use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
+use crate::cppgc::FunctionTemplateSnapshotData;
+use crate::error::CoreError;
+use crate::modules::ModuleMapSnapshotData;
 
 use super::ExtensionTranspiler;
 

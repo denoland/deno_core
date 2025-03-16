@@ -1,5 +1,13 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::_ops::OpMethodDecl;
+use crate::ExtensionFileSource;
+use crate::FastString;
+use crate::ModuleCodeString;
+use crate::OpDecl;
+use crate::OpMetricsFactoryFn;
+use crate::OpState;
+use crate::SourceMapData;
 use crate::error::CoreError;
 use crate::extensions::Extension;
 use crate::extensions::ExtensionSourceType;
@@ -11,14 +19,6 @@ use crate::ops::OpCtx;
 use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
-use crate::ExtensionFileSource;
-use crate::FastString;
-use crate::ModuleCodeString;
-use crate::OpDecl;
-use crate::OpMetricsFactoryFn;
-use crate::OpState;
-use crate::SourceMapData;
-use crate::_ops::OpMethodDecl;
 use std::cell::RefCell;
 use std::iter::Chain;
 use std::rc::Rc;

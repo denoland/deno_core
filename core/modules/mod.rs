@@ -1,10 +1,10 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::exception_to_err_result;
+use crate::FastStaticString;
 use crate::error::CoreError;
+use crate::error::exception_to_err_result;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
-use crate::FastStaticString;
 use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -30,9 +30,9 @@ pub use loaders::ModuleLoader;
 pub use loaders::ModuleLoaderError;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
+pub(crate) use map::ModuleMap;
 pub(crate) use map::script_origin;
 pub(crate) use map::synthetic_module_evaluation_steps;
-pub(crate) use map::ModuleMap;
 pub(crate) use module_map_data::ModuleMapSnapshotData;
 
 pub type ModuleId = usize;
@@ -631,7 +631,8 @@ pub(crate) struct ModuleInfo {
 #[derive(Debug, thiserror::Error, deno_error::JsError)]
 #[class(generic)]
 pub enum ModuleConcreteError {
-  #[error("Trying to create \"main\" module ({new_module:?}), when one already exists ({main_module:?})"
+  #[error(
+    "Trying to create \"main\" module ({new_module:?}), when one already exists ({main_module:?})"
   )]
   MainModuleAlreadyExists {
     main_module: String,

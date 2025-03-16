@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use std::any::type_name;
 use std::any::Any;
+use std::any::type_name;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
@@ -696,16 +696,16 @@ mod internal {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use futures::future::FutureExt;
+  use futures::future::TryFutureExt;
   use futures::future::pending;
   use futures::future::poll_fn;
   use futures::future::ready;
-  use futures::future::FutureExt;
-  use futures::future::TryFutureExt;
   use futures::pending;
   use futures::select;
-  use futures::task::noop_waker_ref;
   use futures::task::Context;
   use futures::task::Poll;
+  use futures::task::noop_waker_ref;
   use std::convert::Infallible as Never;
   use std::io;
   use tokio::net::TcpStream;
@@ -848,9 +848,10 @@ mod tests {
     let Poll::Ready(Err(mut f)) = res else {
       panic!("wasn't cancelled!");
     };
-    assert!(f
-      .poll_unpin(&mut Context::from_waker(noop_waker_ref()))
-      .is_pending());
+    assert!(
+      f.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+        .is_pending()
+    );
   }
 
   /// Test polling without tokio so we can use miri.

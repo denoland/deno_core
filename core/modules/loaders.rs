@@ -1,5 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::ModuleSourceCode;
 use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
@@ -11,7 +12,6 @@ use crate::modules::ModuleType;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
-use crate::ModuleSourceCode;
 use deno_error::JsErrorBox;
 
 use futures::future::FutureExt;
@@ -27,17 +27,20 @@ use super::SourceCodeCacheInfo;
 #[derive(Debug, thiserror::Error, deno_error::JsError)]
 #[class(generic)]
 pub enum ModuleLoaderError {
-  #[error("Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot."
+  #[error(
+    "Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot."
   )]
   SpecifierExcludedFromSnapshot(ModuleSpecifier),
-  #[error("Specifier \"{0}\" cannot be lazy-loaded as it was not included in the binary."
+  #[error(
+    "Specifier \"{0}\" cannot be lazy-loaded as it was not included in the binary."
   )]
   SpecifierMissingLazyLoadable(ModuleSpecifier),
   #[error(
     "\"npm:\" specifiers are currently not supported in import.meta.resolve()"
   )]
   NpmUnsupportedMetaResolve,
-  #[error("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."
+  #[error(
+    "Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."
   )]
   JsonMissingAttribute,
   #[error("Module not found")]
@@ -317,7 +320,7 @@ impl ModuleLoader for ExtModuleLoader {
           ModuleLoaderError::SpecifierExcludedFromSnapshot(
             specifier.to_owned(),
           ),
-        ))
+        ));
       }
     };
     let code = ModuleSourceCode::String(source);
@@ -393,7 +396,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
       None => {
         return ModuleLoadResponse::Sync(Err(
           ModuleLoaderError::SpecifierMissingLazyLoadable(specifier.clone()),
-        ))
+        ));
       }
     };
     ModuleLoadResponse::Sync(Ok(ModuleSource::new(

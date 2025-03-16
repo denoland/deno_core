@@ -1,17 +1,17 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::spanned::Spanned;
 use syn::ImplItem;
 use syn::ItemFn;
 use syn::ItemImpl;
+use syn::spanned::Spanned;
 
-use crate::op2::generate_op2;
 use crate::op2::MacroConfig;
 use crate::op2::Op2Error;
+use crate::op2::generate_op2;
 
 use super::signature::is_attribute_special;
 

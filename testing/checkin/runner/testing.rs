@@ -1,21 +1,21 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use anyhow::bail;
+use deno_core::JsRuntime;
+use deno_core::PollEventLoopOptions;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8;
-use deno_core::JsRuntime;
-use deno_core::PollEventLoopOptions;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
-use super::create_runtime;
-use super::run_async;
 use super::Output;
 use super::TestData;
+use super::create_runtime;
+use super::run_async;
 
 deno_core::extension!(
   checkin_testing,

@@ -6,13 +6,6 @@ use serde::ser::Serialize;
 use std::cell::RefCell;
 use std::ops::DerefMut;
 
-use crate::error::Error;
-use crate::error::Result;
-use crate::keys::v8_struct_key;
-use crate::magic;
-use crate::magic::transl8::MagicType;
-use crate::magic::transl8::ToV8;
-use crate::magic::transl8::MAGIC_FIELD;
 use crate::AnyValue;
 use crate::BigInt;
 use crate::ByteString;
@@ -20,6 +13,13 @@ use crate::DetachedBuffer;
 use crate::ExternalPointer;
 use crate::ToJsBuffer;
 use crate::U16String;
+use crate::error::Error;
+use crate::error::Result;
+use crate::keys::v8_struct_key;
+use crate::magic;
+use crate::magic::transl8::MAGIC_FIELD;
+use crate::magic::transl8::MagicType;
+use crate::magic::transl8::ToV8;
 
 type JsValue<'s> = v8::Local<'s, v8::Value>;
 type JsResult<'s> = Result<JsValue<'s>>;

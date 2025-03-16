@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::exception_to_err_result;
 use crate::error::CoreError;
+use crate::error::exception_to_err_result;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::VecDeque;

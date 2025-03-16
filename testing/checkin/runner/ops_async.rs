@@ -2,11 +2,11 @@
 
 use super::Output;
 use super::TestData;
-use deno_core::op2;
-use deno_core::v8;
 use deno_core::GarbageCollected;
 use deno_core::OpState;
 use deno_core::V8TaskSpawner;
+use deno_core::op2;
+use deno_core::v8;
 use deno_error::JsErrorBox;
 use futures::future::poll_fn;
 use std::cell::RefCell;

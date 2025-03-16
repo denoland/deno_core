@@ -1,11 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::CoreError;
-use crate::modules::StaticModuleLoader;
-use crate::op2;
 use crate::JsRuntime;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
+use crate::error::CoreError;
+use crate::modules::StaticModuleLoader;
+use crate::op2;
 use futures::future::poll_fn;
 use std::rc::Rc;
 use std::task::Poll;

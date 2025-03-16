@@ -4,14 +4,9 @@ use super::kw;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::ext::IdentExt;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
 use syn::DataStruct;
 use syn::Error;
 use syn::Expr;
@@ -21,6 +16,11 @@ use syn::LitStr;
 use syn::MetaNameValue;
 use syn::Token;
 use syn::Type;
+use syn::ext::IdentExt;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 
 pub fn get_body(
   ident_string: String,
@@ -33,10 +33,10 @@ pub fn get_body(
       return Err(Error::new(
         span,
         "Unnamed fields are currently not supported",
-      ))
+      ));
     }
     Fields::Unit => {
-      return Err(Error::new(span, "Unit fields are currently not supported"))
+      return Err(Error::new(span, "Unit fields are currently not supported"));
     }
   };
 

@@ -1,5 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_slow::generate_dispatch_slow_call;
 use super::dispatch_slow::return_value_infallible;
@@ -13,12 +15,10 @@ use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
 use super::dispatch_slow::with_self;
 use super::dispatch_slow::with_stack_trace;
-use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
+use super::generator_state::gs_quote;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -41,7 +41,7 @@ pub(crate) fn map_async_return_type(
       return_value_result(generator_state, r)?,
     ),
     RetVal::Infallible(_, false) | RetVal::Result(_, false) => {
-      return Err("an async return")
+      return Err("an async return");
     }
   };
   Ok((return_value, mapper, return_value_immediate))

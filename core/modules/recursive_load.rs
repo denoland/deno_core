@@ -1,8 +1,10 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::ModuleLoadResponse;
+use crate::ModuleLoader;
+use crate::ModuleSource;
 use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::map::ModuleMap;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
@@ -10,10 +12,8 @@ use crate::modules::ModuleLoaderError;
 use crate::modules::ModuleRequest;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
+use crate::modules::map::ModuleMap;
 use crate::resolve_url;
-use crate::ModuleLoadResponse;
-use crate::ModuleLoader;
-use crate::ModuleSource;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::Stream;

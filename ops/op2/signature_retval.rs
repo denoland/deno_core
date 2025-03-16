@@ -112,14 +112,14 @@ pub(crate) fn parse_return(
             return Err(RetError::InvalidType(ArgError::InvalidType(
               stringify_token(rt),
               "for result of future",
-            )))
+            )));
           }
         },
         _ => {
           return Err(RetError::InvalidType(ArgError::InvalidType(
             stringify_token(rt),
             "for result",
-          )))
+          )));
         }
       },
       Future(ty) => match unwrap_return(&ty)? {
@@ -131,7 +131,7 @@ pub(crate) fn parse_return(
           return Err(RetError::InvalidType(ArgError::InvalidType(
             stringify_token(rt),
             "for future",
-          )))
+          )));
         }
       },
     },
@@ -146,7 +146,7 @@ pub(crate) fn parse_return(
         return Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(rt),
           "for async return",
-        )))
+        )));
       }
     };
     Ok(res)
