@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use std::alloc::Layout;
+use std::mem::offset_of;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -33,7 +34,7 @@ pub struct ArenaArc<T> {
 
 impl<T> ArenaArc<T> {
   /// Offset of the `ptr` field within the `ArenaArc` struct.
-  const PTR_OFFSET: usize = memoffset::offset_of!(ArenaArc<T>, ptr);
+  const PTR_OFFSET: usize = offset_of!(ArenaArc<T>, ptr);
 
   /// Converts a raw pointer to the data into a `NonNull` pointer to `ArenaArcData`.
   ///
