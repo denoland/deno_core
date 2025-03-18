@@ -613,7 +613,8 @@ fn fast_api_typed_array_to_buffer(
     // fastcall.
     let #input = unsafe {
       let (input_ptr, input_len) = #input.get_contents_raw_parts(&mut buffer);
-      let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+      let input_ptr = if input_ptr.is_null() { ::std::ptr::dangling_mut() } else { input_ptr };
+      let slice = ::std::slice::from_raw_parts_mut::<'s>(input_ptr, input_len);
       let (before, slice, after) = slice.align_to_mut();
       debug_assert!(before.is_empty());
       debug_assert!(after.is_empty());

@@ -927,8 +927,7 @@ pub struct MemoryUsage {
 #[op2]
 #[serde]
 pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
-  let mut s = v8::HeapStatistics::default();
-  scope.get_heap_statistics(&mut s);
+  let s = scope.get_heap_statistics();
   MemoryUsage {
     physical_total: s.total_physical_size(),
     heap_total: s.total_heap_size(),

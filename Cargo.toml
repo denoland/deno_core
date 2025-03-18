@@ -29,7 +29,7 @@ deno_ast = { version = "=0.44.0", features = ["transpiling"] }
 deno_core_icudata = "0.74.0"
 deno_error = { version = "0.5.5", features = ["serde_json", "serde", "url", "tokio"] }
 deno_unsync = "0.4.1"
-v8 = { version = "134.5.0", default-features = false }
+v8 = { version = "135.0.0", default-features = false }
 
 anyhow = "1"
 bencher = "0.1"
