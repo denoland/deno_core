@@ -25,6 +25,9 @@ use tokio::time::Sleep;
 
 pub(crate) type WebTimerId = u64;
 
+/// The minimum number of tombstones required to trigger compaction
+const COMPACTION_MINIMUM: usize = 16;
+
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum TimerType {
   Repeat(NonZeroU64),
@@ -448,11 +451,9 @@ impl<T: Clone> WebTimers<T> {
         self.sleep.clear();
       }
     } else {
-      // If we have more tombstones than data, and tombstones are >
-      // COMPACTION_MINIMUM, run a compaction.
-      const COMPACTION_MINIMUM: usize = 16;
+      // Run compaction when there are enough tombstones to justify cleanup.
       let tombstone_count = timers.len() - data.len();
-      if tombstone_count > data.len() && tombstone_count > COMPACTION_MINIMUM {
+      if tombstone_count > COMPACTION_MINIMUM {
         timers.retain(|k| data.contains_key(&k.1));
       }
       if let Some(TimerKey(k, ..)) = timers.first() {
@@ -632,6 +633,66 @@ mod tests {
     }
     assert_eq!(v.len(), len);
     v
+  }
+
+  /// This test attempts to mimic a memory leak fix in the timer compaction logic.
+  /// See https://github.com/denoland/deno/issues/27925
+  ///
+  /// The leak happens when there are enough tombstones to justify cleanup
+  /// (tombstone_count > COMPACTION_MINIMUM) but there are also more active timers
+  /// than tombstones (tombstone_count <= data.len()). In this scenario, the original
+  /// condition won't trigger compaction, allowing tombstones to accumulate.
+  #[test]
+  fn test_timer_tombstone_memory_leak() {
+    const ACTIVE_TIMERS: usize = 100;
+    const TOMBSTONES: usize = 30; // > COMPACTION_MINIMUM but < ACTIVE_TIMERS
+    const CLEANUP_THRESHOLD: usize = 5; // Threshold to determine if compaction happened
+    async_test(async {
+      let timers = WebTimers::<()>::default();
+
+      // Create mostly long-lived timers, with a few immediate ones
+      // The immediate timers ensure poll_timers returns non-empty output
+      // which prevents the front-compaction mechanism from cleaning up tombstones
+      let mut active_timer_ids = Vec::with_capacity(ACTIVE_TIMERS);
+      for i in 0..ACTIVE_TIMERS {
+        let timeout = if i < CLEANUP_THRESHOLD { 1 } else { 10000 };
+        active_timer_ids.push(timers.queue_timer(timeout, ()));
+      }
+
+      // Create and immediately cancel timers to generate tombstones
+      for _ in 0..TOMBSTONES {
+        let id = timers.queue_timer(10000, ());
+        timers.cancel_timer(id);
+      }
+
+      let count_tombstones =
+        || timers.timers.borrow().len() - timers.data_map.borrow().len();
+      let initial_tombstones = count_tombstones();
+
+      // Verify test setup is correct
+      assert!(
+        initial_tombstones > COMPACTION_MINIMUM,
+        "Test requires tombstones > COMPACTION_MINIMUM"
+      );
+      assert!(
+        initial_tombstones <= ACTIVE_TIMERS,
+        "Test requires tombstones <= active_timers"
+      );
+
+      // Poll timers to trigger potential compaction
+      let _ = poll_fn(|cx| timers.poll_timers(cx)).await;
+
+      let remaining_tombstones = count_tombstones();
+
+      for id in active_timer_ids {
+        timers.cancel_timer(id);
+      }
+
+      assert!(
+        remaining_tombstones < CLEANUP_THRESHOLD,
+        "Memory leak: Tombstones not cleaned up"
+      );
+    });
   }
 
   #[test]
