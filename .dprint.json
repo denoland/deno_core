@@ -8,6 +8,13 @@
   "json": {
     "deno": true
   },
+  "exec": {
+    "cwd": "${configDir}",
+    "commands": [{
+      "command": "rustfmt",
+      "exts": ["rs"]
+    }]
+  },
   "excludes": [
     ".cargo_home",
     ".git",
