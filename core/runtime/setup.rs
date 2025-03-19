@@ -6,10 +6,10 @@ use crate::V8_WRAPPER_TYPE_INDEX;
 use super::bindings;
 use super::snapshot;
 use super::snapshot::V8Snapshot;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::sync::Once;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 fn v8_init(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
@@ -96,7 +96,10 @@ pub fn init_v8(
 
   if DENO_SNAPSHOT_SET.load(Ordering::SeqCst) {
     let current = DENO_SNAPSHOT.load(Ordering::SeqCst);
-    assert_eq!(current, snapshot, "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both.");
+    assert_eq!(
+      current, snapshot,
+      "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both."
+    );
     DENO_SNAPSHOT_SET.store(true, Ordering::SeqCst);
     DENO_SNAPSHOT.store(snapshot, Ordering::SeqCst);
   }

@@ -1,12 +1,14 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
-use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
+use super::generator_state::gs_quote;
 use super::signature::Arg;
 use super::signature::BufferMode;
 use super::signature::BufferSource;
@@ -17,8 +19,6 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::Special;
 use super::signature::Strings;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use crate::op2::dispatch_async::map_async_return_type;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;

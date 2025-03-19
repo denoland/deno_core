@@ -8,8 +8,8 @@ use smallvec::SmallVec;
 
 use super::transl8::FromV8;
 use super::transl8::ToV8;
-use crate::magic::transl8::impl_magic;
 use crate::Error;
+use crate::magic::transl8::impl_magic;
 
 const USIZE2X: usize = size_of::<usize>() * 2;
 

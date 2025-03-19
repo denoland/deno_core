@@ -232,8 +232,8 @@ impl<T, C: Clone> FutureArena<T, C> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use futures::task::noop_waker_ref;
   use futures::FutureExt;
+  use futures::task::noop_waker_ref;
   use std::fmt::Display;
   use std::future::ready;
 

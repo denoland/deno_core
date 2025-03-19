@@ -1,32 +1,32 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::OpDriver;
+use super::OpInflightStats;
 use super::future_arena::FutureAllocation;
 use super::future_arena::FutureArena;
 use super::op_results::*;
-use super::OpDriver;
-use super::OpInflightStats;
 use crate::OpId;
 use crate::PromiseId;
 use bit_set::BitSet;
 use deno_error::JsErrorClass;
-use deno_unsync::spawn;
 use deno_unsync::JoinHandle;
 use deno_unsync::UnsyncWaker;
+use deno_unsync::spawn;
+use futures::FutureExt;
+use futures::Stream;
 use futures::future::poll_fn;
 use futures::stream::FuturesUnordered;
 use futures::task::noop_waker_ref;
-use futures::FutureExt;
-use futures::Stream;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::future::ready;
 use std::future::Future;
+use std::future::ready;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
+use std::task::ready;
 
 async fn poll_task<C: OpMappingContext>(
   mut results: SubmissionQueueResults<
@@ -313,8 +313,8 @@ impl<F: SubmissionQueueFutures> SubmissionQueue<F> {
 /// Create a [`SubmissionQueue`] and [`SubmissionQueueResults`] that allow for submission of tasks
 /// and reception of task results. We may add work to the [`SubmissionQueue`] from any task, and the
 /// [`SubmissionQueueResults`] will be polled from a single location.
-pub fn new_submission_queue<F: SubmissionQueueFutures>(
-) -> (SubmissionQueue<F>, SubmissionQueueResults<F>) {
+pub fn new_submission_queue<F: SubmissionQueueFutures>()
+-> (SubmissionQueue<F>, SubmissionQueueResults<F>) {
   let queue: Rc<Queue<F>> = Default::default();
   (
     SubmissionQueue {

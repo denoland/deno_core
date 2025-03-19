@@ -1,13 +1,13 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::checkin::runner::Output;
+use crate::checkin::runner::TestData;
 use crate::checkin::runner::ops;
 use crate::checkin::runner::ops_async;
 use crate::checkin::runner::ops_buffer;
 use crate::checkin::runner::ops_error;
 use crate::checkin::runner::ops_io;
 use crate::checkin::runner::ops_worker;
-use crate::checkin::runner::Output;
-use crate::checkin::runner::TestData;
 
 pub trait SomeType {}
 

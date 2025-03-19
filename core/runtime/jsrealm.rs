@@ -3,20 +3,20 @@
 use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
+use crate::_ops::OpMethodDecl;
 use crate::ModuleSourceCode;
 use crate::SourceCodeCacheInfo;
-use crate::_ops::OpMethodDecl;
 use crate::cppgc::FunctionTemplateData;
-use crate::error::exception_to_err_result;
 use crate::error::CoreError;
+use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::script_origin;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
+use crate::modules::script_origin;
 use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;

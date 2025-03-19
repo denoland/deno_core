@@ -6,9 +6,9 @@
 // Here we are deserializing to `serde_json::Value` but you can
 // deserialize to any other type that implements the `Deserialize` trait.
 
-use deno_core::v8;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
+use deno_core::v8;
 
 fn main() {
   let mut runtime = JsRuntime::new(RuntimeOptions::default());

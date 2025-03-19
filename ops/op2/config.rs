@@ -4,14 +4,14 @@ use proc_macro2::Delimiter;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::parse2;
 use syn::Ident;
 use syn::MacroDelimiter;
 use syn::MetaList;
 use syn::Token;
 use syn::Type;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::parse2;
 
 use crate::op2::Op2Error;
 
@@ -396,11 +396,11 @@ mod kw {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use syn::ItemFn;
+  use syn::Meta;
   use syn::parse::Parser;
   use syn::punctuated::Punctuated;
   use syn::spanned::Spanned;
-  use syn::ItemFn;
-  use syn::Meta;
 
   fn test_parse(s: &str, expected: MacroConfig) {
     let item_fn = syn::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))

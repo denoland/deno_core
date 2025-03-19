@@ -1,19 +1,19 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::FastStaticString;
+use crate::OpState;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
 use crate::ops::OpMetadata;
 use crate::runtime::bindings;
-use crate::FastStaticString;
-use crate::OpState;
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use v8::MapFnTo;
 use v8::fast_api::CFunction;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::Int64Representation;
 use v8::fast_api::Type;
-use v8::MapFnTo;
 
 #[derive(Clone)]
 pub enum ExtensionFileSourceCode {
@@ -672,7 +672,10 @@ impl Extension {
   pub fn check_dependencies(&self, previous_exts: &[Extension]) {
     'dep_loop: for dep in self.deps {
       if dep == &self.name {
-        panic!("Extension '{}' is either depending on itself or there is another extension with the same name", self.name);
+        panic!(
+          "Extension '{}' is either depending on itself or there is another extension with the same name",
+          self.name
+        );
       }
 
       for ext in previous_exts {

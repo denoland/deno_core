@@ -1,8 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::is_instance_of_error;
+use crate::JsBuffer;
+use crate::JsRuntime;
+use crate::OpState;
 use crate::error::CoreError;
 use crate::error::JsError;
+use crate::error::is_instance_of_error;
 use crate::io::ResourceError;
 use crate::modules::script_origin;
 use crate::op2;
@@ -12,9 +15,6 @@ use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::source_map::SourceMapApplication;
 use crate::stats::RuntimeActivityType;
-use crate::JsBuffer;
-use crate::JsRuntime;
-use crate::OpState;
 use deno_error::JsErrorBox;
 use serde::Deserialize;
 use serde::Serialize;
@@ -737,7 +737,7 @@ pub fn op_deserialize<'a>(
           None => {
             return Err(JsErrorBox::type_error(
               "item in transferredArrayBuffers not number",
-            ))
+            ));
           }
         };
         match shared_array_buffer_store.take(id) {
@@ -749,8 +749,8 @@ pub fn op_deserialize<'a>(
           }
           _ => {
             return Err(JsErrorBox::type_error(
-            "transferred array buffer not present in shared_array_buffer_store",
-          ));
+              "transferred array buffer not present in shared_array_buffer_store",
+            ));
           }
         }
       }

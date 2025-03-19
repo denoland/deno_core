@@ -3,13 +3,13 @@
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use smallvec::smallvec;
 use smallvec::SmallVec;
+use smallvec::smallvec;
 
 use super::transl8::FromV8;
 use super::transl8::ToV8;
-use crate::magic::transl8::impl_magic;
 use crate::Error;
+use crate::magic::transl8::impl_magic;
 
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct BigInt(num_bigint::BigInt);

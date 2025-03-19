@@ -7,8 +7,8 @@ use crate::ops::*;
 use deno_error::JsErrorClass;
 use futures::future::Future;
 use serde::Deserialize;
-use serde_v8::from_v8;
 use serde_v8::V8Sliceable;
+use serde_v8::from_v8;
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
@@ -540,6 +540,12 @@ pub fn to_v8_slice_any(
 #[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 #[cfg(all(test, not(miri)))]
 mod tests {
+  use crate::FromV8;
+  use crate::GarbageCollected;
+  use crate::JsRuntime;
+  use crate::OpState;
+  use crate::RuntimeOptions;
+  use crate::ToV8;
   use crate::convert::Number;
   use crate::convert::Smi;
   use crate::error::CoreError;
@@ -547,12 +553,6 @@ mod tests {
   use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
-  use crate::FromV8;
-  use crate::GarbageCollected;
-  use crate::JsRuntime;
-  use crate::OpState;
-  use crate::RuntimeOptions;
-  use crate::ToV8;
   use bytes::BytesMut;
   use deno_error::JsErrorBox;
   use futures::Future;
@@ -934,8 +934,8 @@ mod tests {
   }
 
   #[tokio::test(flavor = "current_thread")]
-  pub async fn test_op_result_void_switch(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_void_switch()
+  -> Result<(), Box<dyn std::error::Error>> {
     RETURN_COUNT.with(|count| count.set(0));
     let err = run_test2(
       JIT_ITERATIONS,
@@ -963,8 +963,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_result_primitive(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_primitive()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_test_result_primitive_err",
@@ -1381,7 +1381,11 @@ mod tests {
     }
 
     // Test the error case for op_test_v8_type_handle_scope_result
-    run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
+    run_test2(
+      1,
+      "op_test_v8_type_handle_scope_result",
+      "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}",
+    )?;
     Ok(())
   }
 
@@ -1690,8 +1694,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_jsbuffer(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_jsbuffer()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_jsbuffer",
@@ -1766,8 +1770,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any_length(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any_length()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_any_length",
@@ -1826,8 +1830,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_arraybuffer_slice(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_arraybuffer_slice()
+  -> Result<(), Box<dyn std::error::Error>> {
     // Zero-length buffers
     run_test2(
       JIT_ITERATIONS,
@@ -1917,8 +1921,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
@@ -2188,8 +2192,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_sleep_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_sleep_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       5,
       "op_async_sleep_error",
@@ -2276,8 +2280,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_result_impl(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_result_impl()
+  -> Result<(), Box<dyn std::error::Error>> {
     for (n, msg) in [
       (0, "early exit"),
       (1, "early async exit"),
@@ -2391,8 +2395,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_serde_option_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_serde_option_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       2,
       "op_async_serde_option_v8",
@@ -2429,8 +2433,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_number_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_number_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_number_to_from_v8",
@@ -2488,8 +2492,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",
@@ -2502,8 +2506,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     let err = run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",
