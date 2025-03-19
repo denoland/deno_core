@@ -1,23 +1,23 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::FeatureChecker;
+use crate::OpDecl;
 use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
-use crate::FeatureChecker;
-use crate::OpDecl;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use v8::fast_api::CFunction;
 use v8::Isolate;
+use v8::fast_api::CFunction;
 
 pub type PromiseId = i32;
 pub type OpId = u16;
@@ -47,7 +47,10 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
 
   let current = CURRENT_OP.with(|f| f.get());
   if let Some(current) = current {
-    panic!("op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
+    panic!(
+      "op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}",
+      current.name, decl.name
+    );
   }
   CURRENT_OP.with(|f| f.set(Some(decl)));
   Some(ReentrancyGuard {})
@@ -217,11 +220,7 @@ impl ExternalOpsTracker {
       self
         .counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
-          if x == 0 {
-            None
-          } else {
-            Some(x - 1)
-          }
+          if x == 0 { None } else { Some(x - 1) }
         });
   }
 

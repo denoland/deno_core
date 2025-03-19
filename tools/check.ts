@@ -175,10 +175,12 @@ export async function main(command: string, flag: string) {
     if (check) {
       await runCommands("Formatting (--check)", {
         "dprint fmt": $`deno run -A npm:dprint@0.47.6 check`,
+        "cargo fmt": $`cargo fmt --all -- --check`,
       });
     } else {
       await runCommands("Formatting", {
         "dprint fmt": $`deno run -A npm:dprint@0.47.6 fmt`,
+        "cargo fmt": $`cargo fmt --all`,
       });
     }
   } else if (command == "lint") {

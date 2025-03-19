@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use super::RequestedModuleType;
+use crate::ModuleCodeString;
 use crate::fast_string::FastString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleInfo;
@@ -11,7 +12,6 @@ use crate::modules::ModuleType;
 use crate::runtime::SnapshotDataId;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
-use crate::ModuleCodeString;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;

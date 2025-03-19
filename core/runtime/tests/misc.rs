@@ -2,8 +2,8 @@
 
 use crate::error::CoreError;
 use crate::modules::StaticModuleLoader;
-use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
+use crate::runtime::tests::setup;
 use crate::*;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
@@ -16,11 +16,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
@@ -150,8 +150,10 @@ async fn test_wakers_for_async_ops() {
   "Promise.reject(new Error('fail'))",
   Err("Error: fail\n    at a.js:1:16")
 )]
-#[case("new Promise(resolve => {})",
-  Err("Promise resolution is still pending but the event loop has already resolved"
+#[case(
+  "new Promise(resolve => {})",
+  Err(
+    "Promise resolution is still pending but the event loop has already resolved"
   )
 )]
 #[tokio::test]
@@ -228,7 +230,9 @@ async fn test_resolve_promise(
   "() => { Deno.core.reportUnhandledException(new Error('fail')); return 1; }",
   Ok(Some(1))
 )]
-#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
+#[case(
+  "call",
+  "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
   Err("Uncaught Error: fail")
 )]
 #[tokio::test]

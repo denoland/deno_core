@@ -2,8 +2,8 @@
 
 use super::buffer::JsBuffer;
 use super::transl8::FromV8;
-use crate::magic::transl8::impl_magic;
 use crate::Error;
+use crate::magic::transl8::impl_magic;
 use std::ops::Deref;
 
 #[derive(Debug)]

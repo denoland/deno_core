@@ -5,9 +5,9 @@ use std::ops::DerefMut;
 
 use crate::Error;
 
-use super::transl8::impl_magic;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
+use super::transl8::impl_magic;
 
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct U16String(Vec<u16>);

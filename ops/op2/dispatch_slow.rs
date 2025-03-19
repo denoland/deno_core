@@ -1,13 +1,15 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
+use super::generator_state::GeneratorState;
 use super::generator_state::gs_extract;
 use super::generator_state::gs_quote;
-use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
@@ -23,15 +25,13 @@ use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::signature::WebIDLPairs;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::parse2;
 use syn::Type;
+use syn::parse2;
 
 pub(crate) fn generate_dispatch_slow_call(
   generator_state: &mut GeneratorState,

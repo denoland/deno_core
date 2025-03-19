@@ -6,16 +6,16 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use std::iter::zip;
-use syn::parse::Parser;
-use syn::parse2;
-use syn::parse_str;
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
 use syn::FnArg;
 use syn::ItemFn;
 use syn::Lifetime;
 use syn::LifetimeParam;
 use syn::Type;
+use syn::parse::Parser;
+use syn::parse_str;
+use syn::parse2;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use thiserror::Error;
 
 use self::config::MacroConfig;
@@ -23,11 +23,11 @@ use self::dispatch_async::generate_dispatch_async;
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
-use self::signature::is_attribute_special;
-use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::RetVal;
 use self::signature::SignatureError;
+use self::signature::is_attribute_special;
+use self::signature::parse_signature;
 
 pub mod config;
 pub mod dispatch_async;
@@ -479,7 +479,9 @@ mod tests {
     let readme = std::fs::read_to_string("op2/README.md").unwrap();
     let (header, remainder) = split_readme(&readme, separator, end_separator);
 
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+    let mut actual = format!(
+      "{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n"
+    );
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
@@ -510,7 +512,13 @@ mod tests {
         )
         .expect("Failed to generate op");
       }
-      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      actual += &format!(
+        "<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n",
+        type_param,
+        if fast { "✅" } else { "" },
+        v8,
+        notes
+      );
     });
     actual += "</table>\n";
     actual += end_separator;
@@ -536,7 +544,9 @@ mod tests {
     let end_separator = "\n<!-- END RV -->\n";
     let readme = std::fs::read_to_string("op2/README.md").unwrap();
     let (header, remainder) = split_readme(&readme, separator, end_separator);
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>\n");
+    let mut actual = format!(
+      "{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>\n"
+    );
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
@@ -590,7 +600,14 @@ mod tests {
           .expect("Failed to generate op");
         }
       }
-      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, if async_support { "✅" } else { "" }, v8, notes);
+      actual += &format!(
+        "<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n",
+        type_param,
+        if fast { "✅" } else { "" },
+        if async_support { "✅" } else { "" },
+        v8,
+        notes
+      );
     });
 
     actual += "</table>\n";

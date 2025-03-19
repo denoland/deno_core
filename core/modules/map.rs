@@ -1,15 +1,19 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use super::module_map_data::ModuleMapSnapshotData;
 use super::IntoModuleCodeString;
 use super::IntoModuleName;
 use super::ModuleConcreteError;
+use super::module_map_data::ModuleMapSnapshotData;
+use crate::FastStaticString;
+use crate::JsRuntime;
+use crate::ModuleCodeBytes;
+use crate::ModuleLoadResponse;
+use crate::ModuleSource;
+use crate::ModuleSourceCode;
+use crate::ModuleSpecifier;
 use crate::ascii_str;
-use crate::error::exception_to_err_result;
 use crate::error::JsError;
-use crate::modules::get_requested_module_type_from_attributes;
-use crate::modules::parse_import_attributes;
-use crate::modules::recursive_load::RecursiveModuleLoad;
+use crate::error::exception_to_err_result;
 use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
@@ -20,34 +24,30 @@ use crate::modules::ModuleName;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
-use crate::runtime::exception_state::ExceptionState;
+use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::parse_import_attributes;
+use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::runtime::JsRealm;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
-use crate::FastStaticString;
-use crate::JsRuntime;
-use crate::ModuleCodeBytes;
-use crate::ModuleLoadResponse;
-use crate::ModuleSource;
-use crate::ModuleSourceCode;
-use crate::ModuleSpecifier;
+use crate::runtime::exception_state::ExceptionState;
 use capacity_builder::StringBuilder;
 use deno_error::JsErrorBox;
+use futures::Future;
+use futures::StreamExt;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
 use futures::task::AtomicWaker;
-use futures::Future;
-use futures::StreamExt;
 use indexmap::IndexMap;
 use v8::Function;
 use v8::PromiseState;
 use wasm_dep_analyzer::WasmDeps;
 
-use super::module_map_data::ModuleMapData;
 use super::CustomModuleEvaluationKind;
 use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
+use super::module_map_data::ModuleMapData;
 use deno_core::error::CoreError;
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -915,7 +915,10 @@ impl ModuleMap {
       } else {
         referrer
       };
-      let msg = format!("Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}", specifier, referrer);
+      let msg = format!(
+        "Importing ext: modules is only allowed from ext: and node: modules. Tried to import {} from {}",
+        specifier, referrer
+      );
       return Err(JsErrorBox::type_error(msg).into());
     }
 
@@ -1868,11 +1871,13 @@ impl ModuleMap {
     code: ModuleCodeString,
   ) {
     let data = self.data.borrow_mut();
-    assert!(data
-      .lazy_esm_sources
-      .borrow_mut()
-      .insert(specifier, code)
-      .is_none());
+    assert!(
+      data
+        .lazy_esm_sources
+        .borrow_mut()
+        .insert(specifier, code)
+        .is_none()
+    );
   }
 
   /// Lazy load and evaluate an ES module. Only modules that have been added
@@ -1954,9 +1959,11 @@ pub(crate) fn synthetic_module_evaluation_steps<'a>(
     let value = v8::Local::new(tc_scope, export_value);
 
     // This should never fail
-    assert!(module
-      .set_synthetic_module_export(tc_scope, name, value)
-      .unwrap());
+    assert!(
+      module
+        .set_synthetic_module_export(tc_scope, name, value)
+        .unwrap()
+    );
     assert!(!tc_scope.has_caught());
   }
 

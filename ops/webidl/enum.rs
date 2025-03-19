@@ -4,15 +4,15 @@ use super::kw;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
 use syn::DataEnum;
 use syn::Error;
 use syn::LitStr;
 use syn::Token;
 use syn::Variant;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 
 pub fn get_body(
   ident_string: String,

@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use std::any::type_name;
 use std::any::Any;
+use std::any::type_name;
 use std::borrow::Borrow;
 use std::cell::Cell;
 use std::cell::UnsafeCell;

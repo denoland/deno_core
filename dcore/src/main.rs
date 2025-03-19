@@ -1,8 +1,8 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use clap::ArgMatches;
 use clap::builder::Arg;
 use clap::builder::Command;
-use clap::ArgMatches;
 use deno_core::anyhow::Error;
 
 use deno_core::RuntimeOptions;

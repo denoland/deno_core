@@ -1,9 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use deno_core::anyhow::Error;
 use deno_core::OpMetricsEvent;
 use deno_core::OpMetricsFactoryFn;
 use deno_core::OpMetricsSource;
+use deno_core::anyhow::Error;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

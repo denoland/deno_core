@@ -1,12 +1,12 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::JsRuntime;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
-use crate::JsRuntime;
 use serde::Deserialize;
 use serde::Serialize;
-use std::any::type_name;
 use std::any::TypeId;
+use std::any::type_name;
 use std::collections::BTreeMap;
 pub use v8::cppgc::GarbageCollected;
 

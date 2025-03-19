@@ -4,8 +4,8 @@
 
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
-use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
+use crate::runtime::tests::setup;
 use crate::*;
 use deno_error::JsErrorBox;
 use futures::Future;
@@ -156,12 +156,14 @@ fn test_op_return_serde_v8_error() {
     extensions: vec![test_ext::init_ops()],
     ..Default::default()
   });
-  assert!(runtime
-    .execute_script(
-      "test_op_return_serde_v8_error.js",
-      "Deno.core.ops.op_err()"
-    )
-    .is_err());
+  assert!(
+    runtime
+      .execute_script(
+        "test_op_return_serde_v8_error.js",
+        "Deno.core.ops.op_err()"
+      )
+      .is_err()
+  );
 }
 
 #[test]
@@ -541,8 +543,8 @@ pub async fn op_async() {
 
 #[op2(async)]
 #[allow(unreachable_code)]
-pub fn op_async_impl_future_error(
-) -> Result<impl Future<Output = ()>, JsErrorBox> {
+pub fn op_async_impl_future_error()
+-> Result<impl Future<Output = ()>, JsErrorBox> {
   return Err(JsErrorBox::generic("dead"));
   Ok(async {})
 }

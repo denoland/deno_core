@@ -1,16 +1,16 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 pub use super::modules::ModuleConcreteError;
+use crate::FastStaticString;
 pub use crate::io::ResourceError;
 pub use crate::modules::ModuleLoaderError;
-use crate::runtime::v8_static_strings;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntime;
+use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
-use crate::FastStaticString;
-use deno_error::builtin_classes::*;
 use deno_error::JsErrorClass;
+use deno_error::builtin_classes::*;
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -71,10 +71,12 @@ pub enum CoreError {
     "Cannot evaluate module, because JavaScript execution has been terminated"
   )]
   ExecutionTerminated,
-  #[error("Promise resolution is still pending but the event loop has already resolved"
+  #[error(
+    "Promise resolution is still pending but the event loop has already resolved"
   )]
   PendingPromiseResolution,
-  #[error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated"
+  #[error(
+    "Cannot evaluate dynamically imported module, because JavaScript execution has been terminated"
   )]
   EvaluateDynamicImportedModule,
   #[error(transparent)]
@@ -1214,9 +1216,9 @@ fn maybe_to_path_str(string: &str) -> Option<String> {
 pub mod callsite_fns {
   use capacity_builder::StringBuilder;
 
-  use crate::convert;
   use crate::FromV8;
   use crate::ToV8;
+  use crate::convert;
 
   use super::*;
 
@@ -1671,7 +1673,9 @@ pub fn format_stack_trace<'s>(
         .to_rust_string_lossy(tc_scope);
       #[allow(clippy::print_stderr)]
       {
-        eprintln!("warning: Failed to create JsStackFrame from callsite object: {message}; Result so far: {result}. This is a bug in deno");
+        eprintln!(
+          "warning: Failed to create JsStackFrame from callsite object: {message}; Result so far: {result}. This is a bug in deno"
+        );
       }
       break;
     };

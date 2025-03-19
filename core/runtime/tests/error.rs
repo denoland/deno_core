@@ -1,9 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::CoreError;
-use crate::op2;
 use crate::JsRuntime;
 use crate::RuntimeOptions;
+use crate::error::CoreError;
+use crate::op2;
 use deno_error::JsErrorBox;
 use futures::future::poll_fn;
 use std::task::Poll;

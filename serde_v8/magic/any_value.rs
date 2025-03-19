@@ -3,9 +3,9 @@
 use super::buffer::JsBuffer;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
-use crate::magic::transl8::impl_magic;
 use crate::Error;
 use crate::ToJsBuffer;
+use crate::magic::transl8::impl_magic;
 use num_bigint::BigInt;
 
 /// An untagged enum type that can be any of number, string, bool, bigint, or

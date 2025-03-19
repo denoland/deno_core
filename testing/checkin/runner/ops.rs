@@ -3,6 +3,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use deno_core::GarbageCollected;
+use deno_core::OpState;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -10,13 +12,11 @@ use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
-use deno_core::GarbageCollected;
-use deno_core::OpState;
 use deno_error::JsErrorBox;
 
-use super::extensions::SomeType;
 use super::Output;
 use super::TestData;
+use super::extensions::SomeType;
 
 #[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
