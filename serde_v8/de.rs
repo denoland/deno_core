@@ -735,7 +735,6 @@ pub fn to_utf8(
   to_utf8_fast(s, scope).unwrap_or_else(|| to_utf8_slow(s, scope))
 }
 
-#[allow(deprecated)]
 fn to_utf8_fast(
   s: v8::Local<v8::String>,
   scope: &mut v8::HandleScope,
@@ -746,12 +745,11 @@ fn to_utf8_fast(
   let mut buf = Vec::with_capacity(capacity);
 
   let mut nchars = 0;
-  let bytes_len = s.write_utf8_uninit(
+  let bytes_len = s.write_utf8_uninit_v2(
     scope,
     buf.spare_capacity_mut(),
+    v8::WriteFlags::kReplaceInvalidUtf8,
     Some(&mut nchars),
-    v8::WriteOptions::NO_NULL_TERMINATION
-      | v8::WriteOptions::REPLACE_INVALID_UTF8,
   );
 
   if nchars < str_chars {
@@ -776,6 +774,7 @@ fn to_utf8_slow(
     scope,
     buf.spare_capacity_mut(),
     v8::WriteFlags::kReplaceInvalidUtf8,
+    None,
   );
 
   // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8
