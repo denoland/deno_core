@@ -77,6 +77,7 @@ pub struct ContextState {
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
+  pub(crate) ext_import_meta_proto: RefCell<Option<v8::Global<v8::Object>>>,
 }
 
 impl ContextState {
@@ -104,6 +105,7 @@ impl ContextState {
       timers: Default::default(),
       unrefed_ops: Default::default(),
       external_ops_tracker,
+      ext_import_meta_proto: Default::default(),
     }
   }
 }

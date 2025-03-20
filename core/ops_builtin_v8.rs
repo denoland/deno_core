@@ -937,6 +937,18 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
 }
 
 #[op2]
+pub fn op_get_ext_import_meta_proto<'s>(
+  scope: &mut v8::HandleScope<'s>,
+) -> v8::Local<'s, v8::Value> {
+  let context_state_rc = JsRealm::state_from_scope(scope);
+  if let Some(proto) = context_state_rc.ext_import_meta_proto.borrow().clone() {
+    v8::Local::new(scope, proto).into()
+  } else {
+    v8::null(scope).into()
+  }
+}
+
+#[op2]
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::HandleScope,
   #[global] cb: v8::Global<v8::Function>,

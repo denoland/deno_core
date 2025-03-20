@@ -52,6 +52,7 @@
     op_get_extras_binding_object,
     op_get_promise_details,
     op_get_proxy_details,
+    op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
     op_lazy_load_esm,
     op_memory_usage,
@@ -478,6 +479,11 @@
       op_print(`${consoleStringify(...args)}\n`, false);
     };
   }
+
+  // Default impl of contextual logging
+  op_get_ext_import_meta_proto().log = function internalLog(level, ...args) {
+    console.error(`[${level.toUpperCase()}]`, ...args);
+  };
 
   const consoleStringify = (...args) => args.map(consoleStringifyArg).join(" ");
 

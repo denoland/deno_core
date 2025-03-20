@@ -133,7 +133,8 @@ builtin_ops! {
   ops_builtin_v8::op_leak_tracing_enable,
   ops_builtin_v8::op_leak_tracing_submit,
   ops_builtin_v8::op_leak_tracing_get_all,
-  ops_builtin_v8::op_leak_tracing_get
+  ops_builtin_v8::op_leak_tracing_get,
+  ops_builtin_v8::op_get_ext_import_meta_proto
 }
 
 #[op2(fast)]
