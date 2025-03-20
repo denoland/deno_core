@@ -155,7 +155,7 @@ impl JsRealmInner {
   ) -> Self {
     Self {
       context_state,
-      context: context.into(),
+      context: context.clone(),
       module_map,
       function_templates,
     }
