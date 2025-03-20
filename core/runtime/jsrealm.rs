@@ -61,8 +61,8 @@ pub struct ContextState {
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_wasm_streaming_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
-  pub(crate) wasm_instance_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+    RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) wasm_instance_fn: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) unrefed_ops:
     RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
   pub(crate) activity_traces: RuntimeActivityTraces,
@@ -142,7 +142,7 @@ pub(crate) struct JsRealm(pub(crate) JsRealmInner);
 #[derive(Clone)]
 pub(crate) struct JsRealmInner {
   pub(crate) context_state: Rc<ContextState>,
-  context: Rc<v8::Global<v8::Context>>,
+  context: v8::Global<v8::Context>,
   pub(crate) module_map: Rc<ModuleMap>,
   pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
 }
@@ -188,7 +188,7 @@ impl JsRealmInner {
     &self,
     isolate: &'s mut v8::Isolate,
   ) -> v8::HandleScope<'s> {
-    v8::HandleScope::with_context(isolate, &*self.context)
+    v8::HandleScope::with_context(isolate, &self.context)
   }
 
   pub fn destroy(self) {

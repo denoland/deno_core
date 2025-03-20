@@ -1523,12 +1523,12 @@ impl JsRuntime {
       .exception_state
       .js_build_custom_error_cb
       .borrow_mut()
-      .replace(Rc::new(build_custom_error_cb));
+      .replace(build_custom_error_cb);
     if let Some(wasm_instance_fn) = wasm_instance_fn {
       state_rc
         .wasm_instance_fn
         .borrow_mut()
-        .replace(Rc::new(wasm_instance_fn));
+        .replace(wasm_instance_fn);
     }
   }
 
