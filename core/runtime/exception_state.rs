@@ -20,8 +20,7 @@ pub(crate) struct ExceptionState {
     RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_handled_promise_rejection_cb:
     RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) js_format_exception_cb:
-    RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_format_exception_cb: RefCell<Option<v8::Global<v8::Function>>>,
 }
 
 impl ExceptionState {
