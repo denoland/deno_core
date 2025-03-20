@@ -1095,6 +1095,11 @@ impl JsRuntime {
         snapshotted_data.module_map_data,
       );
 
+      if let Some(index) = snapshotted_data.ext_import_meta_proto {
+        *context_state.ext_import_meta_proto.borrow_mut() =
+          Some(data_store.get(scope, index));
+      }
+
       state_rc
         .function_templates
         .borrow_mut()
@@ -1108,6 +1113,14 @@ impl JsRuntime {
       for (key, map) in snapshotted_data.ext_source_maps {
         mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
       }
+    }
+
+    if context_state.ext_import_meta_proto.borrow().is_none() {
+      let null = v8::null(scope);
+      let obj =
+        v8::Object::with_prototype_and_properties(scope, null.into(), &[], &[]);
+      *context_state.ext_import_meta_proto.borrow_mut() =
+        Some(v8::Global::new(scope, obj));
     }
 
     // SAFETY: Set the module map slot in the context
@@ -2227,6 +2240,14 @@ impl JsRuntimeForSnapshot {
       }
       .map(|cb| data_store.register(cb));
 
+      let ext_import_meta_proto = realm
+        .0
+        .context_state
+        .ext_import_meta_proto
+        .borrow()
+        .clone()
+        .map(|p| data_store.register(p));
+
       let snapshotted_data = SnapshottedData {
         module_map_data,
         function_templates_data,
@@ -2236,6 +2257,7 @@ impl JsRuntimeForSnapshot {
         source_count: self.inner.source_count,
         extension_count: self.inner.extension_count,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        ext_import_meta_proto,
         ext_source_maps,
         external_strings,
       };

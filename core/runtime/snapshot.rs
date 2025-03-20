@@ -299,6 +299,7 @@ pub fn get_js_files(
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SnapshottedData<'snapshot> {
   pub js_handled_promise_rejection_cb: Option<u32>,
+  pub ext_import_meta_proto: Option<u32>,
   pub module_map_data: ModuleMapSnapshotData,
   pub function_templates_data: FunctionTemplateSnapshotData,
   pub externals_count: u32,
