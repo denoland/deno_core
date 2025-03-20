@@ -5,7 +5,6 @@ use crate::error::exception_to_err_result;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 
 #[derive(Default)]
 pub(crate) struct ExceptionState {
@@ -18,11 +17,10 @@ pub(crate) struct ExceptionState {
   pub(crate) pending_handled_promise_rejections:
     RefCell<VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>>,
   pub(crate) js_build_custom_error_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+    RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_handled_promise_rejection_cb:
     RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) js_format_exception_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) js_format_exception_cb: RefCell<Option<v8::Global<v8::Function>>>,
 }
 
 impl ExceptionState {

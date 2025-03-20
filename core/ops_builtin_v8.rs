@@ -962,7 +962,7 @@ pub fn op_set_wasm_streaming_callback(
       "op_set_wasm_streaming_callback already called",
     ));
   }
-  *context_state_rc.js_wasm_streaming_cb.borrow_mut() = Some(Rc::new(cb));
+  *context_state_rc.js_wasm_streaming_cb.borrow_mut() = Some(cb);
 
   scope.set_wasm_streaming_callback(|scope, arg, wasm_streaming| {
     let (cb_handle, streaming_rid) = {
@@ -1152,8 +1152,8 @@ pub fn op_set_format_exception_callback<'a>(
     .exception_state
     .js_format_exception_cb
     .borrow_mut()
-    .replace(Rc::new(cb));
-  let old = old.map(|v| v8::Local::new(scope, &*v));
+    .replace(cb);
+  let old = old.map(|v| v8::Local::new(scope, &v));
   old.map(|func| func.into())
 }
 

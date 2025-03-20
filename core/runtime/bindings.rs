@@ -760,7 +760,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
     let wasm_instance_key = WASM_INSTANCE.v8_string(scope).unwrap();
     match state.wasm_instance_fn.borrow().as_ref() {
       Some(f) => {
-        let wasm_instance_val = v8::Local::new(scope, &**f);
+        let wasm_instance_val = v8::Local::new(scope, f.clone());
         meta.create_data_property(
           scope,
           wasm_instance_key.into(),
