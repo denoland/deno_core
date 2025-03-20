@@ -59,8 +59,7 @@ pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
-  pub(crate) js_event_loop_tick_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_wasm_streaming_cb:
     RefCell<Option<Rc<v8::Global<v8::Function>>>>,
   pub(crate) wasm_instance_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
