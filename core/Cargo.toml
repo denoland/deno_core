@@ -40,7 +40,6 @@ deno_unsync.workspace = true
 futures.workspace = true
 indexmap.workspace = true
 libc.workspace = true
-memoffset.workspace = true
 parking_lot.workspace = true
 percent-encoding.workspace = true
 pin-project.workspace = true
