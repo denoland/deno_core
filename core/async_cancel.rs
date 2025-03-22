@@ -15,11 +15,11 @@ use crate::RcLike;
 use crate::Resource;
 use deno_error::JsErrorClass;
 use futures::future::FusedFuture;
-use futures::future::Future;
 use futures::future::TryFuture;
-use futures::task::Context;
-use futures::task::Poll;
 use pin_project::pin_project;
+use std::future::Future;
+use std::task::Context;
+use std::task::Poll;
 
 use self::internal as i;
 
@@ -279,19 +279,19 @@ mod internal {
   use super::Canceled;
   use super::TryCancelable;
   use crate::RcRef;
-  use futures::future::Future;
-  use futures::task::Context;
-  use futures::task::Poll;
-  use futures::task::Waker;
   use pin_project::pin_project;
   use std::any::Any;
   use std::cell::UnsafeCell;
+  use std::future::Future;
   use std::marker::PhantomPinned;
   use std::mem::replace;
   use std::pin::Pin;
   use std::ptr::NonNull;
   use std::rc::Rc;
   use std::rc::Weak;
+  use std::task::Context;
+  use std::task::Poll;
+  use std::task::Waker;
 
   impl<F: Future> Cancelable<F> {
     pub(super) fn new(future: F, cancel_handle: RcRef<CancelHandle>) -> Self {
@@ -698,16 +698,16 @@ mod tests {
   use super::*;
   use futures::future::FutureExt;
   use futures::future::TryFutureExt;
-  use futures::future::pending;
-  use futures::future::poll_fn;
-  use futures::future::ready;
   use futures::pending;
   use futures::select;
-  use futures::task::Context;
-  use futures::task::Poll;
-  use futures::task::noop_waker_ref;
   use std::convert::Infallible as Never;
+  use std::future::pending;
+  use std::future::poll_fn;
+  use std::future::ready;
   use std::io;
+  use std::task::Context;
+  use std::task::Poll;
+  use std::task::Waker;
   use tokio::net::TcpStream;
   use tokio::spawn;
   use tokio::task::yield_now;
@@ -764,7 +764,7 @@ mod tests {
       box_fused(ready_in_n("K", 5).or_cancel(cancel_never)),
     ];
 
-    let mut cx = Context::from_waker(noop_waker_ref());
+    let mut cx = Context::from_waker(Waker::noop());
 
     for i in 0..=5 {
       match i {
@@ -841,15 +841,15 @@ mod tests {
     let cancel_handle = Rc::new(CancelHandle::new());
     let f = pending::<u32>();
     let mut f = Box::pin(f.or_abort(&cancel_handle));
-    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    let res = f.as_mut().poll(&mut Context::from_waker(Waker::noop()));
     assert!(res.is_pending());
     cancel_handle.cancel();
-    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    let res = f.as_mut().poll(&mut Context::from_waker(Waker::noop()));
     let Poll::Ready(Err(mut f)) = res else {
       panic!("wasn't cancelled!");
     };
     assert!(
-      f.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+      f.poll_unpin(&mut Context::from_waker(Waker::noop()))
         .is_pending()
     );
   }
@@ -876,14 +876,14 @@ mod tests {
     let cancel_handle = Rc::new(CancelHandle::new());
     let f = CountdownFuture(2, "hello world!".into());
     let mut f = Box::pin(f.or_abort(cancel_handle.clone()));
-    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    let res = f.as_mut().poll(&mut Context::from_waker(Waker::noop()));
     assert!(res.is_pending());
     cancel_handle.clone().cancel();
-    let res = f.as_mut().poll(&mut Context::from_waker(noop_waker_ref()));
+    let res = f.as_mut().poll(&mut Context::from_waker(Waker::noop()));
     let Poll::Ready(Err(mut f)) = res else {
       panic!("wasn't cancelled!");
     };
-    let res = f.poll_unpin(&mut Context::from_waker(noop_waker_ref()));
+    let res = f.poll_unpin(&mut Context::from_waker(Waker::noop()));
     assert_eq!(res, Poll::Ready("hello world!".into()));
   }
 
@@ -1013,7 +1013,7 @@ mod tests {
     // There are two `Rc<CancelHandle>` references now, so this fails.
     assert!(Rc::get_mut(&mut cancel_handle).is_none());
 
-    let mut cx = Context::from_waker(noop_waker_ref());
+    let mut cx = Context::from_waker(Waker::noop());
     assert!(future.poll(&mut cx).is_pending());
 
     // Polling `future` has established a link between the future and

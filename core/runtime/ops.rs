@@ -5,12 +5,12 @@ use super::op_driver::OpScheduling;
 use super::op_driver::V8RetValMapper;
 use crate::ops::*;
 use deno_error::JsErrorClass;
-use futures::future::Future;
 use serde::Deserialize;
 use serde_v8::V8Sliceable;
 use serde_v8::from_v8;
 use std::borrow::Cow;
 use std::ffi::c_void;
+use std::future::Future;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
@@ -555,13 +555,13 @@ mod tests {
   use crate::runtime::JsRuntimeState;
   use bytes::BytesMut;
   use deno_error::JsErrorBox;
-  use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
   use serde_v8::JsBuffer;
   use std::borrow::Cow;
   use std::cell::Cell;
   use std::cell::RefCell;
+  use std::future::Future;
   use std::rc::Rc;
   use std::time::Duration;
 

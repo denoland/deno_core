@@ -14,18 +14,18 @@ use deno_unsync::UnsyncWaker;
 use deno_unsync::spawn;
 use futures::FutureExt;
 use futures::Stream;
-use futures::future::poll_fn;
 use futures::stream::FuturesUnordered;
-use futures::task::noop_waker_ref;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::future::Future;
+use std::future::poll_fn;
 use std::future::ready;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Waker;
 use std::task::ready;
 
 async fn poll_task<C: OpMappingContext>(
@@ -149,7 +149,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      match pinned.poll_unpin(&mut Context::from_waker(Waker::noop())) {
         Poll::Pending => self.spawn(pinned.erase()),
         Poll::Ready(res) => {
           if DEFERRED {
@@ -190,8 +190,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      match Pin::new(&mut pinned)
-        .poll(&mut Context::from_waker(noop_waker_ref()))
+      match Pin::new(&mut pinned).poll(&mut Context::from_waker(Waker::noop()))
       {
         Poll::Pending => self.spawn(pinned.erase()),
         Poll::Ready(res) => {

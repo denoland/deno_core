@@ -4,7 +4,6 @@ use cooked_waker::IntoWaker;
 use cooked_waker::ViaRawPointer;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
-use futures::Future;
 use std::cell::Cell;
 use std::cell::Ref;
 use std::cell::RefCell;
@@ -12,6 +11,7 @@ use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::btree_set;
+use std::future::Future;
 use std::mem::MaybeUninit;
 use std::num::NonZeroU64;
 use std::pin::Pin;
@@ -594,8 +594,8 @@ impl HighResTimerLock {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use futures::future::poll_fn;
   use rstest::rstest;
+  use std::future::poll_fn;
 
   /// Miri is way too slow here on some of the larger tests.
   const TEN_THOUSAND: u64 = if cfg!(miri) { 100 } else { 10_000 };

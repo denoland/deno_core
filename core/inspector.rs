@@ -15,8 +15,6 @@ use crate::futures::prelude::*;
 use crate::futures::stream::SelectAll;
 use crate::futures::stream::StreamExt;
 use crate::futures::task;
-use crate::futures::task::Context;
-use crate::futures::task::Poll;
 use crate::serde_json::Value;
 use crate::serde_json::json;
 use deno_error::JsErrorBox;
@@ -32,6 +30,8 @@ use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 use std::thread;
 use v8::HandleScope;
 

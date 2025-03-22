@@ -85,7 +85,7 @@ pub trait Resource: Any + 'static {
   /// implement `read_byob()`.
   fn read(self: Rc<Self>, limit: usize) -> AsyncResult<BufView> {
     _ = limit;
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Read a single chunk of data from the resource into the provided `BufMutView`.
@@ -111,7 +111,7 @@ pub trait Resource: Any + 'static {
 
   /// Write an error state to this resource, if the resource supports it.
   fn write_error(self: Rc<Self>, _error: &dyn JsErrorClass) -> AsyncResult<()> {
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Write a single chunk of data to the resource. The operation may not be
@@ -123,7 +123,7 @@ pub trait Resource: Any + 'static {
   /// with a "not supported" error.
   fn write(self: Rc<Self>, buf: BufView) -> AsyncResult<WriteOutcome> {
     _ = buf;
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Write an entire chunk of data to the resource. Unlike `write()`, this will
@@ -175,7 +175,7 @@ pub trait Resource: Any + 'static {
   /// If this method is not implemented, the default implementation will error
   /// with a "not supported" error.
   fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Resources may implement the `close()` trait method if they need to do
