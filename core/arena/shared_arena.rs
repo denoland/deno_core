@@ -2,6 +2,7 @@
 
 use std::alloc::Layout;
 use std::cell::Cell;
+use std::mem::offset_of;
 use std::ptr::NonNull;
 
 use crate::arena::raw_arena::RawArena;
@@ -32,7 +33,7 @@ static_assertions::assert_not_impl_any!(ArenaRc<()>: Send, Sync);
 
 impl<T> ArenaRc<T> {
   /// Offset of the `ptr` field within the `ArenaRc` struct.
-  const PTR_OFFSET: usize = memoffset::offset_of!(ArenaRc<T>, ptr);
+  const PTR_OFFSET: usize = offset_of!(ArenaRc<T>, ptr);
 
   /// Converts a raw pointer to the data into a `NonNull` pointer to `ArenaRcData`.
   ///
