@@ -277,32 +277,45 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
-#[op2(async)]
-async fn op_read(
+fn get_resource(
   state: Rc<RefCell<OpState>>,
-  #[smi] rid: ResourceId,
-  #[buffer] buf: JsBuffer,
-) -> Result<u32, JsErrorBox> {
-  let resource = state
-    .borrow()
+  rid: ResourceId,
+  promise_id: i32,
+) -> Result<Rc<dyn Resource>, JsErrorBox> {
+  let op_state = state.borrow();
+  let resource = op_state
     .resource_table
     .get_any(rid)
     .map_err(JsErrorBox::from_err)?;
+
+  if !resource.has_ref() {
+    op_state.unrefed_ops.borrow_mut().insert(promise_id);
+  }
+
+  Ok(resource)
+}
+
+#[op2(async, promise_id)]
+async fn op_read(
+  state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
+  #[smi] rid: ResourceId,
+  #[buffer] buf: JsBuffer,
+) -> Result<u32, JsErrorBox> {
+  let resource = get_resource(state, rid, promise_id)?;
+
   let view = BufMutView::from(buf);
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
-#[op2(async)]
+#[op2(async, promise_id)]
 #[buffer]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
   #[smi] rid: ResourceId,
 ) -> Result<BytesMut, JsErrorBox> {
-  let resource = state
-    .borrow()
-    .resource_table
-    .get_any(rid)
-    .map_err(JsErrorBox::from_err)?;
+  let resource = get_resource(state, rid, promise_id)?;
 
   let (min, maybe_max) = resource.size_hint();
   let mut buffer_strategy =
@@ -331,17 +344,15 @@ async fn op_read_all(
   Ok(buf.maybe_unwrap_bytes().unwrap())
 }
 
-#[op2(async)]
+#[op2(async, promise_id)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
 ) -> Result<u32, JsErrorBox> {
-  let resource = state
-    .borrow()
-    .resource_table
-    .get_any(rid)
-    .map_err(JsErrorBox::from_err)?;
+  let resource = get_resource(state, rid, promise_id)?;
+
   let view = BufView::from(buf);
   let resp = resource.write(view).await?;
   Ok(resp.nwritten() as u32)

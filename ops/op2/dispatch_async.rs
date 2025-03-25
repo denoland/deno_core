@@ -60,8 +60,10 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
+  let input_index = if config.promise_id { 0 } else { 1 };
   // input_index = 1 as promise ID is the first arg
-  let args = generate_dispatch_slow_call(generator_state, signature, 1)?;
+  let args =
+    generate_dispatch_slow_call(generator_state, signature, input_index)?;
 
   // Always need context and args
   generator_state.needs_opctx = true;

@@ -54,6 +54,8 @@ pub struct MacroConfig {
   pub rename: Option<String>,
   /// Symbol.for("op_name") for the op.
   pub symbol: bool,
+  /// Calls the fn with the promise_id of the async op.
+  pub promise_id: bool,
 }
 
 impl MacroConfig {
@@ -117,6 +119,7 @@ impl MacroConfig {
           config.rename = Some(symbol.clone());
           config.symbol = true;
         }
+        Flags::PromiseId => config.promise_id = true,
       }
 
       passed_flags.push(flag);
@@ -164,6 +167,12 @@ impl MacroConfig {
         "reentrant",
       ));
     }
+    if config.promise_id && !config.r#async {
+      return Err(Op2Error::InvalidAttributeCombination(
+        "promise_id_fn",
+        "async",
+      ));
+    }
 
     Ok(config)
   }
@@ -193,6 +202,7 @@ enum Flags {
   StaticMethod,
   StackTrace,
   Symbol(String),
+  PromiseId,
 }
 
 impl Parse for Flags {
@@ -281,6 +291,9 @@ impl Parse for Flags {
       let list = meta.require_list()?;
       let lit = list.parse_args::<syn::LitStr>()?;
       Flags::Symbol(lit.value())
+    } else if lookahead.peek(kw::promise_id) {
+      input.parse::<kw::promise_id>()?;
+      Flags::PromiseId
     } else {
       return Err(lookahead.error());
     };
@@ -391,6 +404,7 @@ mod kw {
   custom_keyword!(fake);
   custom_keyword!(lazy);
   custom_keyword!(deferred);
+  custom_keyword!(promise_id);
 }
 
 #[cfg(test)]

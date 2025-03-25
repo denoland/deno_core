@@ -8,6 +8,7 @@ use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
+use crate::runtime::UnrefedOps;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -239,6 +240,7 @@ pub struct OpState {
   pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
   pub op_stack_trace_callback: Option<OpStackTraceCallback>,
+  pub(crate) unrefed_ops: UnrefedOps,
 }
 
 impl OpState {
@@ -255,6 +257,7 @@ impl OpState {
         counter: Arc::new(AtomicUsize::new(0)),
       },
       op_stack_trace_callback,
+      unrefed_ops: Default::default(),
     }
   }
 
