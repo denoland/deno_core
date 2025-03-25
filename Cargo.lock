@@ -2727,9 +2727,9 @@ dependencies = [
 
 [[package]]
 name = "testing_macros"
-version = "0.2.13"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32d8d51dafe71c966464b06d3b5c1eca715590e952d20a908d003fd34791a773"
+checksum = "a2d27bf245b90a80d5aa231133418ae7db98f032855ce5292e12071ab29c4b26"
 dependencies = [
  "anyhow",
  "glob",
