@@ -118,7 +118,7 @@ pub async fn op_file_open(
     .resource_table
     .add(FileResource::new(tokio_file));
 
-  if ref_ {
+  if !ref_ {
     op_state.borrow_mut().unrefed_resources.insert(rid);
   }
 
