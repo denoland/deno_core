@@ -11,9 +11,6 @@ use std::rc::Rc;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::ModuleLoaderError;
-use deno_core::resolve_import;
-use deno_core::url::Url;
 use deno_core::ModuleCodeBytes;
 use deno_core::ModuleCodeString;
 use deno_core::ModuleLoadResponse;
@@ -26,6 +23,9 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::SourceMapData;
+use deno_core::error::ModuleLoaderError;
+use deno_core::resolve_import;
+use deno_core::url::Url;
 use deno_error::JsErrorBox;
 
 // TODO(bartlomieju): this is duplicated in `core/examples/ts_modules_loader.rs`.

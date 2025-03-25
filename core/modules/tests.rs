@@ -2,12 +2,16 @@
 
 #![allow(clippy::print_stderr)]
 
+use crate::FastString;
+use crate::ModuleCodeString;
+use crate::ModuleSource;
+use crate::ModuleSpecifier;
+use crate::ModuleType;
+use crate::ResolutionKind;
+use crate::RuntimeOptions;
 use crate::ascii_str;
-use crate::error::exception_to_err_result;
 use crate::error::CoreError;
-use crate::modules::loaders::ModuleLoadEventCounts;
-use crate::modules::loaders::TestingModuleLoader;
-use crate::modules::loaders::*;
+use crate::error::exception_to_err_result;
 use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeBytes;
@@ -18,22 +22,18 @@ use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
 use crate::modules::RequestedModuleType;
 use crate::modules::SourceCodeCacheInfo;
+use crate::modules::loaders::ModuleLoadEventCounts;
+use crate::modules::loaders::TestingModuleLoader;
+use crate::modules::loaders::*;
 use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
-use crate::FastString;
-use crate::ModuleCodeString;
-use crate::ModuleSource;
-use crate::ModuleSpecifier;
-use crate::ModuleType;
-use crate::ResolutionKind;
-use crate::RuntimeOptions;
 use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
 use deno_ops::op2;
-use futures::future::poll_fn;
 use futures::future::FutureExt;
+use futures::future::poll_fn;
 use parking_lot::Mutex;
 use std::any::Any;
 use std::borrow::Cow;
@@ -43,9 +43,9 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use tokio::task::LocalSet;
@@ -290,7 +290,7 @@ impl ModuleLoader for MockLoader {
     let output_specifier = match resolve_import(specifier, referrer) {
       Ok(specifier) => specifier,
       Err(..) => {
-        return Err(JsErrorBox::from_err(MockError::ResolveErr).into())
+        return Err(JsErrorBox::from_err(MockError::ResolveErr).into());
       }
     };
 
@@ -1028,6 +1028,27 @@ async fn dyn_import_err() {
 }
 
 #[tokio::test]
+async fn dyn_import_recurse_err() {
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  runtime
+    .execute_script(
+      "file:///dyn_import2.js",
+      r#"
+function bar(v) {
+  bar(import(0));
+}
+bar("foo");
+      "#,
+    )
+    .expect_err("should throw range error");
+}
+
+#[tokio::test]
 async fn dyn_import_ok() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
     Url::parse("file:///b.js").unwrap(),
@@ -1169,9 +1190,11 @@ fn test_circular_load() {
       }])
     );
 
-    assert!(modules
-      .get_id("file:///circular3.js", RequestedModuleType::None)
-      .is_some());
+    assert!(
+      modules
+        .get_id("file:///circular3.js", RequestedModuleType::None)
+        .is_some()
+    );
     let circular3_id = modules
       .get_id("file:///circular3.js", RequestedModuleType::None)
       .unwrap();
@@ -1203,61 +1226,61 @@ fn test_redirect_load() {
     ..Default::default()
   });
 
-  let fut =
-    async move {
-      let spec = resolve_url("file:///redirect1.js").unwrap();
-      let result = runtime.load_main_es_module(&spec).await;
-      assert!(result.is_ok());
-      let redirect1_id = result.unwrap();
-      #[allow(clippy::let_underscore_future)]
-      let _ = runtime.mod_evaluate(redirect1_id);
-      runtime.run_event_loop(Default::default()).await.unwrap();
-      let l = loads.lock();
-      assert_eq!(
-        l.to_vec(),
-        vec![
-          "file:///redirect1.js",
-          "file:///redirect2.js",
-          "file:///dir/redirect3.js"
-        ]
-      );
+  let fut = async move {
+    let spec = resolve_url("file:///redirect1.js").unwrap();
+    let result = runtime.load_main_es_module(&spec).await;
+    assert!(result.is_ok());
+    let redirect1_id = result.unwrap();
+    #[allow(clippy::let_underscore_future)]
+    let _ = runtime.mod_evaluate(redirect1_id);
+    runtime.run_event_loop(Default::default()).await.unwrap();
+    let l = loads.lock();
+    assert_eq!(
+      l.to_vec(),
+      vec![
+        "file:///redirect1.js",
+        "file:///redirect2.js",
+        "file:///dir/redirect3.js"
+      ]
+    );
 
-      let module_map_rc = runtime.module_map();
-      let modules = module_map_rc;
+    let module_map_rc = runtime.module_map();
+    let modules = module_map_rc;
 
-      assert_eq!(
-        modules.get_id("file:///redirect1.js", RequestedModuleType::None),
-        Some(redirect1_id)
-      );
+    assert_eq!(
+      modules.get_id("file:///redirect1.js", RequestedModuleType::None),
+      Some(redirect1_id)
+    );
 
-      let redirect2_id = modules
-        .get_id("file:///dir/redirect2.js", RequestedModuleType::None)
-        .unwrap();
-      assert!(
-        modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
-      );
-      assert!(!modules
-        .is_alias("file:///dir/redirect2.js", RequestedModuleType::None));
-      assert_eq!(
-        modules.get_id("file:///redirect2.js", RequestedModuleType::None),
-        Some(redirect2_id)
-      );
+    let redirect2_id = modules
+      .get_id("file:///dir/redirect2.js", RequestedModuleType::None)
+      .unwrap();
+    assert!(
+      modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
+    );
+    assert!(
+      !modules.is_alias("file:///dir/redirect2.js", RequestedModuleType::None)
+    );
+    assert_eq!(
+      modules.get_id("file:///redirect2.js", RequestedModuleType::None),
+      Some(redirect2_id)
+    );
 
-      let redirect3_id = modules
-        .get_id("file:///redirect3.js", RequestedModuleType::None)
-        .unwrap();
-      assert!(
-        modules.is_alias("file:///dir/redirect3.js", RequestedModuleType::None)
-      );
-      assert!(
-        !modules.is_alias("file:///redirect3.js", RequestedModuleType::None)
-      );
-      assert_eq!(
-        modules.get_id("file:///dir/redirect3.js", RequestedModuleType::None),
-        Some(redirect3_id)
-      );
-    }
-    .boxed_local();
+    let redirect3_id = modules
+      .get_id("file:///redirect3.js", RequestedModuleType::None)
+      .unwrap();
+    assert!(
+      modules.is_alias("file:///dir/redirect3.js", RequestedModuleType::None)
+    );
+    assert!(
+      !modules.is_alias("file:///redirect3.js", RequestedModuleType::None)
+    );
+    assert_eq!(
+      modules.get_id("file:///dir/redirect3.js", RequestedModuleType::None),
+      Some(redirect3_id)
+    );
+  }
+  .boxed_local();
 
   futures::executor::block_on(fut);
 }
@@ -1271,39 +1294,39 @@ fn test_concurrent_redirect_load() {
     ..Default::default()
   });
 
-  let fut =
-    async move {
-      let spec = resolve_url("file:///concurrent_redirect.js").unwrap();
-      let result = runtime.load_main_es_module(&spec).await;
-      assert!(result.is_ok());
-      let concurrent_redirect = result.unwrap();
-      #[allow(clippy::let_underscore_future)]
-      let _ = runtime.mod_evaluate(concurrent_redirect);
-      runtime.run_event_loop(Default::default()).await.unwrap();
-      let l = loads.lock();
-      assert_eq!(
-        l.to_vec(),
-        vec![
-          "file:///concurrent_redirect.js",
-          "file:///redirect2.js",
-          "file:///dir/redirect3.js"
-        ]
-      );
+  let fut = async move {
+    let spec = resolve_url("file:///concurrent_redirect.js").unwrap();
+    let result = runtime.load_main_es_module(&spec).await;
+    assert!(result.is_ok());
+    let concurrent_redirect = result.unwrap();
+    #[allow(clippy::let_underscore_future)]
+    let _ = runtime.mod_evaluate(concurrent_redirect);
+    runtime.run_event_loop(Default::default()).await.unwrap();
+    let l = loads.lock();
+    assert_eq!(
+      l.to_vec(),
+      vec![
+        "file:///concurrent_redirect.js",
+        "file:///redirect2.js",
+        "file:///dir/redirect3.js"
+      ]
+    );
 
-      let module_map_rc = runtime.module_map();
-      let modules = module_map_rc;
+    let module_map_rc = runtime.module_map();
+    let modules = module_map_rc;
 
-      assert_eq!(
-        modules.get_id("file:///redirect2.js", RequestedModuleType::None),
-        modules.get_id("file:///dir/redirect2.js", RequestedModuleType::None)
-      );
-      assert!(
-        modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
-      );
-      assert!(!modules
-        .is_alias("file:///dir/redirect2.js", RequestedModuleType::None));
-    }
-    .boxed_local();
+    assert_eq!(
+      modules.get_id("file:///redirect2.js", RequestedModuleType::None),
+      modules.get_id("file:///dir/redirect2.js", RequestedModuleType::None)
+    );
+    assert!(
+      modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
+    );
+    assert!(
+      !modules.is_alias("file:///dir/redirect2.js", RequestedModuleType::None)
+    );
+  }
+  .boxed_local();
 
   futures::executor::block_on(fut);
 }
@@ -1925,7 +1948,7 @@ fn test_load_with_code_cache() {
 
 #[test]
 fn ext_module_loader_relative() {
-  let loader = ExtModuleLoader::new(vec![]);
+  let loader = ExtModuleLoader::new(vec![], None);
   let cases = [
     (
       ("../../foo.js", "ext:test/nested/mod/bar.js"),

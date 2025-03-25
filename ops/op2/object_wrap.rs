@@ -1,17 +1,18 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use proc_macro2::TokenStream;
 use proc_macro_rules::rules;
+use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
 use syn::ImplItem;
 use syn::ItemFn;
 use syn::ItemImpl;
+use syn::spanned::Spanned;
 
-use crate::op2::generate_op2;
 use crate::op2::MacroConfig;
 use crate::op2::Op2Error;
+use crate::op2::generate_op2;
 
 use super::signature::is_attribute_special;
 
@@ -91,6 +92,7 @@ pub(crate) fn generate_impl_ops(
 
   for item in item.items {
     if let ImplItem::Fn(mut method) = item {
+      let span = method.span();
       let (item_fn_attrs, attrs) =
         method.attrs.into_iter().partition(is_attribute_special);
 
@@ -107,9 +109,7 @@ pub(crate) fn generate_impl_ops(
         block: Box::new(method.block),
       };
 
-      let mut config = MacroConfig::from_tokens(quote! {
-        #(#attrs)*
-      })?;
+      let mut config = MacroConfig::from_attributes(span, attrs)?;
 
       if let Some(ref rename) = config.rename {
         func.sig.ident = format_ident!("{}", rename);

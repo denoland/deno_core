@@ -1,8 +1,8 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::magic::transl8::impl_magic;
 use crate::magic::transl8::FromV8;
 use crate::magic::transl8::ToV8;
+use crate::magic::transl8::impl_magic;
 
 /// A wrapper around `v8::Global<v8::Value>` to allow for passing globals transparently through a serde boundary.
 ///

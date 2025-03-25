@@ -6,14 +6,16 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use std::iter::zip;
-use syn::parse2;
-use syn::parse_str;
-use syn::spanned::Spanned;
 use syn::FnArg;
 use syn::ItemFn;
 use syn::Lifetime;
 use syn::LifetimeParam;
 use syn::Type;
+use syn::parse::Parser;
+use syn::parse_str;
+use syn::parse2;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use thiserror::Error;
 
 use self::config::MacroConfig;
@@ -21,11 +23,11 @@ use self::dispatch_async::generate_dispatch_async;
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
-use self::signature::is_attribute_special;
-use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::RetVal;
 use self::signature::SignatureError;
+use self::signature::is_attribute_special;
+use self::signature::parse_signature;
 
 pub mod config;
 pub mod dispatch_async;
@@ -39,12 +41,12 @@ pub mod signature_retval;
 
 #[derive(Debug, Error)]
 pub enum Op2Error {
-  #[error("Failed to match a pattern for '{0}': (input was '{1}')")]
-  PatternMatchFailed(&'static str, String),
-  #[error("Invalid attribute: '{0}'")]
-  InvalidAttribute(String),
   #[error("Failed to parse syntax tree")]
-  ParseError(#[from] syn::Error),
+  ParseError(
+    #[from]
+    #[source]
+    syn::Error,
+  ),
   #[error("Failed to map signature to V8")]
   V8SignatureMappingError(#[from] V8SignatureMappingError),
   #[error("Failed to parse signature")]
@@ -59,10 +61,6 @@ pub enum Op2Error {
   ShouldBeAsync,
   #[error("This op is not async and should not be marked as (async)")]
   ShouldNotBeAsync,
-  #[error("Only one fast alternative is supported in fast(...) at this time")]
-  TooManyFastAlternatives,
-  #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
-  ImproperlySortedAttribute(String),
   #[error("Only one constructor is allowed per object")]
   MultipleConstructors,
 }
@@ -88,7 +86,16 @@ pub(crate) fn op2(
     return object_wrap::generate_impl_ops(attr, impl_block);
   };
 
-  let config = MacroConfig::from_tokens(attr)?;
+  let span = attr.span();
+
+  let metas =
+    Punctuated::<config::CustomMeta, syn::Token![,]>::parse_terminated
+      .parse2(attr)?
+      .into_iter()
+      .collect::<Vec<_>>();
+
+  let config = MacroConfig::from_metas(span, metas)?;
+
   generate_op2(config, func)
 }
 
@@ -124,7 +131,8 @@ pub(crate) fn generate_op2(
   } else if config.static_member {
     func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
-  let signature = parse_signature(func.attrs, func.sig.clone())?;
+  let signature =
+    parse_signature(config.fake_async, func.attrs, func.sig.clone())?;
   if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
   {
     op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
@@ -217,7 +225,7 @@ pub(crate) fn generate_op2(
   let is_reentrant = config.reentrant;
   let no_side_effect = config.no_side_effects;
 
-  match (is_async, config.r#async) {
+  match (is_async, config.r#async || config.fake_async) {
     (true, false) => return Err(Op2Error::ShouldBeAsync),
     (false, true) => return Err(Op2Error::ShouldNotBeAsync),
     _ => {}
@@ -234,7 +242,7 @@ pub(crate) fn generate_op2(
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast
           && !config.nofast
-          && config.fast_alternatives.is_empty()
+          && config.fast_alternative.is_none()
           && !config.getter
           && !config.setter
         {
@@ -471,7 +479,9 @@ mod tests {
     let readme = std::fs::read_to_string("op2/README.md").unwrap();
     let (header, remainder) = split_readme(&readme, separator, end_separator);
 
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+    let mut actual = format!(
+      "{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n"
+    );
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
@@ -490,7 +500,7 @@ mod tests {
         let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig = parse_signature(vec![], function.sig.clone())
+        let sig = parse_signature(false, vec![], function.sig.clone())
           .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
@@ -502,7 +512,13 @@ mod tests {
         )
         .expect("Failed to generate op");
       }
-      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      actual += &format!(
+        "<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n",
+        type_param,
+        if fast { "✅" } else { "" },
+        v8,
+        notes
+      );
     });
     actual += "</table>\n";
     actual += end_separator;
@@ -528,7 +544,9 @@ mod tests {
     let end_separator = "\n<!-- END RV -->\n";
     let readme = std::fs::read_to_string("op2/README.md").unwrap();
     let (header, remainder) = split_readme(&readme, separator, end_separator);
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>\n");
+    let mut actual = format!(
+      "{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>\n"
+    );
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
@@ -548,8 +566,9 @@ mod tests {
         let function = format!("{} fn op_test() -> {} {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig = parse_signature(function.attrs.clone(), function.sig.clone())
-          .expect("Failed to parse signature");
+        let sig =
+          parse_signature(false, function.attrs.clone(), function.sig.clone())
+            .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
           MacroConfig {
@@ -564,9 +583,12 @@ mod tests {
           let function = format!("{} async fn op_test() -> {} {{}}", attr, ty);
           let function =
             syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-          let sig =
-            parse_signature(function.attrs.clone(), function.sig.clone())
-              .expect("Failed to parse signature");
+          let sig = parse_signature(
+            false,
+            function.attrs.clone(),
+            function.sig.clone(),
+          )
+          .expect("Failed to parse signature");
           println!("Parsed signature: {sig:?}");
           generate_op2(
             MacroConfig {
@@ -578,7 +600,14 @@ mod tests {
           .expect("Failed to generate op");
         }
       }
-      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, if async_support { "✅" } else { "" }, v8, notes);
+      actual += &format!(
+        "<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n",
+        type_param,
+        if fast { "✅" } else { "" },
+        if async_support { "✅" } else { "" },
+        v8,
+        notes
+      );
     });
 
     actual += "</table>\n";

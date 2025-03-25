@@ -52,6 +52,7 @@
     op_get_extras_binding_object,
     op_get_promise_details,
     op_get_proxy_details,
+    op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
     op_lazy_load_esm,
     op_memory_usage,
@@ -479,6 +480,11 @@
     };
   }
 
+  // Default impl of contextual logging
+  op_get_ext_import_meta_proto().log = function internalLog(level, ...args) {
+    console.error(`[${level.toUpperCase()}]`, ...args);
+  };
+
   const consoleStringify = (...args) => args.map(consoleStringifyArg).join(" ");
 
   const consoleStringifyArg = (arg) => {
@@ -644,6 +650,7 @@
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
+    internalFdSymbol: Symbol("Deno.internal.fd"),
     resources,
     eventLoopTick,
     BadResource,

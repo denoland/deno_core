@@ -15,4 +15,4 @@ runs:
           valgrind --error-exitcode=1 --leak-check=no
           --suppressions=/home/runner/work/deno_core/deno_core/.github/workflows/ci-test-valgrind/suppressions.txt
           --gen-suppressions=all" \
-          cargo test -p deno_core -p deno_core_testing -p serde_v8 --release
+          cargo nextest run -p deno_core -p deno_core_testing -p serde_v8 --release

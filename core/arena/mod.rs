@@ -5,8 +5,8 @@ mod shared_arena;
 mod shared_atomic_arena;
 mod unique_arena;
 
-use std::alloc::handle_alloc_error;
 use std::alloc::Layout;
+use std::alloc::handle_alloc_error;
 use std::ptr::NonNull;
 
 pub use raw_arena::*;
@@ -18,14 +18,14 @@ const unsafe fn ptr_byte_add<T, U>(
   ptr: NonNull<T>,
   offset: usize,
 ) -> NonNull<U> {
-  NonNull::new_unchecked((ptr.as_ptr() as *mut u8).add(offset) as _)
+  unsafe { NonNull::new_unchecked((ptr.as_ptr() as *mut u8).add(offset) as _) }
 }
 
 const unsafe fn ptr_byte_sub<T, U>(
   ptr: NonNull<T>,
   offset: usize,
 ) -> NonNull<U> {
-  NonNull::new_unchecked((ptr.as_ptr() as *mut u8).sub(offset) as _)
+  unsafe { NonNull::new_unchecked((ptr.as_ptr() as *mut u8).sub(offset) as _) }
 }
 
 #[inline(always)]

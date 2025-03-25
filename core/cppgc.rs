@@ -1,12 +1,12 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::JsRuntime;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
-use crate::JsRuntime;
 use serde::Deserialize;
 use serde::Serialize;
-use std::any::type_name;
 use std::any::TypeId;
+use std::any::type_name;
 use std::collections::BTreeMap;
 pub use v8::cppgc::GarbageCollected;
 
@@ -121,15 +121,18 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
   let state = JsRuntime::state_from(scope);
   let templates = state.function_templates.borrow();
 
-  let obj = if let Some(templ) = templates.get::<T>() {
-    let templ = v8::Local::new(scope, templ);
-    let inst = templ.instance_template(scope);
-    inst.new_instance(scope).unwrap()
-  } else {
-    let templ =
-      v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
-    let func = templ.get_function(scope).unwrap();
-    func.new_instance(scope, &[]).unwrap()
+  let obj = match templates.get::<T>() {
+    Some(templ) => {
+      let templ = v8::Local::new(scope, templ);
+      let inst = templ.instance_template(scope);
+      inst.new_instance(scope).unwrap()
+    }
+    _ => {
+      let templ =
+        v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
+      let func = templ.get_function(scope).unwrap();
+      func.new_instance(scope, &[]).unwrap()
+    }
   };
 
   wrap_object(scope, obj, t)
@@ -445,10 +448,12 @@ impl FunctionTemplateData {
   }
 }
 
+#[derive(Debug)]
 pub struct SameObject<T: GarbageCollected + 'static> {
   cell: std::cell::OnceCell<v8::Global<v8::Object>>,
   _phantom_data: std::marker::PhantomData<T>,
 }
+
 impl<T: GarbageCollected + 'static> SameObject<T> {
   #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
@@ -474,5 +479,20 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
         v8::Global::new(scope, obj)
       })
       .clone()
+  }
+
+  pub fn set(
+    &self,
+    scope: &mut v8::HandleScope,
+    value: T,
+  ) -> Result<(), v8::Global<v8::Object>> {
+    let obj = make_cppgc_object(scope, value);
+    self.cell.set(v8::Global::new(scope, obj))
+  }
+
+  pub fn try_unwrap(&self, scope: &mut v8::HandleScope) -> Option<Ptr<T>> {
+    let obj = self.cell.get()?;
+    let val = v8::Local::new(scope, obj);
+    try_unwrap_cppgc_object(scope, val.cast())
   }
 }

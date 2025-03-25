@@ -10,29 +10,29 @@ use v8::MapFnTo;
 use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
-use crate::OpDecl;
 use crate::_ops::OpMethodDecl;
-use crate::cppgc::cppgc_template_constructor;
-use crate::cppgc::FunctionTemplateData;
-use crate::error::callsite_fns;
-use crate::error::has_call_site;
-use crate::error::is_instance_of_error;
-use crate::error::CoreError;
-use crate::error::JsStackFrame;
-use crate::extension_set::LoadedSources;
-use crate::modules::get_requested_module_type_from_attributes;
-use crate::modules::parse_import_attributes;
-use crate::modules::synthetic_module_evaluation_steps;
-use crate::modules::ImportAttributesKind;
-use crate::modules::ModuleMap;
-use crate::ops::OpCtx;
-use crate::runtime::InitMode;
-use crate::runtime::JsRealm;
 use crate::AccessorType;
 use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
+use crate::OpDecl;
+use crate::cppgc::FunctionTemplateData;
+use crate::cppgc::cppgc_template_constructor;
+use crate::error::CoreError;
+use crate::error::JsStackFrame;
+use crate::error::callsite_fns;
+use crate::error::has_call_site;
+use crate::error::is_instance_of_error;
+use crate::extension_set::LoadedSources;
+use crate::modules::ImportAttributesKind;
+use crate::modules::ModuleMap;
+use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::parse_import_attributes;
+use crate::modules::synthetic_module_evaluation_steps;
+use crate::ops::OpCtx;
+use crate::runtime::InitMode;
+use crate::runtime::JsRealm;
 use deno_error::JsErrorBox;
 
 pub(crate) fn create_external_references(
@@ -395,6 +395,11 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let accessor_store = create_accessor_store(method_ctxs);
 
     for method in method_ctxs.iter() {
+      // Skip async methods, we are going to register them later.
+      if method.decl.is_async {
+        continue;
+      }
+
       op_ctx_template_or_accessor(
         &accessor_store,
         set_up_async_stub_fn,
@@ -416,6 +421,20 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     }
 
     index += decl.static_methods.len();
+
+    // Register async methods at the end since we need to create the template instance.
+    for method in method_ctxs.iter() {
+      if method.decl.is_async {
+        op_ctx_template_or_accessor(
+          &accessor_store,
+          set_up_async_stub_fn,
+          scope,
+          prototype,
+          tmpl,
+          method,
+        );
+      }
+    }
 
     if let Some(e) = (decl.inherits_type_name)() {
       let parent = fn_template_store.get_raw(e).unwrap();
@@ -657,8 +676,8 @@ pub fn host_import_module_dynamically_callback<'s>(
     ImportAttributesKind::DynamicImport,
   );
 
+  let tc_scope = &mut v8::TryCatch::new(scope);
   {
-    let tc_scope = &mut v8::TryCatch::new(scope);
     {
       let state = JsRuntime::state_from(tc_scope);
       if let Some(validate_import_attributes_cb) =
@@ -676,15 +695,15 @@ pub fn host_import_module_dynamically_callback<'s>(
   let requested_module_type =
     get_requested_module_type_from_attributes(&assertions);
 
-  let resolver_handle = v8::Global::new(scope, resolver);
-  let cped_handle = v8::Global::new(scope, cped);
+  let resolver_handle = v8::Global::new(tc_scope, resolver);
+  let cped_handle = v8::Global::new(tc_scope, cped);
   {
-    let state = JsRuntime::state_from(scope);
-    let module_map_rc = JsRealm::module_map_from(scope);
+    let state = JsRuntime::state_from(tc_scope);
+    let module_map_rc = JsRealm::module_map_from(tc_scope);
 
     if !ModuleMap::load_dynamic_import(
       module_map_rc,
-      scope,
+      tc_scope,
       &specifier_str,
       &referrer_name_str,
       requested_module_type,
@@ -704,11 +723,18 @@ pub fn host_import_module_dynamically_callback<'s>(
   let builder = v8::FunctionBuilder::new(catch_dynamic_import_promise_error);
 
   let map_err =
-    v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
+    v8::FunctionBuilder::<v8::Function>::build(builder, tc_scope).unwrap();
 
-  let promise = promise.catch(scope, map_err).unwrap();
+  let Some(promise_new) = promise.catch(tc_scope, map_err) else {
+    if tc_scope.has_caught() {
+      let e = tc_scope.exception().unwrap();
+      resolver.reject(tc_scope, e);
+    }
 
-  Some(promise)
+    return Some(promise);
+  };
+
+  Some(promise_new)
 }
 
 pub extern "C" fn host_initialize_import_meta_object_callback(
@@ -741,22 +767,25 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   // Add special method that allows Wasm module to instantiate themselves.
   if module_type == ModuleType::Wasm {
     let wasm_instance_key = WASM_INSTANCE.v8_string(scope).unwrap();
-    if let Some(f) = state.wasm_instance_fn.borrow().as_ref() {
-      let wasm_instance_val = v8::Local::new(scope, &**f);
-      meta.create_data_property(
-        scope,
-        wasm_instance_key.into(),
-        wasm_instance_val.into(),
-      );
-    } else {
-      let message = v8::String::new(
-        scope,
-        "WebAssembly is not available in this environment",
-      )
-      .unwrap();
-      let exception = v8::Exception::error(scope, message);
-      scope.throw_exception(exception);
-      return;
+    match state.wasm_instance_fn.borrow().as_ref() {
+      Some(f) => {
+        let wasm_instance_val = v8::Local::new(scope, f.clone());
+        meta.create_data_property(
+          scope,
+          wasm_instance_key.into(),
+          wasm_instance_val.into(),
+        );
+      }
+      _ => {
+        let message = v8::String::new(
+          scope,
+          "WebAssembly is not available in this environment",
+        )
+        .unwrap();
+        let exception = v8::Exception::error(scope, message);
+        scope.throw_exception(exception);
+        return;
+      }
     }
   }
 
@@ -767,6 +796,13 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   meta.set(scope, resolve_key.into(), val.into());
 
   maybe_add_import_meta_filename_dirname(scope, meta, &name);
+
+  if name.starts_with("ext:") {
+    if let Some(proto) = state.ext_import_meta_proto.borrow().clone() {
+      let prototype = v8::Local::new(scope, proto);
+      meta.set_prototype(scope, prototype.into());
+    }
+  }
 }
 
 fn maybe_add_import_meta_filename_dirname(

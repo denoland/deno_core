@@ -1,8 +1,8 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use deno_core::extension;
-use deno_core::snapshot::create_snapshot;
 use deno_core::snapshot::CreateSnapshotOptions;
+use deno_core::snapshot::create_snapshot;
 use std::env;
 use std::fs;
 use std::path::PathBuf;

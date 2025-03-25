@@ -43,6 +43,7 @@ export class TestObjectWrap {
   withVarargs(...args: any[]): number;
   with_RENAME(): void;
   withAsyncFn(ms: number): Promise<void>;
+  withThis(): void;
 }
 
 export class TestEnumWrap {}

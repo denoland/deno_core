@@ -1,13 +1,13 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use proc_macro_rules::rules;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
-use proc_macro_rules::rules;
-use quote::format_ident;
-use quote::quote;
 use quote::ToTokens;
 use quote::TokenStreamExt;
+use quote::format_ident;
+use quote::quote;
 use std::collections::BTreeMap;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
@@ -193,7 +193,7 @@ impl BufferType {
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::Any),
         )*]
       };
-      (extra = $t:expr, $($mode:ident),*) => {
+      (extra = $t:expr_2021, $($mode:ident),*) => {
         &[$t, $(
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::TypedArray),
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::ArrayBuffer),
@@ -301,6 +301,7 @@ pub enum Arg {
   ToV8(String),
   WebIDL(String, Vec<WebIDLPairs>, Option<WebIDLDefault>),
   VarArgs,
+  This,
 }
 
 impl Arg {
@@ -374,7 +375,7 @@ impl Arg {
         | Special::HandleScope,
       ) => true,
       Self::State(..) | Self::OptionState(..) => true,
-      Self::VarArgs => true,
+      Self::This | Self::VarArgs => true,
       _ => false,
     }
   }
@@ -438,56 +439,59 @@ impl Arg {
   /// This must be kept in sync with the `RustToV8`/`RustToV8Fallible` implementations in `deno_core`. If
   /// this falls out of sync, you will see compile errors.
   pub fn slow_retval(&self) -> ArgSlowRetval {
-    if let Some(some) = self.some_type() {
-      // If this is an optional return value, we use the same return type as the underlying object.
-      match some.slow_retval() {
-        // We need a scope in the case of an option so we can allocate a null
-        ArgSlowRetval::V8LocalNoScope => ArgSlowRetval::RetVal,
-        rv => rv,
+    match self.some_type() {
+      Some(some) => {
+        // If this is an optional return value, we use the same return type as the underlying object.
+        match some.slow_retval() {
+          // We need a scope in the case of an option so we can allocate a null
+          ArgSlowRetval::V8LocalNoScope => ArgSlowRetval::RetVal,
+          rv => rv,
+        }
       }
-    } else {
-      match self {
-        Arg::Numeric(
-          NumericArg::i64
-          | NumericArg::u64
-          | NumericArg::isize
-          | NumericArg::usize,
-          NumericFlag::None,
-        ) => ArgSlowRetval::V8Local,
-        Arg::Numeric(
-          NumericArg::i64
-          | NumericArg::u64
-          | NumericArg::isize
-          | NumericArg::usize,
-          NumericFlag::Number,
-        ) => ArgSlowRetval::RetVal,
-        Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
-        Arg::External(_) => ArgSlowRetval::V8Local,
-        // Fast return value path for empty strings
-        Arg::String(_) => ArgSlowRetval::RetValFallible,
-        Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
-        Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
-        // No scope required for these
-        Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
-        Arg::V8Global(_) => ArgSlowRetval::V8Local,
-        // ArrayBuffer is infallible
-        Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
-        // TypedArray is fallible
-        Arg::Buffer(.., BufferSource::TypedArray) => {
-          ArgSlowRetval::V8LocalFalliable
+      _ => {
+        match self {
+          Arg::Numeric(
+            NumericArg::i64
+            | NumericArg::u64
+            | NumericArg::isize
+            | NumericArg::usize,
+            NumericFlag::None,
+          ) => ArgSlowRetval::V8Local,
+          Arg::Numeric(
+            NumericArg::i64
+            | NumericArg::u64
+            | NumericArg::isize
+            | NumericArg::usize,
+            NumericFlag::Number,
+          ) => ArgSlowRetval::RetVal,
+          Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
+          Arg::External(_) => ArgSlowRetval::V8Local,
+          // Fast return value path for empty strings
+          Arg::String(_) => ArgSlowRetval::RetValFallible,
+          Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
+          Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
+          // No scope required for these
+          Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
+          Arg::V8Global(_) => ArgSlowRetval::V8Local,
+          // ArrayBuffer is infallible
+          Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
+          // TypedArray is fallible
+          Arg::Buffer(.., BufferSource::TypedArray) => {
+            ArgSlowRetval::V8LocalFalliable
+          }
+          // ArrayBuffer is infallible
+          Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
+            ArgSlowRetval::V8Local
+          }
+          // TypedArray is fallible
+          Arg::OptionBuffer(.., BufferSource::TypedArray) => {
+            ArgSlowRetval::V8LocalFalliable
+          }
+          Arg::CppGcResource(..) | Arg::CppGcProtochain(_) => {
+            ArgSlowRetval::V8Local
+          }
+          _ => ArgSlowRetval::None,
         }
-        // ArrayBuffer is infallible
-        Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
-          ArgSlowRetval::V8Local
-        }
-        // TypedArray is fallible
-        Arg::OptionBuffer(.., BufferSource::TypedArray) => {
-          ArgSlowRetval::V8LocalFalliable
-        }
-        Arg::CppGcResource(..) | Arg::CppGcProtochain(_) => {
-          ArgSlowRetval::V8Local
-        }
-        _ => ArgSlowRetval::None,
       }
     }
   }
@@ -638,7 +642,7 @@ impl ParsedTypeContainer {
             return Err(ArgError::MissingAttribute(
               attr[0].name(),
               stringify_token(tp),
-            ))
+            ));
           }
           Some(primary) => {
             if !attr.contains(&primary) {
@@ -658,9 +662,9 @@ impl ParsedTypeContainer {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RetVal {
   /// An op that can never fail.
-  Infallible(Arg),
+  Infallible(Arg, bool),
   /// An op returning Result<Something, ...>
-  Result(Arg),
+  Result(Arg, bool),
   /// An op returning a future, either `async fn() -> Something` or `fn() -> impl Future<Output = Something>`.
   Future(Arg),
   /// An op returning a future with a result, either `async fn() -> Result<Something, ...>`
@@ -679,7 +683,12 @@ impl RetVal {
     use RetVal::*;
     matches!(
       self,
-      Future(..) | FutureResult(..) | ResultFuture(..) | ResultFutureResult(..)
+      Future(..)
+        | FutureResult(..)
+        | ResultFuture(..)
+        | ResultFutureResult(..)
+        | Infallible(.., true)
+        | Result(.., true)
     )
   }
 
@@ -687,7 +696,7 @@ impl RetVal {
   pub fn unwrap_result(&self) -> Option<RetVal> {
     use RetVal::*;
     Some(match self {
-      Result(arg) => Infallible(arg.clone()),
+      Result(arg, false) => Infallible(arg.clone(), false),
       ResultFuture(arg) => Future(arg.clone()),
       ResultFutureResult(arg) => FutureResult(arg.clone()),
       _ => return None,
@@ -697,8 +706,8 @@ impl RetVal {
   pub fn arg(&self) -> &Arg {
     use RetVal::*;
     match self {
-      Infallible(arg)
-      | Result(arg)
+      Infallible(arg, ..)
+      | Result(arg, ..)
       | Future(arg)
       | FutureResult(arg)
       | ResultFuture(arg)
@@ -794,6 +803,8 @@ pub enum AttributeModifier {
   Ignore,
   /// Varaible-length arguments.
   VarArgs,
+  /// The `this` receiver.
+  This,
 }
 
 impl AttributeModifier {
@@ -814,6 +825,7 @@ impl AttributeModifier {
       AttributeModifier::CppGcProto => "proto",
       AttributeModifier::Ignore => "ignore",
       AttributeModifier::VarArgs => "varargs",
+      AttributeModifier::This => "this",
     }
   }
 }
@@ -826,19 +838,31 @@ pub enum SignatureError {
   RetError(#[from] RetError),
   #[error("Only one lifetime is permitted")]
   TooManyLifetimes,
-  #[error("Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)")]
+  #[error(
+    "Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)"
+  )]
   GenericBoundCardinality(String),
-  #[error("Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)")]
+  #[error(
+    "Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)"
+  )]
   WherePredicateMustAppearInGenerics(String),
-  #[error("All generics must appear only once in the generics parameter list or where clause")]
+  #[error(
+    "All generics must appear only once in the generics parameter list or where clause"
+  )]
   DuplicateGeneric(String),
   #[error("Generic lifetime '{0}' may not have bounds (eg: <'a: 'b>)")]
   LifetimesMayNotHaveBounds(String),
-  #[error("Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)")]
+  #[error(
+    "Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)"
+  )]
   InvalidGeneric(String),
-  #[error("Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)")]
+  #[error(
+    "Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)"
+  )]
   InvalidWherePredicate(String),
-  #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s")]
+  #[error(
+    "State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s"
+  )]
   InvalidOpStateCombination,
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
@@ -850,7 +874,9 @@ pub enum SignatureError {
 pub enum AttributeError {
   #[error("Unknown or invalid attribute '{0}'")]
   InvalidAttribute(String),
-  #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead.")]
+  #[error(
+    "Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead."
+  )]
   InvalidInnerAttribute,
 }
 
@@ -890,7 +916,9 @@ pub enum ArgError {
   AttributeError(#[from] AttributeError),
   #[error("The type '{0}' is not allowed in this position")]
   NotAllowedInThisPosition(String),
-  #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
+  #[error(
+    "Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position."
+  )]
   InvalidDenoCorePrefix(String, String, String),
   #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
   ExpectedCppGcReference(String),
@@ -1003,6 +1031,7 @@ fn parse_metadata(
 }
 
 pub fn parse_signature(
+  is_fake_async: bool,
   attributes: Vec<Attribute>,
   signature: Signature,
 ) -> Result<ParsedSignature, SignatureError> {
@@ -1024,6 +1053,7 @@ pub fn parse_signature(
   }
   let ret_val = parse_return(
     signature.asyncness.is_some(),
+    is_fake_async,
     parse_attributes(&attributes).map_err(RetError::AttributeError)?,
     &signature.output,
   )?;
@@ -1286,6 +1316,7 @@ fn parse_attribute(
       (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
       (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
+      (#[this]) => Some(AttributeModifier::This),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
       (#[proto]) => Some(AttributeModifier::CppGcProto),
       (#[to_v8]) => Some(AttributeModifier::ToV8),
@@ -1351,10 +1382,10 @@ fn parse_type_path(
   use ParsedTypeContainer::*;
 
   let tokens = tp.clone().into_token_stream();
-  let res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
-    CBare(TNumeric(numeric))
-  } else {
-    std::panic::catch_unwind(|| {
+  let res = match parse_numeric_type(&tp.path) {
+    Ok(numeric) => CBare(TNumeric(numeric)),
+    _ => {
+      std::panic::catch_unwind(|| {
       rules!(tokens => {
       ( $( std :: str  :: )? String ) => {
         Ok(CBare(TString(Strings::String)))
@@ -1421,6 +1452,7 @@ fn parse_type_path(
       }
     })
     }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
+    }
   };
 
   // Ensure that we have the correct reference state. This is a bit awkward but it's
@@ -1592,20 +1624,20 @@ pub(crate) fn parse_type(
         return Ok(Arg::VarArgs);
       }
       AttributeModifier::CppGcResource => {
-        return parse_cppgc(position, ty, false)
+        return parse_cppgc(position, ty, false);
       }
       AttributeModifier::CppGcProto => return parse_cppgc(position, ty, true),
       AttributeModifier::FromV8 if position == Position::RetVal => {
         return Err(ArgError::InvalidAttributePosition(
           primary.name(),
           "argument",
-        ))
+        ));
       }
       AttributeModifier::ToV8 if position == Position::Arg => {
         return Err(ArgError::InvalidAttributePosition(
           primary.name(),
           "return value",
-        ))
+        ));
       }
       AttributeModifier::Serde
       | AttributeModifier::FromV8
@@ -1672,6 +1704,15 @@ pub(crate) fn parse_type(
       | AttributeModifier::Global => {
         // We handle this as part of the normal parsing process
       }
+      AttributeModifier::This => {
+        if position == Position::RetVal {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "argument",
+          ));
+        }
+        return Ok(Arg::This);
+      }
       AttributeModifier::Number => match ty {
         Type::Path(of) => {
           match parse_type_path(
@@ -1695,12 +1736,14 @@ pub(crate) fn parse_type(
             _ => {
               return Err(ArgError::InvalidNumberAttributeType(
                 stringify_token(ty),
-              ))
+              ));
             }
           }
         }
         _ => {
-          return Err(ArgError::InvalidNumberAttributeType(stringify_token(ty)))
+          return Err(ArgError::InvalidNumberAttributeType(stringify_token(
+            ty,
+          )));
         }
       },
       AttributeModifier::Smi => match ty {
@@ -1739,24 +1782,19 @@ pub(crate) fn parse_type(
       match &*of.elem {
         // Note that we only allow numeric slices here -- if we decide to allow slices of things like v8 values,
         // this branch will need to be re-written.
-        Type::Slice(of) => {
-          if let Type::Path(path) = &*of.elem {
-            match parse_numeric_type(&path.path)? {
-              NumericArg::__VOID__ => {
-                Ok(Arg::External(External::Ptr(mut_type)))
-              }
-              numeric => {
-                let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
-                res.validate_attributes(position, attrs.clone(), &of)?;
-                Arg::from_parsed(res, attrs.clone()).map_err(|_| {
-                  ArgError::InvalidType(stringify_token(ty), "for slice")
-                })
-              }
+        Type::Slice(of) => match &*of.elem {
+          Type::Path(path) => match parse_numeric_type(&path.path)? {
+            NumericArg::__VOID__ => Ok(Arg::External(External::Ptr(mut_type))),
+            numeric => {
+              let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
+              res.validate_attributes(position, attrs.clone(), &of)?;
+              Arg::from_parsed(res, attrs.clone()).map_err(|_| {
+                ArgError::InvalidType(stringify_token(ty), "for slice")
+              })
             }
-          } else {
-            Err(ArgError::InvalidType(stringify_token(ty), "for slice"))
-          }
-        }
+          },
+          _ => Err(ArgError::InvalidType(stringify_token(ty), "for slice")),
+        },
         Type::Path(of) => {
           match parse_type_path(
             position,
@@ -1840,8 +1878,8 @@ fn parse_arg(arg: FnArg) -> Result<Arg, ArgError> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use syn::parse_str;
   use syn::ItemFn;
+  use syn::parse_str;
 
   // We can't test pattern args :/
   // https://github.com/rust-lang/rfcs/issues/2688
@@ -1863,7 +1901,7 @@ mod tests {
       $( where $($trait:ident : $bounds:ty),* )?
       ;
       // Expected return value
-      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:ty )* >)? ( $( $arg_res:expr ),* ) -> $ret_res:expr ) => {
+      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:ty )* >)? ( $( $arg_res:expr_2021 ),* ) -> $ret_res:expr_2021 ) => {
       #[test]
       fn $($name1)? $($name2)? () {
         test(
@@ -1887,9 +1925,10 @@ mod tests {
       .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
 
     let attrs = item_fn.attrs;
-    let sig = parse_signature(attrs, item_fn.sig).unwrap_or_else(|err| {
-      panic!("Failed to successfully parse signature from {op} ({err:?})")
-    });
+    let sig =
+      parse_signature(false, attrs, item_fn.sig).unwrap_or_else(|err| {
+        panic!("Failed to successfully parse signature from {op} ({err:?})")
+      });
     println!("Raw parsed signatures = {sig:?}");
 
     let mut generics_res = vec![];
@@ -1924,7 +1963,7 @@ mod tests {
   }
 
   macro_rules! expect_fail {
-    ($name:ident, $error:expr, $f:item) => {
+    ($name:ident, $error:expr_2021, $f:item) => {
       #[test]
       pub fn $name() {
         #[allow(unused)]
@@ -1939,7 +1978,7 @@ mod tests {
         let item_fn = parse_str::<ItemFn>(op)
           .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
         let attrs = item_fn.attrs;
-        let error = parse_signature(attrs, item_fn.sig)
+        let error = parse_signature(false, attrs, item_fn.sig)
           .expect_err("Expected function to fail to parse");
         assert_eq!(format!("{error:?}"), format!("{:?}", $error));
       }
@@ -1948,119 +1987,119 @@ mod tests {
 
   test!(
     fn op_state_and_number(opstate: &mut OpState, a: u32) -> ();
-    (Ref(Mut, OpState), Numeric(u32, None)) -> Infallible(Void)
+    (Ref(Mut, OpState), Numeric(u32, None)) -> Infallible(Void, false)
   );
   test!(
     fn op_slices(#[buffer] r#in: &[u8], #[buffer] out: &mut [u8]);
-    (Buffer(Slice(Ref, u8), Default, TypedArray), Buffer(Slice(Mut, u8), Default, TypedArray)) -> Infallible(Void)
+    (Buffer(Slice(Ref, u8), Default, TypedArray), Buffer(Slice(Mut, u8), Default, TypedArray)) -> Infallible(Void, false)
   );
   test!(
     fn op_pointers(#[buffer] r#in: *const u8, #[buffer] out: *mut u8);
-    (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Infallible(Void)
+    (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Infallible(Void, false)
   );
   test!(
     fn op_arraybuffer(#[arraybuffer] r#in: &[u8]);
-    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Infallible(Void)
+    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Infallible(Void, false)
   );
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
-    (SerdeV8(package::SerdeInputType)) -> Result(SerdeV8(package::SerdeReturnType))
+    (SerdeV8(package::SerdeInputType)) -> Result(SerdeV8(package::SerdeReturnType), false)
   );
   // Note the turbofish syntax here because of macro constraints
   test!(
     #[serde] fn op_serde_option(#[serde] maybe: Option<package::SerdeInputType>) -> Result<Option<package::SerdeReturnType>, Error>;
-    (SerdeV8(Option::<package::SerdeInputType>)) -> Result(SerdeV8(Option::<package::SerdeReturnType>))
+    (SerdeV8(Option::<package::SerdeInputType>)) -> Result(SerdeV8(Option::<package::SerdeReturnType>), false)
   );
   test!(
     #[serde] fn op_serde_tuple(#[serde] input: (A, B)) -> (A, B);
-    (SerdeV8((A, B))) -> Infallible(SerdeV8((A, B)))
+    (SerdeV8((A, B))) -> Infallible(SerdeV8((A, B)), false)
   );
   test!(
     fn op_local(input: v8::Local<v8::String>) -> Result<v8::Local<v8::String>, Error>;
-    (V8Local(String)) -> Result(V8Local(String))
+    (V8Local(String)) -> Result(V8Local(String), false)
   );
   test!(
     fn op_resource(#[smi] rid: ResourceId, #[buffer] buffer: &[u8]);
-    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8), Default, TypedArray)) ->  Infallible(Void)
+    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8), Default, TypedArray)) ->  Infallible(Void, false)
   );
   test!(
     #[smi] fn op_resource2(#[smi] rid: ResourceId) -> Result<ResourceId, Error>;
-    (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None))
+    (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None), false)
   );
   test!(
     fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, JsErrorBox>;
-    (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None))
+    (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None), false)
   );
   test!(
     #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, JsErrorBox>;
-    (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None))
+    (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None), false)
   );
   test!(
     fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, JsErrorBox>;
-    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None))
+    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None), false)
   );
   test!(
     #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, JsErrorBox>;
-    (Numeric(isize, Number)) -> Result(Numeric(u64, Number))
+    (Numeric(isize, Number)) -> Result(Numeric(u64, Number), false)
   );
   test!(
     fn op_ptr_out(ptr: *const c_void) -> *mut c_void;
-    (External(Ptr(Ref))) -> Infallible(External(Ptr(Mut)))
+    (External(Ptr(Ref))) -> Infallible(External(Ptr(Mut)), false)
   );
   test!(
     fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error>;
-    (String(RefStr), Numeric(bool, None)) -> Result(Void)
+    (String(RefStr), Numeric(bool, None)) -> Result(Void, false)
   );
   test!(
     #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>, #[string(onebyte)] s4: Cow<[u8]>) -> String;
-    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Infallible(String(String))
+    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Infallible(String(String), false)
   );
   test!(
     #[string] fn op_lots_of_option_strings(#[string] s: Option<String>, #[string] s2: Option<&str>, #[string] s3: Option<Cow<str>>) -> Option<String>;
-    (OptionString(String), OptionString(RefStr), OptionString(CowStr)) -> Infallible(OptionString(String))
+    (OptionString(String), OptionString(RefStr), OptionString(CowStr)) -> Infallible(OptionString(String), false)
   );
   test!(
     fn op_scope<'s>(#[string] msg: &'s str);
-    <'s> (String(RefStr)) -> Infallible(Void)
+    <'s> (String(RefStr)) -> Infallible(Void, false)
   );
   test!(
     fn op_scope_and_generics<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait, BC: OtherTrait;
-    <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Infallible(Void)
+    <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Infallible(Void, false)
   );
   test!(
     fn op_generics_static<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait + 'static, BC: OtherTrait;
-    <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Infallible(Void)
+    <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Infallible(Void, false)
   );
   test!(
     fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, #[global] s3: v8::Global<v8::String>);
-    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void)
+    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void, false)
   );
   test!(
     fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
-    <'s> (Ref(Mut, HandleScope)) -> Infallible(Void)
+    <'s> (Ref(Mut, HandleScope)) -> Infallible(Void, false)
   );
   test!(
     fn op_state_rc(state: Rc<RefCell<OpState>>);
-    (RcRefCell(OpState)) -> Infallible(Void)
+    (RcRefCell(OpState)) -> Infallible(Void, false)
   );
   test!(
     fn op_state_ref(state: &OpState);
-    (Ref(Ref, OpState)) -> Infallible(Void)
+    (Ref(Ref, OpState)) -> Infallible(Void, false)
   );
   test!(
     fn op_state_attr(#[state] something: &Something, #[state] another: Option<&Something>);
-    (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void)
+    (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void, false)
   );
   test!(
     #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes,
       #[buffer] d: V8Slice<u8>, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
     (Buffer(Vec(u8), Copy, TypedArray), Buffer(BoxSlice(u8), Copy, TypedArray),
       Buffer(Bytes, Copy, TypedArray), Buffer(V8Slice(u8), Default, TypedArray),
-      Buffer(JsBuffer, Default, TypedArray), Buffer(JsBuffer, Detach, TypedArray)) -> Infallible(Buffer(Vec(u8), Default, TypedArray))
+      Buffer(JsBuffer, Default, TypedArray), Buffer(JsBuffer, Detach, TypedArray)) -> Infallible(Buffer(Vec(u8), Default, TypedArray), false)
   );
   test!(
     #[buffer] fn op_return_bytesmut() -> bytes::BytesMut;
-    () -> Infallible(Buffer(BytesMut, Default, TypedArray))
+    () -> Infallible(Buffer(BytesMut, Default, TypedArray), false)
   );
   test!(
     async fn op_async_void();
@@ -2080,19 +2119,19 @@ mod tests {
   );
   test!(
     fn op_js_runtime_state_ref(state: &JsRuntimeState);
-    (Ref(Ref, JsRuntimeState)) -> Infallible(Void)
+    (Ref(Ref, JsRuntimeState)) -> Infallible(Void, false)
   );
   test!(
     fn op_js_runtime_state_mut(state: &mut JsRuntimeState);
-    (Ref(Mut, JsRuntimeState)) -> Infallible(Void)
+    (Ref(Mut, JsRuntimeState)) -> Infallible(Void, false)
   );
   test!(
     fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
-    (Rc(JsRuntimeState)) -> Infallible(Void)
+    (Rc(JsRuntimeState)) -> Infallible(Void, false)
   );
   test!(
     fn op_isolate(isolate: *mut v8::Isolate);
-    (Special(Isolate)) -> Infallible(Void)
+    (Special(Isolate)) -> Infallible(Void, false)
   );
   test!(
     #[serde]

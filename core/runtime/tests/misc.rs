@@ -2,8 +2,8 @@
 
 use crate::error::CoreError;
 use crate::modules::StaticModuleLoader;
-use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
+use crate::runtime::tests::setup;
 use crate::*;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
@@ -16,11 +16,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
@@ -150,8 +150,10 @@ async fn test_wakers_for_async_ops() {
   "Promise.reject(new Error('fail'))",
   Err("Error: fail\n    at a.js:1:16")
 )]
-#[case("new Promise(resolve => {})",
-  Err("Promise resolution is still pending but the event loop has already resolved"
+#[case(
+  "new Promise(resolve => {})",
+  Err(
+    "Promise resolution is still pending but the event loop has already resolved"
   )
 )]
 #[tokio::test]
@@ -228,7 +230,9 @@ async fn test_resolve_promise(
   "() => { Deno.core.reportUnhandledException(new Error('fail')); return 1; }",
   Ok(Some(1))
 )]
-#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
+#[case(
+  "call",
+  "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
   Err("Uncaught Error: fail")
 )]
 #[tokio::test]
@@ -1250,9 +1254,10 @@ async fn terminate_execution_run_event_loop_js() {
 
 #[tokio::test]
 async fn global_template_middleware() {
+  use parking_lot::Mutex;
   use v8::MapFnTo;
 
-  static mut CALLS: Vec<String> = Vec::new();
+  static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
   pub fn descriptor<'s>(
     _scope: &mut v8::HandleScope<'s>,
@@ -1260,9 +1265,8 @@ async fn global_template_middleware() {
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("descriptor".to_string());
-    }
+    CALLS.lock().push("descriptor".to_string());
+
     v8::Intercepted::No
   }
 
@@ -1273,9 +1277,7 @@ async fn global_template_middleware() {
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("setter".to_string());
-    }
+    CALLS.lock().push("setter".to_string());
     v8::Intercepted::No
   }
 
@@ -1286,9 +1288,7 @@ async fn global_template_middleware() {
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("definer".to_string());
-    }
+    CALLS.lock().push("definer".to_string());
     v8::Intercepted::No
   }
 
@@ -1324,8 +1324,11 @@ async fn global_template_middleware() {
     )
     .unwrap();
 
-  let calls_set =
-    unsafe { CALLS.clone().into_iter().collect::<HashSet<String>>() };
+  let calls_set = CALLS
+    .lock()
+    .clone()
+    .into_iter()
+    .collect::<HashSet<String>>();
   assert!(calls_set.contains("definer"));
   assert!(calls_set.contains("setter"));
   assert!(calls_set.contains("descriptor"));

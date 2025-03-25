@@ -7,13 +7,12 @@ use crate::ops::*;
 use deno_error::JsErrorClass;
 use futures::future::Future;
 use serde::Deserialize;
-use serde_v8::from_v8;
 use serde_v8::V8Sliceable;
+use serde_v8::from_v8;
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
-use v8::WriteOptions;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -177,23 +176,25 @@ unsafe fn latin1_to_utf8(
   inbuf: *const u8,
   outbuf: *mut u8,
 ) -> usize {
-  let mut output = 0;
-  let mut input = 0;
-  while input < input_length {
-    let char = *(inbuf.add(input));
-    if char < 0x80 {
-      *(outbuf.add(output)) = char;
-      output += 1;
-    } else {
-      // Top two bits
-      *(outbuf.add(output)) = (char >> 6) | 0b1100_0000;
-      // Bottom six bits
-      *(outbuf.add(output + 1)) = (char & 0b0011_1111) | 0b1000_0000;
-      output += 2;
+  unsafe {
+    let mut output = 0;
+    let mut input = 0;
+    while input < input_length {
+      let char = *(inbuf.add(input));
+      if char < 0x80 {
+        *(outbuf.add(output)) = char;
+        output += 1;
+      } else {
+        // Top two bits
+        *(outbuf.add(output)) = (char >> 6) | 0b1100_0000;
+        // Bottom six bits
+        *(outbuf.add(output + 1)) = (char & 0b0011_1111) | 0b1000_0000;
+        output += 2;
+      }
+      input += 1;
     }
-    input += 1;
+    output
   }
-  output
 }
 
 /// Converts a [`v8::fast_api::FastApiOneByteString`] to either an owned string, or a borrowed string, depending on whether it fits into the
@@ -314,11 +315,11 @@ pub fn to_cow_one_byte(
   // Create an uninitialized buffer of `capacity` bytes.
   let mut buffer = Vec::<u8>::with_capacity(capacity);
   // Write the buffer to a slice made from this uninitialized data
-  string.write_one_byte_uninit(
+  string.write_one_byte_uninit_v2(
     scope,
-    buffer.spare_capacity_mut(),
     0,
-    WriteOptions::NO_NULL_TERMINATION,
+    buffer.spare_capacity_mut(),
+    v8::WriteFlags::empty(),
   );
 
   // SAFETY: We initialized bytes from `0..capacity` in
@@ -372,16 +373,18 @@ where
   v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
   v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
 {
-  let (store, offset, length) =
-    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+  let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
+    Ok(buf) => {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.get_backing_store() else {
         return Err("buffer missing");
       };
       (buffer, buf.byte_offset(), buf.byte_length())
-    } else {
+    }
+    _ => {
       return Err("expected typed ArrayBufferView");
-    };
+    }
+  };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -397,8 +400,8 @@ where
   v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
   v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
 {
-  let (store, offset, length) =
-    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+  let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
+    Ok(buf) => {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.buffer(scope) else {
         return Err("buffer missing");
@@ -413,9 +416,11 @@ where
       }
       buffer.detach(None);
       res
-    } else {
+    }
+    _ => {
       return Err("expected typed ArrayBufferView");
-    };
+    }
+  };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -430,20 +435,22 @@ where
 pub unsafe fn to_slice_buffer(
   input: v8::Local<v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
-  let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
-    return Err("expected ArrayBuffer");
-  };
-  let len = buf.byte_length();
-  let slice = if len > 0 {
-    if let Some(ptr) = buf.data() {
-      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+  unsafe {
+    let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
+      return Err("expected ArrayBuffer");
+    };
+    let len = buf.byte_length();
+    let slice = if len > 0 {
+      if let Some(ptr) = buf.data() {
+        std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+      } else {
+        &mut []
+      }
     } else {
       &mut []
-    }
-  } else {
-    &mut []
-  };
-  Ok(slice)
+    };
+    Ok(slice)
+  }
 }
 
 /// Retrieve a byte slice from a [`v8::ArrayBuffer`], avoiding the intermediate [`v8::BackingStore`].
@@ -455,25 +462,27 @@ pub unsafe fn to_slice_buffer(
 pub unsafe fn to_slice_buffer_any(
   input: v8::Local<v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
-  let (data, len) = {
-    if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-      (NonNull::new(buf.data()), buf.byte_length())
-    } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
-      (buf.data(), buf.byte_length())
-    } else {
-      return Err("expected ArrayBuffer or ArrayBufferView");
-    }
-  };
-  let slice = if len > 0 {
-    if let Some(ptr) = data {
-      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+  unsafe {
+    let (data, len) = {
+      if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+        (NonNull::new(buf.data()), buf.byte_length())
+      } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+        (buf.data(), buf.byte_length())
+      } else {
+        return Err("expected ArrayBuffer or ArrayBufferView");
+      }
+    };
+    let slice = if len > 0 {
+      if let Some(ptr) = data {
+        std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+      } else {
+        &mut []
+      }
     } else {
       &mut []
-    }
-  } else {
-    &mut []
-  };
-  Ok(slice)
+    };
+    Ok(slice)
+  }
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
@@ -531,6 +540,12 @@ pub fn to_v8_slice_any(
 #[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 #[cfg(all(test, not(miri)))]
 mod tests {
+  use crate::FromV8;
+  use crate::GarbageCollected;
+  use crate::JsRuntime;
+  use crate::OpState;
+  use crate::RuntimeOptions;
+  use crate::ToV8;
   use crate::convert::Number;
   use crate::convert::Smi;
   use crate::error::CoreError;
@@ -538,12 +553,6 @@ mod tests {
   use crate::external::ExternalPointer;
   use crate::op2;
   use crate::runtime::JsRuntimeState;
-  use crate::FromV8;
-  use crate::GarbageCollected;
-  use crate::JsRuntime;
-  use crate::OpState;
-  use crate::RuntimeOptions;
-  use crate::ToV8;
   use bytes::BytesMut;
   use deno_error::JsErrorBox;
   use futures::Future;
@@ -925,8 +934,8 @@ mod tests {
   }
 
   #[tokio::test(flavor = "current_thread")]
-  pub async fn test_op_result_void_switch(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_void_switch()
+  -> Result<(), Box<dyn std::error::Error>> {
     RETURN_COUNT.with(|count| count.set(0));
     let err = run_test2(
       JIT_ITERATIONS,
@@ -954,8 +963,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_result_primitive(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_primitive()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_test_result_primitive_err",
@@ -1372,7 +1381,11 @@ mod tests {
     }
 
     // Test the error case for op_test_v8_type_handle_scope_result
-    run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
+    run_test2(
+      1,
+      "op_test_v8_type_handle_scope_result",
+      "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}",
+    )?;
     Ok(())
   }
 
@@ -1681,8 +1694,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_jsbuffer(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_jsbuffer()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_jsbuffer",
@@ -1757,8 +1770,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any_length(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any_length()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_any_length",
@@ -1817,8 +1830,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_arraybuffer_slice(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_arraybuffer_slice()
+  -> Result<(), Box<dyn std::error::Error>> {
     // Zero-length buffers
     run_test2(
       JIT_ITERATIONS,
@@ -1908,8 +1921,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
@@ -2181,8 +2194,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_sleep_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_sleep_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       5,
       "op_async_sleep_error",
@@ -2269,8 +2282,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_result_impl(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_result_impl()
+  -> Result<(), Box<dyn std::error::Error>> {
     for (n, msg) in [
       (0, "early exit"),
       (1, "early async exit"),
@@ -2323,7 +2336,9 @@ mod tests {
   }
 
   #[op2(async)]
-  fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
+  fn op_async_buffer_impl(
+    #[buffer] input: &[u8],
+  ) -> impl Future<Output = u32> + use<> {
     let l = input.len();
     async move { l as _ }
   }
@@ -2382,8 +2397,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_serde_option_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_serde_option_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       2,
       "op_async_serde_option_v8",
@@ -2420,8 +2435,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_number_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_number_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_number_to_from_v8",
@@ -2479,8 +2494,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",
@@ -2493,8 +2508,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     let err = run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",

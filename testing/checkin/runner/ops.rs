@@ -4,6 +4,8 @@ use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use deno_core::GarbageCollected;
+use deno_core::OpState;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -11,13 +13,11 @@ use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
-use deno_core::GarbageCollected;
-use deno_core::OpState;
 use deno_error::JsErrorBox;
 
-use super::extensions::SomeType;
 use super::Output;
 use super::TestData;
+use super::extensions::SomeType;
 
 #[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
@@ -102,6 +102,9 @@ impl TestObjectWrap {
     tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
     Ok(())
   }
+
+  #[fast]
+  fn with_this(&self, #[this] _: v8::Global<v8::Object>) {}
 
   #[getter]
   #[string]

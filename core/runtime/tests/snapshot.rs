@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use self::runtime::create_snapshot;
 use self::runtime::CreateSnapshotOptions;
+use self::runtime::create_snapshot;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;

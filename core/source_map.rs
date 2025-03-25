@@ -2,9 +2,9 @@
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
-use crate::resolve_url;
 use crate::ModuleLoader;
 use crate::ModuleName;
+use crate::resolve_url;
 pub use sourcemap::SourceMap;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -168,13 +168,13 @@ mod tests {
   use url::Url;
 
   use super::*;
-  use crate::ascii_str;
-  use crate::error::ModuleLoaderError;
   use crate::ModuleCodeString;
   use crate::ModuleLoadResponse;
   use crate::ModuleSpecifier;
   use crate::RequestedModuleType;
   use crate::ResolutionKind;
+  use crate::ascii_str;
+  use crate::error::ModuleLoaderError;
 
   struct SourceMapLoaderContent {
     source_map: Option<ModuleCodeString>,

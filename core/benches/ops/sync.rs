@@ -54,7 +54,7 @@ pub fn op_void_no_side_effects() {}
 #[op2(nofast)]
 pub fn op_void_nofast() {}
 
-#[op2(no_side_effects, nofast)]
+#[op2(nofast, no_side_effects)]
 pub fn op_void_nofast_no_side_effects() {}
 
 #[op2(fast)]
@@ -301,7 +301,13 @@ fn bench_op_option_u32(b: &mut Bencher) {
 
 /// A string function with a numeric return value.
 fn bench_op_string(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string", 1, "accum += op_string('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string",
+    1,
+    "accum += op_string('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A string function with a numeric return value.
@@ -328,7 +334,13 @@ fn bench_op_string_large_1000000(b: &mut Bencher) {
 
 /// A string function with a numeric return value.
 fn bench_op_string_onebyte(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string_onebyte", 1, "accum += op_string_onebyte('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_onebyte",
+    1,
+    "accum += op_string_onebyte('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A string function with a numeric return value.
@@ -355,7 +367,13 @@ fn bench_op_string_onebyte_large_1000000(b: &mut Bencher) {
 
 /// A string function with a numeric return value.
 fn bench_op_string_bytestring(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string_bytestring", 1, "accum += op_string_bytestring('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_bytestring",
+    1,
+    "accum += op_string_bytestring('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 fn bench_op_string_bytestring_no_side_effects(b: &mut Bencher) {
@@ -392,32 +410,68 @@ fn bench_op_string_large_utf8_1000000(b: &mut Bencher) {
 
 /// A string function with an option numeric return value.
 fn bench_op_string_option_u32(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string_option_u32", 1, "accum += op_string_option_u32('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_option_u32",
+    1,
+    "accum += op_string_option_u32('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A fast function that takes a v8::Local<String>
 fn bench_op_v8_local(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_local", 1, "op_local('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_local",
+    1,
+    "op_local('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Local<String>
 fn bench_op_v8_local_scope(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_local_scope", 1, "op_local_scope('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_local_scope",
+    1,
+    "op_local_scope('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Local<String>
 fn bench_op_v8_local_nofast(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_local_nofast", 1, "op_local_nofast('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_local_nofast",
+    1,
+    "op_local_nofast('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Global<String>
 fn bench_op_v8_global(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_global", 1, "op_global('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_global",
+    1,
+    "op_global('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Global<String>
 fn bench_op_v8_global_scope(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_global_scope", 1, "op_global_scope('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_global_scope",
+    1,
+    "op_global_scope('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 fn bench_op_bigint(b: &mut Bencher) {

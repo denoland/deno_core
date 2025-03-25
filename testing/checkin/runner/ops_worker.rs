@@ -1,29 +1,29 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::Output;
 use super::create_runtime;
 use super::run_async;
-use super::Output;
 use anyhow::anyhow;
-use deno_core::cppgc::PrototypeChain;
-use deno_core::op2;
-use deno_core::url::Url;
-use deno_core::v8::IsolateHandle;
 use deno_core::GarbageCollected;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
+use deno_core::cppgc::PrototypeChain;
+use deno_core::op2;
+use deno_core::url::Url;
+use deno_core::v8::IsolateHandle;
 use deno_error::JsErrorBox;
 use std::cell::RefCell;
 use std::future::poll_fn;
 use std::rc::Rc;
-use std::sync::mpsc::channel;
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 use std::task::Poll;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::watch;
-use tokio::sync::Mutex;
 
 /// Our cppgc object.
 pub struct WorkerControl {

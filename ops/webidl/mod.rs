@@ -4,17 +4,17 @@ mod dictionary;
 mod r#enum;
 
 use proc_macro2::TokenStream;
-use quote::quote;
 use quote::ToTokens;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::parse2;
-use syn::spanned::Spanned;
+use quote::quote;
 use syn::Attribute;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
 use syn::Token;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::parse2;
+use syn::spanned::Spanned;
 
 pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let input = parse2::<DeriveInput>(item)?;
@@ -125,8 +125,8 @@ mod tests {
   use super::*;
   use proc_macro2::Ident;
   use std::path::PathBuf;
-  use syn::punctuated::Punctuated;
   use syn::Item;
+  use syn::punctuated::Punctuated;
 
   fn derives_webidl<'a>(
     attrs: impl IntoIterator<Item = &'a Attribute>,

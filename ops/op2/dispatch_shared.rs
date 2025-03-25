@@ -1,11 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::V8MappingError;
 use super::signature::Arg;
 use super::signature::BufferType;
 use super::signature::NumericArg;
 use super::signature::RefType;
 use super::signature::V8Arg;
-use super::V8MappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;

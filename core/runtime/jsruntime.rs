@@ -1,5 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::SnapshotStoreDataStore;
+use super::SnapshottedData;
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::watch_promise;
@@ -10,44 +12,6 @@ use super::setup;
 use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
 use super::v8_static_strings::*;
-use super::SnapshotStoreDataStore;
-use super::SnapshottedData;
-use crate::ascii_str;
-use crate::ascii_str_include;
-use crate::cppgc::FunctionTemplateData;
-use crate::error::exception_to_err_result;
-use crate::error::CoreError;
-use crate::error::JsError;
-use crate::extension_set;
-use crate::extension_set::LoadedSources;
-use crate::extensions::GlobalObjectMiddlewareFn;
-use crate::extensions::GlobalTemplateMiddlewareFn;
-use crate::include_js_files;
-use crate::inspector::JsRuntimeInspector;
-use crate::module_specifier::ModuleSpecifier;
-use crate::modules::default_import_meta_resolve_cb;
-use crate::modules::script_origin;
-use crate::modules::CustomModuleEvaluationCb;
-use crate::modules::EvalContextCodeCacheReadyCb;
-use crate::modules::EvalContextGetCodeCacheCb;
-use crate::modules::ExtModuleLoader;
-use crate::modules::ImportMetaResolveCallback;
-use crate::modules::IntoModuleCodeString;
-use crate::modules::IntoModuleName;
-use crate::modules::ModuleId;
-use crate::modules::ModuleLoader;
-use crate::modules::ModuleMap;
-use crate::modules::ModuleName;
-use crate::modules::RequestedModuleType;
-use crate::modules::ValidateImportAttributesCb;
-use crate::ops_metrics::dispatch_metrics_async;
-use crate::ops_metrics::OpMetricsFactoryFn;
-use crate::runtime::ContextState;
-use crate::runtime::JsRealm;
-use crate::runtime::OpDriverImpl;
-use crate::source_map::SourceMapData;
-use crate::source_map::SourceMapper;
-use crate::stats::RuntimeActivityType;
 use crate::Extension;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
@@ -60,11 +24,47 @@ use crate::OpMetadata;
 use crate::OpMetricsEvent;
 use crate::OpStackTraceCallback;
 use crate::OpState;
+use crate::ascii_str;
+use crate::ascii_str_include;
+use crate::cppgc::FunctionTemplateData;
+use crate::error::CoreError;
+use crate::error::JsError;
+use crate::error::exception_to_err_result;
+use crate::extension_set;
+use crate::extension_set::LoadedSources;
+use crate::extensions::GlobalObjectMiddlewareFn;
+use crate::extensions::GlobalTemplateMiddlewareFn;
+use crate::inspector::JsRuntimeInspector;
+use crate::module_specifier::ModuleSpecifier;
+use crate::modules::CustomModuleEvaluationCb;
+use crate::modules::EvalContextCodeCacheReadyCb;
+use crate::modules::EvalContextGetCodeCacheCb;
+use crate::modules::ExtCodeCache;
+use crate::modules::ExtModuleLoader;
+use crate::modules::ImportMetaResolveCallback;
+use crate::modules::IntoModuleCodeString;
+use crate::modules::IntoModuleName;
+use crate::modules::ModuleId;
+use crate::modules::ModuleLoader;
+use crate::modules::ModuleMap;
+use crate::modules::ModuleName;
+use crate::modules::RequestedModuleType;
+use crate::modules::ValidateImportAttributesCb;
+use crate::modules::default_import_meta_resolve_cb;
+use crate::modules::script_origin;
+use crate::ops_metrics::OpMetricsFactoryFn;
+use crate::ops_metrics::dispatch_metrics_async;
+use crate::runtime::ContextState;
+use crate::runtime::JsRealm;
+use crate::runtime::OpDriverImpl;
+use crate::source_map::SourceMapData;
+use crate::source_map::SourceMapper;
+use crate::stats::RuntimeActivityType;
 use deno_error::JsErrorBox;
-use futures::future::poll_fn;
-use futures::task::AtomicWaker;
 use futures::Future;
 use futures::FutureExt;
+use futures::future::poll_fn;
+use futures::task::AtomicWaker;
 use smallvec::SmallVec;
 use std::any::Any;
 use v8::MessageErrorLevel;
@@ -289,11 +289,12 @@ impl Future for RcPromiseFuture {
   type Output = Result<v8::Global<v8::Value>, CoreError>;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
-    if let Some(resolved) = this.0.resolved.take() {
-      Poll::Ready(resolved)
-    } else {
-      this.0.waker.set(Some(cx.waker().clone()));
-      Poll::Pending
+    match this.0.resolved.take() {
+      Some(resolved) => Poll::Ready(resolved),
+      _ => {
+        this.0.waker.set(Some(cx.waker().clone()));
+        Poll::Pending
+      }
     }
   }
 }
@@ -329,7 +330,10 @@ pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
 pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
-  include_js_files!(core "mod.js",);
+  [ExtensionFileSource::new(
+    "ext:core/mod.js",
+    ascii_str_include!("../mod.js"),
+  )];
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
 #[cfg(test)]
@@ -449,6 +453,9 @@ pub struct RuntimeOptions {
   /// If not provided runtime will error if code being
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
+
+  /// If specified, enables V8 code cache for extension code.
+  pub extension_code_cache: Option<Rc<dyn ExtCodeCache>>,
 
   /// If specified, transpiles extensions before loading.
   pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
@@ -1088,6 +1095,11 @@ impl JsRuntime {
         snapshotted_data.module_map_data,
       );
 
+      if let Some(index) = snapshotted_data.ext_import_meta_proto {
+        *context_state.ext_import_meta_proto.borrow_mut() =
+          Some(data_store.get(scope, index));
+      }
+
       state_rc
         .function_templates
         .borrow_mut()
@@ -1101,6 +1113,14 @@ impl JsRuntime {
       for (key, map) in snapshotted_data.ext_source_maps {
         mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
       }
+    }
+
+    if context_state.ext_import_meta_proto.borrow().is_none() {
+      let null = v8::null(scope);
+      let obj =
+        v8::Object::with_prototype_and_properties(scope, null.into(), &[], &[]);
+      *context_state.ext_import_meta_proto.borrow_mut() =
+        Some(v8::Global::new(scope, obj));
     }
 
     // SAFETY: Set the module map slot in the context
@@ -1181,7 +1201,12 @@ impl JsRuntime {
 
       js_runtime.store_js_callbacks(&realm, will_snapshot);
 
-      js_runtime.init_extension_js(&realm, &module_map, sources)?;
+      js_runtime.init_extension_js(
+        &realm,
+        &module_map,
+        sources,
+        options.extension_code_cache,
+      )?;
     }
 
     if will_snapshot {
@@ -1326,6 +1351,7 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
   ) -> Result<(), CoreError> {
     // First, add all the lazy ESM
     for source in loaded_sources.lazy_esm {
@@ -1344,11 +1370,13 @@ impl JsRuntime {
       modules.push(ModuleSpecifier::parse(&esm.specifier).unwrap());
       sources.push((esm.specifier, esm.code));
     }
-    let ext_loader = Rc::new(ExtModuleLoader::new(sources));
+    let ext_loader =
+      Rc::new(ExtModuleLoader::new(sources, ext_code_cache.clone()));
     *module_map.loader.borrow_mut() = ext_loader.clone();
 
     // Next, load the extension modules as side modules (but do not execute them)
     for module in modules {
+      // eprintln!("loading module: {module}");
       realm
         .load_side_es_module_from_code(self.v8_isolate(), &module, None)
         .await?;
@@ -1356,7 +1384,30 @@ impl JsRuntime {
 
     // Execute extension scripts
     for source in loaded_sources.js {
-      realm.execute_script(self.v8_isolate(), source.specifier, source.code)?;
+      match &ext_code_cache {
+        Some(ext_code_cache) => {
+          let specifier = ModuleSpecifier::parse(&source.specifier)?;
+          realm.execute_script_with_cache(
+            self.v8_isolate(),
+            specifier,
+            source.code,
+            &|specifier, code| {
+              ext_code_cache.get_code_cache_info(specifier, code, false)
+            },
+            &|specifier, hash, code_cache| {
+              ext_code_cache
+                .code_cache_ready(specifier, hash, code_cache, false)
+            },
+          )?;
+        }
+        _ => {
+          realm.execute_script(
+            self.v8_isolate(),
+            source.specifier,
+            source.code,
+          )?;
+        }
+      }
     }
 
     // ...then execute all entry points
@@ -1370,6 +1421,10 @@ impl JsRuntime {
       let isolate = self.v8_isolate();
       let scope = &mut realm.handle_scope(isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
+      let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+      // poll once so code cache is populated. the `ExtCodeCache` trait is sync, so
+      // the `CodeCacheReady` futures will always finish on the first poll.
+      let _ = module_map.poll_progress(&mut cx, scope);
     }
 
     #[cfg(debug_assertions)]
@@ -1380,10 +1435,7 @@ impl JsRuntime {
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
-    Rc::try_unwrap(ext_loader)
-      .map_err(drop)
-      .unwrap()
-      .finalize()?;
+    ext_loader.finalize()?;
 
     Ok(())
   }
@@ -1394,11 +1446,13 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
   ) -> Result<(), CoreError> {
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
       module_map,
       loaded_sources,
+      ext_code_cache,
     ))?;
 
     Ok(())
@@ -1477,17 +1531,17 @@ impl JsRuntime {
     state_rc
       .js_event_loop_tick_cb
       .borrow_mut()
-      .replace(Rc::new(event_loop_tick_cb));
+      .replace(event_loop_tick_cb);
     state_rc
       .exception_state
       .js_build_custom_error_cb
       .borrow_mut()
-      .replace(Rc::new(build_custom_error_cb));
+      .replace(build_custom_error_cb);
     if let Some(wasm_instance_fn) = wasm_instance_fn {
       state_rc
         .wasm_instance_fn
         .borrow_mut()
-        .replace(Rc::new(wasm_instance_fn));
+        .replace(wasm_instance_fn);
     }
   }
 
@@ -1544,7 +1598,8 @@ impl JsRuntime {
   pub fn call(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     self.call_with_args(function, &[])
   }
 
@@ -1558,7 +1613,8 @@ impl JsRuntime {
   pub fn scoped_call(
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     Self::scoped_call_with_args(scope, function, &[])
   }
 
@@ -1573,7 +1629,8 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut self.handle_scope();
     Self::scoped_call_with_args(scope, function, args)
   }
@@ -1589,7 +1646,8 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut v8::TryCatch::new(scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
@@ -1756,7 +1814,8 @@ impl JsRuntime {
   pub fn resolve(
     &mut self,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut self.handle_scope();
     Self::scoped_resolve(scope, promise)
   }
@@ -1768,7 +1827,8 @@ impl JsRuntime {
   pub fn scoped_resolve(
     scope: &mut v8::HandleScope,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let promise = v8::Local::new(scope, promise);
     if !promise.is_promise() {
       return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
@@ -2180,6 +2240,14 @@ impl JsRuntimeForSnapshot {
       }
       .map(|cb| data_store.register(cb));
 
+      let ext_import_meta_proto = realm
+        .0
+        .context_state
+        .ext_import_meta_proto
+        .borrow()
+        .clone()
+        .map(|p| data_store.register(p));
+
       let snapshotted_data = SnapshottedData {
         module_map_data,
         function_templates_data,
@@ -2189,6 +2257,7 @@ impl JsRuntimeForSnapshot {
         source_count: self.inner.source_count,
         extension_count: self.inner.extension_count,
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        ext_import_meta_proto,
         ext_source_maps,
         external_strings,
       };
@@ -2366,7 +2435,7 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), CoreError>> {
+  ) -> impl Future<Output = Result<(), CoreError>> + use<> {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
@@ -2628,8 +2697,8 @@ impl JsRuntime {
 
     // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
     // storing the exception-reporting callback.
-    let timers =
-      if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
+    let timers = match context_state.timers.poll_timers(cx) {
+      Poll::Ready(timers) => {
         let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
@@ -2641,17 +2710,17 @@ impl JsRuntime {
               .complete(RuntimeActivityType::Timer, timers[i].0 as _);
           }
           // depth, id, function
-          let value = v8::Integer::new(scope, timers[i].1 .1 as _);
+          let value = v8::Integer::new(scope, timers[i].1.1 as _);
           arr.set_index(scope, (i * 3) as _, value.into());
           let value = v8::Number::new(scope, timers[i].0 as _);
           arr.set_index(scope, (i * 3 + 1) as _, value.into());
-          let value = v8::Local::new(scope, timers[i].1 .0.clone());
+          let value = v8::Local::new(scope, timers[i].1.0.clone());
           arr.set_index(scope, (i * 3 + 2) as _, value.into());
         }
         arr.into()
-      } else {
-        undefined
-      };
+      }
+      _ => undefined,
+    };
     args.push(timers);
 
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);

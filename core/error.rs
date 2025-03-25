@@ -1,16 +1,16 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 pub use super::modules::ModuleConcreteError;
+use crate::FastStaticString;
 pub use crate::io::ResourceError;
 pub use crate::modules::ModuleLoaderError;
-use crate::runtime::v8_static_strings;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntime;
+use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
-use crate::FastStaticString;
-use deno_error::builtin_classes::*;
 use deno_error::JsErrorClass;
+use deno_error::builtin_classes::*;
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -71,16 +71,20 @@ pub enum CoreError {
     "Cannot evaluate module, because JavaScript execution has been terminated"
   )]
   ExecutionTerminated,
-  #[error("Promise resolution is still pending but the event loop has already resolved"
+  #[error(
+    "Promise resolution is still pending but the event loop has already resolved"
   )]
   PendingPromiseResolution,
-  #[error("Cannot evaluate dynamically imported module, because JavaScript execution has been terminated"
+  #[error(
+    "Cannot evaluate dynamically imported module, because JavaScript execution has been terminated"
   )]
   EvaluateDynamicImportedModule,
   #[error(transparent)]
   Module(ModuleConcreteError),
   #[error(transparent)]
   DataError(DataError),
+  #[error("Unable to get code cache from unbound module script for {0}")]
+  CreateCodeCache(String),
 }
 
 impl CoreError {
@@ -174,6 +178,7 @@ impl JsErrorClass for CoreError {
       | CoreError::MissingFromModuleMap(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
+      | CoreError::CreateCodeCache(_)
       | CoreError::EvaluateDynamicImportedModule => {
         Cow::Borrowed(GENERIC_ERROR)
       }
@@ -206,7 +211,8 @@ impl JsErrorClass for CoreError {
       | CoreError::FutureCanceled(_)
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule => self.to_string().into(),
+      | CoreError::EvaluateDynamicImportedModule
+      | CoreError::CreateCodeCache(_) => self.to_string().into(),
     }
   }
 
@@ -1053,25 +1059,28 @@ pub(crate) fn exception_to_err_result<T>(
   // have returned false if TerminateExecution was indeed called but there was
   // no JS to execute after the call.
   scope.cancel_terminate_execution();
-  let exception = if let Some(dispatched_exception) =
-    state.get_dispatched_exception_as_local(scope)
-  {
-    // If termination is the result of a `reportUnhandledException` call, we want
-    // to use the exception that was passed to it rather than the exception that
-    // was passed to this function.
-    in_promise = state.is_dispatched_exception_promise();
-    if clear_error {
-      state.clear_error();
-      was_terminating_execution = false;
+  let exception = match state.get_dispatched_exception_as_local(scope) {
+    Some(dispatched_exception) => {
+      // If termination is the result of a `reportUnhandledException` call, we want
+      // to use the exception that was passed to it rather than the exception that
+      // was passed to this function.
+      in_promise = state.is_dispatched_exception_promise();
+      if clear_error {
+        state.clear_error();
+        was_terminating_execution = false;
+      }
+      dispatched_exception
     }
-    dispatched_exception
-  } else if was_terminating_execution && exception.is_null_or_undefined() {
-    // If we are terminating and there is no exception, throw `new Error("execution terminated")``.
-    let message = v8::String::new(scope, "execution terminated").unwrap();
-    v8::Exception::error(scope, message)
-  } else {
-    // Otherwise re-use the exception
-    exception
+    _ => {
+      if was_terminating_execution && exception.is_null_or_undefined() {
+        // If we are terminating and there is no exception, throw `new Error("execution terminated")``.
+        let message = v8::String::new(scope, "execution terminated").unwrap();
+        v8::Exception::error(scope, message)
+      } else {
+        // Otherwise re-use the exception
+        exception
+      }
+    }
   };
 
   let mut js_error = JsError::from_v8_exception(scope, exception);
@@ -1207,9 +1216,9 @@ fn maybe_to_path_str(string: &str) -> Option<String> {
 pub mod callsite_fns {
   use capacity_builder::StringBuilder;
 
-  use crate::convert;
   use crate::FromV8;
   use crate::ToV8;
+  use crate::convert;
 
   use super::*;
 
@@ -1664,7 +1673,9 @@ pub fn format_stack_trace<'s>(
         .to_rust_string_lossy(tc_scope);
       #[allow(clippy::print_stderr)]
       {
-        eprintln!("warning: Failed to create JsStackFrame from callsite object: {message}; Result so far: {result}. This is a bug in deno");
+        eprintln!(
+          "warning: Failed to create JsStackFrame from callsite object: {message}; Result so far: {result}. This is a bug in deno"
+        );
       }
       break;
     };

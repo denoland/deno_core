@@ -1,13 +1,15 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
+use super::generator_state::GeneratorState;
 use super::generator_state::gs_extract;
 use super::generator_state::gs_quote;
-use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
@@ -23,15 +25,13 @@ use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::signature::WebIDLPairs;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::parse2;
 use syn::Type;
+use syn::parse2;
 
 pub(crate) fn generate_dispatch_slow_call(
   generator_state: &mut GeneratorState,
@@ -503,6 +503,12 @@ pub fn from_arg(
         let #arg_ident = Some(&#fn_args);
       })
     }
+    Arg::This => {
+      *needs_isolate = true;
+      gs_quote!(generator_state(scope, fn_args) => {
+        let #arg_ident = deno_core::v8::Global::new(&mut #scope, #fn_args.this());
+      })
+    }
     Arg::Buffer(buffer_type, mode, source) => {
       // Explicit temporary lifetime extension so we can take a reference
       let temp = format_ident!("{}_temp", arg_ident);
@@ -695,24 +701,33 @@ pub fn from_arg(
 
       let default = if let Some(default) = default {
         let tokens = default.0.to_token_stream();
-        let default = if let Ok(lit) = parse2::<syn::LitStr>(tokens.clone()) {
-          if lit.value().is_empty() {
-            quote! {
-              deno_core::v8::String::empty(&mut #scope)
+        let default = match parse2::<syn::LitStr>(tokens.clone()) {
+          Ok(lit) => {
+            if lit.value().is_empty() {
+              quote! {
+                deno_core::v8::String::empty(&mut #scope)
+              }
+            } else {
+              return Err("unsupported WebIDL default value");
             }
-          } else {
-            return Err("unsupported WebIDL default value");
           }
-        } else if let Ok(lit) = parse2::<syn::LitInt>(tokens.clone()) {
-          quote! {
-            deno_core::v8::Number::new(&mut #scope, #lit as _)
-          }
-        } else if let Ok(lit) = parse2::<syn::LitFloat>(tokens) {
-          quote! {
-            deno_core::v8::Number::new(&mut #scope, #lit)
-          }
-        } else {
-          return Err("unsupported WebIDL default value");
+          _ => match parse2::<syn::LitInt>(tokens.clone()) {
+            Ok(lit) => {
+              quote! {
+                deno_core::v8::Number::new(&mut #scope, #lit as _)
+              }
+            }
+            _ => match parse2::<syn::LitFloat>(tokens) {
+              Ok(lit) => {
+                quote! {
+                  deno_core::v8::Number::new(&mut #scope, #lit)
+                }
+              }
+              _ => {
+                return Err("unsupported WebIDL default value");
+              }
+            },
+          },
         };
 
         quote! {
@@ -756,7 +771,13 @@ pub fn from_arg(
 
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+      if matches!(
+        ret_val,
+        RetVal::Future(_)
+          | RetVal::FutureResult(_)
+          | RetVal::Infallible(.., true)
+          | RetVal::Result(.., true)
+      ) {
         let tokens = quote! {
           let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
@@ -783,7 +804,13 @@ pub fn from_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       let scope = &generator_state.scope;
-      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+      if matches!(
+        ret_val,
+        RetVal::Future(_)
+          | RetVal::FutureResult(_)
+          | RetVal::Infallible(.., true)
+          | RetVal::Result(.., true)
+      ) {
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
@@ -1003,6 +1030,11 @@ pub fn call(
       #moves
       #call.await
     })
+  } else if matches!(
+    ret_val,
+    RetVal::Infallible(.., true) | RetVal::Result(.., true)
+  ) {
+    return quote!(std::future::ready(#call));
   } else {
     call
   }
@@ -1013,10 +1045,12 @@ pub fn return_value(
   ret_type: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   match ret_type {
-    RetVal::Infallible(ret_type) => {
+    RetVal::Infallible(ret_type, ..) => {
       return_value_infallible(generator_state, ret_type)
     }
-    RetVal::Result(ret_type) => return_value_result(generator_state, ret_type),
+    RetVal::Result(ret_type, ..) => {
+      return_value_result(generator_state, ret_type)
+    }
     _ => todo!(),
   }
 }

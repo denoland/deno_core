@@ -3,7 +3,6 @@
 deno_ops_compile_test_runner::prelude!();
 use deno_core::cppgc::PrototypeChain;
 use deno_core::GarbageCollected;
-use std::future::Future;
 
 struct Wrap;
 

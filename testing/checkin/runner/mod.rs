@@ -1,10 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
+use self::ops_worker::worker_create;
 use self::ts_module_loader::maybe_transpile_source;
-use deno_core::v8;
 use deno_core::CrossIsolateStore;
 use deno_core::CustomModuleEvaluationKind;
 use deno_core::Extension;
@@ -13,6 +12,7 @@ use deno_core::ImportAssertionsSupport;
 use deno_core::JsRuntime;
 use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
+use deno_core::v8;
 use deno_error::JsErrorBox;
 use futures::Future;
 use std::any::Any;
@@ -20,10 +20,11 @@ use std::any::TypeId;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::channel;
 use std::time::Duration;
 
 mod extensions;
@@ -97,8 +98,11 @@ pub fn create_runtime(
   additional_extensions: Vec<Extension>,
 ) -> (JsRuntime, WorkerHostSide) {
   let (worker, worker_host_side) = worker_create(parent);
-  let snapshot = snapshot::create_snapshot();
-  let snapshot = Box::leak(snapshot);
+
+  static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
+
+  let snapshot = SNAPSHOT.get_or_init(snapshot::create_snapshot);
+
   let mut runtime =
     create_runtime_from_snapshot(snapshot, false, additional_extensions);
   runtime.op_state().borrow_mut().put(worker);
