@@ -61,12 +61,12 @@ use crate::source_map::SourceMapData;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
 use deno_error::JsErrorBox;
-use futures::Future;
 use futures::FutureExt;
-use futures::future::poll_fn;
 use futures::task::AtomicWaker;
 use smallvec::SmallVec;
 use std::any::Any;
+use std::future::Future;
+use std::future::poll_fn;
 use v8::MessageErrorLevel;
 
 use std::cell::Cell;
@@ -1421,7 +1421,7 @@ impl JsRuntime {
       let isolate = self.v8_isolate();
       let scope = &mut realm.handle_scope(isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
-      let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+      let mut cx = Context::from_waker(Waker::noop());
       // poll once so code cache is populated. the `ExtCodeCache` trait is sync, so
       // the `CodeCacheReady` futures will always finish on the first poll.
       let _ = module_map.poll_progress(&mut cx, scope);
