@@ -64,7 +64,7 @@ paste.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
 twox-hash.workspace = true
-unicycle = "0"
+unicycle = "0.10.2"
 
 [[bench]]
 name = "ops_sync"
