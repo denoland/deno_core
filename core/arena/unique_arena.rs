@@ -2,6 +2,7 @@
 
 use std::alloc::Layout;
 use std::future::Future;
+use std::mem::offset_of;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
@@ -39,7 +40,7 @@ struct ArenaBoxData<T> {
 
 impl<T: 'static> ArenaBox<T> {
   /// Offset of the `ptr` field within the `ArenaBox` struct.
-  const PTR_OFFSET: usize = memoffset::offset_of!(ArenaBox<T>, ptr);
+  const PTR_OFFSET: usize = offset_of!(ArenaBox<T>, ptr);
 
   /// Constructs a `NonNull` reference to `ArenaBoxData` from a raw pointer to `T`.
   #[inline(always)]
