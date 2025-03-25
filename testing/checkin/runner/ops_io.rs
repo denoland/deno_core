@@ -73,23 +73,18 @@ pub fn op_pipe_create(op_state: &mut OpState) -> (ResourceId, ResourceId) {
 
 struct FileResource {
   handle: deno_core::ResourceHandle,
-  ref_: bool,
 }
 
 impl FileResource {
-  fn new(file: tokio::fs::File, ref_: bool) -> Self {
+  fn new(file: tokio::fs::File) -> Self {
     let handle = ResourceHandle::from_fd_like(&file);
-    Self { handle, ref_ }
+    Self { handle }
   }
 }
 
 impl Resource for FileResource {
   fn backing_handle(self: Rc<Self>) -> Option<ResourceHandle> {
     Some(self.handle)
-  }
-
-  fn has_ref(&self) -> bool {
-    self.ref_
   }
 
   fn read_byob(
@@ -121,7 +116,12 @@ pub async fn op_file_open(
   let rid = op_state
     .borrow_mut()
     .resource_table
-    .add(FileResource::new(tokio_file, ref_));
+    .add(FileResource::new(tokio_file));
+
+  if ref_ {
+    op_state.borrow_mut().unrefed_resources.insert(rid);
+  }
+
   Ok(rid)
 }
 

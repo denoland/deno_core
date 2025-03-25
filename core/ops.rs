@@ -2,6 +2,7 @@
 
 use crate::FeatureChecker;
 use crate::OpDecl;
+use crate::ResourceId;
 use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
@@ -11,6 +12,7 @@ use crate::runtime::OpDriverImpl;
 use crate::runtime::UnrefedOps;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
@@ -241,6 +243,7 @@ pub struct OpState {
   pub external_ops_tracker: ExternalOpsTracker,
   pub op_stack_trace_callback: Option<OpStackTraceCallback>,
   pub(crate) unrefed_ops: UnrefedOps,
+  pub unrefed_resources: HashSet<ResourceId>,
 }
 
 impl OpState {
@@ -258,6 +261,7 @@ impl OpState {
       },
       op_stack_trace_callback,
       unrefed_ops: Default::default(),
+      unrefed_resources: Default::default(),
     }
   }
 

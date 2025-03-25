@@ -288,7 +288,7 @@ fn get_resource(
     .get_any(rid)
     .map_err(JsErrorBox::from_err)?;
 
-  if !resource.has_ref() {
+  if op_state.unrefed_resources.contains(&rid) {
     op_state.unrefed_ops.borrow_mut().insert(promise_id);
   }
 

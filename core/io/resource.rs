@@ -200,10 +200,6 @@ pub trait Resource: Any + 'static {
   fn size_hint(&self) -> (u64, Option<u64>) {
     (0, None)
   }
-
-  fn has_ref(&self) -> bool {
-    true
-  }
 }
 
 impl dyn Resource {
