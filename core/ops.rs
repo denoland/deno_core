@@ -243,7 +243,11 @@ pub struct OpState {
   pub external_ops_tracker: ExternalOpsTracker,
   pub op_stack_trace_callback: Option<OpStackTraceCallback>,
   pub(crate) unrefed_ops: UnrefedOps,
-  pub unrefed_resources: HashSet<ResourceId>,
+  /// Resources that are not referenced by the event loop. All async
+  /// resource ops on these resources will not keep the event loop alive.
+  ///
+  /// Used to implement `uv_ref` and `uv_unref` methods for Node compat.
+  pub(crate) unrefed_resources: HashSet<ResourceId>,
 }
 
 impl OpState {
@@ -269,6 +273,18 @@ impl OpState {
   pub(crate) fn clear(&mut self) {
     std::mem::take(&mut self.gotham_state);
     std::mem::take(&mut self.resource_table);
+  }
+
+  pub fn uv_unref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.insert(resource_id);
+  }
+
+  pub fn uv_ref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.remove(&resource_id);
+  }
+
+  pub fn has_ref(&self, resource_id: ResourceId) -> bool {
+    !self.unrefed_resources.contains(&resource_id)
   }
 }
 
