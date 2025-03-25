@@ -26,7 +26,7 @@ deno_core_testing.workspace = true
 fastwebsockets = { version = "0.10.0", features = ["upgrade", "unstable-split"] }
 http = { version = "1.0" }
 http-body-util = { version = "0.1" }
-hyper = { version = "=1.1.0", features = ["full"] }
+hyper = { version = "=1.6.0", features = ["full"] }
 hyper-util = { version = "=0.1.2", features = ["tokio", "server", "server-auto"] }
 serde_json = { workspace = true, features = ["preserve_order"] }
 tokio.workspace = true
