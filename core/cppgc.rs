@@ -382,10 +382,7 @@ pub fn try_unwrap_cppgc_object<
 
     obj.downcast::<T>()?
   } else {
-    let obj =
-      unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) }?;
-
-    obj
+    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) }?
   };
 
   Some(Ptr {
