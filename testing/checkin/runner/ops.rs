@@ -151,7 +151,7 @@ pub struct DOMPointReadOnly {
 
 impl GarbageCollected for DOMPointReadOnly {}
 
-#[op2]
+#[op2(base)]
 impl DOMPointReadOnly {
   #[getter]
   fn x(&self) -> f64 {
