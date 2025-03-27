@@ -75,9 +75,15 @@ pub(crate) fn generate_impl_ops(
   attrs: TokenStream,
   item: ItemImpl,
 ) -> Result<TokenStream, Op2Error> {
+  enum ClassTy {
+    Base,
+    Inherit(syn::Type),
+  }
+
   let maybe_inherits_type = rules!(attrs => {
     () => None,
-    (inherit = $inherits_type:ty) => Some(inherits_type),
+    (base) => Some(ClassTy::Base),
+    (inherit = $inherits_type:ty) => Some(ClassTy::Inherit(inherits_type)),
   });
 
   let mut tokens = TokenStream::new();
@@ -147,24 +153,33 @@ pub(crate) fn generate_impl_ops(
     quote! { None }
   };
 
-  let prototype_index = if let Some(inherits_type) = &maybe_inherits_type {
-    quote! {
-      fn prototype_index() -> Option<usize> {
-        Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
-      }
-    }
-  } else {
-    quote! {}
-  };
-
-  let inherits_type_name = if let Some(inherits_type) = maybe_inherits_type {
-    quote! {
-      inherits_type_name: || Some(std::any::type_name::<#inherits_type>()),
-    }
-  } else {
-    quote! {
-      inherits_type_name: || None,
-    }
+  let (prototype_index, inherits_type_name) = match &maybe_inherits_type {
+    Some(ClassTy::Base) => (
+      quote! {
+        fn prototype_index() -> Option<usize> {
+          Some(0)
+        }
+      },
+      quote! {
+        inherits_type_name: || None,
+      },
+    ),
+    Some(ClassTy::Inherit(inherits_type)) => (
+      quote! {
+        fn prototype_index() -> Option<usize> {
+          Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
+        }
+      },
+      quote! {
+        inherits_type_name: || Some(std::any::type_name::<#inherits_type>()),
+      },
+    ),
+    None => (
+      quote! {},
+      quote! {
+        inherits_type_name: || None,
+      },
+    ),
   };
 
   let res = quote! {

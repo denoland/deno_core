@@ -30,6 +30,8 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
+use crate::cppgc::PrototypeChain;
+
 /// Convert a value to a `v8::Local`, potentially allocating.
 pub trait RustToV8<'a> {
   fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value>;
@@ -426,8 +428,8 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
 //
 // CppGc
 //
-impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
-  for RustToV8Marker<CppGcMarker, T>
+impl<'a, T: crate::cppgc::GarbageCollected + PrototypeChain + 'static>
+  RustToV8<'a> for RustToV8Marker<CppGcMarker, T>
 {
   #[inline(always)]
   fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {

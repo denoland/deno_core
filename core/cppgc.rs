@@ -114,7 +114,7 @@ pub(crate) fn make_cppgc_template<'s>(
   v8::FunctionTemplate::new(scope, cppgc_template_constructor)
 }
 
-pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
+pub fn make_cppgc_object<'a, T: GarbageCollected + PrototypeChain + 'static>(
   scope: &mut v8::HandleScope<'a>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
@@ -139,37 +139,34 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
 }
 
 // Wrap an API object (eg: `args.This()`)
-pub fn wrap_object<'a, T: GarbageCollected + 'static>(
+pub fn wrap_object<'a, T: GarbageCollected + PrototypeChain + 'static>(
   isolate: &mut v8::Isolate,
   obj: v8::Local<'a, v8::Object>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
-
-  let member = unsafe {
-    v8::cppgc::make_garbage_collected(
-      heap,
-      PrototypeChainStore([
-        Some(
-          v8::cppgc::make_garbage_collected(
-            heap,
-            CppGcObject {
-              tag: TypeId::of::<T>(),
-              member: t,
-            },
-          )
-          .into(),
-        ),
-        None,
-        None,
-      ]),
-    )
-  };
-
   unsafe {
-    v8::Object::wrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj, &member);
+    let member = v8::cppgc::make_garbage_collected(
+      heap,
+      CppGcObject {
+        tag: TypeId::of::<T>(),
+        member: t,
+      },
+    );
+
+    if T::prototype_index().is_some() {
+      let member = v8::cppgc::make_garbage_collected(
+        heap,
+        PrototypeChainStore([Some(member.into()), None, None]),
+      );
+
+      v8::Object::wrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj, &member);
+    } else {
+      v8::Object::wrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj, &member);
+    }
+
+    obj
   }
-  obj
 }
 
 #[doc(hidden)]
@@ -372,18 +369,24 @@ pub fn try_unwrap_cppgc_object<
     return None;
   }
 
-  let proto_chain = unsafe {
-    v8::Object::unwrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj)
-  }?;
+  let obj = if let Some(proto_index) = T::prototype_index() {
+    let proto_chain = unsafe {
+      v8::Object::unwrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj)
+    }?;
 
-  let proto_index = T::prototype_index().unwrap_or_default();
-  if proto_index >= MAX_PROTO_CHAIN {
-    return None;
-  }
+    if proto_index >= MAX_PROTO_CHAIN {
+      return None;
+    }
 
-  let obj = proto_chain.0[proto_index].as_ref()?;
+    let obj = proto_chain.0[proto_index].as_ref()?;
 
-  let obj = obj.downcast::<T>()?;
+    obj.downcast::<T>()?
+  } else {
+    let obj =
+      unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) }?;
+
+    obj
+  };
 
   Some(Ptr {
     inner: obj,
