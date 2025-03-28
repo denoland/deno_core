@@ -1219,7 +1219,7 @@ impl JsRuntime {
 
   #[cfg(test)]
   #[inline]
-  pub(crate) fn module_map(&mut self) -> Rc<ModuleMap> {
+  pub(crate) fn module_map(&self) -> Rc<ModuleMap> {
     self.inner.main_realm.0.module_map()
   }
 
@@ -1244,12 +1244,12 @@ impl JsRuntime {
   }
 
   #[inline]
-  pub fn inspector(&mut self) -> Rc<RefCell<JsRuntimeInspector>> {
+  pub fn inspector(&self) -> Rc<RefCell<JsRuntimeInspector>> {
     self.inner.state.inspector()
   }
 
   #[inline]
-  pub fn wait_for_inspector_disconnect(&mut self) {
+  pub fn wait_for_inspector_disconnect(&self) {
     if let Some(callback) = self
       .inner
       .state
@@ -1547,7 +1547,7 @@ impl JsRuntime {
 
   /// Returns the runtime's op state, which can be used to maintain ops
   /// and access resources between op calls.
-  pub fn op_state(&mut self) -> Rc<RefCell<OpState>> {
+  pub fn op_state(&self) -> Rc<RefCell<OpState>> {
     self.inner.state.op_state.clone()
   }
 
@@ -1763,7 +1763,7 @@ impl JsRuntime {
   }
 
   fn pump_v8_message_loop(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope,
   ) -> Result<(), CoreError> {
     while v8::Platform::pump_message_loop(
@@ -1965,7 +1965,7 @@ impl JsRuntime {
   }
 
   fn poll_event_loop_inner(
-    &mut self,
+    &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
     poll_options: PollEventLoopOptions,
