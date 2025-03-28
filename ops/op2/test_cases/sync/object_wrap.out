@@ -13,6 +13,7 @@ impl Foo {
         constructor: Some(Foo::constructor()),
         name: ::deno_core::__op_name_fast!(Foo),
         type_name: || std::any::type_name::<Foo>(),
+        inherits_type_name: || None,
     };
     #[allow(non_camel_case_types)]
     pub const fn constructor() -> ::deno_core::_ops::OpDecl {

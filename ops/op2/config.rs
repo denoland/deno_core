@@ -54,6 +54,8 @@ pub struct MacroConfig {
   pub rename: Option<String>,
   /// Symbol.for("op_name") for the op.
   pub symbol: bool,
+  /// Use proto for cppgc object.
+  pub use_proto_cppgc: bool,
 }
 
 impl MacroConfig {
