@@ -117,6 +117,10 @@ pub(crate) fn generate_impl_ops(
 
       let mut config = MacroConfig::from_attributes(span, attrs)?;
 
+      if maybe_inherits_type.is_some() {
+        config.use_proto_cppgc = true;
+      }
+
       if let Some(ref rename) = config.rename {
         func.sig.ident = format_ident!("{}", rename);
       }
@@ -156,8 +160,10 @@ pub(crate) fn generate_impl_ops(
   let (prototype_index, inherits_type_name) = match &maybe_inherits_type {
     Some(ClassTy::Base) => (
       quote! {
-        fn prototype_index() -> Option<usize> {
-          Some(0)
+        impl deno_core::cppgc::PrototypeChain for #self_ty {
+          fn prototype_index() -> Option<usize> {
+            Some(0)
+          }
         }
       },
       quote! {
@@ -166,8 +172,10 @@ pub(crate) fn generate_impl_ops(
     ),
     Some(ClassTy::Inherit(inherits_type)) => (
       quote! {
-        fn prototype_index() -> Option<usize> {
-          Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
+        impl deno_core::cppgc::PrototypeChain for #self_ty {
+          fn prototype_index() -> Option<usize> {
+            Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
+          }
         }
       },
       quote! {
@@ -183,9 +191,7 @@ pub(crate) fn generate_impl_ops(
   };
 
   let res = quote! {
-      impl deno_core::cppgc::PrototypeChain for #self_ty {
-        #prototype_index
-      }
+      #prototype_index
 
       impl #self_ty {
         pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {

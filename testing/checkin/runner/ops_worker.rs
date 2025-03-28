@@ -8,7 +8,6 @@ use deno_core::GarbageCollected;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
-use deno_core::cppgc::PrototypeChain;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8::IsolateHandle;
@@ -34,8 +33,6 @@ pub struct WorkerControl {
 }
 
 impl GarbageCollected for WorkerControl {}
-
-impl PrototypeChain for WorkerControl {}
 
 pub struct WorkerChannel {
   tx: UnboundedSender<String>,

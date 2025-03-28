@@ -209,6 +209,12 @@ pub(crate) fn generate_op2(
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),
     use_this_cppgc: config.constructor,
+    use_proto_cppgc: config.use_proto_cppgc,
+    try_unwrap_cppgc: if config.use_proto_cppgc {
+      format_ident!("try_unwrap_cppgc_proto_object")
+    } else {
+      format_ident!("try_unwrap_cppgc_object")
+    },
   };
 
   let mut slow_generator_state = base_generator_state.clone();

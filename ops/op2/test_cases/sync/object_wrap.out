@@ -1,4 +1,3 @@
-impl deno_core::cppgc::PrototypeChain for Foo {}
 impl Foo {
     pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
         methods: &[

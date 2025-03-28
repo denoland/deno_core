@@ -69,8 +69,6 @@ pub struct TestResource {
 
 impl GarbageCollected for TestResource {}
 
-impl deno_core::cppgc::PrototypeChain for TestResource {}
-
 #[op2(async)]
 #[cppgc]
 pub async fn op_async_make_cppgc_resource() -> TestResource {
