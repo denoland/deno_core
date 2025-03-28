@@ -242,6 +242,7 @@ pub struct OpState {
   pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
   pub op_stack_trace_callback: Option<OpStackTraceCallback>,
+  /// Reference to the unrefered ops state in `ContextState`.
   pub(crate) unrefed_ops: UnrefedOps,
   /// Resources that are not referenced by the event loop. All async
   /// resource ops on these resources will not keep the event loop alive.
@@ -275,6 +276,7 @@ impl OpState {
     std::mem::take(&mut self.resource_table);
   }
 
+  // Silly but improves readability.
   pub fn uv_unref(&mut self, resource_id: ResourceId) {
     self.unrefed_resources.insert(resource_id);
   }

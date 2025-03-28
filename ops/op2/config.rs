@@ -456,6 +456,14 @@ mod tests {
       },
     );
     test_parse(
+      "(async, promise_id)",
+      MacroConfig {
+        r#async: true,
+        promise_id: true,
+        ..Default::default()
+      },
+    );
+    test_parse(
       "(async(lazy))",
       MacroConfig {
         r#async: true,

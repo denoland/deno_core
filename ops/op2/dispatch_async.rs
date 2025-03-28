@@ -60,8 +60,8 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
+  // Set input_index = 1 when we don't want promise ID as the first arg.
   let input_index = if config.promise_id { 0 } else { 1 };
-  // input_index = 1 as promise ID is the first arg
   let args =
     generate_dispatch_slow_call(generator_state, signature, input_index)?;
 

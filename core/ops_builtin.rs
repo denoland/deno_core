@@ -277,6 +277,8 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
+// Get a resource from the resource table and
+// handle unrefing the current task.
 fn get_resource(
   state: Rc<RefCell<OpState>>,
   rid: ResourceId,
