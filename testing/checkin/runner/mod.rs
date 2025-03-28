@@ -103,7 +103,7 @@ pub fn create_runtime(
 
   let snapshot = SNAPSHOT.get_or_init(snapshot::create_snapshot);
 
-  let mut runtime =
+  let runtime =
     create_runtime_from_snapshot(snapshot, false, additional_extensions);
   runtime.op_state().borrow_mut().put(worker);
   (runtime, worker_host_side)
@@ -131,7 +131,7 @@ pub fn create_runtime_from_snapshot_with_options(
   extensions.extend(additional_extensions);
   let module_loader =
     Rc::new(ts_module_loader::TypescriptModuleLoader::default());
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let runtime = JsRuntime::new(RuntimeOptions {
     extensions,
     startup_snapshot: Some(snapshot),
     module_loader: Some(module_loader.clone()),
