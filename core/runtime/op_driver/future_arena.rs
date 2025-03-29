@@ -233,9 +233,9 @@ impl<T, C: Clone> FutureArena<T, C> {
 mod tests {
   use super::*;
   use futures::FutureExt;
-  use futures::task::noop_waker_ref;
   use std::fmt::Display;
   use std::future::ready;
+  use std::task::Waker;
 
   const INFO: usize = 0;
 
@@ -258,8 +258,7 @@ mod tests {
 
     // Poll unmapped
     let mut f = arena.allocate(INFO, async { 1 });
-    let Poll::Ready(v) =
-      f.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+    let Poll::Ready(v) = f.poll_unpin(&mut Context::from_waker(Waker::noop()))
     else {
       panic!();
     };
@@ -267,8 +266,7 @@ mod tests {
 
     // Poll Mapped
     let mut f = arena.allocate(INFO, async { 1 }).erase();
-    let Poll::Ready(v) =
-      f.poll_unpin(&mut Context::from_waker(noop_waker_ref()))
+    let Poll::Ready(v) = f.poll_unpin(&mut Context::from_waker(Waker::noop()))
     else {
       panic!();
     };

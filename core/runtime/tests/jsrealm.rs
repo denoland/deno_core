@@ -6,7 +6,7 @@ use crate::RuntimeOptions;
 use crate::error::CoreError;
 use crate::modules::StaticModuleLoader;
 use crate::op2;
-use futures::future::poll_fn;
+use std::future::poll_fn;
 use std::rc::Rc;
 use std::task::Poll;
 
@@ -82,7 +82,7 @@ async fn js_realm_ref_unref_ops() {
   // Never resolves.
   #[op2(async)]
   async fn op_pending() {
-    futures::future::pending().await
+    std::future::pending().await
   }
 
   deno_core::extension!(test_ext, ops = [op_pending]);

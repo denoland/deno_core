@@ -8,9 +8,9 @@ use deno_core::V8TaskSpawner;
 use deno_core::op2;
 use deno_core::v8;
 use deno_error::JsErrorBox;
-use futures::future::poll_fn;
 use std::cell::RefCell;
 use std::future::Future;
+use std::future::poll_fn;
 use std::rc::Rc;
 
 #[op2]
@@ -85,10 +85,15 @@ pub async fn op_async_get_cppgc_resource(
 
 #[op2(async)]
 pub fn op_async_never_resolves() -> impl Future<Output = ()> {
-  futures::future::pending::<()>()
+  std::future::pending::<()>()
 }
 
 #[op2(async(fake))]
 pub fn op_async_fake() -> Result<u32, JsErrorBox> {
   Ok(1)
+}
+
+#[op2(async, promise_id)]
+pub async fn op_async_promise_id(#[smi] promise_id: u32) -> u32 {
+  promise_id
 }

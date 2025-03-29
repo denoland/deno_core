@@ -60,8 +60,25 @@ test(function opsSyncBadResource() {
 });
 
 test(async function testFileIsNotTerminal() {
-  const file = await op_file_open("./README.md");
+  const file = await op_file_open("./README.md", true);
   assert(!Deno.core.isTerminal(file));
+});
+
+test(async function testFileReadUnref() {
+  const file = await op_file_open("./README.md", true);
+
+  let called = false;
+  await Deno.core.read(file, new Uint8Array(100))
+    .then(() => {
+      called = true;
+    });
+  assert(called);
+
+  const file2 = await op_file_open("./README.md", false);
+  Deno.core.read(file2, new Uint8Array(100))
+    .then(() => {
+      throw new Error("should not be called");
+    });
 });
 
 test(async function testCppgcAsync() {

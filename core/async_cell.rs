@@ -243,18 +243,18 @@ mod internal {
   use super::AsyncRefCell;
   use super::RcLike;
   use super::RcRef;
-  use futures::future::Future;
-  use futures::ready;
-  use futures::task::Context;
-  use futures::task::Poll;
-  use futures::task::Waker;
   use std::borrow::Borrow;
   use std::borrow::BorrowMut;
   use std::fmt::Debug;
+  use std::future::Future;
   use std::marker::PhantomData;
   use std::ops::Deref;
   use std::ops::DerefMut;
   use std::pin::Pin;
+  use std::task::Context;
+  use std::task::Poll;
+  use std::task::Waker;
+  use std::task::ready;
 
   impl<T> AsyncRefCell<T> {
     /// Borrow the cell's contents synchronously without creating an
