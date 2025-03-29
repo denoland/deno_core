@@ -92,3 +92,8 @@ pub fn op_async_never_resolves() -> impl Future<Output = ()> {
 pub fn op_async_fake() -> Result<u32, JsErrorBox> {
   Ok(1)
 }
+
+#[op2(async, promise_id)]
+pub async fn op_async_promise_id(#[smi] promise_id: u32) -> u32 {
+  promise_id
+}

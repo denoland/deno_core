@@ -56,14 +56,16 @@ impl Hasher for IdentityHasher {
 /// We may wish to experiment with alternative drivers in the future.
 pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
+pub(crate) type UnrefedOps =
+  Rc<RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>>;
+
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_wasm_streaming_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) wasm_instance_fn: RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) unrefed_ops:
-    RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
+  pub(crate) unrefed_ops: UnrefedOps,
   pub(crate) activity_traces: RuntimeActivityTraces,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
@@ -86,6 +88,7 @@ impl ContextState {
     op_method_decls: Vec<OpMethodDecl>,
     methods_ctx_offset: usize,
     external_ops_tracker: ExternalOpsTracker,
+    unrefed_ops: UnrefedOps,
   ) -> Self {
     Self {
       isolate: Some(isolate_ptr),
@@ -101,7 +104,7 @@ impl ContextState {
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
-      unrefed_ops: Default::default(),
+      unrefed_ops,
       external_ops_tracker,
       ext_import_meta_proto: Default::default(),
     }

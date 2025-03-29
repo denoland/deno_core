@@ -2,14 +2,17 @@
 
 use crate::FeatureChecker;
 use crate::OpDecl;
+use crate::ResourceId;
 use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
+use crate::runtime::UnrefedOps;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
@@ -239,6 +242,13 @@ pub struct OpState {
   pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
   pub op_stack_trace_callback: Option<OpStackTraceCallback>,
+  /// Reference to the unrefered ops state in `ContextState`.
+  pub(crate) unrefed_ops: UnrefedOps,
+  /// Resources that are not referenced by the event loop. All async
+  /// resource ops on these resources will not keep the event loop alive.
+  ///
+  /// Used to implement `uv_ref` and `uv_unref` methods for Node compat.
+  pub(crate) unrefed_resources: HashSet<ResourceId>,
 }
 
 impl OpState {
@@ -255,6 +265,8 @@ impl OpState {
         counter: Arc::new(AtomicUsize::new(0)),
       },
       op_stack_trace_callback,
+      unrefed_ops: Default::default(),
+      unrefed_resources: Default::default(),
     }
   }
 
@@ -262,6 +274,19 @@ impl OpState {
   pub(crate) fn clear(&mut self) {
     std::mem::take(&mut self.gotham_state);
     std::mem::take(&mut self.resource_table);
+  }
+
+  // Silly but improves readability.
+  pub fn uv_unref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.insert(resource_id);
+  }
+
+  pub fn uv_ref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.remove(&resource_id);
+  }
+
+  pub fn has_ref(&self, resource_id: ResourceId) -> bool {
+    !self.unrefed_resources.contains(&resource_id)
   }
 }
 
