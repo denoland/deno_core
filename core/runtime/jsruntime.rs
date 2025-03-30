@@ -814,6 +814,8 @@ impl JsRuntime {
       options.feature_checker.take(),
       options.maybe_op_stack_trace_callback,
     );
+    let unrefed_ops = op_state.unrefed_ops.clone();
+
     extension_set::setup_op_state(&mut op_state, &mut extensions);
 
     // Load the sources and source maps
@@ -978,6 +980,7 @@ impl JsRuntime {
       op_method_decls,
       methods_ctx_offset,
       op_state.borrow().external_ops_tracker.clone(),
+      unrefed_ops,
     ));
 
     // TODO(bartlomieju): factor out
