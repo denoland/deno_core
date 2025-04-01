@@ -1939,8 +1939,6 @@ mod tests {
 
   impl GarbageCollected for TestResource {}
 
-  impl deno_core::cppgc::PrototypeChain for TestResource {}
-
   #[op2]
   #[cppgc]
   pub fn op_test_make_cppgc_resource() -> TestResource {
