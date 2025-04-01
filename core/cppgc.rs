@@ -10,7 +10,8 @@ use std::any::type_name;
 use std::collections::BTreeMap;
 pub use v8::cppgc::GarbageCollected;
 
-const CPPGC_TAG: u16 = 1;
+const CPPGC_SINGLE_TAG: u16 = 1;
+const CPPGC_PROTO_TAG: u16 = 2;
 
 #[repr(C)]
 struct CppGcObject<T: GarbageCollected> {
@@ -154,7 +155,7 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
       },
     );
 
-    v8::Object::wrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj, &member);
+    v8::Object::wrap::<CPPGC_SINGLE_TAG, CppGcObject<T>>(isolate, obj, &member);
 
     obj
   }
@@ -216,7 +217,9 @@ pub fn wrap_object1<'a, T: GarbageCollected + 'static>(
   };
 
   unsafe {
-    v8::Object::wrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj, &member);
+    v8::Object::wrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(
+      isolate, obj, &member,
+    );
   }
   obj
 }
@@ -263,7 +266,9 @@ pub fn wrap_object2<
   };
 
   unsafe {
-    v8::Object::wrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj, &member);
+    v8::Object::wrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(
+      isolate, obj, &member,
+    );
   }
   obj
 }
@@ -320,7 +325,9 @@ pub fn wrap_object3<
   };
 
   unsafe {
-    v8::Object::wrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj, &member);
+    v8::Object::wrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(
+      isolate, obj, &member,
+    );
   }
   obj
 }
@@ -362,8 +369,13 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
     return None;
   }
 
-  let obj =
-    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) }?;
+  let obj = unsafe {
+    v8::Object::unwrap::<CPPGC_SINGLE_TAG, CppGcObject<T>>(isolate, obj)
+  }?;
+
+  if obj.tag != TypeId::of::<T>() {
+    return None;
+  }
 
   Some(Ptr {
     inner: obj,
@@ -389,7 +401,7 @@ pub fn try_unwrap_cppgc_proto_object<
 
   let obj = if let Some(proto_index) = T::prototype_index() {
     let proto_chain = unsafe {
-      v8::Object::unwrap::<CPPGC_TAG, PrototypeChainStore>(isolate, obj)
+      v8::Object::unwrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(isolate, obj)
     }?;
 
     if proto_index >= MAX_PROTO_CHAIN {
@@ -400,7 +412,15 @@ pub fn try_unwrap_cppgc_proto_object<
 
     obj.downcast::<T>()?
   } else {
-    unsafe { v8::Object::unwrap::<CPPGC_TAG, CppGcObject<T>>(isolate, obj) }?
+    let obj = unsafe {
+      v8::Object::unwrap::<CPPGC_SINGLE_TAG, CppGcObject<T>>(isolate, obj)
+    }?;
+
+    if obj.tag != TypeId::of::<T>() {
+      return None;
+    }
+
+    obj
   };
 
   Some(Ptr {
