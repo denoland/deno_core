@@ -21,6 +21,8 @@ export function op_worker_send(...any: any[]): any;
 export function op_worker_spawn(...any: any[]): any;
 export function op_worker_terminate(...any: any[]): any;
 
+export class DOMPointReadOnly {}
+
 export class DOMPoint {
   constructor(x?: number, y?: number, z?: number, w?: number);
   static fromPoint(

@@ -436,6 +436,11 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
       }
     }
 
+    if let Some(e) = (decl.inherits_type_name)() {
+      let parent = fn_template_store.get_raw(e).unwrap();
+      tmpl.inherit(v8::Local::new(scope, parent));
+    }
+
     let op_fn = tmpl.get_function(scope).unwrap();
     op_fn.set_name(key);
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
@@ -504,15 +509,21 @@ fn op_ctx_template_or_accessor<'s>(
   if let Some((named_getter, named_setter)) =
     accessor_store.get(op_ctx.decl.name)
   {
-    let getter_raw = if named_getter.metrics_enabled() {
-      named_getter.decl.slow_fn_with_metrics
-    } else {
-      named_getter.decl.slow_fn
-    };
+    let getter_fn = if let Some(getter) = named_getter {
+      let getter_raw = if getter.metrics_enabled() {
+        getter.decl.slow_fn_with_metrics
+      } else {
+        getter.decl.slow_fn
+      };
 
-    let getter_fn = v8::FunctionTemplate::builder_raw(getter_raw)
-      .data(external.into())
-      .build(scope);
+      Some(
+        v8::FunctionTemplate::builder_raw(getter_raw)
+          .data(external.into())
+          .build(scope),
+      )
+    } else {
+      None
+    };
 
     let setter_fn = if let Some(setter) = named_setter {
       let setter_raw = if setter.metrics_enabled() {
@@ -533,7 +544,7 @@ fn op_ctx_template_or_accessor<'s>(
     let key = op_ctx.decl.name_fast.v8_string(scope).unwrap().into();
     tmpl.set_accessor_property(
       key,
-      Some(getter_fn),
+      getter_fn,
       setter_fn,
       v8::PropertyAttribute::default(),
     );
@@ -587,7 +598,8 @@ fn op_ctx_function<'s>(
   v8fn
 }
 
-type AccessorStore<'a> = HashMap<String, (&'a OpCtx, Option<&'a OpCtx>)>;
+type AccessorStore<'a> =
+  HashMap<String, (Option<&'a OpCtx>, Option<&'a OpCtx>)>;
 
 fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore {
   let mut store = AccessorStore::new();
@@ -599,12 +611,9 @@ fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore {
 
       let key_str = key.to_string();
       // There must be a getter for each setter.
-      let getter = method_ctxs
-        .iter()
-        .find(|m| {
-          m.decl.name == key_str && m.decl.accessor_type == AccessorType::Getter
-        })
-        .expect("Getter not found for setter");
+      let getter = method_ctxs.iter().find(|m| {
+        m.decl.name == key_str && m.decl.accessor_type == AccessorType::Getter
+      });
 
       store.insert(key.to_string(), (getter, Some(method)));
     }
@@ -615,7 +624,7 @@ fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore {
     if method.decl.accessor_type == AccessorType::Getter {
       let key = method.decl.name_fast.to_string();
 
-      store.entry(key).or_insert((method, None));
+      store.entry(key).or_insert((Some(method), None));
     }
   }
 

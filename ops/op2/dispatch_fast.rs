@@ -806,7 +806,7 @@ fn map_v8_fastcall_arg_to_arg(
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
-    Arg::CppGcResource(ty) => {
+    Arg::CppGcResource(_, ty) => {
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
