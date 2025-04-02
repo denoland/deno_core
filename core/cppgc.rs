@@ -492,7 +492,7 @@ pub struct SameObject<T: GarbageCollected + 'static> {
   _phantom_data: std::marker::PhantomData<T>,
 }
 
-impl<T: GarbageCollected + PrototypeChain + 'static> SameObject<T> {
+impl<T: GarbageCollected + 'static> SameObject<T> {
   #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     Self {
