@@ -310,6 +310,7 @@ fn duplicate_op_names() {
     }
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
   pub fn op_test() -> Result<String, JsErrorBox> {
@@ -332,6 +333,7 @@ fn ops_in_js_have_proper_names() {
     Ok(String::from("Test"))
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(async)]
   #[string]
   async fn op_test_async() -> Result<String, JsErrorBox> {

@@ -1,7 +1,8 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use super::Output;
-use super::create_runtime;
+use super::Snapshot;
+use super::create_runtime_from_snapshot;
 use super::run_async;
 use anyhow::anyhow;
 use deno_core::GarbageCollected;
@@ -25,6 +26,7 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::watch;
 
 /// Our cppgc object.
+#[derive(Debug)]
 pub struct WorkerControl {
   worker_channel: WorkerChannel,
   close_watcher: WorkerCloseWatcher,
@@ -34,16 +36,18 @@ pub struct WorkerControl {
 
 impl GarbageCollected for WorkerControl {}
 
+#[derive(Debug)]
 pub struct WorkerChannel {
   tx: UnboundedSender<String>,
   rx: Mutex<UnboundedReceiver<String>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WorkerCloseWatcher {
   watcher: Arc<Mutex<watch::Receiver<bool>>>,
 }
 
+#[derive(Debug)]
 pub struct Worker {
   _close_send: watch::Sender<bool>,
   pub(crate) close_watcher: WorkerCloseWatcher,
@@ -92,16 +96,22 @@ pub fn worker_create(
 pub fn op_worker_spawn(
   #[state] this_worker: &Worker,
   #[state] output: &Output,
+  #[state] snapshot: &Snapshot,
   #[string] base_url: String,
   #[string] main_script: String,
 ) -> Result<WorkerControl, std::sync::mpsc::RecvError> {
   let output = output.clone();
+  let snapshot = snapshot.0;
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();
   let (shutdown_tx, shutdown_rx) = unbounded_channel();
   std::thread::spawn(move || {
-    let (mut runtime, worker_host_side) =
-      create_runtime(Some(close_watcher), vec![]);
+    let (mut runtime, worker_host_side) = create_runtime_from_snapshot(
+      snapshot,
+      false,
+      Some(close_watcher),
+      vec![],
+    );
     runtime.op_state().borrow_mut().put(output.clone());
     init_send
       .send(WorkerControl {
@@ -147,11 +157,21 @@ async fn run_worker_task(
     let state = state.borrow();
     let output: &Output = state.borrow();
     for line in e.to_string().split('\n') {
+      println!("[ERR] {line}");
+      output.line(format!("[ERR] {line}"));
+    }
+    return Ok(());
+  } else if let Err(e) = f.await {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
+    for line in e.to_string().split('\n') {
+      println!("[ERR] {line}");
       output.line(format!("[ERR] {line}"));
     }
     return Ok(());
   }
-  _ = f.await;
+
   Ok(())
 }
 

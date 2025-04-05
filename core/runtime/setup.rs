@@ -80,8 +80,6 @@ fn v8_init(
   });
   v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
-
-  v8::cppgc::initialize_process(v8_platform);
 }
 
 pub fn init_v8(
@@ -112,13 +110,6 @@ pub fn init_v8(
       import_assertions_enabled,
     )
   });
-}
-
-pub fn create_cpp_heap() -> v8::UniqueRef<v8::cppgc::Heap> {
-  v8::cppgc::Heap::create(
-    v8::V8::get_current_platform(),
-    v8::cppgc::HeapCreateParams::default(),
-  )
 }
 
 pub fn create_isolate(
