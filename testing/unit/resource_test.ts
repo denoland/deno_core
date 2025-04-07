@@ -101,6 +101,8 @@ test(async function testDomPoint() {
   assert(p1 instanceof DOMPoint);
   assert(p1 instanceof DOMPointReadOnly);
 
+  assertEquals("prototype" in DOMPoint.prototype.wrappingSmi, false);
+
   let caught;
   try {
     // @ts-expect-error bad arg test
