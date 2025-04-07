@@ -39,23 +39,37 @@ pub trait PrototypeChain {
 const MAX_PROTO_CHAIN: usize = 3;
 
 struct DummyT;
-impl GarbageCollected for DummyT {}
+impl GarbageCollected for DummyT {
+  fn trace(&self, _visitor: &v8::cppgc::Visitor) {
+    unreachable!();
+  }
 
-/// ErasedPtr is a wrapper around a `v8::cppgc::Ptr` that allows downcasting
+  fn get_name(&self) -> Option<&'static std::ffi::CStr> {
+    unreachable!();
+  }
+}
+
+/// ErasedPtr is a wrapper around a `v8::cppgc::Member` that allows downcasting
 /// to a specific type. Safety is guaranteed by the `tag` field in the
 /// `CppGcObject` struct.
 struct ErasedPtr {
-  ptr: v8::cppgc::Ptr<CppGcObject<DummyT>>,
+  member: v8::cppgc::Member<CppGcObject<DummyT>>,
 }
 
 impl ErasedPtr {
   fn downcast<T: GarbageCollected + 'static>(
     &self,
   ) -> Option<v8::cppgc::Ptr<CppGcObject<T>>> {
-    if self.ptr.tag == TypeId::of::<T>() {
+    let ptr = unsafe { v8::cppgc::Ptr::new(&self.member)? };
+    if ptr.tag == TypeId::of::<T>() {
       // Safety: The tag is always guaranteed by `wrap_object` to be the
       // correct type.
-      Some(unsafe { std::mem::transmute_copy(&self.ptr) })
+      Some(unsafe {
+        std::mem::transmute::<
+          v8::cppgc::Ptr<CppGcObject<DummyT>>,
+          v8::cppgc::Ptr<CppGcObject<T>>,
+        >(ptr)
+      })
     } else {
       None
     }
@@ -65,18 +79,20 @@ impl ErasedPtr {
 impl<T: GarbageCollected> From<v8::cppgc::Ptr<CppGcObject<T>>> for ErasedPtr {
   fn from(ptr: v8::cppgc::Ptr<CppGcObject<T>>) -> Self {
     debug_assert!(
-      std::mem::size_of::<v8::cppgc::Ptr<CppGcObject<T>>>()
+      std::mem::size_of::<v8::cppgc::Member<CppGcObject<T>>>()
         == std::mem::size_of::<ErasedPtr>()
     );
+
+    let member = v8::cppgc::Member::new(&ptr);
 
     Self {
       // Safety: Both have the same size, representation and a tag guarantees safe
       // downcasting.
-      ptr: unsafe {
+      member: unsafe {
         std::mem::transmute::<
-          v8::cppgc::Ptr<CppGcObject<T>>,
-          v8::cppgc::Ptr<CppGcObject<DummyT>>,
-        >(ptr)
+          v8::cppgc::Member<CppGcObject<T>>,
+          v8::cppgc::Member<CppGcObject<DummyT>>,
+        >(member)
       },
     }
   }
@@ -88,10 +104,10 @@ impl v8::cppgc::GarbageCollected for PrototypeChainStore {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
     // Trace all the objects top-down the prototype chain.
     //
-    // This works out with ErasedPtr because v8::cppgc::Ptr doesn't
+    // This works out with ErasedPtr because v8::cppgc::Member doesn't
     // trace based on `T` but rather the pointer.
-    for ptr in self.0.iter().flatten() {
-      ptr.ptr.trace(visitor);
+    for erased in self.0.iter().flatten() {
+      visitor.trace(&erased.member);
     }
   }
 }
