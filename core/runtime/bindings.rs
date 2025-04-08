@@ -378,7 +378,8 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     let tmpl = if decl.constructor.is_some() {
       let constructor_ctx = &op_ctxs[index];
 
-      let tmpl = op_ctx_template(scope, constructor_ctx);
+      let tmpl =
+        op_ctx_template(scope, constructor_ctx, v8::ConstructorBehavior::Allow);
 
       index += 1;
 
@@ -414,7 +415,8 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
     let static_method_ctxs = &op_ctxs[index..index + decl.static_methods.len()];
     for method in static_method_ctxs.iter() {
-      let op_fn = op_ctx_template(scope, method);
+      let op_fn =
+        op_ctx_template(scope, method, v8::ConstructorBehavior::Throw);
       let method_key = name_key(scope, &method.decl);
 
       tmpl.set(method_key, op_fn.into());
@@ -451,7 +453,8 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
   let op_ctxs = &op_ctxs[index..];
   for op_ctx in op_ctxs {
-    let mut op_fn = op_ctx_function(scope, op_ctx);
+    let mut op_fn =
+      op_ctx_function(scope, op_ctx, v8::ConstructorBehavior::Allow);
     let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
     // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
@@ -479,7 +482,7 @@ fn op_ctx_template_or_accessor<'s>(
   op_ctx: &OpCtx,
 ) {
   if !op_ctx.decl.is_accessor() {
-    let op_fn = op_ctx_template(scope, op_ctx);
+    let op_fn = op_ctx_template(scope, op_ctx, v8::ConstructorBehavior::Throw);
     let method_key = name_key(scope, &op_ctx.decl);
     if op_ctx.decl.is_async {
       let undefined = v8::undefined(scope);
@@ -554,6 +557,7 @@ fn op_ctx_template_or_accessor<'s>(
 pub(crate) fn op_ctx_template<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,
+  constructor_behaviour: v8::ConstructorBehavior,
 ) -> v8::Local<'s, v8::FunctionTemplate> {
   let op_ctx_ptr = op_ctx as *const OpCtx as *const c_void;
   let external = v8::External::new(scope, op_ctx_ptr as *mut c_void);
@@ -570,6 +574,7 @@ pub(crate) fn op_ctx_template<'s>(
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
     v8::FunctionTemplate::builder_raw(slow_fn)
       .data(external.into())
+      .constructor_behavior(constructor_behaviour)
       .side_effect_type(if op_ctx.decl.no_side_effects {
         v8::SideEffectType::HasNoSideEffect
       } else {
@@ -590,9 +595,10 @@ pub(crate) fn op_ctx_template<'s>(
 fn op_ctx_function<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,
+  constructor_behaviour: v8::ConstructorBehavior,
 ) -> v8::Local<'s, v8::Function> {
   let v8name = op_ctx.decl.name_fast.v8_string(scope).unwrap();
-  let template = op_ctx_template(scope, op_ctx);
+  let template = op_ctx_template(scope, op_ctx, constructor_behaviour);
   let v8fn = template.get_function(scope).unwrap();
   v8fn.set_name(v8name);
   v8fn
