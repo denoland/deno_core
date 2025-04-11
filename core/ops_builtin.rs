@@ -465,12 +465,11 @@ fn op_encode_binary_string(#[buffer] s: &[u8]) -> ByteString {
 }
 
 #[op2(fast)]
-fn op_is_terminal(
-  state: &mut OpState,
-  #[smi] rid: ResourceId,
-) -> Result<bool, ResourceError> {
-  let handle = state.resource_table.get_handle(rid)?;
-  Ok(handle.is_terminal())
+fn op_is_terminal(state: &mut OpState, #[smi] rid: ResourceId) -> bool {
+  match state.resource_table.get_handle(rid) {
+    Ok(handle) => handle.is_terminal(),
+    _ => false,
+  }
 }
 
 async fn do_load_job(
