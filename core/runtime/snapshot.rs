@@ -3,6 +3,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -303,7 +304,7 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub module_map_data: ModuleMapSnapshotData,
   pub function_templates_data: FunctionTemplateSnapshotData,
   pub externals_count: u32,
-  pub extension_count: usize,
+  pub extensions: HashSet<&'snapshot str>,
   pub op_count: usize,
   pub source_count: usize,
   pub addl_refs_count: usize,

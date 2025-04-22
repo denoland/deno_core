@@ -698,7 +698,7 @@ mod tests {
   /// Run a test for a single op.
   fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), CoreError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      extensions: vec![testing::init_ops_and_esm()],
+      extensions: vec![testing::init()],
       ..Default::default()
     });
     let err_mapper =
@@ -749,7 +749,7 @@ mod tests {
     test: &str,
   ) -> Result<(), anyhow::Error> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      extensions: vec![testing::init_ops_and_esm()],
+      extensions: vec![testing::init()],
       ..Default::default()
     });
     let err_mapper =

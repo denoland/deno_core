@@ -65,6 +65,7 @@ use futures::FutureExt;
 use futures::task::AtomicWaker;
 use smallvec::SmallVec;
 use std::any::Any;
+use std::collections::HashSet;
 use std::future::Future;
 use std::future::poll_fn;
 use v8::MessageErrorLevel;
@@ -143,7 +144,7 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
-  extension_count: usize,
+  extensions: HashSet<&'static str>,
   op_count: usize,
   source_count: usize,
   addl_refs_count: usize,
@@ -826,9 +827,16 @@ impl JsRuntime {
 
     let mut source_mapper = SourceMapper::new(loader.clone());
 
+    let (maybe_startup_snapshot, mut sidecar_data) = options
+      .startup_snapshot
+      .take()
+      .map(snapshot::deconstruct)
+      .unzip();
+
     let mut sources = extension_set::into_sources_and_source_maps(
       options.extension_transpiler.as_deref(),
       &extensions,
+      sidecar_data.as_ref().map(|s| &s.snapshot_data.extensions),
       |source| {
         mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
       },
@@ -903,16 +911,10 @@ impl JsRuntime {
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
     // Capture the extension, op and source counts
-    let extension_count = extensions.len();
+    let extensions = extensions.iter().map(|e| e.name).collect();
     let op_count = op_ctxs.len();
     let source_count = sources.len();
     let addl_refs_count = additional_references.len();
-
-    let (maybe_startup_snapshot, mut sidecar_data) = options
-      .startup_snapshot
-      .take()
-      .map(snapshot::deconstruct)
-      .unzip();
 
     let ops_in_snapshot = sidecar_data
       .as_ref()
@@ -1159,8 +1161,8 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
-        extension_count,
         op_count,
+        extensions,
         source_count,
         addl_refs_count,
         main_realm: ManuallyDrop::new(main_realm),
@@ -2258,7 +2260,7 @@ impl JsRuntimeForSnapshot {
         op_count: self.inner.op_count,
         addl_refs_count: self.inner.addl_refs_count,
         source_count: self.inner.source_count,
-        extension_count: self.inner.extension_count,
+        extensions: self.inner.extensions.clone(),
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
         ext_import_meta_proto,
         ext_source_maps,

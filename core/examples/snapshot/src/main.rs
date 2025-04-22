@@ -35,7 +35,7 @@ async fn run_js(file_path: &str) -> Result<(), anyhow::Error> {
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
     startup_snapshot: Some(RUNTIME_SNAPSHOT),
-    extensions: vec![runjs_extension::init_ops()],
+    extensions: vec![runjs_extension::init()],
     ..Default::default()
   });
 

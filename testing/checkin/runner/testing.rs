@@ -49,8 +49,7 @@ pub fn op_test_register(
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
 /// and compares its output with the `.out` file in the same directory.
 pub fn run_integration_test(test: &str) {
-  let (runtime, _) =
-    create_runtime(None, vec![checkin_testing::init_ops_and_esm()]);
+  let (runtime, _) = create_runtime(None, vec![checkin_testing::init()]);
   run_async(run_integration_test_task(runtime, test.to_owned()));
 }
 
@@ -102,8 +101,7 @@ async fn run_integration_test_task(
 /// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
 /// then each test is run individually and failures are printed.
 pub fn run_unit_test(test: &str) {
-  let (runtime, _) =
-    create_runtime(None, vec![checkin_testing::init_ops_and_esm()]);
+  let (runtime, _) = create_runtime(None, vec![checkin_testing::init()]);
   run_async(run_unit_test_task(runtime, test.to_owned()));
 }
 

@@ -44,11 +44,7 @@ macro_rules! fake_extensions {
 }
 
 fn make_extensions() -> Vec<Extension> {
-  fake_extensions!(init_ops_and_esm, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
-}
-
-fn make_extensions_ops() -> Vec<Extension> {
-  fake_extensions!(init_ops, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
+  fake_extensions!(init, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
 }
 
 pub fn maybe_transpile_source(
@@ -162,7 +158,7 @@ fn bench_load_snapshot(c: &mut Criterion) {
       for _ in 0..iters {
         let now = Instant::now();
         let runtime = JsRuntime::new(RuntimeOptions {
-          extensions: make_extensions_ops(),
+          extensions: make_extensions(),
           startup_snapshot: Some(snapshot),
           ..Default::default()
         });

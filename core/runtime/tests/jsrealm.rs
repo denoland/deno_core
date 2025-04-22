@@ -87,7 +87,7 @@ async fn js_realm_ref_unref_ops() {
 
   deno_core::extension!(test_ext, ops = [op_pending]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -139,7 +139,7 @@ fn es_snapshot() {
     );
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![module_snapshot::init_ops_and_esm()],
+      extensions: vec![module_snapshot::init()],
       module_loader: Some(Rc::new(StaticModuleLoader::default())),
       ..Default::default()
     });

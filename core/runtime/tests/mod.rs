@@ -80,7 +80,7 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
     }
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops(mode, dispatch_count.clone())],
+    extensions: vec![test_ext::init(mode, dispatch_count.clone())],
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   });

@@ -433,7 +433,7 @@ macro_rules! extension {
     /// ```rust,ignore
     /// use deno_core::{ JsRuntime, RuntimeOptions };
     ///
-    #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init_ops_and_esm()];")]
+    #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init()];")]
     /// let mut js_runtime = JsRuntime::new(RuntimeOptions {
     ///   extensions,
     ///   ..Default::default()
@@ -526,41 +526,17 @@ macro_rules! extension {
       }
 
       #[allow(dead_code)]
-      /// Initialize this extension for runtime or snapshot creation. Use this
-      /// function if the runtime or snapshot is not created from a (separate)
-      /// snapshot, or that snapshot does not contain this extension. Otherwise
-      /// use `init_ops()` instead.
+      /// Initialize this extension for runtime or snapshot creation.
       ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
-      pub fn init_ops_and_esm $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
+      pub fn init $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
         let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
         Self::with_customizer(&mut ext);
-        ext
-      }
-
-      #[allow(dead_code)]
-      /// Initialize this extension for runtime or snapshot creation, excluding
-      /// its JavaScript sources and evaluation. This is used when the runtime
-      /// or snapshot is created from a (separate) snapshot which includes this
-      /// extension in order to avoid evaluating the JavaScript twice.
-      ///
-      /// # Returns
-      /// an Extension object that can be used during instantiation of a JsRuntime
-      pub fn init_ops $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
-      $( where $( $bound : $bound_type ),+ )?
-      {
-        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
-        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
-        Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
-        Self::with_customizer(&mut ext);
-        ext.js_files = ::std::borrow::Cow::Borrowed(&[]);
-        ext.esm_files = ::std::borrow::Cow::Borrowed(&[]);
-        ext.esm_entry_point = ::std::option::Option::None;
         ext
       }
     }
@@ -737,7 +713,7 @@ impl Extension {
     }
   }
 
-  /// Middleware should be called before init_ops
+  /// Middleware should be called before init
   pub fn take_middleware(&mut self) -> Option<Box<OpMiddlewareFn>> {
     self.middleware_fn.take()
   }
