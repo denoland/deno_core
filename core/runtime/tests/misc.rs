@@ -100,7 +100,7 @@ async fn test_wakers_for_async_ops() {
 
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -670,7 +670,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
 
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -727,7 +727,7 @@ fn test_has_tick_scheduled() {
 
   deno_core::extension!(test_ext, ops = [op_macrotask, op_next_tick]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -835,7 +835,7 @@ async fn test_promise_rejection_handler_generic(
   }
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -1000,7 +1000,7 @@ async fn test_dynamic_import_module_error_stack() {
     ),
   ]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
@@ -1055,7 +1055,7 @@ async fn tla_in_esm_extensions_panics() {
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(StaticModuleLoader::default())),
-    extensions: vec![test_ext::init_ops_and_esm()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 }
@@ -1092,7 +1092,7 @@ async fn esm_extensions_throws() {
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(StaticModuleLoader::default())),
-    extensions: vec![test_ext::init_ops_and_esm()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 }
@@ -1214,7 +1214,7 @@ async fn terminate_execution_run_event_loop_js() {
   }
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -1312,7 +1312,7 @@ async fn global_template_middleware() {
 
   deno_core::extension!(test_ext, global_template_middleware = gt_middleware);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 

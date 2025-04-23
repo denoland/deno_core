@@ -21,7 +21,7 @@ fn main() {
   let options = CreateSnapshotOptions {
     cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
     startup_snapshot: None,
-    extensions: vec![runjs_extension::init_ops_and_esm()],
+    extensions: vec![runjs_extension::init()],
     with_runtime_cb: None,
     skip_op_registration: false,
     extension_transpiler: None,

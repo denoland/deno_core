@@ -32,7 +32,7 @@ fn main() -> Result<(), anyhow::Error> {
 
   let mut js_runtime = JsRuntime::new(deno_core::RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
-    extensions: vec![op2_sample::init_ops_and_esm()],
+    extensions: vec![op2_sample::init()],
     ..Default::default()
   });
 

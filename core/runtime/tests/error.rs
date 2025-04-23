@@ -17,7 +17,7 @@ async fn test_error_builder() {
 
   deno_core::extension!(test_ext, ops = [op_err]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
   poll_fn(move |cx| {

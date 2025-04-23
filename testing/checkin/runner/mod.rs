@@ -127,7 +127,7 @@ pub fn create_runtime_from_snapshot_with_options(
   additional_extensions: Vec<Extension>,
   options: RuntimeOptions,
 ) -> JsRuntime {
-  let mut extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
+  let mut extensions = vec![extensions::checkin_runtime::init::<()>()];
   extensions.extend(additional_extensions);
   let module_loader =
     Rc::new(ts_module_loader::TypescriptModuleLoader::default());

@@ -112,7 +112,7 @@ fn bench_op(
     .build()
     .unwrap();
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![testing::init_ops_and_esm()],
+    extensions: vec![testing::init()],
     // We need to feature gate this here to prevent IDE errors
     #[cfg(feature = "unsafe_runtime_options")]
     unsafe_expose_natives_and_gc: true,

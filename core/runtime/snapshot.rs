@@ -303,7 +303,7 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub module_map_data: ModuleMapSnapshotData,
   pub function_templates_data: FunctionTemplateSnapshotData,
   pub externals_count: u32,
-  pub extension_count: usize,
+  pub extensions: Vec<&'snapshot str>,
   pub op_count: usize,
   pub source_count: usize,
   pub addl_refs_count: usize,

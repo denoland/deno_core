@@ -38,17 +38,19 @@ macro_rules! fake_extensions {
         }
       )+
 
-      vec![$($name::$name::$which()),+]
+      vec![$($name::$name::init()),+]
     }
   );
 }
 
 fn make_extensions() -> Vec<Extension> {
-  fake_extensions!(init_ops_and_esm, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
-}
-
-fn make_extensions_ops() -> Vec<Extension> {
-  fake_extensions!(init_ops, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
+  fake_extensions!(
+    a0, b0, c0, d0, e0, f0, g0, h0, i0, j0, k0, l0, m0, n0, o0, p0, q0, r0, s0,
+    t0, u0, v0, w0, x0, y0, z0, a1, b1, c1, d1, e1, f1, g1, h1, i1, j1, k1, l1,
+    m1, n1, o1, p1, q1, r1, s1, t1, u1, v1, w1, x1, y1, z1, a2, b2, c2, d2, e2,
+    f2, g2, h2, i2, j2, k2, l2, m2, n2, o2, p2, q2, r2, s2, t2, u2, v2, w2, x2,
+    y2, z2
+  )
 }
 
 pub fn maybe_transpile_source(
@@ -162,7 +164,7 @@ fn bench_load_snapshot(c: &mut Criterion) {
       for _ in 0..iters {
         let now = Instant::now();
         let runtime = JsRuntime::new(RuntimeOptions {
-          extensions: make_extensions_ops(),
+          extensions: make_extensions(),
           startup_snapshot: Some(snapshot),
           ..Default::default()
         });
