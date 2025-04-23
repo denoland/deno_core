@@ -85,6 +85,10 @@ pub enum CoreError {
   DataError(DataError),
   #[error("Unable to get code cache from unbound module script for {0}")]
   CreateCodeCache(String),
+  #[error(
+    "Extensions from snapshot loaded in wrong order: expected {0} but got {1}"
+  )]
+  ExtensionSnapshotMismatch(&'static str, &'static str),
 }
 
 impl CoreError {
@@ -179,7 +183,8 @@ impl JsErrorClass for CoreError {
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
       | CoreError::CreateCodeCache(_)
-      | CoreError::EvaluateDynamicImportedModule => {
+      | CoreError::EvaluateDynamicImportedModule
+      | CoreError::ExtensionSnapshotMismatch(..) => {
         Cow::Borrowed(GENERIC_ERROR)
       }
     }
@@ -212,7 +217,8 @@ impl JsErrorClass for CoreError {
       | CoreError::ExecutionTerminated
       | CoreError::PendingPromiseResolution
       | CoreError::EvaluateDynamicImportedModule
-      | CoreError::CreateCodeCache(_) => self.to_string().into(),
+      | CoreError::CreateCodeCache(_)
+      | CoreError::ExtensionSnapshotMismatch(..) => self.to_string().into(),
     }
   }
 

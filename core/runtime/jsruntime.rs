@@ -65,7 +65,6 @@ use futures::FutureExt;
 use futures::task::AtomicWaker;
 use smallvec::SmallVec;
 use std::any::Any;
-use std::collections::HashSet;
 use std::future::Future;
 use std::future::poll_fn;
 use v8::MessageErrorLevel;
@@ -144,7 +143,7 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
-  extensions: HashSet<&'static str>,
+  extensions: Vec<&'static str>,
   op_count: usize,
   source_count: usize,
   addl_refs_count: usize,
@@ -836,7 +835,7 @@ impl JsRuntime {
     let mut sources = extension_set::into_sources_and_source_maps(
       options.extension_transpiler.as_deref(),
       &extensions,
-      sidecar_data.as_ref().map(|s| &s.snapshot_data.extensions),
+      sidecar_data.as_ref().map(|s| &*s.snapshot_data.extensions),
       |source| {
         mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
       },

@@ -20,7 +20,6 @@ use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::iter::Chain;
 use std::rc::Rc;
 
@@ -297,12 +296,20 @@ fn load(
 pub fn into_sources_and_source_maps(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
-  extensions_in_snapshot: Option<&HashSet<&'static str>>,
+  extensions_in_snapshot: Option<&[&'static str]>,
   mut load_callback: impl FnMut(&ExtensionFileSource),
 ) -> Result<LoadedSources, CoreError> {
   let mut sources = LoadedSources::default();
 
-  for extension in extensions {
+  let extensions_in_snapshot = extensions_in_snapshot
+    .unwrap_or_default()
+    .iter()
+    .map(Some)
+    .chain(std::iter::repeat(None));
+
+  for (extension, extension_in_snapshot) in
+    extensions.iter().zip(extensions_in_snapshot)
+  {
     for file in &*extension.lazy_loaded_esm_files {
       let (code, maybe_source_map) =
         load(transpiler, file, &mut load_callback)?;
@@ -314,10 +321,11 @@ pub fn into_sources_and_source_maps(
       });
     }
 
-    if let Some(extensions_in_snapshot) = extensions_in_snapshot {
-      if extensions_in_snapshot.contains(extension.name) {
-        continue;
+    if let Some(name) = extension_in_snapshot {
+      if extension.name != *name {
+        return Err(CoreError::ExtensionSnapshotMismatch(name, extension.name));
       }
+      continue;
     }
 
     if let Some(esm_entry_point) = extension.esm_entry_point {
