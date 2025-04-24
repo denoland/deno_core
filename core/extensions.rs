@@ -482,6 +482,7 @@ macro_rules! extension {
           global_object_middleware: ::std::option::Option::None,
           // Computed at runtime:
           op_state_fn: ::std::option::Option::None,
+          needs_lazy_init: false,
           middleware_fn: ::std::option::Option::None,
           enabled: true,
         }
@@ -500,11 +501,8 @@ macro_rules! extension {
       // Includes the state and middleware functions, if defined.
       #[inline(always)]
       #[allow(unused_variables)]
-      fn with_state_and_middleware$( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::Extension, $( $( $options_id : $options_type ),* )? )
-      $( where $( $bound : $bound_type ),+ )?
+      fn with_middleware(ext: &mut $crate::Extension)
       {
-        $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
-
         $(
           ext.global_template_middleware = ::std::option::Option::Some($global_template_middleware_fn);
         )?
@@ -525,25 +523,61 @@ macro_rules! extension {
         $( ($customizer_fn)(ext); )?
       }
 
-      #[allow(dead_code)]
       /// Initialize this extension for runtime or snapshot creation.
       ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
+      #[allow(dead_code)]
       pub fn init $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
         let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
-        Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
+        $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
+        Self::with_middleware(&mut ext);
         Self::with_customizer(&mut ext);
         ext
+      }
+
+      /// Initialize this extension for runtime or snapshot creation.
+      ///
+      /// If this method is used, you must later call `JsRuntime::lazy_init_extensions`
+      /// with the result of this extension's `args` method.
+      ///
+      /// # Returns
+      /// an Extension object that can be used during instantiation of a JsRuntime
+      #[allow(dead_code)]
+      pub fn lazy_init $( <  $( $param : $type + 'static ),+ > )? () -> $crate::Extension
+      $( where $( $bound : $bound_type ),+ )?
+      {
+        let mut ext = Self::ext $( ::< $( $param ),+ > )?();
+        Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
+        ext.needs_lazy_init = true;
+        Self::with_middleware(&mut ext);
+        Self::with_customizer(&mut ext);
+        ext
+      }
+
+      /// Create an `ExtensionArguments` value which must be passed to
+      /// `JsRuntime::lazy_init_extensions`.
+      #[allow(dead_code, unused_mut)]
+      pub fn args $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::ExtensionArguments
+      $( where $( $bound : $bound_type ),+ )?
+      {
+        let mut args = $crate::ExtensionArguments {
+          name: ::std::stringify!($name),
+          op_state_fn: ::std::option::Option::None,
+        };
+
+        $crate::extension!(! __config__ args $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
+
+        args
       }
     }
   };
 
   // This branch of the macro generates a config object that calls the state function with itself.
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } $( state_fn = $state_fn:expr_2021 )? ) => {
+  (! __config__ $args:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } $( state_fn = $state_fn:expr_2021 )? ) => {
     {
       #[doc(hidden)]
       struct Config $( <  $( $param : $type + 'static ),+ > )? {
@@ -556,14 +590,15 @@ macro_rules! extension {
       };
 
       let state_fn: fn(&mut $crate::OpState, Config $( <  $( $param ),+ > )? ) = $(  $state_fn  )?;
-      $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new(move |state: &mut $crate::OpState| {
+
+      $args.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new(move |state: &mut $crate::OpState| {
         state_fn(state, config);
       }));
     }
   };
 
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr_2021 )? ) => {
-    $( $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn)); )?
+  (! __config__ $args:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr_2021 )? ) => {
+    $( $args.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn)); )?
   };
 
   (! __ops__ $ext:ident __eot__) => {
@@ -591,6 +626,7 @@ pub struct Extension {
   pub global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
   pub global_object_middleware: Option<GlobalObjectMiddlewareFn>,
   pub op_state_fn: Option<Box<OpStateFn>>,
+  pub needs_lazy_init: bool,
   pub middleware_fn: Option<Box<OpMiddlewareFn>>,
   pub enabled: bool,
 }
@@ -602,6 +638,7 @@ impl Extension {
   pub(crate) fn for_warmup(&self) -> Extension {
     Self {
       op_state_fn: None,
+      needs_lazy_init: self.needs_lazy_init,
       middleware_fn: None,
       name: self.name,
       deps: self.deps,
@@ -634,6 +671,7 @@ impl Default for Extension {
       global_template_middleware: None,
       global_object_middleware: None,
       op_state_fn: None,
+      needs_lazy_init: false,
       middleware_fn: None,
       enabled: true,
     }
@@ -743,6 +781,15 @@ impl Extension {
   pub fn disable(self) -> Self {
     self.enabled(false)
   }
+}
+
+/// Holds configuration needed to initialize an extension. Must be passed to
+/// `JsRuntime::lazy_init_extensions`.
+pub struct ExtensionArguments {
+  #[doc(hidden)]
+  pub name: &'static str,
+  #[doc(hidden)]
+  pub op_state_fn: Option<Box<OpStateFn>>,
 }
 
 /// Helps embed JS files in an extension. Returns a vector of

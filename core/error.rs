@@ -89,6 +89,14 @@ pub enum CoreError {
     "Extensions from snapshot loaded in wrong order: expected {0} but got {1}"
   )]
   ExtensionSnapshotMismatch(&'static str, &'static str),
+  #[error(
+    "Number of lazy-initialized extensions ({0}) does not match number of arguments ({1})"
+  )]
+  ExtensionLazyInitCountMismatch(usize, usize),
+  #[error(
+    "Lazy-initialized extensions loaded in wrong order: expected {0} but got {1}"
+  )]
+  ExtensionLazyInitOrderMismatch(&'static str, &'static str),
 }
 
 impl CoreError {
@@ -184,7 +192,9 @@ impl JsErrorClass for CoreError {
       | CoreError::PendingPromiseResolution
       | CoreError::CreateCodeCache(_)
       | CoreError::EvaluateDynamicImportedModule
-      | CoreError::ExtensionSnapshotMismatch(..) => {
+      | CoreError::ExtensionSnapshotMismatch(..)
+      | CoreError::ExtensionLazyInitCountMismatch(..)
+      | CoreError::ExtensionLazyInitOrderMismatch(..) => {
         Cow::Borrowed(GENERIC_ERROR)
       }
     }
@@ -218,7 +228,11 @@ impl JsErrorClass for CoreError {
       | CoreError::PendingPromiseResolution
       | CoreError::EvaluateDynamicImportedModule
       | CoreError::CreateCodeCache(_)
-      | CoreError::ExtensionSnapshotMismatch(..) => self.to_string().into(),
+      | CoreError::ExtensionSnapshotMismatch(..)
+      | CoreError::ExtensionLazyInitCountMismatch(..)
+      | CoreError::ExtensionLazyInitOrderMismatch(..) => {
+        self.to_string().into()
+      }
     }
   }
 

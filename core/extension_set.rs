@@ -24,10 +24,18 @@ use std::iter::Chain;
 use std::rc::Rc;
 
 /// Contribute to the `OpState` from each extension.
-pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
+pub fn setup_op_state(
+  op_state: &mut OpState,
+  extensions: &mut [Extension],
+) -> Vec<&'static str> {
+  let mut lazy_extensions = Vec::with_capacity(extensions.len());
   for ext in extensions {
+    if ext.needs_lazy_init {
+      lazy_extensions.push(ext.name);
+    }
     ext.take_state(op_state);
   }
+  lazy_extensions
 }
 
 // TODO(bartlomieju): `deno_core_ext` ops should be returned as a separate
