@@ -290,6 +290,7 @@ pub fn op_eval_context<'a>(
 
   let (maybe_script, maybe_code_cache_hash) = state
     .eval_context_get_code_cache_cb
+    .borrow()
     .as_ref()
     .map(|cb| {
       let code_cache = cb(&specifier, &source).unwrap();
@@ -343,7 +344,7 @@ pub fn op_eval_context<'a>(
   };
 
   if let Some(code_cache_hash) = maybe_code_cache_hash {
-    if let Some(cb) = state.eval_context_code_cache_ready_cb.as_ref() {
+    if let Some(cb) = state.eval_context_code_cache_ready_cb.borrow().as_ref() {
       let unbound_script = script.get_unbound_script(tc_scope);
       let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
         JsErrorBox::type_error(
