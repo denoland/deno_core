@@ -13,6 +13,7 @@ use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
 use super::v8_static_strings::*;
 use crate::Extension;
+use crate::ExtensionArguments;
 use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
 use crate::FastStaticString;
@@ -443,6 +444,7 @@ pub struct JsRuntimeState {
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
   has_inspector: Cell<bool>,
   import_assertions_support: ImportAssertionsSupport,
+  lazy_extensions: Vec<&'static str>,
 }
 
 #[derive(Default)]
@@ -816,7 +818,8 @@ impl JsRuntime {
     );
     let unrefed_ops = op_state.unrefed_ops.clone();
 
-    extension_set::setup_op_state(&mut op_state, &mut extensions);
+    let lazy_extensions =
+      extension_set::setup_op_state(&mut op_state, &mut extensions);
 
     // Load the sources and source maps
     let mut files_loaded = Vec::with_capacity(128);
@@ -882,6 +885,7 @@ impl JsRuntime {
       function_templates: Default::default(),
       callsite_prototype: None.into(),
       import_assertions_support: options.import_assertions_support,
+      lazy_extensions,
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
@@ -1219,6 +1223,42 @@ impl JsRuntime {
 
     // ...and we've made it; `JsRuntime` is ready to execute user code.
     Ok(js_runtime)
+  }
+
+  /// If extensions were initialized with `lazy_init`, they need to be
+  /// fully initialized with this method.
+  pub fn lazy_init_extensions(
+    &self,
+    ext_args: Vec<ExtensionArguments>,
+  ) -> Result<(), CoreError> {
+    if ext_args.len() != self.inner.state.lazy_extensions.len() {
+      return Err(CoreError::ExtensionLazyInitCountMismatch(
+        ext_args.len(),
+        self.inner.state.lazy_extensions.len(),
+      ));
+    }
+
+    let mut state = self.inner.state.op_state.borrow_mut();
+
+    for (mut args, expected_name) in ext_args
+      .into_iter()
+      .zip(self.inner.state.lazy_extensions.iter())
+    {
+      if args.name != *expected_name {
+        return Err(CoreError::ExtensionLazyInitOrderMismatch(
+          expected_name,
+          args.name,
+        ));
+      }
+
+      let Some(f) = args.op_state_fn.take() else {
+        continue;
+      };
+
+      f(&mut state);
+    }
+
+    Ok(())
   }
 
   #[cfg(test)]

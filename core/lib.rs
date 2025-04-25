@@ -72,6 +72,7 @@ pub use crate::convert::ToV8;
 pub use crate::cppgc::GarbageCollected;
 pub use crate::extensions::AccessorType;
 pub use crate::extensions::Extension;
+pub use crate::extensions::ExtensionArguments;
 pub use crate::extensions::ExtensionFileSource;
 pub use crate::extensions::ExtensionFileSourceCode;
 pub use crate::extensions::Op;

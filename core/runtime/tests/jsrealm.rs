@@ -8,6 +8,8 @@ use crate::modules::StaticModuleLoader;
 use crate::op2;
 use std::future::poll_fn;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 #[test]
@@ -176,4 +178,49 @@ fn es_snapshot() {
     assert!(test_export.is_string());
     assert_eq!(test_export.to_rust_string_lossy(scope).as_str(), "bar");
   }
+}
+
+#[test]
+fn lazy() {
+  static CALLED: AtomicBool = AtomicBool::new(false);
+
+  deno_core::extension!(
+    lazy_ext,
+    options = {
+      a: String,
+      b: bool,
+    },
+    state = |_state, _options| {
+      CALLED.store(true, Ordering::Relaxed);
+    },
+  );
+
+  deno_core::extension!(lazy_bad, state = |_state| {},);
+
+  let extensions = vec![lazy_ext::lazy_init()];
+
+  let runtime = JsRuntime::new(RuntimeOptions {
+    extensions,
+    ..Default::default()
+  });
+
+  assert!(matches!(
+    runtime.lazy_init_extensions(vec![]),
+    Err(CoreError::ExtensionLazyInitCountMismatch(0, 1))
+  ));
+
+  assert!(matches!(
+    runtime.lazy_init_extensions(vec![lazy_bad::args()]),
+    Err(CoreError::ExtensionLazyInitOrderMismatch(
+      "lazy_ext", "lazy_bad"
+    ))
+  ));
+
+  assert!(!CALLED.load(Ordering::Relaxed));
+
+  runtime
+    .lazy_init_extensions(vec![lazy_ext::args("".into(), true)])
+    .unwrap();
+
+  assert!(CALLED.load(Ordering::Relaxed));
 }
