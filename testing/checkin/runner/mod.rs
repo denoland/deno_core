@@ -22,7 +22,6 @@ use std::future::Future;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::OnceLock;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::mpsc::channel;
 use std::time::Duration;
@@ -93,40 +92,32 @@ impl TestData {
   }
 }
 
-pub fn create_runtime(
-  parent: Option<WorkerCloseWatcher>,
-  additional_extensions: Vec<Extension>,
-) -> (JsRuntime, WorkerHostSide) {
-  let (worker, worker_host_side) = worker_create(parent);
-
-  static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
-
-  let snapshot = SNAPSHOT.get_or_init(snapshot::create_snapshot);
-
-  let runtime =
-    create_runtime_from_snapshot(snapshot, false, additional_extensions);
-  runtime.op_state().borrow_mut().put(worker);
-  (runtime, worker_host_side)
-}
-
 pub fn create_runtime_from_snapshot(
   snapshot: &'static [u8],
   inspector: bool,
+  parent: Option<WorkerCloseWatcher>,
   additional_extensions: Vec<Extension>,
-) -> JsRuntime {
+) -> (JsRuntime, WorkerHostSide) {
   create_runtime_from_snapshot_with_options(
     snapshot,
     inspector,
+    parent,
     additional_extensions,
     RuntimeOptions::default(),
   )
 }
+
+pub struct Snapshot(&'static [u8]);
+
 pub fn create_runtime_from_snapshot_with_options(
   snapshot: &'static [u8],
   inspector: bool,
+  parent: Option<WorkerCloseWatcher>,
   additional_extensions: Vec<Extension>,
   options: RuntimeOptions,
-) -> JsRuntime {
+) -> (JsRuntime, WorkerHostSide) {
+  let (worker, worker_host_side) = worker_create(parent);
+
   let mut extensions = vec![extensions::checkin_runtime::init::<()>()];
   extensions.extend(additional_extensions);
   let module_loader =
@@ -147,8 +138,10 @@ pub fn create_runtime_from_snapshot_with_options(
 
   let stats = runtime.runtime_activity_stats_factory();
   runtime.op_state().borrow_mut().put(stats);
-  runtime.op_state().borrow_mut().put(Output::default());
-  runtime
+  runtime.op_state().borrow_mut().put(worker);
+  runtime.op_state().borrow_mut().put(Snapshot(snapshot));
+
+  (runtime, worker_host_side)
 }
 
 fn run_async(f: impl Future<Output = Result<(), anyhow::Error>>) {
