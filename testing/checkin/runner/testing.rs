@@ -9,13 +9,15 @@ use deno_core::v8;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use super::Output;
 use super::TestData;
-use super::create_runtime;
+use super::create_runtime_from_snapshot;
 use super::run_async;
+use super::snapshot;
 
 deno_core::extension!(
   checkin_testing,
@@ -46,10 +48,24 @@ pub fn op_test_register(
   tests.functions.push((name, f));
 }
 
+fn create_runtime() -> JsRuntime {
+  static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
+
+  let snapshot = SNAPSHOT.get_or_init(snapshot::create_snapshot);
+
+  create_runtime_from_snapshot(
+    snapshot,
+    false,
+    None,
+    vec![checkin_testing::init()],
+  )
+  .0
+}
+
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
 /// and compares its output with the `.out` file in the same directory.
 pub fn run_integration_test(test: &str) {
-  let (runtime, _) = create_runtime(None, vec![checkin_testing::init()]);
+  let runtime = create_runtime();
   run_async(run_integration_test_task(runtime, test.to_owned()));
 }
 
@@ -101,7 +117,7 @@ async fn run_integration_test_task(
 /// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
 /// then each test is run individually and failures are printed.
 pub fn run_unit_test(test: &str) {
-  let (runtime, _) = create_runtime(None, vec![checkin_testing::init()]);
+  let runtime = create_runtime();
   run_async(run_unit_test_task(runtime, test.to_owned()));
 }
 

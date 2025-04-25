@@ -49,35 +49,35 @@ fn main() -> Result<(), Error> {
 
   init_v8_flags(&v8_flags);
 
-  let (metrics_summary, mut js_runtime) = if matches.get_flag("strace-ops")
-    || matches.get_flag("strace-ops-summary")
-  {
-    let (summary, op_metrics_factory_fn) = create_metrics(
-      matches.get_flag("strace-ops"),
-      matches.get_flag("strace-ops-summary"),
-    );
-    (
-      Some(summary),
-      deno_core_testing::create_runtime_from_snapshot_with_options(
+  let (metrics_summary, mut js_runtime, _worker_host_side) =
+    if matches.get_flag("strace-ops") || matches.get_flag("strace-ops-summary")
+    {
+      let (summary, op_metrics_factory_fn) = create_metrics(
+        matches.get_flag("strace-ops"),
+        matches.get_flag("strace-ops-summary"),
+      );
+
+      let (runtime, worker_host_side) =
+        deno_core_testing::create_runtime_from_snapshot_with_options(
+          SNAPSHOT,
+          inspector_server.is_some(),
+          None,
+          vec![],
+          RuntimeOptions {
+            op_metrics_factory_fn: Some(op_metrics_factory_fn),
+            ..Default::default()
+          },
+        );
+      (Some(summary), runtime, worker_host_side)
+    } else {
+      let (runtime, worker_host_side) = create_runtime_from_snapshot(
         SNAPSHOT,
         inspector_server.is_some(),
+        None,
         vec![],
-        RuntimeOptions {
-          op_metrics_factory_fn: Some(op_metrics_factory_fn),
-          ..Default::default()
-        },
-      ),
-    )
-  } else {
-    (
-      None,
-      create_runtime_from_snapshot(
-        SNAPSHOT,
-        inspector_server.is_some(),
-        vec![],
-      ),
-    )
-  };
+      );
+      (None, runtime, worker_host_side)
+    };
 
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()
@@ -96,7 +96,7 @@ fn main() -> Result<(), Error> {
     );
   }
 
-  let future = async move {
+  let future = async {
     let mod_id = js_runtime.load_main_es_module(&main_module).await?;
     let result = js_runtime.mod_evaluate(mod_id);
     js_runtime.run_event_loop(Default::default()).await?;
