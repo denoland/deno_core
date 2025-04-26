@@ -99,10 +99,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
                 >::cast_unchecked(unsafe { fast_api_callback_options.data })
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            let result = {
-                let arg0 = &mut scope;
-                Self::call(arg0)
-            };
+            let result = { Self::call(&mut scope) };
             let result = match result {
                 Ok(result) => result,
                 Err(err) => {
