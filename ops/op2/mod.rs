@@ -200,7 +200,6 @@ pub(crate) fn generate_op2(
     needs_retval: false,
     needs_scope: false,
     needs_fast_isolate: false,
-    needs_fast_scope: false,
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,

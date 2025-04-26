@@ -102,24 +102,35 @@ impl FastSignature {
     for arg in &self.args {
       match arg {
         FastArg::Actual { arg, name_out, .. }
-        | FastArg::Virtual { name_out, arg } => call_args.push(
-          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
-            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
-          )?,
-        ),
+        | FastArg::Virtual { name_out, arg } => {
+          if !matches!(arg, Arg::Ref(_, Special::HandleScope)) {
+            call_args.push(
+              map_v8_fastcall_arg_to_arg(generator_state, name_out, arg)
+                .map_err(|s| {
+                  V8SignatureMappingError::NoArgMapping(s, arg.clone())
+                })?,
+            )
+          } else {
+            generator_state.needs_scope = true;
+          }
+        }
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
     }
     Ok(call_args)
   }
 
-  pub(crate) fn call_names(&self) -> Vec<Ident> {
+  pub(crate) fn call_names(&self) -> Vec<TokenStream> {
     let mut call_names = vec![];
     for arg in &self.args {
       match arg {
-        FastArg::Actual { name_out, .. }
-        | FastArg::Virtual { name_out, .. } => {
-          call_names.push(name_out.clone())
+        FastArg::Actual { name_out, arg, .. }
+        | FastArg::Virtual { name_out, arg } => {
+          if matches!(arg, Arg::Ref(_, Special::HandleScope)) {
+            call_names.push(quote!(&mut scope));
+          } else {
+            call_names.push(quote!(#name_out));
+          }
         }
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
@@ -426,7 +437,6 @@ pub(crate) fn generate_dispatch_fast(
   let with_stack_trace = if generator_state.needs_stack_trace {
     generator_state.needs_opctx = true;
     generator_state.needs_scope = true;
-    generator_state.needs_fast_scope = false;
 
     gs_quote!(generator_state(opctx, scope, opstate) =>
     (if #opctx.enable_stack_trace {
@@ -489,7 +499,7 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_isolate = if generator_state.needs_fast_isolate
-    && !generator_state.needs_fast_scope
+    && !generator_state.needs_scope
     && !generator_state.needs_stack_trace
   {
     generator_state.needs_fast_api_callback_options = true;
@@ -634,7 +644,6 @@ fn map_v8_fastcall_arg_to_arg(
     opctx,
     js_runtime_state,
     scope,
-    needs_scope,
     needs_opctx,
     needs_fast_api_callback_options,
     needs_fast_isolate,
@@ -722,8 +731,7 @@ fn map_v8_fastcall_arg_to_arg(
       quote!(let #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);)
     }
     Arg::Ref(_, Special::HandleScope) => {
-      *needs_scope = true;
-      quote!(let #arg_ident = &mut #scope;)
+      unreachable!()
     }
     Arg::RcRefCell(Special::OpState) => {
       *needs_opctx = true;
