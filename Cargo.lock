@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.343.0"
+version = "0.344.0"
 dependencies = [
  "anyhow",
  "az",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.219.0"
+version = "0.220.0"
 dependencies = [
  "indexmap",
  "pretty_assertions",
@@ -2132,7 +2132,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.252.0"
+version = "0.253.0"
 dependencies = [
  "bencher",
  "deno_error",
