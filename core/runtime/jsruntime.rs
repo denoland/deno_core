@@ -433,9 +433,10 @@ pub struct JsRuntimeState {
     Option<WaitForInspectorDisconnectCallback>,
   pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
   pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
-  pub(crate) eval_context_get_code_cache_cb: Option<EvalContextGetCodeCacheCb>,
+  pub(crate) eval_context_get_code_cache_cb:
+    RefCell<Option<EvalContextGetCodeCacheCb>>,
   pub(crate) eval_context_code_cache_ready_cb:
-    Option<EvalContextCodeCacheReadyCb>,
+    RefCell<Option<EvalContextCodeCacheReadyCb>>,
   pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
   pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
   pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
@@ -875,8 +876,12 @@ impl JsRuntime {
       op_state: op_state.clone(),
       validate_import_attributes_cb: options.validate_import_attributes_cb,
       custom_module_evaluation_cb: options.custom_module_evaluation_cb,
-      eval_context_get_code_cache_cb,
-      eval_context_code_cache_ready_cb: eval_context_set_code_cache_cb,
+      eval_context_get_code_cache_cb: RefCell::new(
+        eval_context_get_code_cache_cb,
+      ),
+      eval_context_code_cache_ready_cb: RefCell::new(
+        eval_context_set_code_cache_cb,
+      ),
       waker,
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
@@ -1259,6 +1264,26 @@ impl JsRuntime {
     }
 
     Ok(())
+  }
+
+  pub fn set_eval_context_code_cache_cbs(
+    &self,
+    eval_context_code_cache_cbs: Option<(
+      EvalContextGetCodeCacheCb,
+      EvalContextCodeCacheReadyCb,
+    )>,
+  ) {
+    let (eval_context_get_code_cache_cb, eval_context_set_code_cache_cb) =
+      eval_context_code_cache_cbs
+        .map(|cbs| (Some(cbs.0), Some(cbs.1)))
+        .unwrap_or_default();
+    *self.inner.state.eval_context_get_code_cache_cb.borrow_mut() =
+      eval_context_get_code_cache_cb;
+    *self
+      .inner
+      .state
+      .eval_context_code_cache_ready_cb
+      .borrow_mut() = eval_context_set_code_cache_cb;
   }
 
   #[cfg(test)]

@@ -65,6 +65,10 @@ impl FeatureChecker {
       (self.exit_cb)(feature, api_name);
     }
   }
+
+  pub fn is_empty(&self) -> bool {
+    self.features.is_empty()
+  }
 }
 
 #[cfg(test)]
