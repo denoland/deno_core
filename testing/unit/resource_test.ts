@@ -141,3 +141,12 @@ test(async function testDomPoint() {
 
   new TestEnumWrap();
 });
+
+// TODO(littledivy): write this test using natives api when exposed
+test(async function testFastProtoMethod() {
+  const obj = new TestObjectWrap();
+
+  for (let i = 0; i < 10000; i++) {
+    obj.withScopeFast(); // trigger fast call
+  }
+});

@@ -488,8 +488,8 @@ pub(crate) fn generate_dispatch_fast(
       generator_state,
       format!("expected {}", &generator_state.self_ty),
     );
-    gs_quote!(generator_state(self_ty, scope) => {
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into()) else {
+    gs_quote!(generator_state(self_ty, scope, try_unwrap_cppgc) => {
+      let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, this.into()) else {
         #throw_exception
       };
       let self_ = &*self_;
@@ -821,8 +821,8 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(scope) => {
-        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+      gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
+        let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) else {
           #throw_exception
         };
         let #arg_ident = &*#arg_ident;
@@ -835,10 +835,10 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(scope) => {
+      gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
-        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+        } else if let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) {
           Some(#arg_ident)
         } else {
           #throw_exception
