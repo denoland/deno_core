@@ -143,7 +143,7 @@ test(async function testDomPoint() {
 });
 
 // TODO(littledivy): write this test using natives api when exposed
-test(async function testFastProtoMethod() {
+test(function testFastProtoMethod() {
   const obj = new TestObjectWrap();
 
   for (let i = 0; i < 10000; i++) {
