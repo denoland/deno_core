@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::FeatureChecker;
 use crate::OpDecl;
 use crate::ResourceId;
 use crate::error::JsStackFrame;
@@ -10,6 +9,7 @@ use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::runtime::UnrefedOps;
+use deno_features::FeatureChecker;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
 use std::collections::HashSet;
