@@ -808,10 +808,7 @@ impl JsRuntime {
       options.maybe_op_stack_trace_callback.is_some();
 
     // First let's create an `OpState` and contribute to it from extensions...
-    let mut op_state = OpState::new(
-      options.feature_checker.take(),
-      options.maybe_op_stack_trace_callback,
-    );
+    let mut op_state = OpState::new(options.maybe_op_stack_trace_callback);
     let unrefed_ops = op_state.unrefed_ops.clone();
 
     let lazy_extensions =
