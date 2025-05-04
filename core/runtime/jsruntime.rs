@@ -18,7 +18,6 @@ use crate::ExtensionFileSource;
 use crate::ExtensionFileSourceCode;
 use crate::FastStaticString;
 use crate::FastString;
-use crate::FeatureChecker;
 use crate::ModuleCodeString;
 use crate::NoopModuleLoader;
 use crate::OpMetadata;
@@ -520,10 +519,6 @@ pub struct RuntimeOptions {
   /// this may expose the runtime to security vulnerabilities.
   pub unsafe_expose_natives_and_gc: bool,
 
-  /// An optional instance of `FeatureChecker`. If one is not provided, the
-  /// default instance will be created that has no features enabled.
-  pub feature_checker: Option<Arc<FeatureChecker>>,
-
   /// A callback that can be used to validate import attributes received at
   /// the import site. If no callback is provided, all attributes are allowed.
   ///
@@ -813,10 +808,7 @@ impl JsRuntime {
       options.maybe_op_stack_trace_callback.is_some();
 
     // First let's create an `OpState` and contribute to it from extensions...
-    let mut op_state = OpState::new(
-      options.feature_checker.take(),
-      options.maybe_op_stack_trace_callback,
-    );
+    let mut op_state = OpState::new(options.maybe_op_stack_trace_callback);
     let unrefed_ops = op_state.unrefed_ops.clone();
 
     let lazy_extensions =
