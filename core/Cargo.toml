@@ -37,7 +37,6 @@ deno_error.workspace = true
 deno_ops.workspace = true
 deno_path_util.workspace = true
 deno_unsync.workspace = true
-deno_features.workspace = true
 futures.workspace = true
 indexmap.workspace = true
 libc.workspace = true

@@ -61,7 +61,6 @@ use crate::source_map::SourceMapData;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
 use deno_error::JsErrorBox;
-use deno_features::FeatureChecker;
 use futures::FutureExt;
 use futures::task::AtomicWaker;
 use smallvec::SmallVec;
@@ -519,10 +518,6 @@ pub struct RuntimeOptions {
   /// GC control functions (`gc()`)? WARNING: This should not be used for production code as
   /// this may expose the runtime to security vulnerabilities.
   pub unsafe_expose_natives_and_gc: bool,
-
-  /// An optional instance of `FeatureChecker`. If one is not provided, the
-  /// default instance will be created that has no features enabled.
-  pub feature_checker: Option<Arc<FeatureChecker>>,
 
   /// A callback that can be used to validate import attributes received at
   /// the import site. If no callback is provided, all attributes are allowed.

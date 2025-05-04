@@ -9,7 +9,6 @@ use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::runtime::UnrefedOps;
-use deno_features::FeatureChecker;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -239,7 +238,6 @@ pub struct OpState {
   pub resource_table: ResourceTable,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
-  pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
   pub op_stack_trace_callback: Option<OpStackTraceCallback>,
   /// Reference to the unrefered ops state in `ContextState`.
@@ -252,15 +250,11 @@ pub struct OpState {
 }
 
 impl OpState {
-  pub fn new(
-    maybe_feature_checker: Option<Arc<FeatureChecker>>,
-    op_stack_trace_callback: Option<OpStackTraceCallback>,
-  ) -> OpState {
+  pub fn new(op_stack_trace_callback: Option<OpStackTraceCallback>) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
       waker: Arc::new(AtomicWaker::new()),
-      feature_checker: maybe_feature_checker.unwrap_or_default(),
       external_ops_tracker: ExternalOpsTracker {
         counter: Arc::new(AtomicUsize::new(0)),
       },
