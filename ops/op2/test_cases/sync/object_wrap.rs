@@ -10,7 +10,11 @@ pub struct Foo {
   x: Cell<u32>,
 }
 
-impl GarbageCollected for Foo {}
+impl GarbageCollected for Foo {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"Foo"
+  }
+}
 
 #[op2]
 impl Foo {

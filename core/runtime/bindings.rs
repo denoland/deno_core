@@ -41,7 +41,7 @@ pub(crate) fn create_external_references(
   sources: &[v8::OneByteConst],
   ops_in_snapshot: usize,
   sources_in_snapshot: usize,
-) -> v8::ExternalReferences {
+) -> Vec<v8::ExternalReference> {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references = Vec::with_capacity(
     6 + CONTEXT_SETUP_SOURCES.len()
@@ -49,7 +49,8 @@ pub(crate) fn create_external_references(
       + (ops.len() * 4)
       + additional_references.len()
       + sources.len()
-      + 18, // for callsite_fns
+      + 18 // for callsite_fns
+      + 1, // nullptr
   );
 
   references.push(v8::ExternalReference {
@@ -165,7 +166,12 @@ pub(crate) fn create_external_references(
     function: callsite_fns::to_string.map_fn_to(),
   });
 
-  v8::ExternalReferences::new(&references)
+  // null terminate so rusty_v8 doesn't have to make a copy.
+  references.push(v8::ExternalReference {
+    pointer: std::ptr::null_mut(),
+  });
+
+  references
 }
 
 /// Combine the snapshotted sources (which may be empty) with the loaded sources, and ensure that

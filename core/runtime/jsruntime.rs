@@ -98,7 +98,6 @@ pub type ExtensionTranspiler =
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
 pub(crate) struct IsolateAllocations {
-  pub(crate) external_refs: Option<Box<v8::ExternalReferences>>,
   pub(crate) externalized_sources: Box<[v8::OneByteConst]>,
   pub(crate) original_sources: Box<[FastString]>,
   pub(crate) near_heap_limit_callback_data:
@@ -150,7 +149,6 @@ pub(crate) struct InnerIsolateState {
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
-  v8_cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -187,22 +185,12 @@ impl InnerIsolateState {
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
   }
 
-  pub fn cleanup_cpp_heap(&mut self) {
-    self.v8_isolate.detach_cpp_heap();
-    self.v8_cpp_heap.terminate();
-    unsafe {
-      ManuallyDrop::drop(&mut self.v8_cpp_heap);
-    }
-  }
-
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
 
     // SAFETY: We're copying out of self and then immediately forgetting self
     unsafe {
       ManuallyDrop::drop(&mut self.state.0);
-
-      self.cleanup_cpp_heap();
 
       let isolate = ManuallyDrop::take(&mut self.v8_isolate);
 
@@ -219,8 +207,6 @@ impl Drop for InnerIsolateState {
     // SAFETY: We gotta drop these
     unsafe {
       ManuallyDrop::drop(&mut self.state.0);
-
-      self.cleanup_cpp_heap();
 
       if self.will_snapshot {
         // Create the snapshot and just drop it.
@@ -934,29 +920,21 @@ impl JsRuntime {
       isolate_allocations.original_sources,
     ) = bindings::externalize_sources(&mut sources, snapshot_sources);
 
-    isolate_allocations.external_refs =
-      Some(Box::new(bindings::create_external_references(
-        &op_ctxs,
-        &additional_references,
-        &isolate_allocations.externalized_sources,
-        ops_in_snapshot,
-        sources_in_snapshot,
-      )));
-
-    let external_refs: &v8::ExternalReferences =
-      isolate_allocations.external_refs.as_ref().unwrap();
-    // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
-    let external_refs_static = unsafe { &*(external_refs as *const _) };
+    let external_references = bindings::create_external_references(
+      &op_ctxs,
+      &additional_references,
+      &isolate_allocations.externalized_sources,
+      ops_in_snapshot,
+      sources_in_snapshot,
+    );
 
     let has_snapshot = maybe_startup_snapshot.is_some();
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
       maybe_startup_snapshot,
-      external_refs_static,
+      external_references.into(),
     );
-    let mut cpp_heap = setup::create_cpp_heap();
-    isolate.attach_cpp_heap(&mut cpp_heap);
 
     if state_rc.import_assertions_support.has_warning() {
       isolate.add_message_listener_with_error_level(
@@ -1168,7 +1146,6 @@ impl JsRuntime {
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
-        v8_cpp_heap: ManuallyDrop::new(cpp_heap),
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
@@ -2242,8 +2219,6 @@ impl JsRuntimeForSnapshot {
   pub fn snapshot(mut self) -> Box<[u8]> {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
-    let externals_count =
-      self.0.allocations.external_refs.as_ref().unwrap().len() as _;
     let original_sources =
       std::mem::take(&mut self.0.allocations.original_sources);
     let external_strings = original_sources
@@ -2312,7 +2287,6 @@ impl JsRuntimeForSnapshot {
       let snapshotted_data = SnapshottedData {
         module_map_data,
         function_templates_data,
-        externals_count,
         op_count: self.inner.op_count,
         addl_refs_count: self.inner.addl_refs_count,
         source_count: self.inner.source_count,

@@ -200,7 +200,7 @@ pub fn get_middlewares_and_external_refs(
 ) -> (
   Vec<GlobalTemplateMiddlewareFn>,
   Vec<GlobalObjectMiddlewareFn>,
-  Vec<v8::ExternalReference<'static>>,
+  Vec<v8::ExternalReference>,
 ) {
   // TODO(bartlomieju): these numbers were chosen arbitrarily. This is a very
   // niche features and it's unlikely a lot of extensions use it.

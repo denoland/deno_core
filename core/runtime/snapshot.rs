@@ -2,6 +2,7 @@
 
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -302,7 +303,6 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub ext_import_meta_proto: Option<u32>,
   pub module_map_data: ModuleMapSnapshotData,
   pub function_templates_data: FunctionTemplateSnapshotData,
-  pub externals_count: u32,
   pub extensions: Vec<&'snapshot str>,
   pub op_count: usize,
   pub source_count: usize,
@@ -377,13 +377,13 @@ pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
 
 /// Returns an isolate set up for snapshotting.
 pub(crate) fn create_snapshot_creator(
-  external_refs: &'static v8::ExternalReferences,
+  external_refs: Cow<'static, [v8::ExternalReference]>,
   maybe_startup_snapshot: Option<V8Snapshot>,
   params: v8::CreateParams,
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
     v8::Isolate::snapshot_creator_from_existing_snapshot(
-      snapshot.0,
+      v8::StartupData::from(snapshot.0),
       Some(external_refs),
       Some(params),
     )

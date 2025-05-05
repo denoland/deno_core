@@ -74,7 +74,11 @@ pub fn op_stats_delete(
 
 pub struct TestObjectWrap {}
 
-impl GarbageCollected for TestObjectWrap {}
+impl GarbageCollected for TestObjectWrap {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"TestObjectWrap"
+  }
+}
 
 #[op2]
 impl TestObjectWrap {
@@ -118,7 +122,11 @@ impl TestObjectWrap {
 
 pub struct DOMPoint {}
 
-impl GarbageCollected for DOMPoint {}
+impl GarbageCollected for DOMPoint {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"DOMPoint"
+  }
+}
 
 impl DOMPointReadOnly {
   fn from_point_inner(
@@ -152,7 +160,11 @@ pub struct DOMPointReadOnly {
   w: Cell<f64>,
 }
 
-impl GarbageCollected for DOMPointReadOnly {}
+impl GarbageCollected for DOMPointReadOnly {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"DOMPointReadOnly"
+  }
+}
 
 #[op2(base)]
 impl DOMPointReadOnly {
@@ -278,7 +290,11 @@ pub enum TestEnumWrap {
   A,
 }
 
-impl GarbageCollected for TestEnumWrap {}
+impl GarbageCollected for TestEnumWrap {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"TestEnumWrap"
+  }
+}
 
 #[op2]
 impl TestEnumWrap {
@@ -295,7 +311,11 @@ pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
 
 pub struct Foo;
 
-impl deno_core::GarbageCollected for Foo {}
+impl deno_core::GarbageCollected for Foo {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"Foo"
+  }
+}
 
 #[op2(fast)]
 pub fn op_scope_cppgc(_scope: &mut v8::HandleScope, #[cppgc] _foo: &Foo) {}

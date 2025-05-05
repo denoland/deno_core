@@ -44,7 +44,7 @@ impl GarbageCollected for DummyT {
     unreachable!();
   }
 
-  fn get_name(&self) -> Option<&'static std::ffi::CStr> {
+  fn get_name(&self) -> &'static std::ffi::CStr {
     unreachable!();
   }
 }
@@ -110,11 +110,19 @@ impl v8::cppgc::GarbageCollected for PrototypeChainStore {
       visitor.trace(&erased.member);
     }
   }
+
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"PrototypeChainStore"
+  }
 }
 
 impl<T: GarbageCollected> v8::cppgc::GarbageCollected for CppGcObject<T> {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
     self.member.trace(visitor);
+  }
+
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    self.member.get_name()
   }
 }
 
