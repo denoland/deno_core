@@ -622,7 +622,7 @@ pub struct Extension {
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
   pub objects: Cow<'static, [OpMethodDecl]>,
-  pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
+  pub external_references: Cow<'static, [v8::ExternalReference]>,
   pub global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
   pub global_object_middleware: Option<GlobalObjectMiddlewareFn>,
   pub op_state_fn: Option<Box<OpStateFn>>,
@@ -768,9 +768,7 @@ impl Extension {
     self.global_object_middleware
   }
 
-  pub fn get_external_references(
-    &mut self,
-  ) -> &[v8::ExternalReference<'static>] {
+  pub fn get_external_references(&mut self) -> &[v8::ExternalReference] {
     self.external_references.as_ref()
   }
 

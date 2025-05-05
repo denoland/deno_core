@@ -6,6 +6,7 @@ use crate::V8_WRAPPER_TYPE_INDEX;
 use super::bindings;
 use super::snapshot;
 use super::snapshot::V8Snapshot;
+use std::borrow::Cow;
 use std::sync::Mutex;
 use std::sync::Once;
 use std::sync::atomic::AtomicBool;
@@ -80,8 +81,6 @@ fn v8_init(
   });
   v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
-
-  v8::cppgc::initialize_process(v8_platform);
 }
 
 pub fn init_v8(
@@ -114,18 +113,11 @@ pub fn init_v8(
   });
 }
 
-pub fn create_cpp_heap() -> v8::UniqueRef<v8::cppgc::Heap> {
-  v8::cppgc::Heap::create(
-    v8::V8::get_current_platform(),
-    v8::cppgc::HeapCreateParams::default(),
-  )
-}
-
 pub fn create_isolate(
   will_snapshot: bool,
   maybe_create_params: Option<v8::CreateParams>,
   maybe_startup_snapshot: Option<V8Snapshot>,
-  external_refs: &'static v8::ExternalReferences,
+  external_refs: Cow<'static, [v8::ExternalReference]>,
 ) -> v8::OwnedIsolate {
   let mut params = maybe_create_params
     .unwrap_or_default()
@@ -140,10 +132,10 @@ pub fn create_isolate(
       params,
     )
   } else {
-    params = params.external_references(&**external_refs);
+    params = params.external_references(external_refs);
     let has_snapshot = maybe_startup_snapshot.is_some();
     if let Some(snapshot) = maybe_startup_snapshot {
-      params = params.snapshot_blob(snapshot.0);
+      params = params.snapshot_blob(v8::StartupData::from(snapshot.0));
     }
     static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
     static SNAPSHOW_INIT_MUT: Mutex<()> = Mutex::new(());
