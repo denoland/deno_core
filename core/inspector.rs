@@ -155,6 +155,16 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
     let scope = &mut unsafe { v8::CallbackScope::new(isolate) };
     Some(v8::Local::new(scope, self.context.clone()))
   }
+
+  fn resource_name_to_url(
+    &mut self,
+    resource_name: &v8::inspector::StringView,
+  ) -> Option<v8::UniquePtr<v8::inspector::StringBuffer>> {
+    let resource_name = resource_name.to_string();
+    let url = url::Url::from_file_path(resource_name).ok()?;
+    let src_view = v8::inspector::StringView::from(url.as_str().as_bytes());
+    Some(v8::inspector::StringBuffer::create(src_view))
+  }
 }
 
 impl JsRuntimeInspector {
