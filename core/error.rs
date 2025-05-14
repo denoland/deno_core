@@ -885,11 +885,14 @@ impl JsError {
         }
       };
 
-      let key_s = v8::String::new(scope, "errorAdditionalPropertyKeys").unwrap();
+      let key_s =
+        v8::String::new(scope, "errorAdditionalPropertyKeys").unwrap();
       let key = v8::Symbol::for_key(scope, key_s);
       let keys = exception.get(scope, key.into());
 
-      let additional_properties = if let Some(arr) = keys.and_then(|keys| keys.try_cast::<v8::Array>().ok()) {
+      let additional_properties = if let Some(arr) =
+        keys.and_then(|keys| keys.try_cast::<v8::Array>().ok())
+      {
         let mut out = Vec::with_capacity(arr.length() as usize);
 
         for i in 0..arr.length() {
