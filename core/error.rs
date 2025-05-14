@@ -354,6 +354,7 @@ pub struct JsError {
   pub source_line: Option<String>,
   pub source_line_frame_index: Option<usize>,
   pub aggregated: Option<Vec<JsError>>,
+  pub additional_properties: Vec<(String, String)>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, serde::Deserialize, serde::Serialize)]
@@ -725,6 +726,7 @@ impl JsError {
       frames,
       stack: None,
       aggregated: None,
+      additional_properties: vec![],
     }
   }
 
@@ -883,6 +885,27 @@ impl JsError {
         }
       };
 
+      let key_s = v8::String::new(scope, "errorAdditionalPropertyKeys").unwrap();
+      let key = v8::Symbol::for_key(scope, key_s);
+      let keys = exception.get(scope, key.into());
+
+      let additional_properties = if let Some(arr) = keys.and_then(|keys| keys.try_cast::<v8::Array>().ok()) {
+        let mut out = Vec::with_capacity(arr.length() as usize);
+
+        for i in 0..arr.length() {
+          let key = arr.get_index(scope, i).unwrap();
+          let key_name = key.to_rust_string_lossy(scope);
+
+          let val = exception.get(scope, key).unwrap();
+          let val_str = val.to_rust_string_lossy(scope);
+          out.push((key_name, val_str));
+        }
+
+        out
+      } else {
+        vec![]
+      };
+
       Self {
         name: e.name,
         message: e.message,
@@ -893,6 +916,7 @@ impl JsError {
         frames,
         stack,
         aggregated,
+        additional_properties,
       }
     } else {
       let exception_message = exception_message
@@ -910,6 +934,7 @@ impl JsError {
         frames: vec![],
         stack: None,
         aggregated: None,
+        additional_properties: vec![],
       }
     }
   }

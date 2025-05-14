@@ -99,12 +99,20 @@
     if (typeof error == "object") {
       ErrorCaptureStackTrace(error, buildCustomError);
       if (additionalProperties) {
+        const keys = [];
         for (const property of new SafeArrayIterator(additionalProperties)) {
           const key = property[0];
           if (!(key in error)) {
+            keys.push(key);
             error[key] = property[1];
           }
         }
+        Object.defineProperty(error, SymbolFor("errorAdditionalPropertyKeys"), {
+          value: keys,
+          writable: false,
+          enumerable: false,
+          configurable: false,
+        });
       }
     }
     return error;
