@@ -45,6 +45,7 @@ export class TestObjectWrap {
   withAsyncFn(ms: number): Promise<void>;
   withThis(): void;
   withScopeFast(): void;
+  undefinedResult(): undefined;
 }
 
 export class TestEnumWrap {}

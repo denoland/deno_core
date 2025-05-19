@@ -1112,11 +1112,12 @@ pub fn return_value_infallible(
         gs_quote!(generator_state(result) => (#marker(#result)))
       }
     }
-
     ArgMarker::ToV8 => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
     }
-    ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
+    ArgMarker::Undefined | ArgMarker::None => {
+      gs_quote!(generator_state(result) => (#result))
+    }
   };
   let res = match ret_type.slow_retval() {
     ArgSlowRetval::RetVal => {
@@ -1193,6 +1194,9 @@ pub fn return_value_v8_value(
     }
     ArgMarker::ToV8 => {
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result))
+    }
+    ArgMarker::Undefined => {
+      quote!(deno_core::v8::undefined(#scope).into())
     }
     ArgMarker::None => quote!(#result),
   };

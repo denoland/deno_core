@@ -273,6 +273,7 @@ impl Eq for WebIDLDefault {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Arg {
   Void,
+  VoidUndefined,
   Special(Special),
   String(Strings),
   Buffer(BufferType, BufferMode, BufferSource),
@@ -464,7 +465,9 @@ impl Arg {
             | NumericArg::usize,
             NumericFlag::Number,
           ) => ArgSlowRetval::RetVal,
-          Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
+          Arg::VoidUndefined | Arg::Void | Arg::Numeric(..) => {
+            ArgSlowRetval::RetVal
+          }
           Arg::External(_) => ArgSlowRetval::V8Local,
           // Fast return value path for empty strings
           Arg::String(_) => ArgSlowRetval::RetValFallible,
@@ -510,6 +513,7 @@ impl Arg {
       | Arg::CppGcResource(..)
       | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
       Arg::ToV8(_) => ArgMarker::ToV8,
+      Arg::VoidUndefined => ArgMarker::Undefined,
       _ => ArgMarker::None,
     }
   }
@@ -550,6 +554,8 @@ pub enum ArgMarker {
   Cppgc,
   /// This type should be converted with `ToV8``
   ToV8,
+  /// This unit type should be a undefined.
+  Undefined,
 }
 
 #[derive(Debug)]
@@ -805,6 +811,8 @@ pub enum AttributeModifier {
   VarArgs,
   /// The `this` receiver.
   This,
+  /// `undefined`
+  Undefined,
 }
 
 impl AttributeModifier {
@@ -826,6 +834,7 @@ impl AttributeModifier {
       AttributeModifier::Ignore => "ignore",
       AttributeModifier::VarArgs => "varargs",
       AttributeModifier::This => "this",
+      AttributeModifier::Undefined => "undefined",
     }
   }
 }
@@ -1295,6 +1304,7 @@ fn parse_attribute(
     rules!(tokens => {
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[number]) => Some(AttributeModifier::Number),
+      (#[undefined]) => Some(AttributeModifier::Undefined),
       (#[serde]) => Some(AttributeModifier::Serde),
       (#[webidl]) => Some(AttributeModifier::WebIDL { options: vec![],default: None }),
       (#[webidl($(default = $default:expr)?$($(, )?options($($key:ident = $value:expr),*))?)]) => Some(AttributeModifier::WebIDL { options: key.map(|key| key.into_iter().zip(value.unwrap().into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect()).unwrap_or_default(), default: default.map(WebIDLDefault) }),
@@ -1612,6 +1622,15 @@ pub(crate) fn parse_type(
     match primary {
       AttributeModifier::Ignore => {
         unreachable!();
+      }
+      AttributeModifier::Undefined => {
+        if position == Position::Arg {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "return value",
+          ));
+        }
+        return Ok(Arg::VoidUndefined);
       }
       AttributeModifier::VarArgs => {
         if position == Position::RetVal {
