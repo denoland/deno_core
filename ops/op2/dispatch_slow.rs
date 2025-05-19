@@ -1115,7 +1115,10 @@ pub fn return_value_infallible(
     ArgMarker::ToV8 => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
     }
-    ArgMarker::Undefined | ArgMarker::None => {
+    ArgMarker::Undefined => {
+      gs_quote!(generator_state(scope) => (deno_core::v8::undefined(&mut #scope)))
+    }
+    ArgMarker::None => {
       gs_quote!(generator_state(result) => (#result))
     }
   };

@@ -465,9 +465,8 @@ impl Arg {
             | NumericArg::usize,
             NumericFlag::Number,
           ) => ArgSlowRetval::RetVal,
-          Arg::VoidUndefined | Arg::Void | Arg::Numeric(..) => {
-            ArgSlowRetval::RetVal
-          }
+          Arg::VoidUndefined => ArgSlowRetval::V8LocalNoScope,
+          Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
           Arg::External(_) => ArgSlowRetval::V8Local,
           // Fast return value path for empty strings
           Arg::String(_) => ArgSlowRetval::RetValFallible,

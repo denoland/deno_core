@@ -134,7 +134,7 @@ test(async function testDomPoint() {
   wrap.withThis();
   wrap.with_RENAME();
 
-  assertEquals(wrap.undefinedResult(), undefined);
+  assert(wrap.undefinedResult() === undefined);
 
   const promise = wrap.withAsyncFn(10);
   assert(promise instanceof Promise);
