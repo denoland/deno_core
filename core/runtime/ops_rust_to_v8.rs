@@ -171,6 +171,9 @@ impl Marker for CppGcProtoMarker {}
 pub struct ToV8Marker;
 impl Marker for ToV8Marker {}
 
+pub struct Undefined;
+impl Marker for Undefined {}
+
 trait Marker {}
 
 /// Helper macro for [`RustToV8`] to reduce boilerplate.
@@ -450,6 +453,16 @@ impl<'a, T: crate::cppgc::GarbageCollected + PrototypeChain + 'static>
     v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_proto_object(
       scope, self.0,
     ))
+  }
+}
+
+//
+// Undefined
+//
+impl<'a> RustToV8<'a> for RustToV8Marker<Undefined, ()> {
+  #[inline(always)]
+  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+    v8::undefined(scope).into()
   }
 }
 

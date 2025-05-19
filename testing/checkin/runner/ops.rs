@@ -97,6 +97,12 @@ impl TestObjectWrap {
   fn with_scope_fast(&self, _scope: &mut v8::HandleScope) {}
 
   #[fast]
+  #[undefined]
+  fn undefined_result(&self) -> Result<(), JsErrorBox> {
+    Ok(())
+  }
+
+  #[fast]
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
 
