@@ -136,6 +136,15 @@ test(async function testDomPoint() {
 
   assert(wrap.undefinedResult() === undefined);
 
+  wrap.withValidateInt(10);
+
+  try {
+    wrap.withValidateInt("bad");
+  } catch (e) {
+    assert(e instanceof TypeError);
+    assertEquals(e.message, "Expected int");
+  }
+
   const promise = wrap.withAsyncFn(10);
   assert(promise instanceof Promise);
 

@@ -349,11 +349,28 @@ pub fn extract_arg(
   index: usize,
   input_index: usize,
 ) -> TokenStream {
-  let GeneratorState { fn_args, .. } = &generator_state;
+  let exception = throw_exception(generator_state);
   let arg_ident = generator_state.args.get(index);
 
+  let early_validate = if let Some(ident) = &generator_state.validate_fn {
+    let scope = &generator_state.scope;
+
+    quote! {
+      match #ident(&mut #scope, #arg_ident) {
+        Ok(_) => {}
+        Err(err) => {
+          #exception;
+        }
+      };
+    }
+  } else {
+    quote!()
+  };
+
+  let fn_args = &generator_state.fn_args;
   quote!(
     let #arg_ident = #fn_args.get(#input_index as i32);
+    #early_validate
   )
 }
 

@@ -58,6 +58,8 @@ pub struct MacroConfig {
   pub use_proto_cppgc: bool,
   /// Calls the fn with the promise_id of the async op.
   pub promise_id: bool,
+  /// Custom validation function.
+  pub validate: Option<Ident>,
 }
 
 impl MacroConfig {
@@ -122,6 +124,7 @@ impl MacroConfig {
           config.symbol = true;
         }
         Flags::PromiseId => config.promise_id = true,
+        Flags::Validate(ident) => config.validate = Some(ident.clone()),
       }
 
       passed_flags.push(flag);
@@ -205,6 +208,7 @@ enum Flags {
   StackTrace,
   Symbol(String),
   PromiseId,
+  Validate(Ident),
 }
 
 impl Parse for Flags {
@@ -296,6 +300,11 @@ impl Parse for Flags {
     } else if lookahead.peek(kw::promise_id) {
       input.parse::<kw::promise_id>()?;
       Flags::PromiseId
+    } else if lookahead.peek(kw::validate) {
+      let meta = input.parse::<CustomMeta>()?;
+      let list = meta.require_list()?;
+      let ident = list.parse_args::<Ident>()?;
+      Flags::Validate(ident)
     } else {
       return Err(lookahead.error());
     };
@@ -407,6 +416,7 @@ mod kw {
   custom_keyword!(lazy);
   custom_keyword!(deferred);
   custom_keyword!(promise_id);
+  custom_keyword!(validate);
 }
 
 #[cfg(test)]
