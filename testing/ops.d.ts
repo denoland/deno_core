@@ -46,6 +46,7 @@ export class TestObjectWrap {
   withThis(): void;
   withScopeFast(): void;
   undefinedResult(): undefined;
+  withValidateInt(value: number): void;
 }
 
 export class TestEnumWrap {}
