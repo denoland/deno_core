@@ -128,8 +128,12 @@ impl TestObjectWrap {
   }
 
   #[fast]
-  #[validate(int)]
-  fn with_validate_int(&self, #[smi] t: u32) -> Result<u32, JsErrorBox> {
+  fn with_validate_int(
+    &self,
+    #[validate(int)]
+    #[smi]
+    t: u32,
+  ) -> Result<u32, JsErrorBox> {
     Ok(t)
   }
 

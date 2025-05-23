@@ -58,8 +58,6 @@ pub struct MacroConfig {
   pub use_proto_cppgc: bool,
   /// Calls the fn with the promise_id of the async op.
   pub promise_id: bool,
-  /// Custom validation function.
-  pub validate: Option<syn::Path>,
 }
 
 impl MacroConfig {
@@ -124,7 +122,6 @@ impl MacroConfig {
           config.symbol = true;
         }
         Flags::PromiseId => config.promise_id = true,
-        Flags::Validate(ident) => config.validate = Some(ident.0.clone()),
       }
 
       passed_flags.push(flag);
@@ -208,22 +205,6 @@ enum Flags {
   StackTrace,
   Symbol(String),
   PromiseId,
-  Validate(PathOrd),
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct PathOrd(syn::Path);
-
-impl Ord for PathOrd {
-  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    self.0.to_token_stream().to_string().cmp(&other.0.to_token_stream().to_string())
-  }
-}
-
-impl PartialOrd for PathOrd {
-  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    Some(self.cmp(other))
-  }
 }
 
 impl Parse for Flags {
@@ -315,11 +296,6 @@ impl Parse for Flags {
     } else if lookahead.peek(kw::promise_id) {
       input.parse::<kw::promise_id>()?;
       Flags::PromiseId
-    } else if lookahead.peek(kw::validate) {
-      let meta = input.parse::<CustomMeta>()?;
-      let list = meta.require_list()?;
-      let path = list.parse_args::<syn::Path>()?;
-      Flags::Validate(PathOrd(path))
     } else {
       return Err(lookahead.error());
     };

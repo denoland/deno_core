@@ -724,7 +724,7 @@ impl RetVal {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedSignature {
   // The parsed arguments
-  pub args: Vec<Arg>,
+  pub args: Vec<(Arg, Attributes)>,
   // The argument names
   pub names: Vec<String>,
   // The parsed return value
@@ -812,6 +812,8 @@ pub enum AttributeModifier {
   This,
   /// `undefined`
   Undefined,
+  /// Custom validator.
+  Validate(Path),
 }
 
 impl AttributeModifier {
@@ -834,6 +836,7 @@ impl AttributeModifier {
       AttributeModifier::VarArgs => "varargs",
       AttributeModifier::This => "this",
       AttributeModifier::Undefined => "undefined",
+      AttributeModifier::Validate(_) => "validate",
     }
   }
 }
@@ -944,9 +947,10 @@ pub enum RetError {
   AttributeError(#[from] AttributeError),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub(crate) struct Attributes {
   primary: Option<AttributeModifier>,
+  pub(crate) rest: Vec<AttributeModifier>,
 }
 
 /// Where is this type defined?
@@ -962,6 +966,7 @@ impl Attributes {
   pub fn string() -> Self {
     Self {
       primary: Some(AttributeModifier::String(StringMode::Default)),
+      rest: vec![],
     }
   }
 }
@@ -1074,7 +1079,7 @@ pub fn parse_signature(
 
   let mut jsruntimestate_count = 0;
 
-  for arg in &args {
+  for (arg, _) in &args {
     match arg {
       Arg::RcRefCell(Special::OpState) | Arg::Ref(_, Special::OpState) => {
         has_opstate = true
@@ -1271,7 +1276,8 @@ fn parse_attributes(
     return Ok(Attributes::default());
   }
   Ok(Attributes {
-    primary: Some((*attrs.first().unwrap()).clone()),
+    primary: Some((*attrs.last().unwrap()).clone()),
+    rest: attrs[..attrs.len() - 1].to_vec(),
   })
 }
 
@@ -1305,6 +1311,7 @@ fn parse_attribute(
       (#[number]) => Some(AttributeModifier::Number),
       (#[undefined]) => Some(AttributeModifier::Undefined),
       (#[serde]) => Some(AttributeModifier::Serde),
+      (#[validate($value:path)]) => Some(AttributeModifier::Validate(value)),
       (#[webidl]) => Some(AttributeModifier::WebIDL { options: vec![],default: None }),
       (#[webidl($(default = $default:expr)?$($(, )?options($($key:ident = $value:expr),*))?)]) => Some(AttributeModifier::WebIDL { options: key.map(|key| key.into_iter().zip(value.unwrap().into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect()).unwrap_or_default(), default: default.map(WebIDLDefault) }),
       (#[smi]) => Some(AttributeModifier::Smi),
@@ -1619,7 +1626,7 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.clone().primary {
     match primary {
-      AttributeModifier::Ignore => {
+      AttributeModifier::Ignore | AttributeModifier::Validate(_) => {
         unreachable!();
       }
       AttributeModifier::Undefined => {
@@ -1886,11 +1893,13 @@ pub(crate) fn parse_type(
   }
 }
 
-fn parse_arg(arg: FnArg) -> Result<Arg, ArgError> {
+fn parse_arg(arg: FnArg) -> Result<(Arg, Attributes), ArgError> {
   let FnArg::Typed(typed) = arg else {
     return Err(ArgError::InvalidSelf);
   };
-  parse_type(Position::Arg, parse_attributes(&typed.attrs)?, &typed.ty)
+  let attrs = parse_attributes(&typed.attrs)?;
+  let ty = parse_type(Position::Arg, attrs.clone(), &typed.ty)?;
+  Ok((ty, attrs))
 }
 
 #[cfg(test)]

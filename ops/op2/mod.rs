@@ -214,7 +214,6 @@ pub(crate) fn generate_op2(
     } else {
       format_ident!("try_unwrap_cppgc_object")
     },
-    validate_fn: config.validate.clone(),
   };
 
   let mut slow_generator_state = base_generator_state.clone();

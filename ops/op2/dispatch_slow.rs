@@ -1,5 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::op2::signature::AttributeModifier;
+
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use super::config::MacroConfig;
@@ -13,6 +15,7 @@ use super::generator_state::gs_quote;
 use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
+use super::signature::Attributes;
 use super::signature::BufferMode;
 use super::signature::BufferSource;
 use super::signature::BufferType;
@@ -43,13 +46,13 @@ pub(crate) fn generate_dispatch_slow_call(
   let mut args = TokenStream::new();
   let mut deferred = TokenStream::new();
 
-  for (index, arg) in signature.args.iter().enumerate() {
+  for (index, (arg, attrs)) in signature.args.iter().enumerate() {
     let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
       .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
     } else {
-      args.extend(extract_arg(generator_state, index, input_index));
+      args.extend(extract_arg(generator_state, attrs, index, input_index));
       args.extend(arg_mapped);
       input_index += 1;
     }
@@ -346,27 +349,33 @@ pub(crate) fn with_self(
 
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
+  attrs: &Attributes,
   index: usize,
   input_index: usize,
 ) -> TokenStream {
   let exception = throw_exception(generator_state);
   let arg_ident = generator_state.args.get(index);
 
-  let early_validate = if let Some(ident) = &generator_state.validate_fn {
-    generator_state.needs_scope = true;
-    let scope = &generator_state.scope;
+  let mut early_validate = quote! {};
 
-    quote! {
-      match #ident(&mut #scope, #arg_ident) {
-        Ok(_) => {}
-        Err(err) => {
-          #exception;
-        }
-      };
+  for attr in &attrs.rest {
+    match attr {
+      AttributeModifier::Validate(path) => {
+        generator_state.needs_scope = true;
+        let scope = &generator_state.scope;
+
+        early_validate = quote! {
+          match #path(&mut #scope, #arg_ident) {
+            Ok(_) => {}
+            Err(err) => {
+              #exception;
+            }
+          };
+        };
+      }
+      _ => {}
     }
-  } else {
-    quote!()
-  };
+  }
 
   let fn_args = &generator_state.fn_args;
   quote!(

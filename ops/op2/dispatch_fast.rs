@@ -275,7 +275,7 @@ pub(crate) fn get_fast_signature(
 ) -> Result<Option<FastSignature>, V8SignatureMappingError> {
   let mut args = vec![];
   let mut index_in = 0;
-  for (index_out, arg) in signature.args.iter().cloned().enumerate() {
+  for (index_out, (arg, _)) in signature.args.iter().cloned().enumerate() {
     let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg)
       .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?
     else {

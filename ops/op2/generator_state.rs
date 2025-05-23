@@ -57,7 +57,6 @@ pub struct GeneratorState {
   pub use_this_cppgc: bool,
   pub use_proto_cppgc: bool,
   pub try_unwrap_cppgc: Ident,
-  pub validate_fn: Option<syn::Path>,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from
