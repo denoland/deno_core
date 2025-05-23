@@ -353,6 +353,7 @@ pub fn extract_arg(
   let arg_ident = generator_state.args.get(index);
 
   let early_validate = if let Some(ident) = &generator_state.validate_fn {
+    generator_state.needs_scope = true;
     let scope = &generator_state.scope;
 
     quote! {
