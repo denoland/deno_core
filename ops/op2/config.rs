@@ -407,7 +407,6 @@ mod kw {
   custom_keyword!(lazy);
   custom_keyword!(deferred);
   custom_keyword!(promise_id);
-  custom_keyword!(validate);
 }
 
 #[cfg(test)]
