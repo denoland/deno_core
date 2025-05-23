@@ -1,5 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
-import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
+import {
+  assert,
+  assertArrayEquals,
+  assertEquals,
+  assertThrows,
+  test,
+} from "checkin:testing";
 import {
   DOMPoint,
   DOMPointReadOnly,
@@ -138,12 +144,14 @@ test(async function testDomPoint() {
 
   wrap.withValidateInt(10);
 
-  try {
-    wrap.withValidateInt("bad");
-  } catch (e) {
-    assert(e instanceof TypeError);
-    assertEquals(e.message, "Expected int");
-  }
+  assertThrows(
+    () => {
+      // @ts-expect-error bad arg test
+      wrap.withValidateInt("bad");
+    },
+    TypeError,
+    "Expected int",
+  );
 
   const promise = wrap.withAsyncFn(10);
   assert(promise instanceof Promise);

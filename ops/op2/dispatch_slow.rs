@@ -359,21 +359,18 @@ pub fn extract_arg(
   let mut early_validate = quote! {};
 
   for attr in &attrs.rest {
-    match attr {
-      AttributeModifier::Validate(path) => {
-        generator_state.needs_scope = true;
-        let scope = &generator_state.scope;
+    if let AttributeModifier::Validate(path) = attr {
+      generator_state.needs_scope = true;
+      let scope = &generator_state.scope;
 
-        early_validate = quote! {
-          match #path(&mut #scope, #arg_ident) {
-            Ok(_) => {}
-            Err(err) => {
-              #exception;
-            }
-          };
+      early_validate = quote! {
+        match #path(&mut #scope, #arg_ident) {
+          Ok(_) => {}
+          Err(err) => {
+            #exception;
+          }
         };
-      }
-      _ => {}
+      };
     }
   }
 
