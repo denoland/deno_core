@@ -1971,9 +1971,11 @@ mod tests {
         format!("< {} >", generics_res.join(", "))
       );
     }
+
+    let arg_ty = sig.args.iter().map(|a| a.0.clone()).collect::<Vec<_>>();
     assert_eq!(
       args_expected.replace('\n', " "),
-      format!("{:?}", sig.args)
+      format!("{:?}", arg_ty)
         .trim_matches(|c| c == '[' || c == ']')
         .replace('\n', " ")
         .replace('"', "")
