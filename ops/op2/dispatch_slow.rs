@@ -83,6 +83,20 @@ pub(crate) fn generate_dispatch_slow(
     )?);
   }
 
+  let with_validate = if let Some(validate) = &config.validate {
+    generator_state.needs_scope = true;
+    generator_state.needs_args = true;
+
+    let exception = throw_exception(generator_state);
+    gs_quote!(generator_state(scope, fn_args) => {
+      if let Err(err) = #validate(&mut #scope, &#fn_args) {
+        #exception;
+      }
+    })
+  } else {
+    quote!()
+  };
+
   let with_stack_trace = if generator_state.needs_stack_trace {
     with_stack_trace(generator_state)
   } else {
@@ -155,6 +169,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_scope
         #with_retval
         #with_args
+        #with_validate
         #with_required_check
         #with_opctx
         #with_self

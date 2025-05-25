@@ -91,6 +91,17 @@ fn int(
   Err(JsErrorBox::type_error("Expected int"))
 }
 
+fn int_op(
+  _scope: &mut v8::HandleScope,
+  args: &v8::FunctionCallbackArguments,
+) -> Result<(), JsErrorBox> {
+  if args.length() != 1 {
+    return Err(JsErrorBox::type_error("Expected one argument"));
+  }
+
+  Ok(())
+}
+
 #[op2]
 impl TestObjectWrap {
   #[constructor]
@@ -128,6 +139,7 @@ impl TestObjectWrap {
   }
 
   #[fast]
+  #[validate(int_op)]
   fn with_validate_int(
     &self,
     #[validate(int)]

@@ -1272,6 +1272,13 @@ fn parse_attributes(
     }
   }
 
+  if attrs.len() == 1 && matches!(attrs[0], AttributeModifier::Validate(_)) {
+    return Ok(Attributes {
+      primary: None,
+      rest: attrs,
+    });
+  }
+
   if attrs.is_empty() {
     return Ok(Attributes::default());
   }
@@ -1287,6 +1294,7 @@ pub fn is_attribute_special(attr: &Attribute) -> bool {
       .unwrap_or_default()
       .and_then(|attr| match attr {
         AttributeModifier::Ignore => None,
+        AttributeModifier::Validate(_) => None,
         _ => Some(()),
       })
       .is_some()

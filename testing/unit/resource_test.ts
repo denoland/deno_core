@@ -147,6 +147,15 @@ test(async function testDomPoint() {
   assertThrows(
     () => {
       // @ts-expect-error bad arg test
+      wrap.withValidateInt(2, 2);
+    },
+    TypeError,
+    "Expected one argument",
+  );
+
+  assertThrows(
+    () => {
+      // @ts-expect-error bad arg test
       wrap.withValidateInt("bad");
     },
     TypeError,
