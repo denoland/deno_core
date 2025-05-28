@@ -215,9 +215,7 @@ impl JsErrorClass for MockError {
     unimplemented!()
   }
 
-  fn get_additional_properties(
-    &self,
-  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
+  fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
     unimplemented!()
   }
 

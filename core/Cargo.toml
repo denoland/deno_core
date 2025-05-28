@@ -53,7 +53,7 @@ thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true
 v8.workspace = true
-wasm_dep_analyzer = "0.2.0"
+wasm_dep_analyzer = "0.3.0"
 
 [dev-dependencies]
 bencher.workspace = true
