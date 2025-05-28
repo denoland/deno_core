@@ -296,7 +296,6 @@ pub fn to_v8_error<'a>(
 
   let additional_properties = error
     .get_additional_properties()
-    .into_iter()
     .map(|(key, value)| {
       let key = v8::String::new(tc_scope, &key).unwrap().into();
       let value = match value {
