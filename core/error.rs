@@ -10,6 +10,7 @@ use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
 use deno_error::JsErrorClass;
+use deno_error::PropertyValue;
 use deno_error::builtin_classes::*;
 use std::any::Any;
 use std::borrow::Cow;
@@ -236,10 +237,8 @@ impl JsErrorClass for CoreError {
     }
   }
 
-  fn get_additional_properties(
-    &self,
-  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
-    vec![] // TODO
+  fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
+    Box::new(std::iter::empty()) // TODO
   }
 
   fn as_any(&self) -> &dyn Any {
@@ -300,7 +299,12 @@ pub fn to_v8_error<'a>(
     .into_iter()
     .map(|(key, value)| {
       let key = v8::String::new(tc_scope, &key).unwrap().into();
-      let value = v8::String::new(tc_scope, &value).unwrap().into();
+      let value = match value {
+        PropertyValue::String(value) => {
+          v8::String::new(tc_scope, &value).unwrap().into()
+        }
+        PropertyValue::Number(value) => v8::Number::new(tc_scope, value).into(),
+      };
 
       v8::Array::new_with_elements(tc_scope, &[key, value]).into()
     })
