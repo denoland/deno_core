@@ -260,9 +260,7 @@ impl JsErrorClass for Canceled {
     io_err.get_message()
   }
 
-  fn get_additional_properties(
-    &self,
-  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
+  fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
     let io_err: io::Error = self.to_owned().into();
     io_err.get_additional_properties()
   }
