@@ -29,6 +29,7 @@ fn v8_init(
     " --turbo_fast_api_calls",
     " --harmony-temporal",
     " --js-float16array",
+    " --js-source-phase-imports",
   );
   let snapshot_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";
@@ -166,6 +167,9 @@ pub fn create_isolate(
   );
   isolate.set_host_import_module_dynamically_callback(
     bindings::host_import_module_dynamically_callback,
+  );
+  isolate.set_host_import_module_with_phase_dynamically_callback(
+    bindings::host_import_module_with_phase_dynamically_callback,
   );
   isolate.set_wasm_async_resolve_promise_callback(
     bindings::wasm_async_resolve_promise_callback,
