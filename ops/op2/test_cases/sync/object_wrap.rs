@@ -2,9 +2,9 @@
 
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
-use deno_core::JsErrorBox;
 use deno_core::cppgc::GarbageCollected;
 use deno_core::v8;
+use deno_error::JsErrorBox;
 use std::cell::Cell;
 
 pub struct Foo {
@@ -17,7 +17,10 @@ impl GarbageCollected for Foo {
   }
 }
 
-fn f() -> Result<(), JsErrorBox> {
+fn f(
+  _: &mut v8::HandleScope,
+  _: &v8::FunctionCallbackArguments,
+) -> Result<(), JsErrorBox> {
   Ok(())
 }
 
