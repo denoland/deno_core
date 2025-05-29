@@ -7,6 +7,7 @@ use quote::ToTokens;
 use syn::Ident;
 use syn::MacroDelimiter;
 use syn::MetaList;
+use syn::Path;
 use syn::Token;
 use syn::Type;
 use syn::parse::Parse;
@@ -58,6 +59,7 @@ pub struct MacroConfig {
   pub use_proto_cppgc: bool,
   /// Calls the fn with the promise_id of the async op.
   pub promise_id: bool,
+  pub validate: Option<Path>,
 }
 
 impl MacroConfig {
@@ -122,6 +124,9 @@ impl MacroConfig {
           config.symbol = true;
         }
         Flags::PromiseId => config.promise_id = true,
+        Flags::Validate(path) => {
+          config.validate = Some(path.0.clone());
+        }
       }
 
       passed_flags.push(flag);
@@ -205,6 +210,33 @@ enum Flags {
   StackTrace,
   Symbol(String),
   PromiseId,
+  Validate(PathOrd),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct PathOrd(Path);
+
+impl Ord for PathOrd {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self
+      .0
+      .segments
+      .len()
+      .cmp(&other.0.segments.len())
+      .then_with(|| {
+        self
+          .0
+          .to_token_stream()
+          .to_string()
+          .cmp(&other.0.to_token_stream().to_string())
+      })
+  }
+}
+
+impl PartialOrd for PathOrd {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
+  }
 }
 
 impl Parse for Flags {
@@ -296,6 +328,11 @@ impl Parse for Flags {
     } else if lookahead.peek(kw::promise_id) {
       input.parse::<kw::promise_id>()?;
       Flags::PromiseId
+    } else if lookahead.peek(kw::validate) {
+      let meta = input.parse::<CustomMeta>()?;
+      let list = meta.require_list()?;
+      let path = list.parse_args::<Path>()?;
+      Flags::Validate(PathOrd(path))
     } else {
       return Err(lookahead.error());
     };
@@ -407,6 +444,7 @@ mod kw {
   custom_keyword!(lazy);
   custom_keyword!(deferred);
   custom_keyword!(promise_id);
+  custom_keyword!(validate);
 }
 
 #[cfg(test)]

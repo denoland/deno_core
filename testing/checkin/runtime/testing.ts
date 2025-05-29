@@ -21,6 +21,28 @@ export function assert(value: any, message?: string | undefined) {
   }
 }
 
+export function assertThrows(
+  fn: () => void,
+  errorClass: any,
+  message?: string | undefined,
+) {
+  try {
+    fn();
+  } catch (e) {
+    if (e instanceof errorClass) {
+      if (message) {
+        assert(
+          e.message.includes(message),
+          `Expected message to include ${message}`,
+        );
+      }
+      return;
+    }
+    throw e;
+  }
+  throw new Error("Expected function to throw");
+}
+
 /**
  * Fails a test.
  */

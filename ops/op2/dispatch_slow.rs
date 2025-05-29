@@ -1,5 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::op2::signature::AttributeModifier;
+
 use super::V8MappingError;
 use super::V8SignatureMappingError;
 use super::config::MacroConfig;
@@ -13,6 +15,7 @@ use super::generator_state::gs_quote;
 use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
+use super::signature::Attributes;
 use super::signature::BufferMode;
 use super::signature::BufferSource;
 use super::signature::BufferType;
@@ -43,13 +46,13 @@ pub(crate) fn generate_dispatch_slow_call(
   let mut args = TokenStream::new();
   let mut deferred = TokenStream::new();
 
-  for (index, arg) in signature.args.iter().enumerate() {
+  for (index, (arg, attrs)) in signature.args.iter().enumerate() {
     let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
       .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
     } else {
-      args.extend(extract_arg(generator_state, index, input_index));
+      args.extend(extract_arg(generator_state, attrs, index, input_index));
       args.extend(arg_mapped);
       input_index += 1;
     }
@@ -79,6 +82,20 @@ pub(crate) fn generate_dispatch_slow(
       },
     )?);
   }
+
+  let with_validate = if let Some(validate) = &config.validate {
+    generator_state.needs_scope = true;
+    generator_state.needs_args = true;
+
+    let exception = throw_exception(generator_state);
+    gs_quote!(generator_state(scope, fn_args) => {
+      if let Err(err) = #validate(&mut #scope, &#fn_args) {
+        #exception;
+      }
+    })
+  } else {
+    quote!()
+  };
 
   let with_stack_trace = if generator_state.needs_stack_trace {
     with_stack_trace(generator_state)
@@ -152,6 +169,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_scope
         #with_retval
         #with_args
+        #with_validate
         #with_required_check
         #with_opctx
         #with_self
@@ -346,14 +364,35 @@ pub(crate) fn with_self(
 
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
+  attrs: &Attributes,
   index: usize,
   input_index: usize,
 ) -> TokenStream {
-  let GeneratorState { fn_args, .. } = &generator_state;
+  let exception = throw_exception(generator_state);
   let arg_ident = generator_state.args.get(index);
 
+  let mut early_validate = quote! {};
+
+  for attr in &attrs.rest {
+    if let AttributeModifier::Validate(path) = attr {
+      generator_state.needs_scope = true;
+      let scope = &generator_state.scope;
+
+      early_validate = quote! {
+        match #path(&mut #scope, #arg_ident) {
+          Ok(_) => {}
+          Err(err) => {
+            #exception;
+          }
+        };
+      };
+    }
+  }
+
+  let fn_args = &generator_state.fn_args;
   quote!(
     let #arg_ident = #fn_args.get(#input_index as i32);
+    #early_validate
   )
 }
 

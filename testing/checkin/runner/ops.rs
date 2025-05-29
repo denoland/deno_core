@@ -80,6 +80,28 @@ impl GarbageCollected for TestObjectWrap {
   }
 }
 
+fn int(
+  _scope: &mut v8::HandleScope,
+  value: v8::Local<v8::Value>,
+) -> Result<(), JsErrorBox> {
+  if value.is_int32() {
+    return Ok(());
+  }
+
+  Err(JsErrorBox::type_error("Expected int"))
+}
+
+fn int_op(
+  _scope: &mut v8::HandleScope,
+  args: &v8::FunctionCallbackArguments,
+) -> Result<(), JsErrorBox> {
+  if args.length() != 1 {
+    return Err(JsErrorBox::type_error("Expected one argument"));
+  }
+
+  Ok(())
+}
+
 #[op2]
 impl TestObjectWrap {
   #[constructor]
@@ -114,6 +136,17 @@ impl TestObjectWrap {
   async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
     Ok(())
+  }
+
+  #[fast]
+  #[validate(int_op)]
+  fn with_validate_int(
+    &self,
+    #[validate(int)]
+    #[smi]
+    t: u32,
+  ) -> Result<u32, JsErrorBox> {
+    Ok(t)
   }
 
   #[fast]
