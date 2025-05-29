@@ -2,9 +2,9 @@
 
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
+use deno_core::JsErrorBox;
 use deno_core::cppgc::GarbageCollected;
 use deno_core::v8;
-use deno_core::JsErrorBox;
 use std::cell::Cell;
 
 pub struct Foo {
