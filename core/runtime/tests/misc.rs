@@ -11,10 +11,13 @@ use cooked_waker::WakeRef;
 use deno_error::JsErrorBox;
 use parking_lot::Mutex;
 use rstest::rstest;
+use serde_json::Value;
+use serde_json::json;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::poll_fn;
+use std::pin::pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -435,6 +438,66 @@ fn inspector() {
   // This was causing a crash
   runtime.op_state().borrow_mut().put(runtime.inspector());
   runtime.execute_script("check.js", "null").unwrap();
+}
+
+#[rstest]
+// https://github.com/denoland/deno/issues/29059
+#[case(0.9999999999999999)]
+#[case(31.245270191439438)]
+#[case(117.63331139400017)]
+#[tokio::test]
+async fn test_preserve_float_precision_from_local_inspector_evaluate(
+  #[case] input: f64,
+) {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    inspector: true,
+    ..Default::default()
+  });
+
+  let result = local_inspector_evaluate(&mut runtime, &format!("{}", input))
+    .await
+    .unwrap();
+
+  assert_eq!(
+    result["result"]["value"],
+    Value::Number(serde_json::Number::from_f64(input).unwrap()),
+  );
+}
+
+async fn local_inspector_evaluate(
+  runtime: &mut JsRuntime,
+  expression: &str,
+) -> Result<Value, CoreError> {
+  let session_options = inspector::InspectorSessionOptions {
+    kind: inspector::InspectorSessionKind::NonBlocking {
+      wait_for_disconnect: true,
+    },
+  };
+
+  let mut local_inspector_session = runtime
+    .inspector()
+    .borrow()
+    .create_local_session(session_options);
+
+  let post_message_future = pin!(local_inspector_session.post_message(
+    "Runtime.evaluate",
+    Some(json!({
+      "expression": expression,
+    })),
+  ));
+
+  // https://chromedevtools.github.io/devtools-protocol/tot/Runtime/#type-RemoteObject
+  let remote_object_result = runtime
+    .with_event_loop_future(
+      post_message_future,
+      PollEventLoopOptions {
+        pump_v8_message_loop: false,
+        ..Default::default()
+      },
+    )
+    .await?;
+
+  Ok(remote_object_result)
 }
 
 #[test]
