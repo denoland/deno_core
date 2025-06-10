@@ -228,8 +228,16 @@ pub(crate) enum InitMode {
   /// We are using a snapshot, thus certain initialization steps are skipped.
   FromSnapshot {
     // Can we skip the work of op registration?
-    skip_op_registration: bool,
+    op_registration: OpRegistration,
   },
+}
+
+#[derive(Default, Debug, Eq, PartialEq, Copy, Clone)]
+pub enum OpRegistration {
+  SkipAll,
+  #[default]
+  RegisterAll,
+  RegisterExtra,
 }
 
 impl InitMode {
@@ -237,17 +245,28 @@ impl InitMode {
     match options.startup_snapshot {
       None => Self::New,
       Some(_) => Self::FromSnapshot {
-        skip_op_registration: options.skip_op_registration,
+        op_registration: options.op_registration,
       },
     }
   }
 
   #[inline]
-  pub fn needs_ops_bindings(&self) -> bool {
+  pub fn needs_all_ops_bindings(&self) -> bool {
     !matches!(
       self,
       InitMode::FromSnapshot {
-        skip_op_registration: true
+        op_registration: OpRegistration::SkipAll
+          | OpRegistration::RegisterExtra,
+      }
+    )
+  }
+
+  #[inline]
+  pub fn needs_extra_ops_bindings(&self) -> bool {
+    matches!(
+      self,
+      InitMode::FromSnapshot {
+        op_registration: OpRegistration::RegisterExtra
       }
     )
   }
@@ -461,6 +480,9 @@ pub struct RuntimeOptions {
   /// JavaScript sources in the extensions.
   pub extensions: Vec<Extension>,
 
+  /// Extra extensions to register.
+  pub extra_extensions: Vec<Extension>,
+
   /// V8 snapshot that should be loaded on startup.
   ///
   /// For testing, use `runtime.snapshot()` and then [`Box::leak`] to acquire
@@ -468,7 +490,7 @@ pub struct RuntimeOptions {
   pub startup_snapshot: Option<&'static [u8]>,
 
   /// Should op registration be skipped?
-  pub skip_op_registration: bool,
+  pub op_registration: OpRegistration,
 
   /// Isolate creation parameters.
   pub create_params: Option<v8::CreateParams>,
@@ -797,6 +819,15 @@ impl JsRuntime {
     let mut op_state = OpState::new(options.maybe_op_stack_trace_callback);
     let unrefed_ops = op_state.unrefed_ops.clone();
 
+    let has_extra_extensions = !options.extra_extensions.is_empty();
+    let len = extensions.len();
+    extensions.extend(options.extra_extensions);
+    let extra_idx = if has_extra_extensions {
+      Some(len)
+    } else {
+      None
+    };
+
     let lazy_extensions =
       extension_set::setup_op_state(&mut op_state, &mut extensions);
 
@@ -873,8 +904,11 @@ impl JsRuntime {
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
     // and get ready to actually create V8 isolate...
-    let (op_decls, mut op_method_decls) =
-      extension_set::init_ops(crate::ops_builtin::BUILTIN_OPS, &mut extensions);
+    let (op_decls, mut op_method_decls, extra_idx) = extension_set::init_ops(
+      crate::ops_builtin::BUILTIN_OPS,
+      extra_idx,
+      &mut extensions,
+    );
 
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
@@ -888,6 +922,11 @@ impl JsRuntime {
       state_rc.clone(),
       enable_stack_trace_in_ops,
     );
+    let extra_idx = if let Some(extra_idx) = extra_idx {
+      Some(extra_idx + methods_ctx_offset)
+    } else {
+      None
+    };
 
     // ...ops are now almost fully set up; let's create a V8 isolate...
     let (
@@ -897,7 +936,8 @@ impl JsRuntime {
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
     // Capture the extension, op and source counts
-    let extensions = extensions.iter().map(|e| e.name).collect();
+    let extension_names: Vec<&str> =
+      extensions.iter().map(|e| e.name).collect();
     let op_count = op_ctxs.len();
     let source_count = sources.len();
     let addl_refs_count = additional_references.len();
@@ -1023,7 +1063,7 @@ impl JsRuntime {
     }
     // If we're creating a new runtime or there are new ops to register
     // set up JavaScript bindings for them.
-    if init_mode.needs_ops_bindings() {
+    if init_mode.needs_all_ops_bindings() {
       bindings::initialize_deno_core_ops_bindings(
         scope,
         context,
@@ -1032,6 +1072,17 @@ impl JsRuntime {
         methods_ctx_offset,
         &mut state_rc.function_templates.borrow_mut(),
       );
+    } else if let Some(extra_idx) = extra_idx {
+      if init_mode.needs_extra_ops_bindings() {
+        bindings::initialize_deno_core_ops_bindings(
+          scope,
+          context,
+          &context_state.op_ctxs[extra_idx..],
+          &[],
+          0,
+          &mut state_rc.function_templates.borrow_mut(),
+        );
+      }
     }
 
     // SAFETY: Initialize the context state slot.
@@ -1140,7 +1191,7 @@ impl JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
         op_count,
-        extensions,
+        extensions: extension_names,
         source_count,
         addl_refs_count,
         main_realm: ManuallyDrop::new(main_realm),

@@ -15,6 +15,7 @@ use crate::RuntimeOptions;
 use crate::cppgc::FunctionTemplateSnapshotData;
 use crate::error::CoreError;
 use crate::modules::ModuleMapSnapshotData;
+use crate::runtime::jsruntime::OpRegistration;
 
 use super::ExtensionTranspiler;
 
@@ -202,7 +203,7 @@ pub fn create_snapshot(
     startup_snapshot: create_snapshot_options.startup_snapshot,
     extensions: create_snapshot_options.extensions,
     extension_transpiler: create_snapshot_options.extension_transpiler,
-    skip_op_registration: create_snapshot_options.skip_op_registration,
+    op_registration: OpRegistration::SkipAll,
     ..Default::default()
   });
 
@@ -235,7 +236,7 @@ pub fn create_snapshot(
     let mut js_runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
       startup_snapshot: Some(leaked_snapshot),
       extensions: warmup_exts,
-      skip_op_registration: true,
+      op_registration: OpRegistration::SkipAll,
       ..Default::default()
     });
 

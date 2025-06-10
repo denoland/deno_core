@@ -44,8 +44,9 @@ pub fn setup_op_state(
 /// Collects ops from extensions & applies middleware
 pub fn init_ops(
   deno_core_ops: &'static [OpDecl],
+  extra_idx: Option<usize>,
   extensions: &mut [Extension],
-) -> (Vec<OpDecl>, Vec<OpMethodDecl>) {
+) -> (Vec<OpDecl>, Vec<OpMethodDecl>, Option<usize>) {
   // In debug build verify there that inter-Extension dependencies
   // are setup correctly.
   #[cfg(debug_assertions)]
@@ -81,7 +82,11 @@ pub fn init_ops(
     });
   }
 
-  for ext in extensions.iter_mut() {
+  let extra_idx = extra_idx.unwrap_or(extensions.len());
+  let mut extra_ops_idx = None;
+  for (idx, ext) in extensions.iter_mut().enumerate() {
+    let is_extra = idx >= extra_idx;
+    let start_len = ops.len();
     let ext_ops = ext.init_ops();
     for ext_op in ext_ops {
       ops.push(OpDecl {
@@ -95,13 +100,16 @@ pub fn init_ops(
     for ext_op in ext_method_ops {
       op_methods.push(*ext_op);
     }
+    if is_extra && extra_ops_idx.is_none() {
+      extra_ops_idx = Some(start_len);
+    }
   }
 
   // In debug build verify there are no duplicate ops.
   #[cfg(debug_assertions)]
   check_no_duplicate_op_names(&ops);
 
-  (ops, op_methods)
+  (ops, op_methods, extra_ops_idx)
 }
 
 /// This functions panics if any of the extensions is missing its dependencies.

@@ -37,6 +37,7 @@ pub use jsruntime::JsRuntimeForSnapshot;
 pub use jsruntime::JsRuntimeState;
 #[cfg(test)]
 pub(crate) use jsruntime::NO_OF_BUILTIN_MODULES;
+pub use jsruntime::OpRegistration;
 pub use jsruntime::PollEventLoopOptions;
 pub use jsruntime::RuntimeOptions;
 pub use jsruntime::SharedArrayBufferStore;
