@@ -819,6 +819,8 @@ impl JsRuntime {
     let mut op_state = OpState::new(options.maybe_op_stack_trace_callback);
     let unrefed_ops = op_state.unrefed_ops.clone();
 
+    // If there are "extra" extensions, we may need to register them later.
+    // Save the start index of the extra extensions.
     let has_extra_extensions = !options.extra_extensions.is_empty();
     let len = extensions.len();
     extensions.extend(options.extra_extensions);
@@ -922,11 +924,10 @@ impl JsRuntime {
       state_rc.clone(),
       enable_stack_trace_in_ops,
     );
-    let extra_idx = if let Some(extra_idx) = extra_idx {
-      Some(extra_idx + methods_ctx_offset)
-    } else {
-      None
-    };
+    // the extra_idx is the start index of the op_decls from "extra" extensions.
+    // methods get put at the fornt of the opctxs, so the start index of opctxs from "extra" extensions is
+    // extra_idx + methods_ctx_offset.
+    let extra_idx = extra_idx.map(|extra_idx| extra_idx + methods_ctx_offset);
 
     // ...ops are now almost fully set up; let's create a V8 isolate...
     let (
