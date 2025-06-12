@@ -248,8 +248,8 @@ impl ModuleMap {
     requested_module_type: impl AsRef<RequestedModuleType>,
   ) -> Option<ModuleId>
   where
-      ModuleName: Borrow<Q>,
-      Q: Eq + Hash + ?Sized,
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
   {
     self.data.borrow().get_id(name, requested_module_type)
   }
@@ -273,9 +273,9 @@ impl ModuleMap {
     requested_module_type: RequestedModuleType,
   ) -> Option<SymbolicModule> {
     self
-        .data
-        .borrow_mut()
-        .set(name, symbolic_module, requested_module_type)
+      .data
+      .borrow_mut()
+      .set(name, symbolic_module, requested_module_type)
   }
 
   // set so import(`name`) will be the namespace of Module with `id`

@@ -2,7 +2,6 @@
 
 #![allow(clippy::print_stderr)]
 
-use crate::{FastString, ModuleName};
 use crate::ModuleCodeString;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
@@ -29,6 +28,7 @@ use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
+use crate::{FastString, ModuleName};
 use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
 use deno_ops::op2;
@@ -1993,14 +1993,36 @@ fn test_map() {
     let spec = resolve_url("file:///a.js").unwrap();
     const A_NAME: ModuleName = ModuleName::from_static("file:///a.js");
     let a_id = runtime.load_main_es_module(&spec).await.unwrap();
-    modules.alias_id(ModuleName::from_static("#alias0"), A_NAME, RequestedModuleType::None);
-    modules.set(ModuleName::from_static("#alias1"), SymbolicModule::Alias(A_NAME), RequestedModuleType::None);
-    assert_eq!(
-      modules.get(&ModuleName::from_static("#alias0"), RequestedModuleType::None),
-      modules.get(&ModuleName::from_static("#alias1"), RequestedModuleType::None),
+    modules.alias_id(
+      ModuleName::from_static("#alias0"),
+      A_NAME,
+      RequestedModuleType::None,
     );
-    modules.set_id(ModuleName::from_static("#id0"), a_id, RequestedModuleType::None);
-    modules.set(ModuleName::from_static("#id1"), SymbolicModule::Mod(a_id), RequestedModuleType::None);
+    modules.set(
+      ModuleName::from_static("#alias1"),
+      SymbolicModule::Alias(A_NAME),
+      RequestedModuleType::None,
+    );
+    assert_eq!(
+      modules.get(
+        &ModuleName::from_static("#alias0"),
+        RequestedModuleType::None
+      ),
+      modules.get(
+        &ModuleName::from_static("#alias1"),
+        RequestedModuleType::None
+      ),
+    );
+    modules.set_id(
+      ModuleName::from_static("#id0"),
+      a_id,
+      RequestedModuleType::None,
+    );
+    modules.set(
+      ModuleName::from_static("#id1"),
+      SymbolicModule::Mod(a_id),
+      RequestedModuleType::None,
+    );
     assert_eq!(
       modules.get(&ModuleName::from_static("#id0"), RequestedModuleType::None),
       modules.get(&ModuleName::from_static("#id1"), RequestedModuleType::None),
@@ -2013,14 +2035,13 @@ fn test_map() {
       modules.get("#id0", RequestedModuleType::None),
       Some(SymbolicModule::Mod(a_id))
     );
-    modules.delete(&ModuleName::from_static("#alias0"), RequestedModuleType::None);
-    assert_eq!(
-      modules.get("#alias0", RequestedModuleType::None),
-      None
+    modules.delete(
+      &ModuleName::from_static("#alias0"),
+      RequestedModuleType::None,
     );
-  }.boxed_local();
+    assert_eq!(modules.get("#alias0", RequestedModuleType::None), None);
+  }
+  .boxed_local();
 
   futures::executor::block_on(fut);
 }
-
-
