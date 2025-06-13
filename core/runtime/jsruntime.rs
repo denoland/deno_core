@@ -41,7 +41,6 @@ use crate::modules::EvalContextCodeCacheReadyCb;
 use crate::modules::EvalContextGetCodeCacheCb;
 use crate::modules::ExtCodeCache;
 use crate::modules::ExtModuleLoader;
-use crate::modules::ImportMetaResolveCallback;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleId;
@@ -50,7 +49,6 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
-use crate::modules::default_import_meta_resolve_cb;
 use crate::modules::script_origin;
 use crate::ops_metrics::OpMetricsFactoryFn;
 use crate::ops_metrics::dispatch_metrics_async;
@@ -514,12 +512,6 @@ pub struct RuntimeOptions {
   /// To signal validation failure, users should throw an V8 exception inside
   /// the callback.
   pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
-
-  /// A callback that can be used to customize behavior of
-  /// `import.meta.resolve()` API. If no callback is provided, a default one
-  /// is used. The default callback returns value of
-  /// `RuntimeOptions::module_loader::resolve()` call.
-  pub import_meta_resolve_callback: Option<ImportMetaResolveCallback>,
 
   /// A callback that is called when the event loop has no more work to do,
   /// but there are active, non-blocking inspector session (eg. Chrome
@@ -1056,14 +1048,10 @@ impl JsRuntime {
     // ...now that JavaScript bindings to ops are available we can deserialize
     // modules stored in the snapshot (because they depend on the ops and external
     // references must match properly) and recreate a module map...
-    let import_meta_resolve_cb = options
-      .import_meta_resolve_callback
-      .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
     let exception_state = context_state.exception_state.clone();
     let module_map = Rc::new(ModuleMap::new(
       loader,
       exception_state.clone(),
-      import_meta_resolve_cb,
       will_snapshot,
     ));
 

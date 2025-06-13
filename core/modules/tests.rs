@@ -1719,25 +1719,54 @@ async fn no_duplicate_loads() {
 }
 
 #[tokio::test]
-async fn import_meta_resolve_cb() {
-  fn import_meta_resolve_cb(
-    _loader: &dyn ModuleLoader,
-    specifier: String,
-    _referrer: String,
-  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    if specifier == "foo" {
-      return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
+async fn import_meta_resolve() {
+  struct Loader;
+
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+      let referrer = if referrer == "." {
+        "file:///"
+      } else {
+        referrer
+      };
+      Ok(resolve_import(specifier, referrer)?)
     }
 
-    if specifier == "./mod.js" {
-      return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
+    fn import_meta_resolve(
+      &self,
+      specifier: &str,
+      _referrer: &str,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+      if specifier == "foo" {
+        return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
+      }
+
+      if specifier == "./mod.js" {
+        return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
+      }
+
+      Err(JsErrorBox::generic("unexpected").into())
     }
 
-    Err(JsErrorBox::generic("unexpected").into())
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleSpecifier>,
+      _is_dyn_import: bool,
+      _requested_module_type: RequestedModuleType,
+    ) -> ModuleLoadResponse {
+      unreachable!();
+    }
   }
 
+  let loader = Rc::new(Loader);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    import_meta_resolve_callback: Some(Box::new(import_meta_resolve_cb)),
+    module_loader: Some(loader),
     ..Default::default()
   });
 
