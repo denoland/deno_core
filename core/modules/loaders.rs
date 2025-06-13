@@ -36,10 +36,6 @@ pub enum ModuleLoaderError {
   )]
   SpecifierMissingLazyLoadable(ModuleSpecifier),
   #[error(
-    "\"npm:\" specifiers are currently not supported in import.meta.resolve()"
-  )]
-  NpmUnsupportedMetaResolve,
-  #[error(
     "Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."
   )]
   JsonMissingAttribute,
@@ -109,6 +105,15 @@ pub trait ModuleLoader {
     referrer: &str,
     kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError>;
+
+  /// Override to customize the behavior of `import.meta.resolve` resolution.
+  fn import_meta_resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    self.resolve(specifier, referrer, ResolutionKind::DynamicImport)
+  }
 
   /// Given ModuleSpecifier, load its source code.
   ///

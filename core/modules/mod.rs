@@ -178,27 +178,6 @@ impl From<&'static [u8]> for ModuleCodeBytes {
   }
 }
 
-/// Callback to customize value of `import.meta.resolve("./foo.ts")`.
-pub type ImportMetaResolveCallback = Box<
-  dyn Fn(
-    &dyn ModuleLoader,
-    String,
-    String,
-  ) -> Result<ModuleSpecifier, ModuleLoaderError>,
->;
-
-pub(crate) fn default_import_meta_resolve_cb(
-  loader: &dyn ModuleLoader,
-  specifier: String,
-  referrer: String,
-) -> Result<ModuleSpecifier, ModuleLoaderError> {
-  if specifier.starts_with("npm:") {
-    return Err(ModuleLoaderError::NpmUnsupportedMetaResolve);
-  }
-
-  loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
-}
-
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.
 pub type ValidateImportAttributesCb =

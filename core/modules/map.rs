@@ -65,8 +65,6 @@ type PrepareLoadFuture =
 
 type CodeCacheReadyFuture = dyn Future<Output = ()>;
 
-use super::ImportMetaResolveCallback;
-
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
   sender: Option<oneshot::Sender<Result<(), CoreError>>>,
@@ -125,7 +123,6 @@ pub(crate) struct ModuleMap {
   // Handling of futures for loading module sources
   // TODO(mmastrac): we should not be swapping this loader out
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
-  pub(crate) import_meta_resolve_cb: ImportMetaResolveCallback,
 
   exception_state: Rc<ExceptionState>,
   dynamic_import_map: RefCell<HashMap<ModuleLoadId, DynImportState>>,
@@ -203,14 +200,12 @@ impl ModuleMap {
   pub(crate) fn new(
     loader: Rc<dyn ModuleLoader>,
     exception_state: Rc<ExceptionState>,
-    import_meta_resolve_cb: ImportMetaResolveCallback,
     will_snapshot: bool,
   ) -> Self {
     Self {
       will_snapshot,
       loader: loader.into(),
       exception_state,
-      import_meta_resolve_cb,
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
       preparing_dynamic_imports: Default::default(),
