@@ -118,7 +118,9 @@ unsafe impl v8::cppgc::GarbageCollected for PrototypeChainStore {
 }
 
 // SAFETY: `CppGcObject` is a simple wrapper.
-unsafe impl<T: GarbageCollected> v8::cppgc::GarbageCollected for CppGcObject<T> {
+unsafe impl<T: GarbageCollected> v8::cppgc::GarbageCollected
+  for CppGcObject<T>
+{
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
     self.member.trace(visitor);
   }
@@ -358,7 +360,6 @@ pub fn wrap_object3<
   obj
 }
 
-
 /// Members are used in classes to contain strong pointers to other garbage
 /// collected objects. All Member fields of a class must be traced in the class’
 /// trace method.
@@ -395,9 +396,7 @@ impl<T: GarbageCollected> Member<T> {
 
   /// Check if the `Member` is empty, meaning it has not been set yet.
   pub fn is_empty(&self) -> bool {
-    unsafe {
-      self.inner.get().is_none()
-    }
+    unsafe { self.inner.get().is_none() }
   }
 
   /// Get the current value of the `Member`.
@@ -408,16 +407,14 @@ impl<T: GarbageCollected> Member<T> {
   /// called).
   pub fn get(&self) -> &T {
     // SAFETY: See safety invariants of `set()`.
-    unsafe {
-      &self.inner.get().expect("empty strong member").member
-    }
+    unsafe { &self.inner.get().expect("empty strong member").member }
   }
 }
 
-impl <T: GarbageCollected> std::fmt::Debug for Member<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.inner.fmt(f)
-    }
+impl<T: GarbageCollected> std::fmt::Debug for Member<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.inner.fmt(f)
+  }
 }
 
 impl<T: GarbageCollected> std::ops::Deref for Member<T> {
@@ -462,9 +459,7 @@ impl<T: GarbageCollected> WeakMember<T> {
   /// Check if the `WeakMember` is empty, meaning it has not been set yet or has
   /// been garbage-collected.
   pub fn is_empty(&self) -> bool {
-    unsafe {
-      self.inner.get().is_none()
-    }
+    unsafe { self.inner.get().is_none() }
   }
 
   /// Get the current value of the `WeakMember`, or `None` if it has been
@@ -473,24 +468,21 @@ impl<T: GarbageCollected> WeakMember<T> {
   /// This also returns `None` is `set()` has not been called yet.
   pub fn get(&self) -> Option<&T> {
     // SAFETY: See safety invariants of `set()`.
-    unsafe {
-      self.inner.get().map(|ptr| &ptr.member)
-    }
+    unsafe { self.inner.get().map(|ptr| &ptr.member) }
   }
 }
 
 impl<T: GarbageCollected> Default for WeakMember<T> {
-    fn default() -> Self {
-        Self::empty()
-    }
+  fn default() -> Self {
+    Self::empty()
+  }
 }
 
-impl <T: GarbageCollected> std::fmt::Debug for WeakMember<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.inner.fmt(f)
-    }
+impl<T: GarbageCollected> std::fmt::Debug for WeakMember<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.inner.fmt(f)
+  }
 }
-
 
 /// Persistent pointer.
 ///
@@ -602,7 +594,9 @@ impl<T: GarbageCollected> WeakPersistent<T> {
 
 /// Implemented for all strong GC pointer types that can be assigned to other
 /// strong/weak GC pointer types.
-pub trait StrongGcPtr<T: GarbageCollected>: std::ops::Deref<Target = T> {
+pub trait StrongGcPtr<T: GarbageCollected>:
+  std::ops::Deref<Target = T>
+{
   #[doc(hidden)]
   fn as_ptr(&self) -> &impl v8::cppgc::GetRustObj<CppGcObject<T>>;
 }

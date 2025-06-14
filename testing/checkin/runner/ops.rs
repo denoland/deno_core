@@ -278,7 +278,9 @@ impl DOMPoint {
 
   #[setter]
   fn x(&self, x: f64, #[proto] ro: &DOMPointReadOnly) {
-    unsafe { *ro.x.get() = x; }
+    unsafe {
+      *ro.x.get() = x;
+    }
   }
 
   #[getter]
@@ -288,7 +290,9 @@ impl DOMPoint {
 
   #[setter]
   fn y(&self, y: f64, #[proto] ro: &DOMPointReadOnly) {
-    unsafe { *ro.y.get() = y; }
+    unsafe {
+      *ro.y.get() = y;
+    }
   }
 
   #[getter]
@@ -298,7 +302,9 @@ impl DOMPoint {
 
   #[setter]
   fn z(&self, z: f64, #[proto] ro: &DOMPointReadOnly) {
-    unsafe { *ro.z.get() = z; }
+    unsafe {
+      *ro.z.get() = z;
+    }
   }
 
   #[getter]
@@ -308,7 +314,9 @@ impl DOMPoint {
 
   #[setter]
   fn w(&self, w: f64, #[proto] ro: &DOMPointReadOnly) {
-    unsafe { *ro.w.get() = w; }
+    unsafe {
+      *ro.w.get() = w;
+    }
   }
 
   #[getter]
