@@ -34,7 +34,7 @@ pub struct WorkerControl {
   shutdown_flag: Option<UnboundedSender<()>>,
 }
 
-impl GarbageCollected for WorkerControl {
+unsafe impl GarbageCollected for WorkerControl {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"WorkerControl"
   }

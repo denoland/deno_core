@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use std::cell::Cell;
 use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::rc::Rc;
 
 use deno_core::GarbageCollected;
@@ -74,7 +74,7 @@ pub fn op_stats_delete(
 
 pub struct TestObjectWrap {}
 
-impl GarbageCollected for TestObjectWrap {
+unsafe impl GarbageCollected for TestObjectWrap {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestObjectWrap"
   }
@@ -161,7 +161,7 @@ impl TestObjectWrap {
 
 pub struct DOMPoint {}
 
-impl GarbageCollected for DOMPoint {
+unsafe impl GarbageCollected for DOMPoint {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"DOMPoint"
   }
@@ -193,13 +193,21 @@ impl DOMPointReadOnly {
 }
 
 pub struct DOMPointReadOnly {
-  x: Cell<f64>,
-  y: Cell<f64>,
-  z: Cell<f64>,
-  w: Cell<f64>,
+  // Using `UnsafeCell` here to allow interior mutability with the special
+  // constraints of cppgc. These need to be `Send + Sync` only when the garbage
+  // collector is interacting with the object, and not otherwise. Also note that
+  // we never hand out references to the coordinates.
+  //
+  // TODO: Use a specialized `GcCell` type?
+  x: UnsafeCell<f64>,
+  y: UnsafeCell<f64>,
+  z: UnsafeCell<f64>,
+  w: UnsafeCell<f64>,
 }
+unsafe impl Send for DOMPointReadOnly {}
+unsafe impl Sync for DOMPointReadOnly {}
 
-impl GarbageCollected for DOMPointReadOnly {
+unsafe impl GarbageCollected for DOMPointReadOnly {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"DOMPointReadOnly"
   }
@@ -209,22 +217,22 @@ impl GarbageCollected for DOMPointReadOnly {
 impl DOMPointReadOnly {
   #[getter]
   fn x(&self) -> f64 {
-    self.x.get()
+    unsafe { *self.x.get() }
   }
 
   #[getter]
   fn y(&self) -> f64 {
-    self.y.get()
+    unsafe { *self.y.get() }
   }
 
   #[getter]
   fn z(&self) -> f64 {
-    self.z.get()
+    unsafe { *self.z.get() }
   }
 
   #[getter]
   fn w(&self) -> f64 {
-    self.w.get()
+    unsafe { *self.w.get() }
   }
 }
 
@@ -239,10 +247,10 @@ impl DOMPoint {
     w: Option<f64>,
   ) -> (DOMPointReadOnly, DOMPoint) {
     let ro = DOMPointReadOnly {
-      x: Cell::new(x.unwrap_or(0.0)),
-      y: Cell::new(y.unwrap_or(0.0)),
-      z: Cell::new(z.unwrap_or(0.0)),
-      w: Cell::new(w.unwrap_or(0.0)),
+      x: UnsafeCell::new(x.unwrap_or(0.0)),
+      y: UnsafeCell::new(y.unwrap_or(0.0)),
+      z: UnsafeCell::new(z.unwrap_or(0.0)),
+      w: UnsafeCell::new(w.unwrap_or(0.0)),
     };
 
     (ro, DOMPoint {})
@@ -270,42 +278,42 @@ impl DOMPoint {
 
   #[setter]
   fn x(&self, x: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.x.set(x);
+    unsafe { *ro.x.get() = x; }
   }
 
   #[getter]
   fn x(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.x.get()
+    unsafe { *ro.x.get() }
   }
 
   #[setter]
   fn y(&self, y: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.y.set(y);
+    unsafe { *ro.y.get() = y; }
   }
 
   #[getter]
   fn y(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.y.get()
+    unsafe { *ro.y.get() }
   }
 
   #[setter]
   fn z(&self, z: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.z.set(z);
+    unsafe { *ro.z.get() = z; }
   }
 
   #[getter]
   fn z(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.z.get()
+    unsafe { *ro.z.get() }
   }
 
   #[setter]
   fn w(&self, w: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.w.set(w);
+    unsafe { *ro.w.get() = w; }
   }
 
   #[getter]
   fn w(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.w.get()
+    unsafe { *ro.w.get() }
   }
 
   #[fast]
@@ -329,7 +337,7 @@ pub enum TestEnumWrap {
   A,
 }
 
-impl GarbageCollected for TestEnumWrap {
+unsafe impl GarbageCollected for TestEnumWrap {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestEnumWrap"
   }
@@ -350,7 +358,7 @@ pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
 
 pub struct Foo;
 
-impl deno_core::GarbageCollected for Foo {
+unsafe impl deno_core::GarbageCollected for Foo {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"Foo"
   }

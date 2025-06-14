@@ -39,7 +39,7 @@ pub trait PrototypeChain {
 const MAX_PROTO_CHAIN: usize = 3;
 
 struct DummyT;
-impl GarbageCollected for DummyT {
+unsafe impl GarbageCollected for DummyT {
   fn trace(&self, _visitor: &v8::cppgc::Visitor) {
     unreachable!();
   }
@@ -100,7 +100,8 @@ impl<T: GarbageCollected> From<v8::cppgc::Ptr<CppGcObject<T>>> for ErasedPtr {
 
 struct PrototypeChainStore([Option<ErasedPtr>; MAX_PROTO_CHAIN]);
 
-impl v8::cppgc::GarbageCollected for PrototypeChainStore {
+// SAFETY: `trace()` visits all reachable pointers.
+unsafe impl v8::cppgc::GarbageCollected for PrototypeChainStore {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
     // Trace all the objects top-down the prototype chain.
     //
@@ -116,7 +117,8 @@ impl v8::cppgc::GarbageCollected for PrototypeChainStore {
   }
 }
 
-impl<T: GarbageCollected> v8::cppgc::GarbageCollected for CppGcObject<T> {
+// SAFETY: `CppGcObject` is a simple wrapper.
+unsafe impl<T: GarbageCollected> v8::cppgc::GarbageCollected for CppGcObject<T> {
   fn trace(&self, visitor: &v8::cppgc::Visitor) {
     self.member.trace(visitor);
   }
@@ -356,9 +358,281 @@ pub fn wrap_object3<
   obj
 }
 
+
+/// Members are used in classes to contain strong pointers to other garbage
+/// collected objects. All Member fields of a class must be traced in the class’
+/// trace method.
+///
+/// This is a wrapper around [`v8::cppgc::Member`] supporting Deno's prototype
+/// chain integration.
+pub struct Member<T: GarbageCollected> {
+  inner: v8::cppgc::Member<CppGcObject<T>>,
+}
+
+impl<T: GarbageCollected> Member<T> {
+  /// Create a new empty Member which may be set later.
+  pub fn empty() -> Self {
+    Self {
+      inner: v8::cppgc::Member::empty(),
+    }
+  }
+
+  /// Assign a new value to the Member.
+  ///
+  /// # Safety
+  ///
+  /// The caller must guarantee that:
+  ///
+  /// 1. This is a member in another object implementing `GarbageCollected`, and
+  ///    that object is reachable by the garbage collector.
+  /// 2. That object's [`trace()`](GarbageCollected::trace) method visits this
+  ///    pointer.
+  /// 3. `other` is a valid pointer to a live object that is also visible to the
+  ///    same garbage collector instance.
+  pub unsafe fn set(&mut self, other: &impl StrongGcPtr<T>) {
+    self.inner.set(other.as_ptr());
+  }
+
+  /// Check if the `Member` is empty, meaning it has not been set yet.
+  pub fn is_empty(&self) -> bool {
+    unsafe {
+      self.inner.get().is_none()
+    }
+  }
+
+  /// Get the current value of the `Member`.
+  ///
+  /// # Panics
+  ///
+  /// This method panics if `self` is empty ([`set()`](Member::set) has not been
+  /// called).
+  pub fn get(&self) -> &T {
+    // SAFETY: See safety invariants of `set()`.
+    unsafe {
+      &self.inner.get().expect("empty strong member").member
+    }
+  }
+}
+
+impl <T: GarbageCollected> std::fmt::Debug for Member<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T: GarbageCollected> std::ops::Deref for Member<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    self.get()
+  }
+}
+
+/// Weak member pointer.
+///
+/// This is a wrapper around [`v8::cppgc::WeakMember`] supporting Deno's prototype
+/// chain integration.
+pub struct WeakMember<T: GarbageCollected> {
+  inner: v8::cppgc::WeakMember<CppGcObject<T>>,
+}
+
+impl<T: GarbageCollected> WeakMember<T> {
+  /// Create a new empty `WeakMember` which may be set later.
+  pub fn empty() -> Self {
+    Self {
+      inner: v8::cppgc::WeakMember::empty(),
+    }
+  }
+
+  /// Assign a new value to the `WeakMember``.
+  ///
+  /// # Safety
+  ///
+  /// The caller must guarantee that:
+  ///
+  /// 1. This is a member in another object implementing `GarbageCollected`, and
+  ///    that object is reachable by the garbage collector.
+  /// 2. That object's [`trace()`](GarbageCollected::trace) method visits this
+  ///    pointer.
+  /// 3. `other` is a valid pointer to a live object that is also visible to the
+  ///    same garbage collector instance.
+  pub unsafe fn set(&mut self, other: &impl StrongGcPtr<T>) {
+    self.inner.set(other.as_ptr());
+  }
+
+  /// Check if the `WeakMember` is empty, meaning it has not been set yet or has
+  /// been garbage-collected.
+  pub fn is_empty(&self) -> bool {
+    unsafe {
+      self.inner.get().is_none()
+    }
+  }
+
+  /// Get the current value of the `WeakMember`, or `None` if it has been
+  /// garbage-collected.
+  ///
+  /// This also returns `None` is `set()` has not been called yet.
+  pub fn get(&self) -> Option<&T> {
+    // SAFETY: See safety invariants of `set()`.
+    unsafe {
+      self.inner.get().map(|ptr| &ptr.member)
+    }
+  }
+}
+
+impl<T: GarbageCollected> Default for WeakMember<T> {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl <T: GarbageCollected> std::fmt::Debug for WeakMember<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+
+/// Persistent pointer.
+///
+/// This is a wrapper around [`v8::cppgc::Persistent`] supporting Deno's prototype
+/// chain integration.
+pub struct Persistent<T: GarbageCollected> {
+  inner: v8::cppgc::Persistent<CppGcObject<T>>,
+}
+
+impl<T: GarbageCollected> Persistent<T> {
+  /// Create a new non-empty `Persistent` from an existing `Ptr`.
+  pub fn new(other: &Ptr<T>) -> Self {
+    Self {
+      inner: v8::cppgc::Persistent::new(&other.inner),
+    }
+  }
+
+  /// Create a new empty `Persistent` which may be set later.
+  pub fn empty() -> Self {
+    Self {
+      inner: v8::cppgc::Persistent::empty(),
+    }
+  }
+
+  /// Assign a new value to the `Persistent`.
+  pub fn set(&mut self, other: &impl StrongGcPtr<T>) {
+    self.inner.set(other.as_ptr());
+  }
+
+  /// Check if the `Persistent` is empty, meaning it has not been set yet.
+  pub fn is_empty(&self) -> bool {
+    self.inner.borrow().is_none()
+  }
+
+  /// Get the current value of the `Persistent`.
+  ///
+  /// # Panics
+  ///
+  /// This method panics if `self` is empty ([`set()`](Persistent::set) has not
+  /// been called).
+  pub fn get(&self) -> &T {
+    &self.inner.borrow().expect("empty persistent").member
+  }
+
+  pub fn downgrade(this: &Self) -> WeakPersistent<T> {
+    WeakPersistent {
+      inner: v8::cppgc::WeakPersistent::new(&this.inner),
+    }
+  }
+}
+
+impl<T: GarbageCollected> std::ops::Deref for Persistent<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    self.get()
+  }
+}
+
+/// Weak persistent pointer.
+///
+/// This is a wrapper around [`v8::cppgc::WeakPersistent`] supporting Deno's
+/// prototype chain integration.
+pub struct WeakPersistent<T: GarbageCollected> {
+  inner: v8::cppgc::WeakPersistent<CppGcObject<T>>,
+}
+impl<T: GarbageCollected> WeakPersistent<T> {
+  /// Create a new non-empty `WeakPersistent` from an existing `Ptr`.
+  pub fn new(other: &Ptr<T>) -> Self {
+    Self {
+      inner: v8::cppgc::WeakPersistent::new(&other.inner),
+    }
+  }
+
+  /// Create a new empty `WeakPersistent` which may be set later.
+  pub fn empty() -> Self {
+    Self {
+      inner: v8::cppgc::WeakPersistent::empty(),
+    }
+  }
+
+  /// Assign a new value to the `WeakPersistent`.
+  pub fn set(&mut self, other: &impl StrongGcPtr<T>) {
+    self.inner.set(other.as_ptr());
+  }
+
+  /// Check if the `WeakPersistent` is empty, meaning it has not been set yet or
+  /// has been garbage-collected.
+  pub fn is_empty(&self) -> bool {
+    self.inner.borrow().is_none()
+  }
+
+  /// Get the current value of the `WeakPersistent`, or `None` if it has been
+  /// garbage-collected.
+  ///
+  /// This also returns `None` is `set()` has not been called yet.
+  pub fn get(&self) -> Option<&T> {
+    self.inner.borrow().map(|ptr| &ptr.member)
+  }
+
+  pub fn upgrade(&self) -> Option<Persistent<T>> {
+    if self.is_empty() {
+      return None;
+    }
+    let mut ptr = Persistent::empty();
+    ptr.inner.set(&self.inner);
+    Some(ptr)
+  }
+}
+
+/// Implemented for all strong GC pointer types that can be assigned to other
+/// strong/weak GC pointer types.
+pub trait StrongGcPtr<T: GarbageCollected>: std::ops::Deref<Target = T> {
+  #[doc(hidden)]
+  fn as_ptr(&self) -> &impl v8::cppgc::GetRustObj<CppGcObject<T>>;
+}
+
+impl<T: GarbageCollected> StrongGcPtr<T> for Ptr<T> {
+  #[expect(private_interfaces)]
+  fn as_ptr(&self) -> &impl v8::cppgc::GetRustObj<CppGcObject<T>> {
+    &self.inner
+  }
+}
+impl<T: GarbageCollected> StrongGcPtr<T> for Member<T> {
+  #[expect(private_interfaces)]
+  fn as_ptr(&self) -> &impl v8::cppgc::GetRustObj<CppGcObject<T>> {
+    &self.inner
+  }
+}
+impl<T: GarbageCollected> StrongGcPtr<T> for Persistent<T> {
+  #[expect(private_interfaces)]
+  fn as_ptr(&self) -> &impl v8::cppgc::GetRustObj<CppGcObject<T>> {
+    &self.inner
+  }
+}
+
+/// Ptr is used to refer to an on-heap object from the stack.
+///
+/// This is a wrapper around [`v8::cppgc::Ptr`] supporting Deno's prototype
+/// chain integration.
 pub struct Ptr<T: GarbageCollected> {
   inner: v8::cppgc::Ptr<CppGcObject<T>>,
-  root: Option<v8::cppgc::Persistent<CppGcObject<T>>>,
+  root: Option<Persistent<T>>,
 }
 
 #[doc(hidden)]
@@ -368,7 +642,7 @@ impl<T: GarbageCollected> Ptr<T> {
   /// valid.
   pub fn root(&mut self) {
     if self.root.is_none() {
-      self.root = Some(v8::cppgc::Persistent::new(&self.inner));
+      self.root = Some(Persistent::new(self));
     }
   }
 }
