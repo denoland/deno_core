@@ -5,9 +5,6 @@ use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::Mode;
 use crate::runtime::tests::setup;
 use crate::*;
-use cooked_waker::IntoWaker;
-use cooked_waker::Wake;
-use cooked_waker::WakeRef;
 use deno_error::JsErrorBox;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -26,6 +23,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Wake;
+use std::task::Waker;
 use std::time::Duration;
 use std::time::Instant;
 use url::Url;
@@ -67,13 +66,7 @@ struct LoggingWaker {
 }
 
 impl Wake for LoggingWaker {
-  fn wake(self) {
-    self.woken.store(true, Ordering::SeqCst);
-  }
-}
-
-impl WakeRef for LoggingWaker {
-  fn wake_by_ref(&self) {
+  fn wake(self: Arc<Self>) {
     self.woken.store(true, Ordering::SeqCst);
   }
 }
@@ -99,7 +92,7 @@ async fn test_wakers_for_async_ops() {
   STATE.store(0, Ordering::SeqCst);
 
   let logging_waker = Arc::new(LoggingWaker::default());
-  let waker = logging_waker.clone().into_waker();
+  let waker = Waker::from(logging_waker.clone());
 
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
