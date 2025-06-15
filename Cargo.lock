@@ -441,12 +441,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cooked-waker"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "147be55d677052dabc6b22252d5dd0fd4c29c8c27aa4f2fbef0f94aa003b406f"
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -648,7 +642,6 @@ dependencies = [
  "bit-vec",
  "bytes",
  "capacity_builder",
- "cooked-waker",
  "criterion",
  "deno_ast",
  "deno_core_icudata",
