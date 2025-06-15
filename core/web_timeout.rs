@@ -154,19 +154,13 @@ impl MutableSleep {
     if self.ready.take() {
       Poll::Ready(())
     } else {
-      let external =
-        unsafe { self.external_waker.get().as_mut().unwrap_unchecked() };
+      let external = unsafe { &mut *self.external_waker.get() };
       if let Some(external) = external {
-        // Already have this waker
-        let waker = cx.waker();
-        if !external.will_wake(waker) {
-          external.clone_from(waker);
-        }
-        Poll::Pending
+        external.clone_from(cx.waker());
       } else {
         *external = Some(cx.waker().clone());
-        Poll::Pending
       }
+      Poll::Pending
     }
   }
 
@@ -177,33 +171,21 @@ impl MutableSleep {
   }
 
   fn change(self: &Box<Self>, instant: Instant) {
-    let pin = unsafe {
-      // First replace the current sleep
-      *self.sleep.get() = Some(tokio::time::sleep_until(instant));
-
-      // Then get ourselves a Pin to this
-      Pin::new_unchecked(
-        self
-          .sleep
-          .get()
-          .as_mut()
-          .unwrap_unchecked()
-          .as_mut()
-          .unwrap_unchecked(),
-      )
-    };
+    let sleep = unsafe { &mut *self.sleep.get() };
+    let sleep = sleep.insert(tokio::time::sleep_until(instant));
+    let sleep = unsafe { Pin::new_unchecked(sleep) };
 
     // Register our waker
     let waker = unsafe { Waker::from_raw(self.raw_waker()) };
-    if pin.poll(&mut Context::from_waker(&waker)).is_ready() {
+    if sleep.poll(&mut Context::from_waker(&waker)).is_ready() {
       self.wake_external();
     }
   }
 
   fn wake_external(&self) {
     self.ready.set(true);
-    let waker = unsafe { &mut *self.external_waker.get() };
-    if let Some(waker) = waker.as_ref() {
+    let waker = unsafe { &*self.external_waker.get() };
+    if let Some(waker) = waker {
       waker.wake_by_ref();
     }
   }
