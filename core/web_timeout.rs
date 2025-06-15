@@ -138,21 +138,16 @@ struct MutableSleep {
   sleep: UnsafeCell<Option<Sleep>>,
   ready: Cell<bool>,
   external_waker: UnsafeCell<Option<Waker>>,
-  internal_waker: Waker,
 }
 
 #[allow(clippy::borrowed_box)]
 impl MutableSleep {
   fn new() -> Box<Self> {
-    let mut new = Box::new(MutableSleep {
+    Box::new(Self {
       sleep: Default::default(),
       ready: Cell::default(),
       external_waker: UnsafeCell::default(),
-      internal_waker: Waker::noop().clone(),
-    });
-
-    new.internal_waker = unsafe { Waker::from_raw(new.raw_waker()) };
-    new
+    })
   }
 
   fn poll_ready(self: &Box<Self>, cx: &mut Context) -> Poll<()> {
@@ -199,10 +194,17 @@ impl MutableSleep {
     };
 
     // Register our waker
-    let waker = &self.internal_waker;
-    if pin.poll(&mut Context::from_waker(waker)).is_ready() {
-      self.ready.set(true);
-      self.internal_waker.wake_by_ref();
+    let waker = unsafe { Waker::from_raw(self.raw_waker()) };
+    if pin.poll(&mut Context::from_waker(&waker)).is_ready() {
+      self.wake_external();
+    }
+  }
+
+  fn wake_external(&self) {
+    self.ready.set(true);
+    let waker = unsafe { &mut *self.external_waker.get() };
+    if let Some(waker) = waker.as_ref() {
+      waker.wake_by_ref();
     }
   }
 
@@ -219,11 +221,7 @@ impl MutableSleep {
 
     unsafe fn wake_by_ref_raw(data: *const ()) {
       let this = unsafe { &*data.cast::<MutableSleep>() };
-      this.ready.set(true);
-      let waker = unsafe { &mut *this.external_waker.get() };
-      if let Some(waker) = waker.as_ref() {
-        waker.wake_by_ref();
-      }
+      this.wake_external();
     }
 
     unsafe fn drop_raw(_data: *const ()) {}
