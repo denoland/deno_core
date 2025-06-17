@@ -8,6 +8,7 @@
     "checkin:testing": "../testing/checkin/runtime/testing.ts",
     "checkin:throw": "../testing/checkin/runtime/throw.ts",
     "checkin:timers": "../testing/checkin/runtime/timers.ts",
-    "checkin:worker": "../testing/checkin/runtime/worker.ts"
+    "checkin:worker": "../testing/checkin/runtime/worker.ts",
+    "checkin:callsite": "../testing/checkin/runtime/callsite.ts"
   }
 }
