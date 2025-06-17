@@ -1102,24 +1102,26 @@ pub fn op_current_user_call_site(
       Some(name) => {
         let file_name = name.to_rust_string_lossy(scope);
         // TODO: this condition should be configurable. It's a CLI assumption.
-        if (file_name.starts_with("ext:") || file_name.starts_with("node:") || file_name.starts_with("checkin:"))
-            && i != frame_count - 1
+        if (file_name.starts_with("ext:")
+          || file_name.starts_with("node:")
+          || file_name.starts_with("checkin:"))
+          && i != frame_count - 1
         {
           continue;
         }
         let application = js_runtime_state
-            .source_mapper
-            .borrow_mut()
-            .apply_source_map(&file_name, line_number, column_number);
+          .source_mapper
+          .borrow_mut()
+          .apply_source_map(&file_name, line_number, column_number);
         (file_name, application)
-      },
+      }
       None => {
         if frame.is_eval() {
           ("[eval]".to_string(), SourceMapApplication::Unchanged)
         } else {
           ("[unknown]".to_string(), SourceMapApplication::Unchanged)
         }
-      },
+      }
     };
     match application {
       SourceMapApplication::Unchanged => {
