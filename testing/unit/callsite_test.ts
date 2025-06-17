@@ -5,8 +5,8 @@ import { getCallSite } from "checkin:callsite";
 test(function testCallSiteOps() {
   const callSite = getCallSite();
   assertEquals(callSite.fileName, "test:///unit/callsite_test.ts");
-  assertEquals(callSite.lineNumber, 5);
-  assertEquals(callSite.columnNumber, 22);
+  assertEquals(callSite.lineNumber, 6);
+  assertEquals(callSite.columnNumber, 20);
 });
 
 test(function testCallSiteOpEval() {
