@@ -652,6 +652,8 @@ pub enum ModuleConcreteError {
   WasmCompile(String),
   #[error("Importing '{0}' modules is not supported")]
   UnsupportedKind(String),
+  #[error("Source code for Bytes module must be provided as bytes")]
+  BytesNotBytes,
 }
 
 #[derive(Debug)]

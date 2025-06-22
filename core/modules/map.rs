@@ -395,9 +395,9 @@ impl ModuleMap {
       }
       ModuleType::Binary => {
         let ModuleSourceCode::Bytes(code) = code else {
-          return Err(ModuleError::Other(generic_error(
-            "Source code for Binary module must be provided as bytes",
-          )));
+          return Err(ModuleError::Concrete(
+            ModuleConcreteError::BytesNotBytes,
+          ));
         };
         self.new_binary_module(scope, module_url_found, code)?
       }
@@ -817,6 +817,7 @@ impl ModuleMap {
     Ok(self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports))
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   pub(crate) fn new_text_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -825,6 +826,8 @@ impl ModuleMap {
   ) -> Result<ModuleId, ModuleError> {
     let name = name.into_module_name();
     let code = code.into_module_code();
+    // TODO(bartlomieju): would be much better if the string was ensured to not contain
+    // BOM, then we could use a more efficient string type with `FastString::v8_string`.
     let source_str = v8::String::new_from_utf8(
       scope,
       strip_bom(code.as_bytes()),
@@ -834,9 +837,10 @@ impl ModuleMap {
     let source_str_local = v8::Local::new(scope, source_str);
     let source_value_local = v8::Local::<v8::Value>::from(source_str_local);
     let exports = vec![(ascii_str!("default"), source_value_local)];
-    self.new_synthetic_module(scope, name, ModuleType::Text, exports)
+    Ok(self.new_synthetic_module(scope, name, ModuleType::Text, exports))
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   pub(crate) fn new_binary_module(
     &self,
     scope: &mut v8::HandleScope,
@@ -860,7 +864,7 @@ impl ModuleMap {
       v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
     let source_value_local = v8::Local::<v8::Value>::from(source_arraybuffer);
     let exports = vec![(ascii_str!("default"), source_value_local)];
-    self.new_synthetic_module(scope, name, ModuleType::Binary, exports)
+    Ok(self.new_synthetic_module(scope, name, ModuleType::Binary, exports))
   }
 
   pub(crate) fn instantiate_module(
